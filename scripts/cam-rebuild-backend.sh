@@ -17,7 +17,7 @@ SOURCE_DIR="${CAM_SOURCE_DIR:-$CHECKOUT_ROOT}"
 ENV_FILE="${CAM_PRODUCTION_ENV_FILE:-/etc/creative-asset-manager/production.env}"
 APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 
-KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-1}"
+KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"
 KEEP_LOGS="${CAM_BACKEND_DEPLOY_LOG_KEEP:-20}"
 MIN_FREE_MIB="${CAM_BACKEND_MIN_FREE_MIB:-2048}"
 RELEASE_HEADROOM_PERCENT="${CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125}"
@@ -43,7 +43,7 @@ ROLLBACK=false
 NO_MIGRATE=false
 NO_RESTART=false
 ALLOW_DIRTY=false
-CLEANUP_RELEASES=true
+CLEANUP_RELEASES=false
 
 STAGE=""
 TARGET=""
@@ -89,8 +89,12 @@ Options:
       Keep the N newest backend deployment logs.
       Default: 20
 
+  --cleanup
+      Explicitly enable pre-/post-deploy cleanup. Require verified backup
+      restore evidence and protected release inventory before using.
+
   --no-cleanup
-      Skip pre-deploy and post-deploy disk cleanup.
+      Skip pre-deploy and post-deploy disk cleanup (the default).
 
   -h, --help
       Show this help.
@@ -330,6 +334,13 @@ while (($#)); do
       KEEP_RELEASES="$2"
 
       shift 2
+      ;;
+
+    --cleanup)
+
+      CLEANUP_RELEASES=true
+
+      shift
       ;;
 
     --no-cleanup)
@@ -2207,14 +2218,9 @@ progress 98 \
 
 cleanup_backend_disk "Post-deploy"
 
-# Once restarted services have passed validation, rollback no longer needs a
-# second immutable tree when single-release retention is requested. Removing
-# PREVIOUS here lets the final cleanup converge to CURRENT only without ever
-# deleting code from beneath a live pre-restart process.
-if ! $NO_RESTART && ((KEEP_RELEASES == 1)); then
-  rm -f -- "$PREVIOUS"
-  cleanup_old_releases
-fi
+# Always preserve PREVIOUS as a rollback anchor. Even explicit
+# --keep-releases 1 cannot override protected current/previous references.
+# Cleanup is opt-in and must follow an independently verified restore gate.
 
 
 #

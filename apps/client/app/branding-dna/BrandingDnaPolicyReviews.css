@@ -1,0 +1,22 @@
+.bdna-policy{border:1px solid #e3e8ef;background:#fff;color:#223043;border-radius:12px;padding:20px;margin:16px 0}
+.bdna-policy h3{margin:0 0 6px;font-size:17px}
+.bdna-policy p{font-size:13px;color:#57667b;line-height:1.6;margin:6px 0}
+.bdna-policy-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.bdna-policy-head>div{max-width:750px}
+.bdna-policy label{font-size:12px;display:grid;gap:5px;min-width:190px}
+.bdna-policy select,.bdna-policy input{padding:9px 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:inherit;max-width:100%;min-height:39px}
+.bdna-policy button{padding:9px 13px;border:1px solid #cbd5e1;background:white;border-radius:7px;min-height:39px;cursor:pointer}
+.bdna-policy button:disabled{opacity:.5;cursor:not-allowed}
+.bdna-policy-form{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:16px 0}
+.bdna-policy-form label:first-child{flex:2;min-width:220px}
+.bdna-policy-form label:nth-child(2){flex:1;min-width:160px}
+.bdna-policy-reviewer{max-width:760px;margin:10px 0}
+.bdna-policy-reviewer input{width:100%}
+.bdna-policy-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:10px;margin-top:14px}
+.bdna-policy-list article{padding:14px;border:1px solid #e4eaf2;border-radius:10px;background:#f9fbfe;min-width:0}
+.bdna-policy-item-head{display:flex;justify-content:space-between;flex-wrap:wrap;gap:7px}
+.bdna-policy-item-head small{color:#556276}
+.bdna-policy-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+.bdna-policy-warning{margin-top:14px!important;border-top:1px solid #e4eaf2;padding-top:12px}
+.bdna-policy-error{color:#b42318!important}.bdna-policy-note{color:#41546e!important}
+@media(max-width:650px){.bdna-policy{padding:14px}.bdna-policy-head label,.bdna-policy-head select,.bdna-policy-form label,.bdna-policy-form button{width:100%}}

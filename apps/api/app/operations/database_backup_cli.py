@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
 from app.modules.database_backup.google_drive import (
+    DATABASE_BACKUP_KIND,
     DatabaseBackupRemoteError,
     GoogleDriveDatabaseBackupStorage,
     build_database_backup_storage,
@@ -125,17 +127,34 @@ async def list_backups(settings: Any) -> dict[str, Any]:
     verify_configuration(settings)
     _local, remote, _retention = build_components(settings)
     backups = await remote.list_managed_backups()
+    def describe(item):
+        # Drive list queries should already filter these fields. Re-check the
+        # actual returned metadata before showing a possible restore source.
+        if remote.folder_id not in item.parents or item.app_properties.get("cam_kind") != DATABASE_BACKUP_KIND:
+            raise DatabaseBackupRemoteError("Unmanaged file present in backup listing.")
+        md5 = str(item.md5_checksum or "").lower()
+        sha = str(item.app_properties.get("cam_sha256") or "").lower()
+        valid_md5 = bool(re.fullmatch(r"[0-9a-f]{32}", md5))
+        valid_sha = bool(re.fullmatch(r"[0-9a-f]{64}", sha))
+        metadata_complete = bool(item.size_bytes > 0 and item.created_at and valid_md5 and valid_sha)
+        return {
+            "remote_file_id": item.remote_file_id,
+            "name": item.name,
+            "size_bytes": item.size_bytes,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+            "content_md5": md5 if valid_md5 else None,
+            "sha256_metadata": sha if valid_sha else None,
+            "integrity_metadata": "COMPLETE_NOT_DOWNLOADED" if metadata_complete else "INCOMPLETE",
+            "restore_rehearsal": "NOT_RUN",
+        }
+
     return {
         "READ_ONLY": "YES",
+        "BACKUP_CONTENT_CHECKED": "NO",
+        "RESTORE_REHEARSAL": "NOT_RUN",
         "REMOTE_BACKUP_COUNT": len(backups),
         "BACKUPS": [
-            {
-                "remote_file_id": item.remote_file_id,
-                "name": item.name,
-                "size_bytes": item.size_bytes,
-                "created_at": item.created_at.isoformat() if item.created_at else None,
-            }
-            for item in sorted(
+            describe(item) for item in sorted(
                 backups,
                 key=lambda item: item.created_at.isoformat() if item.created_at else "",
                 reverse=True,

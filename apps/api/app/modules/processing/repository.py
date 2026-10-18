@@ -620,6 +620,9 @@ class ProcessingRepository:
                 max_attempts=ProcessingJobModel.attempt_count + 1,
                 updated_at=now,
             )
+            # SQLite restores UTC timestamps without tzinfo; evaluate the
+            # eligibility predicate in SQL rather than Python's ORM evaluator.
+            .execution_options(synchronize_session="fetch")
         )
 
     def _terminalize_exhausted_jobs(self, now: datetime) -> None:
@@ -641,6 +644,7 @@ class ProcessingRepository:
                 last_error_message="Worker lease expired after the final attempt.",
                 updated_at=now,
             )
+            .execution_options(synchronize_session="fetch")
         )
 
     def _terminalize_exhausted_events(self, now: datetime) -> None:

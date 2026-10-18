@@ -62,6 +62,9 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
                 external_asset_id="external-runtime",
                 filename="clip.mp4",
                 mime_type="video/mp4",
+                # Provider-supplied SHA-256 enables the source-to-asset link.
+                # An unverified source is intentionally retried by the handler.
+                provider_checksum="d" * 64,
                 source_metadata={},
             )
             run = VideoAnalysisRunModel(

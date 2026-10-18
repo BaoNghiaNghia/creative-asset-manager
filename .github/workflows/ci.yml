@@ -88,6 +88,8 @@ jobs:
       - name: Install sandboxed Playwright Chromium
         working-directory: apps/client
         run: npx playwright install --with-deps chromium
+      - name: Guard orphaned loopback QA preview cleanup
+        run: python3 -m unittest scripts.test_cam_clean_orphaned_ui_qa -v
       - name: Check interaction QA runtime
         run: node --test apps/client/scripts/ui-qa-*.node-test.mjs apps/client/scripts/production-ui-plan-validation.node-test.mjs
       - name: Verify failure evidence is always captured
@@ -197,6 +199,7 @@ jobs:
           bash -n deploy/tools/prepare_dola_runtime.sh
           python -m unittest deploy.tests.test_dola_gateway_deployment -v
           python -m unittest deploy.tests.test_r2_video_worker_deployment -v
+          python -m unittest deploy.tests.test_vps_deployment deploy.tests.test_frontend_release_retention -v
       - name: Application import smoke test
         if: matrix.shard == 0
         working-directory: apps/api
@@ -278,14 +281,22 @@ jobs:
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
           # Exercise the entire migration chain once, on a disposable database.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
+          python -m alembic current | grep -F '0167_bdna_scan_result_receipts'
+          # Guarded downgrade only on disposable CI database, never production.
+          CAM_ALLOW_SCAN_RESULT_DATA_DROP_FOR_TEST=1 python -m alembic downgrade 0166_bdna_scan_authorization_reviews 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic current | grep -F '0166_bdna_scan_authorization_reviews'
+          # Roll back the immutable policy-review ledger only in disposable
+          # CI DB, with an explicit test-only flag, before receipt rollback.
+          CAM_ALLOW_SCAN_REVIEW_DATA_DROP_FOR_TEST=1 python -m alembic downgrade 0165_bdna_scan_failure_receipts 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic current | grep -F '0165_bdna_scan_failure_receipts'
+          CAM_ALLOW_SCAN_RECEIPT_DATA_DROP_FOR_TEST=1 python -m alembic downgrade 0164_branding_dna_shop_rag 2>&1 | tee -a ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0164_branding_dna_shop_rag'
-          # Roll back ONLY the newly introduced table. Downgrading to 0012
-          # removed unrelated historical schemas and exercised unrelated data
-          # destruction guards, so it was neither a useful nor safe CI gate.
-          CAM_ALLOW_RAG_DATA_DROP_FOR_TEST=1 CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          # Also exercise existing shop-RAG and handoff rollback gates, never
+          # touch unrelated historical schemas.
+          CAM_ALLOW_RAG_DATA_DROP_FOR_TEST=1 CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee -a ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0161_branding_dna_worker_events'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0164_branding_dna_shop_rag'
+          python -m alembic current | grep -F '0167_bdna_scan_result_receipts'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
@@ -300,6 +311,85 @@ jobs:
           path: artifacts/postgres
           if-no-files-found: ignore
           retention-days: 7
+
+  backup-restore-smoke:
+    name: PostgreSQL restore rehearsal (isolated synthetic fixture)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Fail-closed restore and release inventory safety tests
+        run: python3 -m unittest scripts/test_cam_db_restore_rehearsal.py scripts/test_cam_vps_release_inventory.py -v
+      - name: Start disposable non-production PostgreSQL
+        run: |
+          set -euo pipefail
+          # GitHub-hosted runner only: the separate PG 16 process binds the
+          # loopback host namespace at a non-production port, never port 5432.
+          if ss -ltn | grep -q ':55432 '; then
+            echo "Dedicated restore port is occupied; fail closed."
+            exit 1
+          fi
+          docker run --rm -d \
+            --name "cam-restore-ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --network host \
+            -e POSTGRES_USER=ci_admin \
+            -e POSTGRES_PASSWORD=ci_disposable_password \
+            -e POSTGRES_DB=postgres \
+            postgres:16.4 -c port=55432 -c listen_addresses=127.0.0.1
+          export PGPASSWORD=ci_disposable_password
+          for attempt in $(seq 1 40); do
+            if psql -w -h 127.0.0.1 -p 55432 -U ci_admin -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Dedicated test cluster did not become ready."
+          exit 1
+      - name: Real dump and restore into separate empty database
+        run: |
+          set -euo pipefail
+          export PGPASSWORD=ci_disposable_password
+          psql -w -h 127.0.0.1 -p 55432 -U ci_admin -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE cam_rehearsal_user LOGIN PASSWORD 'ci_disposable_password'"
+          psql -w -h 127.0.0.1 -p 55432 -U ci_admin -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE cam_restore_source OWNER cam_rehearsal_user"
+          psql -w -h 127.0.0.1 -p 55432 -U ci_admin -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE cam_restore_rehearsal_ci2026 OWNER cam_rehearsal_user"
+          psql -w -h 127.0.0.1 -p 55432 -U cam_rehearsal_user -d cam_restore_source -v ON_ERROR_STOP=1 \
+            -c "CREATE TABLE public.restore_fixture (id integer PRIMARY KEY, label text NOT NULL); INSERT INTO public.restore_fixture VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"
+          dump="$RUNNER_TEMP/cam-synthetic-restore.dump"
+          pg_dump -w -h 127.0.0.1 -p 55432 -U cam_rehearsal_user -d cam_restore_source \
+            --format=custom --no-owner --no-privileges --file="$dump"
+          chmod 600 "$dump"
+          sha="$(sha256sum "$dump" | cut -d ' ' -f 1)"
+          md5="$(md5sum "$dump" | cut -d ' ' -f 1)"
+          # The helper uses host(inet_server_addr()), stripping PostgreSQL's
+          # CIDR mask from the server identity check.
+          python3 scripts/cam_db_restore_rehearsal.py \
+            --dump "$dump" --sha256 "$sha" --md5 "$md5" \
+            --database cam_restore_rehearsal_ci2026 \
+            --db-user cam_rehearsal_user --db-port 55432 \
+            --evidence "$RUNNER_TEMP/cam-synthetic-rehearsal-evidence.json" \
+            --ack-isolated-target
+          rows="$(psql -w -h 127.0.0.1 -p 55432 -U cam_rehearsal_user \
+            -d cam_restore_rehearsal_ci2026 -Atqc 'SELECT count(*) FROM public.restore_fixture')"
+          test "$rows" = 3
+          echo "SYNTHETIC_POSTGRES_RESTORE=PASS rows=$rows"
+          # The same dump must never be restored over a nonempty target.
+          if python3 scripts/cam_db_restore_rehearsal.py \
+            --dump "$dump" --sha256 "$sha" --md5 "$md5" \
+            --database cam_restore_rehearsal_ci2026 \
+            --db-user cam_rehearsal_user --db-port 55432 \
+            --ack-isolated-target; then
+            echo "FAILED: nonempty restore target was unexpectedly accepted"
+            exit 1
+          fi
+          test "$(psql -w -h 127.0.0.1 -p 55432 -U cam_rehearsal_user \
+            -d cam_restore_rehearsal_ci2026 -Atqc 'SELECT count(*) FROM public.restore_fixture')" = 3
+          # Do not publish the data dump or unredacted rehearsal evidence.
+      - name: Stop disposable test database
+        if: always()
+        run: docker stop "cam-restore-ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" || true
 
   elasticsearch-integration:
     name: Elasticsearch v2 integration

@@ -17,7 +17,8 @@
     "permissions": [
       "assets.read",
       "ai_operations.read",
-      "ai_operations.manage"
+      "ai_operations.manage",
+      "ai_provider.configure"
     ],
     "is_processing_admin": true,
     "authorization_source": "tenant_rbac",
@@ -94,6 +95,151 @@
             "last_heartbeat": null
           }
         ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/scout-agents/presence",
+      "body": {
+        "items": [],
+        "scan_enabled": false,
+        "dispatch_state": "disabled"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/listings",
+      "body": {
+        "items": [],
+        "count": 0,
+        "offset": 0,
+        "limit": 20
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/browser-plan",
+      "body": {
+        "shop_id": "qa-shop-1",
+        "platform": "etsy",
+        "storefront_url": "https://www.etsy.com/shop/QAShopAlpha",
+        "mode": "local_browser_dom_only",
+        "marketplace_api_used": false,
+        "external_scraping_service_used": false,
+        "scanner_enabled": false,
+        "dispatchable": false,
+        "pilot_max_product_pages": 5,
+        "steps": [
+          "open_shop_in_dedicated_chromium",
+          "review_partial_unverified_evidence"
+        ],
+        "blockers": [
+          "etsy_express_written_authorization"
+        ],
+        "result_state": "unverified",
+        "listing_coverage": "unknown"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/handoffs",
+      "body": {
+        "items": [],
+        "count": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/knowledge",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/dna-inputs",
+      "body": {
+        "shop": {
+          "id": "qa-shop-1",
+          "display_name": "QA Shop Alpha",
+          "platform": "etsy"
+        },
+        "source_counts": {
+          "listing_snapshots": 0,
+          "verified_listing_snapshots": 0,
+          "gallery_image_manifests": 0,
+          "knowledge_documents": 0,
+          "approved_knowledge_documents": 0,
+          "pending_knowledge_documents": 0
+        },
+        "knowledge_sources": [],
+        "input_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blockers": [
+          "verified_product_evidence_missing"
+        ],
+        "notices": [
+          "approved_shop_knowledge_missing_optional"
+        ],
+        "dna_draft_ready": false,
+        "dna_generation_enabled": false,
+        "automatic_dna_mutation_enabled": false
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-policy-reviews",
+      "body": {
+        "items": [],
+        "count": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-readiness",
+      "body": {
+        "shop_id": "qa-shop-1",
+        "platform": "etsy",
+        "access_mode": "public",
+        "paired_agents_online": 0,
+        "paired_agents_seen": 0,
+        "listing_snapshot_count": 0,
+        "verified_listing_count": 0,
+        "task_counts": {
+          "staged": 0,
+          "pending": 0,
+          "leased": 0,
+          "retry": 0,
+          "blocked": 0,
+          "completed": 0,
+          "cancelled": 0
+        },
+        "policy_review": {
+          "state": "not_submitted",
+          "human_review_current": false,
+          "marketplace_authorization_verified": false,
+          "dispatchable": false,
+          "counts": {
+            "total": 0,
+            "current_human_review": 0
+          }
+        },
+        "scan_enabled": false,
+        "dispatchable": false,
+        "active_scan_jobs": 0,
+        "marketplace_authorization_verified": false,
+        "blockers": [
+          "scan_task_dispatch_not_deployed",
+          "marketplace_authorization_not_verified",
+          "etsy_written_permission_not_verified"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-tasks",
+      "body": {
+        "items": [],
+        "count": 0
       }
     }
   ]

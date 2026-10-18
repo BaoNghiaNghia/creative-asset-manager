@@ -38,13 +38,27 @@ CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"
 ENV_HELPER="$SOURCE_DIR/deploy/tools/production_env.py"
 [[ -f "$ENV_HELPER" ]] || die "production_env.py is missing."
 if $ROLLBACK; then
+  [[ -L "$WEB_ROOT/current" ]] || die "No active frontend release is recorded."
   [[ -L "$WEB_ROOT/previous" ]] || die "No previous frontend release is recorded."
+  active="$(readlink -f -- "$WEB_ROOT/current")"
   target="$(readlink -f -- "$WEB_ROOT/previous")"
-  [[ -f "$target/index.html" ]] || die "Previous frontend release is invalid."
+  releases_root="$(realpath -m -- "$WEB_ROOT/releases")"
+  [[ "$active" == "$releases_root/"* && -f "$active/index.html" ]] || die "Active frontend release is invalid."
+  [[ "$target" == "$releases_root/"* && -f "$target/index.html" ]] || die "Previous frontend release is invalid."
+  [[ "$active" != "$target" ]] || die "Previous release is already active."
+  nginx -t || die "Nginx configuration is invalid before rollback."
   ln -s -- "$target" "$WEB_ROOT/current.new"
   mv -Tf -- "$WEB_ROOT/current.new" "$WEB_ROOT/current"
-  nginx -t && systemctl reload nginx
-  printf "Frontend rollback activated.\n"
+  if ! nginx -t || ! systemctl reload nginx; then
+    ln -s -- "$active" "$WEB_ROOT/current.rollback"
+    mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current"
+    nginx -t && systemctl reload nginx || true
+    die "Frontend rollback failed; attempted to restore prior active release."
+  fi
+  # Keep the former active release as the next rollback target.
+  ln -s -- "$active" "$WEB_ROOT/previous.new"
+  mv -Tf -- "$WEB_ROOT/previous.new" "$WEB_ROOT/previous"
+  printf "Frontend rollback activated; former active release retained as previous.\n"
   exit 0
 fi
 [[ "$ALLOW_DIRTY" == true || -z "$(git -C "$SOURCE_DIR" status --porcelain --untracked-files=normal)" ]] || die "Refusing deployment from a dirty checkout."
@@ -96,34 +110,70 @@ else
 fi
 "$CONFIG_PYTHON" "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$SOURCE_DIR/apps/api" >/dev/null
 nginx -t
-OLD=""
-[[ ! -L "$WEB_ROOT/current" ]] || OLD="$(readlink -f -- "$WEB_ROOT/current")"
-[[ -z "$OLD" || "$OLD" == "$TARGET" ]] || ln -s -- "$OLD" "$WEB_ROOT/previous.new"
-[[ -z "$OLD" || "$OLD" == "$TARGET" ]] || mv -Tf -- "$WEB_ROOT/previous.new" "$WEB_ROOT/previous"
-ln -s -- "$TARGET" "$WEB_ROOT/current.new"
-mv -Tf -- "$WEB_ROOT/current.new" "$WEB_ROOT/current"
+# Activation must have a rollback anchor. Bootstrap installs require review.
+[[ -L "$WEB_ROOT/current" ]] || die "Refusing frontend activation without a current rollback anchor."
+OLD="$(readlink -f -- "$WEB_ROOT/current")"
+[[ -f "$OLD/index.html" && "$OLD" == "$RELEASES/"* ]] || die "Existing frontend release is invalid."
+PREVIOUS_BEFORE=""
+if [[ -L "$WEB_ROOT/previous" ]]; then
+  PREVIOUS_BEFORE="$(readlink -f -- "$WEB_ROOT/previous")"
+  [[ -f "$PREVIOUS_BEFORE/index.html" && "$PREVIOUS_BEFORE" == "$RELEASES/"* ]] || die "Previous frontend release is invalid."
+fi
+
+restore_frontend_activation() {
+  # Undo both pointers on any failure, including post-activation smoke.
+  ln -s -- "$OLD" "$WEB_ROOT/current.rollback" || return 1
+  mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current" || return 1
+  if [[ -n "$PREVIOUS_BEFORE" ]]; then
+    ln -s -- "$PREVIOUS_BEFORE" "$WEB_ROOT/previous.rollback" || return 1
+    mv -Tf -- "$WEB_ROOT/previous.rollback" "$WEB_ROOT/previous" || return 1
+  else
+    [[ ! -L "$WEB_ROOT/previous" ]] || rm -f -- "$WEB_ROOT/previous" || return 1
+  fi
+  nginx -t && systemctl reload nginx
+}
+
+if [[ "$OLD" != "$TARGET" ]]; then
+  ln -s -- "$OLD" "$WEB_ROOT/previous.new"
+  mv -Tf -- "$WEB_ROOT/previous.new" "$WEB_ROOT/previous"
+  ln -s -- "$TARGET" "$WEB_ROOT/current.new"
+  mv -Tf -- "$WEB_ROOT/current.new" "$WEB_ROOT/current"
+fi
 if ! nginx -t || ! systemctl reload nginx; then
-  [[ -z "$OLD" ]] || { ln -s -- "$OLD" "$WEB_ROOT/current.rollback"; mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current"; nginx -t; systemctl reload nginx; }
-  die "Frontend activation failed and previous release was restored."
+  if ! restore_frontend_activation; then
+    die "Frontend reload failed AND rollback failed; manual recovery required."
+  fi
+  die "Frontend reload failed; current and previous pointers restored."
 fi
-HOST="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())")"
-PUBLIC_URL="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"PUBLIC_APP_URL\"].rstrip(\"/\"))")"
-for path in / /build-info.json /favicon.svg /favicon.ico /favicon-32x32.png /apple-touch-icon.png /app-icon-192.png /app-icon-512.png /site.webmanifest /live /ready /version; do
-  curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null
-done
-curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null
-if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
-  CAM_PRODUCTION_UI_URL="$PUBLIC_URL" \
-  CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
-  CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
-    bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
+
+run_frontend_post_deploy_checks() {
+  local host="" public_url="" path=""
+  host="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())")" || return 1
+  public_url="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"PUBLIC_APP_URL\"].rstrip(\"/\"))")" || return 1
+  [[ -n "$host" && "$public_url" == https://* ]] || return 1
+  for path in / /build-info.json /favicon.svg /favicon.ico /favicon-32x32.png /apple-touch-icon.png /app-icon-192.png /app-icon-512.png /site.webmanifest /live /ready /version; do
+    curl --fail --silent --show-error --max-time 15 "$public_url$path" >/dev/null || return 1
+  done
+  curl --fail --silent --show-error --max-time 10 -H "Host: $host" "http://127.0.0.1:8000/version" >/dev/null || return 1
+  if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
+    CAM_PRODUCTION_UI_URL="$public_url" \
+    CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
+    CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
+      bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh" || return 1
+  fi
+}
+if ! run_frontend_post_deploy_checks; then
+  if ! restore_frontend_activation; then
+    die "Post-activation smoke failed AND rollback failed; manual recovery required."
+  fi
+  die "Post-activation smoke failed; frontend release pointers restored."
 fi
-# Health checks have passed. Keep only the active immutable frontend release.
-rm -f -- "$WEB_ROOT/previous"
-for release in "$RELEASES"/*; do
-  [[ -d "$release" && ! -L "$release" ]] || continue
-  [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
-done
+# Preserve the previous immutable frontend release as an operational
+# rollback anchor. Never purge all other releases from a deploy path: a
+# worker, operator, or pending rollback may still reference them.
+# Separate read-only inventory and operator-reviewed retention must precede
+# any deletion (see scripts/cam-vps-release-inventory.py).
+printf 'Frontend release retention: preserved current/previous; no automatic deletion.\n'
 # Post-success housekeeping: only Browser QA scratch evidence, never
 # production assets or model outputs. Cleanup warnings must not revert a
 # healthy deployment; failed and recent QA evidence is preserved.

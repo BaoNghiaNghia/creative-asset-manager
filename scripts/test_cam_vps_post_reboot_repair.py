@@ -62,6 +62,66 @@ class SwapRepairTests(unittest.TestCase):
             self.assertIn(ACTIVE, repaired)
             self.assertIsNone(module.repair_fstab(fstab, swaps={module.ACTIVE_SWAP}))
 
+    def test_network_audit_flags_configuring_ipv6_gap_without_proposing_route(self):
+        eth0 = """
+                        State: routable (configuring)
+                 Online state: online
+                      Address: 103.77.214.225
+                               2401:3660:0:11ed::1
+                               fe80::216:3eff:fec9:527
+                """
+        result, observations = module.assess_network_readiness(
+            eth0,
+            "default via 103.77.214.1 dev eth0 proto static",
+            "",
+            "ActiveState=failed\\nResult=exit-code",
+        )
+        self.assertEqual(result, "DEGRADED_REVIEW_REQUIRED")
+        self.assertTrue(any("IPv6 default route" in o for o in observations))
+        self.assertTrue(any("still configuring" in o for o in observations))
+        self.assertTrue(any("Confirm gateway" in o for o in observations))
+        self.assertFalse(any("netplan apply" in o or "on-link: true" in o for o in observations))
+
+    def test_network_audit_does_not_treat_link_local_or_dns_as_global_ipv6(self):
+        eth0 = """
+                        State: routable (configured)
+                      Address: 10.0.0.1
+                               fe80::216:3eff:fec9:527
+                          DNS: 2001:4860:4860::8888
+                """
+        result, observations = module.assess_network_readiness(
+            eth0, "default via 10.0.0.254 dev eth0", "", "ActiveState=inactive",
+        )
+        self.assertEqual(result, "NETWORK_READY")
+        self.assertFalse(any("IPv6 default route" in o for o in observations))
+
+    def test_network_audit_fails_closed_if_ipv4_route_missing(self):
+        result, observations = module.assess_network_readiness(
+            "State: routable (configuring)", "", "", "ActiveState=failed"
+        )
+        self.assertEqual(result, "BLOCKED_NETWORK")
+        self.assertIn("out-of-band console", observations[0])
+
+    def test_network_check_read_only_runs_allowlisted_commands(self):
+        from unittest.mock import patch
+        expected = ["eth0", "ipv4", "ipv6", "wait"]
+        commands = []
+        samples = [
+            "State: routable (configuring)\\nAddress: 2401:3660:0:11ed::1",
+            "default via 103.77.214.1 dev eth0", "",
+            "ActiveState=failed\\nResult=exit-code",
+        ]
+        def mocked_command_summary(argv):
+            commands.append(argv)
+            return 0, samples[len(commands) - 1]
+        with patch.object(module, "command_summary", side_effect=mocked_command_summary):
+            self.assertEqual(module.network_check(), 0)
+        self.assertEqual(len(commands), 4)
+        self.assertEqual(commands[0], ["networkctl", "status", "eth0", "--no-pager"])
+        self.assertEqual(commands[1], ["ip", "-4", "route", "show", "default"])
+        self.assertEqual(commands[2], ["ip", "-6", "route", "show", "default"])
+        self.assertEqual(commands[3][:2], ["systemctl", "show"])
+
     def test_refuse_symlink(self):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "target"

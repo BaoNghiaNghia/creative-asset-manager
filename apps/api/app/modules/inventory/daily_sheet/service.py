@@ -15,7 +15,7 @@ from app.modules.inventory.daily_sheet.config import _overlaps, DailyCountSheetC
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient, require_sheets_scope
 from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeService
-from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, StockRecord, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
+from app.modules.inventory.daily_sheet.parser import A1_ROWS, DailyCountSheetValidationError, DailySheetValidationError, build_daily_count_variances, build_variances, canonical_hash, _normalized_header, classify_daily_count_row, parse_daily_count_records, parse_stock_records, value_blocks
 from app.modules.inventory.jobs.model import InventoryJobModel
 from app.modules.inventory.persistence_model import InventoryDailyCarryForwardModel, InventoryDailySheetReconciliationModel, InventoryDailySheetSnapshotModel, InventorySettingsModel, inventory_utcnow
 from app.modules.inventory.materials import MaterialRegistry, MaterialResolution
@@ -1514,9 +1514,10 @@ class InventoryDailySheetService:
             current_records = parse_stock_records(context.config, google.batch_get_values(str(current.snapshot_file_id), self._source_ranges(context.config)))
             previous_records = parse_stock_records(context.config, google.batch_get_values(str(previous.snapshot_file_id), self._source_ranges(context.config)))
             variances = build_variances(current_records, previous_records)
+            # Missing today does not mean a physical count of zero. The V1
+            # parser/variance gate rejects incomplete sets before any plan
+            # is generated; never synthesize a zero-valued target row.
             target_records = dict(current_records)
-            for key, previous_record in previous_records.items():
-                target_records.setdefault(key, StockRecord(previous_record.warehouse, previous_record.sku, Decimal(0)))
             updates = self._target_updates(google, context, target_records)
             plan_hash = canonical_hash(updates)
             before = google.batch_get_values(context.target_file_id, [item["range"] for item in updates])

@@ -6,6 +6,7 @@ Revises: 0137_rrugc_keyword_favorites
 from __future__ import annotations
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision = "0138_dynamic_gemini_key_pools"
@@ -68,9 +69,13 @@ def downgrade() -> None:
         raise RuntimeError(
             "Remove Creative Image/Video backup credentials above slot 10 before downgrade."
         )
-    inventory_backups = bind.exec_driver_sql(
-        "SELECT COUNT(*) FROM inventory_ai_credentials "
-        "WHERE provider LIKE 'gemini_backup_%'"
+    # Use a bound LIKE pattern instead of raw DBAPI SQL. Psycopg treats a
+    # literal % in exec_driver_sql as an invalid placeholder; the underscore
+    # also needs escaping so only actual gemini_backup_ entries are counted.
+    inventory_backups = bind.execute(
+        sa.text("SELECT COUNT(*) FROM inventory_ai_credentials "
+                "WHERE provider LIKE :provider_pattern ESCAPE '!'"),
+        {"provider_pattern": "gemini!_backup!_%"},
     ).scalar_one()
     if inventory_backups:
         raise RuntimeError(

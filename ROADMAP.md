@@ -1,5 +1,8 @@
 # Implementation Roadmap
 
+- [x] Inventory Daily 2026-10-19: block invalid/ambiguous Closing quantities in both carry-forward planning and trusted write validation; no live Sheets changes.
+- [ ] Inventory Daily: confirm configured apply mode and live read-only Google preflight; then disposable-copy readback, full-cycle shadow parity, and reviewed Opening/Closing before production activation.
+
 ## Foundation
 
 - [ ] 00 Codebase audit
@@ -188,6 +191,16 @@
 - [ ] CAM-RESEARCH-SYNC-OPERATIONS: pair dedicated Research Scout Agent with operator-managed secret, verify authenticated production Research Inbox, then enable a non-root reviewed collection/sync schedule. Do not infer authenticated PASS from public-only smoke.
 
 ## Branding DNA & Product Creative Studio (2026-10-16)
+
+- [x] BD-SCAN-CALLBACKS-01: bearer-scoped, tenant/agent/lease-fenced checkpoint and classified failure HTTP callbacks, strict worker request helper and mock-only negative tests. No activation, no marketplace crawling or source proof. See `docs/features/branding-dna/SCAN_CALLBACK_CONTRACT.md`.
+- [x] BD-SCAN-CALLBACKS-02A: append-only terminal failure receipt keyed by tenant/task/lease generation, replay-safe ACK, durable local metadata-only SQLite failure outbox with server ACK deletion, negative tests; no worker wiring or scan execution. `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
+- [x] BD-SCAN-CALLBACKS-02B.1: separate tenant/shop/policy-document review records, human two-person check, bounded expiry/revocation and shop identity fingerprint; automatic rights/grants and dispatch remain OFF. See `docs/features/branding-dna/SCAN_POLICY_REVIEWS.md`.
+- [x] BD-SCAN-CALLBACKS-02B.2a: aggregated, admin-only policy-paperwork preflight in Browser Scanner, fail-closed for expired/revoked/changed source and privacy-redacted for viewer; never claims marketplace rights. See `docs/features/branding-dna/SCAN_POLICY_PREFLIGHT.md`.
+- [x] BD-SCAN-CALLBACKS-02B.2b-preflight: strict read-only, tenant-scoped storefront URL boundary preview and matching future-worker validation (no executable jobs). See `docs/features/branding-dna/SCAN_SCOPE_PREVIEW.md`.
+- [x] BD-SCAN-CALLBACKS-02B.2c-1: read-only, task/snapshot/tenant-bound result manifest preflight, deterministic integrity digest, metadata-only strict worker validation, no evidence writes or receipts. `docs/features/branding-dna/SCAN_RESULT_MANIFEST.md`.
+- [x] BD-SCAN-CALLBACKS-02B.2c-2A: durable local metadata-only SQLite result outbox, bounded quota, replay/digest checks and exact future server ACK validator; no server result endpoint or live worker wiring. See `docs/features/branding-dna/SCAN_RESULT_OUTBOX.md`.
+- [x] BD-SCAN-CALLBACKS-02B.2c-2B.1: additive 0167 immutable quarantined server result receipt schema, internal transactionally persisted replay-safe ACK primitive and SQL/lease security tests; still NO public result route/scan dispatch. See `docs/features/branding-dna/SCAN_SERVER_RESULT_RECEIPTS.md`.
+- [ ] BD-SCAN-CALLBACKS-02B.2c-2B.2: independently verified per-shop marketplace permission and rights, signed server-issued scan envelope, authorized **HTTP** result receipt/ACK, Windows QA and controlled one-shop dispatch. **Do not enable `/lease` yet.**
 
 - [x] BD-PC-SPEC-V1: consolidated approved system design and gated implementation plan (`docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md` and `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`). **Documentation only, not an operational release.**
 - [ ] BD-01..03: permitted product/gallery evidence → Product/Image Pick & source-verified Best Seller → versioned approved Brand DNA Core and Creative Playbook; never auto-promote inference or equate Pick with sales.

@@ -4,6 +4,15 @@
 
 ## New: Shop Knowledge RAG
 - [BD-RAG-01 — Shop Knowledge implementation and remaining gates](./SHOP_RAG_IMPLEMENTATION.md).
+- [BD-SCAN-READINESS-01 — Scanner readiness, agent connectivity, task and rights blockers](./SCAN_READINESS.md).
+- [BD-SCAN-CALLBACKS-01 — Fenced worker checkpoint/failure HTTP contract (dispatch remains OFF)](./SCAN_CALLBACK_CONTRACT.md).
+- [BD-SCAN-CALLBACKS-02A — Durable terminal failure receipts and isolated worker SQLite outbox (dispatch OFF)](./SCAN_FAILURE_RECEIPTS.md).
+- [BD-SCAN-CALLBACKS-02B.1 — Two-person shop policy paperwork review with document provenance (dispatch OFF)](./SCAN_POLICY_REVIEWS.md).
+- [BD-SCAN-CALLBACKS-02B.2 — Tenant-scoped policy preflight in Scanner Readiness (no scan activation)](./SCAN_POLICY_PREFLIGHT.md).
+- [BD-SCAN-CALLBACKS-02B.2b — Bounded storefront URL preview and future-worker guard (dispatch OFF)](./SCAN_SCOPE_PREVIEW.md).
+- [BD-SCAN-CALLBACKS-02B.2c-1 — Metadata-only result manifest preflight and isolated worker schema (dispatch OFF)](./SCAN_RESULT_MANIFEST.md).
+- [BD-SCAN-CALLBACKS-02B.2c-2A — Durable result outbox and strict future server ACK contract (dispatch OFF)](./SCAN_RESULT_OUTBOX.md).
+- [BD-SCAN-CALLBACKS-02B.2c-2B.1 — Immutable quarantined server receipts (internal only, no endpoint or live dispatch)](./SCAN_SERVER_RESULT_RECEIPTS.md).
 - Shop-scoped document upload, text extraction, review/approval and citation-based lexical retrieval have an isolated API and Shop Knowledge tab.
 - Brand DNA **Input Readiness** now displays per-shop listing verification blockers, approved Shop RAG citation excerpts and a reproducible input fingerprint. It is a read-only evidence packet, not AI DNA synthesis or auto-approval. This is a *separate source of contextual evidence*, not a replacement for product/gallery images, Best Seller signals, or the approved DNA Core.
 - Upload: TXT/MD/CSV/JSON/DOCX/text PDF; 2 MiB/file; strict document and lifetime limits per shop. No OCR, embeddings, generative responses or automatic profile mutation.

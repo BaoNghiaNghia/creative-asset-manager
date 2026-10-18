@@ -1,10 +1,11 @@
 # Database Backup to Google Drive
 
-**Status:** IMPLEMENTED / NOT YET ACTIVATED IN PRODUCTION
+**Status (observed 2026-10-18):** IMPLEMENTED; production systemd timer active; last run completed successfully on 2026-10-16.
+**Recoverability:** UNVERIFIED — latest remote file metadata and an isolated test restore have not been independently verified. Do not treat a green timer as permission for a production migration.
 **Target database size:** < 10 GB
-**Scheduler:** systemd
+**Scheduler:** systemd (Tuesday and Friday at 22:00 Asia/Ho_Chi_Minh)
 **Remote storage:** Google Drive managed storage
-**Production rollout:** NOT STARTED
+**Production release gate:** BLOCKED pending verified remote backup/checksum and an isolated restore rehearsal. Follow [VPS hardening plan](VPS_HARDENING_EXECUTION_PLAN_20261018.md).
 
 This is the authoritative functional and operational specification for V1. See
 [the implementation plan](../plans/DATABASE_BACKUP_IMPLEMENTATION.md) for the
@@ -189,6 +190,8 @@ python -m app.operations.database_backup_cli prune
 
 `backup` performs the complete workflow. `prune` is explicit maintenance,
 but a normal scheduled backup must not require a separate operator call.
+
+**Read-only remote inventory (updated 18 Oct 2026):** `list` includes a managed backup's Drive content-derived `content_md5`, stored `sha256_metadata` and `integrity_metadata`, after verifying the returned file belongs to the configured managed backup folder and has `cam_kind=database_backup_v1`. Malformed digests are omitted and marked `INCOMPLETE`; valid metadata is labeled `COMPLETE_NOT_DOWNLOADED`. The result always states `BACKUP_CONTENT_CHECKED=NO` and `RESTORE_REHEARSAL=NOT_RUN`. A checksum reported by the Drive metadata endpoint **is not a substitute** for downloading and verifying the bytes, restoring into a distinct cluster and validating source identity/schema. See [isolated restore rehearsal](VPS_DATABASE_RESTORE_REHEARSAL.md).
 
 Future settings:
 

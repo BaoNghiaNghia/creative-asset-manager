@@ -19,6 +19,13 @@
 
 # Architecture Review
 
+## Inventory Daily 2026-10-19 — numeric carry-forward safety
+
+- Scope: shared pure Closing numeric gate consumed by the Gemini planner and trusted carry-forward service; negative/NaN/Infinity/ambiguous values require review before any write.
+- Security: existing tenant, evidence-hash, formula, and date restrictions unchanged. No migrations, dependencies, new flags, credential changes or Google Sheets writes.
+- Verification: focused Closing and carry-forward tests plus full Inventory suite; see docs/operations/INVENTORY_DAILY_REBUILD_20261018.md.
+- Rollback: revert isolated change on feature branch. Never replay historical Reset into active Shared Sheet as a rollback mechanism.
+
 ## Current completed step
 
 Step 20 — Resumable projection rebuild and Elasticsearch reindex operations.
@@ -2844,3 +2851,62 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Artifacts: `docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md`, `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`, README and UI spec cross-links, ROADMAP status.
 - Documentation-only change: no migration, dependencies, secrets, worker/scanner activation, new queue, image generation, runtime deployment or live model training. Existing tenant/SSRF/rights gates remain mandatory; rollback by reverting this documentation commit.
 - Validation: links, content invariants and `git diff --check` are planned for the commit; no production Browser QA is asserted for this docs-only change.
+
+## 2026-10-18 — Branding DNA worker checkpoint and failure callbacks (BD-SCAN-CALLBACKS-01)
+
+- Scope: authenticated, lease-fenced API callbacks for worker checkpoint and classified failure, strict stand-alone Windows Node.js callback helper; **no dispatch activation** or marketplace browser integration.
+- Changed: `apps/api/app/modules/branding_dna/scan_callback_router.py`, `apps/api/app/main.py`; worker `src/scan_lease_protocol.mjs`; HTTP and Node regression suites, Branding DNA docs and roadmap.
+- API security: derive tenant from a revocable dedicated worker Bearer token; task/lease UUIDs and bounded strict integers; reject unknown body keys, stale generation, expiry, cross-worker/cross-tenant and disabled shop; fixed error codes and monotonic checkpoint with no replay lease renewal.
+- Outcome: `/workers/{id}/lease` remains no-job, `scan_enabled=false`, staged tasks cannot run and no source product, image, license or sales data is imported/approved. Future worker callback helper is **not invoked** by the live heartbeat loop.
+- Database/migration: none; uses existing authoritative bc_scan_tasks. Dependencies and secrets: no new dependency, no credential provisioning or secret change. Browser agent/policy and results outbox are still separate gates.
+- Verified on Linux CodeLocal checkout: `apps/api/.venv/bin/python -m pytest tests/modules/branding_dna -q` **148 passed**; dedicated worker `npm test` **47 passed**; `bash scripts/cam-cursor-staging-gate.sh` **passed** (frontend 762 tests + build/typecheck, 196 API authorization/public-review/smoke tests, Python compile). `git diff --check` passed. Browser/Windows host QA and production backup/restore/integration Docker were **not** run. The existing frontend dependency install reported 38 audit advisories (32 moderate, 4 high, 2 critical); dependency remediation is a separate reviewed task, not silently auto-fixed.
+- Rollback: revert callback router registration/helper/tests and documentation; previously staged tasks and metadata remain, no DB downgrade. Worker registration can be revoked; scan dispatch remains off.
+
+## 2026-10-18 — Branding DNA durable terminal failure receipts (BD-SCAN-CALLBACKS-02A)
+
+- Source-only follow-up; no live scanner dispatch or marketplace traffic. A terminal failure now writes an append-only per-tenant/task/lease-generation ACK receipt transactionally with task retry/block; exact duplicate returns recorded status/time with `replayed:true`, without affecting a new lease. Conflicting payloads and revoked tokens fail closed.
+- New dedicated SQLite worker outbox is metadata-only, encrypted tokens not persisted, WAL/FULL sync, hard cap 500, exact ACK deletion and no wiring to the running browser/heartbeat loop.
+- Files: new scan receipt model, Alembic migration 0165, service/HTTP tests, new isolated worker helper/test, migration test, docs. No external dependency/secret change. Must NOT run production migration without backup/restore and additive schema preflight; no destructive downgrade.
+- Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
+- Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-2B.1 server quarantined result receipts
+
+- New additive Alembic 0167 table `bc_scan_result_receipts` uses tenant/task and tenant/shop/snapshot composite foreign keys, immutable per-task-generation/client UUID uniqueness, quarantined-only CHECK and bounded gallery/page count. No browser/worker URLs, tokens, HTML or image bytes are stored.
+- Internal-only `persist_quarantined_future_result` verifies exact worker canonical payload SHA, live worker/lease generation, snapshot identity and unexpired capture. It inserts an immutable unverified receipt and blocks the leased task for manual provenance review in ONE transaction. Identical lost-ACK replay is idempotent; conflicting data, revoked worker, terminal failure and tenant mismatch fail closed. No endpoint imports this service and `/lease` returns null.
+- Disposable SQL migration constraints and guarded downgrade tested; CI PostgreSQL 12/16 workflow updated to include 0167 guarded rollback/re-upgrade. No production migration, merge or real marketplace traffic. See `docs/features/branding-dna/SCAN_SERVER_RESULT_RECEIPTS.md`.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-2A durable result outbox, future-only ACK
+
+- Future-only Node SQLite WAL/FULL synchronous result queue in a separate agent-specific local state path. Stores bounded metadata only (task/shop/snapshot IDs, client receipt ID, lease generation, hashed gallery roles and canonical payload SHA); no raw URLs, browser content, image bytes or tokens. Hard cap 200, max 8192 bytes/event; never drops old events to make room.
+- The future-only transport requires an exact server-acknowledged quarantined receipt and refuses to delete pending data on 404/409/401/403/503, network errors, mismatched identities/digest or forged `scan_enabled`/provenance flags. Both the future transport and the outbox remain disconnected from the live Windows worker; the CAM `/workers/{id}/scan-tasks/{id}/result` route **does not exist**.
+- Added restart, replay, overflow, corruption, transport-failure, symlink, invalid config and strict ACK regression tests. Production scanning remains OFF, no migrations or frontend changes. See `docs/features/branding-dna/SCAN_RESULT_OUTBOX.md`.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-1 result manifest preflight
+
+- New admin-only HTTP result metadata preview binds exact gallery hash/role/order, listing identity, observed revision and timestamp to the existing tenant/shop/task/snapshot, with a deterministic SHA256 integrity digest. It never persists results, issues a receipt, completes a job or elevates marketplace rights.
+- Bound 1–5 pages, 1–20 gallery entries, status/rights remain unverified/unknown, no URL/media/credentials/freeform fields; rejects 30-day stale or 5-minute future captures. Matching isolated Node validator is not imported by the live worker.
+- Real HTTP tests identified and resolved a JSON ISO timestamp compatibility issue in Pydantic while preserving strict numeric/type and timezone checks. This change is source-only; no schema, dependency or credential changes.
+- 211 Branding DNA API and 58 Node worker tests passed before final HTTP-case addition; focused HTTP fixture 18/18 tests passed. Full repository staging and current GitHub CI to be recorded after their execution. `/lease` remains no-job.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2b strict storefront scope preview
+
+- Read-only `/shops/{id}/scan-scope/preview` validates a candidate URL against the server-registered shop, existing staged task and snapshot under the principal tenant. It performs no DNS, HTTP, Playwright or task mutation and returns no external URL or executable instructions; job remains null.
+- Conservative Amazon/Etsy hostname and path subtree check; deny cross-marketplace, arbitrary ports, credentials, encoded/dot traversal, fragments/queries, outside-shop paths. Hard display-only limits: 5 pages, 20 images, 20 sec, 0 redirects, 2 descendant path segments.
+- Separate isolated future worker `scan_scope_guard.mjs` guards against redirected/normalized URLs, but is not called from the live agent. Operator UI previews scope on the Browser Scanner tab for admin only.
+- 194 Branding DNA API tests and 54 Worker Node tests passed locally. No migration, external secrets/deps or authorization grant; dedicated Windows Browser QA and GitHub CI remain release gates.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2a policy preflight
+
+- Scanner Readiness now evaluates human-reviewed, expired, revoked or changed Policy records using the shared validity predicate, while marketplace authorization and dispatch stay disabled.
+- Viewer privacy: only ai_provider.configure admins see policy review counts; ai_operations.read-only viewers get restricted/zero counts and no document existence or reviewer details.
+- API tests cover tenant isolation, viewer privacy, live review, revoked/expired/archived document and no-dispatch. No new migration/dependency/secret; code-only rollback.
+- GitHub CI for preceding PR head passed PostgreSQL 12.22 and 16.4, but unrelated API shard/Browser QA and Windows workflow blockers remain. Hold merge/deploy until all gates pass.
+
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.1 independent shop policy paperwork review
+
+- Added a bounded tenant/shop-scoped dossier referencing **approved** RAG `policy` documents by exact document ID and content SHA256, with storefront identity fingerprint, expiration, independent reviewer, decision, separate revocation audit and no source bytes/secrets in the ledger.
+- New endpoints: POST/list shop scan policy reviews; decide acknowledge/reject/revoke. Self-approval prohibited. A human-reviewed record is **NOT** externally verified provider authorization and responses all remain `scan_enabled:false`, `dispatchable:false`, `marketplace_authorization_verified:false`.
+- CI fix: GitHub Postgres migration job formerly compared stale head 0164 after migration 0165 and failed; updated to head 0166 and guarded disposable rollback/re-upgrade gates for 0166 and 0165. Existing unrelated Inventory/Browser fixture CI failures remain a release blocker.
+- New migration `0166_bdna_scan_authorization_reviews` protects historical dossiers during rollback. Required before API deploy; production backup/restore and Windows Browser QA still pending.
+- Verified on CodeLocal Linux: **158/158 Branding DNA API**, **51/51 Node Worker tests**, **9/9 focused UI**, **763/763 all frontend tests**, **196/196 API regression tests**, TypeScript/build/Python compile, and `bash scripts/cam-cursor-staging-gate.sh` PASS; Alembic head `0166_bdna_scan_authorization_reviews`. Docker PostgreSQL and Windows host were not run locally; GitHub workflow will verify those. Frontend audit still reports 38 dependency advisories (32 moderate, 4 high, 2 critical); no unreviewed forced upgrade. Rollback source only; preserve DB review history and keep worker `/lease` no-job.

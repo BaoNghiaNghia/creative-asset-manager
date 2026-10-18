@@ -89,6 +89,7 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_is_read_only_and_returns_only_safe_metadata(self):
         remote = SimpleNamespace(
+            folder_id="backup-folder",
             list_managed_backups=lambda: _async_result([
                 RemoteDatabaseBackup(
                     "remote-1",
@@ -110,6 +111,63 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["REMOTE_BACKUP_COUNT"], 1)
         self.assertNotIn("managed-token", str(result))
         self.assertFalse(hasattr(remote, "delete_managed_backup"))
+
+    async def test_list_exposes_only_valid_checksums_and_never_claims_restore(self):
+        now = datetime(2026, 10, 16, tzinfo=timezone.utc)
+        remote = SimpleNamespace(
+            folder_id="backup-folder",
+            list_managed_backups=lambda: _async_result([
+                RemoteDatabaseBackup(
+                    "backup-valid", "cam-db-valid.dump", 2048, now,
+                    ("backup-folder",),
+                    {"cam_kind": DATABASE_BACKUP_KIND, "cam_sha256": "a" * 64},
+                    "B" * 32,
+                ),
+                RemoteDatabaseBackup(
+                    "backup-incomplete", "cam-db-unverified.dump", 5, now,
+                    ("backup-folder",),
+                    {"cam_kind": DATABASE_BACKUP_KIND, "cam_sha256": "not-a-hash"},
+                    "bad-checksum",
+                ),
+            ]),
+        )
+        with patch.object(cli, "verify_configuration"), patch.object(
+            cli, "build_components",
+            return_value=(object(), remote, object()),
+        ):
+            result = await cli.list_backups(settings())
+        self.assertEqual(result["BACKUP_CONTENT_CHECKED"], "NO")
+        self.assertEqual(result["RESTORE_REHEARSAL"], "NOT_RUN")
+        items = {entry["remote_file_id"]: entry for entry in result["BACKUPS"]}
+        self.assertEqual(items["backup-valid"]["content_md5"], "b" * 32)
+        self.assertEqual(items["backup-valid"]["sha256_metadata"], "a" * 64)
+        self.assertEqual(items["backup-valid"]["integrity_metadata"], "COMPLETE_NOT_DOWNLOADED")
+        self.assertIsNone(items["backup-incomplete"]["content_md5"])
+        self.assertIsNone(items["backup-incomplete"]["sha256_metadata"])
+        self.assertEqual(items["backup-incomplete"]["integrity_metadata"], "INCOMPLETE")
+        self.assertNotIn("not-a-hash", str(result))
+
+    async def test_list_refuses_files_outside_managed_backup_folder(self):
+        for parents, props in [
+            (("another-folder",), {"cam_kind": DATABASE_BACKUP_KIND}),
+            (("backup-folder",), {"cam_kind": "user_asset"}),
+        ]:
+            remote = SimpleNamespace(
+                folder_id="backup-folder",
+                list_managed_backups=lambda: _async_result([
+                    RemoteDatabaseBackup(
+                        "unexpected-file", "unexpected.dump", 10,
+                        datetime(2026, 10, 16, tzinfo=timezone.utc),
+                        parents, props, "b" * 32,
+                    ),
+                ]),
+            )
+            with self.subTest(parents=parents, props=props), patch.object(
+                cli, "verify_configuration",
+            ), patch.object(
+                cli, "build_components", return_value=(object(), remote, object()),
+            ), self.assertRaises(cli.DatabaseBackupRemoteError):
+                await cli.list_backups(settings())
 
     async def test_backup_result_reports_verified_retention_and_cleanup(self):
         backup = VerifiedDatabaseBackup(

@@ -1,15 +1,20 @@
 """Read and stage metadata verification tasks; no scan execution endpoints."""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.branding_dna.model import BrandShopModel
+from app.modules.branding_dna.model import BrandShopModel, now_utc
+from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
+from app.modules.branding_dna.scout_session_model import BrandScoutSessionModel
+from app.modules.branding_dna.scout_session_router import online
+from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.task_service import _task_dict, stage_from_snapshot
+from app.modules.branding_dna.scan_preflight_service import summarize_policy_reviews
 
 router = APIRouter(prefix="/api/v1/branding-dna", tags=["branding-dna-scan-tasks"])
 READ = require_permission("ai_operations.read")
@@ -78,3 +83,100 @@ def cancel_staged_task(
     task.status = "cancelled"
     session.commit()
     return {"item": _task_dict(task), "scan_enabled": False}
+
+
+@router.get("/shops/{shop_id}/scan-readiness")
+def scan_readiness(
+    shop_id: str, response: Response,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Tenant-bound operator view of existing evidence and staged work.
+
+    A live heartbeat is connectivity only, never proof of platform permission.
+    This endpoint cannot transition tasks or deliver browser commands.
+    """
+    tenant = principal.active_tenant_id
+    shop = session.scalar(select(BrandShopModel).where(
+        BrandShopModel.id == shop_id, BrandShopModel.tenant_id == tenant,
+    ))
+    if shop is None:
+        raise HTTPException(404, detail="Shop not found")
+
+    status_counts = dict(session.execute(
+        select(BrandScanTaskModel.status, func.count())
+        .where(BrandScanTaskModel.tenant_id == tenant,
+               BrandScanTaskModel.shop_id == shop_id)
+        .group_by(BrandScanTaskModel.status)
+    ).all())
+    states = ("staged", "pending", "leased", "retry", "blocked", "completed", "cancelled")
+    task_counts = {state: int(status_counts.get(state, 0)) for state in states}
+    snapshot_counts = dict(session.execute(
+        select(BrandListingSnapshotModel.evidence_state, func.count())
+        .where(BrandListingSnapshotModel.tenant_id == tenant,
+               BrandListingSnapshotModel.shop_id == shop_id)
+        .group_by(BrandListingSnapshotModel.evidence_state)
+    ).all())
+    sessions = session.execute(
+        select(BrandScoutSessionModel, RrugcScoutAgentModel.active)
+        .join(RrugcScoutAgentModel,
+              (BrandScoutSessionModel.agent_id == RrugcScoutAgentModel.id) &
+              (BrandScoutSessionModel.tenant_id == RrugcScoutAgentModel.tenant_id))
+        .where(BrandScoutSessionModel.tenant_id == tenant)
+        .limit(100)
+    ).all()
+    clock = now_utc()
+    connected = sum(bool(active and online(item.last_seen_at, clock)) for item, active in sessions)
+    # Knowledge and policy-review metadata are admin-only. A viewer with
+    # ai_operations.read may see generic scanner health, not private RAG
+    # document existence or review history.
+    can_view_policy = bool(getattr(principal, "platform_admin", False) or
+        "ai_provider.configure" in getattr(principal, "effective_permissions", frozenset()))
+    policy_review = (summarize_policy_reviews(
+        session, tenant_id=tenant, shop=shop, now=clock) if can_view_policy else {
+            "state": "restricted",
+            "counts": {"total": 0, "current_human_review": 0,
+                       "pending_human_review": 0, "revoked": 0,
+                       "expired_or_changed": 0, "rejected": 0},
+            "human_review_current": False,
+            "marketplace_authorization_verified": False, "dispatchable": False,
+        })
+    blockers = ["scan_task_dispatch_not_deployed", "marketplace_authorization_not_verified"]
+    # This is a historical human paperwork evaluation, NOT an authorization
+    # signal. Its status must never permit staged -> pending or /lease jobs.
+    policy_blockers = {
+        "not_submitted": "human_policy_review_not_submitted",
+        "pending_human_review": "human_policy_review_pending",
+        "revoked": "human_policy_review_revoked",
+        "expired_or_changed": "human_policy_review_expired_or_changed",
+        "rejected": "human_policy_review_rejected",
+        "current_human_review": "human_policy_review_not_provider_authorization",
+        "restricted": "human_policy_review_requires_admin",
+    }
+    blockers.append(policy_blockers[policy_review["state"]])
+    if shop.platform not in ("amazon", "etsy"):
+        blockers.append("platform_not_supported_by_browser_pilot")
+    if shop.access_mode not in ("owned", "authorized"):
+        blockers.append("shop_access_not_declared")
+    if connected == 0:
+        blockers.append("paired_agent_not_online")
+    if shop.platform == "etsy":
+        blockers.append("etsy_written_permission_not_verified")
+    if shop.platform == "amazon":
+        blockers.append("amazon_agent_policy_review_not_verified")
+
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "shop_id": shop.id, "platform": shop.platform,
+        "access_mode": shop.access_mode,
+        "paired_agents_online": connected,
+        "paired_agents_seen": len(sessions),
+        "listing_snapshot_count": sum(snapshot_counts.values()),
+        "verified_listing_count": snapshot_counts.get("verified", 0),
+        "task_counts": task_counts,
+        "policy_review": policy_review,
+        "scan_enabled": False, "dispatchable": False,
+        "active_scan_jobs": 0, "marketplace_authorization_verified": False,
+        "blockers": blockers,
+        "note": "Staged tasks and heartbeats do not authorize marketplace scans or verify imported evidence.",
+    }

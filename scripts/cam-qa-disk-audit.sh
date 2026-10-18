@@ -4,6 +4,9 @@
 # user assets, Google Drive, Cloudflare R2, skill outputs, or visual baselines.
 set -Eeuo pipefail
 mode="${1:---audit}"
+# Retain enough journal history for incident investigation. Only the operator-
+# approved --clean-safe action may prune archived journal files.
+JOURNAL_MAX_MIB=256
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 show_path() {
   if [[ -e "$1" ]]; then
@@ -24,6 +27,8 @@ audit() {
   show_path /var/lib/docker
   show_path /srv/creative-asset-manager-source
   show_path /root/creative-asset-manager
+  printf '\n== Journal retention ==\n'
+  printf 'Archived journal retention: 14 days; size target: %s MiB (opt-in only).\n' "$JOURNAL_MAX_MIB"
   printf '\n== Container usage (INVENTORY ONLY) ==\n'
   if command -v docker >/dev/null 2>&1; then docker system df 2>/dev/null || true; fi
   printf '\nNo production releases, asset folders or Docker volumes were deleted.\n'
@@ -35,12 +40,18 @@ safe_cleanup() {
   apt-get clean
   printf '\n== Safe cleanup: archived systemd journal older than 14 days ==\n'
   journalctl --vacuum-time=14d
+  printf '\n== Safe cleanup: bound archived journal size ==\n'
+  journalctl "--vacuum-size=${JOURNAL_MAX_MIB}M"
   printf '\n== After ==\n'; df -h /
+  journalctl --disk-usage
   printf 'Only apt package cache and old archived journals were cleaned.\n'
   printf 'Unapproved app releases, Docker images/volumes, and creative assets were preserved.\n'
 }
 case "$mode" in
   --audit|--dry-run) audit ;;
+  --plan-safe)
+    printf 'Opt-in: apt-get clean; journalctl --vacuum-time=14d; journalctl --vacuum-size=%sM\n' "$JOURNAL_MAX_MIB"
+    printf 'No commands executed. No Docker, database, releases, backup or asset deletion.\n' ;;
   --clean-safe) safe_cleanup ;;
-  *) die "Usage: $0 [--audit|--clean-safe]" ;;
+  *) die "Usage: $0 [--audit|--plan-safe|--clean-safe]" ;;
 esac

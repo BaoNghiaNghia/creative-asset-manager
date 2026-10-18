@@ -194,11 +194,13 @@ def upgrade() -> None:
         ["tenant_id", "package_id", "status"],
     )
 
-    op.alter_column(
-        "rrugc_campaigns",
-        "auto_complete_on_delivery",
-        server_default=None,
-    )
+    # SQLite requires table-copy batch mode to remove a column default.
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        batch.alter_column(
+            "auto_complete_on_delivery",
+            existing_type=sa.Boolean(),
+            server_default=None,
+        )
 
 
 def downgrade() -> None:

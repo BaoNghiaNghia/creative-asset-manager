@@ -1,0 +1,12 @@
+.bdna-scope-preview{background:#fff;border:1px solid #e3e9f0;border-radius:10px;padding:16px;margin-top:16px}
+.bdna-scope-preview h4{font-size:15px;margin:0 0 5px}
+.bdna-scope-preview p{color:#58677b;font-size:13px;margin:5px 0;line-height:1.55}
+.bdna-scope-preview form{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}
+.bdna-scope-preview label{display:grid;gap:5px;flex:1;min-width:170px;font-size:12px}
+.bdna-scope-preview label:nth-child(2){flex:2;min-width:250px}
+.bdna-scope-preview input,.bdna-scope-preview select{padding:9px 10px;min-height:39px;border:1px solid #cbd5e1;border-radius:7px;max-width:100%;color:inherit;background:#fff}
+.bdna-scope-preview button{padding:9px 14px;min-height:39px;border-radius:7px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}
+.bdna-scope-preview button:disabled{opacity:.5;cursor:not-allowed}
+.bdna-scope-result{border-top:1px solid #edf0f3;margin-top:14px;padding-top:12px}
+.bdna-scope-error{color:#b42318!important}
+@media(max-width:650px){.bdna-scope-preview form>*{width:100%;flex:initial!important;min-width:0!important}}

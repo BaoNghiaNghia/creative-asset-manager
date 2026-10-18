@@ -8,7 +8,9 @@ the active CAM swap, application data and secrets are never modified.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
+import re
 from pathlib import Path
 import shutil
 import stat
@@ -109,9 +111,104 @@ def command_summary(argv: list[str]) -> tuple[int, str]:
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=12)
         output = (result.stdout or result.stderr).strip()
-        return result.returncode, output[:900]
+        return result.returncode, output[:2400]
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, type(exc).__name__
+
+
+def assess_network_readiness(
+    eth0: str,
+    ipv4_default_routes: str,
+    ipv6_default_routes: str,
+    wait_online_state: str,
+) -> tuple[str, list[str]]:
+    """Classify existing evidence; never infer a safe route or edit the host.
+
+    A failed boot-time wait-online result may be stale. A working IPv4 default
+    route does not prove that the off-link IPv6 gateway is correct.
+    """
+    observations: list[str] = []
+    has_ipv4_default = any(
+        line.strip().startswith("default ") and " dev eth0" in line
+        for line in ipv4_default_routes.splitlines()
+    )
+    has_ipv6_default = any(
+        line.strip().startswith("default ") and " dev eth0" in line
+        for line in ipv6_default_routes.splitlines()
+    )
+    routable = bool(re.search(r"State:\s+routable", eth0))
+    configuring = bool(re.search(r"State:\s+routable \(configuring\)", eth0))
+    wait_failed = "ActiveState=failed" in wait_online_state or "Result=exit-code" in wait_online_state
+
+    # Report only global IPv6 addresses shown on the interface (not DNS,
+    # link-local, MAC, or the provider's purported gateway).
+    global_ipv6 = False
+    address_lines = eth0.splitlines()
+    for index, line in enumerate(address_lines):
+        if "Address:" not in line:
+            continue
+        candidates = [line.split("Address:", 1)[1]]
+        for continuation in address_lines[index + 1:]:
+            if not continuation.strip() or re.match(r"^\s*[A-Za-z][A-Za-z0-9 _-]*:\s", continuation):
+                break
+            candidates.append(continuation)
+        for candidate in candidates:
+            for token in candidate.split():
+                try:
+                    addr = ipaddress.ip_address(token.split("/")[0])
+                except ValueError:
+                    continue
+                if isinstance(addr, ipaddress.IPv6Address) and addr.is_global:
+                    global_ipv6 = True
+                    break
+
+    if not has_ipv4_default:
+        observations.append("BLOCKER: eth0 has no observed IPv4 default route; verify out-of-band console.")
+        return "BLOCKED_NETWORK", observations
+    observations.append("PASS: IPv4 default route via eth0 exists.")
+    if not routable:
+        observations.append("WARN: eth0 is not reported as routable.")
+    if configuring:
+        observations.append("WARN: eth0 is still configuring; investigate the underlying networkd task.")
+    if global_ipv6 and not has_ipv6_default:
+        observations.append(
+            "WARN: global IPv6 is present, but no IPv6 default route exists. "
+            "Confirm gateway and on-link requirements with VPS provider."
+        )
+    if wait_failed:
+        observations.append(
+            "WARN: wait-online service failed previously; check after validating "
+            "provider network settings, do not just mask/reset the unit."
+        )
+    if configuring or (global_ipv6 and not has_ipv6_default) or wait_failed or not routable:
+        return "DEGRADED_REVIEW_REQUIRED", observations
+    return "NETWORK_READY", observations
+
+
+def network_check() -> int:
+    """Read-only triage. Does not read Netplan secrets or mutate systemd."""
+    probes = [
+        ("eth0", ["networkctl", "status", "eth0", "--no-pager"]),
+        ("ipv4", ["ip", "-4", "route", "show", "default"]),
+        ("ipv6", ["ip", "-6", "route", "show", "default"]),
+        ("wait", ["systemctl", "show", "systemd-networkd-wait-online.service",
+                  "-p", "ActiveState", "-p", "Result", "--no-pager"]),
+    ]
+    results = {name: command_summary(command) for name, command in probes}
+    if any(code != 0 for code, _ in results.values()):
+        print("NETWORK_AUDIT=INCOMPLETE")
+        for name, (code, _) in results.items():
+            print(f"PROBE_{name.upper()}_EXIT={code}")
+        print("NETWORK_CHANGE_APPLIED=NO")
+        return 2
+    status, findings = assess_network_readiness(
+        results["eth0"][1], results["ipv4"][1], results["ipv6"][1], results["wait"][1],
+    )
+    print(f"NETWORK_AUDIT={status}")
+    for finding in findings:
+        print(finding)
+    print("NETWORK_CHANGE_APPLIED=NO")
+    return 2 if status == "BLOCKED_NETWORK" else 0
 
 
 def audit() -> None:
@@ -135,10 +232,13 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--audit", action="store_true")
     group.add_argument("--apply-swap", action="store_true")
+    group.add_argument("--network-check", action="store_true", help="Read-only network triage")
     args = parser.parse_args()
     if args.audit:
         audit()
         return 0
+    if args.network_check:
+        return network_check()
     if os.geteuid() != 0:
         print("ERROR: --apply-swap requires an explicit root/sudo invocation.", file=sys.stderr)
         return 2

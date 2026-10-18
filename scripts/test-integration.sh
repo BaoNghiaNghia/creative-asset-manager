@@ -35,7 +35,19 @@ if [[ ! -x "$PYTHON_BIN" ]]; then PYTHON_BIN=python; fi
 heads="$($PYTHON_BIN -m alembic heads | grep -c '(head)')"
 test "$heads" -eq 1
 $PYTHON_BIN -m alembic upgrade head 2>&1 | tee "$ARTIFACT_DIR/migration-upgrade.log"
-$PYTHON_BIN -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee "$ARTIFACT_DIR/migration-downgrade.log"
+# Only this isolated, freshly-created cam_integration DB may downgrade protected
+# append-only ledgers in the migration regression test. Never export these
+# opt-ins globally or permit them in a real production/staging database.
+if [[ "${DATABASE_URL##*/}" != "cam_integration" || "${INTEGRATION_DATABASE_URL}" != "${DATABASE_URL}" ]]; then
+  echo "Refusing destructive integration downgrade outside disposable cam_integration" >&2
+  exit 1
+fi
+env CAM_ALLOW_SCAN_RESULT_DATA_DROP_FOR_TEST=1 \
+    CAM_ALLOW_SCAN_REVIEW_DATA_DROP_FOR_TEST=1 \
+    CAM_ALLOW_SCAN_RECEIPT_DATA_DROP_FOR_TEST=1 \
+    CAM_ALLOW_RAG_DATA_DROP_FOR_TEST=1 \
+    CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 \
+    "$PYTHON_BIN" -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee "$ARTIFACT_DIR/migration-downgrade.log"
 $PYTHON_BIN -m alembic upgrade head 2>&1 | tee -a "$ARTIFACT_DIR/migration-upgrade.log"
 
 timeout 15m "$PYTHON_BIN" -m unittest \

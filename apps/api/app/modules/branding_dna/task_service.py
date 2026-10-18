@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel, now_utc
 from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
+from app.modules.branding_dna.scan_receipt_model import BrandScanFailureReceiptModel
 
 LEASE_SECONDS = 120
 MAX_STAGED_PER_SHOP = 500
@@ -232,9 +233,38 @@ def release_for_retry(session: Session, *, tenant_id: str, task_id: str,
     clock = _aware(now) or now_utc()
     if error_code not in RETRY_ERROR_CODES:
         raise HTTPException(422, detail="Invalid safe error code")
-    task = _fenced_task(session, tenant_id=tenant_id, task_id=task_id,
-                        agent_id=agent_id, lease_id=lease_id,
-                        lease_generation=lease_generation, now=clock)
+    # Serialize callbacks for the task before checking receipt existence. A lost
+    # HTTP ACK must never requeue twice or be confused with a different failure.
+    task = session.scalar(select(BrandScanTaskModel).where(
+        BrandScanTaskModel.tenant_id == tenant_id,
+        BrandScanTaskModel.id == task_id,
+    ).with_for_update())
+    if task is None:
+        raise HTTPException(409, detail="Stale or expired lease")
+    receipt = session.scalar(select(BrandScanFailureReceiptModel).where(
+        BrandScanFailureReceiptModel.tenant_id == tenant_id,
+        BrandScanFailureReceiptModel.task_id == task_id,
+        BrandScanFailureReceiptModel.lease_generation == lease_generation,
+    ))
+    if receipt is not None:
+        if (receipt.agent_id != agent_id or receipt.lease_id != lease_id
+                or receipt.error_code != error_code):
+            raise HTTPException(409, detail="Terminal receipt replay mismatch")
+        worker_enabled = session.scalar(select(BrandWorkerModel.id).where(
+            BrandWorkerModel.id == agent_id,
+            BrandWorkerModel.tenant_id == tenant_id,
+            BrandWorkerModel.enabled.is_(True),
+        ))
+        if worker_enabled is None:
+            raise HTTPException(409, detail="Worker authorization revoked")
+        return {
+            "task_id": task_id, "status": receipt.status,
+            "retry_after": receipt.retry_after.isoformat() if receipt.retry_after else None,
+            "replayed": True,
+        }
+    _fenced_task(session, tenant_id=tenant_id, task_id=task_id,
+                 agent_id=agent_id, lease_id=lease_id,
+                 lease_generation=lease_generation, now=clock)
     task.last_error_code = error_code
     task.lease_id = None
     task.agent_id = None
@@ -249,6 +279,17 @@ def release_for_retry(session: Session, *, tenant_id: str, task_id: str,
         task.status = "retry"
         seconds = min(3600, 30 * 2 ** (task.attempts - 1))
         task.retry_after = clock + timedelta(seconds=seconds)
-    session.commit()
+    session.add(BrandScanFailureReceiptModel(
+        tenant_id=tenant_id, task_id=task.id, lease_generation=lease_generation,
+        lease_id=lease_id, agent_id=agent_id, error_code=error_code,
+        status=task.status, retry_after=task.retry_after,
+    ))
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        # The retry will read the winning immutable receipt and acknowledge it.
+        raise HTTPException(409, detail="Concurrent terminal receipt: retry") from exc
     return {"task_id": task.id, "status": task.status,
-            "retry_after": task.retry_after.isoformat() if task.retry_after else None}
+            "retry_after": task.retry_after.isoformat() if task.retry_after else None,
+            "replayed": False}

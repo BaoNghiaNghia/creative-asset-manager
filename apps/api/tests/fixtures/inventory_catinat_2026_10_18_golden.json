@@ -1,0 +1,149 @@
+{
+  "description": "Minimal, source-grounded cell evidence sampled from user-provided KIỂM KÊ HÀNG NGÀY.xlsx, 18/10/2026. No Google Sheets IDs or credentials; not an approved stock adjustment.",
+  "source_sha256": "5b22ccb56295b4e2035c23b439281f83f94aeddd73685d2c8cad8b17735ed0b8",
+  "slash_semantics": "UNCONFIRMED_NEVER_ZERO",
+  "cases": [
+    {
+      "sheet": "KHO PHA CHẾ",
+      "cell": "H7",
+      "name": "BỘT MATCHA",
+      "value": "/",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "slash_meaning_unconfirmed"
+    },
+    {
+      "sheet": "PHÒNG PHA CHẾ",
+      "cell": "B32",
+      "name": "MẬT ONG GỪNG",
+      "value": 46054,
+      "number_format": "d/m",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "excel_date_formatted_quantity"
+    },
+    {
+      "sheet": "PHÒNG PHA CHẾ",
+      "cell": "H32",
+      "name": "MẬT ONG GỪNG",
+      "value": 46054,
+      "number_format": "d/m",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "excel_date_formatted_quantity"
+    },
+    {
+      "sheet": "PHÒNG PHA CHẾ",
+      "cell": "B47",
+      "name": "CAN ĐƯỜNG ĐEN",
+      "value": "1+1/2 can",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "fractional_package_requires_review",
+      "quantity": "1.5",
+      "unit": "can"
+    },
+    {
+      "sheet": "PHÒNG PHA CHẾ",
+      "cell": "B55",
+      "name": "CAN MẬT ONG",
+      "value": "1+1/2can",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "fractional_package_requires_review",
+      "quantity": "1.5",
+      "unit": "can"
+    },
+    {
+      "sheet": "KHO PHÒNG RANG",
+      "cell": "B6",
+      "name": "PIZZA HẢI SẢN",
+      "value": 6,
+      "expected": "PARSED",
+      "quantity": "6",
+      "unit": "count"
+    },
+    {
+      "sheet": "KHO PHÒNG RANG",
+      "cell": "O6",
+      "name": "PIZZA HẢI SẢN",
+      "value": "1( gãy)",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "lot_or_damage_notation"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "D23",
+      "name": "Trân châu trắng",
+      "value": "1378,4gr",
+      "expected": "PARSED",
+      "quantity": "1378.4",
+      "unit": "g"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "K23",
+      "name": "Trân châu trắng",
+      "value": "1378.4gr",
+      "expected": "PARSED",
+      "quantity": "1378.4",
+      "unit": "g"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "D24",
+      "name": "Trân châu olong",
+      "value": "999,3gr",
+      "expected": "PARSED",
+      "quantity": "999.3",
+      "unit": "g"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "K24",
+      "name": "Trân châu olong",
+      "value": "999.2gr",
+      "expected": "PARSED",
+      "quantity": "999.2",
+      "unit": "g"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "D26",
+      "name": "Đác rim",
+      "value": " 1/10(102.7gr) 14/10(657.4gr;730.2gr)",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "lot_or_damage_notation"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "D27",
+      "name": "Vải trái",
+      "value": 10,
+      "expected": "PARSED",
+      "quantity": "10",
+      "unit": "count"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "E27",
+      "name": "Vải trái",
+      "value": "17+4",
+      "expected": "REVIEW_REQUIRED",
+      "reason": "unverified_quantity_expression"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "G27",
+      "name": "Vải trái",
+      "value": 14,
+      "expected": "PARSED",
+      "quantity": "14",
+      "unit": "count"
+    },
+    {
+      "sheet": "Báo cáo sử dụng NVL trong ca",
+      "cell": "K27",
+      "name": "Vải trái",
+      "value": 5,
+      "expected": "PARSED",
+      "quantity": "5",
+      "unit": "count"
+    }
+  ]
+}

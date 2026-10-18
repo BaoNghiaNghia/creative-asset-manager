@@ -16,36 +16,29 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("rrugc_campaigns", sa.Column("product_id", sa.String(length=36)))
-    op.add_column("rrugc_campaigns", sa.Column("product_revision", sa.Integer()))
-    op.add_column("rrugc_campaigns", sa.Column("product_snapshot_json", sa.JSON()))
-    op.add_column(
-        "rrugc_campaigns",
-        sa.Column("product_reference_snapshot_json", sa.JSON()),
-    )
-    op.add_column(
-        "rrugc_campaigns",
-        sa.Column("product_bound_at", sa.DateTime(timezone=True)),
-    )
-    op.create_foreign_key(
-        "fk_rrugc_campaign_product",
-        "rrugc_campaigns",
-        "rrugc_products",
-        ["tenant_id", "product_id"],
-        ["tenant_id", "id"],
-        ondelete="RESTRICT",
-    )
+    # SQLite cannot add foreign keys with ALTER TABLE; batch mode recreates
+    # the table and preserves the constraints. PostgreSQL uses ordinary ALTER.
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        batch.add_column(sa.Column("product_id", sa.String(length=36)))
+        batch.add_column(sa.Column("product_revision", sa.Integer()))
+        batch.add_column(sa.Column("product_snapshot_json", sa.JSON()))
+        batch.add_column(sa.Column("product_reference_snapshot_json", sa.JSON()))
+        batch.add_column(sa.Column("product_bound_at", sa.DateTime(timezone=True)))
+        batch.create_foreign_key(
+            "fk_rrugc_campaign_product",
+            "rrugc_products",
+            ["tenant_id", "product_id"],
+            ["tenant_id", "id"],
+            ondelete="RESTRICT",
+        )
     op.create_index(
         "ix_rrugc_campaign_product",
         "rrugc_campaigns",
         ["tenant_id", "product_id", "updated_at"],
     )
 
-    op.create_unique_constraint(
-        "uq_rrugc_candidate_tenant_id",
-        "rrugc_candidates",
-        ["tenant_id", "id"],
-    )
+    with op.batch_alter_table("rrugc_candidates") as batch:
+        batch.create_unique_constraint("uq_rrugc_candidate_tenant_id", ["tenant_id", "id"])
 
     op.create_table(
         "rrugc_generation_attempts",
@@ -128,20 +121,14 @@ def downgrade() -> None:
     )
     op.drop_table("rrugc_generation_attempts")
 
-    op.drop_constraint(
-        "uq_rrugc_candidate_tenant_id",
-        "rrugc_candidates",
-        type_="unique",
-    )
+    with op.batch_alter_table("rrugc_candidates") as batch:
+        batch.drop_constraint("uq_rrugc_candidate_tenant_id", type_="unique")
 
     op.drop_index("ix_rrugc_campaign_product", table_name="rrugc_campaigns")
-    op.drop_constraint(
-        "fk_rrugc_campaign_product",
-        "rrugc_campaigns",
-        type_="foreignkey",
-    )
-    op.drop_column("rrugc_campaigns", "product_bound_at")
-    op.drop_column("rrugc_campaigns", "product_reference_snapshot_json")
-    op.drop_column("rrugc_campaigns", "product_snapshot_json")
-    op.drop_column("rrugc_campaigns", "product_revision")
-    op.drop_column("rrugc_campaigns", "product_id")
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        batch.drop_constraint("fk_rrugc_campaign_product", type_="foreignkey")
+        batch.drop_column("product_bound_at")
+        batch.drop_column("product_reference_snapshot_json")
+        batch.drop_column("product_snapshot_json")
+        batch.drop_column("product_revision")
+        batch.drop_column("product_id")

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { BrandingDnaPage, brandingDnaTabForPath } from "./BrandingDnaPage";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
+import { BrandingDnaScanReadiness } from "./BrandingDnaScanReadiness";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
@@ -28,7 +29,7 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).not.toContain("<iframe");
     expect(html).toContain('target="_blank"');
     expect(html).toContain("/branding-dna-preview/index.html?view=overview");
-    expect(html).toContain("Scanner not connected");
+    expect(html).toContain("Scanner · Dispatch disabled");
   });
 
   it("separates Overview summaries from full Shop Library controls", () => {
@@ -72,6 +73,13 @@ describe("Branding DNA worker control plane preview", () => {
     expect(html).toContain("Chờ kiểm chứng");
     expect(html).toContain("Cần nguồn chính thức");
     expect(html).not.toContain("Verified</button>");
+    expect(html).not.toContain("Start Scan");
+  });
+
+  it("renders per-shop scan readiness without any live Scan action", () => {
+    const html = renderToStaticMarkup(<BrandingDnaScanReadiness />);
+    expect(html).toContain("Điều kiện quét theo shop");
+    expect(html).toContain("Shop cần kiểm tra");
     expect(html).not.toContain("Start Scan");
   });
 

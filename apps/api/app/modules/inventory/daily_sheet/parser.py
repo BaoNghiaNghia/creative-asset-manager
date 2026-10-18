@@ -29,9 +29,25 @@ def canonical_hash(value: Any) -> str:
 def value_blocks(ranges: list[dict]) -> list[list[list[Any]]]:
     return [list(item.get("values") or []) for item in ranges]
 
+_LEGACY_UNGROUPED_NUMBER = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?\Z")
+_LEGACY_GROUPED_NUMBER = re.compile(r"[+-]?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?\Z")
+
+
 def parse_decimal(value: Any, allow_negative: bool = False) -> Decimal:
+    """Parse legacy US-locale numbers without silently corrupting comma decimals.
+
+    Legacy V1 permits 1,234.50 as a thousands-grouped number. A bare 1,5
+    could mean 1.5 (Vietnamese locale), not 15, and must be reviewed rather
+    than coerced. V2/V4 have their own quantity and workbook readers.
+    """
+    text_value = str(value).strip()
+    if not (
+        _LEGACY_UNGROUPED_NUMBER.fullmatch(text_value)
+        or _LEGACY_GROUPED_NUMBER.fullmatch(text_value)
+    ):
+        raise DailySheetValidationError("ambiguous_or_invalid_quantity_format")
     try:
-        result = Decimal(str(value).strip().replace(",", ""))
+        result = Decimal(text_value.replace(",", ""))
     except (InvalidOperation, ValueError) as exc:
         raise DailySheetValidationError("invalid quantity") from exc
     if not result.is_finite() or (result < 0 and not allow_negative):
@@ -84,11 +100,18 @@ def parse_stock_records(config: DailySheetConfig, ranges: list[dict]) -> dict[tu
     return output
 
 def build_variances(current, previous) -> list[dict[str, Any]]:
+    """Only compare equivalent complete record sets.
+
+    In V1, a missing current SKU previously became a synthetic zero and was
+    written to the target sheet. Missing evidence is never an inventory count.
+    """
+    if set(current) != set(previous):
+        raise DailySheetValidationError("incomplete_stock_record_set")
     output = []
-    for key in sorted(set(current).union(previous)):
-        record = current.get(key) or previous[key]
-        previous_quantity = previous[key].quantity if key in previous else Decimal(0)
-        current_quantity = current[key].quantity if key in current else Decimal(0)
+    for key in sorted(current):
+        record = current[key]
+        previous_quantity = previous[key].quantity
+        current_quantity = current[key].quantity
         output.append({
             "warehouse": record.warehouse,
             "sku": record.sku,
@@ -134,7 +157,7 @@ class DailyCountSheetValidationError(DailySheetValidationError):
         super().__init__(self.code)
 
 
-_QUANTITY_ATOM = re.compile(r"^(?P<number>[0-9]+(?:[.,][0-9]+)?)(?P<unit>g|ml)?$", re.IGNORECASE)
+_QUANTITY_ATOM = re.compile(r"^(?P<number>[0-9]+(?:[.,][0-9]+)?)(?P<unit>gr|g|ml)?$", re.IGNORECASE)
 _LITER_SHORTHAND = re.compile(r"^(?P<liters>[0-9]+)l(?P<tenths>[0-9])$", re.IGNORECASE)
 _CONTAINER = re.compile(r"^(?P<label>[0-9]+)\((?P<amount>[^()]+)\)$")
 _PACKAGE_ATOM = re.compile(r"^(?P<number>[0-9]+(?:[.,][0-9]+)?)\s*(?P<package>[^0-9+;()]+)$")
@@ -166,10 +189,14 @@ def _quantity_atom(raw: str) -> InventoryQuantityComponent:
         else:
             code = "malformed_quantity"
         raise DailySheetValidationError(code)
+    unit = (match.group("unit") or "count").lower()
+    # The actual Catinat shift report uses "gr" as a synonym for grams.
+    if unit == "gr":
+        unit = "g"
     return InventoryQuantityComponent(
         None,
         Decimal(match.group("number").replace(",", ".")),
-        (match.group("unit") or "count").lower(),
+        unit,
         raw,
     )
 

@@ -6,7 +6,9 @@ import "./BrandingDnaStageTabs.css";
 import "./BrandingDnaUnified.css";
 import "./BrandingDnaFullWidth.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
+import { BrandingDnaPolicyReviews } from "./BrandingDnaPolicyReviews";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
+import { BrandingDnaScanReadiness } from "./BrandingDnaScanReadiness";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaKnowledge } from "./BrandingDnaKnowledge";
 import { BrandingDnaReadiness } from "./BrandingDnaReadiness";
@@ -38,7 +40,7 @@ export function BrandingDnaPage() {
   ];
   return <main className="branding-dna-page">
     <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header"
-      actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
+      actions={<><span className="bdna-header-runtime">Scanner · Dispatch disabled</span><WorkspaceBackToAssets /></>} />
     <div className="bdna-stage-shell">
       <nav className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
         const index = tabs.findIndex(item => item.id === activeTab);
@@ -67,7 +69,9 @@ export function BrandingDnaPage() {
       <div><span>04</span><strong>Build Brand DNA</strong><small>Phân tích dựa trên evidence</small></div>
     </div>}
     {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation compact={activeTab === "overview"} onOpenShops={() => setActiveTab("shops")} />}
+    {activeTab === "shops" && <BrandingDnaPolicyReviews />}
     {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => setActiveTab("scanner")} />}
+    {activeTab === "scanner" && <BrandingDnaScanReadiness />}
     {activeTab === "products" && <BrandingDnaEvidence />}
     {activeTab === "knowledge" && <BrandingDnaKnowledge />}
     {activeTab === "dna" && <BrandingDnaReadiness onOpenKnowledge={() => setActiveTab("knowledge")} onOpenShops={() => setActiveTab("shops")} />}
