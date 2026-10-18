@@ -38,13 +38,27 @@ CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"
 ENV_HELPER="$SOURCE_DIR/deploy/tools/production_env.py"
 [[ -f "$ENV_HELPER" ]] || die "production_env.py is missing."
 if $ROLLBACK; then
+  [[ -L "$WEB_ROOT/current" ]] || die "No active frontend release is recorded."
   [[ -L "$WEB_ROOT/previous" ]] || die "No previous frontend release is recorded."
+  active="$(readlink -f -- "$WEB_ROOT/current")"
   target="$(readlink -f -- "$WEB_ROOT/previous")"
-  [[ -f "$target/index.html" ]] || die "Previous frontend release is invalid."
+  releases_root="$(realpath -m -- "$WEB_ROOT/releases")"
+  [[ "$active" == "$releases_root/"* && -f "$active/index.html" ]] || die "Active frontend release is invalid."
+  [[ "$target" == "$releases_root/"* && -f "$target/index.html" ]] || die "Previous frontend release is invalid."
+  [[ "$active" != "$target" ]] || die "Previous release is already active."
+  nginx -t || die "Nginx configuration is invalid before rollback."
   ln -s -- "$target" "$WEB_ROOT/current.new"
   mv -Tf -- "$WEB_ROOT/current.new" "$WEB_ROOT/current"
-  nginx -t && systemctl reload nginx
-  printf "Frontend rollback activated.\n"
+  if ! nginx -t || ! systemctl reload nginx; then
+    ln -s -- "$active" "$WEB_ROOT/current.rollback"
+    mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current"
+    nginx -t && systemctl reload nginx || true
+    die "Frontend rollback failed; attempted to restore prior active release."
+  fi
+  # Keep the former active release as the next rollback target.
+  ln -s -- "$active" "$WEB_ROOT/previous.new"
+  mv -Tf -- "$WEB_ROOT/previous.new" "$WEB_ROOT/previous"
+  printf "Frontend rollback activated; former active release retained as previous.\n"
   exit 0
 fi
 [[ "$ALLOW_DIRTY" == true || -z "$(git -C "$SOURCE_DIR" status --porcelain --untracked-files=normal)" ]] || die "Refusing deployment from a dirty checkout."
@@ -118,12 +132,12 @@ if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
   CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
     bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
 fi
-# Health checks have passed. Keep only the active immutable frontend release.
-rm -f -- "$WEB_ROOT/previous"
-for release in "$RELEASES"/*; do
-  [[ -d "$release" && ! -L "$release" ]] || continue
-  [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
-done
+# Preserve the previous immutable frontend release as an operational
+# rollback anchor. Never purge all other releases from a deploy path: a
+# worker, operator, or pending rollback may still reference them.
+# Separate read-only inventory and operator-reviewed retention must precede
+# any deletion (see scripts/cam-vps-release-inventory.py).
+printf 'Frontend release retention: preserved current/previous; no automatic deletion.\n'
 # Post-success housekeeping: only Browser QA scratch evidence, never
 # production assets or model outputs. Cleanup warnings must not revert a
 # healthy deployment; failed and recent QA evidence is preserved.

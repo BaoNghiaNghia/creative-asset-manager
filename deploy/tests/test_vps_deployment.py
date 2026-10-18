@@ -188,13 +188,18 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertNotIn("media-src *", config)
         self.assertNotIn("https://*.workers.dev", config)
 
-    def test_google_avatars_are_allowed_only_as_images(self) -> None:
+    def test_google_avatars_and_marketplace_thumbnails_are_allowed_only_as_images(self) -> None:
         import re
 
         policy = re.search(r'add_header Content-Security-Policy "([^"]+)"', NGINX_CONFIG.read_text()).group(1)
         directives = dict((parts[0], parts[1:]) for directive in policy.split(";") if (parts := directive.split()))
         self.assertEqual(set(directives["img-src"]), {
-            "'self'", "data:", "blob:", "https://i.pinimg.com", "https://lh3.googleusercontent.com",
+            "'self'", "data:", "blob:", "https://i.pinimg.com",
+            "https://lh3.googleusercontent.com",
+            "https://i.etsystatic.com", "https://img.etsystatic.com",
+            "https://m.media-amazon.com",
+            "https://images-na.ssl-images-amazon.com",
+            "https://images-eu.ssl-images-amazon.com",
         })
         for directive in ("script-src", "connect-src", "default-src"):
             self.assertEqual(directives[directive], ["'self'"])

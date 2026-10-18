@@ -14,6 +14,16 @@ Both backend and frontend have immutable releases. A release may be referenced b
 Deleting any of those can break an in-flight worker or destroy rollback capability.
 A healthy API does **not** prove older releases are safe to delete.
 
+**Frontend deployment fix (source only, not yet production-deployed):** the
+frontend deployment script now preserves `previous` and does not
+automatically delete all other immutable frontend releases after success.
+The `--rollback` branch swaps `current` and `previous` on success, so
+an operator may reverse the rollback. If the Nginx reload fails during
+rollback, the script attempts to restore the original active link.
+The source-level regression suite exercises this behavior with isolated
+fake Nginx/systemd commands; a real operator must still verify the
+production release layout before activation.
+
 ## Operator-only read-only audit
 
 From a trusted operator console with expressly authorized read access to the
