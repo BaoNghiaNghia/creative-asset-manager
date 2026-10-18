@@ -11,6 +11,9 @@
 .bdna-scan-readiness-metrics>div{background:#f7f9fc;border:1px solid #e9edf2;border-radius:9px;padding:13px;min-width:0}
 .bdna-scan-readiness-metrics strong{font-size:24px;display:block}
 .bdna-scan-readiness-metrics small{display:block;color:#54657b;line-height:1.5}
+.bdna-scan-policy-summary{margin:12px 0;padding:12px 14px;border:1px solid #e4eaf2;border-radius:9px;background:#fafbfd}
+.bdna-scan-policy-summary h4{margin:0 0 5px}
+.bdna-scan-policy-summary p{margin:2px 0;font-size:13px}
 .bdna-scan-readiness-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
 .bdna-scan-readiness-details>div{min-width:0}
 .bdna-scan-readiness-states{display:flex;flex-wrap:wrap;gap:7px}

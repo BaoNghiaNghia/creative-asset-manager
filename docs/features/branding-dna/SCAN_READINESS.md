@@ -14,6 +14,9 @@ selects a registered Amazon/Etsy shop from the current tenant. It requests
   within the existing 3-minute presence TTL, agent still active).
 - Explicit unmet requirements for platform authorization, per-shop access,
   scanner dispatch and marketplace-specific permissions.
+- Policy-paperwork preflight from reviewed, unexpired same-shop `policy` RAG
+  documents. Admin receives aggregate status; non-admin receives restricted
+  status and no private document counts. **Neither may enable dispatch.**
 
 The endpoint requires `ai_operations.read`, returns `Cache-Control: no-store`,
 and answers `404` for shops outside the active tenant. It reads existing

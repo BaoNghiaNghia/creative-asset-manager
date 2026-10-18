@@ -2863,6 +2863,13 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
 - Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
 
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2a policy preflight
+
+- Scanner Readiness now evaluates human-reviewed, expired, revoked or changed Policy records using the shared validity predicate, while marketplace authorization and dispatch stay disabled.
+- Viewer privacy: only ai_provider.configure admins see policy review counts; ai_operations.read-only viewers get restricted/zero counts and no document existence or reviewer details.
+- API tests cover tenant isolation, viewer privacy, live review, revoked/expired/archived document and no-dispatch. No new migration/dependency/secret; code-only rollback.
+- GitHub CI for preceding PR head passed PostgreSQL 12.22 and 16.4, but unrelated API shard/Browser QA and Windows workflow blockers remain. Hold merge/deploy until all gates pass.
+
 ## 2026-10-18 — BD-SCAN-CALLBACKS-02B.1 independent shop policy paperwork review
 
 - Added a bounded tenant/shop-scoped dossier referencing **approved** RAG `policy` documents by exact document ID and content SHA256, with storefront identity fingerprint, expiration, independent reviewer, decision, separate revocation audit and no source bytes/secrets in the ledger.

@@ -11,6 +11,13 @@ type ScanReadiness = {
   listing_snapshot_count: number;
   verified_listing_count: number;
   task_counts: Record<string, number>;
+  policy_review: {
+    state: string;
+    human_review_current: boolean;
+    marketplace_authorization_verified: false;
+    dispatchable: false;
+    counts: Record<string, number>;
+  };
   scan_enabled: boolean;
   dispatchable: boolean;
   active_scan_jobs: number;
@@ -26,6 +33,22 @@ const blockerLabels: Record<string,string> = {
   paired_agent_not_online: "Không có agent ghép nối đang heartbeat trong 3 phút gần nhất.",
   etsy_written_permission_not_verified: "Chưa có bằng chứng Etsy cho phép quét bằng văn bản.",
   amazon_agent_policy_review_not_verified: "Chưa xác nhận điều kiện Amazon Agent Policy.",
+  human_policy_review_not_submitted: "Chưa nộp hồ sơ Policy của shop vào hàng chờ kiểm tra.",
+  human_policy_review_pending: "Hồ sơ Policy đang chờ một người khác đánh giá.",
+  human_policy_review_revoked: "Hồ sơ Policy đã bị thu hồi.",
+  human_policy_review_expired_or_changed: "Hồ sơ Policy đã hết hạn hoặc nguồn/shop thay đổi.",
+  human_policy_review_rejected: "Hồ sơ Policy đã bị từ chối.",
+  human_policy_review_not_provider_authorization: "Hồ sơ Policy đã được người kiểm tra, nhưng chưa xác minh quyền từ nền tảng.",
+  human_policy_review_requires_admin: "Chỉ quản trị shop được xem tình trạng hồ sơ Policy.",
+};
+const policyStateLabels: Record<string,string> = {
+  not_submitted: "Chưa nộp",
+  pending_human_review: "Chờ đánh giá",
+  current_human_review: "Đã kiểm tra thủ công",
+  revoked: "Đã thu hồi",
+  expired_or_changed: "Hết hạn / thay đổi",
+  rejected: "Đã từ chối",
+  restricted: "Chỉ quản trị được xem",
 };
 const states: { id: string; label: string }[] = [
   {id:"staged",label:"Chờ kiểm chứng"},
@@ -73,7 +96,9 @@ export function BrandingDnaScanReadiness() {
     void read<ScanReadiness>("/api/v1/branding-dna/shops/"+encodeURIComponent(shopId)+"/scan-readiness",controller.signal)
       .then(data=>{
         if(data.shop_id!==shopId||data.scan_enabled!==false||data.dispatchable!==false||
-           data.active_scan_jobs!==0||data.marketplace_authorization_verified!==false)
+           data.active_scan_jobs!==0||data.marketplace_authorization_verified!==false||
+           data.policy_review?.dispatchable!==false||
+           data.policy_review?.marketplace_authorization_verified!==false)
           throw new Error("Trạng thái dispatch không khớp với cấu hình an toàn.");
         if(!controller.signal.aborted)setReadiness(data);
       })
@@ -108,6 +133,11 @@ export function BrandingDnaScanReadiness() {
         <div><strong>{readiness.listing_snapshot_count}</strong><small>Listing snapshots</small></div>
         <div><strong>{readiness.verified_listing_count}</strong><small>Listing verified</small></div>
         <div><strong>{readiness.task_counts.staged??0}</strong><small>Job mới chỉ staged</small></div>
+      </div>
+      <div className="bdna-scan-policy-summary">
+        <h4>Hồ sơ Policy của shop</h4>
+        <p><strong>{policyStateLabels[readiness.policy_review.state]??readiness.policy_review.state}</strong>{readiness.policy_review.state!=="restricted"&&<> · {readiness.policy_review.counts.current_human_review??0} hồ sơ đã kiểm tra / {readiness.policy_review.counts.total??0} hồ sơ lưu</>}</p>
+        <p>Dù hồ sơ đã được người đánh giá, quyền quét tự động của Amazon/Etsy vẫn chưa được xác minh. Không có job được phát.</p>
       </div>
       <div className="bdna-scan-readiness-details">
         <div><h4>Trạng thái job</h4>

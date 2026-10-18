@@ -6,7 +6,6 @@ transition occurs here.
 """
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -21,6 +20,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.branding_dna.model import BrandShopModel, now_utc
 from app.modules.branding_dna.knowledge_model import BrandKnowledgeDocumentModel
 from app.modules.branding_dna.scan_authorization_model import BrandScanAuthorizationReviewModel
+from app.modules.branding_dna.scan_preflight_service import human_review_current, shop_identity_digest
 
 router = APIRouter(prefix="/api/v1/branding-dna", tags=["branding-dna-scan-authorization"])
 ADMIN = require_permission("ai_provider.configure")
@@ -60,20 +60,12 @@ def _shop(session: Session, tenant: str, shop_id: str) -> BrandShopModel:
 
 
 def _fingerprint(shop: BrandShopModel) -> str:
-    identity = "|".join([shop.platform, shop.region, shop.canonical_shop_key, shop.storefront_url])
-    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return shop_identity_digest(shop)
 
 
 def _record(row: BrandScanAuthorizationReviewModel, shop: BrandShopModel,
             document: BrandKnowledgeDocumentModel | None, now: datetime) -> dict:
-    valid = (row.status == "human_reviewed"
-             and row.platform == shop.platform
-             and row.storefront_sha256 == _fingerprint(shop)
-             and shop.access_mode in ("owned", "authorized")
-             and _aware(row.expires_at, stored=True) > now
-             and document is not None and document.status == "approved"
-             and document.category == "policy"
-             and document.content_sha256 == row.document_sha256)
+    valid = human_review_current(row, shop, document, now)
     return {
         "id": row.id, "shop_id": row.shop_id, "document_id": row.document_id,
         "policy_scope": row.policy_scope, "status": row.status,

@@ -14,6 +14,7 @@ from app.modules.branding_dna.scout_session_router import online
 from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.task_service import _task_dict, stage_from_snapshot
+from app.modules.branding_dna.scan_preflight_service import summarize_policy_reviews
 
 router = APIRouter(prefix="/api/v1/branding-dna", tags=["branding-dna-scan-tasks"])
 READ = require_permission("ai_operations.read")
@@ -126,7 +127,33 @@ def scan_readiness(
     ).all()
     clock = now_utc()
     connected = sum(bool(active and online(item.last_seen_at, clock)) for item, active in sessions)
+    # Knowledge and policy-review metadata are admin-only. A viewer with
+    # ai_operations.read may see generic scanner health, not private RAG
+    # document existence or review history.
+    can_view_policy = bool(getattr(principal, "platform_admin", False) or
+        "ai_provider.configure" in getattr(principal, "effective_permissions", frozenset()))
+    policy_review = (summarize_policy_reviews(
+        session, tenant_id=tenant, shop=shop, now=clock) if can_view_policy else {
+            "state": "restricted",
+            "counts": {"total": 0, "current_human_review": 0,
+                       "pending_human_review": 0, "revoked": 0,
+                       "expired_or_changed": 0, "rejected": 0},
+            "human_review_current": False,
+            "marketplace_authorization_verified": False, "dispatchable": False,
+        })
     blockers = ["scan_task_dispatch_not_deployed", "marketplace_authorization_not_verified"]
+    # This is a historical human paperwork evaluation, NOT an authorization
+    # signal. Its status must never permit staged -> pending or /lease jobs.
+    policy_blockers = {
+        "not_submitted": "human_policy_review_not_submitted",
+        "pending_human_review": "human_policy_review_pending",
+        "revoked": "human_policy_review_revoked",
+        "expired_or_changed": "human_policy_review_expired_or_changed",
+        "rejected": "human_policy_review_rejected",
+        "current_human_review": "human_policy_review_not_provider_authorization",
+        "restricted": "human_policy_review_requires_admin",
+    }
+    blockers.append(policy_blockers[policy_review["state"]])
     if shop.platform not in ("amazon", "etsy"):
         blockers.append("platform_not_supported_by_browser_pilot")
     if shop.access_mode not in ("owned", "authorized"):
@@ -147,6 +174,7 @@ def scan_readiness(
         "listing_snapshot_count": sum(snapshot_counts.values()),
         "verified_listing_count": snapshot_counts.get("verified", 0),
         "task_counts": task_counts,
+        "policy_review": policy_review,
         "scan_enabled": False, "dispatchable": False,
         "active_scan_jobs": 0, "marketplace_authorization_verified": False,
         "blockers": blockers,
