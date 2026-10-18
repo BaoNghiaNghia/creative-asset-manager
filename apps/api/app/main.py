@@ -27,6 +27,7 @@ from app.modules.branding_dna.dna_readiness_router import router as branding_dna
 from app.modules.branding_dna.evidence_router import router as branding_dna_evidence_router
 from app.modules.branding_dna.task_router import router as branding_dna_task_router
 from app.modules.branding_dna.scan_callback_router import router as branding_dna_scan_callback_router
+from app.modules.branding_dna.scan_authorization_router import router as branding_dna_scan_authorization_router
 from app.modules.branding_dna.worker_event_router import router as branding_dna_worker_event_router
 from app.modules.branding_dna.source_preview_router import router as branding_dna_source_preview_router
 from app.modules.branding_dna.browser_plan_router import router as branding_dna_browser_plan_router
@@ -232,6 +233,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(branding_dna_evidence_router)
     api.include_router(branding_dna_task_router)
     api.include_router(branding_dna_scan_callback_router)
+    api.include_router(branding_dna_scan_authorization_router)
     api.include_router(branding_dna_worker_event_router)
     api.include_router(branding_dna_source_preview_router)
     api.include_router(branding_dna_browser_plan_router)

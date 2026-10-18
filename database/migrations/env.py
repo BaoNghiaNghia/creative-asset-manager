@@ -24,6 +24,7 @@ from app.modules.branding_dna import model as branding_dna_models  # noqa: F401
 from app.modules.branding_dna import scout_session_model as branding_dna_scout_session_models  # noqa: F401
 from app.modules.branding_dna import knowledge_model as branding_dna_knowledge_models  # noqa: F401
 from app.modules.branding_dna import scan_receipt_model as branding_dna_scan_receipt_models  # noqa: F401
+from app.modules.branding_dna import scan_authorization_model as branding_dna_scan_authorization_models  # noqa: F401
 from app.modules.branding_dna import handoff_model as branding_dna_handoff_models  # noqa: F401
 from app.modules.inventory.jobs import model as inventory_job_models  # noqa: F401
 from app.modules.inventory import persistence_model as inventory_persistence_models  # noqa: F401

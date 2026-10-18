@@ -26,9 +26,11 @@ function temp(){
 }
 
 test("outbox is agent-namespaced and never allows arbitrary identifier in storage path",()=>{
- const path=defaultScanFailureOutboxPath({XDG_STATE_HOME:"/tmp/owned"},config.agentId);
- assert.ok(path.endsWith(config.agentId+"/scan-failure-outbox.sqlite"));
- assert.throws(()=>defaultScanFailureOutboxPath({XDG_STATE_HOME:"/tmp"},"../../secret"));
+ const root=join(tmpdir(),"owned");
+ const testEnv={LOCALAPPDATA:root,XDG_STATE_HOME:root};
+ const path=defaultScanFailureOutboxPath(testEnv,config.agentId);
+ assert.ok(path.endsWith(join(config.agentId,"scan-failure-outbox.sqlite")));
+ assert.throws(()=>defaultScanFailureOutboxPath(testEnv,"../../secret"));
 });
 
 test("terminal failures commit to SQLite; restart replays exactly once with no shop URL",async()=>{

@@ -6,6 +6,7 @@ import "./BrandingDnaStageTabs.css";
 import "./BrandingDnaUnified.css";
 import "./BrandingDnaFullWidth.css";
 import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
+import { BrandingDnaPolicyReviews } from "./BrandingDnaPolicyReviews";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaScanReadiness } from "./BrandingDnaScanReadiness";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
@@ -68,6 +69,7 @@ export function BrandingDnaPage() {
       <div><span>04</span><strong>Build Brand DNA</strong><small>Phân tích dựa trên evidence</small></div>
     </div>}
     {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation compact={activeTab === "overview"} onOpenShops={() => setActiveTab("shops")} />}
+    {activeTab === "shops" && <BrandingDnaPolicyReviews />}
     {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => setActiveTab("scanner")} />}
     {activeTab === "scanner" && <BrandingDnaScanReadiness />}
     {activeTab === "products" && <BrandingDnaEvidence />}
