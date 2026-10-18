@@ -20,9 +20,19 @@ automatically delete all other immutable frontend releases after success.
 The `--rollback` branch swaps `current` and `previous` on success, so
 an operator may reverse the rollback. If the Nginx reload fails during
 rollback, the script attempts to restore the original active link.
-The source-level regression suite exercises this behavior with isolated
-fake Nginx/systemd commands; a real operator must still verify the
-production release layout before activation.
+The deployment activation path now requires a valid existing `current`
+rollback anchor. It records the previous symlink state before activation,
+restores **both** `current` and `previous` if Nginx reload or any HTTP /
+optional UI post-activation smoke fails, and fails explicitly if rollback
+itself fails. A first install without a rollback anchor needs a separate
+reviewed bootstrap procedure. Do not interpret a successful HTTP GET as
+database or end-to-end functional readiness.
+
+The source-level regression suite exercises success, both classes of failure,
+missing `previous`, invalid target, and reversible rollback with isolated
+fake Nginx/systemd/HTTP commands; no real deployment is performed by those
+tests. A real operator must still verify the production release layout
+before activation.
 
 ## Operator-only read-only audit
 
