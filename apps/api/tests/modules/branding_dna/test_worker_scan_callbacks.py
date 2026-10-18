@@ -16,6 +16,7 @@ from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel
 from app.modules.branding_dna.router import ShopCreate, add_shop
 from app.modules.branding_dna.scan_callback_router import router as callback_router
 from app.modules.branding_dna.task_model import BrandScanTaskModel
+from app.modules.branding_dna.scan_receipt_model import BrandScanFailureReceiptModel
 from app.modules.branding_dna.task_router import TaskStage, stage_task
 from app.modules.branding_dna.task_service import claim_next_task
 from app.modules.branding_dna.worker_router import (
@@ -35,7 +36,7 @@ def setup():
     Base.metadata.create_all(engine, tables=[
         BrandShopModel.__table__, BrandWorkerModel.__table__,
         BrandListingSnapshotModel.__table__, BrandListingImageModel.__table__,
-        BrandScanTaskModel.__table__,
+        BrandScanTaskModel.__table__, BrandScanFailureReceiptModel.__table__,
     ])
     app = FastAPI()
     app.include_router(callback_router)
@@ -184,8 +185,13 @@ def test_failure_classification_retry_and_replay_deny(setup):
     assert safe.json()["status"] == "retry" and safe.json()["scan_enabled"] is False
     assert safe.json()["retry_after"]
     assert safe.headers["cache-control"] == "no-store"
+    replay = client.post(address, headers=headers,
+                         json=packet(lease, error_code="temporary_network_error"))
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert replay.json()["retry_after"] == safe.json()["retry_after"]
     assert client.post(address, headers=headers,
-                       json=packet(lease, error_code="temporary_network_error")).status_code == 409
+                       json=packet(lease, error_code="rate_limited")).status_code == 409
     assert client.post(url(worker["id"], task_id, "checkpoint"), headers=headers,
                        json=packet(lease)).status_code == 409
     with Session(engine) as session:
@@ -203,6 +209,53 @@ def test_manual_blocks_never_requeue(setup, code):
     assert result.status_code == 200
     assert result.json()["status"] == "blocked"
     assert result.json()["retry_after"] is None
+
+
+def test_terminal_receipt_is_durable_and_old_replay_does_not_mutate_new_lease(setup):
+    engine, client = setup
+    shop_id, task_id, worker, lease1 = lease_for_test(engine)
+    address = url(worker["id"], task_id, "failure")
+    headers = bearer(worker["agent_token"])
+    submitted = packet(lease1, error_code="rate_limited")
+    accepted = client.post(address, headers=headers, json=submitted)
+    assert accepted.status_code == 200 and accepted.json()["replayed"] is False
+    original_retry = accepted.json()["retry_after"]
+    # Force readiness solely in test fixture so a second lease can be claimed.
+    with Session(engine) as session:
+        row = session.get(BrandScanTaskModel, task_id)
+        row.retry_after = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+        lease2 = claim_next_task(
+            session, tenant_id="tenant-a", agent_id=worker["id"],
+            dispatch_authorized=True, adapter_verified=True,
+        )
+        assert lease2 and lease2["lease_generation"] == lease1["lease_generation"] + 1
+        before = (row.attempts, row.status, row.lease_generation, row.lease_id)
+    replay = client.post(address, headers=headers, json=submitted)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True
+    assert replay.json()["retry_after"] == original_retry
+    with Session(engine) as session:
+        row = session.get(BrandScanTaskModel, task_id)
+        assert (row.attempts, row.status, row.lease_generation, row.lease_id) == before
+        assert session.query(BrandScanFailureReceiptModel).count() == 1
+    assert client.post(address, headers=headers,
+        json={**submitted, "lease_id":"00000000-0000-4000-8000-000000000111"}).status_code == 409
+    assert client.post(address, headers=headers,
+        json={**submitted, "lease_generation":lease2["lease_generation"]}).status_code == 409
+
+
+def test_receipt_replay_requires_live_worker_token_even_after_commit(setup):
+    engine, client = setup
+    _, task_id, worker, lease = lease_for_test(engine)
+    address = url(worker["id"], task_id, "failure")
+    headers = bearer(worker["agent_token"])
+    data = packet(lease, error_code="manual_check_required")
+    assert client.post(address, headers=headers, json=data).status_code == 200
+    assert client.post(address, headers=headers, json=data).json()["replayed"] is True
+    with Session(engine) as session:
+        disable_worker(worker["id"], session=session, principal=principal())
+    assert client.post(address, headers=headers, json=data).status_code == 401
 
 
 def test_revoked_worker_and_access_grant_fail_closed(setup):

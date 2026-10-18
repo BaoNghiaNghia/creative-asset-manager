@@ -23,6 +23,7 @@ class BrandScanTaskModel(Base):
                          name="uq_bc_scan_task_idempotency"),
         Index("ix_bc_scan_task_queue", "tenant_id", "status", "retry_after", "created_at"),
         Index("ix_bc_scan_task_shop", "tenant_id", "shop_id", "created_at"),
+        Index("ux_bc_scan_task_tenant_identity", "tenant_id", "id", unique=True),
         CheckConstraint("attempts >= 0 AND attempts <= max_attempts AND max_attempts BETWEEN 1 AND 5",
                         name="ck_bc_scan_task_attempts"),
         CheckConstraint("lease_generation >= 0 AND checkpoint_seq >= 0",

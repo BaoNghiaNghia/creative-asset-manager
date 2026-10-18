@@ -50,15 +50,20 @@ agent, a shop changed to public_observation or a stale lease fail closed.
 Repeated checkpoint at exactly the current sequence returns the same ACK
 without extending the deadline; decreased sequence fails 409.
 
-Repeated `failure` after a successful state transition returns **409**
-rather than replay ACK: durable per-lease terminal receipt idempotency does
-not yet exist. Future results outbox MUST reconcile this case before retrying
-indefinitely; never treat a 409 as proof of success. The existing lifecycle
-event outbox cannot be reused to claim source-evidence receipt.
+**BD-SCAN-CALLBACKS-02A amendment:** After migration `0165_bdna_scan_failure_receipts`,
+a repeated `failure` with the same tenant, task, lease generation, lease ID,
+agent and error code returns the original terminal status and retry timestamp
+with `replayed:true`, without mutating the current/new lease. A conflicting
+receipt, revoked token or unrecognized/stale lease still fails closed.
+The separate metadata-only SQLite `scan_failure_outbox.mjs` persists pending
+failure callbacks until an exact server ACK (`replayed:boolean`) is received;
+HTTP 401/409/network faults retain local state. It is not connected to the
+live worker, does not upload evidence, and cannot activate a scan. See
+[durable failure receipts](./SCAN_FAILURE_RECEIPTS.md).
 
 ## Risk and gate state
 
-- **No migration** (reuses `bc_scan_tasks` existing lease fields).
+- **BD-SCAN-CALLBACKS-01 originally had no migration.** BD-SCAN-CALLBACKS-02A adds an append-only receipt table via migration `0165_bdna_scan_failure_receipts`. This must pass database backup/restore and additive schema gates before release.
 - **No new dependency** (FastAPI/SQLAlchemy/Pydantic, Node built-ins).
 - **No configuration, secret or token rotation** changes.
 - **No public staged→pending transition** or worker job claim on a real route.
@@ -86,6 +91,4 @@ safe retry and worker refusal of unapproved payloads. These are mock-source
 and test-only pending-task activation fixtures, **not** actual marketplace
 pilot evidence.
 
-Rollback the two source changes/route inclusion and Worker helper (no DB
-migration). If code is deployed but unsafe at runtime, disable the dedicated
-worker via the existing revocation endpoint and keep dispatch off.
+Rollback executable code by reverting the callback router/service and worker helper; keep the additive `bc_scan_failure_receipts` table/data intact during production rollback. Automatic destructive downgrade is denied. If necessary disable the worker via revocation, and keep dispatch off.

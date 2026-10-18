@@ -14,6 +14,7 @@ from app.modules.branding_dna.evidence_router import GalleryImport, ListingImpor
 from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel
 from app.modules.branding_dna.router import ShopCreate, add_shop
 from app.modules.branding_dna.task_model import BrandScanTaskModel
+from app.modules.branding_dna.scan_receipt_model import BrandScanFailureReceiptModel
 from app.modules.branding_dna.task_router import TaskStage, cancel_staged_task, list_scan_tasks, stage_task
 from app.modules.branding_dna.task_service import (
     checkpoint_task, claim_next_task, release_for_retry,
@@ -38,6 +39,7 @@ def db():
         BrandListingSnapshotModel.__table__,
         BrandListingImageModel.__table__,
         BrandScanTaskModel.__table__,
+        BrandScanFailureReceiptModel.__table__,
     ])
     with Session(engine) as session:
         yield session

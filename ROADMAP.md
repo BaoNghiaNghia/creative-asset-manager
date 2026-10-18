@@ -190,7 +190,8 @@
 ## Branding DNA & Product Creative Studio (2026-10-16)
 
 - [x] BD-SCAN-CALLBACKS-01: bearer-scoped, tenant/agent/lease-fenced checkpoint and classified failure HTTP callbacks, strict worker request helper and mock-only negative tests. No activation, no marketplace crawling or source proof. See `docs/features/branding-dna/SCAN_CALLBACK_CONTRACT.md`.
-- [ ] BD-SCAN-CALLBACKS-02: verified per-shop/marketplace grant and policy gate, bounded server-issued scan envelope, result outbox with replay-safe terminal ACK, genuine allowed source provenance, Windows QA, then controlled one-shop dispatch and rollback. **Do not enable `/lease` yet.**
+- [x] BD-SCAN-CALLBACKS-02A: append-only terminal failure receipt keyed by tenant/task/lease generation, replay-safe ACK, durable local metadata-only SQLite failure outbox with server ACK deletion, negative tests; no worker wiring or scan execution. `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
+- [ ] BD-SCAN-CALLBACKS-02B: verified per-shop/marketplace grant and policy gate, bounded server-issued scan envelope, complete evidence/result outbox with immutable provenance, Windows QA, then controlled one-shop dispatch and rollback. **Do not enable `/lease` yet.**
 
 - [x] BD-PC-SPEC-V1: consolidated approved system design and gated implementation plan (`docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md` and `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`). **Documentation only, not an operational release.**
 - [ ] BD-01..03: permitted product/gallery evidence → Product/Image Pick & source-verified Best Seller → versioned approved Brand DNA Core and Creative Playbook; never auto-promote inference or equate Pick with sales.
