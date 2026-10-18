@@ -1,13 +1,17 @@
 """Read and stage metadata verification tasks; no scan execution endpoints."""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from app.modules.branding_dna.model import BrandShopModel
+from app.modules.branding_dna.model import BrandShopModel, now_utc
+from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
+from app.modules.branding_dna.scout_session_model import BrandScoutSessionModel
+from app.modules.branding_dna.scout_session_router import online
+from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.task_service import _task_dict, stage_from_snapshot
 
@@ -78,3 +82,73 @@ def cancel_staged_task(
     task.status = "cancelled"
     session.commit()
     return {"item": _task_dict(task), "scan_enabled": False}
+
+
+@router.get("/shops/{shop_id}/scan-readiness")
+def scan_readiness(
+    shop_id: str, response: Response,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Tenant-bound operator view of existing evidence and staged work.
+
+    A live heartbeat is connectivity only, never proof of platform permission.
+    This endpoint cannot transition tasks or deliver browser commands.
+    """
+    tenant = principal.active_tenant_id
+    shop = session.scalar(select(BrandShopModel).where(
+        BrandShopModel.id == shop_id, BrandShopModel.tenant_id == tenant,
+    ))
+    if shop is None:
+        raise HTTPException(404, detail="Shop not found")
+
+    status_counts = dict(session.execute(
+        select(BrandScanTaskModel.status, func.count())
+        .where(BrandScanTaskModel.tenant_id == tenant,
+               BrandScanTaskModel.shop_id == shop_id)
+        .group_by(BrandScanTaskModel.status)
+    ).all())
+    states = ("staged", "pending", "leased", "retry", "blocked", "completed", "cancelled")
+    task_counts = {state: int(status_counts.get(state, 0)) for state in states}
+    snapshot_counts = dict(session.execute(
+        select(BrandListingSnapshotModel.evidence_state, func.count())
+        .where(BrandListingSnapshotModel.tenant_id == tenant,
+               BrandListingSnapshotModel.shop_id == shop_id)
+        .group_by(BrandListingSnapshotModel.evidence_state)
+    ).all())
+    sessions = session.execute(
+        select(BrandScoutSessionModel, RrugcScoutAgentModel.active)
+        .join(RrugcScoutAgentModel,
+              (BrandScoutSessionModel.agent_id == RrugcScoutAgentModel.id) &
+              (BrandScoutSessionModel.tenant_id == RrugcScoutAgentModel.tenant_id))
+        .where(BrandScoutSessionModel.tenant_id == tenant)
+        .limit(100)
+    ).all()
+    clock = now_utc()
+    connected = sum(bool(active and online(item.last_seen_at, clock)) for item, active in sessions)
+    blockers = ["scan_task_dispatch_not_deployed", "marketplace_authorization_not_verified"]
+    if shop.platform not in ("amazon", "etsy"):
+        blockers.append("platform_not_supported_by_browser_pilot")
+    if shop.access_mode not in ("owned", "authorized"):
+        blockers.append("shop_access_not_declared")
+    if connected == 0:
+        blockers.append("paired_agent_not_online")
+    if shop.platform == "etsy":
+        blockers.append("etsy_written_permission_not_verified")
+    if shop.platform == "amazon":
+        blockers.append("amazon_agent_policy_review_not_verified")
+
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "shop_id": shop.id, "platform": shop.platform,
+        "access_mode": shop.access_mode,
+        "paired_agents_online": connected,
+        "paired_agents_seen": len(sessions),
+        "listing_snapshot_count": sum(snapshot_counts.values()),
+        "verified_listing_count": snapshot_counts.get("verified", 0),
+        "task_counts": task_counts,
+        "scan_enabled": False, "dispatchable": False,
+        "active_scan_jobs": 0, "marketplace_authorization_verified": False,
+        "blockers": blockers,
+        "note": "Staged tasks and heartbeats do not authorize marketplace scans or verify imported evidence.",
+    }

@@ -4,6 +4,7 @@
 
 ## New: Shop Knowledge RAG
 - [BD-RAG-01 — Shop Knowledge implementation and remaining gates](./SHOP_RAG_IMPLEMENTATION.md).
+- [BD-SCAN-READINESS-01 — Scanner readiness, agent connectivity, task and rights blockers](./SCAN_READINESS.md).
 - Shop-scoped document upload, text extraction, review/approval and citation-based lexical retrieval have an isolated API and Shop Knowledge tab.
 - Brand DNA **Input Readiness** now displays per-shop listing verification blockers, approved Shop RAG citation excerpts and a reproducible input fingerprint. It is a read-only evidence packet, not AI DNA synthesis or auto-approval. This is a *separate source of contextual evidence*, not a replacement for product/gallery images, Best Seller signals, or the approved DNA Core.
 - Upload: TXT/MD/CSV/JSON/DOCX/text PDF; 2 MiB/file; strict document and lifetime limits per shop. No OCR, embeddings, generative responses or automatic profile mutation.

@@ -1,0 +1,20 @@
+.bdna-scan-readiness{margin:16px 0;padding:20px;background:#fff;border:1px solid #e4e8ed;border-radius:12px;color:#223043}
+.bdna-scan-readiness-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.bdna-scan-readiness h3,.bdna-scan-readiness h4{margin:0 0 6px}
+.bdna-scan-readiness p{margin:5px 0 10px;color:#54657b}
+.bdna-scan-readiness-actions{display:flex;align-items:end;gap:8px;flex-wrap:wrap}
+.bdna-scan-readiness-actions label{display:grid;gap:4px;font-size:13px}
+.bdna-scan-readiness-actions select{min-width:210px;max-width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff}
+.bdna-scan-readiness button{min-height:39px;padding:8px 14px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;cursor:pointer}
+.bdna-scan-readiness button:disabled{opacity:.5;cursor:not-allowed}
+.bdna-scan-readiness-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}
+.bdna-scan-readiness-metrics>div{background:#f7f9fc;border:1px solid #e9edf2;border-radius:9px;padding:13px;min-width:0}
+.bdna-scan-readiness-metrics strong{font-size:24px;display:block}
+.bdna-scan-readiness-metrics small{display:block;color:#54657b;line-height:1.5}
+.bdna-scan-readiness-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.bdna-scan-readiness-details>div{min-width:0}
+.bdna-scan-readiness-states{display:flex;flex-wrap:wrap;gap:7px}
+.bdna-scan-readiness-states span{padding:6px 8px;border-radius:6px;background:#f2f5f8;font-size:12px}
+.bdna-scan-readiness-details ul{margin:0;padding-left:20px}
+.bdna-scan-readiness-details li{margin-bottom:5px}
+@media(max-width:720px){.bdna-scan-readiness{padding:14px}.bdna-scan-readiness-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.bdna-scan-readiness-details{grid-template-columns:1fr}.bdna-scan-readiness-actions,.bdna-scan-readiness-actions label{width:100%}.bdna-scan-readiness-actions select{width:100%}}
