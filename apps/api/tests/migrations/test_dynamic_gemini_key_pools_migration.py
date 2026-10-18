@@ -37,6 +37,18 @@ class DynamicGeminiKeyPoolsMigrationTest(unittest.TestCase):
             self.assertIn("gemini!_backup!_%", inventory)
             engine.dispose()
 
+            # Regression: the guarded inventory backup check in 0138's
+            # downgrade must work through the SQLAlchemy parameter binder.
+            # Full integration runs the same path against psycopg/PostgreSQL.
+            command.downgrade(config, "0137_rrugc_keyword_favorites")
+            engine = create_engine(url)
+            inventory_restored = next(
+                item for item in inspect(engine).get_check_constraints("inventory_ai_credentials")
+                if item["name"] == "ck_inventory_ai_credentials_provider"
+            )["sqltext"]
+            self.assertIn("provider = 'gemini'", inventory_restored)
+            engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()
