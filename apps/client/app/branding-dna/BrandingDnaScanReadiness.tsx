@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import "./BrandingDnaScanReadiness.css";
+import { BrandingDnaScopePreview } from "./BrandingDnaScopePreview";
 
 type Shop = { id: string; display_name: string; platform: string };
 type ScanReadiness = {
@@ -148,6 +149,7 @@ export function BrandingDnaScanReadiness() {
           <ul>{readiness.blockers.map(key=><li key={key}>{blockerLabels[key]??key}</li>)}</ul>
         </div>
       </div>
+      {readiness.policy_review.state!=="restricted"&&<BrandingDnaScopePreview shopId={shopId}/>}
     </>}
   </section>;
 }

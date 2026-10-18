@@ -9,6 +9,7 @@
 - [BD-SCAN-CALLBACKS-02A — Durable terminal failure receipts and isolated worker SQLite outbox (dispatch OFF)](./SCAN_FAILURE_RECEIPTS.md).
 - [BD-SCAN-CALLBACKS-02B.1 — Two-person shop policy paperwork review with document provenance (dispatch OFF)](./SCAN_POLICY_REVIEWS.md).
 - [BD-SCAN-CALLBACKS-02B.2 — Tenant-scoped policy preflight in Scanner Readiness (no scan activation)](./SCAN_POLICY_PREFLIGHT.md).
+- [BD-SCAN-CALLBACKS-02B.2b — Bounded storefront URL preview and future-worker guard (dispatch OFF)](./SCAN_SCOPE_PREVIEW.md).
 - Shop-scoped document upload, text extraction, review/approval and citation-based lexical retrieval have an isolated API and Shop Knowledge tab.
 - Brand DNA **Input Readiness** now displays per-shop listing verification blockers, approved Shop RAG citation excerpts and a reproducible input fingerprint. It is a read-only evidence packet, not AI DNA synthesis or auto-approval. This is a *separate source of contextual evidence*, not a replacement for product/gallery images, Best Seller signals, or the approved DNA Core.
 - Upload: TXT/MD/CSV/JSON/DOCX/text PDF; 2 MiB/file; strict document and lifetime limits per shop. No OCR, embeddings, generative responses or automatic profile mutation.

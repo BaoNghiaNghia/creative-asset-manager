@@ -2863,6 +2863,13 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
 - Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
 
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2b strict storefront scope preview
+
+- Read-only `/shops/{id}/scan-scope/preview` validates a candidate URL against the server-registered shop, existing staged task and snapshot under the principal tenant. It performs no DNS, HTTP, Playwright or task mutation and returns no external URL or executable instructions; job remains null.
+- Conservative Amazon/Etsy hostname and path subtree check; deny cross-marketplace, arbitrary ports, credentials, encoded/dot traversal, fragments/queries, outside-shop paths. Hard display-only limits: 5 pages, 20 images, 20 sec, 0 redirects, 2 descendant path segments.
+- Separate isolated future worker `scan_scope_guard.mjs` guards against redirected/normalized URLs, but is not called from the live agent. Operator UI previews scope on the Browser Scanner tab for admin only.
+- 194 Branding DNA API tests and 54 Worker Node tests passed locally. No migration, external secrets/deps or authorization grant; dedicated Windows Browser QA and GitHub CI remain release gates.
+
 ## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2a policy preflight
 
 - Scanner Readiness now evaluates human-reviewed, expired, revoked or changed Policy records using the shared validity predicate, while marketplace authorization and dispatch stay disabled.
