@@ -358,7 +358,9 @@ def test_disabled_configuration_can_be_validated_before_enable(daily_sheet_db):
 def test_reconciliation_writes_absolute_values_once_and_is_idempotent(daily_sheet_db):
     google = FakeGoogle()
     google.values[("previous", "Stock!A1:C20")] = [["SKU", "Quantity", "Warehouse"], ["A", 2, "Main Warehouse"], ["B", 7, "Main Warehouse"]]
-    google.values[("current", "Stock!A1:C20")] = [["SKU", "Quantity", "Warehouse"], ["A", 5, "Main Warehouse"]]
+    # Zero is a valid physical count ONLY when the operator explicitly
+    # supplied the row. A missing row must never be synthesized as zero.
+    google.values[("current", "Stock!A1:C20")] = [["SKU", "Quantity", "Warehouse"], ["A", 5, "Main Warehouse"], ["B", 0, "Main Warehouse"]]
     google.values[("target", "Target!A2:A20")] = [["A"], ["B"]]
     google.values[("target", "Target!F2")] = [[1]]
     google.values[("target", "Target!F3")] = [[7]]
@@ -386,6 +388,40 @@ def test_reconciliation_writes_absolute_values_once_and_is_idempotent(daily_shee
     second = worker.reconcile("tenant-a", date(2030, 8, 9))
     assert second["status"] == "completed"
     assert len(google.update_calls) == 1
+
+
+def test_missing_operator_count_is_not_replaced_with_zero_or_written(daily_sheet_db):
+    google = FakeGoogle()
+    google.values[("previous", "Stock!A1:C20")] = [
+        ["SKU", "Quantity", "Warehouse"],
+        ["A", 2, "Main Warehouse"], ["B", 7, "Main Warehouse"],
+    ]
+    # The warehouse B row is missing, not explicitly counted as zero.
+    google.values[("current", "Stock!A1:C20")] = [
+        ["SKU", "Quantity", "Warehouse"], ["A", 5, "Main Warehouse"],
+    ]
+    google.values[("target", "Target!A2:A20")] = [["A"], ["B"]]
+    google.values[("target", "Target!F2")] = [[1]]
+    google.values[("target", "Target!F3")] = [[7]]
+    with daily_sheet_db.begin() as session:
+        session.add_all([
+            InventoryDailySheetSnapshotModel(
+                id="previous-missing-row", tenant_id="tenant-a",
+                business_date=date(2030, 8, 8), external_source_id="source-a",
+                source_spreadsheet_file_id="working", snapshot_file_id="previous",
+                status="completed",
+            ),
+            InventoryDailySheetSnapshotModel(
+                id="current-missing-row", tenant_id="tenant-a",
+                business_date=date(2030, 8, 9), external_source_id="source-a",
+                source_spreadsheet_file_id="working", snapshot_file_id="current",
+                status="completed",
+            ),
+        ])
+    with pytest.raises(DailySheetValidationError, match="incomplete_stock_record_set"):
+        service(daily_sheet_db, google).reconcile("tenant-a", date(2030, 8, 9))
+    assert google.update_calls == []
+    assert google.values[("target", "Target!F3")] == [[7]]
 
 
 def test_missing_previous_snapshot_requires_explicit_baseline(daily_sheet_db):
