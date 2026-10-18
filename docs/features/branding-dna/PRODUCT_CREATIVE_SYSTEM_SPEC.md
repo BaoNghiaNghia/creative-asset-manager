@@ -121,6 +121,13 @@ flowchart TB
 
 Mỗi insight có claim, observed_count, sample_count, confidence, evidence_ids, contradiction_ids, model/prompt version, state và reviewer; weak evidence hiển thị unknown/needs_review. Profile approved giữ nguyên; scan mới tạo diff/draft.
 
+### 3.5. Shop Knowledge RAG — nguồn tri thức bổ sung
+Ngoài listing/gallery, Product Pick và Best Seller, mỗi shop có một **Shop Knowledge Library** để team upload tài liệu về brand voice, audience, design guideline, product specifications, FAQ, campaign và các ràng buộc nội bộ. Đây là **nguồn Input cho Brand Intelligence**, không phải input thứ tư của Product Creative: ba input team cung cấp ở mục 4 vẫn giữ nguyên.
+
+Luồng: Upload file → Validate & extract → Chunk + source hash → Human Review → Approved retrieval with citation → Candidate DNA / Playbook draft. Văn bản RAG là claim từ tài liệu, **không được suy diễn thành observed product/sales fact**. Chỉ nội dung đã duyệt mới có thể được truy xuất; các cập nhật RAG tạo draft mới, không sửa approved DNA. Shot Planner tương lai phải ghi rõ doc/citation/version ID được dùng và tách thông tin đã xác minh từ gợi ý sáng tạo. Tài liệu có hướng dẫn chi tiết: [Shop RAG](./SHOP_RAG_IMPLEMENTATION.md).
+
+**Checkpoint BD-RAG-01:** upload tối đa 2 MB/file (TXT, MD, CSV, JSON, DOCX, PDF có text); review/approve/archive; truy xuất lexical có dẫn nguồn theo tenant/shop. **Chưa có vector embeddings, semantic retrieval, Gemini DNA aggregation hay áp dụng RAG tự động cho ảnh.** Không coi PDF/ảnh quét thiếu text là đã index.
+
 ## 4. Ba nhóm Input từ Team — hợp đồng tối giản
 
 | Input | Team cung cấp | AI được tự đề xuất | Gate bắt buộc |
