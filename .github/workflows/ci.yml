@@ -88,6 +88,8 @@ jobs:
       - name: Install sandboxed Playwright Chromium
         working-directory: apps/client
         run: npx playwright install --with-deps chromium
+      - name: Guard orphaned loopback QA preview cleanup
+        run: python3 -m unittest scripts.test_cam_clean_orphaned_ui_qa -v
       - name: Check interaction QA runtime
         run: node --test apps/client/scripts/ui-qa-*.node-test.mjs apps/client/scripts/production-ui-plan-validation.node-test.mjs
       - name: Verify failure evidence is always captured

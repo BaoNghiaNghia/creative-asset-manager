@@ -83,7 +83,8 @@ SERVER_LOG="$LOG_DIR/profile-matrix-preview.log"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then
-    # npm creates a child Vite server; stop its entire isolated process group.
+    # The Vite process itself is the group leader. Signalling its group
+    # prevents loopback previews outliving a failed or interrupted QA run.
     kill -TERM -- "-$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
@@ -91,7 +92,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$CLIENT"
-setsid npm run preview -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
+# Avoid npm's grandchild process surviving after the shell's EXIT trap.
+# Run the locked, installed Vite executable as the process-group leader.
+setsid node "$CLIENT/node_modules/vite/bin/vite.js" preview --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 80); do

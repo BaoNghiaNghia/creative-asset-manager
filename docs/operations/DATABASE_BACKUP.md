@@ -1,10 +1,11 @@
 # Database Backup to Google Drive
 
-**Status:** IMPLEMENTED / NOT YET ACTIVATED IN PRODUCTION
+**Status (observed 2026-10-18):** IMPLEMENTED; production systemd timer active; last run completed successfully on 2026-10-16.
+**Recoverability:** UNVERIFIED — latest remote file metadata and an isolated test restore have not been independently verified. Do not treat a green timer as permission for a production migration.
 **Target database size:** < 10 GB
-**Scheduler:** systemd
+**Scheduler:** systemd (Tuesday and Friday at 22:00 Asia/Ho_Chi_Minh)
 **Remote storage:** Google Drive managed storage
-**Production rollout:** NOT STARTED
+**Production release gate:** BLOCKED pending verified remote backup/checksum and an isolated restore rehearsal. Follow [VPS hardening plan](VPS_HARDENING_EXECUTION_PLAN_20261018.md).
 
 This is the authoritative functional and operational specification for V1. See
 [the implementation plan](../plans/DATABASE_BACKUP_IMPLEMENTATION.md) for the
