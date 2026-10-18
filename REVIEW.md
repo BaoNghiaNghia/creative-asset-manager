@@ -2863,6 +2863,12 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
 - Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
 
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-2B.1 server quarantined result receipts
+
+- New additive Alembic 0167 table `bc_scan_result_receipts` uses tenant/task and tenant/shop/snapshot composite foreign keys, immutable per-task-generation/client UUID uniqueness, quarantined-only CHECK and bounded gallery/page count. No browser/worker URLs, tokens, HTML or image bytes are stored.
+- Internal-only `persist_quarantined_future_result` verifies exact worker canonical payload SHA, live worker/lease generation, snapshot identity and unexpired capture. It inserts an immutable unverified receipt and blocks the leased task for manual provenance review in ONE transaction. Identical lost-ACK replay is idempotent; conflicting data, revoked worker, terminal failure and tenant mismatch fail closed. No endpoint imports this service and `/lease` returns null.
+- Disposable SQL migration constraints and guarded downgrade tested; CI PostgreSQL 12/16 workflow updated to include 0167 guarded rollback/re-upgrade. No production migration, merge or real marketplace traffic. See `docs/features/branding-dna/SCAN_SERVER_RESULT_RECEIPTS.md`.
+
 ## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-2A durable result outbox, future-only ACK
 
 - Future-only Node SQLite WAL/FULL synchronous result queue in a separate agent-specific local state path. Stores bounded metadata only (task/shop/snapshot IDs, client receipt ID, lease generation, hashed gallery roles and canonical payload SHA); no raw URLs, browser content, image bytes or tokens. Hard cap 200, max 8192 bytes/event; never drops old events to make room.

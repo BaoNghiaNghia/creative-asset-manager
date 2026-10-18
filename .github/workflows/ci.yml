@@ -278,6 +278,9 @@ jobs:
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
           # Exercise the entire migration chain once, on a disposable database.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
+          python -m alembic current | grep -F '0167_bdna_scan_result_receipts'
+          # Guarded downgrade only on disposable CI database, never production.
+          CAM_ALLOW_SCAN_RESULT_DATA_DROP_FOR_TEST=1 python -m alembic downgrade 0166_bdna_scan_authorization_reviews 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0166_bdna_scan_authorization_reviews'
           # Roll back the immutable policy-review ledger only in disposable
           # CI DB, with an explicit test-only flag, before receipt rollback.
@@ -290,7 +293,7 @@ jobs:
           CAM_ALLOW_RAG_DATA_DROP_FOR_TEST=1 CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee -a ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0161_branding_dna_worker_events'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0166_bdna_scan_authorization_reviews'
+          python -m alembic current | grep -F '0167_bdna_scan_result_receipts'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
