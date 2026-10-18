@@ -9,6 +9,7 @@ import { BrandingDnaFoundation } from "./BrandingDnaFoundation";
 import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaKnowledge } from "./BrandingDnaKnowledge";
+import { BrandingDnaReadiness } from "./BrandingDnaReadiness";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 
 const DEMO_TABS = ["overview", "shops", "scanner", "products", "knowledge", "dna"] as const;
@@ -33,7 +34,7 @@ export function BrandingDnaPage() {
     { id: "scanner", title: "Browser Scanner", note: "Chưa quét" },
     { id: "products", title: "Product Explorer", note: "Import evidence" },
     { id: "knowledge", title: "Shop Knowledge", note: "RAG Library" },
-    { id: "dna", title: "Brand DNA", note: "Chờ phân tích" },
+    { id: "dna", title: "Brand DNA", note: "Input Readiness" },
   ];
   return <main className="branding-dna-page">
     <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header"
@@ -57,7 +58,7 @@ export function BrandingDnaPage() {
     <div className="bdna-workspace-heading">
       <div><span>BRANDING DNA / STAGE {tabs.findIndex(item => item.id === activeTab)}</span><h2>{tabs.find(item => item.id === activeTab)?.title}</h2>
         <p>{activeTab === "overview" ? "Production foundation, worker status và lộ trình triển khai." : activeTab === "shops" ? "Quản lý các shop được lưu theo tenant bằng dữ liệu thật." : activeTab === "scanner" ? "Lớp điều phối trình duyệt sẽ chỉ hoạt động sau khi worker và evidence pipeline đạt yêu cầu." : activeTab === "products" ? "Hiển thị listing/gallery được nhập từ nguồn có quyền, đánh dấu unverified cho tới khi đối chiếu." : activeTab === "knowledge" ? "Upload tài liệu, duyệt nguồn và tìm lại nội dung RAG cho từng shop." : "Brand identity và insights sẽ hình thành từ evidence sản phẩm đã được kiểm chứng."}</p></div>
-      <span className="bdna-workspace-state">{activeTab === "overview" || activeTab === "shops" ? "LIVE REGISTRY" : activeTab === "products" ? "METADATA · UNVERIFIED" : activeTab === "knowledge" ? "RAG LIBRARY · REVIEW" : "NOT CONNECTED"}</span>
+      <span className="bdna-workspace-state">{activeTab === "overview" || activeTab === "shops" ? "LIVE REGISTRY" : activeTab === "products" ? "METADATA · UNVERIFIED" : activeTab === "knowledge" ? "RAG LIBRARY · REVIEW" : "INPUT GATES · READ ONLY"}</span>
     </div>
     {activeTab === "overview" && <div className="bdna-workflow-overview" aria-label="Branding DNA workflow">
       <div><span>01</span><strong>Register shops</strong><small>Shop Registry · dữ liệu tenant thật</small></div>
@@ -69,13 +70,7 @@ export function BrandingDnaPage() {
     {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => setActiveTab("scanner")} />}
     {activeTab === "products" && <BrandingDnaEvidence />}
     {activeTab === "knowledge" && <BrandingDnaKnowledge />}
-    {activeTab === "dna" && <section className="bdna-future-panel">
-      <div className="bdna-future-illustration" aria-hidden="true"><span>01</span><span>02</span><span>03</span></div>
-      <strong>Brand DNA · Awaiting verified evidence</strong>
-      <p>Tổng hợp style, palette, typography, positioning và creative patterns dựa trên các nguồn được trích dẫn.</p>
-      <div className="bdna-future-steps"><span>1 · Add Shop</span><span>2 · Connect Worker</span><span>3 · Verify Evidence</span><span>4 · Generate Insights</span></div>
-      <button type="button" onClick={() => setActiveTab("shops")}>Đi đến Shop Library →</button>
-    </section>}
+    {activeTab === "dna" && <BrandingDnaReadiness onOpenKnowledge={() => setActiveTab("knowledge")} onOpenShops={() => setActiveTab("shops")} />}
     </section>
     <details className="branding-dna-preview-link" aria-label="Branding DNA design preview"><summary>Giao diện prototype · dữ liệu mô phỏng <span>Chi tiết</span></summary><div><p>Shop Registry, Worker Registry, Product Explorer và Shop Knowledge sử dụng API dữ liệu tenant thực. Product Explorer chỉ hiển thị bản export chưa xác minh; Browser Scanner và phân tích Brand DNA vẫn chưa hoạt động. Prototype riêng chỉ dùng dữ liệu mô phỏng.</p><a href={`/branding-dna-preview/index.html?view=${encodeURIComponent(activeTab)}`} target="_blank" rel="noopener noreferrer">Xem prototype ↗</a></div></details>
   </main>;
