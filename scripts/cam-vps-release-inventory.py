@@ -7,6 +7,7 @@ does not grant access to /opt or /var/www from a restricted workspace.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -34,24 +35,36 @@ def _release_from_path(path: Path, releases: Path) -> str | None:
     return None
 
 
-def _process_release_references(releases: Path, *, proc_root: Path = Path("/proc")) -> dict[str, list[str]]:
+def _process_release_references(releases: Path, *, proc_root: Path = Path("/proc")) -> tuple[dict[str, list[str]], bool]:
+    """Return references and whether any live process paths were unreadable.
+
+    A permission-denied /proc read must not result in an apparently clean
+    candidate. ENOENT/ESRCH are expected for kernel threads/exited processes.
+    """
     references: dict[str, list[str]] = {}
     if not proc_root.is_dir():
         raise InventoryError("Process table unavailable: cannot safely classify release protection.")
-    for process in proc_root.iterdir():
+    complete = True
+    try:
+        processes = list(proc_root.iterdir())
+    except OSError as exc:
+        raise InventoryError("Process table enumeration failed.") from exc
+    for process in processes:
         if not process.name.isdigit():
             continue
         for name in ("cwd", "exe"):
             link = process / name
             try:
                 target = Path(os.readlink(link))
-            except (FileNotFoundError, PermissionError, OSError):
+            except OSError as exc:
+                if isinstance(exc, FileNotFoundError) or exc.errno in (errno.ENOENT, errno.ESRCH):
+                    continue
+                complete = False
                 continue
             release = _release_from_path(target, releases)
             if release:
-                reason = f"pid_{process.name}_{name}"
-                references.setdefault(release, []).append(reason)
-    return references
+                references.setdefault(release, []).append(f"pid_{process.name}_{name}")
+    return references, complete
 
 
 def _directory_mib(path: Path) -> float | None:
@@ -100,7 +113,10 @@ def inventory(root: Path, *, proc_root: Path = Path("/proc")) -> dict:
     if "current" not in [r for why in protections.values() for r in why]:
         raise InventoryError("No valid current release symlink: inventory is blocked.")
 
-    process_refs = _process_release_references(releases, proc_root=proc_root)
+    rollback_ready = "previous_symlink_missing" not in warnings
+    process_refs, scan_complete = _process_release_references(releases, proc_root=proc_root)
+    if not scan_complete:
+        warnings.append("process_references_incomplete")
     for release, reasons in process_refs.items():
         protections.setdefault(release, []).extend(reasons)
 
@@ -110,17 +126,27 @@ def inventory(root: Path, *, proc_root: Path = Path("/proc")) -> dict:
             warnings.append("unexpected_release_entry_present")
             continue
         reasons = sorted(set(protections.get(entry.name, [])))
+        size_mib = _directory_mib(entry)
+        if size_mib is None:
+            warnings.append("release_size_unavailable")
         entries.append({
             "release": entry.name,
             "protected_by": reasons,
-            "classification": "PROTECTED" if reasons else "REVIEW_ONLY",
-            "size_mib": _directory_mib(entry),
+            "classification": (
+                "PROTECTED" if reasons
+                else "REVIEW_ONLY" if scan_complete and rollback_ready and size_mib is not None
+                else "UNKNOWN"
+            ),
+            "size_mib": size_mib,
         })
     return {
         "READ_ONLY": True, "DELETION_PERFORMED": False, "ROOT": str(root),
         "release_count": len(entries),
-        "protected_count": sum(bool(e["protected_by"]) for e in entries),
-        "review_count": sum(not e["protected_by"] for e in entries),
+        "protected_count": sum(e["classification"] == "PROTECTED" for e in entries),
+        "review_count": sum(e["classification"] == "REVIEW_ONLY" for e in entries),
+        "unknown_count": sum(e["classification"] == "UNKNOWN" for e in entries),
+        "PROCESS_SCAN": "COMPLETE" if scan_complete else "INCOMPLETE",
+        "ROLLBACK_POINTERS": "READY" if rollback_ready else "INCOMPLETE",
         "releases": entries, "warnings": sorted(set(warnings)),
         "REVIEW_REQUIRED_FOR_ANY_DELETION": True,
     }

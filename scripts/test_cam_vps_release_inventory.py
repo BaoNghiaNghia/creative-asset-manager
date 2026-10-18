@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("cam-vps-release-inventory.py")
@@ -42,6 +45,9 @@ class ReleaseInventoryTests(unittest.TestCase):
         releases = {x["release"]: x for x in report["releases"]}
         self.assertEqual(report["release_count"], 3)
         self.assertEqual(report["protected_count"], 2)
+        self.assertEqual(report["review_count"], 1)
+        self.assertEqual(report["unknown_count"], 0)
+        self.assertEqual(report["PROCESS_SCAN"], "COMPLETE")
         self.assertEqual(releases[self.current]["protected_by"], ["current"])
         self.assertEqual(releases[self.previous]["protected_by"], ["previous"])
         self.assertEqual(releases[self.extra]["classification"], "REVIEW_ONLY")
@@ -97,6 +103,36 @@ class ReleaseInventoryTests(unittest.TestCase):
         self.assertEqual(report["release_count"], 3)
         self.assertIn("unexpected_release_entry_present", report["warnings"])
 
+    def test_unreadable_live_process_never_mislabeled_review_only(self):
+        process = self.proc / "2468"
+        process.mkdir()
+        (process / "cwd").symlink_to(self.releases / self.extra)
+        original = os.readlink
+
+        def denied_for_process(path):
+            if Path(path) == process / "cwd":
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return original(path)
+
+        with patch.object(mod.os, "readlink", side_effect=denied_for_process):
+            report = self.inspect()
+        entry = next(x for x in report["releases"] if x["release"] == self.extra)
+        self.assertEqual(report["PROCESS_SCAN"], "INCOMPLETE")
+        self.assertIn("process_references_incomplete", report["warnings"])
+        self.assertEqual(report["review_count"], 0)
+        self.assertEqual(report["unknown_count"], 1)
+        self.assertEqual(entry["classification"], "UNKNOWN")
+
+    def test_unavailable_directory_size_never_mislabeled_review_only(self):
+        with patch.object(mod, "_directory_mib", return_value=None):
+            report = self.inspect()
+        self.assertIn("release_size_unavailable", report["warnings"])
+        self.assertEqual(report["review_count"], 0)
+        self.assertEqual(report["unknown_count"], 1)
+        self.assertEqual(report["PROCESS_SCAN"], "COMPLETE")
+        entry = next(x for x in report["releases"] if x["release"] == self.extra)
+        self.assertEqual(entry["classification"], "UNKNOWN")
+
     def test_no_process_table_fails_closed(self):
         with self.assertRaisesRegex(mod.InventoryError, "Process table unavailable"):
             mod.inventory(self.root, proc_root=self.dir / "not-a-proc")
@@ -105,6 +141,9 @@ class ReleaseInventoryTests(unittest.TestCase):
         (self.root / "previous").unlink()
         report = self.inspect()
         self.assertIn("previous_symlink_missing", report["warnings"])
+        self.assertEqual(report["ROLLBACK_POINTERS"], "INCOMPLETE")
+        self.assertEqual(report["review_count"], 0)
+        self.assertEqual(report["unknown_count"], 2)
         self.assertIn("current", next(x for x in report["releases"]
                                        if x["release"] == self.current)["protected_by"])
 

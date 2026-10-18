@@ -53,6 +53,18 @@ or otherwise invalid; only directories matching exact commit-style release
 names are considered for review. Symbolic links and unknown entries are never
 deletion candidates.
 
+**Fail-closed process coverage (updated 18 Oct 2026):** the inventory reports
+`PROCESS_SCAN=COMPLETE` or `INCOMPLETE`. If any live-process cwd/executable
+cannot be read due to permissions or unexpected errors, the script reports
+`process_references_incomplete` and downgrades every otherwise unprotected
+release from `REVIEW_ONLY` to **`UNKNOWN`** (`unknown_count`).
+If `du` cannot determine an individual release size, that release is likewise
+`UNKNOWN` with `release_size_unavailable`. A missing `previous` symlink
+sets `ROLLBACK_POINTERS=INCOMPLETE` and similarly excludes all unprotected
+releases from `REVIEW_ONLY` until rollback anchors are verified.
+Only ordinary disappearing processes (ENOENT/ESRCH) are ignored. Process cwd/exe coverage is not a
+complete open-file or systemd reference audit, even if marked `COMPLETE`.
+
 `REVIEW_ONLY` **does not mean safe to delete**. It means the helper did not
 see an explicit protection in its bounded view. A human operator must also
 verify systemd units, Nginx current config, deployment locks, pending rollouts,
