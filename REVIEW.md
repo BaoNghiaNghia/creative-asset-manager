@@ -2863,6 +2863,13 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
 - Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
 
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-1 result manifest preflight
+
+- New admin-only HTTP result metadata preview binds exact gallery hash/role/order, listing identity, observed revision and timestamp to the existing tenant/shop/task/snapshot, with a deterministic SHA256 integrity digest. It never persists results, issues a receipt, completes a job or elevates marketplace rights.
+- Bound 1–5 pages, 1–20 gallery entries, status/rights remain unverified/unknown, no URL/media/credentials/freeform fields; rejects 30-day stale or 5-minute future captures. Matching isolated Node validator is not imported by the live worker.
+- Real HTTP tests identified and resolved a JSON ISO timestamp compatibility issue in Pydantic while preserving strict numeric/type and timezone checks. This change is source-only; no schema, dependency or credential changes.
+- 211 Branding DNA API and 58 Node worker tests passed before final HTTP-case addition; focused HTTP fixture 18/18 tests passed. Full repository staging and current GitHub CI to be recorded after their execution. `/lease` remains no-job.
+
 ## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2b strict storefront scope preview
 
 - Read-only `/shops/{id}/scan-scope/preview` validates a candidate URL against the server-registered shop, existing staged task and snapshot under the principal tenant. It performs no DNS, HTTP, Playwright or task mutation and returns no external URL or executable instructions; job remains null.
