@@ -909,6 +909,13 @@
         "page": 1,
         "page_size": 25
       }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/jobs",
+      "body": {
+        "items": []
+      }
     }
   ]
 }

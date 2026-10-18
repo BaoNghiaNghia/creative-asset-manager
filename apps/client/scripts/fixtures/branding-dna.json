@@ -184,6 +184,63 @@
         "dna_generation_enabled": false,
         "automatic_dna_mutation_enabled": false
       }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-policy-reviews",
+      "body": {
+        "items": [],
+        "count": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-readiness",
+      "body": {
+        "shop_id": "qa-shop-1",
+        "platform": "etsy",
+        "access_mode": "public",
+        "paired_agents_online": 0,
+        "paired_agents_seen": 0,
+        "listing_snapshot_count": 0,
+        "verified_listing_count": 0,
+        "task_counts": {
+          "staged": 0,
+          "pending": 0,
+          "leased": 0,
+          "retry": 0,
+          "blocked": 0,
+          "completed": 0,
+          "cancelled": 0
+        },
+        "policy_review": {
+          "state": "not_submitted",
+          "human_review_current": false,
+          "marketplace_authorization_verified": false,
+          "dispatchable": false,
+          "counts": {
+            "total": 0,
+            "current_human_review": 0
+          }
+        },
+        "scan_enabled": false,
+        "dispatchable": false,
+        "active_scan_jobs": 0,
+        "marketplace_authorization_verified": false,
+        "blockers": [
+          "scan_task_dispatch_not_deployed",
+          "marketplace_authorization_not_verified",
+          "etsy_written_permission_not_verified"
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/scan-tasks",
+      "body": {
+        "items": [],
+        "count": 0
+      }
     }
   ]
 }
