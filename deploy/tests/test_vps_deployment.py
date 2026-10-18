@@ -63,6 +63,18 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose", "systemctl restart creative-asset-manager-api", "npm --prefix", 'git -C "$SOURCE_DIR" archive'):
             self.assertNotIn(forbidden, source)
 
+    def test_backend_cleanup_requires_opt_in_and_never_discards_previous(self) -> None:
+        source = BACKEND.read_text()
+        self.assertIn('KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-4}"', source)
+        self.assertIn("CLEANUP_RELEASES=false", source)
+        self.assertIn("    --cleanup)", source)
+        self.assertIn("      CLEANUP_RELEASES=true", source)
+        self.assertIn("    --no-cleanup)", source)
+        self.assertIn("if ! $CLEANUP_RELEASES; then", source)
+        self.assertNotIn('rm -f -- "$PREVIOUS"', source)
+        self.assertIn('protect_release "$previous_target"', source)
+        self.assertIn('protect_release "${TARGET:-}"', source)
+
     def test_backend_native_systemd_contract(self) -> None:
         source = BACKEND.read_text()
         for required in (
