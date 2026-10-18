@@ -191,6 +191,8 @@ python -m app.operations.database_backup_cli prune
 `backup` performs the complete workflow. `prune` is explicit maintenance,
 but a normal scheduled backup must not require a separate operator call.
 
+**Read-only remote inventory (updated 18 Oct 2026):** `list` includes a managed backup's Drive content-derived `content_md5`, stored `sha256_metadata` and `integrity_metadata`, after verifying the returned file belongs to the configured managed backup folder and has `cam_kind=database_backup_v1`. Malformed digests are omitted and marked `INCOMPLETE`; valid metadata is labeled `COMPLETE_NOT_DOWNLOADED`. The result always states `BACKUP_CONTENT_CHECKED=NO` and `RESTORE_REHEARSAL=NOT_RUN`. A checksum reported by the Drive metadata endpoint **is not a substitute** for downloading and verifying the bytes, restoring into a distinct cluster and validating source identity/schema. See [isolated restore rehearsal](VPS_DATABASE_RESTORE_REHEARSAL.md).
+
 Future settings:
 
 ```dotenv
