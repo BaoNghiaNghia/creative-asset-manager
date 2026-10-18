@@ -70,11 +70,8 @@ def upgrade() -> None:
         ["tenant_id", "created_at"],
     )
 
-    op.alter_column(
-        "rrugc_delivery_packages",
-        "auto_retry_count",
-        server_default=None,
-    )
+    with op.batch_alter_table("rrugc_delivery_packages") as batch:
+        batch.alter_column("auto_retry_count", existing_type=sa.Integer(), server_default=None)
 
 
 def downgrade() -> None:

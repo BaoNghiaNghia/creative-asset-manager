@@ -159,17 +159,21 @@ def upgrade() -> None:
         ["tenant_id", "agent_id", "status", "updated_at"],
     )
 
-    op.alter_column("rrugc_campaigns", "auto_scout", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_interval_seconds", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_attempt_count", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_empty_streak", server_default=None)
-    op.alter_column("rrugc_scout_agents", "status", server_default=None)
-    op.alter_column("rrugc_scout_agents", "active", server_default=None)
-    op.alter_column("rrugc_scout_runs", "status", server_default=None)
-    op.alter_column("rrugc_scout_runs", "progress_before", server_default=None)
-    op.alter_column("rrugc_scout_runs", "submitted_count", server_default=None)
-    op.alter_column("rrugc_scout_runs", "created_count", server_default=None)
-    op.alter_column("rrugc_scout_runs", "existing_count", server_default=None)
+    # SQLite requires table-copy mode when removing column defaults.
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        batch.alter_column("auto_scout", existing_type=sa.Boolean(), server_default=None)
+        batch.alter_column("scan_interval_seconds", existing_type=sa.Integer(), server_default=None)
+        batch.alter_column("scan_attempt_count", existing_type=sa.Integer(), server_default=None)
+        batch.alter_column("scan_empty_streak", existing_type=sa.Integer(), server_default=None)
+    with op.batch_alter_table("rrugc_scout_agents") as batch:
+        batch.alter_column("status", existing_type=sa.String(length=32), server_default=None)
+        batch.alter_column("active", existing_type=sa.Boolean(), server_default=None)
+    with op.batch_alter_table("rrugc_scout_runs") as batch:
+        batch.alter_column("status", existing_type=sa.String(length=32), server_default=None)
+        batch.alter_column("progress_before", existing_type=sa.Integer(), server_default=None)
+        batch.alter_column("submitted_count", existing_type=sa.Integer(), server_default=None)
+        batch.alter_column("created_count", existing_type=sa.Integer(), server_default=None)
+        batch.alter_column("existing_count", existing_type=sa.Integer(), server_default=None)
 
 
 def downgrade() -> None:

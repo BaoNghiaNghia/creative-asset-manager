@@ -54,7 +54,7 @@
         {
           "type": "count",
           "selector": ".bdna-stage-tabs [role=tab]",
-          "value": 5
+          "value": 6
         },
         {
           "type": "visible",
@@ -155,12 +155,38 @@
     {
       "name": "products-empty-state",
       "click": "#bdna-stage-products",
-      "waitFor": ".bdna-future-panel",
+      "waitFor": ".bdna-evidence-empty",
       "assertions": [
         {
           "type": "text-includes",
-          "selector": ".bdna-future-panel",
-          "value": "Awaiting scanned products"
+          "selector": ".bdna-evidence-empty",
+          "value": "Chưa có evidence từ Browser Agent"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "shop-knowledge-library",
+      "click": "#bdna-stage-knowledge",
+      "waitFor": ".bdna-rag-upload",
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": "#bdna-stage-knowledge",
+          "name": "aria-selected",
+          "value": "true"
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-rag-upload"
+        },
+        {
+          "type": "visible",
+          "selector": ".bdna-rag-metrics"
         },
         {
           "type": "no-viewport-overflow",
@@ -172,12 +198,12 @@
     {
       "name": "dna-empty-state",
       "click": "#bdna-stage-dna",
-      "waitFor": ".bdna-future-panel",
+      "waitFor": ".bdna-readiness-status",
       "assertions": [
         {
           "type": "text-includes",
-          "selector": ".bdna-future-panel",
-          "value": "Awaiting verified evidence"
+          "selector": ".bdna-readiness-status",
+          "value": "Chưa đủ dữ liệu để tạo Brand DNA"
         },
         {
           "type": "no-viewport-overflow",

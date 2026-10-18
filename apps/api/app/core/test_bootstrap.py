@@ -70,8 +70,10 @@ def _register_unittest_metadata_models() -> None:
     from app.modules.auth_persistence import model as _auth_persistence_models  # noqa: F401
 
 
-def activate_test_environment() -> None:
-    if not is_unittest_runtime():
+def activate_test_environment(*, explicit_test_runner: bool = False) -> None:
+    # CI's sharded unittest runner is a Python script, not `python -m unittest`.
+    # Only an explicitly selected test runner may opt into resetting env.
+    if not explicit_test_runner and not is_unittest_runtime():
         return
     reset_test_environment()
     _install_per_test_reset()

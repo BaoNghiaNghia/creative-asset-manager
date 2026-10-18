@@ -15,32 +15,24 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_constraint(
-        "fk_rrugc_stage2_job_source_plan",
-        "rrugc_stage2_jobs",
-        type_="foreignkey",
-    )
-    op.create_foreign_key(
-        "fk_rrugc_stage2_job_source_plan",
-        "rrugc_stage2_jobs",
-        "rrugc_source_plans",
-        ["source_plan_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    with op.batch_alter_table("rrugc_stage2_jobs") as batch:
+        batch.drop_constraint("fk_rrugc_stage2_job_source_plan", type_="foreignkey")
+        batch.create_foreign_key(
+            "fk_rrugc_stage2_job_source_plan",
+            "rrugc_source_plans",
+            ["source_plan_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "fk_rrugc_stage2_job_source_plan",
-        "rrugc_stage2_jobs",
-        type_="foreignkey",
-    )
-    op.create_foreign_key(
-        "fk_rrugc_stage2_job_source_plan",
-        "rrugc_stage2_jobs",
-        "rrugc_source_plans",
-        ["source_plan_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+    with op.batch_alter_table("rrugc_stage2_jobs") as batch:
+        batch.drop_constraint("fk_rrugc_stage2_job_source_plan", type_="foreignkey")
+        batch.create_foreign_key(
+            "fk_rrugc_stage2_job_source_plan",
+            "rrugc_source_plans",
+            ["source_plan_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
