@@ -2863,6 +2863,12 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Tests on CodeLocal Linux: Branding DNA API **151 passed** after composite-FK hardening, Worker Node 22 **51 passed**, disposable 0165 migration + endpoint suite **11 passed**, repository staging gate **passed** (762 frontend tests, 196 API regression tests, syntax/typecheck/build). Alembic head confirms `0165_bdna_scan_failure_receipts`. GitHub PR #24 CI for prior head `0b9a0a8f` failed in unrelated Inventory shard/fixture visual-baseline jobs; Windows workflow passed. No Windows browser QA, actual PostgreSQL upgrade/restore, provider permission or production activation is claimed.
 - Rollback: revert API/worker code and leave additive DB table/receipts intact, keep `/lease` returning no jobs. See `docs/features/branding-dna/SCAN_FAILURE_RECEIPTS.md`.
 
+## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-2A durable result outbox, future-only ACK
+
+- Future-only Node SQLite WAL/FULL synchronous result queue in a separate agent-specific local state path. Stores bounded metadata only (task/shop/snapshot IDs, client receipt ID, lease generation, hashed gallery roles and canonical payload SHA); no raw URLs, browser content, image bytes or tokens. Hard cap 200, max 8192 bytes/event; never drops old events to make room.
+- The future-only transport requires an exact server-acknowledged quarantined receipt and refuses to delete pending data on 404/409/401/403/503, network errors, mismatched identities/digest or forged `scan_enabled`/provenance flags. Both the future transport and the outbox remain disconnected from the live Windows worker; the CAM `/workers/{id}/scan-tasks/{id}/result` route **does not exist**.
+- Added restart, replay, overflow, corruption, transport-failure, symlink, invalid config and strict ACK regression tests. Production scanning remains OFF, no migrations or frontend changes. See `docs/features/branding-dna/SCAN_RESULT_OUTBOX.md`.
+
 ## 2026-10-18 — BD-SCAN-CALLBACKS-02B.2c-1 result manifest preflight
 
 - New admin-only HTTP result metadata preview binds exact gallery hash/role/order, listing identity, observed revision and timestamp to the existing tenant/shop/task/snapshot, with a deterministic SHA256 integrity digest. It never persists results, issues a receipt, completes a job or elevates marketplace rights.
