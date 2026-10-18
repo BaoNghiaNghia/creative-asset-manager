@@ -96,6 +96,9 @@
   and extracted archive smoke. No production database migrations or
   automatic browser scans. Windows host validation remains outstanding.
 
+## BD-RAG-01 — Shop Knowledge intake and review
+Shop Knowledge is a fourth **Shop Intelligence** source (besides All Products, Brand Pick and Best Seller), but the Product Creative team still supplies only three inputs. Stage RAG-01: per-shop upload, constrained text extraction, approved lexical retrieval and immutable citation hashes. Stage RAG-02: encrypted R2/object lifecycle, complete audit/purge, document rights approval and embedding index. Stage RAG-03: evidence-backed DNA draft integration with source priority and manual approval. [Detailed gates](./SHOP_RAG_IMPLEMENTATION.md).
+
 ## Interface contracts trước khi thực thi
 
 ### Source / data contracts

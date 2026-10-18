@@ -2,6 +2,12 @@
 
 **Current state (source review 2026-10-16):** Tenant-scoped real Shop Registry (PostgreSQL + API) and dedicated worker **enrollment / revocation / heartbeat / empty lease control plane** are present. Browser scanning, listing/image evidence collection, Gemini DNA analysis, profile approval, SMS/Scout generation and supervised learning are **not yet operational**. The prototype is not a production crawler. The consolidated design below is documentation, not a release.
 
+## New: Shop Knowledge RAG
+- [BD-RAG-01 — Shop Knowledge implementation and remaining gates](./SHOP_RAG_IMPLEMENTATION.md).
+- Shop-scoped document upload, text extraction, review/approval and citation-based lexical retrieval have an isolated API and Shop Knowledge tab. This is a *separate source of contextual evidence*, not a replacement for product/gallery images, Best Seller signals, or the approved DNA Core.
+- Upload: TXT/MD/CSV/JSON/DOCX/text PDF; 2 MiB/file; strict document and lifetime limits per shop. No OCR, embeddings, generative responses or automatic profile mutation.
+- Uploaded RAG context remains untrusted until reviewed; even approved chunks never override verified product attributes or official platform rules.
+
 ## What is committed
 
 - **[Consolidated product/system specification (2026-10-16)](./PRODUCT_CREATIVE_SYSTEM_SPEC.md)**: Brand DNA = All Products + Product/Image Pick + Best Seller, distinct DNA Core/Creative Playbook, 3 Team Inputs, **SMS-only A** and **Scout-only B**, 6 output groups and governed Output Supervised Learning.

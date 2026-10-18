@@ -224,6 +224,21 @@
           "waitFor": "#bdna-panel-products .bdna-evidence"
         },
         {
+          "name": "shop-knowledge",
+          "click": "#bdna-stage-knowledge",
+          "waitFor": "#bdna-panel-knowledge .bdna-rag",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": "#bdna-panel-knowledge .bdna-rag"
+            },
+            {
+              "type": "no-viewport-overflow",
+              "selector": "body"
+            }
+          ]
+        },
+        {
           "name": "dna",
           "click": "#bdna-stage-dna",
           "waitFor": "#bdna-panel-dna .bdna-future-panel"

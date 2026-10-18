@@ -278,14 +278,14 @@ jobs:
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
           # Exercise the entire migration chain once, on a disposable database.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0163_branding_dna_scout_presence'
+          python -m alembic current | grep -F '0164_branding_dna_shop_rag'
           # Roll back ONLY the newly introduced table. Downgrading to 0012
           # removed unrelated historical schemas and exercised unrelated data
           # destruction guards, so it was neither a useful nor safe CI gate.
-          CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          CAM_ALLOW_RAG_DATA_DROP_FOR_TEST=1 CAM_ALLOW_HANDOFF_HISTORY_DROP_FOR_TEST=1 python -m alembic downgrade 0161_branding_dna_worker_events 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0161_branding_dna_worker_events'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0163_branding_dna_scout_presence'
+          python -m alembic current | grep -F '0164_branding_dna_shop_rag'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |

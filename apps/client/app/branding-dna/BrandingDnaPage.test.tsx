@@ -13,6 +13,7 @@ describe("Branding DNA worker control plane preview", () => {
     expect(brandingDnaTabForPath("/branding-dna/shops")).toBe("shops");
     expect(brandingDnaTabForPath("/branding-dna/scanner")).toBe("scanner");
     expect(brandingDnaTabForPath("/branding-dna/products")).toBe("products");
+    expect(brandingDnaTabForPath("/branding-dna/knowledge")).toBe("knowledge");
     expect(brandingDnaTabForPath("/branding-dna/dna")).toBe("dna");
     expect(brandingDnaTabForPath("/branding-dna/evil?next=https://attacker.test")).toBe("overview");
   });

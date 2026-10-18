@@ -83,7 +83,7 @@ test("current production smoke stage bindings are valid", async () => {
     "AI Operations production smoke must check responsive viewport overflow");
   const branding = plan.routes.find((route) => route.name === "branding-dna");
   assert.ok(branding?.requiresAuth, "Branding DNA must have authenticated production coverage");
-  for (const tab of ["shops", "scanner", "products", "dna"]) {
+  for (const tab of ["shops", "scanner", "products", "knowledge", "dna"]) {
     assert.ok(branding.states.some(state => state.click === "#bdna-stage-" + tab),
       "Branding DNA production smoke must test " + tab);
   }
