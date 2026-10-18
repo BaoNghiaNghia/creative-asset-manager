@@ -77,6 +77,12 @@ class RestoreRehearsalTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.request.evidence.stat().st_mode), 0o600)
         self.assertEqual(tool.json.loads(self.request.evidence.read_text()), report)
 
+    def test_server_address_preflight_removes_postgresql_inet_mask(self):
+        # PostgreSQL formats inet_server_addr()::text as 127.0.0.1/32.
+        # The host() function gives the address used by identity verification.
+        self.assertIn("host(inet_server_addr())", tool.PRECHECK)
+        self.assertNotIn("inet_server_addr()::text", tool.PRECHECK)
+
     def test_production_name_rejected_before_any_db_call(self):
         fake = self.runner()
         for name in ("creative_assets", "postgres", "cam_restore_rehearsal_", "cam_restore_rehearsal_TEST"):

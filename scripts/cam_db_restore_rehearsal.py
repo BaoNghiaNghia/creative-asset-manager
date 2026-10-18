@@ -21,7 +21,7 @@ TARGET = re.compile(r"cam_restore_rehearsal_[a-z0-9_]{6,48}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 MD5 = re.compile(r"[0-9a-f]{32}\Z")
 PRECHECK = (
-    "SELECT current_database(), COALESCE(inet_server_addr()::text,''), "
+    "SELECT current_database(), COALESCE(host(inet_server_addr()),''), "
     "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user), "
     "(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
     "WHERE n.nspname NOT IN ('pg_catalog','information_schema') "

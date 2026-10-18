@@ -362,10 +362,8 @@ jobs:
           chmod 600 "$dump"
           sha="$(sha256sum "$dump" | cut -d ' ' -f 1)"
           md5="$(md5sum "$dump" | cut -d ' ' -f 1)"
-          # Synthetic CI-only diagnostics; this is not a production database.
-          psql -w -h 127.0.0.1 -p 55432 -U cam_rehearsal_user \
-            -d cam_restore_rehearsal_ci2026 -X -A -t -F '|' \
-            -c "SELECT current_database(), COALESCE(inet_server_addr()::text,''), (SELECT rolsuper FROM pg_roles WHERE rolname=current_user), (SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND c.relkind IN ('r','p','v','m','f','S'));"
+          # The helper uses host(inet_server_addr()), stripping PostgreSQL's
+          # CIDR mask from the server identity check.
           python3 scripts/cam_db_restore_rehearsal.py \
             --dump "$dump" --sha256 "$sha" --md5 "$md5" \
             --database cam_restore_rehearsal_ci2026 \
