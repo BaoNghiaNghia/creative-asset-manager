@@ -1,0 +1,74 @@
+# CAM production release inventory — read-only safety gate
+
+**Status (18 Oct 2026):** helper implemented and unit-tested. **No real production
+/opt or /var/www release inventory performed by the restricted CodeLocal workspace.
+No production release was deleted or activated.**
+
+## Why this gate exists
+
+Both backend and frontend have immutable releases. A release may be referenced by:
+- the `current` symlink used by Nginx or systemd;
+- the `previous` symlink needed for emergency UI or application rollback;
+- a running process whose cwd or executable path resolves inside a different release.
+
+Deleting any of those can break an in-flight worker or destroy rollback capability.
+A healthy API does **not** prove older releases are safe to delete.
+
+## Operator-only read-only audit
+
+From a trusted operator console with expressly authorized read access to the
+production directories, run:
+
+    python3 scripts/cam-vps-release-inventory.py
+
+The defaults are:
+- backend root: /opt/creative-asset-manager
+- frontend root: /var/www/creative-asset-manager
+
+The script performs **no writes/deletes**, never reads application credentials,
+and returns JSON showing each immutable release, an approximate size in MiB,
+whether it is protected by current/previous or a live process, and warnings.
+It fails closed if `current` is absent, symlinked outside the release root,
+or otherwise invalid; only directories matching exact commit-style release
+names are considered for review. Symbolic links and unknown entries are never
+deletion candidates.
+
+`REVIEW_ONLY` **does not mean safe to delete**. It means the helper did not
+see an explicit protection in its bounded view. A human operator must also
+verify systemd units, Nginx current config, deployment locks, pending rollouts,
+backend/frontend rollback policy, disk headroom, and protected backup proof.
+Missing `previous` is flagged for follow-up, not automatically created or
+silently repaired.
+
+The CodeLocal workspace is restricted to its checkout; do not invoke a script
+through that checkout to bypass filesystem access control. Have a separately
+authorized production operator run this inventory.
+
+## Deletion conditions (not automated here)
+
+1. P0 backup checksum and **real isolated restore proof** have been recorded
+   privately; any planned backend migration/cleanup remains blocked otherwise.
+2. Production `current`, `previous`, Nginx and every worker PID are verified.
+3. The candidate release is not running, not the requested rollout candidate,
+   not the current/previous rollback anchor, and not pinned by any process.
+4. The operator reviews an explicit name/size manifest, chooses bounded
+   retention and uses only the existing guarded release-management entrypoints.
+   Never run generic `rm -rf` or `docker system prune --volumes`.
+5. Check /live, /ready, version, queues, RAM and disk before and after.
+   Stop if any health regression occurs.
+
+## Synthetic tests
+
+    python3 -m unittest scripts/test_cam_vps_release_inventory.py -v
+
+Tests create disposable release directories under temporary storage and cover
+current, previous, process references, broken symlinks, unexpected entries and
+read-only behavior. They do not inspect, modify or purge production releases.
+
+## Remaining P0 dependencies
+
+The restore-helper mock tests and isolated synthetic GitHub CI PostgreSQL
+rehearsal verify code behavior only. An actual managed production Drive backup
+must still be independently identified, downloaded, checksum-verified and
+restored to a separate PostgreSQL cluster with source identity and Alembic
+validation. See `docs/operations/VPS_DATABASE_RESTORE_REHEARSAL.md`.
