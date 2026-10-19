@@ -17,6 +17,7 @@ from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.task_router import TaskStage, cancel_staged_task, list_scan_tasks, stage_task
 from app.modules.branding_dna.task_service import (
     checkpoint_task, claim_next_task, release_for_retry, complete_verified_task,
+    recover_expired_leases,
 )
 from app.modules.branding_dna.worker_router import (
     WorkerRegister, register_worker, worker_lease,
@@ -434,3 +435,31 @@ def test_completion_rejects_expired_lease_even_with_verified_snapshot(db):
         )
     assert err.value.status_code == 409
     assert db.get(BrandScanTaskModel, task_id).status == "leased"
+
+
+def test_recover_null_lease_expiry_without_touching_other_tenants(db):
+    first_shop, first_snapshot = setup_data(db, name="OrphanLease")
+    other_shop, other_snapshot = setup_data(
+        db, tenant="tenant-b", name="OtherOrphanLease"
+    )
+    first_id = stage(db, first_shop, first_snapshot)["item"]["id"]
+    other_id = stage(db, other_shop, other_snapshot, tenant="tenant-b")["item"]["id"]
+    for task_id in (first_id, other_id):
+        task = db.get(BrandScanTaskModel, task_id)
+        task.status = "leased"
+        task.attempts = 1
+        task.lease_generation = 1
+        task.lease_id = "11111111-1111-4111-8111-111111111111"
+        task.agent_id = "22222222-2222-4222-8222-222222222222"
+        task.lease_until = None
+    db.commit()
+    assert recover_expired_leases(db, tenant_id="tenant-a", now=START) == 1
+    task = db.get(BrandScanTaskModel, first_id)
+    assert task.status == "retry"
+    assert task.last_error_code == "lease_expired"
+    assert task.lease_id is None and task.agent_id is None
+    assert task.retry_after is not None
+    untouched = db.get(BrandScanTaskModel, other_id)
+    assert untouched.status == "leased"
+    assert untouched.lease_id is not None
+    assert recover_expired_leases(db, tenant_id="tenant-a", now=START) == 0

@@ -105,7 +105,8 @@ def recover_expired_leases(session: Session, *, tenant_id: str,
         select(BrandScanTaskModel).where(
             BrandScanTaskModel.tenant_id == tenant_id,
             BrandScanTaskModel.status == "leased",
-            BrandScanTaskModel.lease_until <= clock,
+            or_(BrandScanTaskModel.lease_until.is_(None),
+                BrandScanTaskModel.lease_until <= clock),
         ).order_by(BrandScanTaskModel.lease_until)
         .with_for_update(skip_locked=True).limit(limit)
     ).all()

@@ -12,6 +12,9 @@ Counters: `staged`, `pending`, `leased`, `retry`, `blocked`,
 `due_retries` counts retry rows whose retry time has arrived (or is absent)
 and whose attempt limit has not been exhausted. Both are diagnostic counters:
 **reading them does not requeue, reclaim, renew, or dispatch any job**.
+The internal lease recovery routine also recognizes orphaned `leased` rows
+with null `lease_until`, reclaiming them through the same bounded retry
+or terminal block rules. It only operates for the supplied tenant.
 
 The status breakdown is an aggregate; a `leased` row is **not proof** of a
 live browser session, and an `expired_leases` count is not an instruction
