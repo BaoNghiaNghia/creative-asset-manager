@@ -44,7 +44,7 @@ def main(argv=None):
     if not 0 <= args.index < args.total <= 16:
         parser.error("expected 0 <= index < total <= 16")
     os.chdir(API_ROOT)
-    activate_test_environment()
+    activate_test_environment(explicit_ci_shard=True)
     discovered = unittest.defaultTestLoader.discover("tests")
     candidates = [
         test for test in flatten(discovered)
