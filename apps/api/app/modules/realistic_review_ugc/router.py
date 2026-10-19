@@ -261,6 +261,7 @@ from app.modules.realistic_review_ugc.schema import (
     Stage3AnalyzeRequest,
     Stage3AnalyzeResponse,
     Stage3ReviewGroupListResponse,
+    Stage3ReviewFolderCountResponse,
     Stage3ReviewSummaryResponse,
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
@@ -6166,6 +6167,7 @@ def list_stage3_review_groups(
     limit: int = Query(default=250, ge=1, le=500),
     page_size: int = Query(default=250, ge=1, le=500),
     cursor: str | None = Query(default=None, min_length=1, max_length=36),
+    folder_path: str | None = Query(default=None, max_length=512),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -6220,6 +6222,33 @@ def list_stage3_review_groups(
         pending_images=max(0, total_count - ready_count - rejected_count - analyzing_count - error_count),
         error_images=error_count,
     )
+    # Return all folder counts separately from the paginated image payload.
+    # Only path, Drive folder id and count are fetched, not image thumbnails.
+    folder_rows = query.with_entities(
+        RrugcSourcePlanModel.source_relative_path,
+        RrugcStage2JobModel.output_remote_folder_id,
+        func.count(RrugcStage2JobModel.id),
+    ).group_by(
+        RrugcSourcePlanModel.source_relative_path,
+        RrugcStage2JobModel.output_remote_folder_id,
+    ).all()
+    folder_totals: dict[tuple[str, str], int] = {}
+    for source_path, output_folder_id, count in folder_rows:
+        folder = _rrugc_source_folder(source_path)
+        key = (folder, str(output_folder_id))
+        folder_totals[key] = folder_totals.get(key, 0) + int(count)
+    folder_counts = [Stage3ReviewFolderCountResponse(path=path, folder_id=folder_id, image_count=count)
+                     for (path, folder_id), count in sorted(folder_totals.items())]
+
+    # Folder selection runs at SQL level before keyset pagination. Matching
+    # includes descendants but never similarly prefixed sibling folders.
+    if folder_path is not None:
+        selected_path = folder_path.replace('\\', '/').strip('/')
+        source_path_sql = func.replace(RrugcSourcePlanModel.source_relative_path, '\\', '/')
+        if selected_path:
+            query = query.filter(source_path_sql.startswith(selected_path + '/', autoescape=True))
+        else:
+            query = query.filter(~source_path_sql.contains('/'))
     if cursor:
         anchor = query.filter(RrugcStage2JobModel.id == cursor).first()
         if anchor is None:
@@ -6424,6 +6453,7 @@ def list_stage3_review_groups(
 
     return Stage3ReviewGroupListResponse(
         summary=summary,
+        folder_counts=folder_counts,
         items=items,
         total_groups=len(items),
         total_images=sum(len(item.images) for item in items),

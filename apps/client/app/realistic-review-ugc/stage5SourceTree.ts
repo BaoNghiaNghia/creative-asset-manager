@@ -1,6 +1,6 @@
-import type { Stage3ReviewGroup } from "./types";
+import type { Stage3ReviewGroup, Stage3ReviewGroupList } from "./types";
 
-/** All counts describe the currently loaded Stage 5 pages, not the full Drive. */
+/** Counts may be based on the full API folder inventory, independent of loaded pages. */
 export type Stage5FolderNode = {
   key: string;
   name: string;
@@ -11,45 +11,53 @@ export type Stage5FolderNode = {
   children: Stage5FolderNode[];
 };
 
-function normalizedSegments(group: Stage3ReviewGroup): string[] {
-  const path = (group.folder_path || "").replace(/\\/g, "/").split("/")
-    .map(segment => segment.trim()).filter(Boolean);
-  if (path.length) return path;
-  return [group.folder_name?.trim() || "Root folder"];
+function normalizedPath(path: string): string {
+  return (path || "").replace(/\\/g, "/").split("/").map(part => part.trim()).filter(Boolean).join("/");
 }
 
-export function buildStage5FolderTree(groups: Stage3ReviewGroup[]): Stage5FolderNode {
+export function buildStage5FolderTree(
+  groups: Stage3ReviewGroup[],
+  folderCounts?: Stage3ReviewGroupList["folder_counts"],
+): Stage5FolderNode {
   const root: Stage5FolderNode = {
     key: "all", name: "All folders", path: "", depth: -1,
     imageCount: 0, groupIds: [], children: [],
   };
-  const byKey = new Map<string, Stage5FolderNode>();
-  for (const group of groups) {
-    const count = group.images.length;
-    root.imageCount += count;
-    root.groupIds.push(group.folder_id);
+  const index = new Map<string, Stage5FolderNode>();
+  const entries = folderCounts !== undefined
+    ? folderCounts.map(item => ({ path: item.path, id: item.folder_id, count: item.image_count }))
+    : groups.map(group => ({
+      path: group.folder_path || (group.folder_name === "Root folder" ? "" : group.folder_name),
+      id: group.folder_id,
+      count: group.images.length,
+    }));
+
+  for (const entry of entries) {
+    const path = normalizedPath(entry.path);
+    const segments = path ? path.split("/") : ["Root folder"];
+    root.imageCount += entry.count;
+    if (!root.groupIds.includes(entry.id)) root.groupIds.push(entry.id);
     let parent = root;
-    const segments = normalizedSegments(group);
-    for (let index = 0; index < segments.length; index++) {
-      const path = segments.slice(0, index + 1).join("/");
-      const key = "folder:" + path;
-      let node = byKey.get(key);
+    for (let depth = 0; depth < segments.length; depth += 1) {
+      const currentPath = path ? segments.slice(0, depth + 1).join("/") : "";
+      const key = "folder:" + currentPath;
+      let node = index.get(key);
       if (!node) {
         node = {
-          key, name: segments[index], path, depth: index,
+          key, name: segments[depth], path: currentPath, depth,
           imageCount: 0, groupIds: [], children: [],
         };
-        byKey.set(key, node);
+        index.set(key, node);
         parent.children.push(node);
       }
-      node.imageCount += count;
-      node.groupIds.push(group.folder_id);
+      node.imageCount += entry.count;
+      if (!node.groupIds.includes(entry.id)) node.groupIds.push(entry.id);
       parent = node;
     }
   }
   function sort(nodes: Stage5FolderNode[]) {
     nodes.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    for (const node of nodes) sort(node.children);
+    nodes.forEach(node => sort(node.children));
   }
   sort(root.children);
   return root;

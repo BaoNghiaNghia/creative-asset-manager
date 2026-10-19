@@ -546,6 +546,7 @@ export type Stage3ReviewGroup = {
 };
 
 export type Stage3ReviewGroupList = {
+  folder_counts?: Array<{ path: string; folder_id: string; image_count: number }>;
   summary?: {
     total_groups: number;
     total_images: number;

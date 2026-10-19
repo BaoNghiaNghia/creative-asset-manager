@@ -31,6 +31,8 @@ type Props = {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   onRefresh?: () => void;
+  selectedFolderPath?: string | null;
+  onFolderSelect?: (path: string | null) => void;
   onDeleteReview?: (stage2JobId: string) => Promise<void>;
   onExportReviews?: (format: "csv" | "xlsx" | "internal_csv") => Promise<void>;
 };
@@ -450,6 +452,8 @@ export function Stage3ReviewGroups({
   onLoadMore = () => undefined,
   loadingMore = false,
   onRefresh = () => undefined,
+  selectedFolderPath = null,
+  onFolderSelect,
   onDeleteReview,
   onExportReviews,
 }: Props) {
@@ -459,8 +463,11 @@ export function Stage3ReviewGroups({
   const [exporting, setExporting] = useState<"csv" | "xlsx" | "internal_csv" | null>(null);
   const [actionError, setActionError] = useState("");
   const [sortBy, setSortBy] = useState<Stage5SortBy>("newest");
-  const [selectedFolderKey, setSelectedFolderKey] = useState<string | null>(null);
-  const folderTree = useMemo(() => buildStage5FolderTree(data.items), [data.items]);
+  const [localFolderKey, setLocalFolderKey] = useState<string | null>(null);
+  const folderTree = useMemo(() => buildStage5FolderTree(data.items, data.folder_counts), [data.items, data.folder_counts]);
+  const selectedFolderKey = onFolderSelect
+    ? (selectedFolderPath === null ? null : "folder:" + selectedFolderPath)
+    : localFolderKey;
   const selectedFolder = findStage5FolderNode(folderTree, selectedFolderKey);
   const activeFolderKey = selectedFolderKey && selectedFolder ? selectedFolderKey : null;
   const summary = data.summary ?? data;
@@ -597,9 +604,11 @@ export function Stage3ReviewGroups({
         root={folderTree}
         selectedKey={activeFolderKey}
         onSelect={key => {
-          setSelectedFolderKey(key);
+          if (onFolderSelect) onFolderSelect(key === null ? null : key.slice(7));
+          else setLocalFolderKey(key);
           setSelectedReviewId(null);
         }}
+        totalFolders={summary.total_groups}
         hasMore={Boolean(data.has_more)}
       />}>
     {loading ? (
@@ -740,7 +749,7 @@ export function Stage3ReviewGroups({
         >
           <RrugcActionIcon name={loadingMore ? "refresh" : "folder"} />{loadingMore ? "Loading older images…" : "Load older images"}
         </button>
-        <small>Showing {data.total_images} of {summary.total_images} images; load older outputs below.</small>
+        <small>Showing {data.total_images} of {selectedFolder?.imageCount ?? summary.total_images} images in {selectedFolder?.name ?? "all folders"}.</small>
       </div>
     )}
 

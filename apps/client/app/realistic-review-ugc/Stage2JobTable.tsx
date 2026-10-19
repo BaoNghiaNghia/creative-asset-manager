@@ -1084,7 +1084,8 @@ export function Stage2JobTable({
 
     <ResizableSourceLayout stage={4} tree={<Stage5SourceTree stage={4} root={folderTree}
       selectedKey={selectedFolderPath === null ? null : "folder:" + selectedFolderPath}
-      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false} />}>
+      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false}
+      totalFolders={folderData?.folders.length ?? 0} />}>
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table rrugc-stage2-table" aria-busy={loading}>
         <thead>

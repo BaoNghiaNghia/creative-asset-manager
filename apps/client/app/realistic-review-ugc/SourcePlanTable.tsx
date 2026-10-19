@@ -645,7 +645,8 @@ export function SourcePlanTable({
 
     <ResizableSourceLayout stage={3} tree={<Stage5SourceTree stage={3} root={folderTree}
       selectedKey={selectedFolderPath === null ? null : "folder:" + selectedFolderPath}
-      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false} />}>
+      onSelect={key => onFolderSelect(key === null ? null : key.slice(7))} hasMore={false}
+      totalFolders={folderData?.folders.length ?? 0} />}>
     <div className="rrugc-source-plan-table-wrap">
       <table className="rrugc-source-plan-table rrugc-stage3-source-table" aria-busy={loading}
         data-sort-column={sortBy === "progress" ? "scout" : ""}

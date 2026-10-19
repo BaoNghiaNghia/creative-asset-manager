@@ -3188,6 +3188,32 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
     assert paged.json()["has_more"] is True
     assert paged.json()["summary"]["total_images"] == 3
     assert paged.json()["summary"]["total_groups"] == 2
+    folders = {item["path"]: item["image_count"] for item in payload["folder_counts"]}
+    assert folders == {"Product A/Natural-Navy": 2, "Product B/Black": 1}
+    assert paged.json()["folder_counts"] == payload["folder_counts"]
+    selected = api.get("/api/v1/realistic-review-ugc/stage3/review-groups",
+                       params={"folder_path": "Product A", "page_size": 1, "limit": 1})
+    assert selected.status_code == 200
+    assert selected.json()["total_images"] == 1
+    assert selected.json()["has_more"] is True
+    assert selected.json()["summary"]["total_images"] == 3
+    assert selected.json()["folder_counts"] == payload["folder_counts"]
+    selected_next = api.get("/api/v1/realistic-review-ugc/stage3/review-groups",
+                            params={"folder_path": "Product A", "page_size": 1, "limit": 1,
+                                    "cursor": selected.json()["next_cursor"]})
+    assert selected_next.status_code == 200
+    assert selected_next.json()["total_images"] == 1
+    assert selected_next.json()["has_more"] is False
+    other = api.get("/api/v1/realistic-review-ugc/stage3/review-groups",
+                    params={"folder_path": "Product B/Black"})
+    assert other.status_code == 200
+    assert other.json()["total_images"] == 1
+    assert other.json()["items"][0]["folder_name"] == "Black"
+    sibling = api.get("/api/v1/realistic-review-ugc/stage3/review-groups",
+                      params={"folder_path": "Product A/Natural"})
+    assert sibling.status_code == 200
+    assert sibling.json()["total_images"] == 0
+    assert sibling.json()["summary"]["total_images"] == 3
 
     groups = {item["folder_id"]: item for item in payload["items"]}
     assert groups["folder-a"]["folder_name"] == "Natural-Navy"

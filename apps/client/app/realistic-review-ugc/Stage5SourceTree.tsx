@@ -7,10 +7,11 @@ type Props = {
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
   hasMore: boolean;
+  totalFolders?: number;
   stage?: 3 | 4 | 5;
 };
 
-export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore, stage = 5 }: Props) {
+export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore, totalFolders, stage = 5 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const branches = useMemo(() => {
     const items: string[] = [];
@@ -84,11 +85,11 @@ export function Stage5SourceTree({ root, selectedKey, onSelect, hasMore, stage =
         <span className="rrugc-stage5-tree-count">{root.imageCount}</span>
       </button>
       {root.children.map(renderNode)}
-      {!root.children.length && <p className="rrugc-stage5-tree-empty">No folders loaded yet.</p>}
+      {!root.children.length && <p className="rrugc-stage5-tree-empty">No folders found.</p>}
     </div>
     <footer className="rrugc-stage5-tree-foot">
-      <span>{stage === 5 ? root.groupIds.length : branches.length + root.children.filter(node => !node.children.length).length} {stage === 5 ? "loaded folders" : "source folders"}</span>
-      {hasMore && <small>More folders may appear when older images are loaded.</small>}
+      <span>{totalFolders ?? root.groupIds.length} folders · {root.imageCount} images</span>
+      {hasMore && <small>Folder totals include unloaded images; select a folder and load more to see every image.</small>}
     </footer>
   </div>;
 }

@@ -1116,7 +1116,14 @@ class Stage3ReviewSummaryResponse(BaseModel):
     error_images: int = 0
 
 
+class Stage3ReviewFolderCountResponse(BaseModel):
+    path: str
+    folder_id: str
+    image_count: int
+
+
 class Stage3ReviewGroupListResponse(BaseModel):
+    folder_counts: list[Stage3ReviewFolderCountResponse] = Field(default_factory=list)
     summary: Stage3ReviewSummaryResponse | None = None
     items: list[Stage3ReviewGroupResponse] = Field(default_factory=list)
     total_groups: int

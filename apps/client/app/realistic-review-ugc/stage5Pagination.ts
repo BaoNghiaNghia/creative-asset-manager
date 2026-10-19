@@ -66,5 +66,6 @@ export function mergeStage5Pages(
     next_cursor: page.next_cursor || null,
     // Full-collection counts survive local merges of loaded pages.
     summary: page.summary ?? previous.summary,
+    folder_counts: page.folder_counts ?? previous.folder_counts,
   };
 }

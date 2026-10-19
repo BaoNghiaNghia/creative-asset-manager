@@ -42,6 +42,20 @@ const groups = [
 ];
 
 describe("Stage 5 source folder tree", () => {
+  it("shows every folder and the full counts while only the newest 250 images are loaded", () => {
+    const loaded = [group("folder-a", "Hats/Hat A", 250)];
+    const folders = [
+      { path: "Hats/Hat A", folder_id: "folder-a", image_count: 250 },
+      { path: "Hats/Hat B", folder_id: "folder-b", image_count: 180 },
+      { path: "Other", folder_id: "folder-c", image_count: 2 },
+    ];
+    const tree = buildStage5FolderTree(loaded, folders);
+    expect(tree.imageCount).toBe(432);
+    expect(tree.children.map(node => node.name)).toEqual(["Hats", "Other"]);
+    expect(findStage5FolderNode(tree, "folder:Hats")?.imageCount).toBe(430);
+    expect(findStage5FolderNode(tree, "folder:Hats/Hat B")?.imageCount).toBe(180);
+    expect(groupsForStage5Folder(loaded, tree, "folder:Hats/Hat B")).toEqual([]);
+  });
   it("builds nested folder paths, keeps sibling prefixes separate and counts loaded images", () => {
     const tree = buildStage5FolderTree(groups);
     expect(tree.imageCount).toBe(5);
@@ -56,6 +70,41 @@ describe("Stage 5 source folder tree", () => {
     expect(groupsForStage5Folder(groups, tree, "folder:deleted-folder")).toHaveLength(4);
     const windows = buildStage5FolderTree([group("slash", "Hats\\Trucker", 1)]);
     expect(findStage5FolderNode(windows, "folder:Hats/Trucker")?.groupIds).toEqual(["slash"]);
+  });
+
+  it("sends unloaded-folder selections to the parent so images can be fetched server-side", async () => {
+    const data: Stage3ReviewGroupList = {
+      items: [group("hat-a", "Hats/Hat A", 2)],
+      folder_counts: [
+        { path: "Hats/Hat A", folder_id: "hat-a", image_count: 250 },
+        { path: "Hats/Hat B", folder_id: "hat-b", image_count: 182 },
+      ],
+      summary: {
+        total_groups: 2, total_images: 432, ready_images: 432,
+        rejected_images: 0, analyzing_images: 0, pending_images: 0, error_images: 0,
+      },
+      total_groups: 1, total_images: 2,
+      ready_images: 2, rejected_images: 0, analyzing_images: 0,
+      pending_images: 0, error_images: 0, has_more: true, next_cursor: "next",
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onFolderSelect = vi.fn();
+    await act(async () => root.render(<Stage3ReviewGroups data={data}
+      selectedFolderPath={null} onFolderSelect={onFolderSelect}
+      loading={false} analyzing={false} message="" onAnalyze={() => undefined} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Expand Hats"]')!.click());
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-stage5-tree-folder")];
+    const hatB = buttons.find(button => button.textContent?.includes("Hat B"));
+    expect(hatB).toBeDefined();
+    expect(hatB?.textContent).toContain("182");
+    expect(host.querySelector(".rrugc-stage5-tree-all")?.textContent).toContain("432");
+    expect(host.querySelector(".rrugc-stage5-tree-foot")?.textContent).toContain("2 folders");
+    await act(async () => hatB!.click());
+    expect(onFolderSelect).toHaveBeenCalledWith("Hats/Hat B");
+    expect(host.querySelectorAll(".rrugc-stage3-image")).toHaveLength(2);
+    await act(async () => root.unmount());
   });
 
   it("selects a parent, opens a child folder, and returns to all images without losing cards", async () => {

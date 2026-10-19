@@ -214,6 +214,8 @@ export function RealisticReviewUgcPage() {
   const [stage3MoreLoading, setStage3MoreLoading] = useState(false);
   const stage3PaginationActive = useRef(false);
   const stage3MoreInFlight = useRef(false);
+  const [selectedStage5FolderPath, setSelectedStage5FolderPath] = useState<string | null>(null);
+  const selectedStage5FolderRef = useRef<string | null>(null);
   const [stage3Analyzing, setStage3Analyzing] = useState(false);
   const [stage3Message, setStage3Message] = useState("");
   const [error, setError] = useState("");
@@ -414,14 +416,16 @@ export function RealisticReviewUgcPage() {
     ));
   }
 
-  async function refreshStage3Groups(signal?: AbortSignal) {
-    const result = await listStage3ReviewGroups(signal);
-    if (signal?.aborted) return;
+  async function refreshStage3Groups(signal?: AbortSignal, folderPath = selectedStage5FolderPath) {
+    const result = await listStage3ReviewGroups(signal, undefined, folderPath);
+    if (signal?.aborted || selectedStage5FolderRef.current !== folderPath) return;
     // A poll that started before "Load older images" must not overwrite
     // the accumulated pages when it completes afterward. Newest data wins
     // for duplicate job IDs, while the loaded history and cursor survive.
     setStage3Groups(current => stage3PaginationActive.current
-      ? { ...mergeStage5Pages(result, current), summary: result.summary ?? current.summary }
+      ? { ...mergeStage5Pages(result, current),
+          summary: result.summary ?? current.summary,
+          folder_counts: result.folder_counts ?? current.folder_counts }
       : result);
   }
 
@@ -433,8 +437,10 @@ export function RealisticReviewUgcPage() {
     // while the next page is still loading.
     stage3PaginationActive.current = true;
     setStage3MoreLoading(true);
+    const folderPath = selectedStage5FolderPath;
     try {
-      const page = await listStage3ReviewGroups(undefined, cursor);
+      const page = await listStage3ReviewGroups(undefined, cursor, folderPath);
+      if (selectedStage5FolderRef.current !== folderPath) return;
       setStage3Groups(current => current.next_cursor === cursor
         ? mergeStage5Pages(current, page) : current);
     } catch (reason) {
@@ -443,6 +449,19 @@ export function RealisticReviewUgcPage() {
       stage3MoreInFlight.current = false;
       setStage3MoreLoading(false);
     }
+  }
+
+  function selectStage5Folder(path: string | null) {
+    if (path === selectedStage5FolderRef.current) return;
+    selectedStage5FolderRef.current = path;
+    stage3PaginationActive.current = false;
+    setStage3Groups(current => ({
+      ...EMPTY_STAGE3_GROUPS,
+      summary: current.summary,
+      folder_counts: current.folder_counts,
+    }));
+    setSelectedStage5FolderPath(path);
+    setStage3Loading(true);
   }
 
   async function removeStage5Review(stage2JobId: string) {
@@ -1008,7 +1027,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage]);
+  }, [activeStage, selectedStage5FolderPath]);
 
   function selectStage(nextStage: RrugcStageTab) {
     // Reselecting the active stage must not restart a skeleton without a new
@@ -1364,6 +1383,8 @@ export function RealisticReviewUgcPage() {
             onAnalyze={folderId => void analyzeStage3(folderId)}
             onLoadMore={() => void loadMoreStage3Groups()}
             loadingMore={stage3MoreLoading}
+            selectedFolderPath={selectedStage5FolderPath}
+            onFolderSelect={selectStage5Folder}
             onRefresh={() => void refreshStage3Groups()}
             onDeleteReview={removeStage5Review}
             onExportReviews={exportStage5Reviews}
