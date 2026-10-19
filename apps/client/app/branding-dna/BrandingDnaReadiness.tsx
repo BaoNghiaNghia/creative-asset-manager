@@ -1,5 +1,6 @@
 import {useEffect,useState} from "react";
 import "./BrandingDnaReadiness.css";
+import {BrandingDnaDraftPreview} from "./BrandingDnaDraftPreview";
 
 type Shop = {id:string;display_name:string;platform:string};
 type Source = {document_id:string;filename:string;category:string;source_note:string;
@@ -108,6 +109,7 @@ export function BrandingDnaReadiness({onOpenKnowledge,onOpenShops}:{
           </div>}
       </section>
     </div>
+    <BrandingDnaDraftPreview key={shopId} shopId={shopId}/>
     <details className="bdna-readiness-fingerprint">
       <summary>Input fingerprint · truy vết dữ liệu</summary>
       <code>{data.input_fingerprint}</code>

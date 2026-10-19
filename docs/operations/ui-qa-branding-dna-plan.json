@@ -214,6 +214,27 @@
       ]
     },
     {
+      "name": "dna-draft-preview-keeps-unsupported-claims-blocked",
+      "click": ".bdna-draft-head button",
+      "waitFor": ".bdna-draft-result",
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".bdna-draft-result"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".bdna-draft-summary",
+          "value": "Chưa đủ dữ kiện"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
       "name": "return-overview",
       "click": "#bdna-stage-overview",
       "waitFor": ".bdna-workflow-overview",

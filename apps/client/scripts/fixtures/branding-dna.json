@@ -230,6 +230,34 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/dna-draft/preview",
+      "body": {
+        "shop": {"id": "qa-shop-1", "display_name": "QA Shop Alpha", "platform": "etsy"},
+        "input_fingerprint": "fixture-no-verified-evidence",
+        "status": "blocked",
+        "preview_only": true,
+        "persisted": false,
+        "model_invoked": false,
+        "dna_generation_enabled": false,
+        "automatic_dna_mutation_enabled": false,
+        "visual_analysis_enabled": false,
+        "image_rights_verified": false,
+        "best_seller_verified": false,
+        "brand_pick_verified": false,
+        "verified_listing_count": 0,
+        "examples_truncated": false,
+        "categories_truncated": false,
+        "observed_categories": [],
+        "verified_product_examples": [],
+        "context_references": [],
+        "unresolved_sections": ["visual_style_and_image_usage_rights", "brand_voice_requires_human_synthesis", "target_audience", "brand_best_seller_claims", "brand_pick_claims"],
+        "blockers": ["verified_product_evidence_missing"],
+        "notices": ["approved_shop_knowledge_missing_optional"],
+        "trust_rule": "Only verified listing metadata is factual. RAG is contextual."
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/branding-dna/workers",
       "body": {
         "items": [
