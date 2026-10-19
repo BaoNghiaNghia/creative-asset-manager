@@ -249,6 +249,15 @@
           "value": "Chưa đủ dữ kiện"
         },
         {
+          "type": "visible",
+          "selector": ".bdna-version"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".bdna-version-blocked",
+          "value": "Chưa đủ listing đã xác minh"
+        },
+        {
           "type": "no-viewport-overflow",
           "selector": "html",
           "maxPx": 0

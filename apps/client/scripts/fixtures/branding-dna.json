@@ -294,6 +294,15 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/dna-draft/versions",
+      "body": {
+        "items": [],
+        "count": 0,
+        "final_brand_dna_enabled": false
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/branding-dna/workers",
       "body": {
         "items": [

@@ -1,5 +1,6 @@
 import {useState} from "react";
 import "./BrandingDnaDraftPreview.css";
+import {BrandingDnaDraftVersions} from "./BrandingDnaDraftVersions";
 
 type Draft = {
   shop:{id:string;display_name:string;platform:string};
@@ -67,6 +68,9 @@ export function BrandingDnaDraftPreview({shopId}: {shopId:string}){
       </button>
     </div>
     {error&&<p role="alert" className="bdna-draft-error">{error}</p>}
+    <BrandingDnaDraftVersions shopId={shopId}
+      previewFingerprint={draft?.input_fingerprint}
+      previewReady={draft?.status==="evidence_outline" && draft.blockers.length===0}/>
     {draft&&<div className="bdna-draft-result" role="status">
       <div className="bdna-draft-summary">
         <strong>{draft.status==="evidence_outline"

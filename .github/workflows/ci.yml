@@ -278,13 +278,13 @@ jobs:
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
           # Exercise the entire migration chain once, on a disposable database.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
+          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
+          # Roll back only the new outline-version audit tables on disposable CI DB.
+          # Product evidence, documentary reviews and previous history remain intact.
+          CAM_ALLOW_DNA_OUTLINE_DROP_FOR_TEST=1 python -m alembic downgrade 0167_branding_dna_evidence_assessments 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
           python -m alembic current | grep -F '0167_branding_dna_evidence_assessments'
-          # Downgrade only the disposable evidence assessment table.
-          # Documentary reviews, declarations, RAG and historical data stay intact.
-          CAM_ALLOW_EVIDENCE_ASSESSMENT_DROP_FOR_TEST=1 python -m alembic downgrade 0166_branding_dna_access_reviews 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
-          python -m alembic current | grep -F '0166_branding_dna_access_reviews'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0167_branding_dna_evidence_assessments'
+          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
