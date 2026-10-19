@@ -129,10 +129,55 @@ def activate_for_unit_test(db, task_id):
     db.commit()
 
 
+def heartbeat_at(db, agent_id, clock):
+    agent = db.get(BrandWorkerModel, agent_id)
+    agent.status = "idle"
+    agent.last_heartbeat = clock
+    db.commit()
+
+
 def worker(db, tenant="tenant-a"):
     result = register_worker(WorkerRegister(label="Test worker"), Response(),
                              session=db, principal=principal(tenant))
+    heartbeat_at(db, result["id"], START)
     return result["id"]
+
+
+def test_internal_claim_rejects_offline_stale_paused_and_future_heartbeat(db):
+    shop_id, snapshot_id = setup_data(db, name="LiveGuard")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    result = register_worker(
+        WorkerRegister(label="Guarded worker"), Response(),
+        session=db, principal=principal(),
+    )
+    agent_id = result["id"]
+
+    def try_claim():
+        return claim_next_task(
+            db, tenant_id="tenant-a", agent_id=agent_id,
+            dispatch_authorized=True, adapter_verified=True, now=START,
+        )
+
+    # Newly enrolled workers have never sent a heartbeat.
+    assert try_claim() is None
+    agent = db.get(BrandWorkerModel, agent_id)
+    agent.status = "idle"
+    agent.last_heartbeat = START - timedelta(minutes=4)
+    db.commit()
+    assert try_claim() is None
+    agent.last_heartbeat = START + timedelta(seconds=5)
+    db.commit()
+    assert try_claim() is None
+    agent.status = "paused"
+    agent.last_heartbeat = START
+    db.commit()
+    assert try_claim() is None
+    assert db.get(BrandScanTaskModel, task_id).status == "pending"
+
+    heartbeat_at(db, agent_id, START)
+    leased = try_claim()
+    assert leased is not None and leased["task_id"] == task_id
 
 
 def test_fencing_monotonic_checkpoint_and_no_stale_callback(db):
@@ -164,6 +209,7 @@ def test_fencing_monotonic_checkpoint_and_no_stale_callback(db):
                            dispatch_authorized=True, adapter_verified=True,
                            now=START + timedelta(minutes=4)) is None
     assert db.get(BrandScanTaskModel, task_id).last_error_code == "lease_expired"
+    heartbeat_at(db, agent_id, START + timedelta(minutes=4, seconds=30))
     lease2 = claim_next_task(db, tenant_id="tenant-a", agent_id=agent_id,
                              dispatch_authorized=True, adapter_verified=True,
                              now=START + timedelta(minutes=4, seconds=31))
@@ -190,6 +236,7 @@ def test_bounded_retry_and_manual_block(db):
     activate_for_unit_test(db, task_id)
     at = START
     for attempt in (1, 2, 3):
+        heartbeat_at(db, agent_id, at)
         leased = claim_next_task(db, tenant_id="tenant-a", agent_id=agent_id,
                                  dispatch_authorized=True, adapter_verified=True, now=at)
         assert leased is not None and leased["attempt"] == attempt

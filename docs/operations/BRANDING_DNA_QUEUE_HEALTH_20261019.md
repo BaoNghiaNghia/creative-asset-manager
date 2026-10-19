@@ -31,7 +31,11 @@ can start a marketplace browser.
 - A shop's `access_mode`, self-declaration, or documentary review does not
   independently establish Amazon/Etsy access authorization.
 - The internal lease selector now filters active, owned/authorized shops and
-  rechecks those flags for lease callbacks. It must still stay disconnected
+  rechecks those flags for lease callbacks. Additionally, it will not grant a
+  new lease to an enrolled agent unless the worker is enabled, idle, and has
+  a fresh heartbeat (within three minutes, not future-dated). Expired leases
+  are still recovered before the presence decision, so a disconnected worker
+  cannot block recovery of an abandoned lease. It must still stay disconnected
   from public worker lease endpoints pending independent marketplace policy
   review and an auditable, verified source adapter.
 - An internal `complete_verified_task` primitive is available for later

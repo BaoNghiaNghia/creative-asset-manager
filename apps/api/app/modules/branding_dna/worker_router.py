@@ -38,7 +38,12 @@ def worker_online(row: BrandWorkerModel, now: datetime | None = None) -> bool:
     last = row.last_heartbeat
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
-    return (now or datetime.now(timezone.utc)) - last <= HEARTBEAT_STALE_AFTER
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    age = clock - last
+    # A future-dated heartbeat must not make an agent appear online forever.
+    return timedelta(0) <= age <= HEARTBEAT_STALE_AFTER
 
 def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()

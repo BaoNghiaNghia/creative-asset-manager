@@ -72,3 +72,6 @@ def test_expired_heartbeat_is_not_online(db):
     db.add(agent)
     db.commit()
     assert not worker_online(agent)
+    agent.last_heartbeat = datetime.now(timezone.utc) + timedelta(minutes=10)
+    db.commit()
+    assert not worker_online(agent)

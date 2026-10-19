@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel, now_utc
 from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
+from app.modules.branding_dna.worker_router import worker_online
 
 LEASE_SECONDS = 120
 MAX_STAGED_PER_SHOP = 500
@@ -146,6 +147,10 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
         raise HTTPException(403, detail="Worker disabled or tenant mismatch")
     clock = _aware(now) or now_utc()
     recover_expired_leases(session, tenant_id=tenant_id, now=clock)
+    # Do not grant work to enrolled but disconnected/paused/unhealthy agents.
+    # Presence is mandatory even when a caller holds the internal dispatch gate.
+    if agent.status != "idle" or not worker_online(agent, now=clock):
+        return None
     # Filter ineligible shops *before* ordering and locking the queue.
     # Otherwise a pending task belonging to a revoked/inactive shop would
     # permanently hide every valid task behind it (head-of-line blocking).
