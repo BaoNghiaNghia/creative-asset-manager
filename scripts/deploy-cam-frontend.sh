@@ -28,7 +28,13 @@ while (($#)); do
     *) die "Unknown option: $1" ;;
   esac
 done
-if [[ ! -d "$SOURCE_DIR/.git" ]]; then SOURCE_DIR="$CHECKOUT_ROOT"; fi
+# Git linked worktrees use a .git *file*, not a directory. Accept a
+# checkout only when Git recognizes its exact top-level root. Never silently
+# deploy an unrelated parent checkout due to the metadata representation.
+SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
+[[ -e "$SOURCE_DIR/.git" ]] || die "Source directory is not a Git checkout root."
+[[ "$(git -C "$SOURCE_DIR" rev-parse --show-toplevel)" == "$SOURCE_DIR" ]] \
+  || die "Source directory does not match its Git checkout root."
 SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
 for command in git rsync nginx systemctl python3 curl; do require "$command"; done
 CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"

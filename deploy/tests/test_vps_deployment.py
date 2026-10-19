@@ -42,6 +42,16 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
             self.assertFalse((SCRIPTS / name).exists(), name)
         self.assertFalse((ROOT / "deploy" / "bin" / "cam-deploy").exists())
 
+    def test_deployment_accepts_git_linked_worktree_without_fallback(self) -> None:
+        # A Git linked worktree has a .git file rather than a directory.
+        # Both release entrypoints must validate the exact checkout root
+        # rather than silently switching to another checkout's HEAD.
+        for script in (FRONTEND, BACKEND):
+            source = script.read_text()
+            self.assertIn('[[ -e "$SOURCE_DIR/.git" ]]', source)
+            self.assertIn('git -C "$SOURCE_DIR" rev-parse --show-toplevel', source)
+            self.assertNotIn('SOURCE_DIR="$CHECKOUT_ROOT"\nfi', source)
+
     def test_frontend_native_release_contract(self) -> None:
         source = FRONTEND.read_text()
         for required in (
@@ -194,7 +204,10 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         policy = re.search(r'add_header Content-Security-Policy "([^"]+)"', NGINX_CONFIG.read_text()).group(1)
         directives = dict((parts[0], parts[1:]) for directive in policy.split(";") if (parts := directive.split()))
         self.assertEqual(set(directives["img-src"]), {
-            "'self'", "data:", "blob:", "https://i.pinimg.com", "https://lh3.googleusercontent.com",
+            "'self'", "data:", "blob:", "https://i.pinimg.com",
+            "https://i.etsystatic.com", "https://img.etsystatic.com",
+            "https://m.media-amazon.com", "https://images-na.ssl-images-amazon.com",
+            "https://images-eu.ssl-images-amazon.com", "https://lh3.googleusercontent.com",
         })
         for directive in ("script-src", "connect-src", "default-src"):
             self.assertEqual(directives[directive], ["'self'"])
