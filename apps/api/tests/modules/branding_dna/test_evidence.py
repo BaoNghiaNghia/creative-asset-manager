@@ -13,7 +13,8 @@ from app.modules.branding_dna.evidence_model import BrandListingImageModel, Bran
 from app.modules.branding_dna.model import BrandShopModel
 from app.modules.branding_dna.router import ShopCreate, add_shop
 from app.modules.branding_dna.evidence_router import (
-    ListingImport, GalleryImport, import_listing, list_listing_evidence, listing_gallery,
+    ListingImport, GalleryImport, import_listing, preview_listing_import,
+    list_listing_evidence, listing_gallery,
 )
 
 NOW = datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)
@@ -64,6 +65,59 @@ def payload(**overrides):
 def list_items(db, shop_id, tenant="tenant-1", **kwargs):
     return list_listing_evidence(shop_id, session=db, principal=principal(tenant),
                                  limit=kwargs.get("limit", 25), offset=kwargs.get("offset", 0))
+
+
+def test_preview_is_schema_checked_read_only_and_canonical(db):
+    s = shop(db)
+    before = (db.query(BrandListingSnapshotModel).count(),
+              db.query(BrandListingImageModel).count())
+    preview = preview_listing_import(
+        s["id"], payload(), session=db, principal=principal())
+    assert preview["state"] == "new"
+    assert preview["can_import"] is True
+    assert preview["persisted"] is False and preview["network_fetched"] is False
+    assert preview["scan_enabled"] is False and preview["dispatchable"] is False
+    assert preview["rights_verified"] is False
+    assert preview["image_count"] == 2 and preview["gallery_order_valid"] is True
+    assert len(preview["content_sha256"]) == 64
+    assert (db.query(BrandListingSnapshotModel).count(),
+            db.query(BrandListingImageModel).count()) == before
+    imported = import_listing(s["id"], payload(), session=db, principal=principal())
+    replay = preview_listing_import(
+        s["id"], payload(), session=db, principal=principal())
+    assert imported["item"]["image_count"] == 2
+    assert replay["state"] == "already_imported" and replay["can_import"] is False
+    assert replay["content_sha256"] == preview["content_sha256"]
+    changed = preview_listing_import(
+        s["id"], payload(title="Updated title"), session=db, principal=principal())
+    assert changed["state"] == "revision_conflict"
+    assert "source_revision_conflict" in changed["blockers"]
+    assert changed["can_import"] is False
+    assert db.query(BrandListingSnapshotModel).count() == 1
+
+
+def test_preview_for_draft_shop_never_grants_import_or_changes_access(db):
+    s = shop(db, access="public_observation")
+    preview = preview_listing_import(
+        s["id"], payload(), session=db, principal=principal())
+    assert preview["can_import"] is False
+    assert preview["state"] == "new"
+    assert preview["blockers"] == ["owned_or_authorized_shop_required"]
+    assert preview["evidence_state"] == "imported_unverified"
+    assert db.get(BrandShopModel, s["id"]).access_mode == "public_observation"
+    assert db.query(BrandListingSnapshotModel).count() == 0
+
+
+def test_preview_tenant_and_shop_id_are_scoped(db):
+    owned = shop(db, tenant="tenant-1")
+    other = shop(db, tenant="tenant-2", name="OtherPreviewHats")
+    for shop_id, tenant in ((owned["id"], "tenant-2"), (other["id"], "tenant-1"),
+                            ("missing", "tenant-1")):
+        with pytest.raises(HTTPException) as err:
+            preview_listing_import(
+                shop_id, payload(), session=db, principal=principal(tenant))
+        assert err.value.status_code == 404
+    assert db.query(BrandListingSnapshotModel).count() == 0
 
 
 def test_authorized_shop_import_and_gallery_order(db):

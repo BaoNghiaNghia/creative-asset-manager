@@ -85,6 +85,50 @@ def present_snapshot(row: BrandListingSnapshotModel, image_count: int) -> dict:
     }
 
 
+@router.post("/shops/{shop_id}/listings/preview")
+def preview_listing_import(
+    shop_id: str, payload: ListingImport, session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+):
+    """Validate an authorized export without persisting, fetching or queuing.
+
+    The preview checks the exact same strict schema and canonical content hash
+    as import_listing. A shop declaration/review never upgrades access_mode.
+    """
+    tenant = principal.active_tenant_id
+    shop = shop_for_tenant(session, tenant, shop_id)
+    digest = payload_digest(payload)
+    existing = session.scalar(select(BrandListingSnapshotModel).where(
+        BrandListingSnapshotModel.tenant_id == tenant,
+        BrandListingSnapshotModel.shop_id == shop_id,
+        BrandListingSnapshotModel.listing_key == payload.listing_key,
+        BrandListingSnapshotModel.source_revision == payload.source_revision,
+    ))
+    outcome = (
+        "revision_conflict" if existing is not None and existing.content_sha256 != digest
+        else "already_imported" if existing is not None
+        else "new"
+    )
+    allowed = shop.access_mode in ("owned", "authorized")
+    blockers = (
+        ["owned_or_authorized_shop_required"] if not allowed else []
+    ) + (["source_revision_conflict"] if outcome == "revision_conflict" else [])
+    return {
+        "shop_id": shop_id, "listing_key": payload.listing_key,
+        "source_revision": payload.source_revision,
+        "export_reference": payload.export_reference,
+        "content_sha256": digest,
+        "image_count": len(payload.images),
+        "source_kind": "authorized_export", "evidence_state": "imported_unverified",
+        "coverage_state": "unknown", "gallery_order_valid": True,
+        "state": outcome,
+        "can_import": allowed and outcome == "new",
+        "blockers": blockers,
+        "rights_verified": False, "scan_enabled": False, "dispatchable": False,
+        "persisted": False, "network_fetched": False,
+    }
+
+
 @router.post("/shops/{shop_id}/listings/import", status_code=201)
 def import_listing(
     shop_id: str, payload: ListingImport, session: Session = Depends(get_db),

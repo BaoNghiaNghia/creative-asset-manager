@@ -1,0 +1,15 @@
+.bdna-import{margin-top:14px;padding:13px;border:1px solid #dce6f5;border-radius:10px;background:#f8faff;display:grid;gap:9px;min-width:0}
+.bdna-import-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:9px;flex-wrap:wrap}
+.bdna-import-heading strong{font-size:12px}
+.bdna-import-heading small{font-size:10px;color:#607590}
+.bdna-import-file{display:grid;gap:5px;font-size:11px;color:#516887;font-weight:700}
+.bdna-import-file input{width:100%;max-width:100%;font-size:12px;box-sizing:border-box}
+.bdna-import-file-name{margin:0;font-size:11px;color:#536988;overflow-wrap:anywhere}
+.bdna-import-actions{display:flex;flex-wrap:wrap;gap:8px}
+.bdna-import-actions button{border:1px solid #baccf0;border-radius:8px;background:#edf3ff;color:#345a9d;padding:8px 11px;font-size:11px;font-weight:700;min-height:36px}
+.bdna-import-actions button:disabled{opacity:.5}
+.bdna-import-preview{display:grid;gap:6px;min-width:0;font-size:11px;color:#4c6588;border:1px solid #dce6f3;border-radius:8px;padding:10px;background:#fff}
+.bdna-import-preview code{font-size:10px;white-space:normal;overflow-wrap:anywhere}
+.bdna-import-preview small{color:#98642f}
+.bdna-import-locked{margin:0;font-size:11px;line-height:1.55;color:#78684f}
+@media(max-width:560px){.bdna-import{padding:10px}.bdna-import-actions button{width:100%}}

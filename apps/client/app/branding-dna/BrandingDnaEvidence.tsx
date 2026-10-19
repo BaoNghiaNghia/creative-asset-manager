@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "./BrandingDnaEvidence.css";
 import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
+import { BrandingDnaEvidenceImport } from "./BrandingDnaEvidenceImport";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -22,6 +23,7 @@ export function BrandingDnaEvidence() {
   const [shopId, setShopId] = useState("");
   const [list, setList] = useState<ListingResponse | null>(null);
   const [page, setPage] = useState(0);
+  const [reloadId,setReloadId]=useState(0);
   const [selected, setSelected] = useState<Snapshot | null>(null);
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +58,7 @@ export function BrandingDnaEvidence() {
       .catch(err => {if (!controller.signal.aborted) setError(String(err));})
       .finally(() => {if (!controller.signal.aborted) setListLoading(false);});
     return () => controller.abort();
-  }, [shopId, page]);
+  }, [shopId, page, reloadId]);
   useEffect(() => {
     if (!shopId || !selected) return;
     const controller = new AbortController();
@@ -108,6 +110,9 @@ export function BrandingDnaEvidence() {
     {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") &&
       <BrandingDnaBrowserPlan key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}
     {shopId && (shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") && <BrandingDnaHandoffReview key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)!.platform} accessMode={shops.find(shop => shop.id === shopId)!.access_mode}/>}
+    {shopId&&<BrandingDnaEvidenceImport key={shopId} shopId={shopId}
+      accessMode={shops.find(shop=>shop.id===shopId)?.access_mode??"public_observation"}
+      onImported={()=>{setPage(0);setReloadId(x=>x+1);}}/>}
     {loading ? <p className="bdna-evidence-empty" role="status">Đang tải danh sách shop…</p> :
       !shopId ? <p className="bdna-evidence-empty">Chưa có shop được đăng ký. Hãy thêm shop trong Shop Library.</p> :
       listLoading ? <p className="bdna-evidence-empty" role="status">Đang tải bằng chứng…</p> :
