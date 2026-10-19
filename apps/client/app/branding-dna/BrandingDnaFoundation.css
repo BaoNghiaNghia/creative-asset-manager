@@ -18,6 +18,16 @@
 .bdna-shop-card>div{display:grid;gap:3px;min-width:0}.bdna-shop-card strong{font-size:11px;overflow-wrap:anywhere}
 .bdna-shop-card small{font-size:10px;color:#7487a3}.bdna-shop-card a{font-size:10px;color:#476ce3}
 .bdna-shop-draft{border-radius:99px;background:#eaf1ff;color:#5b77ac;padding:5px 8px;font-size:9px;font-weight:750}
+.bdna-shop-card:has(.bdna-access-form){flex-wrap:wrap}
+.bdna-shop-access-state{font-size:10px;color:#586c89}
+.bdna-declaration-toggle{white-space:nowrap;background:#fff!important;color:#476ce3!important}
+.bdna-access-form{flex-basis:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border-top:1px solid #e0e8f4;padding-top:10px}
+.bdna-access-form label{display:grid;gap:5px;font-size:10px;color:#475e7f;font-weight:700}
+.bdna-access-form :is(input,select){width:100%;min-width:0;border:1px solid #cddbeb;border-radius:7px;padding:7px;font:inherit;font-size:12px;background:white;color:#253a5b}
+.bdna-access-form small{grid-column:1 / -1;color:#7b869a;line-height:1.5}
+.bdna-access-form button{justify-self:start}
+@media(max-width:580px){.bdna-access-form{grid-template-columns:1fr}.bdna-access-form :is(input,select){font-size:16px}}
+
 .bdna-empty{margin:12px 0 0;font-size:11px;color:#8294a9}
 .bdna-preview-explainer{margin-top:10px;font-size:10px;color:#7284a2}.bdna-preview-explainer summary{cursor:pointer;font-weight:700}
 @media(max-width:1000px){.bdna-shop-form{grid-template-columns:repeat(2,minmax(0,1fr))}.bdna-shop-form-url,.bdna-shop-form-footer{grid-column:span 2}}

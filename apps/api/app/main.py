@@ -20,6 +20,7 @@ from app.core.database import dispose_database, init_database
 from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
 from app.modules.branding_dna.router import router as branding_dna_router
+from app.modules.branding_dna.access_declaration_router import router as branding_dna_access_declaration_router
 from app.modules.branding_dna.worker_router import router as branding_dna_worker_router
 from app.modules.branding_dna.scout_session_router import router as branding_dna_scout_session_router
 from app.modules.branding_dna.knowledge_router import router as branding_dna_knowledge_router
@@ -224,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api.include_router(ai_governance_router)
     api.include_router(branding_dna_router)
+    api.include_router(branding_dna_access_declaration_router)
     api.include_router(branding_dna_worker_router)
     api.include_router(branding_dna_scout_session_router)
     api.include_router(branding_dna_knowledge_router)
