@@ -116,6 +116,18 @@
 .branding-agent-overview strong span{color:#8a98aa;font-weight:500;font-size:10px}
 .branding-agent-note{display:flex;align-items:flex-start;gap:8px;color:#6e8097;font-size:11px;line-height:1.5;margin:10px 0 0}
 .branding-agent-note svg{flex-shrink:0;margin-top:2px}
+.branding-preflight{border:1px solid #e0e8f3;border-radius:9px;padding:9px 12px;margin:2px 0 12px;background:#fbfcfe;color:#536986;font-size:11px}
+.branding-preflight-heading{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.branding-preflight-heading strong{color:#2c476b}
+.branding-preflight-heading span{font-size:10px;color:#6b7b93}
+.branding-preflight details{margin-top:8px}
+.branding-preflight summary{cursor:pointer;color:#285da7;font-weight:600}
+.branding-preflight-list{display:grid;max-height:220px;overflow-y:auto;gap:6px;margin-top:9px}
+.branding-preflight-shop{border:1px solid #e2eaf3;border-radius:7px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;background:white}
+.branding-preflight-shop strong{overflow-wrap:anywhere;color:#283f60}
+.branding-preflight-shop span{color:#74829b}
+.branding-preflight-shop small{grid-column:1 / -1;color:#788398;line-height:1.4}
+
 @media(max-width:900px){.branding-agent-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:530px){.branding-agent-overview>div{padding:8px}.branding-agent-overview strong{font-size:11px}}
 

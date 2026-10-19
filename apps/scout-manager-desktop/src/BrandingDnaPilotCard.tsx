@@ -5,6 +5,20 @@ import {CircleAlert,FolderSearch,Globe2,Pause,Play,RefreshCcw,ShieldCheck} from 
 type AgentStatus={state:string;pid:number|null;version:string;running:boolean;lastError:string|null;};
 type CamShop={id:string;displayName:string;platform:string;shopUrl:string;status:string;accessMode:string};
 type CamSync={shops:CamShop[];dispatchState:"disabled";dispatchReason:string};
+type ShopBlocker={shopId:string;platform:string;displayName:string;status:"blocked";stagedTasks:number;blockers:string[]};
+type DispatchPreview={available:boolean;blockedCount:number;readyCount:number;stagedTasks:number;shops:ShopBlocker[]};
+const BLOCKER_LABELS:Record<string,string>={
+  scan_task_dispatch_not_deployed:"CAM chưa cấp job",
+  marketplace_authorization_not_verified:"Chưa xác minh quyền nền tảng",
+  shop_access_not_declared:"Chưa khai báo quyền shop",
+  shop_not_active:"Shop chưa kích hoạt",
+  no_staged_scan_tasks:"Chưa có task",
+  etsy_written_permission_not_verified:"Thiếu quyền truy cập Etsy",
+  amazon_agent_policy_review_not_verified:"Chưa duyệt chính sách Amazon",
+};
+export function describeShopBlockers(blockers:string[]){
+ return blockers.map(code=>BLOCKER_LABELS[code]??"Cần kiểm tra: "+code).join(" · ");
+}
 const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.6",running:false,lastError:null};
 
 /** An empty Shop Library is still an authenticated, connected CAM session. */
@@ -21,6 +35,8 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
  const [shops,setShops]=useState<CamShop[]>([]);
  const [camConnected,setCamConnected]=useState(false);
  const [dispatchReason,setDispatchReason]=useState("scan_task_dispatch_not_deployed");
+ const [preview,setPreview]=useState<DispatchPreview|null>(null);
+ const [previewError,setPreviewError]=useState("");
  const [camError,setCamError]=useState("");
  const [error,setError]=useState("");
  const [busy,setBusy]=useState(false);
@@ -39,9 +55,19 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
      }
      setShops(data.shops);setCamConnected(true);
      setDispatchReason(data.dispatchReason);setCamError("");
+     try {
+       const next=await invoke<DispatchPreview>("branding_pilot_dispatch_preview");
+       if(next.available && (next.readyCount!==0||next.shops.some(s=>s.status!=="blocked"))){
+         throw new Error("CAM dispatch contract changed; scanning remains disabled.");
+       }
+       setPreview(next);setPreviewError("");
+     }catch(e){
+       setPreview(null);
+       setPreviewError(typeof e==="string"?e:e instanceof Error?e.message:"Preflight unavailable.");
+     }
    }catch(e){
      setCamError(typeof e==="string"?e:e instanceof Error?e.message:"CAM connection unavailable.");
-     setShops([]);setCamConnected(false);
+     setShops([]);setCamConnected(false);setPreview(null);
    }finally{setRefreshing(false)}
  },[nativeAvailable]);
  useEffect(()=>{
@@ -82,6 +108,26 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
      <div><small>Shop từ CAM</small><strong>{connected?shops.length:"—"} <span>({amazon} Amazon · {etsy} Etsy)</span></strong></div>
      <div><small>Agent</small><strong>{status.running?"Chờ CAM":"Stopped"} <span>· PID {status.pid??"—"}</span></strong></div>
      <div><small>Điều phối</small><strong>{dispatchLabel} <span>· CAM</span></strong></div>
+   </div>
+   <div className="branding-preflight" aria-label="CAM per-shop scan readiness">
+     <div className="branding-preflight-heading">
+       <strong>Readiness từng shop</strong>
+       <span>{preview?.available
+         ? `${preview.blockedCount} blocked · ${preview.stagedTasks} staged · 0 running`
+         : connected?"Chờ CAM cung cấp dispatch-preview":"Chưa kết nối"}</span>
+     </div>
+     {preview?.available&&preview.shops.length>0&&<details>
+       <summary>Xem lý do chưa quét của {preview.shops.length} shop</summary>
+       <div className="branding-preflight-list">
+         {preview.shops.map(shop=><div key={shop.shopId} className="branding-preflight-shop">
+           <strong>{shop.displayName}</strong>
+           <span>{shop.platform==="amazon"?"Amazon":"Etsy"} · {shop.stagedTasks} staged</span>
+           <small>{describeShopBlockers(shop.blockers)}</small>
+         </div>)}
+       </div>
+     </details>}
+     {preview?.available&&preview.shops.length===0&&<small>Chưa có shop Amazon/Etsy trong CAM.</small>}
+     {previewError&&<small role="status">Không tải được chi tiết readiness: {previewError}</small>}
    </div>
    <div className="branding-pilot-actions branding-main-actions">
      <button type="button" className="button primary slim" disabled={disabled||status.running||!connected}

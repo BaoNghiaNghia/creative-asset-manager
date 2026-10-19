@@ -1049,6 +1049,126 @@ async fn branding_pilot_cam_shops(
     })
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CamPreviewDispatch {
+    state:String,
+    reason:String,
+    active_scan_jobs:u32,
+    marketplace_authorization_verified:bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CamPreviewShop {
+    shop_id:String,
+    platform:String,
+    display_name:String,
+    status:String,
+    staged_tasks:u32,
+    blockers:Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CamPreviewResponse {
+    version:u8,
+    scan_enabled:bool,
+    dispatch:CamPreviewDispatch,
+    shop_count:usize,
+    blocked_count:usize,
+    ready_count:usize,
+    items:Vec<CamPreviewShop>,
+}
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct CamPreviewShopView {
+    shop_id:String,
+    platform:String,
+    display_name:String,
+    status:String,
+    staged_tasks:u32,
+    blockers:Vec<String>,
+}
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct CamDispatchPreviewView {
+    available:bool,
+    blocked_count:usize,
+    ready_count:usize,
+    staged_tasks:u64,
+    shops:Vec<CamPreviewShopView>,
+}
+fn valid_dispatch_preview(data:&CamPreviewResponse)->bool {
+    data.version==1 && !data.scan_enabled
+      && data.dispatch.state=="disabled"
+      && data.dispatch.reason=="scan_task_dispatch_not_deployed"
+      && data.dispatch.active_scan_jobs==0
+      && !data.dispatch.marketplace_authorization_verified
+      && data.items.len()<=200 && data.shop_count==data.items.len()
+      && data.blocked_count==data.shop_count && data.ready_count==0
+      && data.items.iter().all(|shop| {
+        ["amazon","etsy"].contains(&shop.platform.as_str())
+          && shop.status=="blocked" && shop.shop_id.len()==36
+          && shop.display_name.len()<=90 && shop.blockers.len()<=12
+          && shop.blockers.iter().all(|reason|reason.len()<=90)
+          && shop.blockers.iter().any(|b|b=="scan_task_dispatch_not_deployed")
+          && shop.blockers.iter().any(|b|b=="marketplace_authorization_not_verified")
+      })
+}
+#[tauri::command]
+async fn branding_pilot_dispatch_preview(
+    state:tauri::State<'_,Arc<Controller>>,
+) -> Result<CamDispatchPreviewView,String> {
+    let settings=config_values(&state.repo);
+    let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
+    let agent_id=get("RRUGC_AGENT_ID").filter(|s|!s.is_empty())
+       .ok_or("Pairing required for Branding DNA preflight.")?;
+    let token=get("RRUGC_SCOUT_TOKEN").filter(|s|!s.is_empty())
+       .ok_or("Scout token unavailable.")?;
+    if agent_id.len()!=36 ||
+       !agent_id.chars().all(|c|c.is_ascii_hexdigit()||c=='-'){
+        return Err("Invalid paired Scout Agent ID.".into());
+    }
+    let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+    let parsed=reqwest::Url::parse(base).map_err(|_|"Invalid CAM origin.")?;
+    if parsed.scheme()!="https" || parsed.host_str().is_none()
+      || !parsed.username().is_empty() || parsed.password().is_some()
+      || parsed.port().is_some() || parsed.path()!="/"
+      || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err("Branding DNA preflight requires a trusted HTTPS CAM origin.".into());
+    }
+    let url=format!("{}/api/v1/branding-dna/scout-agents/{}/dispatch-preview",
+       base.trim_end_matches('/'),agent_id);
+    let res=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+       .build().map_err(|_|"Cannot initialize preflight client.")?
+       .get(&url).bearer_auth(token).timeout(Duration::from_secs(12))
+       .send().await.map_err(|_|"CAM preflight endpoint unreachable.".to_string())?;
+    if res.status()==reqwest::StatusCode::NOT_FOUND {
+        return Ok(CamDispatchPreviewView{available:false,blocked_count:0,
+            ready_count:0,staged_tasks:0,shops:Vec::new()});
+    }
+    if res.status()==reqwest::StatusCode::UNAUTHORIZED ||
+       res.status()==reqwest::StatusCode::FORBIDDEN {
+        return Err("Scout pairing revoked; reconnect CAM.".into());
+    }
+    if !res.status().is_success() {
+        return Err(format!("CAM preflight HTTP {}.",res.status().as_u16()));
+    }
+    let packet=res.json::<CamPreviewResponse>().await
+       .map_err(|_|"CAM returned an invalid dispatch preview.".to_string())?;
+    if !valid_dispatch_preview(&packet) {
+        return Err("Refused unsafe CAM dispatch preview.".into());
+    }
+    let total=packet.items.iter().map(|shop|u64::from(shop.staged_tasks)).sum();
+    Ok(CamDispatchPreviewView{
+        available:true,blocked_count:packet.blocked_count,ready_count:0,
+        staged_tasks:total,
+        shops:packet.items.into_iter().map(|shop|CamPreviewShopView{
+           shop_id:shop.shop_id,platform:shop.platform,display_name:shop.display_name,
+           status:shop.status,staged_tasks:shop.staged_tasks,blockers:shop.blockers,
+        }).collect(),
+    })
+}
+
 #[tauri::command]
 fn branding_pilot_status(state: tauri::State<'_, Arc<Controller>>) -> Result<branding_pilot::BrandPilotStatus,String> {
     let mut pilot=state.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
@@ -1422,6 +1542,7 @@ pub fn run() {
             branding_pilot_status,
             branding_pilot_action,
             branding_pilot_cam_shops,
+            branding_pilot_dispatch_preview,
             branding_pilot_open_log_folder,
             keyword_summary,
             operations_summary,
@@ -1438,6 +1559,40 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preview_contract_never_grants_dispatch() {
+        let base=serde_json::json!({
+            "version":1,"scan_enabled":false,"shop_count":1,
+            "blocked_count":1,"ready_count":0,
+            "dispatch":{"state":"disabled","reason":"scan_task_dispatch_not_deployed",
+              "active_scan_jobs":0,"marketplace_authorization_verified":false},
+            "items":[{"shop_id":"72680eb2-3205-4b27-8a1f-66140db12f5b",
+              "platform":"etsy","display_name":"Test Shop","status":"blocked",
+              "staged_tasks":3,
+              "blockers":["scan_task_dispatch_not_deployed",
+                 "marketplace_authorization_not_verified"]}]
+        });
+        let packet:CamPreviewResponse=serde_json::from_value(base.clone()).unwrap();
+        assert!(valid_dispatch_preview(&packet));
+        for (field,value) in [
+            ("scan_enabled",serde_json::json!(true)),
+            ("ready_count",serde_json::json!(1)),
+            ("blocked_count",serde_json::json!(0))
+        ] {
+            let mut changed=base.clone();
+            changed[field]=value;
+            let packet:CamPreviewResponse=serde_json::from_value(changed).unwrap();
+            assert!(!valid_dispatch_preview(&packet));
+        }
+        let mut job=base.clone();
+        job["job"]=serde_json::json!({"url":"https://example.com"});
+        assert!(serde_json::from_value::<CamPreviewResponse>(job).is_err());
+        let mut missing=base;
+        missing["items"][0]["blockers"]=serde_json::json!(["no_staged_scan_tasks"]);
+        let packet:CamPreviewResponse=serde_json::from_value(missing).unwrap();
+        assert!(!valid_dispatch_preview(&packet));
+    }
+
     #[test]
     fn cam_sync_accepts_zero_shops_but_rejects_unreviewed_dispatch() {
         let base=serde_json::json!({

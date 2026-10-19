@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import App from "./App";
 import { BrandingDnaReports } from "./BrandingDnaReports";
-import {camConnectionState} from "./BrandingDnaPilotCard";
+import {camConnectionState,describeShopBlockers} from "./BrandingDnaPilotCard";
 describe("Tauri Scout Manager dashboard", () => {
   it("keeps CAM connected even when no shops have been configured",()=>{
     expect(camConnectionState(true,[])).toEqual({connected:true,shopCount:0});
@@ -10,6 +10,9 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(camConnectionState(true,[{id:"a",displayName:"Shop",platform:"amazon",
       shopUrl:"https://www.amazon.com/stores/Test",status:"draft",accessMode:"public_observation"}]))
       .toEqual({connected:true,shopCount:1});
+  });
+  it("shows per-shop preflight blockers without implying scanning is enabled",()=>{
+    expect(describeShopBlockers(["scan_task_dispatch_not_deployed","etsy_written_permission_not_verified"])).toContain("CAM chưa cấp job");
   });
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
