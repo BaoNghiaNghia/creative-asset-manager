@@ -35,7 +35,7 @@ class ReleaseBuilderTests(unittest.TestCase):
             builder.build(output)
             first=output.read_bytes()
             report=builder.verify(output)
-            self.assertEqual(report["version"],"0.2.5")
+            self.assertEqual(report["version"],"0.2.6")
             self.assertFalse(report["production_scan_enabled"])
             self.assertFalse(report["automatic_scan_on_launch"])
             self.assertFalse(report["marketplace_api_used"])

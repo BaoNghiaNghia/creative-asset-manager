@@ -1,4 +1,4 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.5
+# Branding DNA Windows Worker — Windows Portable v0.2.6"
 
 ## Recommended: use the existing Scan Pinterest tool
 

@@ -5,7 +5,7 @@ import {CircleAlert,FolderSearch,Globe2,Pause,Play,RefreshCcw,ShieldCheck} from 
 type AgentStatus={state:string;pid:number|null;version:string;running:boolean;lastError:string|null;};
 type CamShop={id:string;displayName:string;platform:string;shopUrl:string;status:string;accessMode:string};
 type CamSync={shops:CamShop[];dispatchState:"disabled";dispatchReason:string};
-const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.5",running:false,lastError:null};
+const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.6",running:false,lastError:null};
 
 /** An empty Shop Library is still an authenticated, connected CAM session. */
 export function camConnectionState(acknowledged:boolean, shops:CamShop[]){
