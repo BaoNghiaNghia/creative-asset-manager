@@ -91,7 +91,10 @@ cleanup() {
   # before EXIT. Do not retain transient browser artifacts on the VPS.
   # Preserve governed golden baselines and proposals: only timestamp-named
   # completed run folders inside apps/client/.ui-qa are eligible.
-  if [[ "${CAM_UI_QA_PRESERVE_RUNS:-0}" != "1" ]]; then
+  # GitHub Actions has post-matrix visual-review and artifact-upload steps.
+  # Keep captures on its ephemeral runner until those steps consume them.
+  # Local/VPS executions purge immediately, unless explicitly preserved.
+  if [[ "${CAM_UI_QA_PRESERVE_RUNS:-0}" != "1" && "${GITHUB_ACTIONS:-false}" != "true" ]]; then
     node "$CLIENT/scripts/ui-qa-purge-runs.mjs" "$LOG_DIR" >&2 || true
     rm -f -- "$SERVER_LOG"
   fi

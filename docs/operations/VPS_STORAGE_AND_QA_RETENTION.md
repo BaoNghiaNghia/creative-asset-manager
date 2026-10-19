@@ -17,7 +17,10 @@ un-granted paths have not been completely measured.
 in the profile summary, then purges only *completed timestamp-named* folders
 containing `report.json` under `apps/client/.ui-qa` in its EXIT trap.
 It also deletes the transient loopback preview log. This runs on success,
-failure and interruption, preserving the matrix summary and its console verdict.
+failure and interruption for local/VPS executions, preserving the matrix summary and its console verdict.
+GitHub Actions is an exception: its ephemeral runner retains per-run captures until
+post-matrix visual-review packets and the 7-day artifact upload have consumed them.
+The hosted CI workspace is then discarded; QA captures are not retained on the VPS.
 
 Set `CAM_UI_QA_PRESERVE_RUNS=1` only when a developer intentionally needs to
 inspect per-run captures. The safeguard never touches `baseline-proposals`,

@@ -66,6 +66,7 @@ test("QA matrix purges transient run captures after summary, preserving baseline
   const shell = await readFile(new URL("../../../scripts/cam-ui-profile-matrix.sh", import.meta.url), "utf8");
   assert.match(shell, /ui-qa-purge-runs\.mjs/);
   assert.match(shell, /CAM_UI_QA_PRESERVE_RUNS:-0/);
+  assert.match(shell, /GITHUB_ACTIONS:-false/);
   assert.match(shell, /trap cleanup EXIT/);
   const summaryPosition = shell.indexOf("ui-qa-matrix-summary.mjs");
   const exitPosition = shell.lastIndexOf("All selected fixture-backed profiles passed.");
