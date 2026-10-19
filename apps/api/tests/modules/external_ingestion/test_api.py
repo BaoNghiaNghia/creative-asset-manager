@@ -1,5 +1,7 @@
 import json
 import unittest
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -194,15 +196,26 @@ class ExternalIngestionApiTest(unittest.TestCase):
             )
             session.commit()
             source_id = source.id
-        first = self.client.post(
-            "/api/v1/asset-ingestions",
-            headers=self.headers(token, "rate-1"),
-            json=self.body(source_id=source_id),
-        )
-        limited = self.client.get(
-            f"/api/v1/asset-ingestions/{first.json()['ingestion_id']}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        # Both requests must share one minute: a wall-clock boundary between
+        # HTTP calls legitimately starts a new rate-limit bucket. Freeze only
+        # the repository clock, retaining the real DB counter and HTTP behavior.
+        fixed = datetime(2026, 10, 19, 13, 45, 15, tzinfo=timezone.utc)
+
+        class FixedRateLimitClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed if tz is None else fixed.astimezone(tz)
+
+        with patch("app.modules.external_ingestion.repository.datetime", FixedRateLimitClock):
+            first = self.client.post(
+                "/api/v1/asset-ingestions",
+                headers=self.headers(token, "rate-1"),
+                json=self.body(source_id=source_id),
+            )
+            limited = self.client.get(
+                f"/api/v1/asset-ingestions/{first.json()['ingestion_id']}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
         self.assertEqual(first.status_code, 202)
         self.assertEqual(limited.status_code, 429)
         self.assertIn("retry-after", limited.headers)
