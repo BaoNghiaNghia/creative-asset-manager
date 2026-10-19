@@ -202,8 +202,44 @@
       "method": "GET",
       "path": "/api/v1/branding-dna/shops/qa-shop-1/listings",
       "body": {
+        "items": [{
+          "id": "qa-snapshot-1",
+          "shop_id": "qa-shop-1",
+          "listing_key": "sample-hat-001",
+          "source_revision": "offline-export-r1",
+          "title": "Imported Hat · Unverified",
+          "category": "caps",
+          "captured_at": "2026-10-19T08:00:00Z",
+          "image_count": 1,
+          "evidence_state": "imported_unverified",
+          "coverage_state": "unknown",
+          "source_kind": "authorized_export"
+        }],
+        "count": 1,
+        "limit": 20,
+        "offset": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/listings/qa-snapshot-1/gallery",
+      "body": {
+        "images": [{
+          "sequence_index": 0, "role": "hero", "variant_key": null,
+          "rights_state": "unknown", "asset_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "media_available": false
+        }]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/qa-shop-1/listings/qa-snapshot-1/assessments",
+      "body": {
         "items": [],
-        "count": 0
+        "assessment_grants_listing_verification": false,
+        "assessment_grants_image_rights": false,
+        "scan_enabled": false,
+        "dispatchable": false
       }
     },
     {
@@ -212,9 +248,9 @@
       "body": {
         "shop": {"id": "qa-shop-1", "display_name": "QA Shop Alpha", "platform": "etsy"},
         "source_counts": {
-          "listing_snapshots": 0,
+          "listing_snapshots": 1,
           "verified_listing_snapshots": 0,
-          "gallery_image_manifests": 0,
+          "gallery_image_manifests": 1,
           "knowledge_documents": 0,
           "approved_knowledge_documents": 0,
           "pending_knowledge_documents": 0
@@ -222,7 +258,7 @@
         "knowledge_sources": [],
         "input_fingerprint": "fixture-no-verified-evidence",
         "blockers": ["verified_product_evidence_missing"],
-        "notices": ["approved_shop_knowledge_missing_optional"],
+        "notices": ["approved_shop_knowledge_missing_optional", "imported_listings_are_unverified"],
         "dna_draft_ready": false,
         "dna_generation_enabled": false,
         "automatic_dna_mutation_enabled": false
@@ -252,7 +288,7 @@
         "context_references": [],
         "unresolved_sections": ["visual_style_and_image_usage_rights", "brand_voice_requires_human_synthesis", "target_audience", "brand_best_seller_claims", "brand_pick_claims"],
         "blockers": ["verified_product_evidence_missing"],
-        "notices": ["approved_shop_knowledge_missing_optional"],
+        "notices": ["approved_shop_knowledge_missing_optional", "imported_listings_are_unverified"],
         "trust_rule": "Only verified listing metadata is factual. RAG is contextual."
       }
     },

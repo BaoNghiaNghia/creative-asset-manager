@@ -23,6 +23,7 @@ from app.modules.inventory import model as inventory_models  # noqa: F401
 from app.modules.branding_dna import model as branding_dna_models  # noqa: F401
 from app.modules.branding_dna import access_declaration_model as branding_dna_access_declaration_models  # noqa: F401
 from app.modules.branding_dna import access_review_model as branding_dna_access_review_models  # noqa: F401
+from app.modules.branding_dna import evidence_assessment_model as branding_dna_evidence_assessment_models  # noqa: F401
 from app.modules.branding_dna import scout_session_model as branding_dna_scout_session_models  # noqa: F401
 from app.modules.branding_dna import knowledge_model as branding_dna_knowledge_models  # noqa: F401
 from app.modules.branding_dna import handoff_model as branding_dna_handoff_models  # noqa: F401

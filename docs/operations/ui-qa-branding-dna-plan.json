@@ -198,6 +198,27 @@
       ]
     },
     {
+      "name": "evidence-assessment-stays-unverified",
+      "click": ".bdna-evidence-row",
+      "waitFor": ".bdna-assessment",
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".bdna-assessment"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".bdna-assessment",
+          "value": "không chuyển dữ liệu thành verified"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
       "name": "dna-readiness-stage",
       "click": "#bdna-stage-dna",
       "waitFor": ".bdna-readiness",

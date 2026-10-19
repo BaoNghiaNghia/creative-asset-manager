@@ -3,6 +3,7 @@ import "./BrandingDnaEvidence.css";
 import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
 import { BrandingDnaEvidenceImport } from "./BrandingDnaEvidenceImport";
+import { BrandingDnaEvidenceAssessment } from "./BrandingDnaEvidenceAssessment";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -145,6 +146,7 @@ export function BrandingDnaEvidence() {
         <small>Chỉ tạo staged job. Không phát lệnh tới Browser Worker.</small>
       </div> : <p>Chỉ shop owned/authorized mới được chuẩn bị job kiểm chứng.</p>}
       {stageResult && <p className="bdna-evidence-stage-result" role="status">{stageResult}</p>}
+      <BrandingDnaEvidenceAssessment key={selected.id} shopId={shopId} snapshotId={selected.id}/>
       <div className="bdna-evidence-gallery-grid">
         {gallery.map(image => <div key={image.sequence_index} className="bdna-evidence-image">
           <strong>Ảnh {image.sequence_index + 1}</strong>

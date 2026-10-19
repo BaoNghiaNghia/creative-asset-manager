@@ -1,0 +1,16 @@
+.bdna-assessment{border:1px solid #dce5f0;border-radius:9px;background:#fafcfe;padding:13px;display:grid;gap:8px;min-width:0}
+.bdna-assessment h4{font-size:12px;margin:0}.bdna-assessment p{font-size:11px;color:#64748b;line-height:1.5;margin:0}
+.bdna-assessment form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.bdna-assessment form label{display:grid;gap:5px;font-size:11px;font-weight:650;color:#4b6285;min-width:0}
+.bdna-assessment form label:has(textarea){grid-column:1/-1}
+.bdna-assessment select,.bdna-assessment textarea,.bdna-assessment input{box-sizing:border-box;min-width:0;width:100%;background:#fff;border:1px solid #cddaea;border-radius:7px;padding:8px;font:inherit;color:#33445c}
+.bdna-assessment form button{justify-self:start;border:1px solid #b9cbea;border-radius:8px;background:#eef4ff;color:#3b5d9b;font-size:11px;font-weight:750;padding:9px 12px}
+.bdna-assessment form button:disabled{opacity:.5}
+.bdna-assessment details{font-size:11px;color:#526784;min-width:0}
+.bdna-assessment details summary{cursor:pointer;font-weight:700}
+.bdna-assessment details ol{padding-left:18px;display:grid;gap:8px}
+.bdna-assessment details li{overflow-wrap:anywhere;line-height:1.6}
+.bdna-assessment details li small,.bdna-assessment details li span{display:block}
+.bdna-assessment .bdna-assessment-error{color:#b42318}
+.bdna-assessment .bdna-assessment-success{color:#28734f}
+@media(max-width:660px){.bdna-assessment form{grid-template-columns:1fr}.bdna-assessment select,.bdna-assessment textarea,.bdna-assessment input{font-size:16px}}
