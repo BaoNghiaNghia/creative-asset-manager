@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import Base
 from app.modules.branding_dna.model import BrandShopModel
+from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
+from app.modules.branding_dna.access_declaration_router import ShopRelationshipDeclaration, declare_shop_relationship
 from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.scout_session_router import dispatch_preview
@@ -25,6 +27,7 @@ def db():
     Base.metadata.create_all(engine, tables=[
         BrandShopModel.__table__, BrandListingSnapshotModel.__table__,
         BrandScanTaskModel.__table__, RrugcScoutAgentModel.__table__,
+        BrandShopAccessDeclarationModel.__table__,
     ])
     with Session(engine) as session:
         yield session
@@ -83,6 +86,25 @@ def test_preview_lists_blockers_without_dispatching_or_leaking_shops(db):
     assert "storefront_url" not in item
     assert "tenant_id" not in item
     assert not any("etsy" in str(x).lower() for x in result["items"])
+    db.refresh(task)
+    assert (task.status, task.lease_id, task.agent_id, task.lease_generation) == original_state
+
+    # A pending declaration changes the *explanation*, never shop access or dispatch.
+    declared = declare_shop_relationship(
+        a["id"], ShopRelationshipDeclaration(
+            relationship="owned", evidence_reference="internal-authorization-ref-2026"),
+        Response(), session=db, principal=principal("tenant-a"),
+    )
+    assert declared["rights_verified"] is False
+    pending = dispatch_preview(
+        agent_a.id, Response(), authorization="Bearer " + TOKEN, session=db)
+    assert "shop_access_pending_verification" in pending["items"][0]["blockers"]
+    assert "shop_access_not_declared" not in pending["items"][0]["blockers"]
+    assert "declaration_relationship" not in pending["items"][0]
+    assert "evidence_reference" not in str(pending)
+    assert pending["ready_count"] == 0
+    assert pending["dispatch"]["active_scan_jobs"] == 0
+    assert db.get(BrandShopModel, a["id"]).access_mode == "public_observation"
     db.refresh(task)
     assert (task.status, task.lease_id, task.agent_id, task.lease_generation) == original_state
 

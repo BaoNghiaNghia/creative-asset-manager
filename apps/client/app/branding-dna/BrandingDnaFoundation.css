@@ -20,6 +20,12 @@
 .bdna-shop-draft{border-radius:99px;background:#eaf1ff;color:#5b77ac;padding:5px 8px;font-size:9px;font-weight:750}
 .bdna-shop-card:has(.bdna-access-form){flex-wrap:wrap}
 .bdna-shop-access-state{font-size:10px;color:#586c89}
+.bdna-shop-blockers{font-size:10px;color:#546b8a;min-width:170px;max-width:100%}
+.bdna-shop-blockers summary{cursor:pointer;color:#355ca7;font-weight:700;white-space:nowrap}
+.bdna-shop-blockers ul{padding:6px 0 4px 15px;margin:0;line-height:1.5;max-width:310px}
+.bdna-shop-blockers li{overflow-wrap:anywhere}
+.bdna-shop-blockers small{line-height:1.4;display:block}
+@media(max-width:580px){.bdna-shop-blockers{flex-basis:100%}}
 .bdna-declaration-toggle{white-space:nowrap;background:#fff!important;color:#476ce3!important}
 .bdna-access-form{flex-basis:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border-top:1px solid #e0e8f4;padding-top:10px}
 .bdna-access-form label{display:grid;gap:5px;font-size:10px;color:#475e7f;font-weight:700}

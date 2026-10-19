@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
 from app.modules.branding_dna.model import BrandShopModel
+from app.modules.branding_dna.scan_readiness_service import shop_scan_readiness, latest_shop_declarations
 
 router = APIRouter(prefix="/api/v1/branding-dna", tags=["branding-dna-access-declarations"])
 READ = require_permission("ai_operations.read")
@@ -40,21 +41,30 @@ def latest_access_declarations(
 ):
     """At most one latest declaration per shop; all tenants stay isolated."""
     tenant = principal.active_tenant_id
-    rows = session.scalars(
-        select(BrandShopAccessDeclarationModel)
-        .where(BrandShopAccessDeclarationModel.tenant_id == tenant)
-        .order_by(BrandShopAccessDeclarationModel.created_at.desc(),
-                  BrandShopAccessDeclarationModel.id.desc())
-        .limit(2000)
+    ids = session.scalars(
+        select(BrandShopModel.id).where(BrandShopModel.tenant_id == tenant)
+        .order_by(BrandShopModel.created_at, BrandShopModel.id).limit(200)
     ).all()
-    latest = {}
-    for row in rows:
-        if row.shop_id not in latest:
-            latest[row.shop_id] = present_declaration(row)
-        if len(latest) >= 200:
-            break
+    latest = latest_shop_declarations(session, tenant_id=tenant, shop_ids=list(ids))
     response.headers["Cache-Control"] = "no-store"
-    return {"items": list(latest.values()), "rights_verified": False, "scan_enabled": False}
+    return {"items": [present_declaration(latest[id]) for id in ids if id in latest],
+            "rights_verified": False, "scan_enabled": False}
+
+
+@router.get("/shops/scan-readiness")
+def read_shop_scan_readiness(
+    response: Response, session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """An admin-only, read-only view, never a dispatch or rights-grant route."""
+    items = shop_scan_readiness(session, tenant_id=principal.active_tenant_id)
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "version": 1, "scan_enabled": False, "ready_count": 0,
+        "blocked_count": len(items), "shop_count": len(items),
+        "staged_tasks": sum(item["staged_tasks"] for item in items),
+        "items": items,
+    }
 
 
 @router.post("/shops/{shop_id}/access-declarations", status_code=201)

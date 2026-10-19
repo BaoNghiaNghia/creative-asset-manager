@@ -92,6 +92,16 @@
           "value": 2
         },
         {
+          "type": "count",
+          "selector": ".bdna-shop-blockers",
+          "value": 2
+        },
+        {
+          "type": "text-includes",
+          "selector": ".bdna-live-info[role=status]",
+          "value": "Readiness CAM"
+        },
+        {
           "type": "no-viewport-overflow",
           "selector": "html",
           "maxPx": 0

@@ -81,6 +81,51 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/branding-dna/shops/scan-readiness",
+      "body": {
+        "version": 1,
+        "scan_enabled": false,
+        "ready_count": 0,
+        "shop_count": 2,
+        "blocked_count": 2,
+        "staged_tasks": 0,
+        "items": [{
+          "shop_id": "qa-shop-1",
+          "platform": "etsy",
+          "display_name": "QA Shop Alpha",
+          "status": "blocked",
+          "staged_tasks": 0,
+          "declaration_relationship": null,
+          "declaration_status": null,
+          "blockers": [
+            "scan_task_dispatch_not_deployed",
+            "marketplace_authorization_not_verified",
+            "shop_access_not_declared",
+            "shop_not_active",
+            "no_staged_scan_tasks",
+            "etsy_written_permission_not_verified"
+          ]
+        }, {
+          "shop_id": "qa-shop-2",
+          "platform": "amazon",
+          "display_name": "QA Shop Beta Long Name for Responsive Layout Validation",
+          "status": "blocked",
+          "staged_tasks": 0,
+          "declaration_relationship": "competitor_research",
+          "declaration_status": "recorded_only",
+          "blockers": [
+            "scan_task_dispatch_not_deployed",
+            "marketplace_authorization_not_verified",
+            "shop_competitor_research_only",
+            "shop_not_active",
+            "no_staged_scan_tasks",
+            "amazon_agent_policy_review_not_verified"
+          ]
+        }]
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/branding-dna/shops/access-declarations",
       "body": {
         "items": [],

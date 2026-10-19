@@ -7,6 +7,19 @@ type Shop = {
 };
 type Status = {phase:string;shop_count:number;registered_workers:number;scanner_ready:boolean;scan_enabled:boolean;blockers:string[]};
 type AccessDeclaration = {id:string;shop_id:string;relationship:string;status:string;rights_verified:false;dispatchable:false;};
+type ShopScanReadiness={shop_id:string;display_name:string;platform:string;status:"blocked";staged_tasks:number;blockers:string[];declaration_relationship:string|null;declaration_status:string|null};
+type ScanReadiness={version:1;scan_enabled:false;ready_count:0;shop_count:number;blocked_count:number;staged_tasks:number;items:ShopScanReadiness[]};
+const BLOCKER_LABELS:Record<string,string>={
+ scan_task_dispatch_not_deployed:"Dispatcher chưa được triển khai",
+ marketplace_authorization_not_verified:"Chưa xác minh quyền theo nền tảng",
+ shop_access_not_declared:"Chưa khai báo nguồn",
+ shop_access_pending_verification:"Đã khai báo, đang chờ xác minh quyền",
+ shop_competitor_research_only:"Shop đối thủ: chỉ nghiên cứu, không được cấp quyền quét",
+ shop_not_active:"Shop chưa kích hoạt",
+ no_staged_scan_tasks:"Chưa có task đang chờ",
+ etsy_written_permission_not_verified:"Chưa xác minh quyền bằng văn bản từ Etsy",
+ amazon_agent_policy_review_not_verified:"Chưa hoàn thành rà soát chính sách Amazon",
+};
 const RELATIONSHIP_OPTIONS=[
  {value:"unknown",text:"Chưa xác định"},
  {value:"competitor_research",text:"Shop đối thủ / nghiên cứu"},
@@ -30,20 +43,28 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
  const [relationship,setRelationship]=useState("unknown");
  const [proofReference,setProofReference]=useState("");
  const [declarations,setDeclarations]=useState<Record<string,AccessDeclaration>>({});
+ const [scanReadiness,setScanReadiness]=useState<ScanReadiness|null>(null);
+ const [readinessUnavailable,setReadinessUnavailable]=useState(false);
  const [notice,setNotice]=useState("");
  const [open,setOpen]=useState(false);
  const [error,setError]=useState("");
  const [platform,setPlatform]=useState("etsy");
  const [url,setUrl]=useState("");
  const refresh = useCallback(async () => {
-  const [s,list,access]=await Promise.all([
+  const [s,list,access,readiness]=await Promise.all([
    jsonRequest<Status>("/api/v1/branding-dna/status"),
    jsonRequest<{items:Shop[]}>("/api/v1/branding-dna/shops"),
    jsonRequest<{items:AccessDeclaration[]}>("/api/v1/branding-dna/shops/access-declarations")
      .catch(()=>({items:[] as AccessDeclaration[]})),
+   jsonRequest<ScanReadiness>("/api/v1/branding-dna/shops/scan-readiness")
+     .catch(()=>null),
   ]);
   setStatus(s);setShops(list.items);
   setDeclarations(Object.fromEntries(access.items.map(item=>[item.shop_id,item])));
+  setScanReadiness(readiness && readiness.version===1 && readiness.scan_enabled===false
+    && readiness.ready_count===0 && readiness.items.every(item=>item.status==="blocked")
+    ? readiness:null);
+  setReadinessUnavailable(!readiness);
  },[]);
  useEffect(()=>{
   let active=true;
@@ -97,6 +118,11 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
          <label className="bdna-shop-form-url">Storefront HTTPS URL<input required inputMode="url" type="url" value={url} onChange={e=>setUrl(e.target.value)} placeholder={platform==="etsy"?"https://www.etsy.com/shop/ShopName":platform==="amazon"?"https://www.amazon.com/stores/BrandName/page/...":"https://yourshop.myshopify.com"}/></label>
    <div className="bdna-shop-form-footer"><small>Tạo shop ở trạng thái draft, không tự mở browser.</small><button type="submit" disabled={saving}>{saving?"Đang lưu…":"Lưu shop"}</button></div>
   </form>}
+  {!compact && <p className="bdna-live-info" role="status">
+    {scanReadiness ? `Readiness CAM: ${scanReadiness.blocked_count}/${scanReadiness.shop_count} shop bị chặn · ${scanReadiness.staged_tasks} task chờ · 0 job đang quét.`
+      : readinessUnavailable ? "Readiness từng shop chưa có trên server. Không có quyền quét nào được xác nhận."
+        : "Đang tải readiness từ CAM."}
+  </p>}
   {!compact && (shops.length>0?<div className="bdna-shop-cards">{shops.map(shop=><article key={shop.id} className="bdna-shop-card">
    <div><strong>{shop.display_name}</strong><small>{shop.platform.toUpperCase()} · {shop.region} · {shop.access_mode}</small></div>
    <a href={shop.storefront_url} target="_blank" rel="noopener noreferrer" title="Open storefront in new tab">Nguồn gốc ↗</a>
@@ -105,6 +131,11 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
      ? declarations[shop.id].relationship==="competitor_research"?"Nghiên cứu · không cấp quyền"
        : declarations[shop.id].status==="pending_review"?"Chờ xác minh quyền":"Đã ghi nhận khai báo"
      : "Chưa phân loại nguồn"}</span>
+   {scanReadiness?.items.find(item=>item.shop_id===shop.id) && <details className="bdna-shop-blockers">
+      <summary>Xem lý do chưa chạy</summary>
+      <ul>{scanReadiness.items.find(item=>item.shop_id===shop.id)?.blockers.map(code=><li key={code}>{BLOCKER_LABELS[code]??code}</li>)}</ul>
+      <small>{scanReadiness.items.find(item=>item.shop_id===shop.id)?.staged_tasks??0} task chờ · Chưa cấp lease hay browser job</small>
+    </details>}
    <button type="button" className="bdna-declaration-toggle" onClick={()=>{
      const opening=reviewingId!==shop.id;
      setReviewingId(opening?shop.id:null);
