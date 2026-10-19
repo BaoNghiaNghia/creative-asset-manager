@@ -62,6 +62,16 @@ test("Research Inbox QA does not erase the prior matrix captures", async () => {
   assert.match(shell, /if ! CAM_UI_QA_KEEP="\$KEEP_RUNS" npm run ui:qa --/);
 });
 
+test("QA matrix purges transient run captures after summary, preserving baselines by default", async () => {
+  const shell = await readFile(new URL("../../../scripts/cam-ui-profile-matrix.sh", import.meta.url), "utf8");
+  assert.match(shell, /ui-qa-purge-runs\.mjs/);
+  assert.match(shell, /CAM_UI_QA_PRESERVE_RUNS:-0/);
+  assert.match(shell, /trap cleanup EXIT/);
+  const summaryPosition = shell.indexOf("ui-qa-matrix-summary.mjs");
+  const exitPosition = shell.lastIndexOf("All selected fixture-backed profiles passed.");
+  assert.ok(summaryPosition >= 0 && exitPosition > summaryPosition);
+});
+
 test("absent results and missing metric audits never count as completed matrix", () => {
   assert.equal(summarizeFixtureReport({ states: ["default"], results: [] }, "x", ["mobile"]).status, "fail");
   const missingAudit = structuredClone(sample);

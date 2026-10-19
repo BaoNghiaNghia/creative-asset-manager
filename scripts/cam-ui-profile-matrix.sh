@@ -87,8 +87,16 @@ cleanup() {
     kill -TERM -- "-$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
+  # All profile reports and screenshots have been consumed by matrix-summary
+  # before EXIT. Do not retain transient browser artifacts on the VPS.
+  # Preserve governed golden baselines and proposals: only timestamp-named
+  # completed run folders inside apps/client/.ui-qa are eligible.
+  if [[ "${CAM_UI_QA_PRESERVE_RUNS:-0}" != "1" ]]; then
+    node "$CLIENT/scripts/ui-qa-purge-runs.mjs" "$LOG_DIR" >&2 || true
+    rm -f -- "$SERVER_LOG"
+  fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
 
 cd "$CLIENT"
 setsid npm run preview -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
