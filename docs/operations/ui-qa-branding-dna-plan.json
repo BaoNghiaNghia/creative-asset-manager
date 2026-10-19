@@ -141,6 +141,16 @@
       ]
     },
     {
+      "name": "shop-document-review-read-only",
+      "click": ".bdna-review-toggle button",
+      "waitFor": ".bdna-access-review",
+      "assertions": [
+        {"type": "visible", "selector": ".bdna-access-review"},
+        {"type": "text-includes", "selector": ".bdna-access-review small", "value": "không kích hoạt tác vụ"},
+        {"type": "no-viewport-overflow", "selector": "html", "maxPx": 0}
+      ]
+    },
+    {
       "name": "scanner-registry",
       "click": "#bdna-stage-scanner",
       "waitFor": ".bdna-worker-enroll",

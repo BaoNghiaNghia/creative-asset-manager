@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import Base
 from app.modules.branding_dna.model import BrandShopModel
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
+from app.modules.branding_dna.access_review_model import BrandShopAccessReviewModel
 from app.modules.branding_dna.access_declaration_router import ShopRelationshipDeclaration, declare_shop_relationship
 from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
@@ -27,7 +28,7 @@ def db():
     Base.metadata.create_all(engine, tables=[
         BrandShopModel.__table__, BrandListingSnapshotModel.__table__,
         BrandScanTaskModel.__table__, RrugcScoutAgentModel.__table__,
-        BrandShopAccessDeclarationModel.__table__,
+        BrandShopAccessDeclarationModel.__table__, BrandShopAccessReviewModel.__table__,
     ])
     with Session(engine) as session:
         yield session

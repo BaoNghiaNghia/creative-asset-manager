@@ -7,6 +7,12 @@ type Shop = {
 };
 type Status = {phase:string;shop_count:number;registered_workers:number;scanner_ready:boolean;scan_enabled:boolean;blockers:string[]};
 type AccessDeclaration = {id:string;shop_id:string;relationship:string;status:string;rights_verified:false;dispatchable:false;};
+type AccessReviewItem={
+ shop_id:string;declaration_id:string;relationship:string;
+ evidence_reference:string;declared_by:string;
+ review:{id:string;decision:string;note:string;reviewed_by:string}|null;
+ rights_verified:false;dispatchable:false;
+};
 type ShopScanReadiness={shop_id:string;display_name:string;platform:string;status:"blocked";staged_tasks:number;blockers:string[];declaration_relationship:string|null;declaration_status:string|null};
 type ScanReadiness={version:1;scan_enabled:false;ready_count:0;shop_count:number;blocked_count:number;staged_tasks:number;items:ShopScanReadiness[]};
 const BLOCKER_LABELS:Record<string,string>={
@@ -14,6 +20,9 @@ const BLOCKER_LABELS:Record<string,string>={
  marketplace_authorization_not_verified:"Chưa xác minh quyền theo nền tảng",
  shop_access_not_declared:"Chưa khai báo nguồn",
  shop_access_pending_verification:"Đã khai báo, đang chờ xác minh quyền",
+ shop_access_needs_documentation:"Người xét duyệt yêu cầu bổ sung tài liệu",
+ shop_access_documentation_rejected:"Bằng chứng bị từ chối",
+ shop_access_reviewed_pending_marketplace_authorization:"Tài liệu đã ghi nhận, chưa xác minh quyền nền tảng",
  shop_competitor_research_only:"Shop đối thủ: chỉ nghiên cứu, không được cấp quyền quét",
  shop_not_active:"Shop chưa kích hoạt",
  no_staged_scan_tasks:"Chưa có task đang chờ",
@@ -45,22 +54,30 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
  const [declarations,setDeclarations]=useState<Record<string,AccessDeclaration>>({});
  const [scanReadiness,setScanReadiness]=useState<ScanReadiness|null>(null);
  const [readinessUnavailable,setReadinessUnavailable]=useState(false);
+ const [accessReviewQueue,setAccessReviewQueue]=useState<Record<string,AccessReviewItem>>({});
+ const [reviewingShopId,setReviewingShopId]=useState<string|null>(null);
+ const [reviewDecision,setReviewDecision]=useState("needs_documentation");
+ const [reviewNote,setReviewNote]=useState("");
+ const [savingReview,setSavingReview]=useState(false);
  const [notice,setNotice]=useState("");
  const [open,setOpen]=useState(false);
  const [error,setError]=useState("");
  const [platform,setPlatform]=useState("etsy");
  const [url,setUrl]=useState("");
  const refresh = useCallback(async () => {
-  const [s,list,access,readiness]=await Promise.all([
+  const [s,list,access,readiness,reviewQueue]=await Promise.all([
    jsonRequest<Status>("/api/v1/branding-dna/status"),
    jsonRequest<{items:Shop[]}>("/api/v1/branding-dna/shops"),
    jsonRequest<{items:AccessDeclaration[]}>("/api/v1/branding-dna/shops/access-declarations")
      .catch(()=>({items:[] as AccessDeclaration[]})),
    jsonRequest<ScanReadiness>("/api/v1/branding-dna/shops/scan-readiness")
      .catch(()=>null),
+   jsonRequest<{items:AccessReviewItem[]}>("/api/v1/branding-dna/shops/access-reviews")
+     .catch(()=>({items:[] as AccessReviewItem[]})),
   ]);
   setStatus(s);setShops(list.items);
   setDeclarations(Object.fromEntries(access.items.map(item=>[item.shop_id,item])));
+  setAccessReviewQueue(Object.fromEntries(reviewQueue.items.map(item=>[item.shop_id,item])));
   setScanReadiness(readiness && readiness.version===1 && readiness.scan_enabled===false
     && readiness.ready_count===0 && readiness.items.every(item=>item.status==="blocked")
     ? readiness:null);
@@ -94,6 +111,20 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
      setNotice("Đã lưu khai báo, chưa xác minh quyền và chưa bật quét.");
    }catch(e){setError(e instanceof Error?e.message:"Không thể lưu khai báo nguồn");}
    finally{setSavingDeclaration(false);}
+ }
+ async function submitReview(event:FormEvent<HTMLFormElement>,shopId:string) {
+   event.preventDefault();setSavingReview(true);setError("");setNotice("");
+   const item=accessReviewQueue[shopId];
+   if(!item){setSavingReview(false);setError("Khai báo đã thay đổi, hãy tải lại trang.");return;}
+   try{
+     await jsonRequest("/api/v1/branding-dna/shops/"+encodeURIComponent(shopId)+"/access-reviews",{
+       method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({declaration_id:item.declaration_id,decision:reviewDecision,note:reviewNote.trim()})
+     });
+     await refresh();setReviewingShopId(null);setReviewNote("");
+     setNotice("Đã lưu lịch sử xét duyệt. Quyền marketplace và Scan vẫn chưa được cấp.");
+   }catch(e){setError(e instanceof Error?e.message:"Không thể lưu kết quả xét duyệt");}
+   finally{setSavingReview(false);}
  }
  return <section className="bdna-live-section" aria-label="Branding DNA real shop registry">
   <div className="bdna-live-heading">
@@ -141,6 +172,31 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
      setReviewingId(opening?shop.id:null);
      setRelationship("unknown");setProofReference("");setError("");
    }}>{reviewingId===shop.id?"Đóng":"Khai báo nguồn"}</button>
+   {accessReviewQueue[shop.id] && <div className="bdna-review-toggle">
+      <small>Hồ sơ quyền: {accessReviewQueue[shop.id].evidence_reference}</small>
+      <span>{accessReviewQueue[shop.id].review
+        ? `Đã xét: ${accessReviewQueue[shop.id].review?.decision}` : "Chờ người khác xét duyệt"}</span>
+      <button type="button" onClick={()=>{
+        const open=reviewingShopId!==shop.id;
+        setReviewingShopId(open?shop.id:null);setReviewDecision("needs_documentation");
+        setReviewNote("");setError("");
+      }}>{reviewingShopId===shop.id?"Đóng xét duyệt":"Xét duyệt tài liệu"}</button>
+    </div>}
+   {reviewingShopId===shop.id && accessReviewQueue[shop.id] && <form className="bdna-access-form bdna-access-review" onSubmit={event=>void submitReview(event,shop.id)}>
+     <label>Kết quả xét duyệt tài liệu
+       <select value={reviewDecision} onChange={e=>setReviewDecision(e.target.value)}>
+         <option value="needs_documentation">Cần thêm tài liệu</option>
+         <option value="rejected">Từ chối tài liệu</option>
+         <option value="documentation_noted">Đã ghi nhận tài liệu</option>
+       </select>
+     </label>
+     <label>Ghi chú xét duyệt
+       <input required minLength={8} maxLength={500} value={reviewNote}
+          onChange={e=>setReviewNote(e.target.value)} placeholder="Lý do / hồ sơ cần bổ sung" />
+     </label>
+     <small>Chỉ người khác người khai báo được xét duyệt. Đây không phải giấy phép truy cập Amazon/Etsy, không kích hoạt tác vụ.</small>
+     <button type="submit" disabled={savingReview}>{savingReview?"Đang lưu…":"Lưu xét duyệt"}</button>
+   </form>}
    {reviewingId===shop.id&&<form className="bdna-access-form" onSubmit={event=>void submitDeclaration(event,shop.id)}>
      <label>Quan hệ với shop
        <select value={relationship} onChange={e=>setRelationship(e.target.value)}>

@@ -95,12 +95,13 @@
           "display_name": "QA Shop Alpha",
           "status": "blocked",
           "staged_tasks": 0,
-          "declaration_relationship": null,
-          "declaration_status": null,
+          "declaration_relationship": "authorized",
+          "declaration_status": "pending_review",
+          "review_decision": null,
           "blockers": [
             "scan_task_dispatch_not_deployed",
             "marketplace_authorization_not_verified",
-            "shop_access_not_declared",
+            "shop_access_pending_verification",
             "shop_not_active",
             "no_staged_scan_tasks",
             "etsy_written_permission_not_verified"
@@ -128,7 +129,35 @@
       "method": "GET",
       "path": "/api/v1/branding-dna/shops/access-declarations",
       "body": {
-        "items": [],
+        "items": [{
+          "id": "0c87968c-9e19-4b6e-a4ad-a553f2052047",
+          "shop_id": "qa-shop-1",
+          "relationship": "authorized",
+          "evidence_reference": "qa-contract-ref-2026",
+          "status": "pending_review",
+          "declared_by": "qa-first-curator",
+          "created_at": "2026-10-19T06:00:00Z",
+          "rights_verified": false,
+          "dispatchable": false
+        }],
+        "rights_verified": false,
+        "scan_enabled": false
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/branding-dna/shops/access-reviews",
+      "body": {
+        "items": [{
+          "shop_id": "qa-shop-1",
+          "declaration_id": "0c87968c-9e19-4b6e-a4ad-a553f2052047",
+          "relationship": "authorized",
+          "evidence_reference": "qa-contract-ref-2026",
+          "declared_by": "qa-first-curator",
+          "review": null,
+          "rights_verified": false,
+          "dispatchable": false
+        }],
         "rights_verified": false,
         "scan_enabled": false
       }

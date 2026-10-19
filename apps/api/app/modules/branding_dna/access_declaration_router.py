@@ -10,8 +10,11 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
+from app.modules.branding_dna.access_review_model import BrandShopAccessReviewModel
 from app.modules.branding_dna.model import BrandShopModel
-from app.modules.branding_dna.scan_readiness_service import shop_scan_readiness, latest_shop_declarations
+from app.modules.branding_dna.scan_readiness_service import (
+    shop_scan_readiness, latest_shop_declarations, latest_declaration_reviews,
+)
 
 router = APIRouter(prefix="/api/v1/branding-dna", tags=["branding-dna-access-declarations"])
 READ = require_permission("ai_operations.read")
@@ -22,6 +25,22 @@ class ShopRelationshipDeclaration(BaseModel):
     model_config = {"extra": "forbid"}
     relationship: Literal["owned", "authorized", "competitor_research", "unknown"]
     evidence_reference: str = Field(default="", max_length=240)
+
+
+class DocumentaryReview(BaseModel):
+    model_config = {"extra": "forbid"}
+    declaration_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    decision: Literal["needs_documentation", "rejected", "documentation_noted"]
+    note: str = Field(min_length=8, max_length=500)
+
+
+def present_review(row: BrandShopAccessReviewModel) -> dict:
+    return {
+        "id": row.id, "shop_id": row.shop_id, "declaration_id": row.declaration_id,
+        "decision": row.decision, "note": row.note,
+        "reviewed_by": row.reviewed_by, "created_at": row.created_at.isoformat(),
+        "rights_verified": False, "dispatchable": False,
+    }
 
 
 def present_declaration(row: BrandShopAccessDeclarationModel) -> dict:
@@ -65,6 +84,89 @@ def read_shop_scan_readiness(
         "staged_tasks": sum(item["staged_tasks"] for item in items),
         "items": items,
     }
+
+
+@router.get("/shops/access-reviews")
+def list_access_reviews(
+    response: Response, session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+):
+    """Show the latest documentary decisions to privileged curators only."""
+    tenant = principal.active_tenant_id
+    ids = session.scalars(
+        select(BrandShopModel.id).where(BrandShopModel.tenant_id == tenant)
+        .order_by(BrandShopModel.created_at, BrandShopModel.id).limit(200)
+    ).all()
+    declarations = latest_shop_declarations(
+        session, tenant_id=tenant, shop_ids=list(ids)
+    )
+    reviews = latest_declaration_reviews(
+        session, tenant_id=tenant, declaration_ids=[d.id for d in declarations.values()]
+    )
+    response.headers["Cache-Control"] = "no-store"
+    items = []
+    for shop_id in ids:
+        row = declarations.get(shop_id)
+        if row and row.status == "pending_review":
+            latest = reviews.get(row.id)
+            items.append({
+                "shop_id": shop_id,
+                "declaration_id": row.id,
+                "relationship": row.relationship,
+                "evidence_reference": row.evidence_reference,
+                "declared_by": row.declared_by,
+                "review": present_review(latest) if latest else None,
+                "rights_verified": False,
+                "dispatchable": False,
+            })
+    return {"items": items, "rights_verified": False, "scan_enabled": False}
+
+
+@router.post("/shops/{shop_id}/access-reviews", status_code=201)
+def submit_documentary_review(
+    shop_id: str, body: DocumentaryReview, response: Response,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+):
+    tenant = principal.active_tenant_id
+    shop = session.scalar(select(BrandShopModel).where(
+        BrandShopModel.id == shop_id, BrandShopModel.tenant_id == tenant,
+    ))
+    if shop is None:
+        raise HTTPException(404, detail="Shop not found")
+    declaration = session.scalar(select(BrandShopAccessDeclarationModel).where(
+        BrandShopAccessDeclarationModel.id == body.declaration_id,
+        BrandShopAccessDeclarationModel.shop_id == shop_id,
+        BrandShopAccessDeclarationModel.tenant_id == tenant,
+    ))
+    if declaration is None:
+        raise HTTPException(404, detail="Access declaration not found")
+    latest = latest_shop_declarations(session, tenant_id=tenant, shop_ids=[shop_id]).get(shop_id)
+    if latest is None or latest.id != declaration.id or latest.status != "pending_review":
+        raise HTTPException(409, detail="Only the latest pending declaration can be reviewed")
+    if declaration.declared_by == principal.actor_id:
+        raise HTTPException(403, detail="The author cannot review their own declaration")
+    note = body.note.strip()
+    if len(note) < 8 or note != body.note or any(ord(c) < 32 for c in note):
+        raise HTTPException(422, detail="A valid review note is required")
+    prior = latest_declaration_reviews(
+        session, tenant_id=tenant, declaration_ids=[declaration.id]
+    ).get(declaration.id)
+    if prior and prior.decision == body.decision and prior.note == note:
+        response.status_code = 200
+        response.headers["Cache-Control"] = "no-store"
+        return {**present_review(prior), "replayed": True}
+    record = BrandShopAccessReviewModel(
+        tenant_id=tenant, shop_id=shop_id, declaration_id=declaration.id,
+        decision=body.decision, note=note, reviewed_by=principal.actor_id,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    response.headers["Cache-Control"] = "no-store"
+    # A documentary review NEVER changes shop.status/access_mode,
+    # dispatch flags, staged tasks or marketplace authorization.
+    return {**present_review(record), "replayed": False}
 
 
 @router.post("/shops/{shop_id}/access-declarations", status_code=201)

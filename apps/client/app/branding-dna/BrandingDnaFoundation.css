@@ -20,6 +20,12 @@
 .bdna-shop-draft{border-radius:99px;background:#eaf1ff;color:#5b77ac;padding:5px 8px;font-size:9px;font-weight:750}
 .bdna-shop-card:has(.bdna-access-form){flex-wrap:wrap}
 .bdna-shop-access-state{font-size:10px;color:#586c89}
+.bdna-review-toggle{flex:1 1 190px;display:flex!important;flex-wrap:wrap;align-items:center;gap:7px}
+.bdna-review-toggle small{font-size:10px;color:#5d718d;overflow-wrap:anywhere}
+.bdna-review-toggle span{font-size:10px;color:#60758e}
+.bdna-review-toggle button{background:#fff!important;color:#355fa7!important}
+.bdna-access-review{flex-basis:100%;background:#f7f9fe;border:1px solid #e2eaf3;border-radius:8px;padding:10px}
+
 .bdna-shop-blockers{font-size:10px;color:#546b8a;min-width:170px;max-width:100%}
 .bdna-shop-blockers summary{cursor:pointer;color:#355ca7;font-weight:700;white-space:nowrap}
 .bdna-shop-blockers ul{padding:6px 0 4px 15px;margin:0;line-height:1.5;max-width:310px}

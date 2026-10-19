@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
+from app.modules.branding_dna.access_review_model import BrandShopAccessReviewModel
 from app.modules.branding_dna.model import BrandShopModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 
@@ -40,6 +41,32 @@ def latest_shop_declarations(
     return {row.shop_id: row for row in rows}
 
 
+def latest_declaration_reviews(
+    session: Session, *, tenant_id: str, declaration_ids: list[str],
+) -> dict[str, BrandShopAccessReviewModel]:
+    if not declaration_ids:
+        return {}
+    ranked = select(
+        BrandShopAccessReviewModel.id.label("review_id"),
+        func.row_number().over(
+            partition_by=BrandShopAccessReviewModel.declaration_id,
+            order_by=(
+                BrandShopAccessReviewModel.created_at.desc(),
+                BrandShopAccessReviewModel.id.desc(),
+            ),
+        ).label("priority"),
+    ).where(
+        BrandShopAccessReviewModel.tenant_id == tenant_id,
+        BrandShopAccessReviewModel.declaration_id.in_(declaration_ids),
+    ).subquery()
+    rows = session.scalars(
+        select(BrandShopAccessReviewModel)
+        .join(ranked, BrandShopAccessReviewModel.id == ranked.c.review_id)
+        .where(ranked.c.priority == 1)
+    ).all()
+    return {row.declaration_id: row for row in rows}
+
+
 def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -> list[dict]:
     """A bounded tenant-scoped snapshot; every shop remains non-dispatchable."""
     shops = session.scalars(
@@ -55,6 +82,9 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
     if not ids:
         return []
     declarations = latest_shop_declarations(session, tenant_id=tenant_id, shop_ids=ids)
+    reviews = latest_declaration_reviews(
+        session, tenant_id=tenant_id, declaration_ids=[d.id for d in declarations.values()]
+    )
     staged = dict(session.execute(
         select(BrandScanTaskModel.shop_id, func.count())
         .where(
@@ -67,6 +97,7 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
     items: list[dict] = []
     for shop in shops:
         declaration = declarations.get(shop.id)
+        review = reviews.get(declaration.id) if declaration else None
         blockers = [
             "scan_task_dispatch_not_deployed",
             "marketplace_authorization_not_verified",
@@ -76,7 +107,14 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
         elif declaration and declaration.status == "pending_review" and declaration.relationship in (
             "owned", "authorized",
         ):
-            blockers.append("shop_access_pending_verification")
+            # Documentary decisions are not marketplace authorization.
+            # Even documentation_noted stays unverified and non-dispatchable.
+            reason = {
+                "needs_documentation": "shop_access_needs_documentation",
+                "rejected": "shop_access_documentation_rejected",
+                "documentation_noted": "shop_access_reviewed_pending_marketplace_authorization",
+            }.get(review.decision if review else "", "shop_access_pending_verification")
+            blockers.append(reason)
         else:
             blockers.append("shop_access_not_declared")
         if shop.status != "active":
@@ -97,5 +135,6 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
             "blockers": blockers,
             "declaration_relationship": declaration.relationship if declaration else None,
             "declaration_status": declaration.status if declaration else None,
+            "review_decision": review.decision if review else None,
         })
     return items
