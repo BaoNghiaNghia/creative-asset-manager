@@ -139,17 +139,29 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
     """
     if not (dispatch_authorized and adapter_verified):
         return None
+    clock = _aware(now) or now_utc()
+    # Lease recovery commits its own transaction. Run it BEFORE acquiring the
+    # agent row lock, or the commit would release that lock prematurely.
+    recover_expired_leases(session, tenant_id=tenant_id, now=clock)
     agent = session.scalar(select(BrandWorkerModel).where(
         BrandWorkerModel.id == agent_id, BrandWorkerModel.tenant_id == tenant_id,
         BrandWorkerModel.enabled.is_(True),
-    ))
+    ).with_for_update())
     if agent is None:
         raise HTTPException(403, detail="Worker disabled or tenant mismatch")
-    clock = _aware(now) or now_utc()
-    recover_expired_leases(session, tenant_id=tenant_id, now=clock)
-    # Do not grant work to enrolled but disconnected/paused/unhealthy agents.
-    # Presence is mandatory even when a caller holds the internal dispatch gate.
+    # Serialize claims for one agent on PostgreSQL. A single worker must not
+    # run two marketplace jobs concurrently, even when two poll requests race.
+    # The row lock is held until the final task commit/rollback below.
     if agent.status != "idle" or not worker_online(agent, now=clock):
+        session.rollback()
+        return None
+    existing = session.scalar(select(BrandScanTaskModel.id).where(
+        BrandScanTaskModel.tenant_id == tenant_id,
+        BrandScanTaskModel.agent_id == agent_id,
+        BrandScanTaskModel.status == "leased",
+    ).limit(1))
+    if existing is not None:
+        session.rollback()
         return None
     # Filter ineligible shops *before* ordering and locking the queue.
     # Otherwise a pending task belonging to a revoked/inactive shop would
@@ -178,6 +190,7 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
         .limit(1)
     )
     if task is None:
+        session.rollback()
         return None
     shop = session.scalar(select(BrandShopModel).where(
         BrandShopModel.id == task.shop_id,
@@ -186,6 +199,7 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
         BrandShopModel.access_mode.in_(("owned", "authorized")),
     ))
     if shop is None:
+        session.rollback()
         return None
     task.status = "leased"
     task.attempts += 1

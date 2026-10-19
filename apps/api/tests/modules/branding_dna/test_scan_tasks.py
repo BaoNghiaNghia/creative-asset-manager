@@ -332,6 +332,61 @@ def test_expired_last_attempt_is_blocked_without_requeue(db):
     assert task.lease_id is None and task.retry_after is None
 
 
+def test_worker_has_at_most_one_active_lease_across_shops(db):
+    first_shop, first_snapshot = setup_data(db, name="OneLeaseFirst")
+    second_shop, second_snapshot = setup_data(db, name="OneLeaseSecond")
+    first_id = stage(db, first_shop, first_snapshot)["item"]["id"]
+    second_id = stage(db, second_shop, second_snapshot)["item"]["id"]
+    activate_for_unit_test(db, first_id)
+    activate_for_unit_test(db, second_id)
+    first_agent = worker(db)
+    first = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=first_agent,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    assert first and first["task_id"] == first_id
+    assert claim_next_task(
+        db, tenant_id="tenant-a", agent_id=first_agent,
+        dispatch_authorized=True, adapter_verified=True,
+        now=START + timedelta(seconds=3),
+    ) is None
+    queued = db.get(BrandScanTaskModel, second_id)
+    assert queued.status == "pending" and queued.lease_id is None
+
+    # Different available worker may claim another task in the same tenant.
+    second_agent = worker(db)
+    other = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=second_agent,
+        dispatch_authorized=True, adapter_verified=True,
+        now=START + timedelta(seconds=3),
+    )
+    assert other and other["task_id"] == second_id
+    assert db.query(BrandScanTaskModel).filter(
+        BrandScanTaskModel.tenant_id == "tenant-a",
+        BrandScanTaskModel.status == "leased",
+    ).count() == 2
+
+    # After a valid retry release the first worker can take another lease,
+    # but only after the bounded backoff; never while its old lease is held.
+    release_for_retry(
+        db, tenant_id="tenant-a", task_id=first_id, agent_id=first_agent,
+        lease_id=first["lease_id"], lease_generation=first["lease_generation"],
+        error_code="temporary_network_error", now=START + timedelta(seconds=5),
+    )
+    assert claim_next_task(
+        db, tenant_id="tenant-a", agent_id=first_agent,
+        dispatch_authorized=True, adapter_verified=True,
+        now=START + timedelta(seconds=10),
+    ) is None
+    replay = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=first_agent,
+        dispatch_authorized=True, adapter_verified=True,
+        now=START + timedelta(seconds=40),
+    )
+    assert replay and replay["task_id"] == first_id
+    assert replay["lease_generation"] == first["lease_generation"] + 1
+
+
 def test_claim_skips_inactive_shop_at_head_of_queue(db):
     first_shop, first_snapshot = setup_data(db, name="InactiveFirst")
     second_shop, second_snapshot = setup_data(db, name="ActiveSecond")

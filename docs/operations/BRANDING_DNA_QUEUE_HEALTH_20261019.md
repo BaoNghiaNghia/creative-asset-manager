@@ -35,7 +35,11 @@ can start a marketplace browser.
   new lease to an enrolled agent unless the worker is enabled, idle, and has
   a fresh heartbeat (within three minutes, not future-dated). Expired leases
   are still recovered before the presence decision, so a disconnected worker
-  cannot block recovery of an abandoned lease. It must still stay disconnected
+  cannot block recovery of an abandoned lease. The internal claim path locks
+  the worker row and checks for any existing leased task in that tenant:
+  **at most one active task per worker**. Concurrent polls serialize on the
+  same PostgreSQL worker row; a separate worker may claim another task.
+  No claim bypasses the bounded retry delay. It must still stay disconnected
   from public worker lease endpoints pending independent marketplace policy
   review and an auditable, verified source adapter.
 - An internal `complete_verified_task` primitive is available for later
