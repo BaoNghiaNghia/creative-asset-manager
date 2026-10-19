@@ -261,6 +261,7 @@ from app.modules.realistic_review_ugc.schema import (
     Stage3AnalyzeRequest,
     Stage3AnalyzeResponse,
     Stage3ReviewGroupListResponse,
+    Stage3ReviewSummaryResponse,
     Stage3ReviewGroupResponse,
     Stage3ReviewImageResponse,
 )
@@ -6195,6 +6196,30 @@ def list_stage3_review_groups(
             RrugcStage3AnalysisModel.status != "hidden",
         ))
     )
+    # Global counts are independent of the keyset page. Stage 5 can display
+    # 250 loaded images while more completed Stage 4 outputs exist in storage.
+    summary_row = query.with_entities(
+        func.count(RrugcStage2JobModel.id),
+        func.count(func.distinct(RrugcStage2JobModel.output_remote_folder_id)),
+        func.count(RrugcStage2JobModel.id).filter(RrugcStage3AnalysisModel.status == "ready"),
+        func.count(RrugcStage2JobModel.id).filter(RrugcStage3AnalysisModel.status == "rejected"),
+        func.count(RrugcStage2JobModel.id).filter(
+            RrugcStage3AnalysisModel.status.in_(("queued", "analyzing"))
+        ),
+        func.count(RrugcStage2JobModel.id).filter(RrugcStage3AnalysisModel.status == "error"),
+    ).one()
+    total_count, folder_count, ready_count, rejected_count, analyzing_count, error_count = (
+        int(value or 0) for value in summary_row
+    )
+    summary = Stage3ReviewSummaryResponse(
+        total_groups=folder_count,
+        total_images=total_count,
+        ready_images=ready_count,
+        rejected_images=rejected_count,
+        analyzing_images=analyzing_count,
+        pending_images=max(0, total_count - ready_count - rejected_count - analyzing_count - error_count),
+        error_images=error_count,
+    )
     if cursor:
         anchor = query.filter(RrugcStage2JobModel.id == cursor).first()
         if anchor is None:
@@ -6398,6 +6423,7 @@ def list_stage3_review_groups(
         )
 
     return Stage3ReviewGroupListResponse(
+        summary=summary,
         items=items,
         total_groups=len(items),
         total_images=sum(len(item.images) for item in items),

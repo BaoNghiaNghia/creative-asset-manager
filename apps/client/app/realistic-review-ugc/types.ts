@@ -546,6 +546,15 @@ export type Stage3ReviewGroup = {
 };
 
 export type Stage3ReviewGroupList = {
+  summary?: {
+    total_groups: number;
+    total_images: number;
+    ready_images: number;
+    rejected_images: number;
+    analyzing_images: number;
+    pending_images: number;
+    error_images: number;
+  } | null;
   items: Stage3ReviewGroup[];
   total_groups: number;
   total_images: number;

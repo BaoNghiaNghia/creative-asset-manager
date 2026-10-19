@@ -46,6 +46,20 @@ function page(items: Stage3ReviewGroup[], nextCursor: string | null): Stage3Revi
 }
 
 describe("Stage 5 cursor pagination", () => {
+  it("retains global totals while merging multiple 250-image pages", () => {
+    const first = page([group("folder-a", [image("a", "ready"), image("b")])], "b");
+    first.summary = {
+      total_groups: 34, total_images: 432, ready_images: 250,
+      rejected_images: 0, analyzing_images: 0, pending_images: 182, error_images: 0,
+    };
+    const older = page([group("folder-b", [image("c")])], null);
+    older.summary = { ...first.summary, ready_images: 251, pending_images: 181 };
+    const merged = mergeStage5Pages(first, older);
+    expect(merged.total_images).toBe(3);
+    expect(merged.summary?.total_images).toBe(432);
+    expect(merged.summary?.ready_images).toBe(251);
+    expect(merged.has_more).toBe(false);
+  });
   it("merges a folder split across page boundaries without duplicating jobs", () => {
     const first = page([group("folder-a", [image("a"), image("b")])], "b");
     const second = page([

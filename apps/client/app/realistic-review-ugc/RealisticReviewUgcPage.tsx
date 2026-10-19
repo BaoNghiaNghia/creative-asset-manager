@@ -421,7 +421,7 @@ export function RealisticReviewUgcPage() {
     // the accumulated pages when it completes afterward. Newest data wins
     // for duplicate job IDs, while the loaded history and cursor survive.
     setStage3Groups(current => stage3PaginationActive.current
-      ? mergeStage5Pages(result, current)
+      ? { ...mergeStage5Pages(result, current), summary: result.summary ?? current.summary }
       : result);
   }
 
@@ -996,8 +996,7 @@ export function RealisticReviewUgcPage() {
     const timer = window.setInterval(() => {
       // Preserve explicitly loaded history; a first-page poll would remove
       // older groups from the UI. Refresh becomes an explicit user action.
-      if (document.hidden || refreshInFlight || stage3PaginationActive.current
-        || stage3MoreInFlight.current) return;
+      if (document.hidden || refreshInFlight || stage3MoreInFlight.current) return;
       refreshInFlight = true;
       void refreshStage3Groups()
         .catch(() => undefined)

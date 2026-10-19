@@ -64,5 +64,7 @@ export function mergeStage5Pages(
     error_images: sum("error_count"),
     has_more: page.has_more,
     next_cursor: page.next_cursor || null,
+    // Full-collection counts survive local merges of loaded pages.
+    summary: page.summary ?? previous.summary,
   };
 }

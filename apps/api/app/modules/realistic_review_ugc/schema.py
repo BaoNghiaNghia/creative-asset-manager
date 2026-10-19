@@ -1106,7 +1106,18 @@ class Stage3ReviewGroupResponse(BaseModel):
     images: list[Stage3ReviewImageResponse] = Field(default_factory=list)
 
 
+class Stage3ReviewSummaryResponse(BaseModel):
+    total_groups: int = 0
+    total_images: int = 0
+    ready_images: int = 0
+    rejected_images: int = 0
+    analyzing_images: int = 0
+    pending_images: int = 0
+    error_images: int = 0
+
+
 class Stage3ReviewGroupListResponse(BaseModel):
+    summary: Stage3ReviewSummaryResponse | None = None
     items: list[Stage3ReviewGroupResponse] = Field(default_factory=list)
     total_groups: int
     total_images: int

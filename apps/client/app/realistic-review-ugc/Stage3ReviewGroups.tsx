@@ -463,7 +463,8 @@ export function Stage3ReviewGroups({
   const folderTree = useMemo(() => buildStage5FolderTree(data.items), [data.items]);
   const selectedFolder = findStage5FolderNode(folderTree, selectedFolderKey);
   const activeFolderKey = selectedFolderKey && selectedFolder ? selectedFolderKey : null;
-  const finished = data.ready_images + data.rejected_images;
+  const summary = data.summary ?? data;
+  const finished = summary.ready_images + summary.rejected_images;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleGroups = useMemo(() => {
     const folderGroups = groupsForStage5Folder(data.items, folderTree, activeFolderKey);
@@ -586,9 +587,9 @@ export function Stage3ReviewGroups({
         </>}
       </div>
       <div className="rrugc-stage3-stats rrugc-stage5-toolbar-stats" aria-label="Stage 5 summary">
-        <span><strong>{data.total_groups}</strong><small>Folders</small></span>
-        <span><strong>{data.total_images}</strong><small>Images</small></span>
-        <span><strong>{finished}/{data.total_images}</strong><small>Reviewed</small></span>
+        <span><strong>{summary.total_groups}</strong><small>Folders</small></span>
+        <span><strong>{summary.total_images}</strong><small>Images</small></span>
+        <span><strong>{finished}/{summary.total_images}</strong><small>Reviewed</small></span>
       </div>
     </div>
 
@@ -739,7 +740,7 @@ export function Stage3ReviewGroups({
         >
           <RrugcActionIcon name={loadingMore ? "refresh" : "folder"} />{loadingMore ? "Loading older images…" : "Load older images"}
         </button>
-        <small>Showing {data.total_images} loaded images; older outputs remain available.</small>
+        <small>Showing {data.total_images} of {summary.total_images} images; load older outputs below.</small>
       </div>
     )}
 

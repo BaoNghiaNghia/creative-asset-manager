@@ -3178,6 +3178,16 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
     payload = response.json()
     assert payload["total_groups"] == 2
     assert payload["total_images"] == 3
+    assert payload["summary"]["total_groups"] == 2
+    assert payload["summary"]["total_images"] == 3
+    assert payload["summary"]["pending_images"] == 3
+    # A smaller page must never cap the full Stage 5 totals.
+    paged = api.get("/api/v1/realistic-review-ugc/stage3/review-groups?limit=2&page_size=2")
+    assert paged.status_code == 200
+    assert paged.json()["total_images"] == 2
+    assert paged.json()["has_more"] is True
+    assert paged.json()["summary"]["total_images"] == 3
+    assert paged.json()["summary"]["total_groups"] == 2
 
     groups = {item["folder_id"]: item for item in payload["items"]}
     assert groups["folder-a"]["folder_name"] == "Natural-Navy"
@@ -3208,7 +3218,8 @@ def test_stage3_review_groups_completed_stage2_outputs_by_folder(api, database, 
         + exact_source_job["stage2_job_id"] + "/reference-image"
     )
     assert exact_source_job["before_urls"] == [
-        exact_source_job["before_url"] + "?reference_index=0",
+        exact_source_job["before_url"]
+        + "?thumbnail=true&size=1024&reference_index=0&v=pinterest-beach-selfie",
     ]
     # The before endpoint stays tied to the original snapshot even if the
     # mutable Drive source-plan file later changes.
