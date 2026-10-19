@@ -254,7 +254,7 @@ function Acquire-ScoutRunnerLock([string]$Mode) {
         return
     }
 
-    $safeMode = if ($Mode -eq "Keyword") { "Keyword" } else { "Review" }
+    $safeMode = if ($Mode -in @("Keyword", "CapStack")) { $Mode } else { "Review" }
     $mutexName = "Local\CreativeAssetManager.RrugcScout.Runner." + $safeMode
     $script:RunnerMutex = New-Object System.Threading.Mutex($false, $mutexName)
     $acquired = $false
@@ -268,7 +268,7 @@ function Acquire-ScoutRunnerLock([string]$Mode) {
     if (-not $acquired) {
         $script:RunnerMutex.Dispose()
         $script:RunnerMutex = $null
-        Fail ($safeMode + " Scout is already running. Keep the existing " + $safeMode + " CMD open; Review and Keyword may run together, but duplicate instances of the same mode are blocked.")
+        Fail ($safeMode + " Scout is already running. Keep the existing " + $safeMode + " CMD open; Review, Keyword and CapStack may run together, but duplicate instances of the same mode are blocked.")
     }
 
     $script:RunnerMutexHeld = $true
