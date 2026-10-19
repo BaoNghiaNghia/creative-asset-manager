@@ -48,6 +48,11 @@ def setup_data(db, tenant="tenant-a", access_mode="authorized", name="HatsA"):
     shop = add_shop(ShopCreate(
         platform="etsy", storefront_url=f"https://www.etsy.com/shop/{name}",
         access_mode=access_mode), session=db, principal=principal(tenant))
+    # Unit tests explicitly simulate a curator-activated shop. Creating a
+    # shop does not activate it in production.
+    if access_mode != "public_observation":
+        db.get(BrandShopModel, shop["id"]).status = "active"
+        db.commit()
     if access_mode != "public_observation":
         listing = ListingImport(
             listing_key="listing-1", source_revision="r1", export_reference="batch-1",
@@ -233,6 +238,33 @@ def test_revoked_worker_cannot_ack_active_lease(db):
     assert error.value.status_code == 409
 
 
+def test_shop_deactivation_revokes_existing_lease_callbacks(db):
+    shop_id, snapshot_id = setup_data(db, name="TurnedOffAfterLease")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    agent_id = worker(db)
+    lease = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    assert lease is not None
+    db.get(BrandShopModel, shop_id).status = "draft"
+    db.commit()
+    args = dict(
+        tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+        lease_id=lease["lease_id"],
+        lease_generation=lease["lease_generation"],
+        now=START + timedelta(seconds=5),
+    )
+    with pytest.raises(HTTPException) as err:
+        checkpoint_task(db, **args, checkpoint_seq=1)
+    assert err.value.status_code == 409
+    with pytest.raises(HTTPException) as err:
+        release_for_retry(db, **args, error_code="temporary_network_error")
+    assert err.value.status_code == 409
+    assert db.get(BrandScanTaskModel, task_id).checkpoint_seq == 0
+
+
 def test_expired_last_attempt_is_blocked_without_requeue(db):
     shop_id, snapshot_id = setup_data(db)
     task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
@@ -250,3 +282,39 @@ def test_expired_last_attempt_is_blocked_without_requeue(db):
     task = db.get(BrandScanTaskModel, task_id)
     assert task.status == "blocked" and task.last_error_code == "lease_expired"
     assert task.lease_id is None and task.retry_after is None
+
+
+def test_claim_skips_inactive_shop_at_head_of_queue(db):
+    first_shop, first_snapshot = setup_data(db, name="InactiveFirst")
+    second_shop, second_snapshot = setup_data(db, name="ActiveSecond")
+    first_task_id = stage(db, first_shop, first_snapshot)["item"]["id"]
+    second_task_id = stage(db, second_shop, second_snapshot)["item"]["id"]
+    activate_for_unit_test(db, first_task_id)
+    activate_for_unit_test(db, second_task_id)
+    # A later deactivation must not starve unrelated authorized tasks.
+    db.get(BrandShopModel, first_shop).status = "draft"
+    db.commit()
+    agent_id = worker(db)
+    lease = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    assert lease is not None
+    assert lease["task_id"] == second_task_id
+    assert db.get(BrandScanTaskModel, first_task_id).status == "pending"
+    assert db.get(BrandScanTaskModel, first_task_id).lease_id is None
+
+
+def test_claim_rejects_revoked_shop_access_even_with_stale_pending_task(db):
+    shop_id, snapshot_id = setup_data(db, name="RevokedAccess")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    db.get(BrandShopModel, shop_id).access_mode = "public_observation"
+    db.commit()
+    agent_id = worker(db)
+    assert claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    ) is None
+    task = db.get(BrandScanTaskModel, task_id)
+    assert task.status == "pending" and task.lease_id is None

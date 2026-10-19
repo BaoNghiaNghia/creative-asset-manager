@@ -143,10 +143,20 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
         raise HTTPException(403, detail="Worker disabled or tenant mismatch")
     clock = _aware(now) or now_utc()
     recover_expired_leases(session, tenant_id=tenant_id, now=clock)
+    # Filter ineligible shops *before* ordering and locking the queue.
+    # Otherwise a pending task belonging to a revoked/inactive shop would
+    # permanently hide every valid task behind it (head-of-line blocking).
     task = session.scalar(
         select(BrandScanTaskModel)
+        .join(
+            BrandShopModel,
+            (BrandShopModel.id == BrandScanTaskModel.shop_id)
+            & (BrandShopModel.tenant_id == BrandScanTaskModel.tenant_id),
+        )
         .where(
             BrandScanTaskModel.tenant_id == tenant_id,
+            BrandShopModel.status == "active",
+            BrandShopModel.access_mode.in_(("owned", "authorized")),
             BrandScanTaskModel.attempts < BrandScanTaskModel.max_attempts,
             or_(
                 BrandScanTaskModel.status == "pending",
@@ -164,6 +174,7 @@ def claim_next_task(session: Session, *, tenant_id: str, agent_id: str,
     shop = session.scalar(select(BrandShopModel).where(
         BrandShopModel.id == task.shop_id,
         BrandShopModel.tenant_id == tenant_id,
+        BrandShopModel.status == "active",
         BrandShopModel.access_mode.in_(("owned", "authorized")),
     ))
     if shop is None:
@@ -201,6 +212,7 @@ def _fenced_task(session: Session, *, tenant_id: str, task_id: str, agent_id: st
     ))
     shop_ok = session.scalar(select(BrandShopModel.id).where(
         BrandShopModel.id == task.shop_id, BrandShopModel.tenant_id == tenant_id,
+        BrandShopModel.status == "active",
         BrandShopModel.access_mode.in_(("owned", "authorized")),
     ))
     if agent_ok is None or shop_ok is None:
