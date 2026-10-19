@@ -6,13 +6,64 @@ blocked-state computation to avoid contradicting one another.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from datetime import datetime, timezone
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
 from app.modules.branding_dna.access_review_model import BrandShopAccessReviewModel
 from app.modules.branding_dna.model import BrandShopModel
 from app.modules.branding_dna.task_model import BrandScanTaskModel
+
+
+QUEUE_STATUSES = ("staged", "pending", "leased", "retry", "blocked", "completed", "cancelled")
+
+
+def shop_queue_metrics(
+    session: Session, *, tenant_id: str, shop_ids: list[str], now: datetime | None = None,
+) -> dict[str, dict[str, int]]:
+    """Tenant-scoped, aggregate-only queue health; never claims or mutates tasks."""
+    if not shop_ids:
+        return {}
+    clock = now or datetime.now(timezone.utc)
+    queue = {
+        shop_id: {**{status: 0 for status in QUEUE_STATUSES},
+                  "expired_leases": 0, "due_retries": 0}
+        for shop_id in shop_ids
+    }
+    scope = (
+        BrandScanTaskModel.tenant_id == tenant_id,
+        BrandScanTaskModel.shop_id.in_(shop_ids),
+    )
+    for shop_id, status, count in session.execute(
+        select(BrandScanTaskModel.shop_id, BrandScanTaskModel.status, func.count())
+        .where(*scope)
+        .group_by(BrandScanTaskModel.shop_id, BrandScanTaskModel.status)
+    ).all():
+        if status in QUEUE_STATUSES:
+            queue[shop_id][status] = int(count)
+    for shop_id, expired, due in session.execute(
+        select(
+            BrandScanTaskModel.shop_id,
+            func.count().filter(and_(
+                BrandScanTaskModel.status == "leased",
+                or_(BrandScanTaskModel.lease_until.is_(None),
+                    BrandScanTaskModel.lease_until <= clock),
+            )),
+            func.count().filter(and_(
+                BrandScanTaskModel.status == "retry",
+                BrandScanTaskModel.attempts < BrandScanTaskModel.max_attempts,
+                or_(BrandScanTaskModel.retry_after.is_(None),
+                    BrandScanTaskModel.retry_after <= clock),
+            )),
+        )
+        .where(*scope)
+        .group_by(BrandScanTaskModel.shop_id)
+    ).all():
+        queue[shop_id]["expired_leases"] = int(expired)
+        queue[shop_id]["due_retries"] = int(due)
+    return queue
 
 
 def latest_shop_declarations(
@@ -67,7 +118,9 @@ def latest_declaration_reviews(
     return {row.declaration_id: row for row in rows}
 
 
-def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -> list[dict]:
+def shop_scan_readiness(session: Session, *, tenant_id: str,
+                        limit: int = 200, include_queue: bool = False,
+                        now: datetime | None = None) -> list[dict]:
     """A bounded tenant-scoped snapshot; every shop remains non-dispatchable."""
     shops = session.scalars(
         select(BrandShopModel)
@@ -94,6 +147,9 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
         )
         .group_by(BrandScanTaskModel.shop_id)
     ).all())
+    queue = shop_queue_metrics(
+        session, tenant_id=tenant_id, shop_ids=ids, now=now,
+    ) if include_queue else {}
     items: list[dict] = []
     for shop in shops:
         declaration = declarations.get(shop.id)
@@ -126,7 +182,7 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
             if shop.platform == "etsy"
             else "amazon_agent_policy_review_not_verified"
         )
-        items.append({
+        item = {
             "shop_id": shop.id,
             "platform": shop.platform,
             "display_name": shop.display_name,
@@ -136,5 +192,8 @@ def shop_scan_readiness(session: Session, *, tenant_id: str, limit: int = 200) -
             "declaration_relationship": declaration.relationship if declaration else None,
             "declaration_status": declaration.status if declaration else None,
             "review_decision": review.decision if review else None,
-        })
+        }
+        if include_queue:
+            item["queue"] = queue[shop.id]
+        items.append(item)
     return items

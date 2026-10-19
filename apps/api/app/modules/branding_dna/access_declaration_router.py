@@ -76,12 +76,16 @@ def read_shop_scan_readiness(
     principal: CurrentPrincipal = Depends(READ),
 ):
     """An admin-only, read-only view, never a dispatch or rights-grant route."""
-    items = shop_scan_readiness(session, tenant_id=principal.active_tenant_id)
+    items = shop_scan_readiness(session, tenant_id=principal.active_tenant_id, include_queue=True)
+    queue_totals = {key: sum(item["queue"][key] for item in items)
+                    for key in ("staged", "pending", "leased", "retry", "blocked",
+                                "completed", "cancelled", "expired_leases", "due_retries")}
     response.headers["Cache-Control"] = "no-store"
     return {
         "version": 1, "scan_enabled": False, "ready_count": 0,
         "blocked_count": len(items), "shop_count": len(items),
         "staged_tasks": sum(item["staged_tasks"] for item in items),
+        "queue_totals": queue_totals,
         "items": items,
     }
 

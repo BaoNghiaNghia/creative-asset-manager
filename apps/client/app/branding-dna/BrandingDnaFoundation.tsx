@@ -13,8 +13,12 @@ type AccessReviewItem={
  review:{id:string;decision:string;note:string;reviewed_by:string}|null;
  rights_verified:false;dispatchable:false;
 };
-type ShopScanReadiness={shop_id:string;display_name:string;platform:string;status:"blocked";staged_tasks:number;blockers:string[];declaration_relationship:string|null;declaration_status:string|null};
-type ScanReadiness={version:1;scan_enabled:false;ready_count:0;shop_count:number;blocked_count:number;staged_tasks:number;items:ShopScanReadiness[]};
+type QueueMetrics = {
+ staged:number;pending:number;leased:number;retry:number;blocked:number;
+ completed:number;cancelled:number;expired_leases:number;due_retries:number;
+};
+type ShopScanReadiness={shop_id:string;display_name:string;platform:string;status:"blocked";staged_tasks:number;blockers:string[];declaration_relationship:string|null;declaration_status:string|null;queue?:QueueMetrics};
+type ScanReadiness={version:1;scan_enabled:false;ready_count:0;shop_count:number;blocked_count:number;staged_tasks:number;queue_totals?:QueueMetrics;items:ShopScanReadiness[]};
 const BLOCKER_LABELS:Record<string,string>={
  scan_task_dispatch_not_deployed:"Dispatcher chưa được triển khai",
  marketplace_authorization_not_verified:"Chưa xác minh quyền theo nền tảng",
@@ -86,7 +90,12 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
  useEffect(()=>{
   let active=true;
   void refresh().catch(e=>{if(active)setError(e instanceof Error?e.message:"Failed to load Shops");}).finally(()=>{if(active)setBusy(false);});
-  return ()=>{active=false;};
+  // Refresh read-only queue health while this page is visible. This does not
+  // claim tasks, trigger browser scans or mutate any job.
+  const interval=window.setInterval(()=>{
+    if(active&&!document.hidden)void refresh().catch(()=>{setReadinessUnavailable(true);});
+  },60_000);
+  return ()=>{active=false;window.clearInterval(interval);};
  },[refresh]);
  async function createShop(event:FormEvent<HTMLFormElement>) {
   event.preventDefault();setSaving(true);setError("");
@@ -134,7 +143,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
   <div className="bdna-live-summary" aria-label="Branding DNA live statistics">
    <article><small>SHOPS SAVED</small><strong>{busy?"…":status?.shop_count??0}</strong><span>Shop được lưu theo tenant</span></article>
    <article><small>WINDOWS WORKERS</small><strong>{busy?"…":status?.registered_workers??0}</strong><span>Agent đã đăng ký</span></article>
-   <article className="bdna-live-not-ready"><small>SCANNER STATUS</small><strong>{status?.scanner_ready && status?.scan_enabled ? "Ready" : "Not connected"}</strong><span>{status?.scanner_ready && status?.scan_enabled ? "Đã bật trên server" : "Chờ worker và evidence pipeline"}</span></article>
+   <article className="bdna-live-not-ready"><small>SCANNER STATUS</small><strong>{status?.scanner_ready && status?.scan_enabled ? "Ready" : "Scan disabled"}</strong><span>{status?.scanner_ready && status?.scan_enabled ? "Đã bật trên server" : "Dispatcher chưa bật; worker có thể đang kết nối và chờ job"}</span></article>
   </div>
   <p className="bdna-live-info">
    <strong>Phase 1 · Foundation.</strong> Bạn có thể lưu shop vào database CAM. Tính năng Scan vẫn bị khóa trên server
@@ -150,7 +159,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
    <div className="bdna-shop-form-footer"><small>Tạo shop ở trạng thái draft, không tự mở browser.</small><button type="submit" disabled={saving}>{saving?"Đang lưu…":"Lưu shop"}</button></div>
   </form>}
   {!compact && <p className="bdna-live-info" role="status">
-    {scanReadiness ? `Readiness CAM: ${scanReadiness.blocked_count}/${scanReadiness.shop_count} shop bị chặn · ${scanReadiness.staged_tasks} task chờ · 0 job đang quét.`
+    {scanReadiness ? `Readiness CAM: ${scanReadiness.blocked_count}/${scanReadiness.shop_count} shop bị chặn · ${scanReadiness.staged_tasks} task đã chuẩn bị · ${scanReadiness.queue_totals?.pending??0} pending · ${scanReadiness.queue_totals?.retry??0} retry (${scanReadiness.queue_totals?.due_retries??0} đến hạn) · ${scanReadiness.queue_totals?.expired_leases??0} lease quá hạn · Dispatch đang khóa.`
       : readinessUnavailable ? "Readiness từng shop chưa có trên server. Không có quyền quét nào được xác nhận."
         : "Đang tải readiness từ CAM."}
   </p>}
@@ -165,7 +174,7 @@ export function BrandingDnaFoundation({ compact = false, onOpenShops }: { compac
    {scanReadiness?.items.find(item=>item.shop_id===shop.id) && <details className="bdna-shop-blockers">
       <summary>Xem lý do chưa chạy</summary>
       <ul>{scanReadiness.items.find(item=>item.shop_id===shop.id)?.blockers.map(code=><li key={code}>{BLOCKER_LABELS[code]??code}</li>)}</ul>
-      <small>{scanReadiness.items.find(item=>item.shop_id===shop.id)?.staged_tasks??0} task chờ · Chưa cấp lease hay browser job</small>
+      <small>{scanReadiness.items.find(item=>item.shop_id===shop.id)?.staged_tasks??0} staged · {scanReadiness.items.find(item=>item.shop_id===shop.id)?.queue?.pending??0} pending · {scanReadiness.items.find(item=>item.shop_id===shop.id)?.queue?.retry??0} retry · {scanReadiness.items.find(item=>item.shop_id===shop.id)?.queue?.expired_leases??0} lease quá hạn · Không cấp job quét mới</small>
     </details>}
    <button type="button" className="bdna-declaration-toggle" onClick={()=>{
      const opening=reviewingId!==shop.id;
