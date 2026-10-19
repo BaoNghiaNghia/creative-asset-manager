@@ -54,7 +54,7 @@
         {
           "type": "count",
           "selector": ".bdna-stage-tabs [role=tab]",
-          "value": 5
+          "value": 6
         },
         {
           "type": "visible",
@@ -153,14 +153,13 @@
       ]
     },
     {
-      "name": "products-empty-state",
+      "name": "products-evidence-stage",
       "click": "#bdna-stage-products",
-      "waitFor": ".bdna-future-panel",
+      "waitFor": ".bdna-evidence",
       "assertions": [
         {
-          "type": "text-includes",
-          "selector": ".bdna-future-panel",
-          "value": "Awaiting scanned products"
+          "type": "visible",
+          "selector": ".bdna-evidence"
         },
         {
           "type": "no-viewport-overflow",
@@ -170,14 +169,13 @@
       ]
     },
     {
-      "name": "dna-empty-state",
+      "name": "dna-readiness-stage",
       "click": "#bdna-stage-dna",
-      "waitFor": ".bdna-future-panel",
+      "waitFor": ".bdna-readiness",
       "assertions": [
         {
-          "type": "text-includes",
-          "selector": ".bdna-future-panel",
-          "value": "Awaiting verified evidence"
+          "type": "visible",
+          "selector": ".bdna-readiness"
         },
         {
           "type": "no-viewport-overflow",

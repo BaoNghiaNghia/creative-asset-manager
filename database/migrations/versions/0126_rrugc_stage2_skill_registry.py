@@ -28,7 +28,8 @@ def upgrade() -> None:
         "rrugc_stage2_jobs",
         sa.Column("skill_version", sa.String(length=64)),
     )
-    op.alter_column("rrugc_stage2_jobs", "skill_source", server_default=None)
+    with op.batch_alter_table("rrugc_stage2_jobs") as batch:
+        batch.alter_column("skill_source", server_default=None)
 
 
 def downgrade() -> None:

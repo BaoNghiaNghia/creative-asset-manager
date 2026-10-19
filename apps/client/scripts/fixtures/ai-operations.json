@@ -883,6 +883,13 @@
     },
     {
       "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/jobs",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/inventory/daily-sheet/status",
       "body": {
         "timezone": "Asia/Ho_Chi_Minh",

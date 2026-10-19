@@ -34,7 +34,8 @@ def upgrade() -> None:
         ["tenant_id", "picked"],
         unique=False,
     )
-    op.alter_column("rrugc_keyword_volumes", "picked", server_default=None)
+    with op.batch_alter_table("rrugc_keyword_volumes") as batch:
+        batch.alter_column("picked", server_default=None)
 
 
 def downgrade() -> None:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.core.database import Base
 from app.infrastructure.search.elasticsearch_v2 import ElasticsearchV3RequestError
-from app.modules.assets.model import ExternalSourceModel, SourceAssetModel
+from app.modules.assets.model import AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.processing.bootstrap import build_worker_runtime
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
@@ -46,7 +46,7 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
         self.directory.cleanup()
 
     def _create_completed_run_and_job(
-        self, *, search_v2_enabled: bool = True
+        self, *, search_v2_enabled: bool = True, provider_checksum: str | None = "a" * 64
     ) -> tuple[str, str]:
         with self.sessions() as session:
             external_source = ExternalSourceModel(
@@ -62,6 +62,9 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
                 external_asset_id="external-runtime",
                 filename="clip.mp4",
                 mime_type="video/mp4",
+                # The production indexer must have a verified SHA-256 identity
+                # before it can create the content-addressed source link.
+                provider_checksum=provider_checksum,
                 source_metadata={},
             )
             run = VideoAnalysisRunModel(
@@ -175,6 +178,12 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
         self.assertIsNone(stored.last_error_code)
         self.assertIsNone(stored.last_error_message)
         upsert.assert_awaited_once()
+        with self.sessions() as session:
+            linked = session.scalar(select(AssetSourceLinkModel).where(
+                AssetSourceLinkModel.tenant_id == "tenant-a",
+                AssetSourceLinkModel.source_asset_id == "asset-runtime",
+            ))
+            self.assertIsNotNone(linked)
 
         with self.sessions() as session:
             run = session.get(VideoAnalysisRunModel, run_id)
@@ -185,6 +194,17 @@ class VideoSearchIndexRuntimeTest(unittest.TestCase):
                 chunk.metadata_json,
                 {"segments": [{"start_ms": 0, "end_ms": 500}]},
             )
+
+    def test_runtime_retries_when_source_sha256_has_not_been_verified(self) -> None:
+        _run_id, job_id = self._create_completed_run_and_job(provider_checksum=None)
+        upsert = AsyncMock()
+        stored = self._run_once(job_id, upsert)
+        self.assertEqual(stored.status, "retry")
+        self.assertEqual(stored.last_error_code, "video_asset_link_missing")
+        upsert.assert_not_awaited()
+        with self.sessions() as session:
+            self.assertIsNone(session.scalar(select(AssetSourceLinkModel).where(
+                AssetSourceLinkModel.source_asset_id == "asset-runtime")))
 
     def test_runtime_fails_terminally_for_deterministic_request_rejection(self) -> None:
         run_id, job_id = self._create_completed_run_and_job()

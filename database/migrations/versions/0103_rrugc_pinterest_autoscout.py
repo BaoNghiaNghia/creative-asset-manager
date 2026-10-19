@@ -159,17 +159,15 @@ def upgrade() -> None:
         ["tenant_id", "agent_id", "status", "updated_at"],
     )
 
-    op.alter_column("rrugc_campaigns", "auto_scout", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_interval_seconds", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_attempt_count", server_default=None)
-    op.alter_column("rrugc_campaigns", "scan_empty_streak", server_default=None)
-    op.alter_column("rrugc_scout_agents", "status", server_default=None)
-    op.alter_column("rrugc_scout_agents", "active", server_default=None)
-    op.alter_column("rrugc_scout_runs", "status", server_default=None)
-    op.alter_column("rrugc_scout_runs", "progress_before", server_default=None)
-    op.alter_column("rrugc_scout_runs", "submitted_count", server_default=None)
-    op.alter_column("rrugc_scout_runs", "created_count", server_default=None)
-    op.alter_column("rrugc_scout_runs", "existing_count", server_default=None)
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        for name in ("auto_scout", "scan_interval_seconds", "scan_attempt_count", "scan_empty_streak"):
+            batch.alter_column(name, server_default=None)
+    with op.batch_alter_table("rrugc_scout_agents") as batch:
+        for name in ("status", "active"):
+            batch.alter_column(name, server_default=None)
+    with op.batch_alter_table("rrugc_scout_runs") as batch:
+        for name in ("status", "progress_before", "submitted_count", "created_count", "existing_count"):
+            batch.alter_column(name, server_default=None)
 
 
 def downgrade() -> None:

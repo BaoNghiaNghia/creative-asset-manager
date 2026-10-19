@@ -25,8 +25,8 @@ def upgrade() -> None:
         "rrugc_source_plans",
         ["tenant_id", "embroidery_signature"],
     )
-    op.alter_column(
-        "rrugc_source_plans",
+    with op.batch_alter_table("rrugc_source_plans") as batch:
+        batch.alter_column(
         "target_count",
         server_default=sa.text("50"),
         existing_type=sa.Integer(),
@@ -52,8 +52,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "rrugc_source_plans",
+    with op.batch_alter_table("rrugc_source_plans") as batch:
+        batch.alter_column(
         "target_count",
         server_default=sa.text("20"),
         existing_type=sa.Integer(),

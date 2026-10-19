@@ -620,6 +620,10 @@ class ProcessingRepository:
                 max_attempts=ProcessingJobModel.attempt_count + 1,
                 updated_at=now,
             )
+            # SQLAlchemy's in-memory evaluator cannot compare SQLite-naive
+            # DateTime values with aware UTC timestamps. Fetch the matched
+            # row keys from the DB to keep the identity map synchronized.
+            .execution_options(synchronize_session="fetch")
         )
 
     def _terminalize_exhausted_jobs(self, now: datetime) -> None:
@@ -641,6 +645,7 @@ class ProcessingRepository:
                 last_error_message="Worker lease expired after the final attempt.",
                 updated_at=now,
             )
+            .execution_options(synchronize_session="fetch")
         )
 
     def _terminalize_exhausted_events(self, now: datetime) -> None:

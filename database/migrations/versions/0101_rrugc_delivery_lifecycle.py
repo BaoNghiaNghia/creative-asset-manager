@@ -194,11 +194,8 @@ def upgrade() -> None:
         ["tenant_id", "package_id", "status"],
     )
 
-    op.alter_column(
-        "rrugc_campaigns",
-        "auto_complete_on_delivery",
-        server_default=None,
-    )
+    with op.batch_alter_table("rrugc_campaigns") as batch:
+        batch.alter_column("auto_complete_on_delivery", server_default=None)
 
 
 def downgrade() -> None:

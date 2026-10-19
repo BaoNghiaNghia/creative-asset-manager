@@ -70,14 +70,14 @@ def upgrade() -> None:
         "rrugc_product_references",
         sa.Column("variant_id", sa.String(length=36), nullable=True),
     )
-    op.create_foreign_key(
-        "fk_rrugc_product_reference_variant",
-        "rrugc_product_references",
-        "rrugc_product_variants",
-        ["tenant_id", "product_id", "variant_id"],
-        ["tenant_id", "product_id", "id"],
-        ondelete="CASCADE",
-    )
+    with op.batch_alter_table("rrugc_product_references") as batch:
+        batch.create_foreign_key(
+            "fk_rrugc_product_reference_variant",
+            "rrugc_product_variants",
+            ["tenant_id", "product_id", "variant_id"],
+            ["tenant_id", "product_id", "id"],
+            ondelete="CASCADE",
+        )
     op.create_index(
         "ix_rrugc_product_reference_variant",
         "rrugc_product_references",
@@ -100,11 +100,8 @@ def downgrade() -> None:
     op.drop_column("rrugc_candidates", "matched_variant_id")
 
     op.drop_index("ix_rrugc_product_reference_variant", table_name="rrugc_product_references")
-    op.drop_constraint(
-        "fk_rrugc_product_reference_variant",
-        "rrugc_product_references",
-        type_="foreignkey",
-    )
+    with op.batch_alter_table("rrugc_product_references") as batch:
+        batch.drop_constraint("fk_rrugc_product_reference_variant", type_="foreignkey")
     op.drop_column("rrugc_product_references", "variant_id")
 
     op.drop_index("ix_rrugc_product_variant_product", table_name="rrugc_product_variants")

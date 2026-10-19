@@ -79,7 +79,9 @@ def upgrade() -> None:
         SET phone_authenticity_score = mobile_ugc_score,
             artistic_editorial_risk = CASE
                 WHEN mobile_ugc_score IS NULL THEN NULL
-                ELSE GREATEST(0.0, LEAST(1.0, 1.0 - mobile_ugc_score))
+                WHEN mobile_ugc_score <= 0.0 THEN 1.0
+                WHEN mobile_ugc_score >= 1.0 THEN 0.0
+                ELSE 1.0 - mobile_ugc_score
             END
         WHERE phone_authenticity_score IS NULL
         """
