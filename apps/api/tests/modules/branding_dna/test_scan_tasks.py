@@ -16,7 +16,7 @@ from app.modules.branding_dna.router import ShopCreate, add_shop
 from app.modules.branding_dna.task_model import BrandScanTaskModel
 from app.modules.branding_dna.task_router import TaskStage, cancel_staged_task, list_scan_tasks, stage_task
 from app.modules.branding_dna.task_service import (
-    checkpoint_task, claim_next_task, release_for_retry,
+    checkpoint_task, claim_next_task, release_for_retry, complete_verified_task,
 )
 from app.modules.branding_dna.worker_router import (
     WorkerRegister, register_worker, worker_lease,
@@ -318,3 +318,119 @@ def test_claim_rejects_revoked_shop_access_even_with_stale_pending_task(db):
     ) is None
     task = db.get(BrandScanTaskModel, task_id)
     assert task.status == "pending" and task.lease_id is None
+
+
+def test_completion_requires_independent_evidence_and_checkpoint(db):
+    shop_id, snapshot_id = setup_data(db, name="CompletionProof")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    agent_id = worker(db)
+    lease = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    args = dict(
+        tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+        lease_id=lease["lease_id"], lease_generation=lease["lease_generation"],
+        now=START + timedelta(seconds=10),
+    )
+    snapshot = db.get(BrandListingSnapshotModel, snapshot_id)
+    digest = snapshot.content_sha256
+
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(db, **args, checkpoint_seq=0, content_sha256=digest)
+    assert err.value.status_code == 409
+    checkpoint_task(db, **args, checkpoint_seq=1)
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(db, **args, checkpoint_seq=1, content_sha256=digest)
+    assert err.value.status_code == 409
+    assert db.get(BrandScanTaskModel, task_id).status == "leased"
+
+    # Simulates a distinct future source verifier. Imported evidence and
+    # human documentary assessments never change this field on their own.
+    snapshot.evidence_state = "verified"
+    db.commit()
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(db, **args, checkpoint_seq=1, content_sha256="f" * 64)
+    assert err.value.status_code == 409
+    completed = complete_verified_task(
+        db, **args, checkpoint_seq=1, content_sha256=digest,
+    )
+    assert completed["status"] == "completed" and completed["replayed"] is False
+    task = db.get(BrandScanTaskModel, task_id)
+    assert task.lease_until is None and task.status == "completed"
+    assert task.lease_id == lease["lease_id"]  # retained only as terminal receipt
+    again = complete_verified_task(db, **args, checkpoint_seq=1, content_sha256=digest)
+    assert again["replayed"] is True
+    with pytest.raises(HTTPException) as err:
+        checkpoint_task(db, **args, checkpoint_seq=2)
+    assert err.value.status_code == 409
+    db.get(BrandShopModel, shop_id).status = "draft"
+    db.commit()
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(db, **args, checkpoint_seq=1, content_sha256=digest)
+    assert err.value.status_code == 409
+
+
+def test_completion_fails_closed_for_stale_or_revoked_worker(db):
+    shop_id, snapshot_id = setup_data(db, name="StaleComplete")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    agent_id = worker(db)
+    lease = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    snapshot = db.get(BrandListingSnapshotModel, snapshot_id)
+    snapshot.evidence_state = "verified"
+    db.commit()
+    args = dict(
+        tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+        lease_id=lease["lease_id"], lease_generation=1,
+        checkpoint_seq=1, content_sha256=snapshot.content_sha256,
+        now=START + timedelta(seconds=10),
+    )
+    checkpoint_task(db, tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+                    lease_id=lease["lease_id"], lease_generation=1,
+                    checkpoint_seq=1, now=START + timedelta(seconds=5))
+    for changes in (
+        {"tenant_id": "tenant-b"},
+        {"lease_id": "00000000-0000-4000-8000-000000000000"},
+        {"lease_generation": 2},
+        {"content_sha256": "invalid"},
+    ):
+        with pytest.raises(HTTPException) as err:
+            complete_verified_task(db, **{**args, **changes})
+        assert err.value.status_code in (409, 422)
+    db.get(BrandWorkerModel, agent_id).enabled = False
+    db.commit()
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(db, **args)
+    assert err.value.status_code == 409
+    assert db.get(BrandScanTaskModel, task_id).status == "leased"
+
+
+def test_completion_rejects_expired_lease_even_with_verified_snapshot(db):
+    shop_id, snapshot_id = setup_data(db, name="ExpiredComplete")
+    task_id = stage(db, shop_id, snapshot_id)["item"]["id"]
+    activate_for_unit_test(db, task_id)
+    agent_id = worker(db)
+    lease = claim_next_task(
+        db, tenant_id="tenant-a", agent_id=agent_id,
+        dispatch_authorized=True, adapter_verified=True, now=START,
+    )
+    digest = db.get(BrandListingSnapshotModel, snapshot_id).content_sha256
+    db.get(BrandListingSnapshotModel, snapshot_id).evidence_state = "verified"
+    db.commit()
+    checkpoint_task(db, tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+                    lease_id=lease["lease_id"], lease_generation=1,
+                    checkpoint_seq=1, now=START + timedelta(seconds=5))
+    with pytest.raises(HTTPException) as err:
+        complete_verified_task(
+            db, tenant_id="tenant-a", task_id=task_id, agent_id=agent_id,
+            lease_id=lease["lease_id"], lease_generation=1,
+            checkpoint_seq=1, content_sha256=digest,
+            now=START + timedelta(seconds=130),
+        )
+    assert err.value.status_code == 409
+    assert db.get(BrandScanTaskModel, task_id).status == "leased"

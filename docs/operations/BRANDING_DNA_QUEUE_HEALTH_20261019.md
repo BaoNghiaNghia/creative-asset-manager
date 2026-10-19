@@ -31,11 +31,19 @@ can start a marketplace browser.
   rechecks those flags for lease callbacks. It must still stay disconnected
   from public worker lease endpoints pending independent marketplace policy
   review and an auditable, verified source adapter.
+- An internal `complete_verified_task` primitive is available for later
+  adapter integration. It requires a current fenced lease, a positive exact
+  checkpoint, the independently verified listing snapshot state, and its
+  immutable SHA-256 digest. Only the same lease can replay the terminal ACK;
+  disabled workers and revoked shops cannot acknowledge completion. Its
+  retained lease identity is an audit/ACK receipt, not an active lease. No
+  public completion route, verified source adapter, or marketplace browser
+  dispatcher is enabled.
 - Before enabling dispatch, implement explicit reviewed authorization with
-  source-specific limits and expiry/revocation, the executable worker lease
-  contract, durable checkpoint/completion evidence, reclaim/retry supervision,
-  and concurrency/restart/security acceptance tests. Never enable it by only
-  changing a UI label or setting `scan_enabled=true`.
+  source-specific limits and expiry/revocation, an independent source
+  verification writer, the executable worker lease contract, reclaim/retry
+  supervision, and concurrency/restart/security acceptance tests. Never enable
+  it by only changing a UI label or setting `scan_enabled=true`.
 - For troubleshooting, compare these queue counters over time with worker
   presence and queue events; preserve evidence and do not delete or reset
   outstanding tasks as a shortcut.

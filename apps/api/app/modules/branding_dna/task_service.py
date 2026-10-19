@@ -7,6 +7,8 @@ are internal primitives for an eventual separately authorized source adapter.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hmac
+import re
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -264,3 +266,73 @@ def release_for_retry(session: Session, *, tenant_id: str, task_id: str,
     session.commit()
     return {"task_id": task.id, "status": task.status,
             "retry_after": task.retry_after.isoformat() if task.retry_after else None}
+
+
+def complete_verified_task(
+    session: Session, *, tenant_id: str, task_id: str, agent_id: str,
+    lease_id: str, lease_generation: int, checkpoint_seq: int,
+    content_sha256: str, now: datetime | None = None,
+) -> dict:
+    """Internal-only, fenced completion for independently verified evidence.
+
+    No HTTP route or browser adapter calls this function. A documentary
+    assessment or imported source data is never enough for completion.
+    Keep the lease identity as a terminal acknowledgement receipt (not a live
+    lease) so a worker can safely replay a lost completion response.
+    """
+    if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
+        raise HTTPException(422, detail="Invalid evidence digest")
+    clock = _aware(now) or now_utc()
+    task = session.scalar(select(BrandScanTaskModel).where(
+        BrandScanTaskModel.tenant_id == tenant_id,
+        BrandScanTaskModel.id == task_id,
+    ).with_for_update())
+    if (task is None or task.agent_id != agent_id or task.lease_id != lease_id
+            or task.lease_generation != lease_generation):
+        raise HTTPException(409, detail="Stale completion lease")
+    if checkpoint_seq <= 0 or checkpoint_seq != task.checkpoint_seq:
+        raise HTTPException(409, detail="Completion checkpoint mismatch")
+
+    # The snapshot is immutable; independently verified provenance is a
+    # prerequisite, not an attribute that the worker may assert for itself.
+    snapshot = session.scalar(select(BrandListingSnapshotModel).where(
+        BrandListingSnapshotModel.tenant_id == tenant_id,
+        BrandListingSnapshotModel.shop_id == task.shop_id,
+        BrandListingSnapshotModel.id == task.snapshot_id,
+    ))
+    if (snapshot is None or snapshot.evidence_state != "verified"
+            or not hmac.compare_digest(snapshot.content_sha256, content_sha256)):
+        raise HTTPException(409, detail="Independently verified evidence required")
+
+    if task.status == "completed":
+        agent_ok = session.scalar(select(BrandWorkerModel.id).where(
+            BrandWorkerModel.tenant_id == tenant_id,
+            BrandWorkerModel.id == agent_id,
+            BrandWorkerModel.enabled.is_(True),
+        ))
+        shop_ok = session.scalar(select(BrandShopModel.id).where(
+            BrandShopModel.id == task.shop_id,
+            BrandShopModel.tenant_id == tenant_id,
+            BrandShopModel.status == "active",
+            BrandShopModel.access_mode.in_(("owned", "authorized")),
+        ))
+        if agent_ok is None or shop_ok is None:
+            raise HTTPException(409, detail="Completion authorization revoked")
+        return {"task_id": task.id, "status": "completed",
+                "checkpoint_seq": task.checkpoint_seq,
+                "lease_generation": task.lease_generation, "replayed": True}
+
+    if task.status != "leased":
+        raise HTTPException(409, detail="Task is not leased")
+    _fenced_task(
+        session, tenant_id=tenant_id, task_id=task_id, agent_id=agent_id,
+        lease_id=lease_id, lease_generation=lease_generation, now=clock,
+    )
+    task.status = "completed"
+    task.lease_until = None
+    task.retry_after = None
+    task.last_error_code = None
+    session.commit()
+    return {"task_id": task.id, "status": "completed",
+            "checkpoint_seq": task.checkpoint_seq,
+            "lease_generation": task.lease_generation, "replayed": False}
