@@ -25,6 +25,11 @@ prepare() {
   [[ -d "$SKILLS_SOURCE" ]] || die "Project Codex skills are missing."
 
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$CODEX_HOME"
+  # Codex creates and removes transient arg0 directories beneath tmp.
+  # The root directory itself must be writable by the runtime user, or
+  # thousands of empty temp trees accumulate with Permission denied.
+  [[ ! -L "$CODEX_HOME/tmp" ]] || die "Refusing symlinked Codex tmp"
+  install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$CODEX_HOME/tmp"
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$CODEX_HOME/skills"
 
   while IFS= read -r -d '' skill_dir; do
@@ -62,6 +67,8 @@ prepare_secondary() {
   prepare >/dev/null
   install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SECONDARY_CODEX_HOME"
   [[ "$SECONDARY_CODEX_HOME" != "$CODEX_HOME" ]] || die "Secondary Codex home must be distinct."
+  [[ ! -L "$SECONDARY_CODEX_HOME/tmp" ]] || die "Refusing symlinked secondary Codex tmp"
+  install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SECONDARY_CODEX_HOME/tmp"
   if [[ -e "$SECONDARY_CODEX_HOME/skills" && ! -L "$SECONDARY_CODEX_HOME/skills" ]]; then
     die "Secondary skills directory must not replace shared skills."
   fi

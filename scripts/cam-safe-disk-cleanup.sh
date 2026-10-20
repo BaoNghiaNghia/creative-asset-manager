@@ -140,13 +140,17 @@ if [[ -d "$PIP_CACHE" && ! -L "$PIP_CACHE" ]]; then
   [[ "$cache_bytes" =~ ^[0-9]+$ ]] || cache_bytes=0
   echo "Pip cache: $(human "$cache_bytes") ($PIP_CACHE)"
   if [[ "$MODE" == apply ]]; then
-    if command -v python3 >/dev/null 2>&1 &&
-       python3 -m pip --version >/dev/null 2>&1 &&
+    # The OS Python may not have pip installed. Deploys use the release venv,
+    # and this cache is owned by the creative-assets service account.
+    pip_python="$active/apps/api/.venv/bin/python"
+    if [[ -x "$pip_python" ]] &&
+       "$pip_python" -m pip --version >/dev/null 2>&1 &&
        ! pgrep -af 'python.* -m pip|[/ ]pip(3)? (install|download|wheel)' >/dev/null 2>&1; then
-      PIP_CACHE_DIR="$PIP_CACHE" python3 -m pip cache purge ||
+      runuser -u creative-assets -- env PIP_CACHE_DIR="$PIP_CACHE" \
+        "$pip_python" -m pip cache purge ||
         echo "WARNING: pip cache purge unsuccessful"
     else
-      echo "SKIP: active pip process or pip command unavailable"
+      echo "SKIP: active pip process or production virtualenv pip unavailable"
     fi
   fi
 else
