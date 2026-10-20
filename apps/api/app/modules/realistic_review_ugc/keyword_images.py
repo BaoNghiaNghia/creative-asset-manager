@@ -172,8 +172,10 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
             "different compositions, inspect their spelling and thread appearance, "
             "select ONE Hero, and deterministically composite that same Hero on all "
             "13 original Valucap 8869 stock photos with authentic Madeira colors. "
-            "Produce the concept/hero and colorway boards using the bundled assembler, "
-            "and preserve ALL generated artwork images and every finished render. "
+            "Produce the final concept/hero and colorway boards using the bundled assembler. "
+            "Use artwork concepts, inspection renders and QA images only as temporary "
+            "in-job working files; NEVER upload or retain them as official outputs. "
+            "Keep only validated final deliverable boards on Managed Drive. "
             "Write output/latest.json, output/vNNN/audit.json and job_state.json "
             "as prescribed by the Skill; do not replace them with a single cap image. "
             + ((custom or "").strip() if custom else "")

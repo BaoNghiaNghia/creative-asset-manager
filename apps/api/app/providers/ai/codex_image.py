@@ -811,57 +811,69 @@ class CodexImageGenRunner:
 
     @staticmethod
     def _collect_generated_images(workspace: Path) -> tuple[GeneratedImageFile, ...]:
-        """Collect every generated raster file, not an arbitrary count of final boards.
+        """Collect ONLY declared final deliverables; never upload review images.
 
-        Only scan output/artwork folders of this isolated execution. Bundled
-        stock hats, original references and the installed Skill are excluded.
-        Deterministic ordering puts final boards first, then all intermediates.
+        Intermediate artwork, QA snapshots, draft concept variants and the
+        image tool's generated_images cache are not a final output contract.
+        Finals are explicitly under output/final/, output/final.png, or the
+        two named v4 completed boards in a versioned output/ folder.
+        Missing final files must fail closed instead of uploading previews.
         """
-        roots = (
-            workspace / "output", workspace / "v4-job" / "artworks",
-            workspace / "artworks", workspace / "results",
-            workspace / "generated", workspace / "rendered",
-            workspace / "v4-job" / "renders", workspace / "v4-job" / "rendered",
-            workspace / "v4-job" / "colorways", workspace / "v4-job" / "generated",
-            workspace / "v4-job" / "results", workspace / "v4-job" / "outputs",
-        )
+        output = workspace / "output"
         root = workspace.resolve()
+        if not output.is_dir() or output.is_symlink():
+            return ()
         found: dict[Path, GeneratedImageFile] = {}
         formats = {".png": "image/png", ".jpg": "image/jpeg",
                    ".jpeg": "image/jpeg", ".webp": "image/webp"}
-        for directory in roots:
-            if not directory.is_dir() or directory.is_symlink():
-                continue
-            for base, dirs, names in os.walk(directory, followlinks=False):
-                dirs[:] = [name for name in dirs
-                           if not name.startswith(".") and not (Path(base) / name).is_symlink()]
-                for name in names:
-                    path = Path(base) / name
-                    mime = formats.get(path.suffix.lower())
-                    if not mime or path.is_symlink() or not path.is_file():
+        for base, dirs, names in os.walk(output, followlinks=False):
+            dirs[:] = [name for name in dirs if not name.startswith(".")
+                       and not (Path(base) / name).is_symlink()]
+            for name in names:
+                path = Path(base) / name
+                mime = formats.get(path.suffix.lower())
+                if not mime or path.is_symlink() or not path.is_file():
+                    continue
+                relative = path.relative_to(workspace)
+                parts = relative.parts
+                stem = path.stem.lower()
+                final = (
+                    (len(parts) >= 3 and parts[:2] == ("output", "final"))
+                    or parts == ("output", "final.png")
+                    or (len(parts) == 3
+                        and parts[0] == "output"
+                        and re.fullmatch(r"v[0-9]{3,}", parts[1])
+                        and (stem.endswith("_01_design_concepts")
+                             or stem.endswith("_02_13_colorways")))
+                )
+                if not final:
+                    continue
+                # Even under output/final/, explicit draft/review/QA labels
+                # cannot be mistaken for approved deliverables.
+                if any(re.search(r"(?:^|[_-])(preview|draft|review|qa|temp)(?:[_-]|$)",
+                                 part.lower()) for part in parts[2:] if parts[:2] == ("output", "final")):
+                    continue
+                resolved = path.resolve()
+                if not resolved.is_relative_to(root):
+                    continue
+                try:
+                    with Image.open(path) as image:
+                        image.verify()
+                        actual_mime = _ALLOWED_OUTPUT_MIME.get(image.format or "")
+                    if actual_mime != mime:
                         continue
-                    resolved = path.resolve()
-                    if not resolved.is_relative_to(root):
-                        continue
-                    try:
-                        with Image.open(path) as image:
-                            image.verify()
-                            actual_mime = _ALLOWED_OUTPUT_MIME.get(image.format or "")
-                        if actual_mime != mime:
-                            continue
-                    except (OSError, ValueError, Image.DecompressionBombError):
-                        continue
-                    relative = path.relative_to(workspace).as_posix()
-                    found[resolved] = GeneratedImageFile(
-                        path=str(resolved), filename=relative, mime_type=mime,
-                    )
+                except (OSError, ValueError, Image.DecompressionBombError):
+                    continue
+                found[resolved] = GeneratedImageFile(
+                    path=str(resolved), filename=relative.as_posix(), mime_type=mime,
+                )
+
         def priority(item: GeneratedImageFile) -> tuple[int, str]:
             name = item.filename.lower()
             if name.endswith("/final.png") or name == "output/final.png":
                 return (0, name)
-            if "_01_design_concepts." in name or "_02_13_colorways." in name:
-                return (1, name)
-            return (2, name)
+            return (1, name) if name.endswith(("_01_design_concepts.png",
+                                              "_02_13_colorways.png")) else (2, name)
         return tuple(sorted(found.values(), key=priority))
 
     @staticmethod
@@ -1047,9 +1059,11 @@ class CodexImageGenRunner:
                 "and ./output/latest.json with audit.json in the version folder and ./v4-job/job_state.json.\n"
                 "The final deliverables MUST contain 10 distinct concepts with a Hero, "
                 "and the identical Hero on all 13 ORIGINAL Valucap stock colorways.\n"
-                "Keep every generated image file in ./v4-job/artworks or ./output, "
-                "including separate concepts, mockups, colorway renders and final boards. "
-                "Stage 1 will import ALL generated images, not just two final boards.\n"
+                "Use intermediate concepts, mockups and colorway renders only inside this "
+                "isolated job workspace while assembling final deliverables. "
+                "Do not upload/store review, preview, draft or QA imagery. "
+                "Persist ONLY the two finished boards from ./output/vNNN/ "
+                "as official final outputs. Do not treat intermediates as final.\n"
                 "If the full workflow cannot be completed, report the blocker instead of "
                 "returning a fake success image.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
@@ -1059,9 +1073,11 @@ class CodexImageGenRunner:
                 + extra_block
             )
         output_instruction = (
-            "Save ALL generated images into ./output (subfolders are welcome). "
-            "Do not delete intermediate concepts, alternate designs or previews. "
-            "No fixed image count is imposed by Stage 1.\n"
+            "Only completed final deliverables may be saved to ./output/final/. "
+            "Do NOT put review images, previews, QA screenshots, work-in-progress "
+            "or temporary alternatives in the final folder. Keep drafts temporary "
+            "inside this job and do not upload or retain them as outputs. "
+            "If there are no validated finals, fail rather than returning drafts.\n"
             if self.config.output_contract == "all_generated_images"
             else "Generate exactly one final image. Save it to output/final.png. "
         )

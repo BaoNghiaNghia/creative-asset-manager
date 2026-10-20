@@ -1,5 +1,14 @@
 # Codex HOME storage inspection and retention — 2026-10-20
 
+**Updated final-only policy:** See
+[`CODEX_FINAL_ONLY_DRIVE_POLICY_20261020.md`](CODEX_FINAL_ONLY_DRIVE_POLICY_20261020.md).
+The legacy recovery archive previously uploaded all unclassified cache PNGs.
+That is no longer acceptable for ordinary jobs: automatic unclassified
+archiving is now disabled. Only actual final outputs may be persisted on
+Managed Drive. Review/QA/draft images must remain temporary, not archival
+assets. The historical sections below document past operations, not the
+current desired automatic archive behavior.
+
 ## Verified on creativeasset
 
 Two Codex homes are intentionally separate to preserve independent logged-in

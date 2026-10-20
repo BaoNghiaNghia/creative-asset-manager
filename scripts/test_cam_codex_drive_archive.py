@@ -53,5 +53,20 @@ class ArchiveRetentionTests(unittest.TestCase):
             self.assertFalse(mod.remove_exact(link,root,st,sha,md5,time.time()-4*3600))
             self.assertTrue(p.is_file())
 
+    def test_scheduled_archive_never_uploads_unclassified_preview_pngs(self):
+        import asyncio
+        import contextlib
+        import io
+        from types import SimpleNamespace
+
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            asyncio.run(mod.execute(SimpleNamespace(
+                legacy_recovery=False,apply=True,max_files=500,
+                min_age_hours=4,concurrency=5,
+            )))
+        self.assertIn("FINAL_ONLY_UNCLASSIFIED_SKIPPED",output.getvalue())
+
+
 if __name__=="__main__":
     unittest.main()

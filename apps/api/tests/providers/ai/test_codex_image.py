@@ -193,17 +193,22 @@ def test_codex_skill_manifest_drives_deterministic_product_and_role_matching(tmp
         fallback_skill=None,
     ) == manifest
 
-def test_codex_stage1_collects_every_generated_artwork_without_count_limit(tmp_path):
+def test_codex_stage1_persists_only_explicit_final_deliverables(tmp_path):
     runner = CodexImageGenRunner(CodexImageRunnerConfig(output_contract="all_generated_images"))
     workspace = tmp_path / "isolated-job"
     boards = workspace / "output" / "v001"
+    finals = workspace / "output" / "final"
     concepts = workspace / "v4-job" / "artworks"
     stock = workspace / "v4-job" / "stock"
     boards.mkdir(parents=True)
+    finals.mkdir(parents=True)
     concepts.mkdir(parents=True)
     stock.mkdir(parents=True)
     Image.new("RGB", (800, 600), "white").save(boards / "quote_01_design_concepts.png")
     Image.new("RGB", (800, 600), "blue").save(boards / "quote_02_13_colorways.png")
+    Image.new("RGB", (800, 600), "green").save(finals / "approved_design_03.png")
+    Image.new("RGB", (800, 600), "orange").save(finals / "review_draft.png")
+    Image.new("RGB", (800, 600), "red").save(workspace / "output" / "preview.png")
     for number in range(37):
         folder = concepts / f"concept_{number:02d}"
         folder.mkdir()
@@ -211,11 +216,22 @@ def test_codex_stage1_collects_every_generated_artwork_without_count_limit(tmp_p
     Image.new("RGB", (500, 500), "black").save(stock / "original_hat.png")
     (boards / "invalid.png").write_text("invalid PNG", encoding="utf-8")
     results = runner._collect_generated_images(workspace)
-    assert len(results) == 39
-    assert results[0].filename.endswith("_01_design_concepts.png")
-    assert results[1].filename.endswith("_02_13_colorways.png")
-    assert not any("stock" in result.filename for result in results)
-    assert len({result.filename for result in results}) == 39
+    assert len(results) == 3
+    assert [r.filename for r in results] == [
+        "output/v001/quote_01_design_concepts.png",
+        "output/v001/quote_02_13_colorways.png",
+        "output/final/approved_design_03.png",
+    ]
+    assert not any("review" in item.filename or "artworks" in item.filename
+                   for item in results)
+
+
+def test_codex_stage1_refuses_to_promote_review_image_to_final(tmp_path):
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(output_contract="all_generated_images"))
+    workspace = tmp_path / "job"
+    (workspace / "output").mkdir(parents=True)
+    (workspace / "output" / "review_01.png").write_bytes(b"draft")
+    assert runner._collect_generated_images(workspace) == ()
 
 
 def test_stage1_collector_rejects_symlinked_external_files(tmp_path):

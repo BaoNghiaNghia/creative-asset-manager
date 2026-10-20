@@ -117,6 +117,16 @@ def remove_exact(path: Path, root: Path, s, sha: str, md5: str, cutoff: float) -
         return False
 
 async def execute(args):
+    # The generated_images directory is an unclassified Codex tool cache.
+    # It may contain review/draft PNGs; age is not proof of a final.
+    # Fail closed for the automatic timer; explicit historical recovery
+    # must be a separate operator-approved action.
+    if not args.legacy_recovery:
+        print("FINAL_ONLY_POLICY: unclassified generated_images cannot be archived.")
+        print("Use completed-output Drive records for final assets; "
+              "job-scoped drafts must be cleaned without Drive persistence.")
+        print("RESULT mode=FINAL_ONLY_UNCLASSIFIED_SKIPPED uploaded=0 deleted=0")
+        return
     from dotenv import load_dotenv
     env=Path("/etc/creative-asset-manager/production.env")
     if not env.is_file():
@@ -225,6 +235,8 @@ async def execute(args):
 if __name__=="__main__":
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply",action="store_true")
+    ap.add_argument("--legacy-recovery",action="store_true",
+                    help="Exceptional operator-led recovery of unclassified historic images; NEVER use in production timer")
     ap.add_argument("--max-files",type=int,default=30)
     ap.add_argument("--min-age-hours",type=int,default=4)
     ap.add_argument("--concurrency",type=int,default=5)
