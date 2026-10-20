@@ -27,6 +27,15 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - `InventoryCatinatApprovals.tsx` and Inventory navigation add a Vietnamese exception work queue for staff and managers. Generic JSON evidence is an interim operator UI, not final row-aware physical-count confirmation.
 - Tests in `test_catinat_approvals.py` cover database isolation, audit events, idempotency, manager role and cross-tenant protections. **No production migration or deployment has been run.**
 
+## Q02/Q03-Q05/Q27/Q34 evening physical-readiness screen (new)
+
+- `daily_sheet/catinat_shift_readiness.py`: deterministic read-only inspection of the exact **three separate physical closing layouts** in the live workbook: `KHO PHA CHẾ L/M`, `PHÒNG PHA CHẾ H/J`, `KHO PHÒNG RANG J/L`. Read-only report checks preparation batches missing verified time for strict 96-hour expiry.
+- Verifies the business date in all four sheets, warehouse closing headers, bounded tab size, missing/invalid physical counts, missing stock unit, unidentified quantity rows and unverified prepared-batch timestamps. Numeric 0 and `/` are accepted as quantity 0 **but never as staff confirmation**.
+- `GET /api/inventory/daily-sheet/catinat/shift/readiness?business_date=...` requires `inventory.read`; reads only the tenant-configured workbook and returns `source_hash`, `items` and `blockers`, with `staff_confirmation_available=false`, `automatic_carry_forward_allowed=false`, `sheets_writes=0`.
+- `InventoryCatinatShiftReadiness.tsx` adds Vietnamese **Kiểm kê ca** screen listing each corresponding Google cell, missing count and blockers; it is deliberately non-mutating.
+- This screen **does not yet establish completeness against a manager-approved catalog, prove pending transfers are reconciled, register actual discarded expired batches, or sign the immutable shift snapshot**. Do not allow official closing/carry-forward based on this read-only roster, and do not mistake the hash for atomic Sheets locking.
+- Dedicated tests `test_catinat_shift_readiness.py` and `InventoryCatinatShiftReadiness.test.tsx` cover missing/slash/zero cells, all three layout mappings, dates, changed sources, authorization, and the read-only UI/API contract.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.

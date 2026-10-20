@@ -23,6 +23,26 @@ async function request<T>(path:string, init?:RequestInit):Promise<T> { let respo
 export const inventoryApi={ listReviews:()=>request<{items:InventoryReview[]}>("/reviews"), getReview:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}`), approve:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/approve`,{method:"POST"}), correct:(id:string,values:Record<string,unknown>)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/correct`,{method:"POST",body:JSON.stringify({values})}), requestReupload:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/request-reupload`,{method:"POST"}), getDailyRun:(businessDate:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}`), finalizeDailyRun:(businessDate:string,force=false,reason?:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}/finalize`,{method:"POST",body:JSON.stringify({force,reason})}), getExport:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`), exportDay:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`,{method:"POST"}), getAiCredential:()=>request<InventoryAiCredential>("/configuration/ai-credential"), testAiCredential:(api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>("/configuration/ai-credential/test",{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiCredential:(api_key:string,label?:string)=>request<InventoryAiCredential>("/configuration/ai-credential",{method:"PUT",body:JSON.stringify({api_key,label})}), listAiBackupCredentials:()=>request<InventoryAiBackupCredential[]>("/configuration/ai-credential-backups"), testAiBackupCredential:(slot:number,api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>(`/configuration/ai-credential-backups/${slot}/test`,{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiBackupCredential:(slot:number,api_key:string,label?:string)=>request<InventoryAiBackupCredential>(`/configuration/ai-credential-backups/${slot}`,{method:"PUT",body:JSON.stringify({api_key,label})}), deleteAiBackupCredential:(slot:number)=>request<{provider:string;deleted:boolean}>(`/configuration/ai-credential-backups/${slot}`,{method:"DELETE"}) };
 
 
+export type CatinatPhysicalReadinessItem = {
+  sheet:string;row:number;form:"whole"|"loose";cell:string;unit:string;
+  raw:string;quantity:string|null;status:string;blocker:string;material:string;
+};
+export type CatinatPhysicalReadinessBlocker = {
+  sheet?:string;row?:number;cell?:string;form?:string;code:string;
+};
+export type CatinatEveningReadiness = {
+  business_date:string;shift:"evening";mode:"read_only_not_a_signed_close";
+  source_hash:string;items:CatinatPhysicalReadinessItem[];
+  blockers:CatinatPhysicalReadinessBlocker[];
+  staff_confirmation_available:false;automatic_carry_forward_allowed:false;
+  sheets_writes:0;
+};
+export const catinatShiftApi = {
+  readiness:(businessDate:string)=>request<CatinatEveningReadiness>(
+    "/daily-sheet/catinat/shift/readiness?business_date="+encodeURIComponent(businessDate),
+  ),
+};
+
 export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception";
 export type CatinatApprovalStatus = "pending" | "approved" | "rejected";
 export type CatinatApproval = {
