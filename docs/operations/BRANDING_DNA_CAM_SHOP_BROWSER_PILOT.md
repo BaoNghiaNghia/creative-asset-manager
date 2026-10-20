@@ -96,6 +96,47 @@ independent evidence verification; replay-safe report ingestion; and
 completion/retry telemetry. Browser observations alone must not be promoted
 to verified Brand DNA data.
 
+## Quarantined browser observations in CAM (Phase 2)
+
+For a shop independently activated through the reviewed catalog lifecycle,
+an operator can import a **completed, bounded browser pilot report** to CAM.
+The new endpoints require `ai_provider.configure` to write and
+`ai_operations.read` to list/review:
+
+- `POST /api/v1/branding-dna/shops/{shop_id}/browser-observations`
+- `GET /api/v1/branding-dna/shops/{shop_id}/browser-observations`
+- `GET /api/v1/branding-dna/shops/{shop_id}/browser-observations/{report_id}`
+
+Only `preview_completed` with 1–5 fully parsed listing observations is
+accepted. Every observation is restricted to a title, listing key, SHA-256
+page/image URL digests and explicitly unknown rights/sales status.
+No image media, raw source URLs, screenshots, session cookies or arbitrary
+browser-output JSON are persisted. The shop must be active and
+`owned`/`authorized`, and its canonical URL hash must match.
+Draft/unreviewed shops are rejected before any database write.
+
+The API deduplicates using a per-shop `report_key`, returns 200 for exact
+replay and 409 for conflicting content under an existing key. All records
+remain `browser_observation_unverified` and cannot be used as evidence of
+marketplace authorization, verified product photos or sales statistics.
+There is no job dispatch, automatic marketplace browsing or verified
+Brand DNA promotion in these endpoints.
+
+On Windows, **only after** a manually authorized single-shop pilot,
+passing `--prepare-import` alongside `--report <path>` saves a second,
+strict `<path>.cam-import.json` file. It intentionally does **not**
+transmit that file using the Scout token. Import requires a separate
+authenticated CAM operator with `ai_provider.configure`; the paired
+Scout's browser heartbeat token is not an operator write credential.
+The JSON may be submitted to the corresponding operator API after manual
+review. Partial errors and blocked/CAPTCHA pilots are refused as import
+payloads; their original local report remains available for investigation.
+The import is append-only (no delete or automatic downgrade).
+
+**Current rollout:** no automatic import or unattended scanning of 33
+inactive/undeclared shops. Browser pilot metadata can now enter the audit
+pipeline once an exact shop has passed the required review.
+
 ## Tests and invariants
 
 - Unit tests: only CAM supplies shop URLs; inactive/unapproved/malformed or

@@ -3,6 +3,7 @@
  * This is NOT a dispatch agent, never polls/claims jobs or uploads evidence.
  */
 import {readFileSync,existsSync,lstatSync,writeFileSync,mkdirSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {dirname,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {settings} from "./agent_cam.mjs";
@@ -72,6 +73,62 @@ export async function runCamShopPilot(config,{shopId,approval,profileDir,
  },deps.browserDeps);
 }
 
+/**
+ * Prepare a strictly quarantined CAM metadata report. This prepares JSON
+ * for authenticated OPERATOR import; it never uploads, requests a lease,
+ * treats a title as independently verified, or persists image bytes.
+ */
+export function prepareCamObservationReport(result){
+ if(result?.status!=="preview_completed"||
+    !["etsy","amazon"].includes(result.platform)||
+    !Array.isArray(result.items)||result.items.length<1||result.items.length>5||
+    result.observed_count!==result.items.length||
+    result.rights_verified!==false||result.sales_verified!==false||
+    result.evidence_committed!==false||result.scan_enabled!==false||
+    result.coverage_state!=="partial"||
+    typeof result.observed_at!=="string"||
+    !Number.isFinite(Date.parse(result.observed_at)))
+   throw Error("pilot_report_not_importable");
+ const sha=/^[0-9a-f]{64}$/;
+ if(!sha.test(result.shop_url_sha256))throw Error("pilot_shop_hash_invalid");
+ const listingPattern=result.platform==="etsy"?/^etsy:[0-9]{1,20}$/:/^amazon:[A-Z0-9]{10}$/;
+ const items=result.items.map(item=>{
+  if(!listingPattern.test(item?.listing_key??"")||
+     typeof item.title!=="string"||item.title.trim().length<2||item.title.length>300||
+     !sha.test(item.observed_page_sha256)||
+     !Array.isArray(item.image_url_sha256)||item.image_url_sha256.length>12||
+     item.image_url_sha256.some(x=>!sha.test(x))||
+     new Set(item.image_url_sha256).size!==item.image_url_sha256.length||
+     item.image_count!==item.image_url_sha256.length||
+     item.source_kind!=="browser_dom_observation"||
+     item.source_verification!=="unverified"||
+     item.coverage_state!=="partial"||
+     item.rights_state!=="unknown"||item.sales_state!=="unknown")
+    throw Error("pilot_listing_not_importable");
+  return {
+   listing_key:item.listing_key,title:item.title,
+   observed_page_sha256:item.observed_page_sha256,
+   image_url_sha256:item.image_url_sha256,
+   image_count:item.image_count,
+   source_kind:"browser_dom_observation",
+   rights_state:"unknown",sales_state:"unknown",
+   coverage_state:"partial",source_verification:"unverified",
+  };
+ });
+ if(new Set(items.map(i=>i.listing_key)).size!==items.length)
+   throw Error("pilot_duplicate_listings");
+ const key=createHash("sha256").update(JSON.stringify({
+  shop_url_sha256:result.shop_url_sha256,observed_at:result.observed_at,items,
+ })).digest("hex");
+ return {
+  report_key:"pilot:"+key,status:"preview_completed",platform:result.platform,
+  shop_url_sha256:result.shop_url_sha256,observed_at:result.observed_at,
+  items,observed_count:items.length,coverage_state:"partial",
+  rights_verified:false,sales_verified:false,
+  evidence_committed:false,scan_enabled:false,
+ };
+}
+
 function flag(name){
  const index=process.argv.indexOf(name);
  return index>=0?process.argv[index+1]:undefined;
@@ -116,8 +173,16 @@ export async function main(){
  const result=await runCamShopPilot(config,{shopId:id,approval,profileDir});
  mkdirSync(dirname(reportPath),{recursive:true});
  writeFileSync(reportPath,JSON.stringify(result,null,2),{flag:"wx",mode:0o600});
+ let importPayloadPrepared=false;
+ if(process.argv.includes("--prepare-import")){
+  // A parser error/needs_operator must not be converted into evidence.
+  const payload=prepareCamObservationReport(result);
+  writeFileSync(reportPath+".cam-import.json",JSON.stringify(payload,null,2),
+    {flag:"wx",mode:0o600});
+  importPayloadPrepared=true;
+ }
  console.log(JSON.stringify({status:result.status,observed_count:result.observed_count??0,
-   evidence_committed:false,scan_enabled:false,
+   evidence_committed:false,scan_enabled:false,import_payload_prepared:importPayloadPrepared,
    report_saved:true,reason:result.reason??null}));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)

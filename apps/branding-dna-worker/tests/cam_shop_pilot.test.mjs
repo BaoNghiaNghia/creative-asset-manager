@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {fetchConfiguredShop,runCamShopPilot,summarizeCamShopPreflight,readPairingFile} from "../src/cam_shop_pilot.mjs";
+import {fetchConfiguredShop,runCamShopPilot,summarizeCamShopPreflight,readPairingFile,prepareCamObservationReport} from "../src/cam_shop_pilot.mjs";
 import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
@@ -93,4 +93,39 @@ test("bounded browser pilot runs only on CAM shop with per-shop approval and no 
  assert.equal(calls[0].authorization.etsy_written_authorization,true);
  assert.deepEqual(result,{status:"preview_completed",observed_count:2,
   evidence_committed:false,scan_enabled:false});
+});
+test("prepares replay-stable quarantined DOM observation payload, no URLs or media",()=>{
+ const shaA="a".repeat(64),shaB="b".repeat(64),shaC="c".repeat(64);
+ const report={
+  status:"preview_completed",platform:"etsy",shop_url_sha256:shaA,
+  observed_at:"2026-10-20T10:10:00.000Z",coverage_state:"partial",
+  rights_verified:false,sales_verified:false,evidence_committed:false,scan_enabled:false,
+  observed_count:1,note:"ignore this nonfinal note",items:[{
+   listing_key:"etsy:123456",title:"Embroidered Cap",observed_page_sha256:shaB,
+   image_url_sha256:[shaC],image_count:1,source_kind:"browser_dom_observation",
+   source_verification:"unverified",sales_state:"unknown",rights_state:"unknown",
+   coverage_state:"partial",
+  }],
+ };
+ const payload=prepareCamObservationReport(report);
+ assert.equal(payload.report_key,prepareCamObservationReport(report).report_key);
+ assert.match(payload.report_key,/^pilot:[0-9a-f]{64}$/);
+ assert.equal(payload.rights_verified,false);
+ assert.equal(payload.evidence_committed,false);
+ assert.equal(payload.observed_count,1);
+ assert.deepEqual(Object.keys(payload.items[0]),[
+  "listing_key","title","observed_page_sha256","image_url_sha256",
+  "image_count","source_kind","rights_state","sales_state",
+  "coverage_state","source_verification",
+ ]);
+ assert.equal(JSON.stringify(payload).includes("note"),false);
+ for(const changed of [
+  {...report,status:"needs_operator"},
+  {...report,rights_verified:true},
+  {...report,items:[{...report.items[0],source_verification:"verified"}]},
+  {...report,items:[{...report.items[0],image_url_sha256:["bad"]}]},
+  {...report,items:[{...report.items[0],title:""}]},
+  {...report,items:[{...report.items[0],listing_key:"amazon:ABCD123456"}]},
+  {...report,items:report.items.concat(report.items),observed_count:2},
+ ])assert.throws(()=>prepareCamObservationReport(changed));
 });
