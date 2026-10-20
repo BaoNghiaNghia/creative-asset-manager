@@ -270,21 +270,23 @@ jobs:
                       raise
                   time.sleep(1)
           PY
-      - name: Fresh schema upgrade and bounded access declaration rollback/re-upgrade
+      - name: Fresh schema upgrade and non-destructive merge rollback/re-upgrade
         working-directory: apps/api
         run: |
           set -euo pipefail
           mkdir -p ../../artifacts/postgres
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
-          # Exercise the entire migration chain once, on a disposable database.
+          # Apply both audited branches from the 0168 common parent.
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
-          # Roll back only the new outline-version audit tables on disposable CI DB.
-          # Product evidence, documentary reviews and previous history remain intact.
-          CAM_ALLOW_DNA_OUTLINE_DROP_FOR_TEST=1 python -m alembic downgrade 0167_branding_dna_evidence_assessments 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
-          python -m alembic current | grep -F '0167_branding_dna_evidence_assessments'
+          python -m alembic current | grep -F '0173_catinat_branding_merge'
+          # Only roll back the NO-OP merge marker in this disposable CI DB.
+          # This preserves all immutable audit tables and avoids bypassing the
+          # downgrade guards on the Catinat and Branding DNA branches.
+          python -m alembic downgrade -1 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
+          python -m alembic current | grep -F '0172_catinat_transfers'
+          python -m alembic current | grep -F '0170_branding_dna_browser_observation_reviews'
           python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
+          python -m alembic current | grep -F '0173_catinat_branding_merge'
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
