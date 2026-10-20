@@ -32,6 +32,18 @@ a Scout explain "connected but no job assigned" without attempting a scan.
 `ready_count` stays zero, and no operator or Scout action in this feature
 can start a marketplace browser.
 
+## Live worker presence diagnostics
+
+Read-only, tenant-isolated operator endpoint:
+`GET /api/v1/branding-dna/workers/dispatch-health` (permission
+`ai_operations.read`). Reports dedicated worker counts by online-idle,
+online-paused, online-unhealthy, offline and disabled; paired Scout counts by
+connected-waiting/offline. It includes the permanent
+`scan_pipeline_not_deployed` reason until permitted execution adapters and
+independent source authorization are actually in place. No IDs, tokens,
+source URLs, jobs, lease payloads or evidence references are returned.
+Agent presence is **not** marketplace authorization.
+
 ## Safety and continuation
 - A shop's `access_mode`, self-declaration, or documentary review does not
   independently establish Amazon/Etsy access authorization.

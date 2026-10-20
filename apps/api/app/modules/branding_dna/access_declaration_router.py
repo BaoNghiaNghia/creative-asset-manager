@@ -1,6 +1,7 @@
 """Tenant-scoped shop relationship review requests. No dispatch authorization."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -11,7 +12,11 @@ from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.branding_dna.access_declaration_model import BrandShopAccessDeclarationModel
 from app.modules.branding_dna.access_review_model import BrandShopAccessReviewModel
-from app.modules.branding_dna.model import BrandShopModel
+from app.modules.branding_dna.model import BrandShopModel, BrandWorkerModel
+from app.modules.branding_dna.scout_session_model import BrandScoutSessionModel
+from app.modules.branding_dna.scout_session_router import online as paired_scout_online
+from app.modules.branding_dna.worker_router import worker_online
+from app.modules.realistic_review_ugc.model import RrugcScoutAgentModel
 from app.modules.branding_dna.scan_readiness_service import (
     shop_scan_readiness, latest_shop_declarations, latest_declaration_reviews,
 )
@@ -87,6 +92,76 @@ def read_shop_scan_readiness(
         "staged_tasks": sum(item["staged_tasks"] for item in items),
         "queue_totals": queue_totals,
         "items": items,
+    }
+
+
+@router.get("/workers/dispatch-health")
+def read_worker_dispatch_health(
+    response: Response, session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Operator-only readiness for agents; strictly observational.
+
+    Gives the reason for no job allocation without sending scan commands or
+    claiming that an Amazon/Etsy shop has been independently authorized.
+    """
+    tenant = principal.active_tenant_id
+    clock = datetime.now(timezone.utc)
+    workers = session.scalars(
+        select(BrandWorkerModel)
+        .where(BrandWorkerModel.tenant_id == tenant)
+        .order_by(BrandWorkerModel.created_at.desc())
+        .limit(200)
+    ).all()
+    dedicated = {
+        "registered": len(workers), "online_idle": 0,
+        "online_paused": 0, "online_unhealthy": 0,
+        "offline": 0, "disabled": 0,
+    }
+    for worker in workers:
+        if not worker.enabled:
+            dedicated["disabled"] += 1
+        elif not worker_online(worker, now=clock):
+            dedicated["offline"] += 1
+        elif worker.status == "idle":
+            dedicated["online_idle"] += 1
+        elif worker.status == "paused":
+            dedicated["online_paused"] += 1
+        else:
+            dedicated["online_unhealthy"] += 1
+
+    paired_rows = session.execute(
+        select(BrandScoutSessionModel, RrugcScoutAgentModel.active)
+        .join(
+            RrugcScoutAgentModel,
+            (BrandScoutSessionModel.agent_id == RrugcScoutAgentModel.id)
+            & (BrandScoutSessionModel.tenant_id == RrugcScoutAgentModel.tenant_id),
+        )
+        .where(BrandScoutSessionModel.tenant_id == tenant)
+        .order_by(BrandScoutSessionModel.last_seen_at.desc())
+        .limit(200)
+    ).all()
+    paired_online_count = sum(
+        bool(active and paired_scout_online(record.last_seen_at, clock))
+        for record, active in paired_rows
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "version": 1,
+        "scan_enabled": False,
+        "dispatch_state": "disabled",
+        "reason": "scan_pipeline_not_deployed",
+        "marketplace_authorization_verified": False,
+        "dedicated_workers": dedicated,
+        "paired_scouts": {
+            "registered": len(paired_rows),
+            "connected_waiting": paired_online_count,
+            "offline": len(paired_rows) - paired_online_count,
+        },
+        "message": (
+            "Connected agents cannot receive browser jobs until independent "
+            "shop authorization and a verified permitted adapter are deployed."
+        ),
     }
 
 
