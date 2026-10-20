@@ -29,6 +29,29 @@ describe("Catinat shift readiness",()=>{
     expect(markup).not.toContain("Hoàn tất kiểm kê ca tối");
   });
 
+  it("uses explicit staff count confirmation API without a close or Sheets write",async()=>{
+    const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
+      ok:true,json:async()=>({confirmed:[],official_shift_closed:false,sheets_writes:0}),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    await catinatShiftApi.confirmations("2026-10-20");
+    await catinatShiftApi.confirmCounts({
+      business_date:"2026-10-20",expected_source_hash:"a".repeat(64),
+      cells:[{sheet:"KHO PHA CHẾ",cell:"L5"}],
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/shift/count-confirmations?business_date=2026-10-20"
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/shift/count-confirmations"
+    );
+    expect(fetchMock.mock.calls[1][1]?.method).toBe("POST");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      business_date:"2026-10-20",expected_source_hash:"a".repeat(64),
+      cells:[{sheet:"KHO PHA CHẾ",cell:"L5"}],
+    });
+  });
+
   it("uses the protected inventory-read API rather than a writer endpoint",async()=>{
     const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
       ok:true,json:async()=>({items:[],blockers:[],mode:"read_only_not_a_signed_close"}),

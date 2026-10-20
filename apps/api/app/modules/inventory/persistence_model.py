@@ -1097,6 +1097,36 @@ class InventoryCatinatApprovalEventModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
 
 
+class InventoryCatinatCountConfirmationModel(Base):
+    """Append-only per-cell physical count confirmations; NOT a shift close."""
+    __tablename__ = "inventory_catinat_count_confirmations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "business_date", "shift", "sheet_name",
+            "cell_ref", "source_hash",
+            name="uq_catinat_count_confirmation_source_cell",
+        ),
+        CheckConstraint("shift IN ('morning','evening')", name="ck_catinat_count_confirmation_shift"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_count_confirmation_hash"),
+        Index("ix_catinat_confirmations_day", "tenant_id", "business_date", "shift"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    shift: Mapped[str] = mapped_column(String(16), nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    physical_quantity: Mapped[str] = mapped_column(String(64), nullable=False)
+    physical_raw: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
 class InventoryPromptVersionModel(Base):
     __tablename__ = "inventory_prompt_versions"
     __table_args__ = (

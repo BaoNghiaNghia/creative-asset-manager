@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   catinatShiftApi, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
+  type CatinatCountConfirmationState,
 } from "./api";
 
 function todayVietnam(){
@@ -31,29 +32,102 @@ const ISSUE:Record<string,string>={
   no_physical_counts_discovered:"Chưa tìm thấy tồn cuối để kiểm kê",
 };
 
+function itemKey(sheet:string,cell:string){return sheet+"|"+cell;}
+
 export function InventoryCatinatShiftReadiness(){
   const [businessDate,setBusinessDate]=useState(todayVietnam);
   const [data,setData]=useState<CatinatEveningReadiness|null>(null);
+  const [confirmed,setConfirmed]=useState<CatinatCountConfirmationState|null>(null);
+  const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
-  useEffect(()=>{setData(null);},[businessDate]);
+  const [staffChecked,setStaffChecked]=useState(false);
+
+  useEffect(()=>{
+    setData(null);
+    setConfirmed(null);
+    setSelected([]);
+    setStaffChecked(false);
+  },[businessDate]);
+
+  async function readCurrent(){
+    const [next,proof]=await Promise.all([
+      catinatShiftApi.readiness(businessDate),
+      catinatShiftApi.confirmations(businessDate),
+    ]);
+    if(next.source_hash!==proof.source_hash){
+      setData(null);
+      setConfirmed(null);
+      throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
+    }
+    setData(next);
+    setConfirmed(proof);
+  }
+
   async function load(){
     if(busy||!businessDate)return;
     setBusy(true);
     setMessage("");
     setData(null);
+    setConfirmed(null);
+    setSelected([]);
+    setStaffChecked(false);
+    try{await readCurrent();}
+    catch(error){setMessage(error instanceof Error?error.message:"Không thể đọc Google Sheets.");}
+    finally{setBusy(false);}
+  }
+
+  const confirmedKeys=new Set(
+    confirmed?.cells.filter(item=>item.confirmed).map(item=>itemKey(item.sheet,item.cell))||[],
+  );
+  const groups=data?summarizeCatinatReadiness(data.items):{};
+  const usable=Boolean(data&&confirmed&&data.source_hash===confirmed.source_hash);
+  const selectable=selected.length>0&&selected.length<=50&&staffChecked&&usable&&!busy;
+
+  function toggle(sheet:string,cell:string){
+    const key=itemKey(sheet,cell);
+    setSelected(previous=>previous.includes(key)
+      ?previous.filter(item=>item!==key)
+      :previous.length<50?[...previous,key]:previous);
+    setStaffChecked(false);
+  }
+
+  async function confirmPhysicalCounts(){
+    if(!selectable||!data)return;
+    if(!window.confirm(
+      "Tôi xác nhận đã kiểm đếm thực tế từng ô được chọn, số lượng đúng như Google Sheets. "+
+      "Việc này chỉ ghi nhận xác nhận kiểm đếm, không đóng ca hoặc chuyển tồn."
+    ))return;
+    const cells=data.items.filter(item=>selected.includes(itemKey(item.sheet,item.cell)))
+      .map(item=>({sheet:item.sheet,cell:item.cell}));
+    setBusy(true);
+    setMessage("");
     try{
-      setData(await catinatShiftApi.readiness(businessDate));
+      await catinatShiftApi.confirmCounts({
+        business_date:businessDate,expected_source_hash:data.source_hash,cells,
+      });
+      setSelected([]);
+      setStaffChecked(false);
+      await readCurrent();
+      setMessage("Đã lưu xác nhận kiểm đếm và người xác nhận. Ca tối CHƯA được chốt.");
     }catch(error){
-      setMessage(error instanceof Error?error.message:"Không thể đọc Google Sheets.");
+      setData(null);
+      setConfirmed(null);
+      setSelected([]);
+      setStaffChecked(false);
+      setMessage(
+        (error instanceof Error?error.message:"Không lưu được xác nhận.")+
+        " Vui lòng tải lại và đối chiếu Google Sheets trước khi thử lại."
+      );
     }finally{setBusy(false);}
   }
-  const groups=data?summarizeCatinatReadiness(data.items):{};
+
   return <section className="inventory-daily">
     <h2>Kiểm kê ca tối · Đối chiếu trước khi chốt</h2>
     <p className="inventory-muted">
-      Chỉ đọc dữ liệu từ ba kho và báo cáo sử dụng nguyên liệu. Màn hình này
-      không xác nhận kiểm đếm, không chốt ca và không ghi Google Sheets.
+      Đọc dữ liệu từ ba kho và báo cáo sử dụng nguyên liệu.
+      Nhân viên có thể xác nhận riêng từng ô sau khi kiểm đếm thực tế.
+      <strong> Xác nhận ô không chốt ca hoặc hoàn tất đóng ca.</strong> Không tự ghi Google Sheets.
     </p>
     <div className="inventory-actions" style={{alignItems:"flex-end",flexWrap:"wrap"}}>
       <label htmlFor="catinat-shift-day">Ngày kinh doanh
@@ -61,17 +135,18 @@ export function InventoryCatinatShiftReadiness(){
           onChange={event=>setBusinessDate(event.target.value)}/>
       </label>
       <button type="button" disabled={busy||!businessDate} onClick={()=>void load()}>
-        {busy?"Đang đọc…":"Kiểm tra số liệu Google Sheets"}
+        {busy?"Đang xử lý…":"Kiểm tra số liệu Google Sheets"}
       </button>
     </div>
-    {message&&<p role="alert" className="inventory-error">{message}</p>}
-    {data&&<>
-      <p role="status" className="inventory-error">
-        Chưa đủ điều kiện chốt ca — {data.blockers.length} mục cần kiểm tra hoặc xác nhận.
+    {message&&<p role="status" className="inventory-muted">{message}</p>}
+    {data&&confirmed&&<>
+      <p role="status" className="inventory-muted">
+        Đã xác nhận {confirmed.confirmed_count}/{confirmed.required_count} ô tồn.
+        Ca vẫn chưa được chốt; cần xử lý thêm {data.blockers.length} mục kiểm tra/cảnh báo.
       </p>
       <p className="inventory-muted">
         Nguồn: {data.source_hash.slice(0,12)}… · {data.items.length} ô tồn cần rà soát.
-        Dữ liệu có thể thay đổi khi nhân viên tiếp tục sửa Google Sheets.
+        Bất kỳ thay đổi nào trên Sheets đều có thể làm xác nhận cũ không còn hợp lệ.
       </p>
       <div className="inventory-actions" style={{flexWrap:"wrap"}}>
         {Object.entries(groups).map(([sheet,group])=>
@@ -82,29 +157,52 @@ export function InventoryCatinatShiftReadiness(){
         )}
       </div>
       <h3>Ô tồn cuối theo kho</h3>
+      <p className="inventory-muted">Chỉ chọn những ô bạn vừa tự kiểm đếm, tối đa 50 ô mỗi lần.</p>
       <div style={{overflowX:"auto"}}>
         <table>
-          <thead><tr><th>Kho</th><th>Nguyên liệu</th><th>Phần tồn</th><th>Ô Sheets</th><th>Giá trị</th><th>Trạng thái</th></tr></thead>
+          <thead><tr><th>Xác nhận</th><th>Kho</th><th>Nguyên liệu</th><th>Phần tồn</th><th>Ô Sheets</th><th>Giá trị</th><th>Trạng thái</th></tr></thead>
           <tbody>
-            {data.items.map(item=><tr key={item.sheet+item.cell}>
-              <td>{item.sheet}</td><td>{item.material}</td>
-              <td>{item.form==="whole"?"Nguyên":"Lẻ"}</td>
-              <td>{item.cell}</td>
-              <td>{item.raw||"Trống"} {item.unit}</td>
-              <td>{ISSUE[item.blocker]||item.blocker}</td>
-            </tr>)}
+            {data.items.map(item=>{
+              const key=itemKey(item.sheet,item.cell);
+              const saved=confirmedKeys.has(key);
+              const valid=item.quantity!==null&&Boolean(item.unit);
+              return <tr key={key}>
+                <td><input type="checkbox" aria-label={`Xác nhận đã kiểm đếm ${item.material} ${item.sheet} ${item.cell}`}
+                  disabled={!valid||saved||busy}
+                  checked={saved||selected.includes(key)}
+                  onChange={()=>toggle(item.sheet,item.cell)}/></td>
+                <td>{item.sheet}</td><td>{item.material}</td>
+                <td>{item.form==="whole"?"Nguyên":"Lẻ"}</td>
+                <td>{item.cell}</td>
+                <td>{item.raw||"Trống"} {item.unit}</td>
+                <td>{saved?"Đã xác nhận":(ISSUE[item.blocker]||item.blocker)}</td>
+              </tr>;
+            })}
           </tbody>
         </table>
       </div>
-      <h3>Cảnh báo khác</h3>
+      {selected.length>0&&<section style={{marginTop:16}}>
+        <label htmlFor="catinat-confirm-physical">
+          <input id="catinat-confirm-physical" type="checkbox" checked={staffChecked}
+            disabled={busy} onChange={event=>setStaffChecked(event.target.checked)}/>
+          Tôi đã trực tiếp kiểm đếm thực tế {selected.length} ô được chọn và số lượng khớp với Google Sheets.
+        </label>
+        <div className="inventory-actions">
+          <button type="button" disabled={!selectable}
+            onClick={()=>void confirmPhysicalCounts()}>
+            {busy?"Đang lưu…":`Lưu xác nhận kiểm đếm (${selected.length} ô)`}
+          </button>
+        </div>
+      </section>}
+      <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"
         &&row.code!=="physical_count_missing_or_ambiguous").map((row,index)=>
           <li key={index}>{row.sheet||"Toàn bộ"} {row.row?("dòng "+row.row):""}: {ISSUE[row.code]||row.code}</li>
         )}
       </ul>
       <p className="inventory-muted">
-        <strong>Không tự điền ô trống.</strong> Nhân viên cần kiểm đếm và xác nhận từng giá trị.
-        Mọi ngoại lệ phải được quản lý duyệt riêng; chưa bật chức năng chốt chính thức.
+        <strong>Không tự điền ô trống.</strong> Nhân viên phải bổ sung và xác nhận mọi tồn thực tế.
+        Ngoại lệ vẫn cần quản lý duyệt riêng; chức năng chốt ca chính thức chưa được bật.
       </p>
     </>}
   </section>;

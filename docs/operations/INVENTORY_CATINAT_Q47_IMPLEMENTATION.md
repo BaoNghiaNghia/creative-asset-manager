@@ -36,6 +36,15 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - This screen **does not yet establish completeness against a manager-approved catalog, prove pending transfers are reconciled, register actual discarded expired batches, or sign the immutable shift snapshot**. Do not allow official closing/carry-forward based on this read-only roster, and do not mistake the hash for atomic Sheets locking.
 - Dedicated tests `test_catinat_shift_readiness.py` and `InventoryCatinatShiftReadiness.test.tsx` cover missing/slash/zero cells, all three layout mappings, dates, changed sources, authorization, and the read-only UI/API contract.
 
+## Q02/Q16/Q27/Q34/Q44 — per-cell employee confirmations (new)
+
+- Migration `0171_catinat_counts` adds **append-only** `inventory_catinat_count_confirmations`, unique per tenant/day/evening/sheet/cell/source-hash. Each record retains authenticated staff identity, original raw count, parsed quantity, unit, product label, source workbook, and confirmation time.
+- `daily/catinat_count_confirmations.py` binds a user's explicit cell selection to the **server-read, tenant-configured Google Sheets** roster and matching source hash. The user cannot submit the quantity, catalog identity, or actor as trusted evidence. Blank/ambiguous fields are blocked; slash and numeric zero require the same explicit confirmation as other numbers.
+- Duplicate clicks with the same actor/source are idempotent. Another actor cannot silently claim the same cell version. A newer Sheets source hash invalidates old confirmations for that current state without mutating old audit rows.
+- `daily/catinat_count_router.py` exposes authenticated GET/POST `/api/inventory/daily-sheet/catinat/shift/count-confirmations`. POST requires reviewer/control/finalize permission **and** an employee, shift-leader or manager role. Actual actor identity is taken from the login session. Sheets errors and stale revisions fail closed.
+- `InventoryCatinatShiftReadiness.tsx` now allows staff to select only valid, unconfirmed cells, explicitly attest personal physical counting, and save up to 50 cells per submission. Refresh compares hashes from two independent reads and refuses mixed revisions.
+- **Important:** these events confirm individual physical cells, **not** the official shift close. The signed closing path still needs complete approved material catalog, verified batch expiry/waste/discrepancy, transfer reconciliation, authenticated authorization and a safe write/lock protocol. Do not enable carry-forward from per-cell confirmations alone.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
