@@ -9,6 +9,7 @@
     "start": "node src/heartbeat.mjs",
     "pilot:browser": "node src/browser_pilot.mjs",
     "pilot:configured": "node src/run_configured_pilot.mjs",
+    "pilot:cam": "node src/cam_shop_pilot.mjs",
     "test": "node --test tests/*.test.mjs",
     "check": "node src/check_setup.mjs"
   },

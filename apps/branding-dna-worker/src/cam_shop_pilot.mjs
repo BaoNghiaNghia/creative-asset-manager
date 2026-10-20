@@ -1,0 +1,124 @@
+/** Select a CAM-configured shop for a bounded, *locally approved* browser pilot.
+ * Shop URL comes only from the authenticated CAM Shop Library, never local JSON.
+ * This is NOT a dispatch agent, never polls/claims jobs or uploads evidence.
+ */
+import {readFileSync,existsSync,lstatSync,writeFileSync,mkdirSync} from "node:fs";
+import {dirname,resolve} from "node:path";
+import {pathToFileURL} from "node:url";
+import {settings} from "./agent_cam.mjs";
+import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
+
+const UUID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+
+export async function fetchCamShopLibrary(config,request=fetch){
+ const response=await request(config.origin+"/api/v1/branding-dna/scout-agents/"+
+  encodeURIComponent(config.id)+"/shops",{
+  method:"GET",headers:{Authorization:"Bearer "+config.token,Accept:"application/json"},
+  redirect:"error",signal:AbortSignal.timeout(12000),
+ });
+ if(response.status===401||response.status===403)throw Error("scout_pairing_revoked");
+ if(!response.ok)throw Error("cam_shop_library_http_"+response.status);
+ const data=await response.json();
+ if(data?.scan_enabled!==false||data.dispatch?.state!=="disabled"||
+    data.dispatch?.active_scan_jobs!==0||!Array.isArray(data.items)||
+    data.items.length>200||data.count!==data.items.length)
+   throw Error("cam_shop_library_contract_untrusted");
+ return data.items;
+}
+
+export function summarizeCamShopPreflight(items){
+ if(!Array.isArray(items)||items.length>200)throw Error("invalid_cam_shop_list");
+ const result={shops:items.length,amazon:0,etsy:0,inactive:0,
+  not_owned_or_authorized:0,invalid_shop_url:0,
+  browser_jobs_ready:0,reason:"approval_and_dispatch_not_deployed"};
+ for(const shop of items){
+  if(shop?.platform==="amazon")result.amazon++;
+  else if(shop?.platform==="etsy")result.etsy++;
+  else{result.invalid_shop_url++;continue}
+  if(shop.status!=="active")result.inactive++;
+  if(!["owned","authorized"].includes(shop.access_mode))result.not_owned_or_authorized++;
+  try{assertShopUrl(shop.storefront_url,shop.platform)}
+  catch{result.invalid_shop_url++}
+ }
+ return result;
+}
+
+export async function fetchConfiguredShop(config,shopId,request=fetch){
+ if(!UUID.test(shopId))throw Error("invalid_cam_shop_id");
+ const items=await fetchCamShopLibrary(config,request);
+ const matches=items.filter(s=>s.id===shopId);
+ if(matches.length!==1)throw Error("cam_shop_not_found_or_ambiguous");
+ const item=matches[0];
+ if(!["amazon","etsy"].includes(item.platform)||typeof item.storefront_url!=="string")
+   throw Error("unsupported_cam_shop_platform");
+ const shop=assertShopUrl(item.storefront_url,item.platform);
+ if(shop.url!==item.storefront_url)throw Error("cam_shop_url_not_canonical");
+ if(item.status!=="active")throw Error("cam_shop_not_active");
+ if(!["owned","authorized"].includes(item.access_mode))
+   throw Error("cam_shop_not_owned_or_authorized");
+ return {id:shopId,platform:shop.platform,shopUrl:shop.url};
+}
+
+export async function runCamShopPilot(config,{shopId,approval,profileDir,
+ maxProducts=3,minimumDelayMs=10000,maximumDelayMs=18000,
+ interactionMode="visible_click",headless=false},deps={}){
+ const shop=await fetchConfiguredShop(config,shopId,deps.request??fetch);
+ // A self-declared owned flag in CAM is NOT proof: a second, dated,
+ // per-exact-shop operator approval and policy review remains mandatory.
+ validateBrowserPermission(assertShopUrl(shop.shopUrl,shop.platform),approval);
+ return await (deps.pilot??runBrowserPilot)({
+  shopUrl:shop.shopUrl,platform:shop.platform,authorization:approval,
+  profileDir,maxProducts,minimumDelayMs,maximumDelayMs,interactionMode,headless,
+ },deps.browserDeps);
+}
+
+function flag(name){
+ const index=process.argv.indexOf(name);
+ return index>=0?process.argv[index+1]:undefined;
+}
+export function readPairingFile(filename){
+ const path=resolve(filename);
+ if(!existsSync(path)||lstatSync(path).isSymbolicLink()||lstatSync(path).size>16384)
+   throw Error("pairing_file_untrusted");
+ const result={};
+ for(const line of readFileSync(path,"utf8").replace(/^\uFEFF/,"").split(/\r?\n/)){
+  const trimmed=line.trim();
+  if(!trimmed||trimmed.startsWith("#"))continue;
+  const match=trimmed.match(/^([A-Z_][A-Z_0-9]*)=(.*)$/);
+  if(!match)continue;
+  if(["RRUGC_AGENT_ID","RRUGC_SCOUT_TOKEN","BRANDING_DNA_SERVER_URL"].includes(match[1])){
+   let value=match[2].trim();
+   if((value.startsWith('"')&&value.endsWith('"'))||
+      (value.startsWith("'")&&value.endsWith("'")))value=value.slice(1,-1);
+   result[match[1]]=value;
+  }
+ }
+ return result;
+}
+export async function main(){
+ const id=flag("--shop-id"),approvalFile=flag("--approval-file"),profileDir=flag("--profile-dir");
+ const reportFile=flag("--report");
+ const preflight=process.argv.includes("--preflight");
+ if(!preflight&&(!id||!approvalFile||!profileDir||!reportFile))
+   throw Error("usage: node src/cam_shop_pilot.mjs --preflight | --shop-id UUID --approval-file ABS_PATH --profile-dir ABS_PATH --report ABS_PATH [--env-file PATH]");
+ const credentials=flag("--env-file")?readPairingFile(flag("--env-file")):{};
+ const config=settings({...process.env,...credentials});
+ if(preflight){
+  const shops=await fetchCamShopLibrary(config);
+  console.log(JSON.stringify({mode:"CAM_READ_ONLY_PREFLIGHT",...summarizeCamShopPreflight(shops)}));
+  return;
+ }
+ const approvalPath=resolve(approvalFile),reportPath=resolve(reportFile);
+ if(!existsSync(approvalPath)||lstatSync(approvalPath).isSymbolicLink()||
+    lstatSync(approvalPath).size>8192||existsSync(reportPath))
+   throw Error("untrusted_approval_or_existing_report");
+ const approval=JSON.parse(readFileSync(approvalPath,"utf8"));
+ const result=await runCamShopPilot(config,{shopId:id,approval,profileDir});
+ mkdirSync(dirname(reportPath),{recursive:true});
+ writeFileSync(reportPath,JSON.stringify(result,null,2),{flag:"wx",mode:0o600});
+ console.log(JSON.stringify({status:result.status,observed_count:result.observed_count??0,
+   evidence_committed:false,scan_enabled:false,
+   report_saved:true,reason:result.reason??null}));
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)
+ main().catch(err=>{console.error("CAM pilot stopped: "+String(err?.message??"unexpected_error").slice(0,110));process.exitCode=1});
