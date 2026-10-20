@@ -1,0 +1,27 @@
+[Unit]
+Description=CAM Codex generated PNG retention (Drive-verified only)
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/opt/creative-asset-manager/current/scripts/cam-codex-drive-reconcile.py
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/creative-asset-manager/production.env
+ExecStart=/opt/creative-asset-manager/current/apps/api/.venv/bin/python /opt/creative-asset-manager/current/scripts/cam-codex-drive-reconcile.py --apply --min-age-hours 4 --max-drive-requests 3000
+TimeoutStartSec=45min
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=65%
+MemoryMax=768M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/creative-asset-manager/codex/generated_images /var/lib/creative-asset-manager/codex-account-2/generated_images
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077

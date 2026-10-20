@@ -92,4 +92,57 @@ or retain them.
 
 The temp-owner repair changed only directory/lock ownership and mode;
 Codex itself subsequently reclaimed its abandoned temp trees. Session tokens,
-generated PNGs, models, databases and production releases remain untouched.
+generated PNGs, models, databases and production releases remain untouched
+**by that particular repair**.
+
+## Verified local-image cleanup (2026-10-20)
+
+Two obsolete immutable releases (814 MiB) and the CAM pip cache (281 MiB)
+were safely deleted using `cam-safe-disk-cleanup.sh --apply`. This preserved
+the running release and the newest offline rollback candidate.
+
+`scripts/cam-codex-drive-reconcile.py` now performs a source-of-truth check:
+it reads completed CAM database records, computes the local PNG SHA-256 and
+MD5 without exposing file contents, then checks **the CAM Managed Drive**
+file's tenant appProperty, SHA-256 appProperty, size and Google-reported MD5.
+It never deletes a local image without that exact remote evidence. A local
+file's inode, modification time and both checksums are rechecked immediately
+before unlink, and young images are protected for at least four hours.
+
+First full run: 2,119 local PNGs, 913 distinct completed Drive records,
+495 metadata candidates and 493 verified Drive copies. Applying with a
+four-hour grace window deleted 479 verified PNGs (~1002 MiB allocated);
+14 recent verified files and 1,628 unverified files remained intact.
+Numbers vary as workers continue generating new images.
+
+Commands:
+
+```bash
+# Full metadata check, read-only:
+sudo /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  scripts/cam-codex-drive-reconcile.py --max-drive-requests 3000
+# Verified-only cleanup; never delete unverifiable originals:
+sudo /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  scripts/cam-codex-drive-reconcile.py --apply --min-age-hours 4
+```
+
+`deploy/systemd/creative-asset-manager-codex-generated-image-gc.service`
+and `.timer` define a bounded every-six-hours verified-only cleanup.
+They must be deployed from an immutable release and enabled only after
+production smoke checks; they do not archive images missing job evidence.
+
+Historical Codex PNGs without a matching completed CAM output record must
+never be deleted by age alone. The separate
+`scripts/cam-codex-drive-archive.py` can archive them into a designated
+private Managed Drive recovery folder, verify each uploaded file's MD5,
+SHA-256, size and metadata, then remove the exact original. Its first
+dry-run passed, but enabling archival remains conditional on a successful
+live, small-batch archive/upload/readback QA. The archive is distinct from
+a product's official output folder; unknown historical media cannot be
+retroactively assigned to a tenant/shop from timestamps alone.
+
+**Operational goal:** sessions/auth and necessary CLI runtime live in
+`CODEX_HOME`; generated PNGs are transient and durable output is on
+Managed Google Drive. Never delete a failed upload or image pending
+reconciliation. Never claim the legacy backlog is all on Drive until
+every remaining file has matching remote proof or a verified archive copy.
