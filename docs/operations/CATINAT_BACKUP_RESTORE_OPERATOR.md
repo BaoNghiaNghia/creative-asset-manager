@@ -75,6 +75,25 @@ Supply isolated role password through a protected `PGPASSFILE` with mode 0600, *
 
 With isolated database credentials (not production), point `DATABASE_URL` at `127.0.0.1:55432/cam_restore_rehearsal_oct2026` and the `release/inventory-catinat-q47-20261020` API source. Verify `alembic current` is `0168`, then `alembic upgrade head` and `alembic current` returns `0172_catinat_transfers`. Repeat relevant inventory integration tests. Preserve evidence; do not claim PASS based solely on the previously completed SQLite smoke.
 
+### Safe PostgreSQL clone migration command (only AFTER restore PASS)
+
+The guarded script `scripts/cam_catinat_migrate_restored_clone.py` reads the private restore evidence and `rehearsal.pgpass`, verifies the exact database identity + non-superuser account + Alembic source `0168` + source table counts, applies migration **only** to fixed local port 55432, and requires revision `0172`, six new Catinat tables and unchanged row counts afterwards.
+
+Do not run this if `RESTORE_REHEARSAL=PASS` and `RESTORE_SOURCE_REVISION=PASS` have not both been confirmed, or if the new cluster is missing. The script does not have any option to change host, port, database or username.
+
+```bash
+cd /root/creative-asset-manager/.worktrees/inventory-catinat-prod-candidate-20261020
+python3 scripts/cam_catinat_migrate_restored_clone.py \
+  --ack-isolated-target \
+  --source-evidence /root/catinat-db-rehearsal-20261020/restore-proof.json \
+  --pgpassfile /root/catinat-db-rehearsal-20261020/rehearsal.pgpass \
+  --result /root/catinat-db-rehearsal-20261020/migration-proof.json \
+  --checkout /root/creative-asset-manager/.worktrees/inventory-catinat-prod-candidate-20261020 \
+  --python /root/creative-asset-manager/apps/api/.venv/bin/python
+```
+
+Expect `ISOLATED_MIGRATION=PASS`, `SOURCE_REVISION=0168_branding_dna_outline_versions`, `TARGET_REVISION=0172_catinat_transfers`, `CREATED_CATINAT_TABLES=6`, `PRODUCTION_MIGRATION=NOT_RUN`. Stop on `BLOCKED` rather than rerunning against partially migrated clone.
+
 ## Release activation conditions
 
 Only after steps 1–4 PASS: (1) verify release candidate matches reviewed commit and latest main, (2) execute the official production deploy with a short-lived lock, (3) apply migration together with matching API release, (4) verify `/live`, `/ready`, `alembic current`, UI and read-only Inventory endpoints, (5) keep current+previous release and a tested restore route. **No automatic Google Sheets write, inventory carry-forward, silent catalog merge or unconfirmed shift close is authorized.**
