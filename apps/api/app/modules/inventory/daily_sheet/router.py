@@ -18,6 +18,7 @@ from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPro
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
+from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_evening_readiness
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
@@ -234,6 +235,22 @@ def get_catinat_closing_preview(
     """Read-only expected balances; never confirms a physical count or writes Sheets."""
     try:
         return load_catinat_preview(
+            principal.active_tenant_id, business_date, sessions=SessionLocal,
+        )
+    except CatinatPreviewError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
+
+
+@router.get("/catinat/shift/readiness")
+def get_catinat_shift_readiness(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Read-only physical count readiness for the three approved warehouse layouts."""
+    try:
+        return load_evening_readiness(
             principal.active_tenant_id, business_date, sessions=SessionLocal,
         )
     except CatinatPreviewError as exc:
