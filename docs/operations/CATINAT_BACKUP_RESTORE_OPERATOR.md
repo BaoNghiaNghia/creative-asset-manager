@@ -43,6 +43,22 @@ bash scripts/cam_catinat_restore_isolated.sh \
 
 Expected output: `RESTORE_PREFLIGHT=PASS`, a JSON `RESTORE_REHEARSAL=PASS` from `cam_db_restore_rehearsal.py`, and `RESTORE_SOURCE_REVISION=PASS` with restored Alembic 0168. Output `FAIL` or `BLOCKED` must **not** be reinterpreted as success. Do not retry after partial cluster creation without reviewing isolation and state. This script does not upgrade a database; it only restores the backup to a new isolated cluster.
 
+### Recovery for 20 October cluster startup failure (PostgreSQL `listen_addresses` syntax)
+
+The first script version set `listen_addresses = 127.0.0.1` without PostgreSQL string quotes, causing a syntax error at line 60, so `initdb` completed but `pg_ctlcluster` failed **before role creation, database creation or restore**. Trying to pass pre-quoted input to `pg_conftool` produced triple quotes as well. The updated script uses a dedicated, strictly scoped configuration repair helper to write exactly `listen_addresses = '127.0.0.1'`, also hardens local socket authentication from `trust` to `peer`, and accepts a tightly checked one-time resume flag. **Only use this mode after confirming `pg_lsclusters` reports exactly `16 catinat_rehearsal 55432 down postgres` and `16 main 5432 online postgres`.** The script will reject an existing initialized role/database, a running cluster or production-port conflict.
+
+```bash
+cd /root/creative-asset-manager/.worktrees/inventory-catinat-prod-candidate-20261020
+bash scripts/cam_catinat_restore_isolated.sh \
+  --dump /root/catinat-db-rehearsal-20261020/cam-db-20261020-164908+0700.dump \
+  --sha256 dfdd83eb724b4d4f0e9527aa4297201f49120328f07f4be5e3b22df32a364ae2 \
+  --md5 22aa75ff85f073bcf135dc57fa4dbac5 \
+  --resume-existing-cluster
+```
+
+Do **not** delete either PostgreSQL cluster or repeat the initial `pg_createcluster` command. No production upgrade is included in this recovery.
+
+
 If a manual configuration is preferred, follow the original steps 2 and 3 below instead, **not in addition** to the shortcut.
 
 ## Operator step 2 — isolated PostgreSQL 16
