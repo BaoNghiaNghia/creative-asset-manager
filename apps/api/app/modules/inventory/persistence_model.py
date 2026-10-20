@@ -1127,6 +1127,68 @@ class InventoryCatinatCountConfirmationModel(Base):
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
 
 
+class InventoryCatinatTransferModel(Base):
+    """Audited handoff/receipt tracker, intentionally separate from stock ledger."""
+    __tablename__ = "inventory_catinat_transfers"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_transfer_tenant_id"),
+        UniqueConstraint("tenant_id", "reference_key", name="uq_catinat_transfer_tenant_reference"),
+        ForeignKeyConstraint(["tenant_id", "item_id"],
+                             ["inventory_items.tenant_id", "inventory_items.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_item"),
+        ForeignKeyConstraint(["tenant_id", "source_location_id"],
+                             ["inventory_locations.tenant_id", "inventory_locations.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_source"),
+        ForeignKeyConstraint(["tenant_id", "destination_location_id"],
+                             ["inventory_locations.tenant_id", "inventory_locations.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_destination"),
+        CheckConstraint("dispatched_quantity > 0", name="ck_catinat_transfer_dispatched_positive"),
+        CheckConstraint("received_quantity >= 0 AND received_quantity <= dispatched_quantity",
+                        name="ck_catinat_transfer_receipt_bounds"),
+        CheckConstraint("status IN ('pending_receipt','partial_receipt','received')",
+                        name="ck_catinat_transfer_status"),
+        Index("ix_catinat_transfer_day_status", "tenant_id", "business_date", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    reference_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    source_location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    destination_location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatched_quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    received_quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False, default=Decimal("0"))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_receipt")
+    dispatched_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    dispatched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    received_last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ledger_posted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class InventoryCatinatTransferEventModel(Base):
+    """Append-only events with a per-transfer receipt idempotency key."""
+    __tablename__ = "inventory_catinat_transfer_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "transfer_id"],
+                             ["inventory_catinat_transfers.tenant_id", "inventory_catinat_transfers.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_event_transfer"),
+        UniqueConstraint("tenant_id", "transfer_id", "event_key",
+                         name="uq_catinat_transfer_event_key"),
+        CheckConstraint("action IN ('dispatched','received')", name="ck_catinat_transfer_event_action"),
+        CheckConstraint("quantity > 0", name="ck_catinat_transfer_event_quantity"),
+        Index("ix_catinat_transfer_events_transfer", "tenant_id", "transfer_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    transfer_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    event_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
 class InventoryPromptVersionModel(Base):
     __tablename__ = "inventory_prompt_versions"
     __table_args__ = (

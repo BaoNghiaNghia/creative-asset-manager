@@ -19,8 +19,11 @@ from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
 from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_evening_readiness
+from app.modules.inventory.daily.catinat_close_preflight import CatinatClosePreflightService
+from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
 from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
+from app.modules.inventory.daily.catinat_transfer_router import router as catinat_transfer_router
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -255,6 +258,25 @@ def get_catinat_shift_readiness(
             principal.active_tenant_id, business_date, sessions=SessionLocal,
         )
     except CatinatPreviewError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
+
+
+@router.get("/catinat/shift/closing-preflight")
+def get_catinat_closing_preflight(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Aggregate signed-cell/transfer/approval blockers. Never closes a shift."""
+    try:
+        return CatinatClosePreflightService(SessionLocal).inspect(
+            tenant_id=principal.active_tenant_id, business_date=business_date,
+            current_readiness=lambda: load_evening_readiness(
+                principal.active_tenant_id, business_date, sessions=SessionLocal,
+            ),
+        )
+    except (CatinatCountBlocked, CatinatPreviewError) as exc:
         raise HTTPException(409, detail={"code": exc.code}) from exc
     except DailySheetProviderError as exc:
         raise HTTPException(503, detail={"code": exc.code}) from exc
@@ -669,3 +691,4 @@ def set_baseline(body: BaselineRequest, principal: CurrentPrincipal = Depends(re
 # Separate tenant-scoped manager approval API; approvals never apply inventory writes.
 router.include_router(catinat_approval_router)
 router.include_router(catinat_count_router)
+router.include_router(catinat_transfer_router)

@@ -45,6 +45,18 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - `InventoryCatinatShiftReadiness.tsx` now allows staff to select only valid, unconfirmed cells, explicitly attest personal physical counting, and save up to 50 cells per submission. Refresh compares hashes from two independent reads and refuses mixed revisions.
 - **Important:** these events confirm individual physical cells, **not** the official shift close. The signed closing path still needs complete approved material catalog, verified batch expiry/waste/discrepancy, transfer reconciliation, authenticated authorization and a safe write/lock protocol. Do not enable carry-forward from per-cell confirmations alone.
 
+## Q32 durable in-transit handoff / receipt tracking (new)
+
+- Migration `0172_catinat_transfers` adds `inventory_catinat_transfers` (tenant-scoped unique handoff reference, approved item and both active locations, unit, dispatch/receipt quantities and status), plus append-only `inventory_catinat_transfer_events` with receipt event idempotency.
+- `daily/catinat_transfers.py` records **dispatch -> pending_receipt -> partial_receipt -> received**, each receipt explicitly confirmed by an authenticated receiving staff member. Both dispatch/receipt duplicate calls with the same idempotency keys are safe; conflicting replays, over-receipt, invalid units, inactive catalog/locations and cross-tenant access are rejected. Transfer status remains pending until all quantity is acknowledged. Stale business dates are preserved in records, receipt time is captured separately.
+- `daily/catinat_transfer_router.py` exposes tenant-aware GET/list, POST dispatch and POST /{id}/receive. `InventoryCatinatTransfers.tsx` provides a Vietnamese handoff list, pending-quantity display, form for an approved material and locations and explicit receiver checkboxes. **This is an event evidence tracker only**: `mode=handoff_tracking_only`, `ledger_posted=false`, and `sheets_writes=0`. It DOES NOT subtract source or credit destination authoritative stock yet. Reconcile these audit records with actual inventory transactions before enabling ledger posting, otherwise the legacy `_transfer_expected` double-post path remains dangerous.
+
+## Closing preflight across current signed counts, transfers and exceptions (new)
+
+- `daily/catinat_close_preflight.py` aggregates the currently valid source-hash-matched **staff physical count attestations**, expiring data/blank cells in four Sheets, all daily manager approval requests, outstanding in-transit transfers, unposted transfer ledger events and existing immutable shift snapshots. Existing signed snapshots are never modified if Sheets later changes. An approved manager exception is not automatically treated as a reconciled stock transaction.
+- GET `/api/inventory/daily-sheet/catinat/shift/closing-preflight?business_date=...` requires `inventory.read`; the `Kiểm kê ca` screen cross-checks 3 fresh read hashes and displays remaining blockers. All returned documents have `ready_to_sign=false` until the missing policy gates below are built and demonstrated. No POST close or auto carry-forward has been enabled.
+- QA: `test_catinat_transfers.py` and `test_catinat_close_preflight.py` exercise tenant isolation, pending/partial/received state, replay/over-receipt, manager approval evidence, stale source hash, and no Sheets write paths.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
