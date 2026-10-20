@@ -17,6 +17,7 @@ from app.modules.inventory.persistence_model import InventorySettingsModel
 from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPromptConflict, InventoryPromptResolver, InventoryPromptStorageUnavailable
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
+from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -223,6 +224,22 @@ def update_configuration(body: DailySheetSettingsRequest, principal: CurrentPrin
         row.timezone = body.timezone
         session.commit()
     return get_configuration(principal)
+
+@router.get("/catinat/closing-preview")
+def get_catinat_closing_preview(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Read-only expected balances; never confirms a physical count or writes Sheets."""
+    try:
+        return load_catinat_preview(
+            principal.active_tenant_id, business_date, sessions=SessionLocal,
+        )
+    except CatinatPreviewError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
+
 
 @router.get("/status")
 def get_status(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
