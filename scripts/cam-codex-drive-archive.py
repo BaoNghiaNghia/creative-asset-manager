@@ -150,51 +150,72 @@ async def execute(args):
         failed=0
         saved_bytes=0
         inspected=0
+        handled=0
+        selected=[]
         for home,path,s in eligible_files(args.min_age_hours):
-            if inspected>=args.max_files:
+            if len(selected)>=args.max_files:
                 break
-            inspected+=1
-            if not args.apply:
-                continue
-            try:
-                sha,md5=checksums(path)
-                home_id=home.parent.name
-                asset_id=f"codex-source:{home_id}:{sha}"
-                safe_name=f"{home_id}-{sha}.png"
+            selected.append((home,path,s))
+        inspected=len(selected)
+        semaphore=asyncio.Semaphore(args.concurrency)
 
-                async def body(filename=path):
-                    with filename.open("rb") as f:
-                        while chunk:=f.read(1024*1024):
-                            yield chunk
-                            await asyncio.sleep(0)
-                # Idempotent on Drive; upload binary once, never rename or
-                # overwrite an existing asset with a different content hash.
-                stored=await provider.store_asset(StoreAssetInput(
-                    tenant_id=RECOVERY_TENANT, content_hash=sha,
-                    body=body(),asset_id=asset_id,content_type="image/png",
-                    size_bytes=s.st_size, filename=safe_name,
-                    destination_folder_id=archive,
-                ))
-                if not stored.remote_file_id:
-                    raise RuntimeError("Managed storage returned no file ID")
-                verified=await verify(
-                    client, stored.remote_file_id,
-                    size=s.st_size,sha=sha,md5=md5,
-                    tenant=RECOVERY_TENANT,asset_id=asset_id,
-                    archive_folder=archive,
-                )
-                if not verified:
+        async def handle_one(home,path,s):
+            nonlocal uploaded,deleted,failed,saved_bytes,handled
+            async with semaphore:
+                if not args.apply:
+                    handled+=1
+                    return
+                try:
+                    sha,md5=checksums(path)
+                    home_id=home.parent.name
+                    asset_id=f"codex-source:{home_id}:{sha}"
+                    safe_name=f"{home_id}-{sha}.png"
+
+                    async def body(filename=path):
+                        with filename.open("rb") as stream:
+                            while chunk:=stream.read(1024*1024):
+                                yield chunk
+                                await asyncio.sleep(0)
+
+                    stored=None
+                    for attempt in range(3):
+                        try:
+                            stored=await provider.store_asset(StoreAssetInput(
+                                tenant_id=RECOVERY_TENANT,content_hash=sha,
+                                body=body(),asset_id=asset_id,content_type="image/png",
+                                size_bytes=s.st_size,filename=safe_name,
+                                destination_folder_id=archive,
+                            ))
+                            break
+                        except Exception as exc:
+                            if not getattr(exc,"retryable",False) or attempt==2:
+                                raise
+                            await asyncio.sleep(min(2**attempt * 2, 8))
+                    if stored is None or not stored.remote_file_id:
+                        raise RuntimeError("Managed storage returned no file ID")
+                    verified=await verify(
+                        client,stored.remote_file_id,size=s.st_size,sha=sha,md5=md5,
+                        tenant=RECOVERY_TENANT,asset_id=asset_id,archive_folder=archive,
+                    )
+                    if not verified:
+                        failed+=1
+                        return
+                    uploaded+=1
+                    if remove_exact(path,home,s,sha,md5,cutoff):
+                        deleted+=1
+                        saved_bytes+=s.st_blocks*512
+                except Exception as exc:
                     failed+=1
-                    continue
-                uploaded+=1
-                if remove_exact(path,home,s,sha,md5,cutoff):
-                    deleted+=1
-                    saved_bytes+=s.st_blocks*512
-                if inspected%10==0:
-                    print(f"PROGRESS considered={inspected} drive_verified={uploaded} deleted={deleted} errors={failed}",flush=True)
-            except Exception as exc:
-                failed+=1
-                print(f"FAILED_LOCAL_ASSET reason={type(exc).__name__} (file retained)",flush=True)
+                    print(f"FAILED_LOCAL_ASSET reason={type(exc).__name__} (file retained)",flush=True)
+                finally:
+                    handled+=1
+                    if handled%20==0 or handled==inspected:
+                        print(f"PROGRESS considered={handled} drive_verified={uploaded} "
+                              f"deleted={deleted} errors={failed}",flush=True)
+
+        # Bounded concurrency reduces Drive latency without uncontrolled
+        # memory/network usage; each task still gets independent readback proof.
+        await asyncio.gather(*(handle_one(*item) for item in selected))
         print(f"RESULT mode={'APPLY' if args.apply else 'DRY_RUN'} considered={inspected} "
               f"drive_verified={uploaded} deleted={deleted} freed_mib={saved_bytes/1048576:.1f} failures={failed}")
         print("Other files, sessions and remote data remain untouched.")
@@ -204,9 +225,10 @@ if __name__=="__main__":
     ap.add_argument("--apply",action="store_true")
     ap.add_argument("--max-files",type=int,default=30)
     ap.add_argument("--min-age-hours",type=int,default=4)
+    ap.add_argument("--concurrency",type=int,default=5)
     args=ap.parse_args()
-    if not 1<=args.max_files<=500 or not 1<=args.min_age_hours<=720:
-        ap.error("max-files 1..500; min-age-hours 1..720")
+    if not 1<=args.max_files<=500 or not 1<=args.min_age_hours<=720 or not 1<=args.concurrency<=8:
+        ap.error("max-files 1..500; min-age-hours 1..720; concurrency 1..8")
     if args.apply and os.geteuid()!=0:
         ap.error("Apply requires root for production managed OAuth credentials")
     asyncio.run(execute(args))

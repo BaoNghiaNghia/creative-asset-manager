@@ -136,10 +136,17 @@ never be deleted by age alone. The separate
 `scripts/cam-codex-drive-archive.py` can archive them into a designated
 private Managed Drive recovery folder, verify each uploaded file's MD5,
 SHA-256, size and metadata, then remove the exact original. Its first
-dry-run passed, but enabling archival remains conditional on a successful
-live, small-batch archive/upload/readback QA. The archive is distinct from
-a product's official output folder; unknown historical media cannot be
-retroactively assigned to a tenant/shop from timestamps alone.
+dry-run and live one-file archive/upload/readback both passed on
+2026-10-20. A controlled backlog migration is now running in bounded
+batches with per-file remote verification. Failed uploads leave the local PNG
+untouched; retries are bounded and concurrent Drive operations are capped.
+`deploy/systemd/creative-asset-manager-codex-drive-archive.service` and
+`.timer` provide the same safe reconciliation on a periodic basis when
+installed and enabled by the host administrator. Their inclusion in Git
+does **not** mean the host's systemd timer has been enabled.
+The archive is distinct from a product's official output folder; unknown
+historical media cannot be retroactively assigned to a tenant/shop from
+timestamps alone.
 
 **Operational goal:** sessions/auth and necessary CLI runtime live in
 `CODEX_HOME`; generated PNGs are transient and durable output is on
