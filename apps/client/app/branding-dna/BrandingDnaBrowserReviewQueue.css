@@ -1,0 +1,31 @@
+.bdna-browser-reviews{border:1px solid #d7e3f3;border-radius:12px;padding:16px;display:grid;gap:13px;background:#f9fbff;color:#324d70;margin:16px 0;min-width:0}
+.bdna-browser-reviews header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.bdna-browser-reviews h3{font-size:15px;margin:0 0 5px}.bdna-browser-reviews h4{font-size:12px;margin:0}
+.bdna-browser-reviews header p,.bdna-browser-reviews p{font-size:11px;line-height:1.6;margin:0;color:#5c7492}
+.bdna-browser-reviews-controls{display:flex;align-items:end;flex-wrap:wrap;gap:8px}
+.bdna-browser-reviews-controls label,.bdna-browser-review-detail form label{display:grid;gap:5px;font-size:11px;font-weight:650;color:#476280}
+.bdna-browser-reviews select,.bdna-browser-reviews input,.bdna-browser-reviews textarea{border:1px solid #cbd9eb;background:#fff;color:#273e5c;padding:8px 9px;border-radius:7px;min-height:36px;font:inherit;max-width:100%;box-sizing:border-box}
+.bdna-browser-reviews button{font-size:11px;border:1px solid #cbd9ed;border-radius:7px;background:white;color:#315c88;padding:9px 11px;cursor:pointer}
+.bdna-browser-reviews button:disabled{opacity:.55;cursor:not-allowed}
+.bdna-browser-reviews button:focus-visible,.bdna-browser-reviews select:focus-visible,.bdna-browser-reviews input:focus-visible,.bdna-browser-reviews textarea:focus-visible{outline:2px solid #477fe3;outline-offset:2px}
+.bdna-browser-reviews-warning{padding:10px!important;background:#f0f5ff;border-radius:8px;color:#536e94!important}
+.bdna-browser-reviews-error{padding:10px;background:#fff1f1;border:1px solid #f4d4d4;border-radius:8px;color:#a13939!important}
+.bdna-browser-reviews-message{padding:10px;background:#eef8f1;border-radius:8px;color:#386448!important}
+.bdna-browser-reviews-empty{border:1px dashed #bfd0e6;border-radius:8px;text-align:center;padding:16px}
+.bdna-browser-reviews-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:8px}
+.bdna-browser-reviews-list button{text-align:left;display:grid;gap:6px;min-width:0;padding:12px}
+.bdna-browser-reviews-list button.selected{background:#ecf3ff;border-color:#6f98e2}
+.bdna-browser-reviews-list button strong{font-size:12px}
+.bdna-browser-reviews-list button span{color:#637e9e}.bdna-browser-reviews-list button small{color:#8295aa;font-size:10px}
+.bdna-browser-reviews-pages{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:#66809c}
+.bdna-browser-review-detail{display:grid;gap:10px;border-top:1px solid #dae4f3;padding-top:14px;min-width:0}
+.bdna-browser-review-listings,.bdna-browser-review-detail details ol{margin:0;padding-left:22px;display:grid;gap:7px}
+.bdna-browser-review-listings li,.bdna-browser-review-detail details li{font-size:11px;line-height:1.5}
+.bdna-browser-review-listings strong,.bdna-browser-review-listings small,.bdna-browser-review-detail details small,.bdna-browser-review-detail details span{display:block;overflow-wrap:anywhere}
+.bdna-browser-review-listings small,.bdna-browser-review-detail details small{color:#6a819d;font-size:10px}
+.bdna-browser-review-detail form{display:grid;gap:9px;max-width:660px}
+.bdna-browser-review-detail form button{justify-self:start;background:#ecf3ff;border-color:#a8c1e5}
+.bdna-browser-review-detail form small{font-size:10px;color:#637c99;line-height:1.5}
+.bdna-browser-review-detail details{border:1px solid #dfe8f3;border-radius:8px;background:white;padding:10px;font-size:11px}
+.bdna-browser-review-detail summary{cursor:pointer;font-weight:700;color:#375578;margin-bottom:8px}
+@media(max-width:620px){.bdna-browser-reviews{padding:11px}.bdna-browser-reviews-controls{width:100%}.bdna-browser-reviews-controls label{flex:1}.bdna-browser-reviews-controls select{width:100%}.bdna-browser-reviews-pages{justify-content:center}}

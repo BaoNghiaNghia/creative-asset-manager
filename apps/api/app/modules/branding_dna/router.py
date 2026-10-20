@@ -4,6 +4,7 @@ This module never fetches external shop URLs, holds browser credentials or
 starts scans. A dedicated agent/control protocol will be built in Phase 2.
 """
 from __future__ import annotations
+from typing import Literal
 import re
 from urllib.parse import urlsplit, urlunsplit, unquote
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -174,6 +175,67 @@ def add_shop(body: ShopCreate, session: Session = Depends(get_db),
         raise HTTPException(409, detail="Shop is already registered for this tenant and region") from exc
     session.refresh(shop)
     return present(shop)
+
+class ShopLifecycleChange(BaseModel):
+    model_config = {"extra": "forbid"}
+    status: Literal["active", "paused"]
+    declaration_id: str | None = Field(default=None, pattern=r"^[a-fA-F0-9-]{36}$")
+    acknowledge_marketplace_rights_not_verified: Literal[True]
+
+
+@router.post("/shops/{shop_id}/lifecycle")
+def update_shop_lifecycle(
+    shop_id: str, body: ShopLifecycleChange,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+):
+    """Curated catalog activation, NOT a marketplace browser permission grant.
+
+    Activation requires a second-person documentary review of an owned or
+    authorized shop. A paused shop may be paused without such documentation
+    for immediate risk containment. This never schedules or leases a task.
+    """
+    from app.modules.branding_dna.scan_readiness_service import (
+        latest_shop_declarations, latest_declaration_reviews,
+    )
+    shop = session.scalar(select(BrandShopModel).where(
+        BrandShopModel.id == shop_id,
+        BrandShopModel.tenant_id == principal.active_tenant_id,
+    ).with_for_update())
+    if shop is None:
+        raise HTTPException(404, detail="Shop not found")
+    if body.status == "active":
+        latest = latest_shop_declarations(
+            session, tenant_id=principal.active_tenant_id, shop_ids=[shop_id],
+        ).get(shop_id)
+        if (latest is None or latest.id != body.declaration_id
+                or latest.status != "pending_review"
+                or latest.relationship not in ("owned", "authorized")):
+            raise HTTPException(409, detail="Latest owned/authorized declaration required")
+        review = latest_declaration_reviews(
+            session, tenant_id=principal.active_tenant_id,
+            declaration_ids=[latest.id],
+        ).get(latest.id)
+        if (review is None or review.decision != "documentation_noted"
+                or review.reviewed_by == latest.declared_by
+                or review.reviewed_by == principal.actor_id):
+            raise HTTPException(409, detail="Independent approved documentary review required")
+        # This sets the CURATED SHOP RELATIONSHIP, not the effective
+        # authorization to browse a marketplace.
+        shop.access_mode = latest.relationship
+    elif shop.status != "active":
+        raise HTTPException(409, detail="Only an active shop may be paused")
+    changed = shop.status != body.status
+    shop.status = body.status
+    session.commit()
+    session.refresh(shop)
+    return {
+        "item": present(shop), "changed": changed,
+        "rights_verified": False, "scan_enabled": False,
+        "dispatchable": False, "jobs_created": 0,
+        "reason": "marketplace_authorization_not_verified",
+    }
+
 
 @router.get("/workers")
 def list_workers(session: Session = Depends(get_db),

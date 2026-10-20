@@ -124,11 +124,13 @@ if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
   CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
     bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
 fi
-# Health checks have passed. Keep only the active immutable frontend release.
-rm -f -- "$WEB_ROOT/previous"
+# Health checks passed. Preserve exactly the current and most recent
+# previous verified release for rollback. Avoid unbounded disk growth.
+# The previous symlink is retained until a future successful deployment.
 for release in "$RELEASES"/*; do
   [[ -d "$release" && ! -L "$release" ]] || continue
-  [[ "$release" == "$TARGET" ]] || rm -rf -- "$release"
+  [[ "$release" == "$TARGET" || ( -n "$OLD" && "$release" == "$OLD" ) ]] && continue
+  rm -rf -- "$release"
 done
 # Post-success housekeeping: only Browser QA scratch evidence, never
 # production assets or model outputs. Cleanup warnings must not revert a
