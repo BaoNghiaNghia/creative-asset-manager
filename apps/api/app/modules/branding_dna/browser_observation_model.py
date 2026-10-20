@@ -16,6 +16,8 @@ class BrandBrowserObservationModel(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "shop_id", "report_key",
                          name="uq_bc_browser_observation_report"),
+        UniqueConstraint("tenant_id", "shop_id", "id",
+                         name="uq_bc_browser_observation_scope"),
         Index("ix_bc_browser_observations_shop_date",
               "tenant_id", "shop_id", "created_at"),
         CheckConstraint("status = 'preview_completed'",

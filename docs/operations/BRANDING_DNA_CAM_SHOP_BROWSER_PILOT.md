@@ -137,6 +137,34 @@ The import is append-only (no delete or automatic downgrade).
 inactive/undeclared shops. Browser pilot metadata can now enter the audit
 pipeline once an exact shop has passed the required review.
 
+## Browser observation Review Queue (Phase 2.1)
+
+The operator's **cross-shop inbox**, scoped to the active tenant, is:
+`GET /api/v1/branding-dna/browser-observations/review-queue`.
+It supports `state=pending_independent_review|needs_authorized_source|metadata_consistent|rejected`,
+`limit` (1–100) and `offset`. Each row exposes only aggregate report
+identity/count and its **latest review decision**, not raw URLs, media or
+browser credentials. The original observation stays immutable.
+
+For one report, `GET/POST
+/api/v1/branding-dna/shops/{shop_id}/browser-observations/{report_id}/reviews`
+lists or appends a human decision. POST requires `ai_provider.configure`,
+the reviewer **must be different from the report importer**, and the request
+is restricted to decision, rights-document reference and single-line note.
+A repeated identical latest review returns 200 without duplicating the audit
+record; a changed review creates a new immutable row. Database-level composite
+tenant/shop/report foreign keys prevent cross-tenant reviews even if the HTTP
+layer is bypassed.
+
+`metadata_consistent` **means only that the human reviewer found the
+unverified record internally plausible**. Even a documented consent reference
+does not confer independent marketplace authorization, training rights, image
+rights, verified sales, new scan permissions, or a runnable lease.
+All review responses explicitly keep `source_verified=false`,
+`rights_verified=false`, `training_approved=false`,
+`scan_enabled=false`, `dispatchable=false` and `jobs_created=0`.
+Production browser dispatch remains intentionally disabled.
+
 ## Tests and invariants
 
 - Unit tests: only CAM supplies shop URLs; inactive/unapproved/malformed or
