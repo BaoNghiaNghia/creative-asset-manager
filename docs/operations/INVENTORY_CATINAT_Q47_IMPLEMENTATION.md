@@ -13,6 +13,12 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - `apps/api/app/modules/inventory/daily_sheet/catinat_preview.py` and `router.py`: tenant-bound `GET /api/inventory/daily-sheet/catinat/closing-preview?business_date=YYYY-MM-DD` requiring `inventory.read`. Reads only configured workbook and bounded rows. Returns `mode=read_only_unverified` / `auto_fill_allowed=false` and suggestions/blocked, never writes or signs.
 - New tests `test_catinat_policy.py`, `test_catinat_shelf_life.py`, `test_catinat_semantics.py`, `test_catinat_closing.py`, `test_catinat_preview.py`.
 
+## Additional P2 foundation (not yet exposed to employees)
+
+- `database/migrations/versions/0169_inventory_catinat_signed_shifts.py` and `InventoryCatinatSignedShiftModel`: one authoritative signed snapshot per tenant + business date + AM/PM, snapshot/source digests, confirmed actor and typed physical counts.
+- `daily/catinat_signed_shift.py`: authenticated-actor **caller contract**, mandatory server-derived fresh sheet hash callback, atomic database transaction and replay validation; conflicting second close is refused. Pending transfers and unresolved discrepancies are always blocked until a **separate trusted approval workflow** is implemented. Does not write Sheets or perform carry-forward.
+- `test_catinat_signed_shift.py`: SQLite persistence/idempotency/source-mismatch tests. **This is not yet a usable employee close endpoint**; caller RBAC, manager approvals, source-to-cell mappings and UI still have to be integrated.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
