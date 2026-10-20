@@ -23,6 +23,36 @@ async function request<T>(path:string, init?:RequestInit):Promise<T> { let respo
 export const inventoryApi={ listReviews:()=>request<{items:InventoryReview[]}>("/reviews"), getReview:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}`), approve:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/approve`,{method:"POST"}), correct:(id:string,values:Record<string,unknown>)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/correct`,{method:"POST",body:JSON.stringify({values})}), requestReupload:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/request-reupload`,{method:"POST"}), getDailyRun:(businessDate:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}`), finalizeDailyRun:(businessDate:string,force=false,reason?:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}/finalize`,{method:"POST",body:JSON.stringify({force,reason})}), getExport:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`), exportDay:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`,{method:"POST"}), getAiCredential:()=>request<InventoryAiCredential>("/configuration/ai-credential"), testAiCredential:(api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>("/configuration/ai-credential/test",{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiCredential:(api_key:string,label?:string)=>request<InventoryAiCredential>("/configuration/ai-credential",{method:"PUT",body:JSON.stringify({api_key,label})}), listAiBackupCredentials:()=>request<InventoryAiBackupCredential[]>("/configuration/ai-credential-backups"), testAiBackupCredential:(slot:number,api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>(`/configuration/ai-credential-backups/${slot}/test`,{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiBackupCredential:(slot:number,api_key:string,label?:string)=>request<InventoryAiBackupCredential>(`/configuration/ai-credential-backups/${slot}`,{method:"PUT",body:JSON.stringify({api_key,label})}), deleteAiBackupCredential:(slot:number)=>request<{provider:string;deleted:boolean}>(`/configuration/ai-credential-backups/${slot}`,{method:"DELETE"}) };
 
 
+export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception";
+export type CatinatApprovalStatus = "pending" | "approved" | "rejected";
+export type CatinatApproval = {
+  id:string; business_date:string; kind:CatinatApprovalKind; subject_ref:string;
+  proposal:Record<string,unknown>; proposal_hash:string; reason:string;
+  status:CatinatApprovalStatus; requested_by:string; decided_by:string|null;
+  decision_reason:string|null; created_at:string|null; decided_at:string|null;
+  idempotent_replay:boolean; inventory_write_performed:false;
+};
+export type CatinatApprovalInput = {
+  idempotency_key:string; business_date:string; kind:CatinatApprovalKind;
+  subject_ref:string; proposal:Record<string,unknown>; reason:string;
+};
+/** These endpoints log approvals only, they never mutate the production Sheet. */
+export const catinatApprovalApi = {
+  list: (status?:CatinatApprovalStatus)=>request<{items:CatinatApproval[]}>(
+    "/daily-sheet/catinat/approvals"+(status?"?status="+encodeURIComponent(status):"")
+  ),
+  get: (id:string)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals/"+encodeURIComponent(id)
+  ),
+  create: (body:CatinatApprovalInput)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals", {method:"POST",body:JSON.stringify(body)}
+  ),
+  decide: (id:string,decision:"approved"|"rejected",reason:string)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals/"+encodeURIComponent(id)+"/decision",
+    {method:"POST",body:JSON.stringify({decision,reason})}
+  ),
+};
+
 export type InventoryDailySheetConfiguration = {
   image_pipeline_enabled:boolean;
   daily_sheet_automation_enabled:boolean;

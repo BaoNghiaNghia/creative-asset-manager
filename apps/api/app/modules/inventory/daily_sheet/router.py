@@ -18,6 +18,7 @@ from app.modules.inventory.daily_sheet.prompts import PROMPT_TYPES, InventoryPro
 from app.modules.inventory.daily.scheduler import InventoryDailyScheduler
 from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
+from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -646,3 +647,6 @@ def run_reconcile(body: RunRequest, principal: CurrentPrincipal = Depends(requir
 def set_baseline(body: BaselineRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION))):
     try: return _service().set_baseline(principal.active_tenant_id, body.snapshot_id)
     except LookupError as exc: raise HTTPException(404, detail={"code": str(exc)}) from exc
+
+# Separate tenant-scoped manager approval API; approvals never apply inventory writes.
+router.include_router(catinat_approval_router)

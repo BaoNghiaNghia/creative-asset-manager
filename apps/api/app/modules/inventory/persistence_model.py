@@ -1046,6 +1046,57 @@ class InventoryCatinatSignedShiftModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
 
 
+class InventoryCatinatApprovalRequestModel(Base):
+    """Audited proposals; approved status never mutates stock or Sheets directly."""
+    __tablename__ = "inventory_catinat_approval_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_approval_request_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_approval_tenant_key"),
+        CheckConstraint(
+            "kind IN ('discrepancy','catalog_mapping','package_conversion','post_close_adjustment','transfer_exception')",
+            name="ck_catinat_approval_kind",
+        ),
+        CheckConstraint("status IN ('pending','approved','rejected')", name="ck_catinat_approval_status"),
+        Index("ix_catinat_approval_tenant_day_status", "tenant_id", "business_date", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(1000), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+    decision_reason: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InventoryCatinatApprovalEventModel(Base):
+    """Append-only audit trail of requests and decisions."""
+    __tablename__ = "inventory_catinat_approval_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_approval_event_request",
+        ),
+        CheckConstraint("action IN ('requested','approved','rejected')", name="ck_catinat_approval_event_action"),
+        Index("ix_catinat_approval_event_request", "tenant_id", "request_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
 class InventoryPromptVersionModel(Base):
     __tablename__ = "inventory_prompt_versions"
     __table_args__ = (
