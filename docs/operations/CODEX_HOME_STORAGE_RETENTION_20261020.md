@@ -142,8 +142,11 @@ batches with per-file remote verification. Failed uploads leave the local PNG
 untouched; retries are bounded and concurrent Drive operations are capped.
 `deploy/systemd/creative-asset-manager-codex-drive-archive.service` and
 `.timer` provide the same safe reconciliation on a periodic basis when
-installed and enabled by the host administrator. Their inclusion in Git
-does **not** mean the host's systemd timer has been enabled.
+installed and enabled by the host administrator. The target cadence is
+hourly: run database-backed verified-image GC near :05, then archive
+remaining local generated PNGs near :35. Each archive requires full Drive
+readback with SHA-256/MD5 and a four-hour grace period for in-flight jobs.
+Inclusion in Git does **not** mean the host's archive timer is enabled.
 The archive is distinct from a product's official output folder; unknown
 historical media cannot be retroactively assigned to a tenant/shop from
 timestamps alone.

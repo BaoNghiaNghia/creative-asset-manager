@@ -2,8 +2,8 @@
 Description=Archive Codex generated PNGs to Managed Drive and release verified local originals
 
 [Timer]
-OnCalendar=*-*-* 00,04,08,12,16,20:05:00
-RandomizedDelaySec=12min
+OnCalendar=*-*-* *:35:00
+RandomizedDelaySec=5min
 Persistent=true
 Unit=creative-asset-manager-codex-drive-archive.service
 

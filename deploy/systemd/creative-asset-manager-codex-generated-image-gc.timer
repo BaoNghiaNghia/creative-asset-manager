@@ -2,7 +2,7 @@
 Description=CAM Codex Drive-verified generated-image cleanup schedule
 
 [Timer]
-OnCalendar=*-*-* 01,07,13,19:25:00
+OnCalendar=*-*-* *:05:00
 RandomizedDelaySec=10min
 Persistent=true
 Unit=creative-asset-manager-codex-generated-image-gc.service

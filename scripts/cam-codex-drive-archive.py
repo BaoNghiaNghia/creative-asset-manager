@@ -144,6 +144,8 @@ async def execute(args):
         if args.apply and not archive:
             raise RuntimeError("Cannot establish recovery folder")
         print("RECOVERY_ARCHIVE=" + ("VERIFIED" if archive else "NOT_YET_CREATED"))
+        if archive:
+            print(f"RECOVERY_ARCHIVE_URL=https://drive.google.com/drive/folders/{archive}",flush=True)
         cutoff=time.time()-args.min_age_hours*3600
         uploaded=0
         deleted=0
