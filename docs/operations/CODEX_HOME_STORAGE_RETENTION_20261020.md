@@ -120,14 +120,15 @@ Commands:
 ```bash
 # Full metadata check, read-only:
 sudo /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
-  scripts/cam-codex-drive-reconcile.py --max-drive-requests 3000
+  /opt/creative-asset-manager/current/scripts/cam-codex-drive-reconcile.py --max-drive-requests 3000
 # Verified-only cleanup; never delete unverifiable originals:
 sudo /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
-  scripts/cam-codex-drive-reconcile.py --apply --min-age-hours 4
+  /opt/creative-asset-manager/current/scripts/cam-codex-drive-reconcile.py --apply --min-age-hours 4
 ```
 
 `deploy/systemd/creative-asset-manager-codex-generated-image-gc.service`
-and `.timer` define a bounded every-six-hours verified-only cleanup.
+and `.timer` define an hourly verified-only cleanup (actual active timer
+schedule is determined by the installed systemd unit).
 They must be deployed from an immutable release and enabled only after
 production smoke checks; they do not archive images missing job evidence.
 
@@ -146,10 +147,39 @@ installed and enabled by the host administrator. The target cadence is
 hourly: run database-backed verified-image GC near :05, then archive
 remaining local generated PNGs near :35. Each archive requires full Drive
 readback with SHA-256/MD5 and a four-hour grace period for in-flight jobs.
-Inclusion in Git does **not** mean the host's archive timer is enabled.
+As of 2026-10-20 13:25 Asia/Ho_Chi_Minh, the archive timer was enabled,
+and a manual start of the oneshot service succeeded: 55 Drive-verified PNGs
+were removed from VPS (122 MiB), with 0 failed uploads. The service will
+show `inactive (dead)` after finishing successfully; this is normal for a
+`Type=oneshot` unit. Do not confuse an enabled timer with a successful
+service invocation: always inspect `journalctl`.
 The archive is distinct from a product's official output folder; unknown
 historical media cannot be retroactively assigned to a tenant/shop from
 timestamps alone.
+
+### Running the archive correctly on the production VPS
+
+The script lives in the **immutable deployed release**, NOT the root checkout
+`/root/creative-asset-manager/scripts`. In particular, invoking the release
+Python with a *relative script path* from the root checkout yields
+`can't open file: ... No such file or directory` even when the timer is healthy.
+
+```bash
+# Recommended: run through the installed systemd service sandbox.
+sudo systemctl start creative-asset-manager-codex-drive-archive.service
+sudo journalctl -u creative-asset-manager-codex-drive-archive.service -n 50 --no-pager
+
+# Or invoke the correct absolute release script path:
+sudo /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  /opt/creative-asset-manager/current/scripts/cam-codex-drive-archive.py \
+  --apply --max-files 500 --min-age-hours 4 --concurrency 5
+
+# Timer is enabled independently from the oneshot service:
+systemctl list-timers --all | grep codex
+```
+
+The four-hour grace period intentionally allows newly generated PNGs to remain
+temporarily until verified remote archival on a later run.
 
 **Operational goal:** sessions/auth and necessary CLI runtime live in
 `CODEX_HOME`; generated PNGs are transient and durable output is on
