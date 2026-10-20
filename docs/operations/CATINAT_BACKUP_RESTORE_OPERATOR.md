@@ -27,6 +27,24 @@ python3 /opt/creative-asset-manager/current/deploy/tools/production_env.py run-r
 
 The downloader queries the managed Google Drive folder, permits only recognized `cam_kind=database_backup_v1` dumps, and requires complete Google MD5 plus stored SHA-256 metadata. It streams to a new mode-0600 file only, hashes the actual downloaded bytes, refuses overwrites, fails on mismatch and deletes partial files. No local or remote database operation is performed. The result prints a local file path and both verified digests.
 
+## Operator shortcut — guarded independent restore (recommended)
+
+For the verified 20 Oct 2026 backup, the checked-in one-shot **SSH operator** script handles the isolated PG16 cluster setup, separate role/password, restore, and *source* Alembic revision check. It never connects to PostgreSQL production (5432), never loads production credentials or production.env, requires an empty named cluster and unused isolated port, and fails before DB modifications if backup SHA-256 or MD5 disagree.
+
+Review `scripts/cam_catinat_restore_isolated.sh` first, then execute this on the VPS by the authorized root operator:
+
+```bash
+cd /root/creative-asset-manager/.worktrees/inventory-catinat-prod-candidate-20261020
+bash scripts/cam_catinat_restore_isolated.sh \
+  --dump /root/catinat-db-rehearsal-20261020/cam-db-20261020-164908+0700.dump \
+  --sha256 dfdd83eb724b4d4f0e9527aa4297201f49120328f07f4be5e3b22df32a364ae2 \
+  --md5 22aa75ff85f073bcf135dc57fa4dbac5
+```
+
+Expected output: `RESTORE_PREFLIGHT=PASS`, a JSON `RESTORE_REHEARSAL=PASS` from `cam_db_restore_rehearsal.py`, and `RESTORE_SOURCE_REVISION=PASS` with restored Alembic 0168. Output `FAIL` or `BLOCKED` must **not** be reinterpreted as success. Do not retry after partial cluster creation without reviewing isolation and state. This script does not upgrade a database; it only restores the backup to a new isolated cluster.
+
+If a manual configuration is preferred, follow the original steps 2 and 3 below instead, **not in addition** to the shortcut.
+
 ## Operator step 2 — isolated PostgreSQL 16
 
 Provision a **separate PostgreSQL 16 cluster** on loopback, dedicated port `55432`, with a separate data directory and a dedicated non-superuser `cam_rehearsal_user`. Do not share data directories or use production 5432, and do not attach production volumes to a test container. Ensure free disk and memory are sufficient for the *expanded* backup, not just its compressed size. Create the empty database `cam_restore_rehearsal_oct2026` owned by the rehearsal user. Use a password entered interactively (not placed in shell history). Record cluster identity and production-source snapshot/table counts privately.
