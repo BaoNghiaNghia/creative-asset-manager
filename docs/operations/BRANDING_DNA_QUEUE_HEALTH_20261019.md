@@ -19,18 +19,24 @@ or terminal block rules. It only operates for the supplied tenant.
 The status breakdown is an aggregate; a `leased` row is **not proof** of a
 live browser session, and an `expired_leases` count is not an instruction
 to kill a process. The `staged_tasks` field remains the original strictly
-staged count for compatibility. The paired Windows Scout `dispatch-preview` endpoint exposes aggregate
-**counts only**, not individual task details or operator-only declarations.
+staged count for compatibility.
 
-The Shop Library shows this information and refreshes while the page is
-visible approximately every 60 seconds. As of the next release, paired
-Windows Scouts also receive tenant-scoped, aggregate-only `queue_totals` and
-per-shop `queue` counters from `dispatch-preview` (never lease identities,
-shop access evidence, arbitrary URLs or executable job payloads). This lets
-a Scout explain "connected but no job assigned" without attempting a scan.
-`scan_enabled` stays false,
-`ready_count` stays zero, and no operator or Scout action in this feature
-can start a marketplace browser.
+**Windows Scout v1 contract regression (2026-10-20):** The existing
+`apps/scout-manager-desktop/src-tauri/src/lib.rs` uses
+`#[serde(deny_unknown_fields)]` for `CamPreviewResponse` and
+`CamPreviewShop`. Adding `queue_totals`, per-shop `queue`, or
+`review_decision` to `GET .../scout-agents/{agent_id}/dispatch-preview`
+made live HTTP 200 replies fail JSON parsing in the Windows tool with
+`CAM returned an invalid dispatch preview`. Keep this paired endpoint's
+**exact version-1 response shape**; it contains only disabled dispatch
+status, blocked-shop reasons and staged counts. The backend tests explicitly
+assert the exact top-level and item keys to prevent this regression.
+
+The operator-only `GET /api/v1/branding-dna/shops/scan-readiness`
+provides extended queue counters. The Shop Library shows them and refreshes
+while the page is visible approximately every 60 seconds.
+`scan_enabled` remains false, `ready_count` stays zero, and neither API
+can grant a marketplace browser job or establish source authorization.
 
 ## Live worker presence diagnostics
 

@@ -111,23 +111,19 @@ def dispatch_preview(
     never return instructions to browse a shop or advance staged tasks.
     """
     scout = paired_scout(session, agent_id, authorization)
-    # Preserve the paired Agent's strict version-1 response contract:
-    # operator-only declaration metadata is never exposed to a Scout token.
+    # Keep this API's strict v1 JSON shape in sync with Windows Scout
+    # CamPreviewResponse (serde deny_unknown_fields). In particular, do
+    # NOT add queue/queue_totals fields here: older installed Scout Manager
+    # rejects those additions as an "invalid dispatch preview" despite HTTP
+    # 200. Extended counters belong to the operator queue-health endpoint.
     items = [
         {key: value for key, value in item.items()
-         if key not in ("declaration_relationship", "declaration_status")}
+         if key not in ("declaration_relationship", "declaration_status",
+                        "review_decision", "queue")}
         for item in shop_scan_readiness(
-            session, tenant_id=scout.tenant_id, include_queue=True,
+            session, tenant_id=scout.tenant_id, include_queue=False,
         )
     ]
-    # Operational diagnostics are read-only and tenant-scoped. A Scout may
-    # see queue counts, not task payloads, URLs, lease secrets or permission
-    # evidence. A queued job is not an executable browser instruction.
-    queue_totals = {
-        key: sum(item["queue"].get(key, 0) for item in items)
-        for key in ("staged", "pending", "leased", "retry", "blocked",
-                    "completed", "cancelled", "expired_leases", "due_retries")
-    }
     response.headers["Cache-Control"] = "no-store"
     return {
         "version": 1,
@@ -141,6 +137,5 @@ def dispatch_preview(
         "shop_count": len(items),
         "blocked_count": len(items),
         "ready_count": 0,
-        "queue_totals": queue_totals,
         "items": items,
     }
