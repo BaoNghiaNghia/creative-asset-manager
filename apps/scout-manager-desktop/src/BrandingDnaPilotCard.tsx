@@ -19,6 +19,21 @@ const BLOCKER_LABELS:Record<string,string>={
 export function describeShopBlockers(blockers:string[]){
  return blockers.map(code=>BLOCKER_LABELS[code]??"Cần kiểm tra: "+code).join(" · ");
 }
+
+/** A process can be running without a permitted marketplace scan job. */
+export function agentDisplayState(running:boolean,dispatchEnabled:boolean){
+ if(!running)return "Agent stopped";
+ return dispatchEnabled?"Agent process running":"Agent standby · 0 scan jobs";
+}
+export function blockedShopSummary(shops:ShopBlocker[]){
+ const count=(reason:string)=>shops.filter(shop=>shop.blockers.includes(reason)).length;
+ return {
+  inactive:count("shop_not_active"),
+  undeclared:count("shop_access_not_declared"),
+  withoutTasks:count("no_staged_scan_tasks"),
+  awaitingSourcePermission:count("marketplace_authorization_not_verified"),
+ };
+}
 const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.6",running:false,lastError:null};
 
 /** An empty Shop Library is still an authenticated, connected CAM session. */
@@ -93,6 +108,7 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
  const connected=acknowledged&&!camError;
  const dispatchLabel=dispatchReason==="scan_task_dispatch_not_deployed"
    ?"Chưa mở cấp job": "Đang xác minh trạng thái";
+ const summary=preview?.available?blockedShopSummary(preview.shops):null;
 
  return <section className="branding-pilot-panel branding-agent-only" aria-label="Branding DNA Browser Agent">
    <div className="branding-pilot-top">
@@ -101,7 +117,7 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
        <h2>Branding DNA · Browser Agent</h2>
        <p>Shop Library, quyền truy cập và điều phối job được quản lý trên CAM.</p>
      </div>
-     <span className={"status-pill "+(status.running?"success":"neutral")}><span className="status-dot"/>{status.running?"Agent process running":"Agent stopped"}</span>
+     <span className="status-pill neutral"><span className="status-dot"/>{agentDisplayState(status.running,false)}</span>
    </div>
    <div className="branding-agent-overview">
      <div><small>Kết nối CAM</small><strong>{connected?"Connected":camError?"Connection error":refreshing?"Connecting…":"Not connected"}</strong></div>
@@ -116,6 +132,9 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
          ? `${preview.blockedCount} blocked · ${preview.stagedTasks} staged · 0 running`
          : connected?"Chờ CAM cung cấp dispatch-preview":"Chưa kết nối"}</span>
      </div>
+     {summary&&preview!.shops.length>0&&<small role="status">
+       {summary.inactive} shop chưa kích hoạt · {summary.undeclared} chưa khai báo quyền · {summary.withoutTasks} chưa có scan task · {summary.awaitingSourcePermission} chưa xác minh quyền nguồn
+     </small>}
      {preview?.available&&preview.shops.length>0&&<details>
        <summary>Xem lý do chưa quét của {preview.shops.length} shop</summary>
        <div className="branding-preflight-list">

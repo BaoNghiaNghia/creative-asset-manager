@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import App from "./App";
 import { BrandingDnaReports } from "./BrandingDnaReports";
-import {camConnectionState,describeShopBlockers} from "./BrandingDnaPilotCard";
+import {agentDisplayState,blockedShopSummary,camConnectionState,describeShopBlockers} from "./BrandingDnaPilotCard";
 describe("Tauri Scout Manager dashboard", () => {
   it("keeps CAM connected even when no shops have been configured",()=>{
     expect(camConnectionState(true,[])).toEqual({connected:true,shopCount:0});
@@ -13,6 +13,17 @@ describe("Tauri Scout Manager dashboard", () => {
   });
   it("shows per-shop preflight blockers without implying scanning is enabled",()=>{
     expect(describeShopBlockers(["scan_task_dispatch_not_deployed","etsy_written_permission_not_verified"])).toContain("CAM chưa cấp job");
+  });
+  it("distinguishes standby from actual scanning and shows specific CAM blockers",()=>{
+    expect(agentDisplayState(true,false)).toBe("Agent standby · 0 scan jobs");
+    expect(agentDisplayState(false,false)).toBe("Agent stopped");
+    const summary=blockedShopSummary([
+      {shopId:"a",platform:"amazon",displayName:"A",status:"blocked",stagedTasks:0,
+       blockers:["shop_not_active","shop_access_not_declared","no_staged_scan_tasks","marketplace_authorization_not_verified"]},
+      {shopId:"b",platform:"etsy",displayName:"B",status:"blocked",stagedTasks:0,
+       blockers:["shop_not_active","no_staged_scan_tasks","marketplace_authorization_not_verified"]},
+    ]);
+    expect(summary).toEqual({inactive:2,undeclared:1,withoutTasks:2,awaitingSourcePermission:2});
   });
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
