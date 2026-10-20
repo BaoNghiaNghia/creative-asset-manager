@@ -23,6 +23,45 @@ async function request<T>(path:string, init?:RequestInit):Promise<T> { let respo
 export const inventoryApi={ listReviews:()=>request<{items:InventoryReview[]}>("/reviews"), getReview:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}`), approve:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/approve`,{method:"POST"}), correct:(id:string,values:Record<string,unknown>)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/correct`,{method:"POST",body:JSON.stringify({values})}), requestReupload:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/request-reupload`,{method:"POST"}), getDailyRun:(businessDate:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}`), finalizeDailyRun:(businessDate:string,force=false,reason?:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}/finalize`,{method:"POST",body:JSON.stringify({force,reason})}), getExport:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`), exportDay:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`,{method:"POST"}), getAiCredential:()=>request<InventoryAiCredential>("/configuration/ai-credential"), testAiCredential:(api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>("/configuration/ai-credential/test",{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiCredential:(api_key:string,label?:string)=>request<InventoryAiCredential>("/configuration/ai-credential",{method:"PUT",body:JSON.stringify({api_key,label})}), listAiBackupCredentials:()=>request<InventoryAiBackupCredential[]>("/configuration/ai-credential-backups"), testAiBackupCredential:(slot:number,api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>(`/configuration/ai-credential-backups/${slot}/test`,{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiBackupCredential:(slot:number,api_key:string,label?:string)=>request<InventoryAiBackupCredential>(`/configuration/ai-credential-backups/${slot}`,{method:"PUT",body:JSON.stringify({api_key,label})}), deleteAiBackupCredential:(slot:number)=>request<{provider:string;deleted:boolean}>(`/configuration/ai-credential-backups/${slot}`,{method:"DELETE"}) };
 
 
+export type CatinatTransferRecord = {
+  id:string;business_date:string;item_id:string;
+  source_location_id:string;destination_location_id:string;
+  unit:string;dispatched_quantity:string;received_quantity:string;
+  in_transit_quantity:string;status:"pending_receipt"|"partial_receipt"|"received";
+  dispatched_by:string;dispatched_at:string|null;received_last_at:string|null;
+  mode:"handoff_tracking_only";ledger_posted:boolean;
+  inventory_write_performed:false;sheets_writes:0;idempotent_replay:boolean;
+};
+export type CatinatTransferDispatch = {
+  reference_key:string;business_date:string;item_id:string;
+  source_location_id:string;destination_location_id:string;
+  unit:string;quantity:string;
+};
+export const catinatTransferApi = {
+  list:(pendingOnly:boolean)=>request<{items:CatinatTransferRecord[]}>(
+    "/daily-sheet/catinat/transfers?pending_only="+String(pendingOnly)
+  ),
+  dispatch:(input:CatinatTransferDispatch)=>request<CatinatTransferRecord>(
+    "/daily-sheet/catinat/transfers",
+    {method:"POST",body:JSON.stringify(input)}
+  ),
+  receive:(id:string,body:{event_key:string;quantity:string})=>request<CatinatTransferRecord>(
+    "/daily-sheet/catinat/transfers/"+encodeURIComponent(id)+"/receive",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+};
+
+export type CatinatClosePreflight = {
+  business_date:string;shift:"evening";source_hash:string;
+  confirmed_count:number;required_count:number;
+  outstanding_transfer_count:number;unreconciled_transfer_count:number;
+  approval_requests_count:number;
+  blockers:Array<{code:string;sheet?:string;cell?:string;request_id?:string;
+    transfer_ids?:string[];snapshot_id?:string}>;
+  ready_to_sign:false;official_shift_closed:boolean;
+  automatic_carry_forward_allowed:false;sheets_writes:0;
+  mode:"read_only_safety_preflight";
+};
 export type CatinatPhysicalReadinessItem = {
   sheet:string;row:number;form:"whole"|"loose";cell:string;unit:string;
   raw:string;quantity:string|null;status:string;blocker:string;material:string;
@@ -56,6 +95,9 @@ export type CatinatCountConfirmationResult = {
 export const catinatShiftApi = {
   readiness:(businessDate:string)=>request<CatinatEveningReadiness>(
     "/daily-sheet/catinat/shift/readiness?business_date="+encodeURIComponent(businessDate),
+  ),
+  closingPreflight:(businessDate:string)=>request<CatinatClosePreflight>(
+    "/daily-sheet/catinat/shift/closing-preflight?business_date="+encodeURIComponent(businessDate),
   ),
   confirmations:(businessDate:string)=>request<CatinatCountConfirmationState>(
     "/daily-sheet/catinat/shift/count-confirmations?business_date="+encodeURIComponent(businessDate),

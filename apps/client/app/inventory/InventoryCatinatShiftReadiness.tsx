@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   catinatShiftApi, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
-  type CatinatCountConfirmationState,
+  type CatinatCountConfirmationState, type CatinatClosePreflight,
 } from "./api";
 
 function todayVietnam(){
@@ -38,6 +38,7 @@ export function InventoryCatinatShiftReadiness(){
   const [businessDate,setBusinessDate]=useState(todayVietnam);
   const [data,setData]=useState<CatinatEveningReadiness|null>(null);
   const [confirmed,setConfirmed]=useState<CatinatCountConfirmationState|null>(null);
+  const [preflight,setPreflight]=useState<CatinatClosePreflight|null>(null);
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -46,22 +47,26 @@ export function InventoryCatinatShiftReadiness(){
   useEffect(()=>{
     setData(null);
     setConfirmed(null);
+    setPreflight(null);
     setSelected([]);
     setStaffChecked(false);
   },[businessDate]);
 
   async function readCurrent(){
-    const [next,proof]=await Promise.all([
+    const [next,proof,safety]=await Promise.all([
       catinatShiftApi.readiness(businessDate),
       catinatShiftApi.confirmations(businessDate),
+      catinatShiftApi.closingPreflight(businessDate),
     ]);
-    if(next.source_hash!==proof.source_hash){
+    if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash){
       setData(null);
       setConfirmed(null);
+      setPreflight(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
     setConfirmed(proof);
+    setPreflight(safety);
   }
 
   async function load(){
@@ -70,6 +75,7 @@ export function InventoryCatinatShiftReadiness(){
     setMessage("");
     setData(null);
     setConfirmed(null);
+    setPreflight(null);
     setSelected([]);
     setStaffChecked(false);
     try{await readCurrent();}
@@ -81,6 +87,10 @@ export function InventoryCatinatShiftReadiness(){
     confirmed?.cells.filter(item=>item.confirmed).map(item=>itemKey(item.sheet,item.cell))||[],
   );
   const groups=data?summarizeCatinatReadiness(data.items):{};
+  const safetyReasons=new Map<string,number>();
+  for(const blocker of preflight?.blockers||[]) {
+    safetyReasons.set(blocker.code,(safetyReasons.get(blocker.code)||0)+1);
+  }
   const usable=Boolean(data&&confirmed&&data.source_hash===confirmed.source_hash);
   const selectable=selected.length>0&&selected.length<=50&&staffChecked&&usable&&!busy;
 
@@ -113,6 +123,7 @@ export function InventoryCatinatShiftReadiness(){
     }catch(error){
       setData(null);
       setConfirmed(null);
+      setPreflight(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
@@ -193,6 +204,18 @@ export function InventoryCatinatShiftReadiness(){
             {busy?"Đang lưu…":`Lưu xác nhận kiểm đếm (${selected.length} ô)`}
           </button>
         </div>
+      </section>}
+      {preflight&&<section>
+        <h3>Điều kiện bắt buộc trước khi hoàn tất ca tối</h3>
+        <p className="inventory-muted">
+          Đã xác nhận {preflight.confirmed_count}/{preflight.required_count} ô tồn trên cùng phiên bản Sheets.
+          Còn {preflight.outstanding_transfer_count} chuyến chưa nhận đủ,
+          {preflight.unreconciled_transfer_count} chuyển kho chưa đối chiếu sổ tồn và
+          {preflight.approval_requests_count} yêu cầu quản lý liên quan.
+          <strong> Chưa cho phép chốt ca hoặc tự chuyển tồn.</strong>
+        </p>
+        <ul>{[...safetyReasons.entries()].map(([code,count])=>
+          <li key={code}>{code}: {count} mục</li>)}</ul>
       </section>}
       <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"
