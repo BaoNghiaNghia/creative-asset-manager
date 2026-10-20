@@ -22,7 +22,7 @@ PORT = 55432
 DATABASE = "cam_restore_rehearsal_oct2026"
 ROLE = "cam_rehearsal_user"
 SOURCE_REVISION = "0168_branding_dna_outline_versions"
-TARGET_REVISION = "0172_catinat_transfers"
+TARGET_REVISION = "0173_catinat_branding_merge"
 EXPECTED_TABLES = (
     "inventory_catinat_signed_shifts",
     "inventory_catinat_approval_requests",
@@ -168,7 +168,8 @@ def run_clone_migration(*, evidence: Path, pgpassfile: Path, outfile: Path,
                          outfile=outfile, rehearsal_dir=rehearsal_dir)
     if (checkout.is_symlink() or not checkout.is_dir()
         or not (checkout / "apps/api/alembic.ini").is_file()
-        or not (checkout / "database/migrations/versions/0172_catinat_transfers.py").is_file()):
+        or not (checkout / "database/migrations/versions/0172_catinat_transfers.py").is_file()
+        or not (checkout / "database/migrations/versions/0173_merge_inventory_branding_heads.py").is_file()):
         raise CloneMigrationBlocked("Reviewed release candidate unavailable.")
     if not python_path.is_file() or not os.access(python_path, os.X_OK):
         raise CloneMigrationBlocked("Expected release candidate Python interpreter unavailable.")

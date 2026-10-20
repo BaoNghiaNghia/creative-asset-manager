@@ -89,11 +89,11 @@ Supply isolated role password through a protected `PGPASSFILE` with mode 0600, *
 
 ## Operator step 4 — test the migration against the RESTORED test DB
 
-With isolated database credentials (not production), point `DATABASE_URL` at `127.0.0.1:55432/cam_restore_rehearsal_oct2026` and the `release/inventory-catinat-q47-20261020` API source. Verify `alembic current` is `0168`, then `alembic upgrade head` and `alembic current` returns `0172_catinat_transfers`. Repeat relevant inventory integration tests. Preserve evidence; do not claim PASS based solely on the previously completed SQLite smoke.
+With isolated database credentials (not production), point `DATABASE_URL` at `127.0.0.1:55432/cam_restore_rehearsal_oct2026` and the `release/inventory-catinat-q47-20261020` API source. Verify `alembic current` is `0168`, then `alembic upgrade head` and `alembic current` returns `0173_catinat_branding_merge`. Repeat relevant inventory integration tests. Preserve evidence; do not claim PASS based solely on the previously completed SQLite smoke.
 
 ### Safe PostgreSQL clone migration command (only AFTER restore PASS)
 
-The guarded script `scripts/cam_catinat_migrate_restored_clone.py` reads the private restore evidence and `rehearsal.pgpass`, verifies the exact database identity + non-superuser account + Alembic source `0168` + source table counts, applies migration **only** to fixed local port 55432, and requires revision `0172`, six new Catinat tables and unchanged row counts afterwards.
+The guarded script `scripts/cam_catinat_migrate_restored_clone.py` reads the private restore evidence and `rehearsal.pgpass`, verifies the exact database identity + non-superuser account + Alembic source `0168` + source table counts, applies migration **only** to fixed local port 55432, and requires revision `0173`, six new Catinat tables and unchanged row counts afterwards.
 
 Do not run this if `RESTORE_REHEARSAL=PASS` and `RESTORE_SOURCE_REVISION=PASS` have not both been confirmed, or if the new cluster is missing. The script does not have any option to change host, port, database or username.
 
@@ -108,7 +108,7 @@ python3 scripts/cam_catinat_migrate_restored_clone.py \
   --python /root/creative-asset-manager/apps/api/.venv/bin/python
 ```
 
-Expect `ISOLATED_MIGRATION=PASS`, `SOURCE_REVISION=0168_branding_dna_outline_versions`, `TARGET_REVISION=0172_catinat_transfers`, `CREATED_CATINAT_TABLES=6`, `PRODUCTION_MIGRATION=NOT_RUN`. Stop on `BLOCKED` rather than rerunning against partially migrated clone.
+Expect `ISOLATED_MIGRATION=PASS`, `SOURCE_REVISION=0168_branding_dna_outline_versions`, `TARGET_REVISION=0173_catinat_branding_merge`, `CREATED_CATINAT_TABLES=6`, `PRODUCTION_MIGRATION=NOT_RUN`. Stop on `BLOCKED` rather than rerunning against partially migrated clone.
 
 ## Release activation conditions
 

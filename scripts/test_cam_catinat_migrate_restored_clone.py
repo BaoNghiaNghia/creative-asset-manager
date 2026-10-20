@@ -83,6 +83,7 @@ def inputs(tmp_path):
     (checkout / "database/migrations/versions").mkdir(parents=True)
     (checkout / "apps/api/alembic.ini").write_text("[alembic]\n")
     (checkout / "database/migrations/versions/0172_catinat_transfers.py").write_text("#mock")
+    (checkout / "database/migrations/versions/0173_merge_inventory_branding_heads.py").write_text("#mock")
     outfile = work / "migration-proof.json"
     return dict(evidence=evidence, pgpassfile=passfile, outfile=outfile,
                 checkout=checkout, python_path=Path(sys.executable), rehearsal_dir=work)
