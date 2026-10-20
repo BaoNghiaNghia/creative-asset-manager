@@ -4,6 +4,7 @@ import { BrandingDnaBrowserPlan } from "./BrandingDnaBrowserPlan";
 import { BrandingDnaHandoffReview } from "./BrandingDnaHandoffReview";
 import { BrandingDnaEvidenceImport } from "./BrandingDnaEvidenceImport";
 import { BrandingDnaEvidenceAssessment } from "./BrandingDnaEvidenceAssessment";
+import { BrandingDnaBrowserReviewQueue } from "./BrandingDnaBrowserReviewQueue";
 
 type Shop = {id: string; display_name: string; platform: string; access_mode: string};
 type Snapshot = {id: string; listing_key: string; source_revision: string; title: string;
@@ -107,6 +108,7 @@ export function BrandingDnaEvidence() {
         </select>
       </label>
     </header>
+    <BrandingDnaBrowserReviewQueue />
     {error && <p className="bdna-evidence-error" role="alert">{error}</p>}
     {(shops.find(shop => shop.id === shopId)?.platform === "amazon" || shops.find(shop => shop.id === shopId)?.platform === "etsy") &&
       <BrandingDnaBrowserPlan key={shopId} shopId={shopId} platform={shops.find(shop => shop.id === shopId)?.platform as "amazon" | "etsy"}/>}

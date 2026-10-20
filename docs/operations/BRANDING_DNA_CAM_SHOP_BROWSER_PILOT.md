@@ -165,6 +165,27 @@ All review responses explicitly keep `source_verified=false`,
 `scan_enabled=false`, `dispatchable=false` and `jobs_created=0`.
 Production browser dispatch remains intentionally disabled.
 
+## Operator Review Queue UI in Product Explorer (Phase 2.2)
+
+CAM `Branding DNA → Product Explorer` now contains the real Review Queue.
+An operator can select a tenant-scoped state filter, page through reports,
+open one report to inspect bounded DOM metadata, read its immutable review
+history, and submit a decision. The frontend never renders remote images,
+follows arbitrary marketplace URLs, grants permissions or issues scan jobs.
+
+The review form requires a single-line documentary reference when
+`consent_reference_recorded` is chosen, sends the current operator's
+explicit decision to the audited API and rejects unexpected
+`source_verified`/`rights_verified`/`scan_enabled` claims. The API
+continues to enforce reviewer != importer; the frontend does not attempt to
+infer identity from potentially stale client claims.
+
+Frontend release deploy uses `scripts/deploy-cam-frontend.sh` with an
+immutable committed `apps/client/dist`. Only the active and immediately
+previous verified releases are retained. A successful deployment does not
+restart image/video workers. The previous release stays available for
+rollback and older web releases are deleted to bound VPS disk growth.
+
 ## Tests and invariants
 
 - Unit tests: only CAM supplies shop URLs; inactive/unapproved/malformed or
