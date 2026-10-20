@@ -1,3 +1,12 @@
+## Branding DNA paired Windows CAM launcher (2026-10-20)
+
+- Change: new `start_cam_paired_agent.mjs` and root `START_CAM_PAIRED_AGENT.cmd` for real authenticated CAM presence from the existing Scout pairing. No local shop list, no copied secrets.
+- Permission boundary: the process remains `connected_waiting`; it cannot start an Amazon/Etsy browser, claim jobs, import third-party images or bypass independent marketplace authorization.
+- Migration/dependencies: none. No production API or database change.
+- Credential handling: existing `scout.local.env` is read locally and the bearer token is sent to CAM in the Authorization header only; console output reports redacted counts.
+- Verification: four paired launcher tests and five existing CAM agent contract tests passed (nine total) on the VPS; Windows 33-shop preflight reached CAM, with 33 inactive/unapproved shops. Windows process launch remains pending CodeLocal reconnect.
+- Rollback: stop the standalone runner and revert the launcher commit; the older Scout Manager remains unchanged.
+
 ## Gemini multi-model failover
 
 - Files changed: Gemini provider adapter, provider factory/configuration,
