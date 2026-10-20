@@ -66,6 +66,43 @@ def test_repair_function_restricts_file_names():
         conf._replace_dedicated_file("../../main/postgresql.conf",lambda text:text)
 
 
+
+
+def test_postgresql_distro_config_owner_can_be_postgres_or_root():
+    assert conf._allowed_config_owner(0, postgres_uid=120)
+    assert conf._allowed_config_owner(120, postgres_uid=120)
+    assert not conf._allowed_config_owner(9999, postgres_uid=120)
+
+
+def test_postgres_owned_file_preserves_identity_and_mode_when_repaired(tmp_path, monkeypatch):
+    import os
+    d = tmp_path / "catinat_rehearsal"
+    d.mkdir()
+    cfg = d / "postgresql.conf"
+    cfg.write_text("listen_addresses = 127.0.0.1\n")
+    cfg.chmod(0o640)
+    monkeypatch.setattr(conf, "CONF_DIR", d)
+    # Emulate allowed 'postgres' owner in a nonprivileged unit test
+    # while verifying correct uid/gid/mode preservation after atomic replace.
+    monkeypatch.setattr(conf, "_allowed_config_owner", lambda uid: True)
+    monkeypatch.setattr(conf.os, "fchown", lambda fd, uid, gid: None)
+    conf._replace_dedicated_file("postgresql.conf", conf.fix_postgresql_conf)
+    assert cfg.read_text() == "listen_addresses = '127.0.0.1'\n"
+    assert cfg.stat().st_mode & 0o777 == 0o640
+
+
+def test_reject_unknown_owner_before_modification(tmp_path, monkeypatch):
+    d = tmp_path / "catinat_rehearsal"
+    d.mkdir()
+    cfg = d / "postgresql.conf"
+    cfg.write_text("listen_addresses = 127.0.0.1\n")
+    monkeypatch.setattr(conf, "CONF_DIR", d)
+    monkeypatch.setattr(conf, "_allowed_config_owner", lambda uid: False)
+    with pytest.raises(conf.RehearsalConfigError, match="root or postgres"):
+        conf._replace_dedicated_file("postgresql.conf", conf.fix_postgresql_conf)
+    assert cfg.read_text() == "listen_addresses = 127.0.0.1\n"
+
+
 def test_only_test_cluster_configuration_path_is_hardcoded():
     assert str(conf.CONF_DIR)=="/etc/postgresql/16/catinat_rehearsal"
     assert "main" not in str(conf.CONF_DIR)

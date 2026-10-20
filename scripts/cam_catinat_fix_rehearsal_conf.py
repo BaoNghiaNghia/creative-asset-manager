@@ -12,6 +12,7 @@ Never targets production's PostgreSQL main cluster.
 from __future__ import annotations
 
 import os
+import pwd
 from pathlib import Path
 import re
 import stat
@@ -60,6 +61,20 @@ def fix_pg_hba_conf(text: str) -> str:
     return "".join(lines)
 
 
+def _allowed_config_owner(owner_uid: int, *, postgres_uid: int | None = None) -> bool:
+    """Debian pg_createcluster uses postgres-owned configuration files.
+
+    Permit only root or the operating-system postgres account, never arbitrary
+    owners. Existing uid/gid/mode are preserved atomically on replacement.
+    """
+    if postgres_uid is None:
+        try:
+            postgres_uid = pwd.getpwnam("postgres").pw_uid
+        except KeyError as exc:
+            raise RehearsalConfigError("Postgres OS account missing.") from exc
+    return owner_uid in {0, postgres_uid}
+
+
 def _replace_dedicated_file(name: str, transform) -> None:
     if name not in ("postgresql.conf", "pg_hba.conf"):
         raise RehearsalConfigError("Only the dedicated rehearsal cluster config may be edited.")
@@ -67,8 +82,8 @@ def _replace_dedicated_file(name: str, transform) -> None:
     if path.is_symlink() or CONF_DIR.is_symlink():
         raise RehearsalConfigError("Rehearsal config path cannot be a symlink.")
     info = path.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0:
-        raise RehearsalConfigError("Rehearsal config must be a root-owned regular file.")
+    if not stat.S_ISREG(info.st_mode) or not _allowed_config_owner(info.st_uid):
+        raise RehearsalConfigError("Rehearsal config must be a regular file owned by root or postgres.")
     before = path.read_text(encoding="utf-8")
     after = transform(before)
     if after == before:
