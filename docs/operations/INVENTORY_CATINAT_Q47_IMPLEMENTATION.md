@@ -19,6 +19,14 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - `daily/catinat_signed_shift.py`: authenticated-actor **caller contract**, mandatory server-derived fresh sheet hash callback, atomic database transaction and replay validation; conflicting second close is refused. Pending transfers and unresolved discrepancies are always blocked until a **separate trusted approval workflow** is implemented. Does not write Sheets or perform carry-forward.
 - `test_catinat_signed_shift.py`: SQLite persistence/idempotency/source-mismatch tests. **This is not yet a usable employee close endpoint**; caller RBAC, manager approvals, source-to-cell mappings and UI still have to be integrated.
 
+## Q44 exception approvals (new in this iteration)
+
+- Migration `0170_catinat_approvals`: tenant-scoped `inventory_catinat_approval_requests` and append-only `inventory_catinat_approval_events` with per-tenant idempotency key, proposal hash, immutable requesting actor, decision actor/time and decision reason.
+- `daily/catinat_approvals.py` safely queues five categories only: discrepancy, catalog mapping, package conversion, post-close adjustment and pending-transfer exception. Self-approval, repeated conflicting decisions, cross-tenant access, duplicate key with changed payload and payload over 8KB are rejected. **Approvals DO NOT perform Sheets writes, adjust stock, override food safety or change signed closing snapshots.** The downstream evidence-bound application workflow remains pending.
+- `daily/catinat_approval_router.py` adds authenticated `/api/inventory/daily-sheet/catinat/approvals` list/read/create/decision endpoints. Create requires `inventory.review` or `inventory.control`; list/read require `inventory.read`; decision requires **both** `inventory.finalize` permission and a tenant-admin/approved-manager role (or platform admin). Actor is taken exclusively from authenticated `principal.user_id`. Account-specific staff/shift-leader role grants must be audited during rollout.
+- `InventoryCatinatApprovals.tsx` and Inventory navigation add a Vietnamese exception work queue for staff and managers. Generic JSON evidence is an interim operator UI, not final row-aware physical-count confirmation.
+- Tests in `test_catinat_approvals.py` cover database isolation, audit events, idempotency, manager role and cross-tenant protections. **No production migration or deployment has been run.**
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
