@@ -60,6 +60,27 @@ redirects, missing title or invalid product links. It records
 images or claimed sales, and writes a local report only. No automatic
 download/upload occurs.
 
+## Curated shop lifecycle — no silent activation
+
+New CAM operator endpoint:
+`POST /api/v1/branding-dna/shops/{shop_id}/lifecycle`
+with operator permission `ai_provider.configure`.
+For **active**, the JSON payload must contain
+`{"status":"active","declaration_id":"<latest approved declaration UUID>","acknowledge_marketplace_rights_not_verified":true}`.
+The latest declaration must document an `owned` or `authorized`
+relationship, with an independently recorded `documentation_noted`
+review. Old, unreviewed, rejected and competitor-only declarations are
+rejected. The endpoint changes the catalog's `status/access_mode` only:
+`rights_verified=false`, `scan_enabled=false`,
+`dispatchable=false`, `jobs_created=0`. It never modifies any queue.
+
+An active shop can be paused using
+`{"status":"paused","acknowledge_marketplace_rights_not_verified":true}`
+without the paperwork required for activation. There is no bulk activation.
+The separately recorded marketplace terms and exact-shop authorization
+still gate the local Browser Pilot. A shop being `active` is NOT permission
+to crawl or proof that an Amazon/Etsy adapter can run unattended.
+
 ## Current production blockers
 
 Production audit on 2026-10-20 observed **33 shops** (1 Amazon, 32 Etsy),
