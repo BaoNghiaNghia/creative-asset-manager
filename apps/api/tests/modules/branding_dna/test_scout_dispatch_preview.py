@@ -82,6 +82,9 @@ def test_preview_lists_blockers_without_dispatching_or_leaking_shops(db):
     item = result["items"][0]
     assert item["platform"] == "amazon"
     assert item["staged_tasks"] == 1
+    assert item["queue"]["staged"] == 1
+    assert result["queue_totals"]["staged"] == 1
+    assert result["queue_totals"]["pending"] == 0
     assert item["status"] == "blocked"
     assert "scan_task_dispatch_not_deployed" in item["blockers"]
     assert "marketplace_authorization_not_verified" in item["blockers"]
@@ -116,6 +119,7 @@ def test_preview_lists_blockers_without_dispatching_or_leaking_shops(db):
     assert other["shop_count"] == 1
     assert other["items"][0]["platform"] == "etsy"
     assert other["items"][0]["staged_tasks"] == 0
+    assert other["queue_totals"]["staged"] == 0
     assert "etsy_written_permission_not_verified" in other["items"][0]["blockers"]
 
 
@@ -130,6 +134,7 @@ def test_preview_requires_active_pairing_and_never_returns_lease(db):
                              authorization="Bearer " + TOKEN, session=db)
     assert empty["items"] == []
     assert empty["ready_count"] == 0
+    assert empty["queue_totals"]["leased"] == 0
     assert "job" not in empty
     assert "lease" not in empty
     agent.active = False

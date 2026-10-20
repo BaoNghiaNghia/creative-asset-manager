@@ -15,6 +15,7 @@ from app.providers.ai.codex_image import (
     list_codex_skill_manifests,
     load_codex_skill_manifest,
     recommend_codex_skill,
+    _isolated_job_codex_home,
 )
 
 
@@ -57,6 +58,9 @@ def test_codex_runner_materializes_role_files_and_scrubs_api_credentials(
             self.stderr = asyncio.StreamReader()
             self.stderr.feed_eof()
             workspace = Path(str(captured["workspace"]))
+            cache = workspace / ".codex-runtime" / "generated_images"
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "review-draft.png").write_bytes(_png(15))
             output = workspace / "output" / "final.png"
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(_png(210))
@@ -122,12 +126,15 @@ def test_codex_runner_materializes_role_files_and_scrubs_api_credentials(
     assert "product-front.png" in argv[-1]
     assert captured["stdin"] == asyncio.subprocess.DEVNULL
     env = dict(captured["env"])
-    assert env["CODEX_HOME"] == str(codex_home)
+    assert env["CODEX_HOME"] == str(staging_root / "codex" / "attempt-1" / ".codex-runtime")
     assert "OPENAI_API_KEY" not in env
     assert "OPENAI_PROJECT" not in env
     workspace = Path(str(captured["workspace"]))
     assert (workspace / "person.png").is_file()
     assert (workspace / "product-front.png").is_file()
+    assert (workspace / ".codex-runtime" / "skills").is_symlink()
+    assert not (codex_home / "generated_images").exists()
+    assert not (workspace / ".codex-runtime" / "generated_images").exists()
 
 
 def test_codex_runner_classifies_usage_limit_as_deferred():

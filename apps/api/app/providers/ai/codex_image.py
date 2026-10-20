@@ -207,6 +207,51 @@ def _safe_stem(value: str, *, fallback: str) -> str:
     return (normalized or fallback)[:64]
 
 
+def _isolated_job_codex_home(source_home: Path, workspace: Path) -> Path:
+    """Make imagegen cache job-owned while reusing account login and skills.
+
+    Never copy auth tokens into the staging area. Only explicit read-only
+    configuration/credential/skill links are shared with the account home.
+    Codex writes generated_images and temporary state under this private
+    job directory, which is independently cleaned on job completion.
+    """
+    root = workspace.resolve()
+    if workspace.is_symlink() or not workspace.is_dir():
+        raise CodexImageProviderError(
+            "codex_job_home_invalid", "Image job workspace is unsafe."
+        )
+    home = workspace / ".codex-runtime"
+    if home.is_symlink() or (home.exists() and not home.is_dir()):
+        raise CodexImageProviderError(
+            "codex_job_home_invalid", "Isolated Codex runtime is unsafe."
+        )
+    home.mkdir(mode=0o700, exist_ok=True)
+    home.chmod(0o700)
+    if not home.resolve().is_relative_to(root):
+        raise CodexImageProviderError(
+            "codex_job_home_invalid", "Isolated Codex runtime escaped its workspace."
+        )
+    for name in ("auth.json", "config.toml", "managed_config.toml",
+                 "skills", "rules", "prompts", "AGENTS.md", "plugins"):
+        source = source_home / name
+        dest = home / name
+        if dest.is_symlink():
+            if dest.resolve() != source.resolve() or not source.exists():
+                raise CodexImageProviderError(
+                    "codex_job_home_invalid", "Isolated Codex credential link changed."
+                )
+            continue
+        if dest.exists():
+            raise CodexImageProviderError(
+                "codex_job_home_invalid", "Isolated Codex runtime contains an unexpected shared path."
+            )
+        if source.exists():
+            dest.symlink_to(source, target_is_directory=source.is_dir())
+    # Imagegen PNGs must NOT land under source_home/generated_images.
+    (home / "generated_images").mkdir(mode=0o700, exist_ok=True)
+    return home
+
+
 def _codex_env(codex_home: Path) -> dict[str, str]:
     env = dict(os.environ)
     env["CODEX_HOME"] = str(codex_home)
@@ -529,6 +574,9 @@ class CodexImageGenRunner:
                 f"FINAL INSTRUCTION: continue with ONLY {missing_text}. "
                 "Do not repeat all six, do not output an image sheet, and do not use an API-key fallback."
             )
+        # Use a separate CODEX_HOME for every job. A shared account HOME
+        # preserves authentication/skills, while imagegen cache is private.
+        execution_home = _isolated_job_codex_home(codex_home, workspace)
         argv = [
             binary,
             "exec",
@@ -554,7 +602,7 @@ class CodexImageGenRunner:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=_codex_env(codex_home),
+                env=_codex_env(execution_home),
                 start_new_session=True,
             )
             stdout, stderr = await stream_codex_process(
@@ -602,6 +650,18 @@ class CodexImageGenRunner:
                 "Codex CLI could not be started on this worker.",
                 retryable=True,
             ) from exc
+        finally:
+            # The isolated imagegen cache contains review/draft images, not
+            # final deliverables. Remove it as soon as the Codex CLI exits,
+            # including failed/timed-out attempts. Keep output/final/ for
+            # checkpointed Drive retries. Never touch the account HOME.
+            if "process" not in locals() or process.returncode is not None:
+                transient = execution_home / "generated_images"
+                try:
+                    if not transient.is_symlink() and transient.is_dir():
+                        shutil.rmtree(transient)
+                except OSError:
+                    pass
         if checkpoint_hashes:
             preserved_changed = False
             for number, digest in checkpoint_hashes.items():
@@ -973,10 +1033,10 @@ class CodexImageGenRunner:
             ) from exc
 
     def cleanup_previews(self, attempt_id: str) -> None:
-        """Remove only the Stage 1 ephemeral preview subtree.
+        """Remove transient review images and private Codex imagegen cache.
 
-        Preserve output/final checkpoints even if image generation or Drive
-        upload failed. Never traverse symlinked workspaces or parent folders.
+        Preserve output/final checkpoints during Drive failure or recovery.
+        Never touch the account-level auth HOME or another job workspace.
         """
         if not attempt_id or attempt_id in (".", "..") or "/" in attempt_id or "\\" in attempt_id:
             return
@@ -985,13 +1045,18 @@ class CodexImageGenRunner:
         if workspace.is_symlink() or working.is_symlink():
             return
         previews = working / "previews"
-        try:
-            if previews.is_symlink():
-                previews.unlink()
-            elif previews.is_dir():
-                shutil.rmtree(previews)
-        except OSError:
-            pass
+        runtime_cache = workspace / ".codex-runtime" / "generated_images"
+        for transient in (previews, runtime_cache):
+            try:
+                if transient.is_symlink():
+                    # Remove the link itself; never traverse its external
+                    # target. The preview link must not persist across retry.
+                    transient.unlink()
+                    continue
+                if transient.is_dir() and transient.resolve().is_relative_to(workspace.resolve()):
+                    shutil.rmtree(transient)
+            except (OSError, ValueError):
+                pass
 
     def cleanup_attempt(self, attempt_id: str) -> None:
         workspace = Path(self.config.staging_root).resolve() / "codex" / attempt_id

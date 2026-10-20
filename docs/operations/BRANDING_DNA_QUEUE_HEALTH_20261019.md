@@ -19,11 +19,16 @@ or terminal block rules. It only operates for the supplied tenant.
 The status breakdown is an aggregate; a `leased` row is **not proof** of a
 live browser session, and an `expired_leases` count is not an instruction
 to kill a process. The `staged_tasks` field remains the original strictly
-staged count for compatibility. The Windows Scout `dispatch-preview` response
-is unchanged and **does not expose the operator-only queue counters**.
+staged count for compatibility. The paired Windows Scout `dispatch-preview` endpoint exposes aggregate
+**counts only**, not individual task details or operator-only declarations.
 
 The Shop Library shows this information and refreshes while the page is
-visible approximately every 60 seconds. `scan_enabled` stays false,
+visible approximately every 60 seconds. As of the next release, paired
+Windows Scouts also receive tenant-scoped, aggregate-only `queue_totals` and
+per-shop `queue` counters from `dispatch-preview` (never lease identities,
+shop access evidence, arbitrary URLs or executable job payloads). This lets
+a Scout explain "connected but no job assigned" without attempting a scan.
+`scan_enabled` stays false,
 `ready_count` stays zero, and no operator or Scout action in this feature
 can start a marketplace browser.
 

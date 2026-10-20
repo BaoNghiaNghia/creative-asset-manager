@@ -116,8 +116,18 @@ def dispatch_preview(
     items = [
         {key: value for key, value in item.items()
          if key not in ("declaration_relationship", "declaration_status")}
-        for item in shop_scan_readiness(session, tenant_id=scout.tenant_id)
+        for item in shop_scan_readiness(
+            session, tenant_id=scout.tenant_id, include_queue=True,
+        )
     ]
+    # Operational diagnostics are read-only and tenant-scoped. A Scout may
+    # see queue counts, not task payloads, URLs, lease secrets or permission
+    # evidence. A queued job is not an executable browser instruction.
+    queue_totals = {
+        key: sum(item["queue"].get(key, 0) for item in items)
+        for key in ("staged", "pending", "leased", "retry", "blocked",
+                    "completed", "cancelled", "expired_leases", "due_retries")
+    }
     response.headers["Cache-Control"] = "no-store"
     return {
         "version": 1,
@@ -131,5 +141,6 @@ def dispatch_preview(
         "shop_count": len(items),
         "blocked_count": len(items),
         "ready_count": 0,
+        "queue_totals": queue_totals,
         "items": items,
     }

@@ -1,9 +1,9 @@
 # Final-only asset persistence — Codex → CAM Managed Google Drive
 
-Status: enforced for final-output selection and blocked for automatic
-unclassified Codex image archives. Full per-job Codex tool-cache cleanup is
-**not implemented yet**. Do not misrepresent "no lasting previews" as
-"the Codex CLI never writes temporary PNGs".
+Status: final-output selection enforced, unclassified automatic Drive
+archiving blocked, and per-job isolated imagegen cache cleanup implemented.
+Codex CLI is still allowed to write **temporary** PNGs while executing.
+Do not describe this as "Codex never writes any local image".
 
 ## User-selected policy
 
@@ -73,19 +73,24 @@ images as a replacement. Job-specific tests assert this.
   `CODEX_HOME/generated_images` PNGs by default. Its historical archive
   mode is explicit `--legacy-recovery` (operator-only), NOT in systemd.
   The Drive-backed final cleanup timer remains available.
-- **Not yet complete**: Codex's own imagegen can still write to shared
-  `CODEX_HOME/generated_images`. Determining which of those belong to a
-  completed/retrying job requires a per-job manifest/isolated cache or
-  positive ownership mapping. Until implemented, unknown PNGs cannot be
-  safely deleted; they must not be uploaded as final either.
-- Build a per-job temp-cache manifest (source sha256/inode/mtime, account ID,
-  job+lease ID, final classification), and cleanup transactionally only
-  after Drive verification. Isolate worker homes if Codex imagegen supports
-  it without altering account authentication. Tests: concurrency across
-  two accounts, partial six-final retry, failed Drive upload, timeout,
-  process crash, file replacement and stage-specific mixed final/review
-  outputs. Monitor and alert on stale tmp bytes, pending uploads and
-  unclassified cache growth.
+- **Per-job cache isolation implemented:** image workers launch Codex CLI
+  with `CODEX_HOME=<job workspace>/.codex-runtime`, containing symlinks
+  only to permitted persistent account auth/config/skills/plugins. Codex
+  imagegen writes to the private `generated_images` inside that job;
+  cleanup removes it immediately when CLI exits (including failed attempts),
+  and Stage 1 cleanup also removes previews while preserving retryable
+  `output/final/` checkpoints. Account auth and skills remain shared.
+- Historical images already stored under the two **old** shared account
+  `generated_images` folders have no per-job ownership evidence; the new
+  cleanup deliberately does not delete or upload these as finals.
+- Verification: a smoke `codex login status` with an isolated HOME returned
+  `Logged in using ChatGPT` under root. A smoke under the production
+  `creative-assets` user was blocked by CodeLocal workspace restrictions,
+  so full new-job imagegen QA on the service account still needs observation.
+  Unit/regression tests cover isolation, safe symlink cleanup, final
+  checkpoints and tenant-scoped production response contracts.
+- Monitor cache growth, failed image uploads and staged retries after
+  deployment. Do not re-enable legacy archive mode automatically.
 
 ## Operational caveat
 
