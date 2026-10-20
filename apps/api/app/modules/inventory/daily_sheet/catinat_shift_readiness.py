@@ -159,6 +159,7 @@ def serialize_evening_readiness(
     }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {
         "business_date": business_date.isoformat(),
+        "spreadsheet_id": spreadsheet_id,
         "shift": "evening",
         "mode": "read_only_not_a_signed_close",
         "source_hash": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),

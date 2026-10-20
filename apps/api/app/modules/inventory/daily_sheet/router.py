@@ -20,6 +20,7 @@ from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
 from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_evening_readiness
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
+from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -667,3 +668,4 @@ def set_baseline(body: BaselineRequest, principal: CurrentPrincipal = Depends(re
 
 # Separate tenant-scoped manager approval API; approvals never apply inventory writes.
 router.include_router(catinat_approval_router)
+router.include_router(catinat_count_router)

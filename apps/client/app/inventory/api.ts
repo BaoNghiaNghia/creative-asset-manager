@@ -37,9 +37,32 @@ export type CatinatEveningReadiness = {
   staff_confirmation_available:false;automatic_carry_forward_allowed:false;
   sheets_writes:0;
 };
+export type CatinatCountConfirmationState = {
+  business_date:string; source_hash:string; source_status:string;
+  confirmed_count:number; required_count:number;
+  cells:Array<{sheet:string;cell:string;material:string;unit:string;
+    quantity:string|null;confirmed:boolean;confirmed_by:string|null}>;
+  official_shift_closed:false; automatic_carry_forward_allowed:false; sheets_writes:0;
+};
+export type CatinatConfirmCountRequest = {
+  business_date:string;expected_source_hash:string;
+  cells:Array<{sheet:string;cell:string}>;
+};
+export type CatinatCountConfirmationResult = {
+  business_date:string;source_hash:string;
+  confirmed:Array<{sheet:string;cell:string;quantity:string;confirmed_by:string}>;
+  official_shift_closed:false;inventory_write_performed:false;sheets_writes:0;
+};
 export const catinatShiftApi = {
   readiness:(businessDate:string)=>request<CatinatEveningReadiness>(
     "/daily-sheet/catinat/shift/readiness?business_date="+encodeURIComponent(businessDate),
+  ),
+  confirmations:(businessDate:string)=>request<CatinatCountConfirmationState>(
+    "/daily-sheet/catinat/shift/count-confirmations?business_date="+encodeURIComponent(businessDate),
+  ),
+  confirmCounts:(body:CatinatConfirmCountRequest)=>request<CatinatCountConfirmationResult>(
+    "/daily-sheet/catinat/shift/count-confirmations",
+    {method:"POST",body:JSON.stringify(body)},
   ),
 };
 
