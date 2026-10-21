@@ -43,8 +43,12 @@
     },
     {
       "name": "human-attestation-collapsed",
-      "click": ".ops-inventory-human-actions > summary",
-      "waitFor": ".ops-inventory-human-buttons button",
+      "click": ".ops-inventory-human-actions:not([open]) > summary",
+      "press": {
+        "selector": ".ops-inventory-human-actions[open] > summary",
+        "key": "Enter"
+      },
+      "waitFor": ".ops-inventory-human-actions:not([open]) > summary",
       "waitMs": 100
     }
   ]
