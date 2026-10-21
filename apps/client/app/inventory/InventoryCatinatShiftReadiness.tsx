@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   catinatShiftApi, catinatApprovalApi, InventoryApiError, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
-  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage,
+  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage, type CatinatPackageConversionReview,
 } from "./api";
 
 function todayVietnam(){
@@ -82,6 +82,7 @@ export function InventoryCatinatShiftReadiness(){
   const [preflight,setPreflight]=useState<CatinatClosePreflight|null>(null);
   const [catalog,setCatalog]=useState<CatinatCatalogMapping|null>(null);
   const [coverage,setCoverage]=useState<CatinatCertificationCoverage|null>(null);
+  const [conversions,setConversions]=useState<CatinatPackageConversionReview|null>(null);
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -96,6 +97,7 @@ export function InventoryCatinatShiftReadiness(){
     setPreflight(null);
     setCatalog(null);
     setCoverage(null);
+    setConversions(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -104,20 +106,23 @@ export function InventoryCatinatShiftReadiness(){
   },[businessDate]);
 
   async function readCurrent(){
-    const [next,proof,safety,mapping,verification]=await Promise.all([
+    const [next,proof,safety,mapping,verification,units]=await Promise.all([
       catinatShiftApi.readiness(businessDate),
       catinatShiftApi.confirmations(businessDate),
       catinatShiftApi.closingPreflight(businessDate),
       catinatShiftApi.catalogMappingPreview(businessDate),
       catinatShiftApi.certificationCoverage(businessDate),
+      catinatShiftApi.packageConversionReview(businessDate),
     ]);
     if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash
-       || next.source_hash!==mapping.source_hash || next.source_hash!==verification.source_hash){
+       || next.source_hash!==mapping.source_hash || next.source_hash!==verification.source_hash
+       || next.source_hash!==units.source_hash){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
       setCatalog(null);
     setCoverage(null);
+    setConversions(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
@@ -125,6 +130,7 @@ export function InventoryCatinatShiftReadiness(){
     setPreflight(safety);
     setCatalog(mapping);
     setCoverage(verification);
+    setConversions(units);
   }
 
   async function load(){
@@ -136,6 +142,7 @@ export function InventoryCatinatShiftReadiness(){
     setPreflight(null);
     setCatalog(null);
     setCoverage(null);
+    setConversions(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -189,6 +196,7 @@ export function InventoryCatinatShiftReadiness(){
       setPreflight(null);
       setCatalog(null);
     setCoverage(null);
+    setConversions(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
@@ -223,6 +231,7 @@ export function InventoryCatinatShiftReadiness(){
          JSON.stringify(currentLocation)!==JSON.stringify(oldLocation)){
         setCatalog(null);
     setCoverage(null);
+    setConversions(null);
         setMappingDraft(null);
         reviewKey.current=null;
         throw new Error("Dữ liệu Sheets/danh mục đã thay đổi. Tải lại trước khi tạo yêu cầu.");
@@ -336,6 +345,42 @@ export function InventoryCatinatShiftReadiness(){
         </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
+      </section>}
+      {conversions&&<section aria-label="Kiểm tra quy đổi nguyên liệu Catinat">
+        <h3>Kiểm tra quy đổi bao bì và đơn vị nguyên liệu</h3>
+        <p className="inventory-muted">
+          Tìm thấy chứng cứ quy đổi có người duyệt và khớp danh mục ở
+          {" "}{conversions.summary.approved_conversion_evidence_cells}/
+          {conversions.summary.total_cells} ô đã đọc. Các ô tồn lẻ hoặc không cần quy đổi
+          được phân loại riêng; không tính là quy đổi đã được duyệt.
+          <strong> Chưa quy đổi số tồn, chưa ghi sổ hoặc chốt ca.</strong>
+        </p>
+        <details>
+          <summary>Xem trạng thái quy đổi theo từng ô ({conversions.items.length})</summary>
+          <div style={{overflowX:"auto"}}>
+            <table>
+              <thead><tr><th>Kho</th><th>Ô</th><th>Nguyên liệu</th><th>Đơn vị trên Sheets</th><th>Bằng chứng và việc cần làm</th></tr></thead>
+              <tbody>{conversions.items.map(row=><tr key={itemKey(row.sheet,row.cell)}>
+                <td>{row.sheet}</td><td>{row.cell}</td><td>{row.material}</td>
+                <td>{row.form==="whole"?"Nguyên":"Lẻ"} · {row.source_unit}</td>
+                <td>{{
+                  catalog_mapping_requires_review:"Đối chiếu nguyên liệu và đơn vị trong danh mục trước",
+                  whole_unit_mismatch:"Đơn vị bao bì không khớp danh mục",
+                  loose_unit_mismatch:"Đơn vị tồn lẻ không khớp danh mục",
+                  loose_unit_matches_catalog:"Đơn vị tồn lẻ khớp, không chứng nhận quy đổi",
+                  conversion_not_needed_same_unit:"Đơn vị nguyên và lẻ giống nhau, không cần quy đổi",
+                  approved_package_conversion_missing:"Chưa có hệ số quy đổi được xác nhận riêng",
+                  package_conversion_not_approved:"Có hệ số nhưng chưa có người phê duyệt",
+                  approved_conversion_unit_or_factor_invalid:"Đơn vị đích hoặc hệ số không hợp lệ",
+                  approved_conversion_disagrees_with_catalog:"Hệ số đã duyệt khác dữ liệu danh mục",
+                  approved_conversion_evidence_found:"Có chứng cứ duyệt — chưa áp dụng vào tồn",
+                }[row.status]||row.status}
+                {row.approved_factor_evidence&&row.approved_target_unit_evidence?
+                  " · 1 bao bì = "+row.approved_factor_evidence+" "+row.approved_target_unit_evidence:""}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </details>
       </section>}
       {coverage&&<section aria-label="Tiến độ xác minh ba khu vực Catinat">
         <h3>Tiến độ xác minh danh mục ba khu vực</h3>

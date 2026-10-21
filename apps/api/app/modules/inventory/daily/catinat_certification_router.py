@@ -11,6 +11,7 @@ from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_eveni
 from app.modules.inventory.daily_sheet.google_client import DailySheetProviderError
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
 from app.modules.inventory.daily.catinat_catalog_coverage import catalog_evidence_coverage
+from app.modules.inventory.daily.catinat_conversion_review import read_only_conversion_review
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_catalog_certifications import (
     CatinatCatalogCertificationService, CatinatCertificationBlocked,
@@ -61,6 +62,30 @@ def get_catalog_certification_coverage(
             business_date=business_date, current_readiness=lambda: ready,
         )
         return catalog_evidence_coverage(
+            SessionLocal, tenant_id=principal.active_tenant_id,
+            business_date=business_date, report=report,
+        )
+    except CatinatCountBlocked as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
+
+
+@router.get("/conversion-review")
+def get_package_conversion_review(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Inspect manager-approved package evidence without inventory/Sheets writes."""
+    try:
+        ready = load_evening_readiness(
+            principal.active_tenant_id, business_date, sessions=SessionLocal,
+        )
+        report = CatinatCatalogMappingPreview(SessionLocal).inspect(
+            tenant_id=principal.active_tenant_id, business_date=business_date,
+            current_readiness=lambda: ready,
+        )
+        return read_only_conversion_review(
             SessionLocal, tenant_id=principal.active_tenant_id,
             business_date=business_date, report=report,
         )

@@ -80,6 +80,29 @@ describe("Catinat shift readiness",()=>{
     });
   });
 
+  it("reads package conversion evidence without applying it or closing inventory",async()=>{
+    const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
+      ok:true,json:async()=>({
+        business_date:"2026-10-20",source_hash:"a".repeat(64),
+        mode:"read_only_package_conversion_evidence",
+        summary:{total_cells:1,approved_conversion_evidence_cells:0,
+          by_status:{approved_package_conversion_missing:1}},
+        items:[],conversion_applied:false,ready_to_sign:false,
+        automatic_carry_forward_allowed:false,
+        inventory_writes:0,sheets_writes:0,
+      }),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    const result=await catinatShiftApi.packageConversionReview("2026-10-20");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/catalog-certifications/conversion-review?business_date=2026-10-20"
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+    expect(result.conversion_applied).toBe(false);
+    expect(result.sheets_writes).toBe(0);
+    expect(result.summary.by_status.approved_package_conversion_missing).toBe(1);
+  });
+
   it("reads manager evidence coverage without activating mapping or writing Sheets",async()=>{
     const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
       ok:true,json:async()=>({

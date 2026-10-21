@@ -115,7 +115,23 @@ export type CatinatCertificationCoverage = {
   mapping_activated:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
   inventory_writes:0;sheets_writes:0;
 };
+export type CatinatPackageConversionReview = {
+  business_date:string;source_hash:string;
+  mode:"read_only_package_conversion_evidence";
+  items:Array<{sheet:string;cell:string;material:string;form:string;
+    source_unit:string;status:string;
+    approved_factor_evidence:string|null;
+    approved_target_unit_evidence:string|null;
+    conversion_applied:false}>;
+  summary:{total_cells:number;by_status:Record<string,number>;
+    approved_conversion_evidence_cells:number};
+  conversion_applied:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
 export const catinatShiftApi = {
+  packageConversionReview:(businessDate:string)=>request<CatinatPackageConversionReview>(
+    "/daily-sheet/catinat/catalog-certifications/conversion-review?business_date="+encodeURIComponent(businessDate),
+  ),
   certificationCoverage:(businessDate:string)=>request<CatinatCertificationCoverage>(
     "/daily-sheet/catinat/catalog-certifications/coverage?business_date="+encodeURIComponent(businessDate),
   ),

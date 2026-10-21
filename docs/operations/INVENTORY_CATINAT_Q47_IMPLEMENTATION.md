@@ -117,6 +117,14 @@ clone already found at revision 0173. Production migration was not run.
 - This is **coverage of human-certified evidence, not active stock mapping**. The response hard-sets `mapping_activated=false`, `ready_to_sign=false`, `automatic_carry_forward_allowed=false`, `inventory_writes=0` and `sheets_writes=0`. The official closing preflight remains fail-closed and unchanged.
 - Only the existing protected warehouse-registration editor may create canonical locations **after physical manager verification**. There is no automatic seeding of the three warehouses. Requires real manager-reviewed locations/materials before a Catinat operator can produce signed certification evidence.
 
+## Q31 follow-up — read-only package conversion evidence (21 Oct 2026)
+
+- New `GET /api/inventory/daily-sheet/catinat/catalog-certifications/conversion-review?business_date=...` requires `inventory.read`; it uses the server-bound tenant workbook, validates the same source hash, enumerates all three known stock areas and never accepts client-supplied item/location conversion parameters.
+- Per source cell, this review distinguishes loose stock whose unit matches the catalog from whole-package stock that **requires an independently manager-approved package conversion record**. The legacy `inventory_items.conversion_factor` value alone is explicitly **not** authorization.
+- For whole packages with a distinct loose/base unit, only an existing `InventoryMaterialPackageConversionModel` record with matching normalized whole-unit package key, explicit nonempty `approved_by`, matching canonical target unit, positive finite factor, and agreement with the catalog's factor is marked `approved_conversion_evidence_found`. Missing/unapproved/conﬂicting evidence is shown as a problem, never silently converted.
+- Results are informative evidence only: `conversion_applied=false`, `ready_to_sign=false`, `automatic_carry_forward_allowed=false`, `inventory_writes=0`, `sheets_writes=0`. The Catinat evening page cross-checks the conversion report hash against its existing fresh source-bound count, mapping and manager-certification reports.
+- Existing `package_conversion` manager approval requests are **not** equivalent to durable approved conversion factors; the **separate reviewed conversion writer, physical batch/expiry/waste ledger, transfer stock posting, and concurrent Sheets write-protection** remain STOP gates before actual closing/carry-forward. No 0175 migration or automatic factor seeding is introduced by this change.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
