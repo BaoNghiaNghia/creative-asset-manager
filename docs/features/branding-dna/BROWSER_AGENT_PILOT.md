@@ -1,5 +1,13 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — Bounded visible storefront scrolling v0.2.10
+
+The reviewed Windows pilot reads visible product cards from top to bottom
+using up to eight normal Chromium viewport scroll steps, clicks each permitted
+product link, and resumes from per-shop checkpoints. It does not claim full
+shop coverage or change tenant access levels. Access requirements for every
+marketplace remain in force. A site refusal ends the pilot.
+
 ## 2026-10-21 — Local CAM shop-by-shop visible runner v0.2.9
 
 Provides an explicit operator-only, sequential `--run-approved` command using

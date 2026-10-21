@@ -1,4 +1,25 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.9
+# Branding DNA Windows Worker — Windows Portable v0.2.10
+
+## v0.2.10 — Bounded top-to-bottom browser scroll
+
+For a **separately authorized** Amazon/Etsy shop, the visible Chromium pilot
+now scrolls down in up to eight controlled viewport steps to discover product
+cards loaded below the fold. It deduplicates observed listing keys, skips
+previously completed checkpoint keys, returns to the shop top, clicks visible
+product links (same-tab or popup) and reads each bounded product detail.
+Only at most 3 shop products per serial batch and 5 per direct pilot invocation
+are handled. Each call is finite and must be deliberately started.
+
+These are normal browser UI interactions; the Agent user-agent is always
+disclosed. Browsing halts on CAPTCHA, access denied, login or unusual-traffic
+warnings. No stealth or proxy rotation, internal APIs, background full-shop
+crawl, auto-approval, remote job lease or media download is added. A published
+shop URL does not establish authority to automate access.
+Etsy automation needs **express written authorization from Etsy**, whether
+the shop belongs to the operator or a competitor; Amazon Agent Policy must
+be reviewed and respected. A shop with no verified permission remains blocked.
+
+
 
 ## v0.2.9 — Serial CAM shop browser operator runner
 

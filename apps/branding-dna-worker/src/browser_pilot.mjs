@@ -103,24 +103,56 @@ export function isBlockingPage(title,body){
   return null;
 }
 
-async function collectVisibleLinks(page,shop,interactionMode="direct",skipKeys=new Set()){
+/** Find visible product links in DOM order while reading a bounded portion
+ * of the storefront from top to bottom. This only uses the visible browser's
+ * normal page scroll. It does not enumerate private endpoints, paginate,
+ * bypass a site challenge or claim the entire shop was visited.
+ */
+export async function collectVisibleLinks(page,shop,interactionMode="direct",skipKeys=new Set(),
+    {limit=MAX_PRODUCT_PAGES,wait=delay,maxScrollSteps=8}={}){
+  if(!Number.isInteger(limit)||limit<1||limit>MAX_PRODUCT_PAGES||
+      !Number.isInteger(maxScrollSteps)||maxScrollSteps<0||maxScrollSteps>12)
+    throw Error("invalid_bounded_scroll_limits");
   const selectors=shop.platform==="etsy"?'a[href*="/listing/"]':'a[href*="/dp/"],a[href*="/gp/product/"]';
   const anchors=interactionMode==="visible_click" ? page.getByRole("link") : page.locator(selectors);
   await anchors.first().waitFor({state:"attached",timeout:10000}).catch(()=>{});
   const seen=new Set(), found=[];
-  const count=Math.min(await anchors.count(),150);
-  for(let i=0;i<count && found.length<MAX_PRODUCT_PAGES;i++){
-    const node=anchors.nth(i);
-    if(!(await node.isVisible().catch(()=>false)))continue;
-    const href=await node.getAttribute("href");
-    if(!href)continue;
-    try{
-      const link=assertProductLink(href,shop);
-      if(seen.has(link.key) || skipKeys.has(link.key))continue;
-      seen.add(link.key);
-      found.push(link);
-    }catch{/* skip unrelated and unsafe links */}
+  // Real Playwright supports evaluate(). Test doubles without it use the
+  // original first-page DOM pass; they cannot manufacture scroll coverage.
+  const scrolling=interactionMode==="visible_click" && typeof page.evaluate==="function";
+  for(let step=0;step<=(scrolling?maxScrollSteps:0);step++){
+    const count=Math.min(await anchors.count(),350);
+    for(let i=0;i<count && found.length<limit;i++){
+      const node=anchors.nth(i);
+      if(!(await node.isVisible().catch(()=>false)))continue;
+      const href=await node.getAttribute("href");
+      if(!href)continue;
+      try{
+        const link=assertProductLink(href,shop);
+        if(seen.has(link.key) || skipKeys.has(link.key))continue;
+        seen.add(link.key);
+        found.push(link);
+      }catch{/* ignore unrelated, cross-domain and unsafe links */}
+    }
+    if(found.length===limit||!scrolling||step===maxScrollSteps)break;
+    // Normal deterministic scrolling to load public product cards; no
+    // randomized "human-like" mouse movement, stealth or API calls.
+    const movement=await page.evaluate(()=>{
+      const before=window.scrollY;
+      const amount=Math.max(360,Math.floor(window.innerHeight*0.8));
+      window.scrollBy(0,amount);
+      return {before,after:window.scrollY};
+    });
+    if(!movement || !Number.isFinite(movement.after) ||
+        movement.after<=movement.before)break;
+    await wait(600);
+    const body=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
+    if(isBlockingPage(await page.title(),body))
+      throw Error("marketplace_access_limited_on_scroll");
   }
+  // Let real Chromium scroll back to the storefront top. Playwright click()
+  // will scroll the chosen product card into view when it remains in the DOM.
+  if(scrolling)await page.evaluate(()=>window.scrollTo(0,0));
   return found;
 }
 
@@ -130,7 +162,7 @@ async function collectVisibleLinks(page,shop,interactionMode="direct",skipKeys=n
 // turn a failed click into an unreviewed direct HTTP navigation.
 async function clickVisibleProductLink(page,shop,link){
   const anchors=page.getByRole("link");
-  const count=Math.min(await anchors.count(),150);
+  const count=Math.min(await anchors.count(),350);
   for(let i=0;i<count;i++){
     const node=anchors.nth(i);
     if(!(await node.isVisible().catch(()=>false)))continue;
@@ -254,7 +286,7 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
     const blocker=isBlockingPage(await page.title(),summary);
     if(blocker)return {status:"needs_operator",platform,reason:blocker,items:[],scan_enabled:false};
-    const links=await collectVisibleLinks(page,shop,interactionMode,skipKeys);
+    const links=await collectVisibleLinks(page,shop,interactionMode,skipKeys,{limit:maxProducts,wait});
     if(links.length===0)return {
       status:"needs_operator",platform,
       reason:skipKeys.size ? "no_new_visible_listings_review_shop_page" : "no_visible_listings_or_parser_changed",
