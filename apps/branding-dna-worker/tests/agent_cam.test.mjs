@@ -38,13 +38,15 @@ test("dispatch preview is strictly read-only and never includes executable work"
   assert.equal(options.headers.Authorization,"Bearer "+config.token);
   return {ok:true,status:200,json:async()=>previewResponse};
  });
- assert.deepEqual(outcome,{available:true,blocked:2,stagedTasks:2});
+ assert.deepEqual(outcome,{available:true,blocked:2,stagedTasks:2,
+  blockedReasons:{scan_task_dispatch_not_deployed:2,marketplace_authorization_not_verified:2}});
  assert.deepEqual(await readDispatchPreview(config,async()=>({ok:false,status:404})),
-  {available:false,blocked:0,stagedTasks:0});
+  {available:false,blocked:0,stagedTasks:0,blockedReasons:{}});
  for(const bad of [
   {...previewResponse,scan_enabled:true},
   {...previewResponse,ready_count:1},
   {...previewResponse,items:[{...previewResponse.items[0],blockers:[]}]},
+  {...previewResponse,items:[{...previewResponse.items[0],blockers:["invalid code!"]},previewResponse.items[1]]},
  ])await assert.rejects(()=>readDispatchPreview(config,async()=>({
   ok:true,status:200,json:async()=>bad})),/dispatch_preview_cannot_enable_scan/);
 });
@@ -101,5 +103,6 @@ test("connection loop polls and heartbeats without any marketplace requests",asy
  assert.equal(reports[0].shops,0);
  assert.equal(reports[0].preview_available,true);
  assert.equal(reports[0].blocked_shops,0);
+ assert.deepEqual(reports[0].blocked_reasons,{});
  assert.ok(!JSON.stringify(reports).includes(config.token));
 });
