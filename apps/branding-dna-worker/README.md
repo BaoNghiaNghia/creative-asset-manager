@@ -1,4 +1,4 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.6"
+# Branding DNA Windows Worker — Windows Portable v0.2.7
 
 ## CAM paired Agent readiness diagnostics (2026-10-21)
 
@@ -10,6 +10,36 @@ the `cam_heartbeat` log includes the same aggregate counts. Shop URLs,
 bearer tokens, approval documents, and listing details are never logged.
 The existing Scout pairing is reused; no second local shop registry is
 introduced.
+
+## CAM Shop Library → resumable browser pilot (2026-10-21)
+
+A separately and explicitly approved shop can use the existing Windows browser
+pilot with durable progress while taking its URL exclusively from CAM:
+
+```powershell
+node apps/branding-dna-worker/src/cam_shop_pilot.mjs --resume `
+  --shop-id "SHOP_UUID_FROM_CAM" `
+  --approval-file "C:\\CAM-Private\\amazon-shop-approval.json" `
+  --profile-dir "C:\\CAM-Private\\chrome-amazon-shop" `
+  --report-dir "C:\\CAM-Private\\reports-amazon-shop" `
+  --env-file "scout.local.env"
+```
+
+Run only on an authorized **Windows** machine with Node 22.13+, pinned
+Playwright/Chromium and an individually reviewed approval document. This mode
+reuses the immutable report + per-shop SQLite checkpoint from the preexisting
+local pilot. Successfully observed listing keys are skipped on the next
+*explicit manual* run. Partial/blocked observations are never treated as
+completed. Reports are saved locally before checkpoint acknowledgment; after a
+crash, the next manual run reconciles them without deleting previous reports.
+Nothing uploads product media or unverified observations to CAM. The local
+approval remains mandatory for every invocation (Etsy requires documented
+written permission; Amazon requires Agent Policy review).
+
+The legacy `--report ABS_PATH` behavior remains available for one-off
+observation handoffs; `--resume --report-dir ABS_PATH` is a distinct opt-in
+mode and never schedules itself. One run stays capped at five product pages;
+it does not claim full-shop coverage.
 
 These diagnostics **do not create a scan job or open Amazon/Etsy**. As long
 as CAM reports `scan_task_dispatch_not_deployed` or

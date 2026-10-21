@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {fetchConfiguredShop,runCamShopPilot,summarizeCamShopPreflight,readPairingFile,prepareCamObservationReport} from "../src/cam_shop_pilot.mjs";
-import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
+import {fetchConfiguredShop,runCamShopPilot,runCamShopPilotWithProgress,summarizeCamShopPreflight,readPairingFile,prepareCamObservationReport} from "../src/cam_shop_pilot.mjs";
+import {mkdtempSync,writeFileSync,rmSync,readFileSync,readdirSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 
@@ -94,6 +94,55 @@ test("bounded browser pilot runs only on CAM shop with per-shop approval and no 
  assert.deepEqual(result,{status:"preview_completed",observed_count:2,
   evidence_committed:false,scan_enabled:false});
 });
+test("CAM-shop pilot resumes from immutable local per-shop checkpoints without rescanning",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-cam-progress-"));
+ try{
+  const approvalFile=join(dir,"approval.json"),reportDir=join(dir,"reports");
+  writeFileSync(approvalFile,JSON.stringify(approved));
+  const keys=["etsy:123456","etsy:789123"],visited=[];
+  const args={shopId:id,approvalFile,profileDir:join(dir,"chrome"),reportDir,maxProducts:2,
+    minimumDelayMs:10000,maximumDelayMs:18000};
+  const pilot=async opts=>{
+    visited.push({shop:opts.shopUrl,skip:[...opts.skipProductKeys]});
+    const key=keys[visited.length-1];
+    return {status:"preview_completed",platform:"etsy",observed_at:new Date().toISOString(),
+      scan_enabled:false,items:[{
+        listing_key:key,title:"Visible embroidered trucker hat",
+        source_kind:"browser_dom_observation",source_verification:"unverified",
+        rights_state:"unknown",sales_state:"unknown",
+      }]};
+  };
+  const first=await runCamShopPilotWithProgress(config,args,{request,pilot});
+  assert.equal(first.totalObserved,1);assert.equal(first.previouslySeen,0);
+  assert.equal(first.status,"preview_completed");assert.equal(first.count,1);
+  const second=await runCamShopPilotWithProgress(config,args,{request,pilot});
+  assert.equal(second.totalObserved,2);assert.equal(second.previouslySeen,1);
+  assert.deepEqual(visited.map(x=>x.skip),[[],["etsy:123456"]]);
+  assert.equal(visited[0].shop,shop.storefront_url);
+  const reports=readdirSync(reportDir).filter(name=>name.endsWith(".json"));
+  assert.equal(reports.length,2);
+  for(const filename of reports){
+    const content=readFileSync(join(reportDir,filename),"utf8");
+    assert.ok(!content.includes(config.token));
+    assert.ok(!content.includes(shop.storefront_url));
+    const saved=JSON.parse(content);
+    assert.equal(saved.scan_enabled,false);
+    assert.equal(saved.rights_verified,false);
+    assert.equal(saved.evidence_committed,false);
+  }
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+test("CAM shop pilot rejects missing approval before browser and preserves local state",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-cam-deny-"));let calls=0;
+ try{
+  await assert.rejects(()=>runCamShopPilotWithProgress(config,{
+   shopId:id,approvalFile:join(dir,"missing.json"),profileDir:join(dir,"chrome"),
+   reportDir:join(dir,"reports"),
+  },{request,pilot:async()=>{calls++;return {};}}),/approval_file_not_present_or_untrusted/);
+  assert.equal(calls,0);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
 test("prepares replay-stable quarantined DOM observation payload, no URLs or media",()=>{
  const shaA="a".repeat(64),shaB="b".repeat(64),shaC="c".repeat(64);
  const report={

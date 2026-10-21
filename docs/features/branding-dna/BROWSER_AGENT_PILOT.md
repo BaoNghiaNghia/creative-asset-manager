@@ -1,5 +1,28 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — CAM-source resumable manual pilot, Windows v0.2.7
+
+The same paired CAM Shop Library powers a new opt-in `--resume` invocation
+in `apps/branding-dna-worker/src/cam_shop_pilot.mjs`. A shop URL is
+resolved from CAM by its exact UUID; no second local shop catalog or source URL
+is needed. The existing, separately reviewed, exact-shop approval document is
+still mandatory. A durable per-shop SQLite checkpoint is reconciled from
+immutable Windows-local reports before each manually requested pilot run.
+Successfully observed product keys are skipped; unresolved/blocked pages never
+count as completed. Each invocation remains restricted to at most five product
+pages on the visible first shop page. It does not claim full coverage or
+automatically crawl multiple pages. No cookies, product media, shop URLs,
+credential values or unverified Best Seller claims are exported to CAM.
+
+The v0.2.7 portable **bootstrap** build now includes
+`src/cam_shop_pilot.mjs`, `src/start_cam_paired_agent.mjs`, and their tests;
+the older v0.2.6 packaging omitted these modules. CI publishes a checksummed
+ZIP artifact, not a native compiled executable. Windows runtime verification,
+permission evidence, live browser QA and eventual audited production dispatch
+are separate release gates. The standby agent continues to report zero real
+scan jobs until those gates are satisfied.
+
+
 ## 2026-10-17 Agent-only Windows UI, no local shop setup
 
 Scout Manager 0.1.34 replaces the manual pilot configuration screen with

@@ -8,6 +8,7 @@ import {dirname,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {settings} from "./agent_cam.mjs";
 import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
+import {runConfiguredPilot} from "./run_configured_pilot.mjs";
 
 const UUID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 
@@ -71,6 +72,26 @@ export async function runCamShopPilot(config,{shopId,approval,profileDir,
   shopUrl:shop.shopUrl,platform:shop.platform,authorization:approval,
   profileDir,maxProducts,minimumDelayMs,maximumDelayMs,interactionMode,headless,
  },deps.browserDeps);
+}
+
+/** CAM-authoritative shop selection with the same durable, per-shop
+ * checkpoint and immutable report contract as the existing local pilot.
+ * No task claim, background scan, marketplace API or automatic CAM import.
+ * Approval and local output locations are supplied explicitly by the
+ * operator, never from CAM's shop metadata.
+ */
+export async function runCamShopPilotWithProgress(config,{
+ shopId,approvalFile,profileDir,reportDir,maxProducts=3,
+ minimumDelayMs=10000,maximumDelayMs=18000,headless=false,
+ interactionMode="visible_click",
+},deps={}){
+ const shop=await fetchConfiguredShop(config,shopId,deps.request??fetch);
+ return runConfiguredPilot({
+  platform:shop.platform,shop_url:shop.shopUrl,
+  approval_file:approvalFile,profile_dir:profileDir,report_dir:reportDir,
+  max_products:maxProducts,minimum_delay_ms:minimumDelayMs,
+  maximum_delay_ms:maximumDelayMs,headless,interaction_mode:interactionMode,
+ },{runner:deps.pilot??runBrowserPilot});
 }
 
 /**
@@ -154,15 +175,28 @@ export function readPairingFile(filename){
 }
 export async function main(){
  const id=flag("--shop-id"),approvalFile=flag("--approval-file"),profileDir=flag("--profile-dir");
- const reportFile=flag("--report");
+ const reportFile=flag("--report"),reportDir=flag("--report-dir");
  const preflight=process.argv.includes("--preflight");
- if(!preflight&&(!id||!approvalFile||!profileDir||!reportFile))
-   throw Error("usage: node src/cam_shop_pilot.mjs --preflight | --shop-id UUID --approval-file ABS_PATH --profile-dir ABS_PATH --report ABS_PATH [--env-file PATH]");
+ const resume=process.argv.includes("--resume");
+ if(!preflight&&(!id||!approvalFile||!profileDir||
+   (resume?(!reportDir||reportFile||process.argv.includes("--prepare-import")):(!reportFile||reportDir))))
+   throw Error("usage: node src/cam_shop_pilot.mjs --preflight | --shop-id UUID --approval-file ABS_PATH --profile-dir ABS_PATH --report ABS_PATH | --resume --shop-id UUID --approval-file ABS_PATH --profile-dir ABS_PATH --report-dir ABS_PATH [--env-file PATH]");
  const credentials=flag("--env-file")?readPairingFile(flag("--env-file")):{};
  const config=settings({...process.env,...credentials});
  if(preflight){
   const shops=await fetchCamShopLibrary(config);
   console.log(JSON.stringify({mode:"CAM_READ_ONLY_PREFLIGHT",...summarizeCamShopPreflight(shops)}));
+  return;
+ }
+ if(resume){
+  const progress=await runCamShopPilotWithProgress(config,{
+   shopId:id,approvalFile,profileDir,reportDir,
+  });
+  console.log(JSON.stringify({mode:"CAM_SHOP_LOCAL_RESUMABLE_PILOT",
+   status:progress.status,observed_count:progress.count,
+   previously_seen:progress.previouslySeen,total_observed:progress.totalObserved,
+   report_saved:true,report_path:progress.output,
+   scan_enabled:false,evidence_committed:false}));
   return;
  }
  const approvalPath=resolve(approvalFile),reportPath=resolve(reportFile);
