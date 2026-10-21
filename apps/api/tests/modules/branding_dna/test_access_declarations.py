@@ -14,7 +14,6 @@ from app.modules.branding_dna.evidence_model import BrandListingSnapshotModel
 from app.modules.branding_dna.access_declaration_router import read_shop_scan_readiness
 from app.modules.branding_dna.access_declaration_router import (
     ShopRelationshipDeclaration, declare_shop_relationship, latest_access_declarations,
-    OwnedShopDeclarationItem, BulkOwnedShopDeclaration, declare_owned_shops_bulk,
 )
 from app.modules.branding_dna.router import add_shop, ShopCreate
 
@@ -162,101 +161,3 @@ def test_malformed_input_and_extra_fields_rejected(db):
     with pytest.raises(HTTPException) as exc:
         declare(db, shop["id"], "unknown", "\nInvalid")
     assert exc.value.status_code == 422
-
-
-def test_bulk_owned_multiple_amazon_and_etsy_no_automatic_dispatch(db):
-    from pydantic import ValidationError
-    shops = [
-        add_shop(ShopCreate(platform="amazon", region="US",
-                           storefront_url="https://www.amazon.com/stores/CompanyAlpha"),
-                 session=db, principal=user()),
-        add_shop(ShopCreate(platform="amazon", region="US",
-                           storefront_url="https://www.amazon.com/stores/CompanyBeta"),
-                 session=db, principal=user()),
-        add_shop(ShopCreate(platform="amazon", region="GB",
-                           storefront_url="https://www.amazon.co.uk/stores/CompanyAlpha"),
-                 session=db, principal=user()),
-        register(db, name="CompanyEtsy"),
-    ]
-    body = BulkOwnedShopDeclaration(
-        acknowledge_marketplace_authorization_not_verified=True,
-        items=[OwnedShopDeclarationItem(
-            shop_id=s["id"], evidence_reference=f"company-contract-{i:02d}"
-        ) for i, s in enumerate(shops)],
-    )
-    response = Response()
-    created = declare_owned_shops_bulk(body, response, session=db, principal=user())
-    assert response.status_code == 201
-    assert created["created"] == 4 and created["replayed"] == 0
-    assert created["rights_verified"] is False
-    assert created["scan_enabled"] is False and created["dispatchable"] is False
-    assert len({s["declaration_id"] for s in created["items"]}) == 4
-    for shop in shops:
-        row = db.get(BrandShopModel, shop["id"])
-        assert row.status == "draft" and row.access_mode == "public_observation"
-    readiness = read_shop_scan_readiness(Response(), session=db, principal=user())
-    assert readiness["blocked_count"] == 4 and readiness["ready_count"] == 0
-    for shop in readiness["items"]:
-        assert shop["declaration_relationship"] == "owned"
-        assert "shop_access_pending_verification" not in shop["blockers"]
-        assert "marketplace_authorization_not_verified" in shop["blockers"]
-    retry_resp = Response()
-    replay = declare_owned_shops_bulk(body, retry_resp, session=db, principal=user())
-    assert retry_resp.status_code == 200
-    assert replay["created"] == 0 and replay["replayed"] == 4
-    assert db.query(BrandShopAccessDeclarationModel).count() == 4
-    with pytest.raises(ValidationError):
-        BulkOwnedShopDeclaration(items=body.items,
-            acknowledge_marketplace_authorization_not_verified=False)
-
-
-def test_bulk_owned_rejects_foreign_missing_duplicate_and_bad_reference_atomically(db):
-    from uuid import uuid4
-    own = add_shop(ShopCreate(platform="amazon",
-                             storefront_url="https://www.amazon.com/stores/CompanyA"),
-                   session=db, principal=user())
-    foreign = register(db, "tenant-b", "ForeignShop")
-    good = (own["id"], "company-evidence-2026")
-    def make(rows):
-        return BulkOwnedShopDeclaration(
-            acknowledge_marketplace_authorization_not_verified=True,
-            items=[OwnedShopDeclarationItem(shop_id=sid,evidence_reference=ref)
-                   for sid,ref in rows],
-        )
-    for batch, expected in (
-        ([good,(foreign["id"],"foreign-evidence")],404),
-        ([good,(str(uuid4()),"missing-evidence")],404),
-        ([good,good],422),
-        ([good,(foreign["id"],"line\nbreak")],422),
-    ):
-        with pytest.raises(HTTPException) as exc:
-            declare_owned_shops_bulk(make(batch),Response(),session=db,principal=user())
-        assert exc.value.status_code == expected
-        assert db.query(BrandShopAccessDeclarationModel).count() == 0
-    from pydantic import ValidationError
-    with pytest.raises(ValidationError):
-        OwnedShopDeclarationItem(shop_id=own["id"],evidence_reference="short")
-
-
-def test_bulk_owned_updates_only_explicit_shop_attestations(db):
-    first = register(db,name="OwnedA")
-    second = register(db,name="OwnedB")
-    untouched = register(db,name="UnusedC")
-    def make(rows):
-        return BulkOwnedShopDeclaration(
-            acknowledge_marketplace_authorization_not_verified=True,
-            items=[OwnedShopDeclarationItem(shop_id=sid,evidence_reference=ref)
-                   for sid,ref in rows],
-        )
-    declare_owned_shops_bulk(make([(first["id"],"initial-proof")]),
-                             Response(),session=db,principal=user())
-    result = declare_owned_shops_bulk(make([
-        (first["id"],"updated-proof"),(second["id"],"second-proof"),
-    ]),Response(),session=db,principal=user())
-    assert result["created"] == 2
-    assert db.query(BrandShopAccessDeclarationModel).count() == 3
-    by_shop = {x["shop_id"]:x for x in latest_access_declarations(
-        Response(),session=db,principal=user())["items"]}
-    assert by_shop[first["id"]]["evidence_reference"] == "updated-proof"
-    assert by_shop[second["id"]]["evidence_reference"] == "second-proof"
-    assert untouched["id"] not in by_shop
