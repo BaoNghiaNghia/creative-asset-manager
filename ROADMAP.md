@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## Branding DNA Windows runtime (2026-10-20)
+
+- [x] Implement paired live CAM heartbeat launcher with read-only shop/job diagnostics and no duplicate local shop configuration.
+- [x] Add unit tests for token hygiene, real CAM protocol shape, and fail-closed dispatch enforcement.
+- [ ] Start and verify persistent launcher on `DESKTOP-3FR0LF0` when CodeLocal reconnects.
+- [ ] Verify marketplace-specific authorizations, source rights and shop activation one-by-one.
+- [ ] Add independently reviewed worker lease/dispatch protocol before any unattended Amazon/Etsy crawling.
+
+
 ## Foundation
 
 - [ ] 00 Codebase audit

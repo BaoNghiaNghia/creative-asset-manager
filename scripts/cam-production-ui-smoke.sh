@@ -12,7 +12,7 @@ STORAGE_STATE="${CAM_PRODUCTION_UI_STORAGE_STATE:-/etc/creative-asset-manager/pr
 STORAGE_STATE_EXPLICIT=0
 [[ -z "${CAM_PRODUCTION_UI_STORAGE_STATE+x}" ]] || STORAGE_STATE_EXPLICIT=1
 EXPECTED_COMMIT="${CAM_PRODUCTION_EXPECTED_COMMIT:-$(git -C "$ROOT" rev-parse HEAD)}"
-KEEP_RUNS="${CAM_PRODUCTION_UI_KEEP_RUNS:-5}"
+KEEP_RUNS="${CAM_PRODUCTION_UI_KEEP_RUNS:-0}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -60,7 +60,7 @@ node "$CLIENT/scripts/production-ui-plan-validation.mjs" "$PLAN"
 case "$KEEP_RUNS" in
   ''|*[!0-9]*) die "CAM_PRODUCTION_UI_KEEP_RUNS must be a positive integer." ;;
 esac
-(( KEEP_RUNS >= 1 && KEEP_RUNS <= 20 )) || die "CAM_PRODUCTION_UI_KEEP_RUNS must be between 1 and 20."
+(( KEEP_RUNS >= 0 && KEEP_RUNS <= 20 )) || die "CAM_PRODUCTION_UI_KEEP_RUNS must be between 0 and 20."
 
 case "$MODE" in
   auto|strict|public) ;;
@@ -106,6 +106,31 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ROOT="$OUTPUT_ROOT/$STAMP"
 mkdir -p "$RUN_ROOT"
 
+# Successful and failed QA captures are disposable by default. This EXIT trap
+# touches only the exact newly created timestamped smoke folder, never profiles,
+# visual baselines, product media, or arbitrary neighboring directories.
+cleanup_run_on_exit() {
+  local previous_status=$?
+  trap - EXIT
+  if (( KEEP_RUNS == 0 )); then
+    python3 - "$RUN_ROOT" "$OUTPUT_ROOT" <<'PY'
+from pathlib import Path
+import re
+import shutil
+import sys
+
+run, root = Path(sys.argv[1]), Path(sys.argv[2])
+if (root.is_dir() and not root.is_symlink() and
+    run.is_dir() and not run.is_symlink() and
+    run.parent.resolve() == root.resolve() and
+    re.fullmatch(r"20\d{6}T\d{6}Z", run.name)):
+    shutil.rmtree(run)
+PY
+  fi
+  return "$previous_status"
+}
+trap cleanup_run_on_exit EXIT
+
 ARGS=(
   --url "$BASE_URL"
   --plan "$PLAN"
@@ -143,25 +168,37 @@ EXPECTED_COMMIT="$(git -C "$ROOT" rev-parse --verify "${EXPECTED_COMMIT}^{commit
 git -C "$ROOT" merge-base --is-ancestor "$BUILD_COMMIT" "$EXPECTED_COMMIT" ||
   die "Production build-info commit is not an ancestor of the expected deployed commit."
 
-python3 - "$OUTPUT_ROOT" "$KEEP_RUNS" <<'PY'
+# Historical cleanup is allowed only under the known QA root. Custom
+# output locations are never recursively pruned by this script.
+python3 - "$OUTPUT_ROOT" "$KEEP_RUNS" "$CLIENT/.ui-qa/production-smoke" <<'PY'
 from pathlib import Path
+import re
 import shutil
 import sys
 
-root = Path(sys.argv[1]).resolve()
+root, expected = Path(sys.argv[1]), Path(sys.argv[3]).resolve()
 keep = int(sys.argv[2])
-if root.exists():
-    runs = sorted(
-        (entry for entry in root.iterdir() if entry.is_dir()),
-        key=lambda entry: entry.stat().st_mtime,
-        reverse=True,
-    )
-    for stale in runs[keep:]:
-        shutil.rmtree(stale)
+if not root.is_dir() or root.is_symlink() or root.resolve() != expected:
+    print("Custom QA output: historical directories not automatically removed.")
+    raise SystemExit(0)
+runs = sorted(
+    (entry for entry in root.iterdir()
+     if entry.is_dir() and not entry.is_symlink()
+     and re.fullmatch(r"20\d{6}T\d{6}Z", entry.name)),
+    key=lambda entry: entry.stat().st_mtime,
+    reverse=True,
+)
+for stale in runs[keep:]:
+    shutil.rmtree(stale)
+print(f"Production QA cleanup: removed {max(0, len(runs) - keep)} run folders.")
 PY
 
 printf '\nProduction UI smoke passed.\n'
-printf 'Report: %s\n' "$REPORT"
+if (( KEEP_RUNS == 0 )); then
+  printf 'Validated report and disposable QA screenshots removed.\n'
+else
+  printf 'Report: %s\n' "$REPORT"
+fi
 printf 'Coverage: requested=%s effective=%s\n' "$MODE" "$EFFECTIVE_MODE"
 printf 'Build provenance: %s <= %s\n' "$BUILD_COMMIT" "$EXPECTED_COMMIT"
 printf 'Safety: GET/HEAD/OPTIONS only; non-read requests are blocked by the browser.\n'

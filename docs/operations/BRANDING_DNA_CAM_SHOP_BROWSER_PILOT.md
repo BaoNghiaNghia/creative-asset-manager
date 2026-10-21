@@ -13,6 +13,29 @@ until independent source permission and a verified, fenced task-execution
 protocol are deployed. No job is automatically claimed, no marketplace API
 or third-party scraping service is used, no evidence is committed to CAM.
 
+## Paired Agent live connection (Windows, 2026-10-20)
+
+The source checkout includes `START_CAM_PAIRED_AGENT.cmd`, which loads the
+already-paired `scout.local.env` without printing its token, connects to CAM
+over HTTPS, and sends real presence heartbeats once a minute. The process
+reports `connected_waiting`, shop counts and blocked work. **It does not
+navigate Amazon/Etsy or claim scan jobs** while the independent shop permissions
+and production lease contract are absent.
+
+When CodeLocal is online on `DESKTOP-3FR0LF0`, run from the Scout root:
+
+```powershell
+node apps/branding-dna-worker/src/start_cam_paired_agent.mjs --once --env-file scout.local.env
+# Keep this foreground process active while Windows is running:
+.\START_CAM_PAIRED_AGENT.cmd
+```
+
+On a connected machine, `--once` must print `cam_live_check` with
+`connected: true`. Never mark an Etsy competitor shop as authorised from a
+browser observation alone. No marketplace session, image, screenshot or
+Chrome profile is created by this presence-only launcher. The existing
+separately approved pilot remains the only bounded real browser entrypoint.
+
 ## Working commands on DESKTOP-3FR0LF0
 
 Workspace: `D:\Desify_Agentic\scan_pinterest` — never use the old
