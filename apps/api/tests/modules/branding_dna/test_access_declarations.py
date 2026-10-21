@@ -126,8 +126,8 @@ def test_admin_readiness_is_tenant_scoped_and_never_dispatchable(db):
     assert result["staged_tasks"] == 1
     items = {item["shop_id"]: item for item in result["items"]}
     assert other["id"] not in items
-    assert "shop_access_pending_verification" in items[alpha["id"]]["blockers"]
-    assert "shop_competitor_research_only" in items[competitor["id"]]["blockers"]
+    assert "shop_access_pending_verification" not in items[alpha["id"]]["blockers"]
+    assert "shop_competitor_research_only" not in items[competitor["id"]]["blockers"]
     assert "shop_access_not_declared" not in items[alpha["id"]]["blockers"]
     assert "marketplace_authorization_not_verified" in items[alpha["id"]]["blockers"]
     assert "scan_task_dispatch_not_deployed" in items[competitor["id"]]["blockers"]
@@ -146,7 +146,7 @@ def test_latest_declaration_is_stable_and_reflected_in_readiness(db):
     declare(db, shop["id"], "competitor_research")
     result = read_shop_scan_readiness(Response(), session=db, principal=user())
     assert result["items"][0]["declaration_relationship"] == "competitor_research"
-    assert "shop_competitor_research_only" in result["items"][0]["blockers"]
+    assert "shop_competitor_research_only" not in result["items"][0]["blockers"]
     declarations = latest_access_declarations(Response(), session=db, principal=user())
     assert declarations["items"][0]["relationship"] == "competitor_research"
 

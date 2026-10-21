@@ -158,23 +158,11 @@ def shop_scan_readiness(session: Session, *, tenant_id: str,
             "scan_task_dispatch_not_deployed",
             "marketplace_authorization_not_verified",
         ]
-        if declaration and declaration.relationship == "competitor_research":
-            blockers.append("shop_competitor_research_only")
-        elif declaration and declaration.status == "pending_review" and declaration.relationship in (
-            "owned", "authorized",
-        ):
-            # Documentary decisions are not marketplace authorization.
-            # Even documentation_noted stays unverified and non-dispatchable.
-            reason = {
-                "needs_documentation": "shop_access_needs_documentation",
-                "rejected": "shop_access_documentation_rejected",
-                "documentation_noted": "shop_access_reviewed_pending_marketplace_authorization",
-            }.get(review.decision if review else "", "shop_access_pending_verification")
-            blockers.append(reason)
-        else:
-            blockers.append("shop_access_not_declared")
-        if shop.status != "active":
-            blockers.append("shop_not_active")
+        # Registry relationship is descriptive metadata, not access control.
+        # Draft/competitor/unknown shops may be researched or opened normally.
+        # Deliberately paused shops remain withheld from any future dispatcher.
+        if shop.status == "paused":
+            blockers.append("shop_paused")
         if int(staged.get(shop.id, 0)) == 0:
             blockers.append("no_staged_scan_tasks")
         blockers.append(

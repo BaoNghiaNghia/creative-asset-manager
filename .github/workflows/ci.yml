@@ -174,6 +174,9 @@ jobs:
           bash -n scripts/dev-api.sh
           bash -n scripts/test-integration.sh
           python -m compileall -q apps/api/app apps/worker apps/inventory_worker
+      - name: Catinat isolated-restore proof replay unit checks
+        if: matrix.shard == 0
+        run: python -m unittest discover -s scripts -p 'test_cam_catinat_verify_0173_rehearsal.py' -v
       - name: API unit shard with deterministic test coverage
         run: |
           set -euo pipefail
@@ -270,21 +273,46 @@ jobs:
                       raise
                   time.sleep(1)
           PY
-      - name: Fresh schema upgrade and bounded access declaration rollback/re-upgrade
+      - name: Fresh schema upgrade and immutable dual-branch migration graph
         working-directory: apps/api
         run: |
           set -euo pipefail
           mkdir -p ../../artifacts/postgres
           test "$(python -m alembic heads | grep -c '(head)')" -eq 1
-          # Exercise the entire migration chain once, on a disposable database.
+          # Check both audited ancestry branches explicitly. A relative
+          # downgrade across the merge raises "Ambiguous walk" and removing
+          # either protected history is neither safe nor required.
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          heads = script.get_heads()
+          assert len(heads) == 1, f"Expected one migration head, got {heads}"
+          certification = script.get_revision("0174_catinat_catalog_cert")
+          assert certification.down_revision == "0173_catinat_branding_merge"
+          batch = script.get_revision("0175_catinat_batch_evidence")
+          assert batch.down_revision == "0174_catinat_catalog_cert"
+          waste = script.get_revision("0176_catinat_waste_witness")
+          assert waste.down_revision == "0175_catinat_batch_evidence"
+          # Allow future additive migrations while preserving the audited chain.
+          revisions = {revision.revision for revision in script.walk_revisions()}
+          assert {"0176_catinat_waste_witness", "0175_catinat_batch_evidence",
+                  "0174_catinat_catalog_cert",
+                  "0173_catinat_branding_merge"} <= revisions
+          merged = script.get_revision("0173_catinat_branding_merge")
+          assert set(merged.down_revision) == {
+              "0172_catinat_transfers",
+              "0170_branding_dna_browser_observation_reviews",
+          }
+          for ancestor in merged.down_revision:
+              assert script.get_revision(ancestor).revision == ancestor
+          PY
+          # On disposable PostgreSQL, apply all additive revisions and verify
+          # the current revision equals the sole graph head (including 0174+).
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
-          # Roll back only the new outline-version audit tables on disposable CI DB.
-          # Product evidence, documentary reviews and previous history remain intact.
-          CAM_ALLOW_DNA_OUTLINE_DROP_FOR_TEST=1 python -m alembic downgrade 0167_branding_dna_evidence_assessments 2>&1 | tee ../../artifacts/postgres/migration-downgrade.log
-          python -m alembic current | grep -F '0167_branding_dna_evidence_assessments'
-          python -m alembic upgrade head 2>&1 | tee -a ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0168_branding_dna_outline_versions'
+          EXPECTED_HEAD="$(python -m alembic heads | awk '{print $1}')"
+          test -n "$EXPECTED_HEAD"
+          python -m alembic current | grep -F "$EXPECTED_HEAD"
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |

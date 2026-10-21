@@ -164,6 +164,21 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/branding-dna/browser-observations/review-queue",
+      "body": {
+        "items": [],
+        "count": 0,
+        "limit": 20,
+        "offset": 0,
+        "state_filter": "pending_independent_review",
+        "source_verified": false,
+        "rights_verified": false,
+        "scan_enabled": false,
+        "dispatchable": false
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/branding-dna/scout-agents/presence",
       "body": {
         "items": [],
