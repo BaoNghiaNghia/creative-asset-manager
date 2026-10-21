@@ -1,5 +1,23 @@
 # Branding DNA Windows Worker — Windows Portable v0.2.6"
 
+## CAM paired Agent readiness diagnostics (2026-10-21)
+
+Run `node src/start_cam_paired_agent.mjs --once` from the existing Windows
+`scan_pinterest` checkout to check the paired CAM Shop Library and its
+read-only dispatch blockers. The output includes `blocked_reasons`, a
+count of shops per validated blocker code. In continuous `--run` mode,
+the `cam_heartbeat` log includes the same aggregate counts. Shop URLs,
+bearer tokens, approval documents, and listing details are never logged.
+The existing Scout pairing is reused; no second local shop registry is
+introduced.
+
+These diagnostics **do not create a scan job or open Amazon/Etsy**. As long
+as CAM reports `scan_task_dispatch_not_deployed` or
+`marketplace_authorization_not_verified`, the worker remains
+`connected_waiting`. A real production scan requires a separate
+audited dispatcher and platform-specific authorization; an operator's
+request to start the agent is not permission to bypass those gates.
+
 ## Recommended: use the existing Scan Pinterest tool
 
 This worker is now **integrated in Scout Manager v0.1.21** using the
