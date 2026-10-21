@@ -23,7 +23,7 @@ describe("Tauri Scout Manager dashboard", () => {
       {shopId:"b",platform:"etsy",displayName:"B",status:"blocked",stagedTasks:0,
        blockers:["shop_not_active","no_staged_scan_tasks","marketplace_authorization_not_verified"]},
     ]);
-    expect(summary).toEqual({inactive:2,undeclared:1,withoutTasks:2,awaitingSourcePermission:2});
+    expect(summary).toEqual({paused:0,withoutTasks:2,awaitingSourcePermission:2});
   });
   it("renders both pipelines and monitoring UI without enabling native controls in browser preview", () => {
     const html = renderToStaticMarkup(<App />);
@@ -34,7 +34,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Keyword Scout");
     expect(html).toContain("Cap Stack Scout");
     expect(html).toContain("Branding DNA · Browser Agent");
-    expect(html).toContain("Shop Library, quyền truy cập");
+    expect(html).toContain("Mở shop tự do");
     expect(html).toContain("Start agent");
     expect(html).toContain("Stop agent");
     expect(html).toContain("Refresh CAM");
@@ -45,7 +45,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Điều phối");
     expect(html).not.toContain("Manual pilot only");
     expect(html).not.toContain("Selected storefront");
-    expect(html).toContain("Backend chưa bật cấp scan job");
+    expect(html).toContain("Start Agent vẫn chỉ kết nối CAM");
     expect(html).toContain("Shared Cap Stack library");
     expect(html).toContain('class="scout-compact-kpis"');
     expect(html).toContain("Details &amp; diagnostics");

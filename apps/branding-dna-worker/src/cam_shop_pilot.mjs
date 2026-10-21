@@ -31,14 +31,14 @@ export async function fetchCamShopLibrary(config,request=fetch){
 export function summarizeCamShopPreflight(items){
  if(!Array.isArray(items)||items.length>200)throw Error("invalid_cam_shop_list");
  const result={shops:items.length,amazon:0,etsy:0,inactive:0,
-  not_owned_or_authorized:0,invalid_shop_url:0,
+  paused:0,invalid_shop_url:0,
   browser_jobs_ready:0,reason:"approval_and_dispatch_not_deployed"};
  for(const shop of items){
   if(shop?.platform==="amazon")result.amazon++;
   else if(shop?.platform==="etsy")result.etsy++;
   else{result.invalid_shop_url++;continue}
+  if(shop.status==="paused")result.paused++;
   if(shop.status!=="active")result.inactive++;
-  if(!["owned","authorized"].includes(shop.access_mode))result.not_owned_or_authorized++;
   try{assertShopUrl(shop.storefront_url,shop.platform)}
   catch{result.invalid_shop_url++}
  }
@@ -55,9 +55,9 @@ export async function fetchConfiguredShop(config,shopId,request=fetch){
    throw Error("unsupported_cam_shop_platform");
  const shop=assertShopUrl(item.storefront_url,item.platform);
  if(shop.url!==item.storefront_url)throw Error("cam_shop_url_not_canonical");
- if(item.status!=="active")throw Error("cam_shop_not_active");
- if(!["owned","authorized"].includes(item.access_mode))
-   throw Error("cam_shop_not_owned_or_authorized");
+ // CAM ownership/declaration metadata is classification, NOT the gate
+ // for opening or running a separately permitted browser pilot.
+ if(item.status==="paused")throw Error("cam_shop_paused");
  return {id:shopId,platform:shop.platform,shopUrl:shop.url};
 }
 

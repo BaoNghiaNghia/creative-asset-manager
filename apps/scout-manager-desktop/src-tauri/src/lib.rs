@@ -1296,6 +1296,24 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
         }
     }).await.map_err(|_|"Branding DNA launcher failed unexpectedly.".to_string())?
 }
+/// Open an ordinary, user-controlled system browser for any public CAM
+/// storefront, regardless of catalog status or declared shop relationship.
+/// This does NOT create an automated browser context, scan job, or data export.
+#[tauri::command]
+fn branding_pilot_open_public_shop(platform: String, shop_url: String) -> Result<(), String> {
+    let url = branding_pilot::normalize_shop_url(&platform, &shop_url)?;
+    #[cfg(windows)]
+    {
+        // Single validated HTTPS URL argument; no shell interpolation.
+        let mut command = Command::new("explorer.exe");
+        command.arg(&url);
+        hide_console(&mut command);
+        command.spawn().map_err(|_| "Cannot open storefront in the default browser.".to_string())?;
+    }
+    #[cfg(not(windows))]
+    { let _ = url; return Err("Open shop is supported by the Windows desktop app.".into()); }
+    Ok(())
+}
 #[tauri::command]
 fn branding_pilot_open_log_folder(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
     // Fixed local path, no browser-controlled file or shell argument.
@@ -1542,6 +1560,7 @@ pub fn run() {
             branding_pilot_status,
             branding_pilot_action,
             branding_pilot_cam_shops,
+            branding_pilot_open_public_shop,
             branding_pilot_dispatch_preview,
             branding_pilot_open_log_folder,
             keyword_summary,
@@ -1559,6 +1578,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn public_shop_opening_only_accepts_marketplace_storefronts() {
+        assert_eq!(
+            branding_pilot::normalize_shop_url("etsy","https://www.etsy.com/shop/XTEmbroideryStore").unwrap(),
+            "https://www.etsy.com/shop/XTEmbroideryStore"
+        );
+        assert!(branding_pilot::normalize_shop_url("etsy","https://example.test/shop/Shop").is_err());
+        assert!(branding_pilot::normalize_shop_url("etsy","https://www.etsy.com/login").is_err());
+        assert!(branding_pilot::normalize_shop_url("etsy","https://www.etsy.com/shop/Shop?x=1").is_err());
+    }
     #[test]
     fn preview_contract_never_grants_dispatch() {
         let base=serde_json::json!({

@@ -1,4 +1,20 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.10
+# Branding DNA Windows Worker — Windows Portable v0.2.11
+
+## v0.2.11 — Remove CAM ownership authorization gating
+
+CAM shop ownership declarations and second-person documentary reviews no longer
+gate Shop Registry activation, browser pilot eligibility or access to the normal
+public storefront browser. A `draft` shop is a saved source, not an authorization
+failure; a deliberately `paused` shop is still withheld from automated pilots.
+Existing source labels and documentary history are preserved without granting
+any browsing privilege.
+
+External browser automation requirements remain independent: each pilot must
+have appropriate marketplace access approval and honor platform-specific
+terms; stop on a challenge or access refusal. This change does not enable
+production dispatch, marketplace scraping without permission, or bypass tools.
+
+
 
 ## v0.2.10 — Bounded top-to-bottom browser scroll
 

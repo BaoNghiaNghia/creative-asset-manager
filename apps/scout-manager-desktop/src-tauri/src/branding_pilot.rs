@@ -53,7 +53,7 @@ pub struct ShopConfigView {
 fn config_path(repo:&Path)->PathBuf{
     repo.join("apps/branding-dna-worker/config/pilot.local.json")
 }
-fn normalize_shop_url(platform:&str,raw:&str)->Result<String,String>{
+pub(crate) fn normalize_shop_url(platform:&str,raw:&str)->Result<String,String>{
     let parsed=reqwest::Url::parse(raw.trim()).map_err(|_|"Invalid shop URL.".to_string())?;
     if parsed.scheme()!="https" || !parsed.username().is_empty() || parsed.password().is_some()
         || parsed.port().is_some() || parsed.query().is_some() || parsed.fragment().is_some(){

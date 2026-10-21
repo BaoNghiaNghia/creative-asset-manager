@@ -32,7 +32,7 @@ test("read-only preflight summarizes CAM shops without ever opening a browser",(
    storefront_url:"http://localhost/shop/Bad",status:"draft",access_mode:"unknown"},
  ]);
  assert.deepEqual(summary,{shops:3,amazon:1,etsy:2,inactive:2,
-  not_owned_or_authorized:2,invalid_shop_url:1,browser_jobs_ready:0,
+  paused:0,invalid_shop_url:1,browser_jobs_ready:0,
   reason:"approval_and_dispatch_not_deployed"});
 });
 test("uses existing on-machine Scout pairing file, never writes or prints secrets",()=>{
@@ -53,8 +53,7 @@ test("uses only CAM Shop Library instead of local duplicated shop URLs",async()=
 });
 test("rejects undeclared, inactive, foreign, malformed, and incompatible shop metadata",async()=>{
  for(const bad of [
-  {...library,items:[{...shop,status:"draft"}]},
-  {...library,items:[{...shop,access_mode:"competitor_research"}]},
+  {...library,items:[{...shop,status:"paused"}]},
   {...library,items:[{...shop,storefront_url:"https://127.0.0.1/admin"}]},
   {...library,items:[{...shop,storefront_url:"https://www.etsy.com/shop/Embroly?secret=1"}]},
   {...library,items:[shop,shop],count:2},

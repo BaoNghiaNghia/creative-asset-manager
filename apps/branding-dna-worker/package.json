@@ -1,7 +1,7 @@
 {
   "name": "@cam/branding-dna-worker",
   "private": true,
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Isolated Windows heartbeat worker and permission-gated local Amazon/Etsy browser pilot.",
   "type": "module",
   "engines": {"node": ">=22.13.0"},

@@ -15,7 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKER = ROOT / "apps" / "branding-dna-worker"
-VERSION = "0.2.10"
+VERSION = "0.2.11"
 BASENAME = f"BrandingDNA-BrowserAgent-v{VERSION}-win-x64"
 STAMP = (2026, 10, 21, 0, 0, 0)
 

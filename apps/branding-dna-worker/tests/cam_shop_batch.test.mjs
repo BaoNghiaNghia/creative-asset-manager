@@ -48,8 +48,21 @@ test("unapproved and competitor shops never open browser; no shop URL in summary
  assert.equal(launched,0);assert.equal(result.run_count,0);
  assert.equal(result.blocked,3);
  assert.equal(result.items[0].reason,"per_shop_approval_missing");
- assert.equal(result.items[2].reason,"shop_access_not_verified");
+ assert.equal(result.items[2].reason,"per_shop_approval_missing");
  assert.equal(JSON.stringify(result).includes(amazon.storefront_url),false);
+}));
+test("draft competitor relationship does not require CAM ownership permission",async()=>withDir(async base=>{
+ const research={...amazon,status:"draft",access_mode:"competitor_research"};
+ authorize(base,research);
+ const inspected=await runCamShopBatch(config,{mode:"inspect",baseDir:base,request:request([research])});
+ assert.equal(inspected.eligible,1);
+ let calls=0;
+ const result=await runCamShopBatch(config,{mode:"run_approved",baseDir:base,request:request([research]),
+  pilot:async()=>{calls++;return {status:"needs_operator",platform:"amazon",items:[],scan_enabled:false}}});
+ assert.equal(calls,1);
+ assert.equal(result.items[0].state,"needs_operator");
+ const paused=checkShopEligibility({...research,status:"paused"},base);
+ assert.equal(paused.reason,"shop_paused");
 }));
 test("inspect validates permission per exact CAM shop without browsing",async()=>withDir(async base=>{
  authorize(base,amazon);
@@ -101,5 +114,5 @@ test("invalid rights declarations cannot silently authorize Etsy or Amazon",()=>
  row=checkShopEligibility(etsy,base);
  assert.equal(row.state,"blocked");
  assert.equal(row.reason,"etsy_written_authorization_required");
- assert.equal(checkShopEligibility({...amazon,access_mode:"competitor_research"},base).state,"blocked");
+ assert.equal(checkShopEligibility({...amazon,access_mode:"competitor_research"},base).state,"blocked"); // No Amazon-specific approval file
 }));

@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
-import {CircleAlert,FolderSearch,Globe2,Pause,Play,RefreshCcw,ShieldCheck} from "lucide-react";
+import {CircleAlert,ExternalLink,FolderSearch,Globe2,Pause,Play,RefreshCcw,ShieldCheck} from "lucide-react";
 
 type AgentStatus={state:string;pid:number|null;version:string;running:boolean;lastError:string|null;};
 type CamShop={id:string;displayName:string;platform:string;shopUrl:string;status:string;accessMode:string};
@@ -10,8 +10,7 @@ type DispatchPreview={available:boolean;blockedCount:number;readyCount:number;st
 const BLOCKER_LABELS:Record<string,string>={
   scan_task_dispatch_not_deployed:"CAM chưa cấp job",
   marketplace_authorization_not_verified:"Chưa xác minh quyền nền tảng",
-  shop_access_not_declared:"Chưa khai báo quyền shop",
-  shop_not_active:"Shop chưa kích hoạt",
+  shop_paused:"Shop đang tạm dừng trong CAM",
   no_staged_scan_tasks:"Chưa có task",
   etsy_written_permission_not_verified:"Thiếu quyền truy cập Etsy",
   amazon_agent_policy_review_not_verified:"Chưa duyệt chính sách Amazon",
@@ -28,13 +27,12 @@ export function agentDisplayState(running:boolean,dispatchEnabled:boolean){
 export function blockedShopSummary(shops:ShopBlocker[]){
  const count=(reason:string)=>shops.filter(shop=>shop.blockers.includes(reason)).length;
  return {
-  inactive:count("shop_not_active"),
-  undeclared:count("shop_access_not_declared"),
+  paused:count("shop_paused"),
   withoutTasks:count("no_staged_scan_tasks"),
   awaitingSourcePermission:count("marketplace_authorization_not_verified"),
  };
 }
-const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.10",running:false,lastError:null};
+const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.11",running:false,lastError:null};
 
 /** An empty Shop Library is still an authenticated, connected CAM session. */
 export function camConnectionState(acknowledged:boolean, shops:CamShop[]){
@@ -102,6 +100,14 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
    }catch(e){setError(typeof e==="string"?e:e instanceof Error?e.message:"Agent command failed")}
    finally{setBusy(false)}
  };
+ const openPublicShop=async(shop:CamShop)=>{
+   setError("");
+   try{
+     await invoke("branding_pilot_open_public_shop",{platform:shop.platform,shopUrl:shop.shopUrl});
+   }catch(e){
+     setError(typeof e==="string"?e:e instanceof Error?e.message:"Cannot open shop.");
+   }
+ };
  const amazon=shops.filter(x=>x.platform==="amazon").length;
  const etsy=shops.filter(x=>x.platform==="etsy").length;
  const {connected:acknowledged}=camConnectionState(camConnected,shops);
@@ -115,7 +121,7 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
      <div className="branding-pilot-icon"><Globe2 size={22}/></div>
      <div className="branding-pilot-title">
        <h2>Branding DNA · Browser Agent</h2>
-       <p>Shop Library, quyền truy cập và điều phối job được quản lý trên CAM.</p>
+       <p>Mở shop tự do; điều phối job tự động theo quyền của nền tảng.</p>
      </div>
      <span className="status-pill neutral"><span className="status-dot"/>{agentDisplayState(status.running,false)}</span>
    </div>
@@ -125,6 +131,24 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
      <div><small>Agent</small><strong>{status.running?"Chờ CAM":"Stopped"} <span>· PID {status.pid??"—"}</span></strong></div>
      <div><small>Điều phối</small><strong>{dispatchLabel} <span>· CAM</span></strong></div>
    </div>
+   <div className="branding-preflight" aria-label="Public shop browser links">
+     <div className="branding-preflight-heading">
+       <strong>Mở shop công khai</strong>
+       <span>Không cần trạng thái active trong CAM</span>
+     </div>
+     <small>Mở trang bằng trình duyệt mặc định. Đây là thao tác xem trang, không khởi chạy quét tự động.</small>
+     {connected&&shops.length>0&&<details>
+       <summary>Mở từng shop ({shops.length})</summary>
+       <div className="branding-preflight-list">
+         {shops.map(shop=><div key={shop.id} className="branding-preflight-shop">
+           <strong>{shop.displayName}</strong>
+           <span>{shop.platform==="amazon"?"Amazon":"Etsy"} · {shop.status}</span>
+           <button type="button" className="button secondary slim"
+             onClick={()=>void openPublicShop(shop)}><ExternalLink size={14}/> Mở trang</button>
+         </div>)}
+       </div>
+     </details>}
+   </div>
    <div className="branding-preflight" aria-label="CAM per-shop scan readiness">
      <div className="branding-preflight-heading">
        <strong>Readiness từng shop</strong>
@@ -133,7 +157,7 @@ export function BrandingDnaPilotCard({nativeAvailable,controllerAvailable,manage
          : connected?"Chờ CAM cung cấp dispatch-preview":"Chưa kết nối"}</span>
      </div>
      {summary&&preview!.shops.length>0&&<small role="status">
-       {summary.inactive} shop chưa kích hoạt · {summary.undeclared} chưa khai báo quyền · {summary.withoutTasks} chưa có scan task · {summary.awaitingSourcePermission} chưa xác minh quyền nguồn
+       {summary.paused} shop đã tạm dừng · {summary.withoutTasks} chưa có scan task · {summary.awaitingSourcePermission} chưa xác minh quyền truy cập tự động
      </small>}
      {preview?.available&&preview.shops.length>0&&<details>
        <summary>Xem lý do chưa quét của {preview.shops.length} shop</summary>

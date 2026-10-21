@@ -14,7 +14,7 @@ const SAFE_ERRORS=new Set([
  "approval_file_not_present_or_untrusted","approval_json_invalid",
  "shop_browser_pilot_not_approved","browser_approval_expired",
  "etsy_written_authorization_required","amazon_agent_policy_review_required",
- "cam_shop_not_active","cam_shop_not_owned_or_authorized",
+ "cam_shop_paused",
  "cam_shop_not_found_or_ambiguous","cam_shop_url_not_canonical",
  "invalid_shop_url","unsupported_amazon_store_url","unsupported_etsy_shop_url",
  "progress_directory_untrusted","progress_report_immutable_violation",
@@ -37,9 +37,9 @@ export function checkShopEligibility(shop,baseDir){
    return {shop_id:String(id??"invalid").slice(0,40),platform:"unknown",
      state:"blocked",reason:"invalid_cam_shop_record"};
  const row={shop_id:id,platform:shop.platform};
- if(shop.status!=="active")return {...row,state:"blocked",reason:"shop_not_active"};
- if(!["owned","authorized"].includes(shop.access_mode))
-   return {...row,state:"blocked",reason:"shop_access_not_verified"};
+ // Registry ownership labels and draft state never confer or revoke
+ // external browser permission. Only an explicit pause stops this shop.
+ if(shop.status==="paused")return {...row,state:"blocked",reason:"shop_paused"};
  const p=localShopPaths(baseDir,id);
  if(!existsSync(p.approvalFile))return {...row,state:"blocked",reason:"per_shop_approval_missing"};
  try {

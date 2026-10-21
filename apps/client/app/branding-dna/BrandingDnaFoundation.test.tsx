@@ -62,7 +62,7 @@ describe("Branding DNA operator queue health", () => {
     expect(container.textContent).toContain("Dispatch đang khóa");
     expect(container.textContent).toContain("Scan disabled");
     expect(container.textContent).not.toContain("Start Scan");
-    expect(request).toHaveBeenCalledTimes(5);
+    expect(request).toHaveBeenCalledTimes(3);
     await act(async () => root.unmount());
   });
 });
