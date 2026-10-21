@@ -99,7 +99,7 @@
         {
           "type": "text-includes",
           "selector": ".bdna-live-info[role=status]",
-          "value": "Readiness CAM"
+          "value": "CAM:"
         },
         {
           "type": "no-viewport-overflow",
@@ -141,12 +141,13 @@
       ]
     },
     {
-      "name": "shop-document-review-read-only",
-      "click": ".bdna-review-toggle button",
-      "waitFor": ".bdna-access-review",
+      "name": "shop-registry-without-ownership-approval",
+      "waitFor": ".bdna-shop-cards",
       "assertions": [
-        {"type": "visible", "selector": ".bdna-access-review"},
-        {"type": "text-includes", "selector": ".bdna-access-review small", "value": "không kích hoạt tác vụ"},
+        {"type": "count", "selector": ".bdna-shop-card button.bdna-declaration-toggle", "value": 2},
+        {"type": "hidden", "selector": ".bdna-access-review"},
+        {"type": "hidden", "selector": ".bdna-access-form"},
+        {"type": "text-includes", "selector": ".bdna-live-heading", "value": "không yêu cầu CAM cấp quyền sở hữu"},
         {"type": "no-viewport-overflow", "selector": "html", "maxPx": 0}
       ]
     },
