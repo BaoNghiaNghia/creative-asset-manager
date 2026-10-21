@@ -24,7 +24,7 @@
       "waitFor": "main.inventory-workspace .ops-inventory-daily",
       "waitMs": 300,
       "requireIcons": [
-        ".ops-inventory-refresh-action svg"
+        ".ops-inventory-refresh-action"
       ]
     },
     {
