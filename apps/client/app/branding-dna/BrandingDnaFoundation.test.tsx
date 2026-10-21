@@ -56,10 +56,10 @@ describe("Branding DNA operator queue health", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(container.textContent).toContain("2 task đã chuẩn bị");
-    expect(container.textContent).toContain("3 retry (2 đến hạn)");
-    expect(container.textContent).toContain("1 lease quá hạn");
-    expect(container.textContent).toContain("Dispatch đang khóa");
+    expect(container.textContent).toContain("2 staged");
+    expect(container.textContent).toContain("3 retry");
+    expect(container.textContent).toContain("1 pending");
+    expect(container.textContent).toContain("Dispatcher hiện tắt");
     expect(container.textContent).toContain("Scan disabled");
     expect(container.textContent).not.toContain("Start Scan");
     expect(request).toHaveBeenCalledTimes(3);

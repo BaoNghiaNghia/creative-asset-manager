@@ -45,7 +45,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Điều phối");
     expect(html).not.toContain("Manual pilot only");
     expect(html).not.toContain("Selected storefront");
-    expect(html).toContain("Start Agent vẫn chỉ kết nối CAM");
+    expect(html).toContain("Start chỉ kết nối và chờ");
     expect(html).toContain("Shared Cap Stack library");
     expect(html).toContain('class="scout-compact-kpis"');
     expect(html).toContain("Details &amp; diagnostics");
