@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.config import get_settings
@@ -30,6 +31,7 @@ from app.modules.inventory.permissions import (
 )
 from app.modules.inventory.review.service import InventoryReviewService
 from app.modules.inventory.materials import MaterialRegistry
+from app.modules.inventory.daily.catinat_approval_router import _manager_guard
 from app.modules.inventory.material_evidence import (
     MaterialCandidateEvidenceService,
     MaterialEvidenceError,
@@ -568,6 +570,53 @@ def approve_equivalent_material_candidates(
             raise HTTPException(409, detail={"code": code}) from exc
 
 
+
+class EquivalentCandidateBatchItem(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=36)
+    item_id: str = Field(min_length=1, max_length=36)
+    expected_count: int = Field(ge=1, le=100)
+    expected_candidate_ids: list[str] = Field(min_length=1, max_length=100)
+    expected_evidence_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class EquivalentCandidateBatchApprovalRequest(BaseModel):
+    groups: list[EquivalentCandidateBatchItem] = Field(min_length=1, max_length=50)
+
+
+@router.post("/materials/candidates/bulk-approve")
+def bulk_approve_material_candidates(
+    body: EquivalentCandidateBatchApprovalRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_FINALIZE_PERMISSION)),
+):
+    """Manager-only approval of the exact reviewed evidence; all groups or none."""
+    _manager_guard(principal)
+    payload = [
+        group.model_dump() if hasattr(group, "model_dump") else group.dict()
+        for group in body.groups
+    ]
+    with SessionLocal() as session:
+        try:
+            with session.begin():
+                result = MaterialRegistry(session).approve_equivalent_batch(
+                    principal.active_tenant_id, groups=payload, actor_id=principal.user_id,
+                )
+        except LookupError as exc:
+            raise HTTPException(404, detail={"code": str(exc)}) from exc
+        except (ValueError, IntegrityError) as exc:
+            code = str(exc) if isinstance(exc, ValueError) else "material_group_conflict"
+            raise HTTPException(409, detail={"code": code}) from exc
+    _REGISTRY_LOGGER.info(
+        "material_candidate_batch_approved",
+        extra={
+            "tenant_id": principal.active_tenant_id, "actor_id": principal.user_id,
+            "group_count": result["approved_groups"],
+            "candidate_count": result["approved_candidates"],
+            "idempotent_replay": result["idempotent_replay"],
+        },
+    )
+    return result
+
+
 @router.post("/materials/candidates/{candidate_id}/approve")
 def approve_material_candidate(candidate_id: str, body: MaterialApprovalRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
     with SessionLocal() as session:
@@ -590,9 +639,11 @@ def reject_material_candidate(candidate_id: str, principal: CurrentPrincipal = D
         row = session.scalar(select(InventoryMaterialCandidateModel).where(
             InventoryMaterialCandidateModel.tenant_id == principal.active_tenant_id,
             InventoryMaterialCandidateModel.id == candidate_id,
-        ))
+        ).with_for_update().execution_options(populate_existing=True))
         if row is None:
             raise HTTPException(404, detail={"code": "material_candidate_not_found"})
+        if row.status not in {"new_material", "possible_rename", "ambiguous"}:
+            raise HTTPException(409, detail={"code": "material_candidate_not_pending"})
         row.status = "rejected"
         session.commit()
     return {"status": "rejected"}
@@ -602,9 +653,14 @@ def reject_material_candidate(candidate_id: str, principal: CurrentPrincipal = D
 def ignore_material_candidate(candidate_id: str, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
     from app.modules.inventory.persistence_model import InventoryMaterialCandidateModel
     with SessionLocal() as session:
-        row = session.scalar(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id == principal.active_tenant_id, InventoryMaterialCandidateModel.id == candidate_id))
+        row = session.scalar(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == principal.active_tenant_id,
+            InventoryMaterialCandidateModel.id == candidate_id,
+        ).with_for_update().execution_options(populate_existing=True))
         if row is None:
             raise HTTPException(404, detail={"code": "material_candidate_not_found"})
+        if row.status not in {"new_material", "possible_rename", "ambiguous"}:
+            raise HTTPException(409, detail={"code": "material_candidate_not_pending"})
         row.status = "ignored"; session.commit()
     return {"status": "ignored"}
 

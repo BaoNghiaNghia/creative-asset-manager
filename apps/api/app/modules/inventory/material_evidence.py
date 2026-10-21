@@ -228,6 +228,22 @@ def build_material_review_evidence(
     return result
 
 
+def _candidate_refresh_identity(row: InventoryMaterialCandidateModel) -> str:
+    """Bind a provider read to the exact pending source and review context."""
+    return canonical_hash({
+        "tenant_id": row.tenant_id,
+        "id": row.id,
+        "source_id": row.source_id,
+        "sheet": row.sheet,
+        "source_row": row.source_row,
+        "external_key": row.external_key,
+        "raw_name": row.raw_name,
+        "category": row.category,
+        "status": row.status,
+        "context": row.context_json,
+    })
+
+
 class MaterialCandidateEvidenceService:
     def __init__(
         self,
@@ -308,6 +324,7 @@ class MaterialCandidateEvidenceService:
                         "source_row": int(row.source_row),
                         "raw_name": row.raw_name,
                         "name_evidence": dict(context.get("name_evidence") or {}),
+                        "refresh_identity": _candidate_refresh_identity(row),
                     }
                 )
 
@@ -363,15 +380,31 @@ class MaterialCandidateEvidenceService:
                     evidence["refreshed_at"] = datetime.now(timezone.utc).isoformat()
                     updates[descriptor["id"]] = evidence
 
+        expected = {descriptor["id"]: descriptor for descriptor in descriptors}
         with self.session_factory() as session:
+            # Provider reads happen outside the transaction. Reacquire the
+            # pending rows in the same order as approval before replacing any
+            # context, and refresh cached ORM state after waiting for a writer.
             rows = list(
                 session.scalars(
                     select(InventoryMaterialCandidateModel).where(
                         InventoryMaterialCandidateModel.tenant_id == tenant_id,
                         InventoryMaterialCandidateModel.id.in_(list(updates)),
-                    )
+                        InventoryMaterialCandidateModel.status.in_(
+                            ("new_material", "possible_rename", "ambiguous")
+                        ),
+                    ).order_by(InventoryMaterialCandidateModel.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             )
+            if {row.id for row in rows} != set(expected):
+                raise MaterialEvidenceError("material_evidence_candidate_changed")
+            if any(
+                _candidate_refresh_identity(row) != expected[row.id]["refresh_identity"]
+                for row in rows
+            ):
+                raise MaterialEvidenceError("material_evidence_candidate_changed")
             for row in rows:
                 context = dict(row.context_json or {})
                 context["review_evidence"] = updates[row.id]

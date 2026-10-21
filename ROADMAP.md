@@ -1,5 +1,18 @@
 # Implementation Roadmap
 
+## Inventory business audit (2026-10-21)
+
+- [x] Make stale source/readback conflicts terminal for human review; preserve technical retries and active leases.
+- [x] Block the legacy Catinat automatic/manual carry-forward writer using exact Q47 configuration/source/target worksheet identities.
+- [x] Add manager-authorized, evidence-bound atomic material bulk review and protect approval audit metadata against stale candidate/evidence updates.
+- [x] Correct UI authorization/request lifecycle and add staff/manager fixtures and targeted regressions.
+- [x] Record Inventory API 820 passed, frontend 814 passed across 146 files, analyzer 86 passed, typecheck/build PASS.
+- [ ] Fill final staff/manager phone/tablet/desktop browser outcomes and finish explicit visual baseline review; no automatic baseline acceptance.
+- [ ] Establish live backend provenance/schema compatibility and record real PostgreSQL concurrency validation limits.
+- [ ] Create source commit S, rebuild at S, commit dist R, verify CI, and follow the reviewed clean-checkout release workflow; no deployment yet.
+
+Details: [Inventory business audit — 21 October 2026](docs/operations/INVENTORY_BUSINESS_AUDIT_20261021.md).
+
 ## Branding DNA Windows runtime (2026-10-20)
 
 - [x] Implement paired live CAM heartbeat launcher with read-only shop/job diagnostics and no duplicate local shop configuration.

@@ -1,3 +1,15 @@
+## Inventory business audit (2026-10-21)
+
+- Scope: repaired stale-evidence retry/recovery, added the exact-Q47 legacy carry-forward guard, implemented explicit manager-authorized atomic material bulk review, and corrected UI permission/request lifecycle behavior. Physical close, stock posting, and Catinat Sheets carry-forward remain gated.
+- Concurrency and audit: consistent candidate/catalog locking; stale approve/reject/ignore requests fail; queued candidate and provider-evidence refreshes revalidate current state before replacing context. Competing approvals retain their actor and idempotent replay evidence.
+- Verification: Inventory API **820 passed** (CodeLocal finished record `1792592299336593568`, exit 0, 138843 ms; pytest cache 820 node IDs/`lastfailed={}`); frontend **814 passed / 146 files**; analyzer **86 passed**; typecheck/build PASS.
+- Browser QA: final staff/manager phone/tablet/desktop outcomes are pending in the linked audit note. Default Auto-Fix used both repair attempts; state mapping and environmental font-installation failure were resolved. Older visual baselines still require explicit review; the grid-width repair yields zero overflow in all 30 development-server states, with compiled strict rerun pending. No baseline auto-acceptance.
+- Security boundary: actor/tenant remain server-derived; no stock/Sheets action is implied by registry approval. No new dependencies or migration, and no secrets/credential changes.
+- Limits: SQLite interleaving regressions do not prove real PostgreSQL lock scheduling. Healthy public liveness/readiness does not prove the live Alembic revision; the advertised backend SHA may come from configured metadata. Live schema/provenance remain unverified.
+- Release: not deployed. Final source commit S and dist-only commit R are forthcoming after remaining gates; do not reuse an older-base build for changed frontend source. Use official release scripts from a clean checkout, preserve concurrent main work, record actual CI, and retain backend rollback capacity without a DB downgrade.
+
+Full evidence and remaining gates: [Inventory business audit — 21 October 2026](docs/operations/INVENTORY_BUSINESS_AUDIT_20261021.md).
+
 ## Branding DNA paired Windows CAM launcher (2026-10-20)
 
 - Change: new `start_cam_paired_agent.mjs` and root `START_CAM_PAIRED_AGENT.cmd` for real authenticated CAM presence from the existing Scout pairing. No local shop list, no copied secrets.

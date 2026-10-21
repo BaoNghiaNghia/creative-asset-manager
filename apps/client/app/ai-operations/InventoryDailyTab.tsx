@@ -41,7 +41,7 @@ const dateTime = (value: string | null | undefined) => value
   }).format(new Date(value))
   : "—";
 
-const number = (value: unknown) => typeof value === "number" ? value.toLocaleString("vi-VN") : "0";
+const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("vi-VN") : "—";
 
 const operationalLabel = (value: InventoryDailySheetStatus["operational_state"]) => ({
   healthy: "Hoạt động bình thường",
@@ -60,6 +60,12 @@ const processStatusLabel = (value: string | null | undefined) => {
     retryable_failure: "Sẽ thử lại",
     permanent_failure: "Không thể tiếp tục",
     terminal_failure: "Không thể tiếp tục",
+    failed: "Thất bại",
+    blocked: "Bị chặn",
+    review_required: "Cần xem lại",
+    stale: "Dữ liệu cũ",
+    pending: "Chờ chạy",
+    scheduled: "Đã lên lịch",
   } as Record<string, string>)[value] || value;
 };
 
@@ -109,15 +115,33 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
   const blockers = run?.blockers || [];
   const healthy = status.operational_state === "healthy";
   const usesV4Slots = status.execution_mode === "v4_slots";
-  const lifecycle = status.lifecycle || {
+  const lifecycle: NonNullable<InventoryDailySheetStatus["lifecycle"]> = status.lifecycle || {
     business_date: status.working_business_date,
     morning_reset: { status: status.carry_forward?.status || "pending", scheduled_time: status.carry_forward_time, source_business_date: "", source_gemini_file_id: null },
     afternoon_snapshot: { status: snapshot?.status || "pending", scheduled_time: status.snapshot_time, snapshot_file_id: snapshot?.snapshot_file_id || null, gemini_file_id: snapshot?.gemini_file_id || null },
     evening_reconcile: { status: reconciliation?.status || "pending", scheduled_time: status.reconcile_time, verified: reconciliation?.status === "completed", run_id: null, plan_hash: null, prompt_version: null, prompt_hash: null },
   };
-  const v4Completed = lifecycle.afternoon_snapshot.status === "completed" && lifecycle.evening_reconcile.verified;
-  const v4NeedsRecovery = ["failed", "blocked", "review_required", "stale"].includes(lifecycle.morning_reset.status)
-    || ["failed", "blocked", "review_required", "stale"].includes(lifecycle.evening_reconcile.status);
+  const lifecycleMatchesDate = lifecycle.business_date === status.working_business_date;
+  const lifecycleStages = [
+    { label: "Reset đầu ngày", ...lifecycle.morning_reset },
+    { label: "Snapshot buổi chiều", ...lifecycle.afternoon_snapshot },
+    { label: "Đối soát Gemini buổi tối", ...lifecycle.evening_reconcile },
+  ];
+  const lifecycleIssues = usesV4Slots ? lifecycleStages.filter(stage =>
+    ["failed", "blocked", "review_required", "stale", "retryable_failure", "permanent_failure", "terminal_failure"].includes(stage.status)
+    || Boolean(stage.error_code),
+  ) : [];
+  const invariants = status.invariants || [];
+  const v4NeedsRecovery = lifecycleIssues.length > 0 || invariants.length > 0 || !lifecycleMatchesDate;
+  const v4Completed = Boolean(status.lifecycle) && lifecycleMatchesDate && !v4NeedsRecovery
+    && lifecycleStages.every(stage => stage.status === "completed")
+    && lifecycle.evening_reconcile.verified;
+  const hasReconciliationRows = typeof summary.row_count === "number" && Number.isFinite(summary.row_count);
+  const reconciliationVerified = reconciliation?.status === "completed" && hasReconciliationRows
+    && typeof summary.invalid_count === "number" && summary.invalid_count === 0;
+  const automationReady = status.enabled && status.configured && healthy;
+  const hasCurrentCycleEvidence = usesV4Slots ? v4Completed : Boolean(run && run.business_date === status.working_business_date);
+  const hasExceptions = blockers.length > 0 || v4NeedsRecovery || !automationReady;
   const v4Started = [lifecycle.morning_reset.status, lifecycle.afternoon_snapshot.status, lifecycle.evening_reconcile.status]
     .some(stage => !["pending", "scheduled"].includes(stage));
   const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4NeedsRecovery ? "Cần recovery" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
@@ -153,10 +177,10 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
         <strong>{runLabel}</strong>
         <small>{run ? "Ngày " + businessDate(run.business_date) + " · " + processStatusLabel(run.status) : usesV4Slots ? "V4.1 · " + (v4Started ? "hai bước được theo dõi bằng scheduler slot" : "chưa có slot cho ngày ") + businessDate(status.working_business_date) : "Chưa có daily run cho ngày " + businessDate(status.working_business_date)}</small>
       </article>
-      <article className={"ops-inventory-summary-card result " + (Number(summary.invalid_count || 0) ? "danger" : "success")}>
+      <article className={"ops-inventory-summary-card result " + (reconciliationVerified ? "success" : reconciliation ? "warning" : "muted")}>
         <span>Đối soát gần nhất</span>
-        <strong>{number(summary.row_count)} dòng</strong>
-        <small>{number(summary.changed_count)} thay đổi · {number(summary.invalid_count)} không hợp lệ</small>
+        <strong>{hasReconciliationRows ? number(summary.row_count) + " dòng" : "Chưa có dữ liệu"}</strong>
+        <small>{reconciliation ? number(summary.changed_count) + " thay đổi · " + number(summary.invalid_count) + " không hợp lệ" : "Chưa có kết quả đối soát để đánh giá."}</small>
       </article>
     </section>
 
@@ -188,7 +212,17 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
       {v4NeedsRecovery || !healthy ? <small>Đang có cảnh báo cần kiểm tra. Chỉ xác nhận hoặc can thiệp khi có chứng cứ cụ thể; không tự ép chốt tồn.</small> : null}
     </section>
 
-    {blockers.length ? <section className="ops-inventory-blockers"><h3>Cần kiểm tra ({blockers.length})</h3><p>Hệ thống đã phát hiện các điều kiện chưa hoàn tất. Chỉ xử lý ngoại lệ sau khi đối chiếu bằng chứng.</p><details><summary>Xem lý do</summary><ul>{blockers.map((blocker, index) => <li key={blocker.code + "-" + index}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} tài liệu · {(blocker.review_ids?.length || 0)} mục xem xét · {(blocker.job_ids?.length || 0)} tác vụ</span></li>)}</ul></details></section> : <div className="ops-inventory-clear"><strong>Không phát hiện ngoại lệ từ chu kỳ hiện tại</strong><span>Đây là trạng thái theo dõi; không tự xác nhận kiểm đếm thực tế hoặc ký chốt ca.</span></div>}
+    {hasExceptions ? <section className="ops-inventory-blockers">
+      <h3>Cần kiểm tra chu kỳ hiện tại</h3>
+      <p>Hệ thống đã phát hiện các điều kiện chưa hoàn tất. Chỉ xử lý ngoại lệ sau khi đối chiếu bằng chứng.</p>
+      <details><summary>Xem lý do</summary><ul>
+        {!automationReady && <li>{!status.enabled || !status.configured ? "Lịch xử lý đang tắt hoặc chưa đủ cấu hình." : "Hệ thống đang báo trạng thái cần kiểm tra."}</li>}
+        {usesV4Slots && !lifecycleMatchesDate && <li>Trạng thái tiến trình chưa khớp ngày kiểm kê đang theo dõi.</li>}
+        {lifecycleIssues.map(stage => <li key={stage.label}><strong>{stage.label}: {processStatusLabel(stage.status)}</strong>{stage.error_code ? <span>{stage.error_code}</span> : null}</li>)}
+        {invariants.map((invariant, index) => <li key={invariant.code + "-" + index}>{invariant.code} · {invariant.stage}</li>)}
+        {blockers.map((blocker, index) => <li key={blocker.code + "-" + index}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} tài liệu · {(blocker.review_ids?.length || 0)} mục xem xét · {(blocker.job_ids?.length || 0)} tác vụ</span></li>)}
+      </ul></details>
+    </section> : hasCurrentCycleEvidence ? <div className="ops-inventory-clear"><strong>Không phát hiện ngoại lệ từ chu kỳ hiện tại</strong><span>Đây là trạng thái theo dõi; không tự xác nhận kiểm đếm thực tế hoặc ký chốt ca.</span></div> : <div className="ops-inventory-automation-note" role="status"><strong>Chưa đủ dữ liệu để kết luận chu kỳ hiện tại</strong><span>Các bước chưa hoàn tất hoặc chưa được xác minh. Tiếp tục theo dõi trạng thái xử lý.</span></div>}
 
     <details className="ops-inventory-human-actions">
       <summary>Công việc cần nhân viên hoặc quản lý xác nhận</summary>

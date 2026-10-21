@@ -301,7 +301,7 @@ class DailySheetSchedulerTest(unittest.TestCase):
             ("2030-08-10", "afternoon_snapshot"),
         ], sheets.calls)
 
-    def test_v4_stale_evidence_uses_persisted_retry_not_immediate_restart(self):
+    def test_v4_stale_evidence_requires_review_across_scheduler_restart(self):
         self._enable_v4()
 
         class Sheets:
@@ -313,19 +313,134 @@ class DailySheetSchedulerTest(unittest.TestCase):
                 raise V4AgentSafetyError("stale_evidence")
 
         sheets = Sheets()
-        scheduler = InventoryDailyScheduler(
-            self.sessions, sheet_service=sheets
-        )
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
         moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
         with self.assertRaises(V4AgentSafetyError, msg="stale_evidence"):
             scheduler.execute_v4_slot("evening_reconcile", moment)
+        restarted = InventoryDailyScheduler(self.sessions, sheet_service=sheets)
+        self.assertEqual(0, restarted.execute_v4_slot(
+            "evening_reconcile", moment + timedelta(minutes=30),
+        ))
         self.assertEqual(1, sheets.calls)
         with self.sessions() as session:
             job = session.scalar(select(InventoryJobModel).where(
                 InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
             ))
-            self.assertEqual("retry", job.status)
+            self.assertEqual("failed", job.status)
             self.assertEqual("stale_evidence", job.last_error_code)
+            self.assertEqual(1, job.attempt_count)
+
+    def _assert_old_conflict_is_not_restarted(self, old_status, *, old_verified=False):
+        self._enable_v4()
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                payload_json={"business_date": "2030-08-09",
+                              "slot_kind": "evening_reconcile"},
+                status=old_status, attempt_count=3, max_attempts=12,
+                next_attempt_at=moment - timedelta(minutes=1),
+                last_error_code="stale_evidence",
+            ))
+            if old_verified:
+                snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                    InventoryDailySheetSnapshotModel.tenant_id == "tenant-a",
+                    InventoryDailySheetSnapshotModel.business_date == date(2030, 8, 9),
+                ))
+                snapshot.gemini_reconcile_status = "completed"
+                snapshot.gemini_reconcile_verified_at = moment - timedelta(hours=1)
+
+        class Sheets:
+            def run_agent_v4(self, *_args, **_kwargs):
+                raise AssertionError("old conflict must not execute or spend Gemini quota")
+
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=Sheets())
+        if old_status == "failed":
+            self.assertEqual(frozenset(), scheduler._v4_due_slot_candidates(
+                tenant_id="tenant-a", business_date=date(2030, 8, 9),
+                slot_kinds=("evening_reconcile",), now=moment,
+            ))
+        self.assertEqual(0, scheduler.execute_v4_slot("evening_reconcile", moment))
+        self.assertEqual(0, InventoryDailyScheduler(
+            self.sessions, sheet_service=Sheets(),
+        ).execute_v4_slot("evening_reconcile", moment + timedelta(minutes=30)))
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
+            ))
+            self.assertEqual("failed", job.status)
+            self.assertEqual("stale_evidence", job.last_error_code)
+            self.assertEqual(3, job.attempt_count)
+            self.assertIsNone(job.claimed_by)
+            self.assertIsNone(job.lease_expires_at)
+
+    def test_v4_old_failed_conflict_cannot_self_heal_after_budget_upgrade(self):
+        self._assert_old_conflict_is_not_restarted("failed")
+
+    def test_v4_old_queued_conflict_cannot_resume_when_backoff_expires(self):
+        self._assert_old_conflict_is_not_restarted("retry")
+
+    def test_v4_old_verified_snapshot_does_not_complete_a_later_conflict(self):
+        self._assert_old_conflict_is_not_restarted("failed", old_verified=True)
+
+    def test_v4_conflict_guard_preserves_an_active_worker_lease(self):
+        self._enable_v4()
+        moment = datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)
+        lease_until = moment + timedelta(minutes=10)
+        with self.sessions.begin() as session:
+            session.add(InventoryJobModel(
+                tenant_id="tenant-a",
+                job_type="inventory_v5_evening_reconcile_slot",
+                entity_type="inventory_v5_scheduler_slot",
+                entity_id="2030-08-09:evening_reconcile",
+                idempotency_key="inventory-v5-slot:tenant-a:2030-08-09:evening_reconcile",
+                status="processing", attempt_count=3, max_attempts=12,
+                claimed_by="existing-worker", claimed_at=moment,
+                lease_expires_at=lease_until, last_error_code="stale_evidence",
+            ))
+            snapshot = session.scalar(select(InventoryDailySheetSnapshotModel).where(
+                InventoryDailySheetSnapshotModel.tenant_id == "tenant-a",
+                InventoryDailySheetSnapshotModel.business_date == date(2030, 8, 9),
+            ))
+            snapshot.gemini_reconcile_status = "completed"
+            snapshot.gemini_reconcile_verified_at = moment - timedelta(hours=1)
+        scheduler = InventoryDailyScheduler(self.sessions, sheet_service=SimpleNamespace())
+        self.assertIsNone(scheduler._claim_v4_slot(
+            tenant_id="tenant-a", business_date=date(2030, 8, 9),
+            slot_kind="evening_reconcile", now=moment,
+        ))
+        with self.sessions() as session:
+            job = session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_evening_reconcile_slot"
+            ))
+            self.assertEqual("processing", job.status)
+            self.assertEqual("existing-worker", job.claimed_by)
+            self.assertEqual(lease_until, job.lease_expires_at.replace(tzinfo=timezone.utc))
+            self.assertEqual("stale_evidence", job.last_error_code)
+            self.assertEqual(3, job.attempt_count)
+
+    def test_review_evidence_overrides_transient_error_wrappers(self):
+        from app.modules.inventory.daily_sheet.service import inventory_error_metadata
+
+        for code in (
+            "stale_evidence", "read_back_mismatch", "clear_read_back_mismatch",
+            "catinat_signed_close_required",
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(
+                    {"category": "REVIEW", "retryable": False},
+                    inventory_error_metadata(code),
+                )
+                self.assertFalse(InventoryDailyScheduler._retryable_v4_error(
+                    TimeoutError(code),
+                ))
+                self.assertFalse(InventoryDailyScheduler._retryable_v4_error(
+                    InventoryAiGatewayError(code, retryable=True),
+                ))
 
     def test_v4_transient_failure_backs_off_without_hot_loop(self):
         self._enable_v4()
