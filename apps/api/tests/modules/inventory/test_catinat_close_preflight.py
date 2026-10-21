@@ -78,7 +78,7 @@ def codes(result):
     return [row["code"] for row in result["blockers"]]
 
 
-def test_catalog_coverage_shows_missing_locations_and_never_certifies_by_count(db):
+def test_q47_warehouse_source_does_not_depend_on_registry_location_count(db):
     service, sessions = db
     with sessions.begin() as session:
         for location in session.query(InventoryLocationModel).filter_by(tenant_id="tenant-a"):
@@ -96,18 +96,23 @@ def test_catalog_coverage_shows_missing_locations_and_never_certifies_by_count(d
     report = service.inspect(
         tenant_id="tenant-a", business_date=DAY, current_readiness=ready,
     )
-    assert report["catalog_coverage"] == {
-        "active_item_count": 1,
-        "active_location_count": 0,
-        "certified": False,
-    }
-    assert "inventory_locations_missing_for_tenant" in codes(report)
-    assert "catalog_item_and_location_mapping_not_certified" in codes(report)
+    assert report["identity_source"] == "q01_q47_configured_worksheet_and_closing_cell"
+    assert report["warehouse_sources"] == [
+        {"sheet": "KHO PHA CHẾ", "whole_column": "L", "loose_column": "M",
+         "required_cells": 1, "confirmed_cells": 0},
+        {"sheet": "PHÒNG PHA CHẾ", "whole_column": "H", "loose_column": "J",
+         "required_cells": 0, "confirmed_cells": 0},
+        {"sheet": "KHO PHÒNG RANG", "whole_column": "J", "loose_column": "L",
+         "required_cells": 0, "confirmed_cells": 0},
+    ]
+    assert report["physical_identity_verified_for_preview"] is True
+    assert "inventory_locations_missing_for_tenant" not in codes(report)
+    assert "catalog_item_and_location_mapping_not_certified" not in codes(report)
     assert report["ready_to_sign"] is False
     assert report["sheets_writes"] == 0
 
 
-def test_catalog_coverage_fails_closed_when_items_inactive(db):
+def test_q47_warehouse_source_does_not_depend_on_registry_material_count(db):
     service, sessions = db
     with sessions.begin() as session:
         item = session.get(InventoryItemModel, "milk")
@@ -115,11 +120,65 @@ def test_catalog_coverage_fails_closed_when_items_inactive(db):
     report = service.inspect(
         tenant_id="tenant-a", business_date=DAY, current_readiness=ready,
     )
-    assert report["catalog_coverage"]["active_item_count"] == 0
-    assert report["catalog_coverage"]["active_location_count"] == 2
-    assert report["catalog_coverage"]["certified"] is False
-    assert "inventory_items_missing_for_tenant" in codes(report)
+    assert report["warehouse_sources"][0]["required_cells"] == 1
+    assert "inventory_items_missing_for_tenant" not in codes(report)
+    assert report["physical_identity_verified_for_preview"] is True
     assert report["ready_to_sign"] is False
+
+
+def test_q47_rejects_inconsistent_sheet_form_and_closing_column(db):
+    service, _ = db
+    wrong = ready()
+    wrong["items"] = [dict(wrong["items"][0], cell="M5")]
+    result = service.inspect(tenant_id="tenant-a", business_date=DAY,
+                             current_readiness=lambda: wrong)
+    assert "invalid_q47_warehouse_cell_identity" in codes(result)
+    assert result["physical_identity_verified_for_preview"] is False
+    assert result["confirmed_count"] == 0
+    assert result["ready_to_sign"] is False
+    assert result["sheets_writes"] == 0
+
+
+def test_q47_rejects_unknown_warehouse_instead_of_guessing_location(db):
+    service, _ = db
+    unknown = ready()
+    unknown["items"] = [dict(unknown["items"][0], sheet="KHO KHÁC")]
+    result = service.inspect(tenant_id="tenant-a", business_date=DAY,
+                             current_readiness=lambda: unknown)
+    assert "invalid_q47_warehouse_cell_identity" in codes(result)
+    assert result["physical_identity_verified_for_preview"] is False
+    assert "inventory_locations_missing_for_tenant" not in codes(result)
+    assert result["automatic_carry_forward_allowed"] is False
+
+
+@pytest.mark.parametrize("sheet,form,cell", [
+    ("KHO PHA CHẾ", "whole", "L5"),
+    ("KHO PHA CHẾ", "loose", "M5"),
+    ("PHÒNG PHA CHẾ", "whole", "H5"),
+    ("PHÒNG PHA CHẾ", "loose", "J5"),
+    ("KHO PHÒNG RANG", "whole", "J5"),
+    ("KHO PHÒNG RANG", "loose", "L5"),
+])
+def test_q47_all_six_closing_channels_are_source_bound_without_db_locations(
+    db, sheet, form, cell,
+):
+    service, sessions = db
+    with sessions.begin() as session:
+        for location in session.query(InventoryLocationModel).all():
+            location.active = False
+        for material in session.query(InventoryItemModel).all():
+            material.active = False
+    report = ready()
+    report["items"] = [dict(report["items"][0], sheet=sheet, form=form, cell=cell)]
+    result = service.inspect(
+        tenant_id="tenant-a", business_date=DAY, current_readiness=lambda: report,
+    )
+    assert result["physical_identity_verified_for_preview"] is True
+    assert "invalid_q47_warehouse_cell_identity" not in codes(result)
+    assert "inventory_locations_missing_for_tenant" not in codes(result)
+    assert "inventory_items_missing_for_tenant" not in codes(result)
+    assert result["ready_to_sign"] is False
+    assert result["sheets_writes"] == 0
 
 
 def test_unconfirmed_counts_block_close_without_any_write(db):
@@ -150,7 +209,8 @@ def test_verified_count_can_be_recognized_without_falsely_closing(db):
     output = service.inspect(tenant_id="tenant-a", business_date=DAY, current_readiness=ready)
     assert output["confirmed_count"] == 1
     assert "physical_count_unconfirmed_or_stale" not in codes(output)
-    assert "catalog_item_and_location_mapping_not_certified" in codes(output)
+    assert "catalog_item_and_location_mapping_not_certified" not in codes(output)
+    assert output["warehouse_sources"][0]["confirmed_cells"] == 1
     assert output["ready_to_sign"] is False
     assert output["official_shift_closed"] is False
     stale = service.inspect(

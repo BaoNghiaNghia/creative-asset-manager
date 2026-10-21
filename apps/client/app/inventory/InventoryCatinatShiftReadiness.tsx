@@ -32,9 +32,7 @@ const ISSUE:Record<string,string>={
   unmapped_quantity_row:"Có dữ liệu ở dòng chưa xác định nguyên liệu",
   stock_unit_missing:"Thiếu đơn vị của phần tồn kho",
   no_physical_counts_discovered:"Chưa tìm thấy tồn cuối để kiểm kê",
-  inventory_items_missing_for_tenant:"Chưa cấu hình nguyên liệu hoạt động cho cửa hàng",
-  inventory_locations_missing_for_tenant:"Chưa cấu hình kho/vị trí hoạt động cho cửa hàng",
-  catalog_item_and_location_mapping_not_certified:"Chưa xác minh đối chiếu nguyên liệu và kho với Google Sheets",
+  invalid_q47_warehouse_cell_identity:"Khu vực hoặc ô tồn cuối không đúng sơ đồ Sheets đã chốt Q01–Q47",
   batch_expiration_and_waste_reconciliation_not_certified:"Chưa đối chiếu hạn sử dụng và hủy nguyên liệu",
   shift_reconciliation_and_transfer_posting_not_certified:"Chưa đối soát bàn giao ca và ghi sổ chuyển kho",
   concurrent_google_sheet_write_protocol_not_certified:"Chưa có cơ chế khóa/đối chiếu khi nhiều người sửa Sheets",
@@ -349,9 +347,11 @@ export function InventoryCatinatShiftReadiness(){
           <strong> Chưa cho phép chốt ca hoặc tự chuyển tồn.</strong>
         </p>
         <p className="inventory-muted">
-          Danh mục hiện có {preflight.catalog_coverage.active_item_count} nguyên liệu và
-          {" "}{preflight.catalog_coverage.active_location_count} kho/vị trí đang hoạt động.
-          <strong> Chưa có xác nhận ghép từng dòng Sheets với danh mục chuẩn.</strong>
+          Đối chiếu kho trực tiếp từ các worksheet đã chốt Q01–Q47:
+          {" "}{preflight.warehouse_sources.map(area=>
+            `${area.sheet} (${area.whole_column}/${area.loose_column}: ${area.confirmed_cells}/${area.required_cells} ô đã xác nhận)`
+          ).join("; ")}.
+          <strong> Đây là chứng cứ kiểm đếm theo ô Sheets, không phụ thuộc số lượng danh mục kho trong database.</strong>
         </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
@@ -446,14 +446,16 @@ export function InventoryCatinatShiftReadiness(){
           </div>
         </details>
       </section>}
+      <details>
+        <summary>Đối chiếu thêm với danh mục nội bộ (không phải điều kiện nhận diện ba kho Sheets)</summary>
       {coverage&&<section aria-label="Tiến độ xác minh ba khu vực Catinat">
-        <h3>Tiến độ xác minh danh mục ba khu vực</h3>
+        <h3>Chứng cứ liên kết danh mục nội bộ (tùy chọn)</h3>
         <p className="inventory-muted">
           Chứng cứ quản lý phù hợp nguồn Sheets hiện tại: {coverage.summary.evidence_cells}/
           {coverage.summary.source_cells} ô.
-          Tên kho khớp duy nhất: {coverage.summary.warehouse_areas_with_exact_candidate}/
+          Liên kết danh mục nội bộ: {coverage.summary.warehouse_areas_with_exact_candidate}/
           {coverage.summary.total_warehouse_areas} khu vực.
-          <strong> Chứng cứ không kích hoạt ánh xạ, không chốt ca hoặc ghi Google Sheets.</strong>
+          <strong> Ba khu vực kiểm kê vẫn lấy theo worksheet gốc; không chốt ca hoặc ghi Google Sheets.</strong>
         </p>
         <div style={{overflowX:"auto"}}>
           <table>
@@ -461,24 +463,24 @@ export function InventoryCatinatShiftReadiness(){
             <tbody>{coverage.areas.map(area=><tr key={area.sheet}>
               <td>{area.sheet}</td><td>{area.source_cells}</td>
               <td>{area.evidence_cells}</td><td>{area.pending_cells}</td>
-              <td>{area.missing_location?"Chưa có kho trong danh mục":
-                area.ambiguous_location?"Nhiều kho trùng tên — cần xử lý":
-                "Kho khớp tên, cần quản lý xác minh"}</td>
+              <td>{area.missing_location?"Chưa liên kết danh mục nội bộ (không cản kiểm đếm)":
+                area.ambiguous_location?"Nhiều tên kho trùng nhau trong danh mục tham chiếu":
+                "Đã có tên kho tham chiếu"}</td>
             </tr>)}</tbody>
           </table>
         </div>
         <p>
-          Nếu thiếu kho hoặc sai nguyên liệu/đơn vị, quản lý đối chiếu trực tiếp trong{" "}
+          Nếu cần hạch toán trên sổ kho nội bộ, quản lý đối chiếu nguyên liệu/đơn vị tại{" "}
           <a href="/inventory/materials">Nguyên vật liệu → Danh mục kho</a>.
           Chỉ tạo hoặc sửa dữ liệu chuẩn khi đã đối chiếu thực tế.
         </p>
       </section>}
       {catalog&&<section>
-        <h3>Đối chiếu danh mục nguyên liệu và vị trí kho</h3>
+        <h3>Tham khảo ánh xạ danh mục nội bộ</h3>
         <p className="inventory-muted">
-          Tìm thấy {catalog.summary.exact_candidates}/{catalog.summary.total} ô có tên nguyên liệu,
-          đơn vị và tên kho khớp chính xác; còn {catalog.summary.requires_review} ô cần rà soát.
-          <strong> Đây chỉ là ứng viên, chưa được quản lý duyệt và không được dùng để chốt tồn.</strong>
+          Có {catalog.summary.exact_candidates}/{catalog.summary.total} ô trùng tên và đơn vị
+          trong danh mục sổ kho nội bộ; {catalog.summary.requires_review} ô chưa liên kết.
+          <strong> Đây là tham khảo cho hạch toán sổ kho, không quyết định kho nào tồn tại trên Sheets và không cho phép chốt tồn.</strong>
         </p>
         <div style={{overflowX:"auto"}}>
           <table>
@@ -526,6 +528,7 @@ export function InventoryCatinatShiftReadiness(){
           </div>
         </div>}
       </section>}
+      </details>
       <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"
         &&row.code!=="physical_count_missing_or_ambiguous").map((row,index)=>

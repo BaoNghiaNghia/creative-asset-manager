@@ -57,6 +57,35 @@ describe("Catinat shift readiness",()=>{
     expect(markup).not.toContain("Hoàn tất kiểm kê ca tối");
   });
 
+  it("uses Q01-Q47 worksheet columns rather than internal registry counts as physical area identity",async()=>{
+    const fetchMock=vi.fn(async()=>({
+      ok:true,json:async()=>({
+        business_date:"2026-10-20",shift:"evening",source_hash:"a".repeat(64),
+        identity_source:"q01_q47_configured_worksheet_and_closing_cell",
+        warehouse_sources:[
+          {sheet:"KHO PHA CHẾ",whole_column:"L",loose_column:"M",
+            required_cells:1,confirmed_cells:1},
+          {sheet:"PHÒNG PHA CHẾ",whole_column:"H",loose_column:"J",
+            required_cells:1,confirmed_cells:0},
+          {sheet:"KHO PHÒNG RANG",whole_column:"J",loose_column:"L",
+            required_cells:2,confirmed_cells:0},
+        ],
+        physical_identity_verified_for_preview:true,confirmed_count:1,required_count:4,
+        blockers:[{code:"batch_expiration_and_waste_reconciliation_not_certified"}],
+        ready_to_sign:false,automatic_carry_forward_allowed:false,sheets_writes:0,
+      }),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    const result=await catinatShiftApi.closingPreflight("2026-10-20");
+    expect(result.warehouse_sources.map(area=>
+      [area.sheet,area.whole_column,area.loose_column])).toEqual([
+      ["KHO PHA CHẾ","L","M"],["PHÒNG PHA CHẾ","H","J"],["KHO PHÒNG RANG","J","L"],
+    ]);
+    expect(result).not.toHaveProperty("catalog_coverage");
+    expect(result.ready_to_sign).toBe(false);
+    expect(result.sheets_writes).toBe(0);
+  });
+
   it("uses explicit staff count confirmation API without a close or Sheets write",async()=>{
     const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
       ok:true,json:async()=>({confirmed:[],official_shift_closed:false,sheets_writes:0}),

@@ -57,14 +57,47 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - GET `/api/inventory/daily-sheet/catinat/shift/closing-preflight?business_date=...` requires `inventory.read`; the `Kiểm kê ca` screen cross-checks 3 fresh read hashes and displays remaining blockers. All returned documents have `ready_to_sign=false` until the missing policy gates below are built and demonstrated. No POST close or auto carry-forward has been enabled.
 - QA: `test_catinat_transfers.py` and `test_catinat_close_preflight.py` exercise tenant isolation, pending/partial/received state, replay/over-receipt, manager approval evidence, stale source hash, and no Sheets write paths.
 
-## P0 follow-up — tenant catalog coverage diagnostics (21 Oct 2026)
+## Q01–Q47 operational identity correction — 21 Oct 2026
+
+**Q01–Q47 workbook mapping, not registry totals, is authoritative for physical
+inventory:** `KHO PHA CHẾ` L/M, `PHÒNG PHA CHẾ` H/J, and
+`KHO PHÒNG RANG` J/L (whole/loose respectively). Each evidence identity is
+the tenant-configured spreadsheet + business date + versioned source hash +
+worksheet + exact closing cell + material display + whole/loose + original
+unit. No synthetic warehouse, no replacement item and no default conversion
+is created. Employee count confirmation still requires a separately attested
+physical check, and it becomes stale when the source hash changes.
+
+`/catinat/shift/closing-preflight` now reports `warehouse_sources` with
+the three Q47 worksheet/closing-column identities and per-worksheet confirmed
+cell counts, plus `identity_source=q01_q47_configured_worksheet_and_closing_cell`.
+It never blocks simply because `inventory_items` or `inventory_locations`
+contains zero or an incomplete set of records. A row outside the exact
+warehouse/form/cell layout fails closed with
+`invalid_q47_warehouse_cell_identity`. The main staff UI shows the three
+worksheet areas and no longer displays internal raw catalog counts or
+treats registry location totals as physical stock identity.
+
+The legacy catalog mapping and manager evidence diagnostics remain only as a
+collapsed **optional internal-ledger association** view. Those diagnostics may
+be useful when a future stock ledger operation requires canonical IDs, but
+they do not determine if the source's three operational physical areas exist
+and do not block read-only staff count confirmation. Existing manager
+approvals, exact opening/loose unit conversion, batch expiry/waste,
+unreconciled transfers, independent source fingerprints and unsafe Sheets
+concurrency gates remain fail-closed. No automatic sign-off, debit,
+cross-warehouse stock posting or Google Sheets writes are enabled by this
+change. No database migration is required.
+
+## Historical P0 follow-up — registry coverage diagnostics (superseded by Q47 source identity)
 
 The **read-only** evening closing preflight now separately counts active catalog materials and
 active storage locations for the authenticated tenant. The response includes
 `catalog_coverage: { active_item_count, active_location_count, certified: false }`.
-A tenant with zero active materials or zero active locations receives explicit
-`inventory_items_missing_for_tenant` / `inventory_locations_missing_for_tenant`
-blockers, localized in the Vietnamese staff view. Cross-tenant catalog entries
+An earlier preflight revision also blocked tenants for having zero active
+materials or locations, but this has been **removed**: Q01–Q47 identifies
+physical warehouse cells by exact workbook location and column, regardless
+of internal catalog row totals. Cross-tenant catalog entries
 never count toward readiness. Even non-zero counts do **not** certify name,
 variant, batch, unit conversion, or per-sheet location mapping.
 

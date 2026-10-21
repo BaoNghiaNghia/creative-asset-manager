@@ -56,7 +56,10 @@ export type CatinatClosePreflight = {
   confirmed_count:number;required_count:number;
   outstanding_transfer_count:number;unreconciled_transfer_count:number;
   approval_requests_count:number;
-  catalog_coverage:{active_item_count:number;active_location_count:number;certified:false};
+  identity_source:"q01_q47_configured_worksheet_and_closing_cell";
+  warehouse_sources:Array<{sheet:string;whole_column:string;loose_column:string;
+    required_cells:number;confirmed_cells:number}>;
+  physical_identity_verified_for_preview:boolean;
   blockers:Array<{code:string;sheet?:string;cell?:string;request_id?:string;
     transfer_ids?:string[];snapshot_id?:string}>;
   ready_to_sign:false;official_shift_closed:boolean;
