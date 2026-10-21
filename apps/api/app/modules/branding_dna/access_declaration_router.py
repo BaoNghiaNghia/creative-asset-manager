@@ -310,8 +310,7 @@ def declare_owned_shops_bulk(
         results.append((row, False))
     session.commit()
     response.headers["Cache-Control"] = "no-store"
-    if all(replayed for _, replayed in results):
-        response.status_code = 200
+    response.status_code = 200 if all(replayed for _, replayed in results) else 201
     return {
         "items": [
             {"shop_id": row.shop_id, "declaration_id": row.id,
