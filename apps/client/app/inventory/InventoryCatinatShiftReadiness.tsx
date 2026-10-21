@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   catinatShiftApi, catinatApprovalApi, InventoryApiError, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
-  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping,
+  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage,
 } from "./api";
 
 function todayVietnam(){
@@ -81,6 +81,7 @@ export function InventoryCatinatShiftReadiness(){
   const [confirmed,setConfirmed]=useState<CatinatCountConfirmationState|null>(null);
   const [preflight,setPreflight]=useState<CatinatClosePreflight|null>(null);
   const [catalog,setCatalog]=useState<CatinatCatalogMapping|null>(null);
+  const [coverage,setCoverage]=useState<CatinatCertificationCoverage|null>(null);
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -94,6 +95,7 @@ export function InventoryCatinatShiftReadiness(){
     setConfirmed(null);
     setPreflight(null);
     setCatalog(null);
+    setCoverage(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -102,24 +104,27 @@ export function InventoryCatinatShiftReadiness(){
   },[businessDate]);
 
   async function readCurrent(){
-    const [next,proof,safety,mapping]=await Promise.all([
+    const [next,proof,safety,mapping,verification]=await Promise.all([
       catinatShiftApi.readiness(businessDate),
       catinatShiftApi.confirmations(businessDate),
       catinatShiftApi.closingPreflight(businessDate),
       catinatShiftApi.catalogMappingPreview(businessDate),
+      catinatShiftApi.certificationCoverage(businessDate),
     ]);
     if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash
-       || next.source_hash!==mapping.source_hash){
+       || next.source_hash!==mapping.source_hash || next.source_hash!==verification.source_hash){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
       setCatalog(null);
+    setCoverage(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
     setConfirmed(proof);
     setPreflight(safety);
     setCatalog(mapping);
+    setCoverage(verification);
   }
 
   async function load(){
@@ -130,6 +135,7 @@ export function InventoryCatinatShiftReadiness(){
     setConfirmed(null);
     setPreflight(null);
     setCatalog(null);
+    setCoverage(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -182,6 +188,7 @@ export function InventoryCatinatShiftReadiness(){
       setConfirmed(null);
       setPreflight(null);
       setCatalog(null);
+    setCoverage(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
@@ -215,6 +222,7 @@ export function InventoryCatinatShiftReadiness(){
          JSON.stringify(sourceRow)!==JSON.stringify(mappingDraft) ||
          JSON.stringify(currentLocation)!==JSON.stringify(oldLocation)){
         setCatalog(null);
+    setCoverage(null);
         setMappingDraft(null);
         reviewKey.current=null;
         throw new Error("Dữ liệu Sheets/danh mục đã thay đổi. Tải lại trước khi tạo yêu cầu.");
@@ -328,6 +336,33 @@ export function InventoryCatinatShiftReadiness(){
         </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
+      </section>}
+      {coverage&&<section aria-label="Tiến độ xác minh ba khu vực Catinat">
+        <h3>Tiến độ xác minh danh mục ba khu vực</h3>
+        <p className="inventory-muted">
+          Chứng cứ quản lý phù hợp nguồn Sheets hiện tại: {coverage.summary.evidence_cells}/
+          {coverage.summary.source_cells} ô.
+          Tên kho khớp duy nhất: {coverage.summary.warehouse_areas_with_exact_candidate}/
+          {coverage.summary.total_warehouse_areas} khu vực.
+          <strong> Chứng cứ không kích hoạt ánh xạ, không chốt ca hoặc ghi Google Sheets.</strong>
+        </p>
+        <div style={{overflowX:"auto"}}>
+          <table>
+            <thead><tr><th>Khu vực</th><th>Ô trên Sheets</th><th>Đã có chứng cứ</th><th>Chờ xác minh</th><th>Tình trạng kho</th></tr></thead>
+            <tbody>{coverage.areas.map(area=><tr key={area.sheet}>
+              <td>{area.sheet}</td><td>{area.source_cells}</td>
+              <td>{area.evidence_cells}</td><td>{area.pending_cells}</td>
+              <td>{area.missing_location?"Chưa có kho trong danh mục":
+                area.ambiguous_location?"Nhiều kho trùng tên — cần xử lý":
+                "Kho khớp tên, cần quản lý xác minh"}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <p>
+          Nếu thiếu kho hoặc sai nguyên liệu/đơn vị, quản lý đối chiếu trực tiếp trong{" "}
+          <a href="/inventory/materials">Nguyên vật liệu → Danh mục kho</a>.
+          Chỉ tạo hoặc sửa dữ liệu chuẩn khi đã đối chiếu thực tế.
+        </p>
       </section>}
       {catalog&&<section>
         <h3>Đối chiếu danh mục nguyên liệu và vị trí kho</h3>

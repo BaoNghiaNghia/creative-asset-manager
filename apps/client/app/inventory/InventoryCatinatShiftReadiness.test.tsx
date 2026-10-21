@@ -80,6 +80,29 @@ describe("Catinat shift readiness",()=>{
     });
   });
 
+  it("reads manager evidence coverage without activating mapping or writing Sheets",async()=>{
+    const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
+      ok:true,json:async()=>({
+        business_date:"2026-10-20",source_hash:"a".repeat(64),
+        mode:"read_only_certification_coverage",
+        summary:{source_cells:1,evidence_cells:0,pending_cells:1,
+          warehouse_areas_with_exact_candidate:0,total_warehouse_areas:3},
+        areas:[],items:[],mapping_activated:false,ready_to_sign:false,
+        automatic_carry_forward_allowed:false,inventory_writes:0,sheets_writes:0,
+      }),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    const result=await catinatShiftApi.certificationCoverage("2026-10-20");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/catalog-certifications/coverage?business_date=2026-10-20"
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+    expect(result.summary.total_warehouse_areas).toBe(3);
+    expect(result.mapping_activated).toBe(false);
+    expect(result.ready_to_sign).toBe(false);
+    expect(result.sheets_writes).toBe(0);
+  });
+
   it("uses read-only tenant-scoped catalog mapping preview with Vietnamese review reasons",async()=>{
     const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
       ok:true,json:async()=>({items:[],locations:[],ready_to_sign:false,sheets_writes:0}),

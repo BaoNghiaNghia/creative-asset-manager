@@ -254,3 +254,104 @@ def test_http_manager_role_required_and_get_is_read_only(backend):
         assert result.json()["mapping_activated"] is False
         assert reader.get(API + "?business_date=2026-10-20").json()["items"][0]["id"] == result.json()["id"]
         assert reader.post(API, json=body).status_code == 403
+# Q48: manager evidence coverage is read-only and never a closing prerequisite.
+from app.modules.inventory.daily.catinat_catalog_coverage import catalog_evidence_coverage
+from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
+
+
+def test_coverage_three_areas_before_after_certification(backend):
+    _, _, sessions = backend
+    before = catalog_evidence_coverage(
+        sessions, tenant_id="tenant-a", business_date=DAY, report=preview(sessions),
+    )
+    assert len(before["areas"]) == 3
+    assert [a["sheet"] for a in before["areas"]] == [
+        "KHO PHA CHẾ", "PHÒNG PHA CHẾ", "KHO PHÒNG RANG",
+    ]
+    assert before["summary"] == {
+        "source_cells": 1, "evidence_cells": 0, "pending_cells": 1,
+        "warehouse_areas_with_exact_candidate": 1, "total_warehouse_areas": 3,
+    }
+    assert before["areas"][1]["missing_location"]
+    assert before["ready_to_sign"] is False
+    assert before["inventory_writes"] == before["sheets_writes"] == 0
+
+    certify(backend, create_approval(backend))
+    after = catalog_evidence_coverage(
+        sessions, tenant_id="tenant-a", business_date=DAY, report=preview(sessions),
+    )
+    assert after["summary"]["evidence_cells"] == 1
+    assert after["summary"]["pending_cells"] == 0
+    assert after["areas"][0]["evidence_cells"] == 1
+    assert after["items"][0]["evidence_status"] == "manager_evidence_current"
+    assert after["items"][0]["certification_version"] == 1
+    assert after["mapping_activated"] is False
+    assert after["ready_to_sign"] is False
+    assert after["automatic_carry_forward_allowed"] is False
+
+
+def test_coverage_does_not_count_other_tenants_or_stale_sources(backend):
+    _, _, sessions = backend
+    certify(backend, create_approval(backend))
+    changed = catalog_evidence_coverage(
+        sessions, tenant_id="tenant-a", business_date=DAY,
+        report=preview(sessions, "b" * 64),
+    )
+    assert changed["summary"]["evidence_cells"] == 0
+    other_tenant = catalog_evidence_coverage(
+        sessions, tenant_id="tenant-b", business_date=DAY,
+        report=preview(sessions),
+    )
+    assert other_tenant["summary"]["evidence_cells"] == 0
+    assert other_tenant["ready_to_sign"] is False
+
+
+def test_coverage_rejects_duplicate_cell_and_missing_warehouse_scope(backend):
+    _, _, sessions = backend
+    report = preview(sessions)
+    with pytest.raises(CatinatCountBlocked, match="duplicate_source_count_identity"):
+        catalog_evidence_coverage(
+            sessions, tenant_id="tenant-a", business_date=DAY,
+            report=dict(report, items=[*report["items"], report["items"][0]]),
+        )
+    with pytest.raises(CatinatCountBlocked, match="catalog_location_scope_untrusted"):
+        catalog_evidence_coverage(
+            sessions, tenant_id="tenant-a", business_date=DAY,
+            report=dict(report, locations=report["locations"][:2]),
+        )
+
+
+def test_coverage_never_counts_evidence_when_catalog_candidate_changes(backend):
+    _, _, sessions = backend
+    certify(backend, create_approval(backend))
+    report = preview(sessions)
+    mutated = dict(report, items=[dict(report["items"][0], status="unit_mismatch")])
+    result = catalog_evidence_coverage(
+        sessions, tenant_id="tenant-a", business_date=DAY, report=mutated,
+    )
+    assert result["summary"]["evidence_cells"] == 0
+    assert result["summary"]["pending_cells"] == 1
+
+
+def test_coverage_endpoint_requires_inventory_read_and_is_not_a_writer(backend):
+    _, _, sessions = backend
+    reader = client_for(principal("reader", {"inventory.read"}, {"viewer"}))
+    unauthorized = client_for(principal("reader", set(), {"viewer"}))
+    url = "/api/inventory/daily-sheet/catinat/catalog-certifications/coverage?business_date=2026-10-20"
+    assert unauthorized.get(url).status_code == 403
+    assert reader.post(url).status_code == 405
+    with patch(
+        "app.modules.inventory.daily.catinat_certification_router.load_evening_readiness",
+        return_value=source(),
+    ), patch(
+        "app.modules.inventory.daily.catinat_certification_router.CatinatCatalogMappingPreview",
+    ) as mapping, patch(
+        "app.modules.inventory.daily.catinat_certification_router.catalog_evidence_coverage",
+        return_value={"ready_to_sign": False, "mapping_activated": False,
+                      "sheets_writes": 0},
+    ) as coverage:
+        mapping.return_value.inspect.return_value = preview(sessions)
+        response = reader.get(url)
+        assert response.status_code == 200, response.text
+        assert response.json()["mapping_activated"] is False
+        coverage.assert_called_once()

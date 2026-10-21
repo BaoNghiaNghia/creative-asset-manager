@@ -10,6 +10,8 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_evening_readiness
 from app.modules.inventory.daily_sheet.google_client import DailySheetProviderError
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
+from app.modules.inventory.daily.catinat_catalog_coverage import catalog_evidence_coverage
+from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_catalog_certifications import (
     CatinatCatalogCertificationService, CatinatCertificationBlocked,
 )
@@ -42,6 +44,30 @@ def list_certifications(
     return {"items": _service().list(
         tenant_id=principal.active_tenant_id, business_date=business_date, limit=limit,
     ), "mapping_activated": False, "ready_to_sign": False, "sheets_writes": 0}
+
+
+@router.get("/coverage")
+def get_catalog_certification_coverage(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Read-only per-warehouse certification progress; never a close gate."""
+    try:
+        ready = load_evening_readiness(
+            principal.active_tenant_id, business_date, sessions=SessionLocal,
+        )
+        report = CatinatCatalogMappingPreview(SessionLocal).inspect(
+            tenant_id=principal.active_tenant_id,
+            business_date=business_date, current_readiness=lambda: ready,
+        )
+        return catalog_evidence_coverage(
+            SessionLocal, tenant_id=principal.active_tenant_id,
+            business_date=business_date, report=report,
+        )
+    except CatinatCountBlocked as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
 
 
 @router.post("")

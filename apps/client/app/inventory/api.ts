@@ -104,7 +104,21 @@ export type CatinatCatalogMapping = {
   ready_to_sign:false;automatic_carry_forward_allowed:false;
   inventory_writes:0;sheets_writes:0;
 };
+export type CatinatCertificationCoverage = {
+  business_date:string;source_hash:string;mode:"read_only_certification_coverage";
+  areas:Array<{sheet:string;source_cells:number;evidence_cells:number;pending_cells:number;
+    missing_location:boolean;ambiguous_location:boolean}>;
+  items:Array<{sheet:string;cell:string;material:string;unit:string;
+    mapping_status:string;evidence_status:string;certification_version:number|null}>;
+  summary:{source_cells:number;evidence_cells:number;pending_cells:number;
+    warehouse_areas_with_exact_candidate:number;total_warehouse_areas:number};
+  mapping_activated:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
 export const catinatShiftApi = {
+  certificationCoverage:(businessDate:string)=>request<CatinatCertificationCoverage>(
+    "/daily-sheet/catinat/catalog-certifications/coverage?business_date="+encodeURIComponent(businessDate),
+  ),
   catalogMappingPreview:(businessDate:string)=>request<CatinatCatalogMapping>(
     "/daily-sheet/catinat/catalog/mapping-preview?business_date="+encodeURIComponent(businessDate),
   ),
