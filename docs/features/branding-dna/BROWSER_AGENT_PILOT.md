@@ -1,5 +1,26 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — Visible browsing hardening, Windows v0.2.8
+
+The `visible_click` option launches a headed Chromium browser, clicks only
+visible marketplace product links, supports both same-tab links and legitimate
+new-tab product links, validates every opened product URL against the pinned
+shop host and listing path, and closes product popups after review. A popup
+redirecting to a login, an unrelated website or an unexpected listing fails
+closed; it cannot fall back to direct URL scraping. Same-tab navigation uses
+Back, but popup navigation leaves the parent storefront intact. Each
+successful product detail remains visible for 4 seconds before returning,
+allowing an operator to observe the screen.
+
+Default bounded navigation delays remain 10–18 seconds; browsing does not
+attempt to impersonate human identity, conceal automation, or circumvent
+CAPTCHA, rate limits, access controls or marketplace policies. Reports are
+still local and only 1–5 products per manually approved invocation. Existing
+paired standby agent `Start` continues to connect to CAM **without opening
+a marketplace browser**. Real production job dispatch remains disabled.
+A browser QA run on an approved Windows host is still required before calling
+this build field-verified.
+
 ## 2026-10-21 — CAM-source resumable manual pilot, Windows v0.2.7
 
 The same paired CAM Shop Library powers a new opt-in `--resume` invocation

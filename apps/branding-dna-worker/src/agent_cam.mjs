@@ -5,7 +5,7 @@
 import {setTimeout as sleep} from "node:timers/promises";
 import {pathToFileURL} from "node:url";
 
-export const AGENT_VERSION="0.2.7";
+export const AGENT_VERSION="0.2.8";
 
 export function settings(env=process.env){
  const u=new URL(env.BRANDING_DNA_SERVER_URL||"https://creative-assets.ddns.net");

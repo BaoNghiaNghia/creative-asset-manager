@@ -1,4 +1,4 @@
-BRANDING DNA BROWSER AGENT - WINDOWS v0.2.7
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.8
 ==========================================
 Type: Windows portable bootstrap ZIP, not a standalone EXE.
 Sites: Amazon and Etsy only. Uses Chromium browser, no marketplace API
@@ -12,6 +12,9 @@ or third-party scraping service.
    report directory and an ABSOLUTE approval_file path outside the tool.
    Use "headless": false, "interaction_mode": "visible_click" to click
    actual visible product links inside Chromium (not disguised human traffic).
+   v0.2.8 handles normal product links and new-tab product links.
+   Each product stays visible for 4 seconds so you can observe Chromium.
+   Never use this mode to disguise automation or bypass site challenges.
 5. The approval file must reflect actual permission and source rights review.
    Etsy automation requires express written authorization from Etsy.
    Keep approvals, profiles, cookies and reports outside the tool directory.
@@ -39,6 +42,6 @@ Do not work around challenges or rate limits. No production job dispatch,
 gallery upload, Best Seller inference or automatic full-shop crawling yet.
 
 Release checksum: see .zip.sha256 adjacent to ZIP. To verify on Windows:
-  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.7-win-x64.zip" SHA256
+  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.8-win-x64.zip" SHA256
 
 More details: README.md and docs\BROWSER_AGENT_PILOT.md

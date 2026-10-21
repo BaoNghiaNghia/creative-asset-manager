@@ -1,4 +1,20 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.7
+# Branding DNA Windows Worker — Windows Portable v0.2.8
+
+## v0.2.8 — Visible Chromium product inspection
+
+The manual `visible_click` browser pilot follows product links using
+Chromium's actual accessibility/UI links. It handles both same-tab navigation
+and new tabs (`target=_blank`), safely closes product popups, and leaves each
+product on screen for 4 seconds after inspection. Login/invalid-domain
+redirects are refused without bypass or direct HTTP fallback. Browser identity
+is still explicitly `Agent/CreativeAssetManagerBrandDNA`; no human
+impersonation, anti-bot evasion or hidden API.
+
+The `Start agent` action in Scout Manager is a CAM heartbeat and does not
+automatically run this manual browser pilot. The latter still needs
+shop-specific authorization, `headless:false`,
+`interaction_mode:"visible_click"`, and is limited to 1–5 products per
+manual run. Production dispatch is not enabled.
 
 ## CAM paired Agent readiness diagnostics (2026-10-21)
 

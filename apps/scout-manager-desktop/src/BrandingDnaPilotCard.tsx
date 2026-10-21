@@ -34,7 +34,7 @@ export function blockedShopSummary(shops:ShopBlocker[]){
   awaitingSourcePermission:count("marketplace_authorization_not_verified"),
  };
 }
-const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.7",running:false,lastError:null};
+const INITIAL:AgentStatus={state:"Checking agent…",pid:null,version:"0.2.8",running:false,lastError:null};
 
 /** An empty Shop Library is still an authenticated, connected CAM session. */
 export function camConnectionState(acknowledged:boolean, shops:CamShop[]){
