@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-## Browser Agent recovery candidate 0.2.12 / Manager 0.1.42 (2026-10-21)
+## Browser Agent recovery candidate 0.2.12 / Manager 0.1.43 (2026-10-21)
 
 - [x] Reproduce and repair parser counts, successful-prefix loss, serial-batch continuation and same-tab/popup refusal handling.
 - [x] Preserve immutable reports on cleanup failure and retain uncertain profile ownership for operator review.

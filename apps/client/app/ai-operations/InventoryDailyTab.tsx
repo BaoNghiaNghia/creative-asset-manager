@@ -8,7 +8,6 @@ import {
   type InventoryDailySheetStatus,
 } from "../inventory/api";
 import { InventoryApp, type InventoryPage } from "../inventory/InventoryApp";
-import { InventoryDailyPipeline } from "../inventory/InventoryDailyPipeline";
 
 type InventoryDailyState = {
   status: InventoryDailySheetStatus;
@@ -21,14 +20,11 @@ const businessDate = (value: string | null | undefined) => {
   return year && month && day ? day + "/" + month + "/" + year : value;
 };
 
-type QuickActionIconName = "sheet" | "calendar" | "materials" | "settings" | "refresh";
+type QuickActionIconName = "sheet" | "refresh";
 
 function QuickActionIcon({ name }: { name: QuickActionIconName }) {
   const paths = {
     sheet: <><path d="M6 3.5h8l4 4v13H6z" /><path d="M14 3.5v4h4M8.5 11h7M8.5 14h7M8.5 17h4" /></>,
-    calendar: <><rect x="4" y="5.5" width="16" height="14" rx="2" /><path d="M8 3.5v4M16 3.5v4M4 10h16M8 14h3" /></>,
-    materials: <><path d="M4 6.5h16v11H4z" /><path d="M8 6.5V4h8v2.5M8 11h3M8 14h5M15 11h1" /></>,
-    settings: <><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M5.9 5.9 8 8M16 16l2.1 2.1M18.1 5.9 16 8M8 16l-2.1 2.1" /><circle cx="12" cy="12" r="3.2" /></>,
     refresh: <><path d="M19 8.5V4.5m0 0h-4m4 0-3 3A7 7 0 1 0 19 12" /></>,
   };
   return <svg data-ui-icon className="ops-inventory-action-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
@@ -75,7 +71,6 @@ export function InventoryDailyTab() {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     setError("");
     inventoryDailySheetApi.getStatus().then(async status => {
       let run: InventoryDailyRun | null = null;
@@ -94,6 +89,12 @@ export function InventoryDailyTab() {
     });
     return () => { alive = false; };
   }, [reload]);
+
+  // Status-only refresh. The Inventory scheduler, not this browser, owns every job.
+  useEffect(() => {
+    const timer = window.setInterval(() => setReload(value => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (loading) return <div className="ops-inventory-state" aria-busy="true">Đang tải dữ liệu Inventory hằng ngày…</div>;
   if (error || !value) return <div className="ops-inventory-state ops-inventory-error" role="alert"><strong>Không thể tải Inventory</strong><p>{error}</p><button type="button" onClick={() => setReload(current => current + 1)}>Thử lại</button></div>;
@@ -133,29 +134,19 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
 
   return <div className="ops-content ops-inventory-daily">
     <div className="ops-section-heading">
-      <div><h2>Inventory hằng ngày</h2><p>Theo dõi dữ liệu kiểm kho, lịch tự động và kết quả xử lý theo múi giờ {status.timezone}.</p></div>
+      <div><h2>Tổng quan kiểm kê tự động</h2><p>Theo dõi chu kỳ kiểm kê tại {status.timezone}; tiến trình chạy nền không cần mở trang này.</p></div>
       <div className="ops-inventory-heading-actions">
         <span className={"ops-inventory-health " + (healthy ? "healthy" : status.operational_state)}>{operationalLabel(status.operational_state)}</span>
-        <div className="ops-inventory-quick-actions">
-          {status.working_spreadsheet_url ? <a href={status.working_spreadsheet_url} target="_blank" rel="noreferrer"><QuickActionIcon name="sheet" />Mở Google Sheet đang xử lý</a> : null}
-          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("daily")}><QuickActionIcon name="calendar" />Mở Daily Inventory</button>
-          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("materials")}><QuickActionIcon name="materials" />Nguyên vật liệu</button>
-          <button type="button" aria-haspopup="dialog" onClick={() => setModalPage("settings")}><QuickActionIcon name="settings" />Cấu hình Inventory</button>
-        </div>
+        {status.working_spreadsheet_url ? <a className="ops-inventory-source-link" href={status.working_spreadsheet_url} target="_blank" rel="noreferrer"><QuickActionIcon name="sheet" />Mở bảng kiểm kho</a> : null}
         <button className="ops-inventory-refresh-action" type="button" onClick={onRefresh}><QuickActionIcon name="refresh" />Làm mới</button>
       </div>
     </div>
 
     <section className="ops-inventory-summary" aria-label="Tóm tắt Inventory hằng ngày">
-      <article className="ops-inventory-summary-card today">
-        <span>Hôm nay</span>
-        <strong><time dateTime={status.current_local_date}>{businessDate(status.current_local_date)}</time></strong>
-        <small>Ngày hiện tại theo {status.timezone}</small>
-      </article>
       <article className="ops-inventory-summary-card processing-date">
-        <span>Ngày dữ liệu đang xử lý</span>
+        <span>Ngày kiểm kê</span>
         <strong><time dateTime={status.working_business_date}>{businessDate(status.working_business_date)}</time></strong>
-        <small>Chu kỳ xử lý cùng ngày theo {status.timezone}</small>
+        <small>Hôm nay {businessDate(status.current_local_date)} · tự động theo lịch</small>
       </article>
       <article className={"ops-inventory-summary-card run " + runTone}>
         <span>Trạng thái chu kỳ</span>
@@ -172,31 +163,49 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
     <div className="ops-inventory-grid">
       <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">BƯỚC 1</span><h3>Reset đầu ngày</h3></div><span className={"ops-inventory-card-status " + (lifecycle.morning_reset.status === "completed" ? "success" : "muted")}>{processStatusLabel(lifecycle.morning_reset.status)}</span></header>
-        <p>Khởi tạo shared workbook hôm nay từ kết quả Gemini đã xác minh của ngày trước.</p>
+        <p>Chuyển tồn đã xác minh sang ngày mới khi đủ điều kiện.</p>
         <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.morning_reset.scheduled_time}</dd></div><div><dt>Nguồn</dt><dd>{businessDate(lifecycle.morning_reset.source_business_date)}</dd></div><div><dt>Lỗi</dt><dd>{status.carry_forward?.error_code || "Không có"}</dd></div></dl>
       </article>
       <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">BƯỚC 2</span><h3>Snapshot buổi chiều</h3></div><span className={"ops-inventory-card-status " + (snapshot?.status === "completed" ? "success" : "muted")}>{processStatusLabel(snapshot?.status)}</span></header>
-        <p>Bản snapshot bất biến và workbook Gemini được tạo từ snapshot để xử lý độc lập.</p>
+        <p>Tạo bản sao dữ liệu phục vụ đối soát, không sửa nguồn.</p>
         <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{snapshot?.error_code || "Không có"}</dd></div></dl>
         {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Mở original snapshot ↗</a> : null}
         {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Mở Gemini working copy ↗</a> : null}
       </article>
       <article className="ops-inventory-card">
         <header><div><span className="ops-inventory-card-kicker">BƯỚC 3</span><h3>Đối soát Gemini buổi tối</h3></div><span className={"ops-inventory-card-status " + (lifecycle.evening_reconcile.verified ? "success" : "muted")}>{processStatusLabel(lifecycle.evening_reconcile.status)}</span></header>
-        <p>Gemini chỉ ghi vào bản working copy; kết quả verified mới được dùng cho ngày kế tiếp.</p>
+        <p>Đối soát và xác minh kết quả trước khi sử dụng.</p>
         <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.evening_reconcile.scheduled_time}</dd></div><div><dt>Đã xác minh</dt><dd>{lifecycle.evening_reconcile.verified ? "Có" : "Chưa"}</dd></div><div><dt>Plan</dt><dd>{lifecycle.evening_reconcile.plan_hash?.slice(0, 12) || "—"}</dd></div></dl>
       </article>
     </div>
 
-    <InventoryDailyPipeline embedded onOpenMaterials={() => setModalPage("materials")} />
+    <section className="ops-inventory-automation-note" role="status">
+      <strong>{status.enabled && status.configured && status.operational_state !== "disabled" ? "Theo dõi tự động đang bật" : "Chưa bật đủ cấu hình tự động"}</strong>
+      <span>{status.enabled && status.configured && status.operational_state !== "disabled"
+        ? "Các bước đã cấu hình được scheduler xử lý ở nền. Không cần giữ trang mở hoặc bấm chạy từng bước."
+        : "Lịch xử lý đang tắt hoặc thiếu cấu hình. Hệ thống không được coi là đã chạy tự động; hãy kiểm tra cảnh báo với quản trị viên."}</span>
+      {v4NeedsRecovery || !healthy ? <small>Đang có cảnh báo cần kiểm tra. Chỉ xác nhận hoặc can thiệp khi có chứng cứ cụ thể; không tự ép chốt tồn.</small> : null}
+    </section>
 
-    {blockers.length ? <section className="ops-inventory-blockers"><h3>Cần xử lý ({blockers.length})</h3><p>Các vấn đề dưới đây đang chặn chu kỳ dữ liệu ngày {businessDate(status.working_business_date)}.</p><ul>{blockers.map((blocker, index) => <li key={blocker.code + "-" + index}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} tài liệu · {(blocker.review_ids?.length || 0)} mục xem xét · {(blocker.job_ids?.length || 0)} tác vụ</span></li>)}</ul></section> : <div className="ops-inventory-clear"><strong>Chu kỳ hiện không có vấn đề cần xử lý</strong><span>Dữ liệu ngày {businessDate(status.working_business_date)} không có blocker.</span></div>}
+    {blockers.length ? <section className="ops-inventory-blockers"><h3>Cần kiểm tra ({blockers.length})</h3><p>Hệ thống đã phát hiện các điều kiện chưa hoàn tất. Chỉ xử lý ngoại lệ sau khi đối chiếu bằng chứng.</p><details><summary>Xem lý do</summary><ul>{blockers.map((blocker, index) => <li key={blocker.code + "-" + index}><strong>{blocker.code}</strong><span>{(blocker.document_ids?.length || 0)} tài liệu · {(blocker.review_ids?.length || 0)} mục xem xét · {(blocker.job_ids?.length || 0)} tác vụ</span></li>)}</ul></details></section> : <div className="ops-inventory-clear"><strong>Không phát hiện ngoại lệ từ chu kỳ hiện tại</strong><span>Đây là trạng thái theo dõi; không tự xác nhận kiểm đếm thực tế hoặc ký chốt ca.</span></div>}
+
+    <details className="ops-inventory-human-actions">
+      <summary>Công việc cần nhân viên hoặc quản lý xác nhận</summary>
+      <p>Chỉ mở khi thực sự có kiểm đếm vật lý, biên bản cần duyệt, bàn giao kho hoặc chứng từ chưa rõ. Những việc này không được tự xác nhận thay con người theo Q01–Q47.</p>
+      <div className="ops-inventory-human-buttons">
+        <button type="button" onClick={() => setModalPage("closing")}>Xác nhận kiểm đếm</button>
+        <button type="button" onClick={() => setModalPage("approvals")}>Duyệt ngoại lệ</button>
+        <button type="button" onClick={() => setModalPage("transfers")}>Xác nhận bàn giao</button>
+        <button type="button" onClick={() => setModalPage("review")}>Xem chứng từ cần duyệt</button>
+        <button type="button" onClick={() => setModalPage("materials")}>Đối chiếu vật tư chưa rõ</button>
+      </div>
+    </details>
 
     {modalPage ? <div className="ops-inventory-modal-backdrop" role="presentation" onMouseDown={() => setModalPage(null)}>
       <section className="ops-inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" onMouseDown={event => event.stopPropagation()}>
         <header><div><span>OPERATIONS</span><h2 id="inventory-modal-title">Inventory</h2></div><button type="button" autoFocus aria-label="Đóng Inventory" onClick={() => setModalPage(null)}>×</button></header>
-        <InventoryApp key={modalPage} embedded initialPage={modalPage} />
+        <InventoryApp key={modalPage} embedded initialPage={modalPage} showNavigation={false} />
       </section>
     </div> : null}
   </div>;

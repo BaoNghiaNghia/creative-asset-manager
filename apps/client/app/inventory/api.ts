@@ -1,3 +1,40 @@
+export type CatinatCandidateUnitEvidence = {
+  value:string;header:string;value_cell:string;header_cell:string;evidence_hash:string;
+};
+export type CatinatCandidateSourceRow = {
+  candidate_id:string;sheet:string;row:number;category:string|null;name:string;status:string;
+  suggested_item_id:string|null;suggested_canonical_name:string|null;confidence:number;
+  reasons:string[];name_cell:string;unit_evidence:CatinatCandidateUnitEvidence[];
+};
+export type CatinatCandidateApprovalGroup = {
+  candidate_id:string;candidate_ids:string[];expected_count:number;sheet:string;
+  category:string|null;name:string;item_id:string|null;item_name:string|null;
+  item_units:string[];can_bulk_approve:boolean;blocker:string|null;evidence_cells:string[];
+};
+export type CatinatMaterialGroup = {
+  name:string;aliases:string[];source_row_count:number;sheets:string[];
+  evidence_units:string[];status:string;suggested_item_id:string|null;
+  suggested_item_name:string|null;candidate_item_ids:string[];certified:false;
+  source_rows:CatinatCandidateSourceRow[];approval_groups:CatinatCandidateApprovalGroup[];
+};
+export type CatinatMaterialGroupsResponse = {
+  source_rows:number;unique_names:number;groups:CatinatMaterialGroup[];
+  automatic_approvals:0;inventory_writes:0;sheet_writes:0;
+};
+export type CatinatBulkApprovalRequest = {
+  groups:Array<{
+    candidate_id:string;item_id:string;expected_count:number;expected_candidate_ids:string[];
+  }>;
+};
+export const catinatMaterialGroupsApi = {
+  // Tenant-scoped evidence preview; only a separate explicit manager action can approve candidates.
+  list:()=>request<CatinatMaterialGroupsResponse>("/daily-sheet/catinat/catalog/material-candidate-groups"),
+  bulkApprove:(body:CatinatBulkApprovalRequest)=>request<{
+    status:string;approved_groups:number;approved_candidates:number;
+    inventory_balance_writes:0;google_sheet_writes:0;
+  }>("/materials/candidates/bulk-approve",{method:"POST",body:JSON.stringify(body)}),
+};
+
 export type InventoryReview = { id:string; document_id:string; line_id:string|null; reason_code:string; status:string; original_value:Record<string, unknown>; suggested_value:Record<string, unknown>; final_value:Record<string, unknown>|null; reviewer_id:string|null; reviewed_at:string|null };
 export type InventoryExport = { id:string; business_date:string; status:string; main_drive_file_id:string|null; backup_drive_file_id:string|null; content_sha256:string|null; completed_at:string|null; error_code:string|null; archive_status:string; archive_error_code:string|null };
 export type InventoryDailyRun = { id:string; business_date:string; status:string; ready:boolean; finalized:boolean; forced:boolean; blockers:Array<{code:string;document_ids?:string[];review_ids?:string[];job_ids?:string[]}>; report:Record<string,unknown>; finalized_at:string|null; finalized_by:string|null };

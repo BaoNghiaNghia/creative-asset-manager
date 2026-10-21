@@ -19,7 +19,7 @@ lock is kept. An operator must verify that the browser process has stopped
 before removing that exact lock and explicitly resuming.
 
 Report and heartbeat versions now come from the shipped package metadata.
-The accompanying Scout Manager 0.1.42 source serializes Start/Stop with its
+The accompanying Scout Manager 0.1.43 source serializes Start/Stop with its
 standby supervisor and limits rapid restart attempts. Native Windows tests and
 a real approved browser pilot remain separate release acceptance gates.
 
@@ -162,7 +162,7 @@ request to start the agent is not permission to bypass those gates.
 Use the existing paired Scout Manager checkout. Open `START_SCOUT_TAURI.cmd`
 and use the Branding DNA card's Start/Stop and dedicated live logs.
 Start maintains CAM standby; use the explicit shop commands above for a finite
-browser pilot. The 0.1.42 source adds bounded standby supervision and still
+browser pilot. The 0.1.43 source adds bounded standby supervision and still
 requires native Windows validation before upgrading the installed Manager.
 
 The pilot keeps its own Chromium profile and per-shop SQLite progress,

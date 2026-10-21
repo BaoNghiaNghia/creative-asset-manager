@@ -1,10 +1,11 @@
-## Browser Agent recovery candidate 0.2.12 / Manager 0.1.42 (2026-10-21)
+## Browser Agent recovery candidate 0.2.12 / Manager 0.1.43 (2026-10-21)
 
 - Scope: continue the unfinished Amazon/Etsy Windows DOM pilot and the copied Manager standby-supervisor work. All edits live in a task worktree based on `9996d1ce`; the concurrent Inventory checkout and original source worktrees are untouched.
 - Worker: count successful observations only; halt parser/navigation failures with fixed redacted codes; preserve the successful prefix for explicit resume; require fresh main-document status for visible products; latch 403/429 through parsing/display/cleanup. Stopped reports remain local and cannot be prepared as CAM evidence.
 - Cleanup: `browser_cleanup_review_required` saves successful records while retaining the exclusive profile lock. Operator verification is required before removing the lock.
 - Desktop: Start/Stop/retry decisions share the child-process mutex; update/shutdown gates are checked under it. Limit starts to four rapid attempts, resetting only after 60 seconds of stable running or explicit Start. Existing source updates still require stopped child processes.
-- Release: worker/package/heartbeat/report provenance is 0.2.12 from one runtime version source. Portable ZIP includes recovery/provenance tests. Manager manifests are 0.1.42; no dependency versions or schemas changed.
+- Release: worker/package/heartbeat/report provenance is 0.2.12 from one runtime version source. Portable ZIP includes recovery/provenance tests. Manager manifests are 0.1.43; no dependency versions or schemas changed.
+- Packaging uses a fresh Manager 0.1.43 version to preserve the different 0.1.42 binaries already installed on DESKTOP-3FR0LF0. Native build, immutable publication and target-machine verification are release gates.
 - Review: independent specification review found cleanup-report loss and late-refusal gaps; both were reproduced and corrected, and bounded re-review found no remaining blocker in worker source. The desktop patch received independent source review.
 - Verification: all 93 worker tests pass (including 20 recovery regressions and the release-provenance test); all three Python release-builder tests pass. Final ZIP smoke passes npm ci, all 93 extracted-package tests and syntax checks. Scout Manager frontend tests and TypeScript/Vite build pass; manifest/lockfile preflight passes at 0.1.42; scoped staging gate passes.
 - Rust policy: six std-only supervisor tests pass with official rustc 1.85.1 on Linux; the module read from the task workspace matches SHA-256 `4714fcb6bb694da66cecdd564e696a36186eddffd11a209998c9fa582ce0f79d`. This does not test Windows process control or Tauri integration.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult } from "./api";
-import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates, isCurrentInventoryBusinessDate, inventoryMorningRecoveryGateMessage } from "./InventoryDailyPipeline";
+import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates, isCurrentInventoryBusinessDate, inventoryMorningRecoveryGateMessage, isApprovedHistoricalSandboxCandidate, APPROVED_HISTORICAL_SANDBOX_DATES } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -96,6 +96,34 @@ describe("Inventory lifecycle monitoring and paginated recovery safety", () => {
       { key: "verified", label: "Xác minh", status: verified ? "completed" : "blocked" },
     ],
   } as import("./api").InventoryLifecycleHistoryItem);
+
+  it("offers sandbox replay only for the three approved historical exceptions", () => {
+    const withStages = (
+      day: string,
+      eveningStatus: "failed" | "review_required",
+      verifiedStatus: "completed" | "blocked" = "blocked",
+    ) => {
+      const base = createItem(day, "review_required", verifiedStatus === "completed");
+      return {
+        ...base,
+        stages: [
+          { ...base.stages[0], key: "evening_reconcile", status: eveningStatus },
+          { ...base.stages[1], key: "verified", status: verifiedStatus },
+        ],
+      } as import("./api").InventoryLifecycleHistoryItem;
+    };
+    expect(APPROVED_HISTORICAL_SANDBOX_DATES).toEqual(["2026-10-15", "2026-10-16", "2026-10-20"]);
+    for (const day of APPROVED_HISTORICAL_SANDBOX_DATES) {
+      expect(isApprovedHistoricalSandboxCandidate(withStages(day, "review_required"))).toBe(true);
+    }
+    expect(isApprovedHistoricalSandboxCandidate(withStages("2026-10-13", "failed"))).toBe(false);
+    expect(isApprovedHistoricalSandboxCandidate(withStages("2026-10-15", "review_required", "completed"))).toBe(false);
+    const withoutSnapshot = withStages("2026-10-16", "review_required");
+    expect(isApprovedHistoricalSandboxCandidate({
+      ...withoutSnapshot,
+      files: { ...withoutSnapshot.files, snapshot_url: null },
+    })).toBe(false);
+  });
 
   it("uses authoritative previous-day verification when the prior day is outside the page", () => {
     const current = { ...createItem("2026-10-15", "failed", false, "previous_day_gemini_not_verified"), previous_day_verified: true };

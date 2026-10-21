@@ -72,7 +72,7 @@ jobs:
           - group: creative
             profiles: explorer-viewer,review-board,realistic-review-ugc
           - group: operations
-            profiles: ai-operations,inventory,access-management
+            profiles: ai-operations,inventory,inventory-daily,access-management
           - group: media
             profiles: video-generation,job-queue,branding-dna,public-review
     steps:

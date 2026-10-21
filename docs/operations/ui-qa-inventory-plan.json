@@ -1,14 +1,51 @@
 {
-  "viewports": ["desktop", "tabletPortrait", "mobile"],
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
   "qualityBudgets": {
-    "desktop": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "tabletPortrait": {"maxUnnamedControls": 0, "maxMissingAlt": 0},
-    "mobile": {"maxUnnamedControls": 0, "maxMissingAlt": 0}
+    "desktop": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    }
   },
   "steps": [
-    {"name":"default","waitFor":".inventory-materials","waitMs":300},
-    {"name":"material-hover","hover":".inventory-material-registry tbody tr"},
-    {"name":"material-search-focus","focus":".inventory-material-registry input[type='search']"},
-    {"name":"candidate-hover","hover":".inventory-material-summary article:last-child"}
+    {
+      "name": "overview-ready",
+      "waitFor": "main.inventory-workspace .ops-inventory-daily",
+      "waitMs": 300,
+      "requireIcons": [
+        ".ops-inventory-refresh-action"
+      ]
+    },
+    {
+      "name": "status-hover",
+      "hover": ".ops-inventory-summary-card.processing-date"
+    },
+    {
+      "name": "status-refresh-focus",
+      "focus": ".ops-inventory-refresh-action"
+    },
+    {
+      "name": "status-refresh",
+      "click": ".ops-inventory-refresh-action",
+      "waitFor": ".ops-inventory-summary-card.run",
+      "waitMs": 300
+    },
+    {
+      "name": "human-attestation-collapsed",
+      "click": ".ops-inventory-human-actions > summary",
+      "waitFor": ".ops-inventory-human-buttons button",
+      "waitMs": 100
+    }
   ]
 }

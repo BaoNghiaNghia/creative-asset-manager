@@ -518,19 +518,17 @@ describe("Inventory Daily tab", () => {
     />);
     expect(markup).toContain("Mở original snapshot");
     expect(markup).toContain("Mở Gemini working copy");
-    for (const value of ["Inventory hằng ngày", "27/08/2026", "26/08/2026", "Ngày dữ liệu đang xử lý", "Sẵn sàng", "206", "4 thay đổi", "Reset đầu ngày", "Snapshot buổi chiều", "Đối soát Gemini buổi tối", "Chu kỳ hiện không có vấn đề"]) {
+    for (const value of ["Tổng quan kiểm kê tự động", "27/08/2026", "26/08/2026", "Ngày kiểm kê", "Sẵn sàng", "206", "4 thay đổi", "Reset đầu ngày", "Snapshot buổi chiều", "Đối soát Gemini buổi tối", "Không phát hiện ngoại lệ", "Theo dõi tự động đang bật"]) {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");
-    expect(markup.match(/aria-haspopup="dialog"/g)).toHaveLength(3);
-    const heading = markup.slice(markup.indexOf("ops-section-heading"), markup.indexOf("ops-kpis"));
-    expect(heading).toContain("ops-inventory-quick-actions");
-    expect(heading).toContain("data-ui-icon=");
-    for (const action of ["Mở Google Sheet đang xử lý", "Mở Daily Inventory", "Cấu hình Inventory", "Làm mới"]) {
-      expect(heading).toContain(action);
-    }
-    expect(heading.indexOf("Cấu hình Inventory")).toBeLessThan(heading.indexOf("Làm mới"));
-    expect(markup).not.toContain("ops-inventory-links");
+    expect(markup).not.toContain('aria-haspopup="dialog"');
+    expect(markup).toContain("Mở bảng kiểm kho");
+    expect(markup).toContain("Làm mới");
+    expect(markup).toContain("Công việc cần nhân viên hoặc quản lý xác nhận");
+    expect(markup).not.toContain("Mở Daily Inventory");
+    expect(markup).not.toContain("Cấu hình Inventory");
+    expect(markup).not.toContain("ops-inventory-quick-actions");
     expect(markup).not.toContain('href="/inventory/daily"');
   });
 });
