@@ -190,6 +190,129 @@ class MaterialRegistry:
             self.approve(tenant_id, candidate.id, actor_id=actor_id, item_id=item_id)
         return {"item_id": material.id, "approved": len(group)}
 
+    def approve_equivalent_batch(
+        self, tenant_id: str, *, groups: list[dict[str, Any]], actor_id: str | None,
+    ) -> dict[str, Any]:
+        """Atomically preflight and explicitly approve evidence-backed candidate groups.
+
+        Every selected source row must carry hashed sheet-cell unit evidence, match
+        the catalog name exactly (case/whitespace normalized only), and use an
+        already-approved unit. This does not approve package conversions or stock.
+        The API caller must wrap this method in a database transaction.
+        """
+        if not isinstance(groups, list) or not 1 <= len(groups) <= 50:
+            raise ValueError("candidate_batch_size_invalid")
+        seen_ids: set[str] = set()
+        prepared: list[dict[str, Any]] = []
+        hash_pattern = re.compile(r"^[0-9a-f]{64}$")
+
+        def strict_text(value: object) -> str:
+            text = unicodedata.normalize("NFC", str(value or "")).strip().casefold()
+            return re.sub(r"\s+", " ", text)
+
+        # Preflight every group before making any registry mutation.
+        for spec in groups:
+            if not isinstance(spec, dict):
+                raise ValueError("candidate_batch_payload_invalid")
+            candidate_id = str(spec.get("candidate_id") or "")
+            item_id = str(spec.get("item_id") or "")
+            expected_ids = spec.get("expected_candidate_ids")
+            expected_count = spec.get("expected_count")
+            if (
+                not candidate_id or not item_id or not isinstance(expected_ids, list)
+                or not 1 <= len(expected_ids) <= 100
+                or not isinstance(expected_count, int) or expected_count != len(expected_ids)
+                or candidate_id not in expected_ids
+                or any(not isinstance(value, str) or not value for value in expected_ids)
+                or len(set(expected_ids)) != len(expected_ids)
+            ):
+                raise ValueError("candidate_batch_payload_invalid")
+            if seen_ids.intersection(expected_ids):
+                raise ValueError("candidate_batch_duplicate_selection")
+            seen_ids.update(expected_ids)
+
+            seed = self.session.scalar(select(InventoryMaterialCandidateModel).where(
+                InventoryMaterialCandidateModel.tenant_id == tenant_id,
+                InventoryMaterialCandidateModel.id == candidate_id,
+            ).with_for_update())
+            if seed is None or seed.status not in {"new_material", "possible_rename", "ambiguous"}:
+                raise LookupError("material_candidate_not_pending")
+            pending = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
+                InventoryMaterialCandidateModel.tenant_id == tenant_id,
+                InventoryMaterialCandidateModel.sheet == seed.sheet,
+                InventoryMaterialCandidateModel.status.in_(("new_material", "possible_rename", "ambiguous")),
+            ).order_by(InventoryMaterialCandidateModel.id).with_for_update()))
+            actual = [
+                row for row in pending
+                if normalize_material_text(row.raw_name) == normalize_material_text(seed.raw_name)
+                and normalize_material_text(row.category) == normalize_material_text(seed.category)
+            ]
+            if (
+                len(actual) != expected_count
+                or sorted(row.id for row in actual) != sorted(expected_ids)
+            ):
+                raise ValueError("candidate_group_changed")
+
+            item = self._item(tenant_id, item_id)
+            if item is None:
+                raise LookupError("material_not_found")
+            allowed_units = {
+                strict_text(value) for value in (item.base_unit, item.whole_unit, item.fraction_unit)
+                if strict_text(value)
+            }
+            if not allowed_units:
+                raise ValueError("candidate_catalog_units_missing")
+            for row in actual:
+                if strict_text(row.raw_name) != strict_text(item.name):
+                    raise ValueError("candidate_name_not_exact")
+                if row.suggested_item_id and row.suggested_item_id != item.id:
+                    raise ValueError("candidate_conflicting_suggestion")
+                context = row.context_json if isinstance(row.context_json, dict) else {}
+                review = context.get("review_evidence")
+                if not isinstance(review, dict) or review.get("status") != "explicit_unit_found":
+                    raise ValueError("candidate_unit_evidence_missing")
+                evidence = review.get("unit_evidence")
+                if not isinstance(evidence, list) or not evidence:
+                    raise ValueError("candidate_unit_evidence_missing")
+                for unit in evidence:
+                    if not isinstance(unit, dict):
+                        raise ValueError("candidate_unit_evidence_invalid")
+                    value = strict_text(unit.get("value"))
+                    if (
+                        not value or not strict_text(unit.get("value_cell"))
+                        or not strict_text(unit.get("header_cell"))
+                        or not isinstance(unit.get("evidence_hash"), str)
+                        or not hash_pattern.fullmatch(unit["evidence_hash"])
+                    ):
+                        raise ValueError("candidate_unit_evidence_invalid")
+                    if value not in allowed_units:
+                        raise ValueError("candidate_unit_not_certified")
+            prepared.append({
+                "candidate_id": candidate_id,
+                "item_id": item.id,
+                "expected_count": expected_count,
+                "expected_candidate_ids": sorted(expected_ids),
+            })
+
+        results = []
+        for spec in prepared:
+            results.append(self.approve_equivalent(
+                tenant_id,
+                candidate_id=spec["candidate_id"],
+                item_id=spec["item_id"],
+                actor_id=actor_id,
+                expected_count=spec["expected_count"],
+                expected_candidate_ids=spec["expected_candidate_ids"],
+            ))
+        return {
+            "status": "approved",
+            "approved_groups": len(results),
+            "approved_candidates": sum(row["approved"] for row in results),
+            "results": results,
+            "inventory_balance_writes": 0,
+            "google_sheet_writes": 0,
+        }
+
     def approve(
         self,
         tenant_id: str,

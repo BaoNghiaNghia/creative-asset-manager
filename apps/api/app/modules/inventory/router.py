@@ -568,6 +568,52 @@ def approve_equivalent_material_candidates(
             raise HTTPException(409, detail={"code": code}) from exc
 
 
+class EquivalentCandidateBatchItem(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=36)
+    item_id: str = Field(min_length=1, max_length=36)
+    expected_count: int = Field(ge=1, le=100)
+    expected_candidate_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class EquivalentCandidateBatchApprovalRequest(BaseModel):
+    groups: list[EquivalentCandidateBatchItem] = Field(min_length=1, max_length=50)
+
+
+@router.post("/materials/candidates/bulk-approve")
+def bulk_approve_material_candidates(
+    body: EquivalentCandidateBatchApprovalRequest,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION)),
+):
+    """Explicit manager action; all selected groups pass evidence checks or none are approved."""
+    payload = [
+        group.model_dump() if hasattr(group, "model_dump") else group.dict()
+        for group in body.groups
+    ]
+    with SessionLocal() as session:
+        try:
+            with session.begin():
+                result = MaterialRegistry(session).approve_equivalent_batch(
+                    principal.active_tenant_id,
+                    groups=payload,
+                    actor_id=principal.actor_id,
+                )
+        except LookupError as exc:
+            raise HTTPException(404, detail={"code": str(exc)}) from exc
+        except (ValueError, IntegrityError) as exc:
+            code = str(exc) if isinstance(exc, ValueError) else "material_group_conflict"
+            raise HTTPException(409, detail={"code": code}) from exc
+    _REGISTRY_LOGGER.info(
+        "material_candidate_batch_approved",
+        extra={
+            "tenant_id": principal.active_tenant_id,
+            "actor_id": principal.actor_id,
+            "group_count": result["approved_groups"],
+            "candidate_count": result["approved_candidates"],
+        },
+    )
+    return result
+
+
 @router.post("/materials/candidates/{candidate_id}/approve")
 def approve_material_candidate(candidate_id: str, body: MaterialApprovalRequest, principal: CurrentPrincipal = Depends(require_permission(INVENTORY_REVIEW_PERMISSION))):
     with SessionLocal() as session:

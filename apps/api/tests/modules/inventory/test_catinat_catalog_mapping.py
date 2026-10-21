@@ -102,7 +102,7 @@ def test_material_grouping_preserves_source_and_never_auto_certifies(db):
                 source_row=index + 1, external_key=str(index), raw_name=name,
                 status="new_material", context_json={
                     "review_evidence": {"status": "explicit_unit_found", "unit_evidence": [
-                        {"value": "lon" if index < 2 else "hộp"}
+                        {"value": "lon" if index < 2 else "hộp", "value_cell": f"C{index + 1}", "header_cell": "C4", "evidence_hash": "a" * 64}
                     ]}
                 },
             ))
@@ -116,6 +116,10 @@ def test_material_grouping_preserves_source_and_never_auto_certifies(db):
         assert exact["status"] == "exact_name_and_evidence_unit_candidate"
         assert exact["certified"] is False
         assert exact["candidate_item_ids"] == ["milk-a"]
+        assert len(exact["source_rows"]) == 2
+        assert exact["source_rows"][0]["unit_evidence"][0]["value_cell"]
+        assert exact["approval_groups"][0]["can_bulk_approve"] is True
+        assert len(exact["approval_groups"][0]["candidate_ids"]) == 2
         assert grouped_material_candidates(session, "tenant-b")["source_rows"] == 0
 
 
