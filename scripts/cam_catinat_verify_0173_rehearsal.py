@@ -17,7 +17,7 @@ import stat
 import subprocess
 from cam_catinat_migrate_restored_clone import (
     CloneMigrationBlocked, DATABASE, HOST, PORT, ROLE,
-    EXPECTED_TABLES, check_inputs, inspect_target, query,
+    EXPECTED_TABLES, DEFAULT_REHEARSAL_DIR, check_inputs, inspect_target, query,
 )
 
 EXPECTED_BRANDING_TABLES = (
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     if not args.ack_read_only_isolated:
         parser.error("Explicit read-only rehearsal acknowledgement required.")
     try:
-        print(json.dumps(audit(Path(__file__).resolve().parent,
+        print(json.dumps(audit(DEFAULT_REHEARSAL_DIR,
                                write=args.write_private_proof), sort_keys=True))
     except (CloneMigrationBlocked, OSError, ValueError) as exc:
         print("ISOLATED_0173_AUDIT=BLOCKED: " + str(exc))
