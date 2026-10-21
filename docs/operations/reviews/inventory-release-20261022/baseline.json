@@ -1,0 +1,3587 @@
+{
+  "url": "http://127.0.0.1:4183/inventory",
+  "runId": "2026-10-21T23-04-07-072Z",
+  "browser": {
+    "engine": "chrome",
+    "version": "155.0.8059.39"
+  },
+  "strict": true,
+  "mode": "full",
+  "states": [
+    "overview-ready",
+    "status-hover",
+    "status-refresh-focus",
+    "status-refresh",
+    "human-attestation-collapsed"
+  ],
+  "fixture": "scripts/fixtures/inventory-daily.json",
+  "visual": {
+    "baselineDir": "visual-baselines/inventory",
+    "updateBaselines": false,
+    "pixelThreshold": 0.1,
+    "maxDiffRatio": 0.001,
+    "analysis": {
+      "status": "passed",
+      "issueCount": 0,
+      "json": ".ui-qa/inventory-merged-release-baseline/2026-10-21T23-04-07-072Z/visual-analysis.json",
+      "markdown": ".ui-qa/inventory-merged-release-baseline/2026-10-21T23-04-07-072Z/visual-analysis.md"
+    }
+  },
+  "results": [
+    {
+      "viewport": "desktop",
+      "size": {
+        "width": 1440,
+        "height": 900
+      },
+      "screenshots": [
+        "desktop--overview-ready.png",
+        "desktop--status-hover.png",
+        "desktop--status-refresh-focus.png",
+        "desktop--status-refresh.png",
+        "desktop--human-attestation-collapsed.png"
+      ],
+      "visualComparisons": [
+        {
+          "screenshot": "desktop--overview-ready.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baselineSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baseline": "visual-baselines/inventory/desktop--overview-ready.png",
+          "diff": null,
+          "regions": [],
+          "state": "overview-ready",
+          "actions": [
+            {
+              "action": "waitFor",
+              "selector": "main.inventory-workspace .ops-inventory-daily"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "desktop--status-hover.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baselineSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baseline": "visual-baselines/inventory/desktop--status-hover.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-hover",
+          "actions": [
+            {
+              "action": "hover",
+              "selector": ".ops-inventory-summary-card.processing-date"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "desktop--status-refresh-focus.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baselineSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baseline": "visual-baselines/inventory/desktop--status-refresh-focus.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh-focus",
+          "actions": [
+            {
+              "action": "focus",
+              "selector": ".ops-inventory-refresh-action"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "desktop--status-refresh.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baselineSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baseline": "visual-baselines/inventory/desktop--status-refresh.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-refresh-action"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-summary-card.run"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "desktop--human-attestation-collapsed.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baselineSize": {
+            "width": 1440,
+            "height": 1337
+          },
+          "baseline": "visual-baselines/inventory/desktop--human-attestation-collapsed.png",
+          "diff": null,
+          "regions": [],
+          "state": "human-attestation-collapsed",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            },
+            {
+              "action": "press",
+              "selector": ".ops-inventory-human-actions[open] > summary"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        }
+      ],
+      "iconAudit": [
+        {
+          "state": "overview-ready",
+          "total": 34,
+          "withIcon": 6,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-hover",
+          "total": 34,
+          "withIcon": 6,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh-focus",
+          "total": 34,
+          "withIcon": 6,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh",
+          "total": 34,
+          "withIcon": 6,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "total": 34,
+          "withIcon": 6,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "overview-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 806,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "status-hover",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 806,
+          "resourceCount": 28,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "status-refresh-focus",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 806,
+          "resourceCount": 28,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "status-refresh",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 806,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 806,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    },
+    {
+      "viewport": "tabletPortrait",
+      "size": {
+        "width": 768,
+        "height": 1024
+      },
+      "screenshots": [
+        "tabletPortrait--overview-ready.png",
+        "tabletPortrait--status-hover.png",
+        "tabletPortrait--status-refresh-focus.png",
+        "tabletPortrait--status-refresh.png",
+        "tabletPortrait--human-attestation-collapsed.png"
+      ],
+      "visualComparisons": [
+        {
+          "screenshot": "tabletPortrait--overview-ready.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baselineSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baseline": "visual-baselines/inventory/tabletPortrait--overview-ready.png",
+          "diff": null,
+          "regions": [],
+          "state": "overview-ready",
+          "actions": [
+            {
+              "action": "waitFor",
+              "selector": "main.inventory-workspace .ops-inventory-daily"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "tabletPortrait--status-hover.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baselineSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baseline": "visual-baselines/inventory/tabletPortrait--status-hover.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-hover",
+          "actions": [
+            {
+              "action": "hover",
+              "selector": ".ops-inventory-summary-card.processing-date"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "tabletPortrait--status-refresh-focus.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baselineSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baseline": "visual-baselines/inventory/tabletPortrait--status-refresh-focus.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh-focus",
+          "actions": [
+            {
+              "action": "focus",
+              "selector": ".ops-inventory-refresh-action"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "tabletPortrait--status-refresh.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baselineSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baseline": "visual-baselines/inventory/tabletPortrait--status-refresh.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-refresh-action"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-summary-card.run"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "tabletPortrait--human-attestation-collapsed.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baselineSize": {
+            "width": 768,
+            "height": 1860
+          },
+          "baseline": "visual-baselines/inventory/tabletPortrait--human-attestation-collapsed.png",
+          "diff": null,
+          "regions": [],
+          "state": "human-attestation-collapsed",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            },
+            {
+              "action": "press",
+              "selector": ".ops-inventory-human-actions[open] > summary"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        }
+      ],
+      "iconAudit": [
+        {
+          "state": "overview-ready",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-hover",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh-focus",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "overview-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 253,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "status-hover",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 253,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "status-refresh-focus",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 253,
+          "resourceCount": 28,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "status-refresh",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 253,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 253,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    },
+    {
+      "viewport": "mobile",
+      "size": {
+        "width": 390,
+        "height": 844
+      },
+      "screenshots": [
+        "mobile--overview-ready.png",
+        "mobile--status-hover.png",
+        "mobile--status-refresh-focus.png",
+        "mobile--status-refresh.png",
+        "mobile--human-attestation-collapsed.png"
+      ],
+      "visualComparisons": [
+        {
+          "screenshot": "mobile--overview-ready.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baselineSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baseline": "visual-baselines/inventory/mobile--overview-ready.png",
+          "diff": null,
+          "regions": [],
+          "state": "overview-ready",
+          "actions": [
+            {
+              "action": "waitFor",
+              "selector": "main.inventory-workspace .ops-inventory-daily"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "mobile--status-hover.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baselineSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baseline": "visual-baselines/inventory/mobile--status-hover.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-hover",
+          "actions": [
+            {
+              "action": "hover",
+              "selector": ".ops-inventory-summary-card.processing-date"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "mobile--status-refresh-focus.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baselineSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baseline": "visual-baselines/inventory/mobile--status-refresh-focus.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh-focus",
+          "actions": [
+            {
+              "action": "focus",
+              "selector": ".ops-inventory-refresh-action"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "mobile--status-refresh.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baselineSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baseline": "visual-baselines/inventory/mobile--status-refresh.png",
+          "diff": null,
+          "regions": [],
+          "state": "status-refresh",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-refresh-action"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-summary-card.run"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        },
+        {
+          "screenshot": "mobile--human-attestation-collapsed.png",
+          "status": "match",
+          "mismatchedPixels": 0,
+          "diffRatio": 0,
+          "actualSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baselineSize": {
+            "width": 390,
+            "height": 2679
+          },
+          "baseline": "visual-baselines/inventory/mobile--human-attestation-collapsed.png",
+          "diff": null,
+          "regions": [],
+          "state": "human-attestation-collapsed",
+          "actions": [
+            {
+              "action": "click",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            },
+            {
+              "action": "press",
+              "selector": ".ops-inventory-human-actions[open] > summary"
+            },
+            {
+              "action": "waitFor",
+              "selector": ".ops-inventory-human-actions:not([open]) > summary"
+            }
+          ],
+          "diagnostic": null,
+          "sourceHints": []
+        }
+      ],
+      "iconAudit": [
+        {
+          "state": "overview-ready",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-hover",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh-focus",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "status-refresh",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "total": 32,
+          "withIcon": 4,
+          "withoutIcon": 28,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Chạy lại 1 ngày lỗi",
+              "className": ""
+            },
+            {
+              "label": "Reset đầu ngày: failed",
+              "className": "inventory-pipeline-stage failed"
+            },
+            {
+              "label": "Snapshot: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Đối soát Gemini: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Xác minh: pending",
+              "className": "inventory-pipeline-stage pending"
+            },
+            {
+              "label": "Repair Gemini ngày trước",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: review_required",
+              "className": "inventory-pipeline-stage review_required"
+            },
+            {
+              "label": "Xác minh: blocked",
+              "className": "inventory-pipeline-stage blocked"
+            },
+            {
+              "label": "Chạy lại Gemini",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Reset đầu ngày: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Snapshot: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Đối soát Gemini: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Xác minh: completed",
+              "className": "inventory-pipeline-stage completed"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "overview-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 227,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "status-hover",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 227,
+          "resourceCount": 28,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "status-refresh-focus",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 227,
+          "resourceCount": 28,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "status-refresh",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 227,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        },
+        {
+          "state": "human-attestation-collapsed",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 227,
+          "resourceCount": 29,
+          "resourceTransferKb": 555
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    }
+  ]
+}

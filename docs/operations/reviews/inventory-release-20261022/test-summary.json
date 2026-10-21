@@ -1,0 +1,57 @@
+{
+  "source_commit": "564d1e3d59fc7fcacb94c6a631fd0fd7028a6705",
+  "artifact_commit": "8a4a222453d88b1a2b1ef6400167ca07a0153680",
+  "checks": [
+    {
+      "check": "Inventory API",
+      "status": "passed",
+      "tests": 825,
+      "log": "apps/client/.ui-qa/inventory-release-api-full-20261022.log",
+      "log_bytes": 1590,
+      "log_sha256": "c14bc03e101c82f9f6673dccf22b51d63124f43251b9ca0d3e24b6ecb9f8eaf3"
+    },
+    {
+      "check": "Frontend",
+      "status": "passed",
+      "tests": 814,
+      "log": "apps/client/.ui-qa/inventory-release-frontend-full-20261022.log",
+      "log_bytes": 23695,
+      "log_sha256": "31c2c40cd1410d6353ecad10ca8be6922a377f79473999e8f0b9700955f99d4d"
+    },
+    {
+      "check": "QA analyzer",
+      "status": "passed",
+      "tests": 86,
+      "log": "apps/client/.ui-qa/inventory-merge-analysis-20261022.log",
+      "log_bytes": 17259,
+      "log_sha256": "4bb2349ef710feb8a51b4b44282bf6013cde1975543f24146a4a6eb855b8a2e7"
+    },
+    {
+      "check": "Production QA plan validation",
+      "status": "passed",
+      "tests": 6,
+      "log": "apps/client/.ui-qa/inventory-release-production-plan-20261022.log",
+      "log_bytes": 1289,
+      "log_sha256": "dccce4a7c16d9db2108afc858602192dee6f08219bf6b6d9a7ea2ee2216c7995"
+    },
+    {
+      "check": "Reproducible build",
+      "status": "passed",
+      "tests": null,
+      "log": "apps/client/.ui-qa/inventory-release-reproducible-build-20261022.log",
+      "log_bytes": 10508,
+      "log_sha256": "5553b7f0019e53f65020c5fe34b4f4b649547c6c3a603c2182cc9b2d4ab7cd41"
+    }
+  ],
+  "typecheck": "passed",
+  "browser_states": 57,
+  "baseline_comparisons_matched": 15,
+  "new_github_ci": "not_run_no_new_commit_or_pr",
+  "postgresql_matrix": "not_run",
+  "github_main": "ef1e85b996426d9f068cbed0a4bc7cd2a2a8bb14",
+  "github_evidence_blob_uploads": 10,
+  "github_complete_source_tree_creation": "blocked_by_automatic_approval_review_public_evidence_disclosure",
+  "production_deployed": false,
+  "production_access": "CodeLocal preflight BLOCKED: /etc/creative-asset-manager/production.env outside authorized workspace",
+  "production_approval_token": null
+}

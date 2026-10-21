@@ -1,0 +1,66 @@
+{
+  "artifactSourceCommit": "564d1e3d59fc7fcacb94c6a631fd0fd7028a6705",
+  "artifactCommit": "8a4a222453d88b1a2b1ef6400167ca07a0153680",
+  "totalStates": 57,
+  "baselineMatches": 15,
+  "baselinesChanged": false,
+  "previewStopped": true,
+  "suites": [
+    {
+      "suite": "staff",
+      "file": "docs/operations/reviews/inventory-release-20261022/staff.json",
+      "bytes": 83264,
+      "sha256": "a3dbda482162ff76d6f5a68b24504b4eef4681c10b68ec4628f297ca6bf445d5",
+      "states": 18,
+      "browser": {
+        "engine": "chrome",
+        "version": "155.0.8059.39"
+      },
+      "allIssueArraysEmpty": true,
+      "allQualityMetricsZero": true,
+      "baselineMatches": 0
+    },
+    {
+      "suite": "manager",
+      "file": "docs/operations/reviews/inventory-release-20261022/manager.json",
+      "bytes": 49191,
+      "sha256": "253e5427c3899570ea6bf79bd7067e2db7f1021d0e9470705b6263d7c44d2373",
+      "states": 12,
+      "browser": {
+        "engine": "chrome",
+        "version": "155.0.8059.39"
+      },
+      "allIssueArraysEmpty": true,
+      "allQualityMetricsZero": true,
+      "baselineMatches": 0
+    },
+    {
+      "suite": "baseline",
+      "file": "docs/operations/reviews/inventory-release-20261022/baseline.json",
+      "bytes": 105433,
+      "sha256": "12a36255771553b2697275dc43c4871c82e8f652c17f2d62e3b353723f4696ec",
+      "states": 15,
+      "browser": {
+        "engine": "chrome",
+        "version": "155.0.8059.39"
+      },
+      "allIssueArraysEmpty": true,
+      "allQualityMetricsZero": true,
+      "baselineMatches": 15
+    },
+    {
+      "suite": "daily",
+      "file": "docs/operations/reviews/inventory-release-20261022/daily.json",
+      "bytes": 74251,
+      "sha256": "269efecea2549dd878afe140b2193e906e3a0c26c15efd20710316ec7fe1d409",
+      "states": 12,
+      "browser": {
+        "engine": "chrome",
+        "version": "155.0.8059.39"
+      },
+      "allIssueArraysEmpty": true,
+      "allQualityMetricsZero": true,
+      "baselineMatches": 0
+    }
+  ]
+}

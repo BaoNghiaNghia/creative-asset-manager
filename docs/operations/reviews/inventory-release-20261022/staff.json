@@ -1,0 +1,2992 @@
+{
+  "url": "http://127.0.0.1:4183/inventory",
+  "runId": "2026-10-21T23-01-50-729Z",
+  "browser": {
+    "engine": "chrome",
+    "version": "155.0.8059.39"
+  },
+  "strict": true,
+  "mode": "full",
+  "states": [
+    "v4-warning",
+    "staff-material-preview",
+    "staff-count-day",
+    "staff-count-roster",
+    "staff-count-selection",
+    "staff-count-attestation-ready"
+  ],
+  "fixture": "scripts/fixtures/inventory-catinat-staff.json",
+  "visual": null,
+  "results": [
+    {
+      "viewport": "desktop",
+      "size": {
+        "width": 1440,
+        "height": 900
+      },
+      "screenshots": [
+        "desktop--v4-warning.png",
+        "desktop--staff-material-preview.png",
+        "desktop--staff-count-day.png",
+        "desktop--staff-count-roster.png",
+        "desktop--staff-count-selection.png",
+        "desktop--staff-count-attestation-ready.png"
+      ],
+      "visualComparisons": [],
+      "iconAudit": [
+        {
+          "state": "v4-warning",
+          "total": 19,
+          "withIcon": 6,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-material-preview",
+          "total": 19,
+          "withIcon": 6,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-day",
+          "total": 19,
+          "withIcon": 6,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-roster",
+          "total": 27,
+          "withIcon": 6,
+          "withoutIcon": 21,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-selection",
+          "total": 28,
+          "withIcon": 6,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "total": 28,
+          "withIcon": 6,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "v4-warning",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-material-preview",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-day",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-roster",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-selection",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 1440,
+              "right": 1440,
+              "scrollWidth": 1440,
+              "clientWidth": 1440,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 235,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    },
+    {
+      "viewport": "tabletPortrait",
+      "size": {
+        "width": 768,
+        "height": 1024
+      },
+      "screenshots": [
+        "tabletPortrait--v4-warning.png",
+        "tabletPortrait--staff-material-preview.png",
+        "tabletPortrait--staff-count-day.png",
+        "tabletPortrait--staff-count-roster.png",
+        "tabletPortrait--staff-count-selection.png",
+        "tabletPortrait--staff-count-attestation-ready.png"
+      ],
+      "visualComparisons": [],
+      "iconAudit": [
+        {
+          "state": "v4-warning",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-material-preview",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-day",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-roster",
+          "total": 25,
+          "withIcon": 4,
+          "withoutIcon": 21,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-selection",
+          "total": 26,
+          "withIcon": 4,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "total": 26,
+          "withIcon": 4,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "v4-warning",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-material-preview",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-day",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-roster",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-selection",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 768,
+              "right": 768,
+              "scrollWidth": 768,
+              "clientWidth": 768,
+              "overflowX": "visible"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 139,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    },
+    {
+      "viewport": "mobile",
+      "size": {
+        "width": 390,
+        "height": 844
+      },
+      "screenshots": [
+        "mobile--v4-warning.png",
+        "mobile--staff-material-preview.png",
+        "mobile--staff-count-day.png",
+        "mobile--staff-count-roster.png",
+        "mobile--staff-count-selection.png",
+        "mobile--staff-count-attestation-ready.png"
+      ],
+      "visualComparisons": [],
+      "iconAudit": [
+        {
+          "state": "v4-warning",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-material-preview",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-day",
+          "total": 17,
+          "withIcon": 4,
+          "withoutIcon": 13,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-roster",
+          "total": 25,
+          "withIcon": 4,
+          "withoutIcon": 21,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-selection",
+          "total": 26,
+          "withIcon": 4,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "total": 26,
+          "withIcon": 4,
+          "withoutIcon": 22,
+          "plain": [
+            {
+              "label": "Xác nhận kiểm đếm",
+              "className": ""
+            },
+            {
+              "label": "Duyệt ngoại lệ",
+              "className": ""
+            },
+            {
+              "label": "Xác nhận bàn giao",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng từ cần duyệt",
+              "className": ""
+            },
+            {
+              "label": "Đối chiếu vật tư chưa rõ",
+              "className": ""
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Chọn tất cả nhóm đủ bằng chứng",
+              "className": "secondary"
+            },
+            {
+              "label": "Bỏ chọn",
+              "className": "secondary"
+            },
+            {
+              "label": "Duyệt nhóm đã chọn (0)",
+              "className": ""
+            },
+            {
+              "label": "Kiểm tra số liệu Google Sheets",
+              "className": ""
+            },
+            {
+              "label": "Lưu xác nhận kiểm đếm (1 ô)",
+              "className": ""
+            },
+            {
+              "label": "Lưu lời xác nhận mã lô (không thay đổi tồn)",
+              "className": ""
+            },
+            {
+              "label": "Tải lại chứng cứ lô",
+              "className": ""
+            },
+            {
+              "label": "Gửi đề nghị hủy — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Lưu biên bản người chứng kiến — chưa trừ tồn",
+              "className": ""
+            },
+            {
+              "label": "Ký chứng cứ hủy — chưa hạch toán tồn",
+              "className": ""
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Đề nghị xác minh",
+              "className": "inventory-pipeline-action"
+            },
+            {
+              "label": "Làm mới",
+              "className": ""
+            },
+            {
+              "label": "Xem chứng cứ ngày 2026-10-22",
+              "className": ""
+            },
+            {
+              "label": "Gửi quản lý duyệt",
+              "className": ""
+            }
+          ],
+          "unlabeled": []
+        }
+      ],
+      "qualityAudit": [
+        {
+          "state": "v4-warning",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-material-preview",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-day",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 27,
+          "resourceTransferKb": 553
+        },
+        {
+          "state": "staff-count-roster",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-selection",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        },
+        {
+          "state": "staff-count-attestation-ready",
+          "viewportOverflowPx": 0,
+          "layoutRoots": [
+            {
+              "selector": "html",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "visible"
+            },
+            {
+              "selector": "body",
+              "width": 390,
+              "right": 390,
+              "scrollWidth": 390,
+              "clientWidth": 390,
+              "overflowX": "clip"
+            },
+            {
+              "selector": ".rrugc-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-main",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs-shell",
+              "missing": true
+            },
+            {
+              "selector": ".rrugc-stage-tabs",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-shell",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-main",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-workspace",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview",
+              "missing": true
+            },
+            {
+              "selector": ".review-board-preview>header",
+              "missing": true
+            },
+            {
+              "selector": ".access-shell",
+              "missing": true
+            },
+            {
+              "selector": ".access-main",
+              "missing": true
+            },
+            {
+              "selector": ".access-content",
+              "missing": true
+            },
+            {
+              "selector": ".access-table-wrap",
+              "missing": true
+            }
+          ],
+          "overflowingElements": [],
+          "unnamedControls": 0,
+          "missingAlt": 0,
+          "smallTargets": 0,
+          "smallTargetExamples": [],
+          "domContentLoadedMs": 146,
+          "resourceCount": 38,
+          "resourceTransferKb": 565
+        }
+      ],
+      "issues": {
+        "consoleErrors": [],
+        "pageErrors": [],
+        "requestFailures": [],
+        "ignoredRequestFailures": [],
+        "badResponses": [],
+        "stepFailures": []
+      }
+    }
+  ]
+}
