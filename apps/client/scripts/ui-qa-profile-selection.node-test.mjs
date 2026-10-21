@@ -32,7 +32,7 @@ test("Inventory changes also cover the embedded AI Operations inventory view", (
 
 test("Inventory Daily pipeline uses its own fixture-backed visual baseline", () => {
   const profile = UI_QA_PROFILES["inventory-daily"];
-  assert.equal(profile?.route, "/inventory/pipeline");
+  assert.equal(profile?.route, "/inventory");
   assert.equal(profile?.fixture, "apps/client/scripts/fixtures/inventory-daily.json");
   assert.equal(profile?.baseline, "apps/client/visual-baselines/inventory-daily");
   assert.deepEqual(

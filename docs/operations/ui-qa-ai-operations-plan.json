@@ -130,7 +130,7 @@
       "waitFor": "main.inventory-workspace .ops-inventory-daily",
       "waitMs": 180,
       "requireIcons": [
-        ".inventory-workspace .ops-inventory-quick-actions button"
+        ".inventory-workspace .ops-inventory-refresh-action svg"
       ],
       "mobileAssertions": [
         {
