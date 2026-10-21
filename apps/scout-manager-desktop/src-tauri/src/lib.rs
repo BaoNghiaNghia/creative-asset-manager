@@ -1761,6 +1761,7 @@ mod tests {
             log_root: logs.clone(),
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
+            branding_agent_desired: AtomicBool::new(false),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
             updating: AtomicBool::new(false),
