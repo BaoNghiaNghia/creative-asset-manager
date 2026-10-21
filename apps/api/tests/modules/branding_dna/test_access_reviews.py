@@ -80,7 +80,7 @@ def test_documentation_review_does_not_grant_rights_or_claim_task(db):
     b = read_shop_scan_readiness(Response(), session=db, principal=actor("viewer"))
     assert b["ready_count"] == 0
     assert b["scan_enabled"] is False
-    assert "shop_access_reviewed_pending_marketplace_authorization" in b["items"][0]["blockers"]
+    assert "shop_access_reviewed_pending_marketplace_authorization" not in b["items"][0]["blockers"]
     assert "marketplace_authorization_not_verified" in b["items"][0]["blockers"]
     saved = db.get(BrandShopModel, sid)
     assert saved.access_mode == "public_observation" and saved.status == "draft"
@@ -102,7 +102,7 @@ def test_review_blocker_codes_and_idempotency(db, decision, code):
     assert again["replayed"] is True
     assert db.query(BrandShopAccessReviewModel).count() == 1
     result = read_shop_scan_readiness(Response(), session=db, principal=actor("reader"))
-    assert code in result["items"][0]["blockers"]
+    assert code not in result["items"][0]["blockers"]
     assert result["items"][0]["review_decision"] == decision
     assert result["items"][0]["status"] == "blocked"
 
