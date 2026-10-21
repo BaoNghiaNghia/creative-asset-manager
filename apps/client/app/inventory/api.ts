@@ -1,14 +1,38 @@
+export type CatinatCandidateUnitEvidence = {
+  value:string;header:string;value_cell:string;header_cell:string;evidence_hash:string;
+};
+export type CatinatCandidateSourceRow = {
+  candidate_id:string;sheet:string;row:number;category:string|null;name:string;status:string;
+  suggested_item_id:string|null;suggested_canonical_name:string|null;confidence:number;
+  reasons:string[];name_cell:string;unit_evidence:CatinatCandidateUnitEvidence[];
+};
+export type CatinatCandidateApprovalGroup = {
+  candidate_id:string;candidate_ids:string[];expected_count:number;sheet:string;
+  category:string|null;name:string;item_id:string|null;item_name:string|null;
+  item_units:string[];can_bulk_approve:boolean;blocker:string|null;evidence_cells:string[];
+};
 export type CatinatMaterialGroup = {
   name:string;aliases:string[];source_row_count:number;sheets:string[];
-  evidence_units:string[];status:string;candidate_item_ids:string[];certified:false;
+  evidence_units:string[];status:string;suggested_item_id:string|null;
+  suggested_item_name:string|null;candidate_item_ids:string[];certified:false;
+  source_rows:CatinatCandidateSourceRow[];approval_groups:CatinatCandidateApprovalGroup[];
 };
 export type CatinatMaterialGroupsResponse = {
   source_rows:number;unique_names:number;groups:CatinatMaterialGroup[];
   automatic_approvals:0;inventory_writes:0;sheet_writes:0;
 };
+export type CatinatBulkApprovalRequest = {
+  groups:Array<{
+    candidate_id:string;item_id:string;expected_count:number;expected_candidate_ids:string[];
+  }>;
+};
 export const catinatMaterialGroupsApi = {
-  // API is tenant-scoped and returns review candidates, never certified inventory.
+  // Tenant-scoped evidence preview; only a separate explicit manager action can approve candidates.
   list:()=>request<CatinatMaterialGroupsResponse>("/daily-sheet/catinat/catalog/material-candidate-groups"),
+  bulkApprove:(body:CatinatBulkApprovalRequest)=>request<{
+    status:string;approved_groups:number;approved_candidates:number;
+    inventory_balance_writes:0;google_sheet_writes:0;
+  }>("/materials/candidates/bulk-approve",{method:"POST",body:JSON.stringify(body)}),
 };
 
 export type InventoryReview = { id:string; document_id:string; line_id:string|null; reason_code:string; status:string; original_value:Record<string, unknown>; suggested_value:Record<string, unknown>; final_value:Record<string, unknown>|null; reviewer_id:string|null; reviewed_at:string|null };
