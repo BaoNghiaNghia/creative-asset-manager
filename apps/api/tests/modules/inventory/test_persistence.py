@@ -41,6 +41,7 @@ PHASE2_RUNTIME_TABLES = {
     "inventory_catinat_transfers", "inventory_catinat_transfer_events",
     "inventory_catinat_catalog_certifications",
     "inventory_catinat_batch_evidence",
+    "inventory_catinat_waste_witnesses", "inventory_catinat_waste_certifications",
 }
 
 

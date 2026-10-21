@@ -207,6 +207,39 @@ export const catinatBatchApi = {
   ),
 };
 
+export type CatinatWasteEvidence = {
+  id:string;approval_request_id:string;batch_evidence_id:string;
+  business_date:string;source_hash:string;source_current:boolean;
+  quantity:string;unit:string;observed_at:string;method:string;
+  evidence_reference:string;note:string;witnessed_by:string;witnessed_at:string|null;
+  status:"staff_witnessed_unposted";manager_certified_by:string|null;
+  manager_certified_at:string|null;manager_certification_note:string|null;
+  physical_evidence_countersigned:boolean;ledger_posted:false;
+  inventory_writes:0;sheets_writes:0;ready_to_sign:false;
+  automatic_carry_forward_allowed:false;idempotent_replay:boolean;
+};
+export const catinatWasteEvidenceApi = {
+  list:(businessDate:string)=>request<{
+    source_hash:string;business_date:string;items:CatinatWasteEvidence[];
+    mode:"read_only_waste_evidence_unposted";stock_writes:0;sheets_writes:0;
+    ready_to_sign:false;automatic_carry_forward_allowed:false;
+  }>("/daily-sheet/catinat/waste-evidence?business_date="+encodeURIComponent(businessDate)),
+  witness:(body:{
+    approval_request_id:string;business_date:string;expected_source_hash:string;
+    idempotency_key:string;quantity:string;observed_at:string;method:string;
+    evidence_reference:string;note:string;
+  })=>request<CatinatWasteEvidence>("/daily-sheet/catinat/waste-evidence/witness",{
+    method:"POST",body:JSON.stringify(body),
+  }),
+  countersign:(witnessId:string,body:{
+    business_date:string;expected_source_hash:string;note:string;
+  })=>request<CatinatWasteEvidence>(
+    "/daily-sheet/catinat/waste-evidence/"+encodeURIComponent(witnessId)+"/countersign",{
+      method:"POST",body:JSON.stringify(body),
+    }
+  ),
+};
+
 export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception" | "waste_disposal";
 export type CatinatApprovalStatus = "pending" | "approved" | "rejected";
 export type CatinatApproval = {

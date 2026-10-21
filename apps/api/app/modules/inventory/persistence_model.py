@@ -1209,6 +1209,75 @@ class InventoryCatinatBatchEvidenceModel(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="staff_attested_unverified")
 
 
+class InventoryCatinatWasteWitnessModel(Base):
+    """One independently witnessed physical-disposal statement per approved request.
+
+    These evidence rows do not debit canonical stock, verify Google Sheets
+    writeback, or create any ledger transaction.
+    """
+    __tablename__ = "inventory_catinat_waste_witnesses"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_waste_witness_tenant_id"),
+        UniqueConstraint("tenant_id", "approval_request_id", name="uq_catinat_waste_witness_approval"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_waste_witness_key"),
+        ForeignKeyConstraint(
+            ["tenant_id", "approval_request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_witness_approval",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "batch_evidence_id"],
+            ["inventory_catinat_batch_evidence.tenant_id", "inventory_catinat_batch_evidence.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_witness_batch",
+        ),
+        CheckConstraint("quantity > 0", name="ck_catinat_waste_witness_quantity"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_waste_witness_hash"),
+        CheckConstraint("status = 'staff_witnessed_unposted'", name="ck_catinat_waste_witness_unposted"),
+        Index("ix_catinat_waste_witness_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    approval_request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    batch_evidence_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    method: Mapped[str] = mapped_column(String(100), nullable=False)
+    evidence_reference: Mapped[str] = mapped_column(String(2048), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    witnessed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    witnessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="staff_witnessed_unposted")
+
+
+class InventoryCatinatWasteCertificationModel(Base):
+    """Separate manager countersign of physical witness; still no stock writes."""
+    __tablename__ = "inventory_catinat_waste_certifications"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "witness_id", name="uq_catinat_waste_cert_witness"),
+        ForeignKeyConstraint(
+            ["tenant_id", "witness_id"],
+            ["inventory_catinat_waste_witnesses.tenant_id", "inventory_catinat_waste_witnesses.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_cert_witness",
+        ),
+        CheckConstraint("status = 'countersigned_unposted'", name="ck_catinat_waste_cert_unposted"),
+        Index("ix_catinat_waste_cert_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    witness_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    approved_source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    certified_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    certified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="countersigned_unposted")
+
+
 class InventoryCatinatTransferModel(Base):
     """Audited handoff/receipt tracker, intentionally separate from stock ledger."""
     __tablename__ = "inventory_catinat_transfers"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { InventoryCatinatBatchEvidence } from "./InventoryCatinatBatchEvidence";
+import { InventoryCatinatWasteEvidence } from "./InventoryCatinatWasteEvidence";
 import {
   catinatShiftApi, catinatApprovalApi, InventoryApiError, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
   type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage, type CatinatPackageConversionReview, type CatinatSafetyTriage,
@@ -356,6 +357,7 @@ export function InventoryCatinatShiftReadiness(){
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
       </section>}
       <InventoryCatinatBatchEvidence businessDate={businessDate} sourceHash={data.source_hash} items={data.items}/>
+      <InventoryCatinatWasteEvidence businessDate={businessDate} sourceHash={data.source_hash}/>
       {triage&&<section aria-label="Theo dõi hạn sử dụng hủy hàng và chuyển kho">
         <h3>Hạn sử dụng, hủy nguyên liệu và chuyển kho</h3>
         <p className="inventory-muted">

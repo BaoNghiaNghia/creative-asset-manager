@@ -20,6 +20,7 @@ from app.modules.inventory.daily_sheet.router import router
 from app.modules.inventory.persistence_model import (
     InventoryCatinatApprovalRequestModel, InventoryCatinatApprovalEventModel,
     InventoryCatinatBatchEvidenceModel,
+    InventoryCatinatWasteWitnessModel, InventoryCatinatWasteCertificationModel,
 )
 
 DAY = date(2026, 10, 20)
@@ -47,6 +48,7 @@ def db():
         InventoryCatinatApprovalRequestModel.__table__,
         InventoryCatinatApprovalEventModel.__table__,
         InventoryCatinatBatchEvidenceModel.__table__,
+        InventoryCatinatWasteWitnessModel.__table__, InventoryCatinatWasteCertificationModel.__table__,
     ])
     sessions = sessionmaker(engine, expire_on_commit=False)
     with sessions.begin() as s:
