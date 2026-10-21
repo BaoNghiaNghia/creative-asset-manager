@@ -286,7 +286,13 @@ jobs:
           from alembic.config import Config
           from alembic.script import ScriptDirectory
           script = ScriptDirectory.from_config(Config("alembic.ini"))
-          assert script.get_heads() == ["0173_catinat_branding_merge"]
+          heads = script.get_heads()
+          assert len(heads) == 1, f"Expected one migration head, got {heads}"
+          certification = script.get_revision("0174_catinat_catalog_cert")
+          assert certification.down_revision == "0173_catinat_branding_merge"
+          # Allow future additive migrations while preserving the audited chain.
+          revisions = {revision.revision for revision in script.walk_revisions()}
+          assert {"0174_catinat_catalog_cert", "0173_catinat_branding_merge"} <= revisions
           merged = script.get_revision("0173_catinat_branding_merge")
           assert set(merged.down_revision) == {
               "0172_catinat_transfers",
@@ -295,10 +301,12 @@ jobs:
           for ancestor in merged.down_revision:
               assert script.get_revision(ancestor).revision == ancestor
           PY
-          # On disposable PostgreSQL, apply both branches once and verify
-          # that Alembic has exactly the expected merged revision.
+          # On disposable PostgreSQL, apply all additive revisions and verify
+          # the current revision equals the sole graph head (including 0174+).
           python -m alembic upgrade head 2>&1 | tee ../../artifacts/postgres/migration-upgrade.log
-          python -m alembic current | grep -F '0173_catinat_branding_merge'
+          EXPECTED_HEAD="$(python -m alembic heads | awk '{print $1}')"
+          test -n "$EXPECTED_HEAD"
+          python -m alembic current | grep -F "$EXPECTED_HEAD"
       - name: Repository and migration integration tests
         working-directory: apps/api
         run: |
