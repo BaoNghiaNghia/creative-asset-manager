@@ -39,6 +39,19 @@ class DocumentaryReview(BaseModel):
     note: str = Field(min_length=8, max_length=500)
 
 
+class OwnedShopDeclarationItem(BaseModel):
+    """A specific company-owned Amazon/Etsy shop and its documentary reference."""
+    model_config = {"extra": "forbid"}
+    shop_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    evidence_reference: str = Field(min_length=6, max_length=240)
+
+
+class BulkOwnedShopDeclaration(BaseModel):
+    model_config = {"extra": "forbid"}
+    items: list[OwnedShopDeclarationItem] = Field(min_length=1, max_length=200)
+    acknowledge_marketplace_authorization_not_verified: Literal[True]
+
+
 def present_review(row: BrandShopAccessReviewModel) -> dict:
     return {
         "id": row.id, "shop_id": row.shop_id, "declaration_id": row.declaration_id,
@@ -246,6 +259,72 @@ def submit_documentary_review(
     # A documentary review NEVER changes shop.status/access_mode,
     # dispatch flags, staged tasks or marketplace authorization.
     return {**present_review(record), "replayed": False}
+
+
+@router.post("/shops/owned-declarations/bulk", status_code=201)
+def declare_owned_shops_bulk(
+    body: BulkOwnedShopDeclaration,
+    response: Response,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+):
+    """Record multiple *explicit* owner claims atomically, never browser rights.
+
+    Each named shop needs a real, bounded internal evidence reference. The
+    operation is tenant-scoped, idempotent, and all-or-nothing: a foreign,
+    missing, malformed or duplicate shop prevents *every* write. Catalog
+    status and access_mode remain untouched, as do tasks and dispatcher.
+    """
+    tenant = principal.active_tenant_id
+    ids = [item.shop_id for item in body.items]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(422, detail="Duplicate shop IDs in ownership batch")
+    for item in body.items:
+        reference = item.evidence_reference
+        if (reference != reference.strip() or len(reference) < 6
+                or any(ord(c) < 32 for c in reference)):
+            raise HTTPException(422, detail="Invalid per-shop document reference")
+    shops = session.scalars(select(BrandShopModel).where(
+        BrandShopModel.tenant_id == tenant,
+        BrandShopModel.id.in_(ids),
+        BrandShopModel.platform.in_(("amazon", "etsy")),
+    )).all()
+    if len(shops) != len(ids):
+        raise HTTPException(404, detail="One or more shops not found")
+    latest = latest_shop_declarations(session, tenant_id=tenant, shop_ids=ids)
+    # Flush the entire batch as a single transaction, without separate
+    # per-shop commits or any elevation of effective access.
+    results = []
+    for item in body.items:
+        prior = latest.get(item.shop_id)
+        if (prior is not None and prior.relationship == "owned"
+                and prior.evidence_reference == item.evidence_reference):
+            results.append((prior, True))
+            continue
+        row = BrandShopAccessDeclarationModel(
+            tenant_id=tenant, shop_id=item.shop_id, relationship="owned",
+            evidence_reference=item.evidence_reference,
+            status="pending_review", declared_by=principal.actor_id,
+        )
+        session.add(row)
+        results.append((row, False))
+    session.commit()
+    response.headers["Cache-Control"] = "no-store"
+    if all(replayed for _, replayed in results):
+        response.status_code = 200
+    return {
+        "items": [
+            {"shop_id": row.shop_id, "declaration_id": row.id,
+             "status": row.status, "replayed": replayed,
+             "rights_verified": False, "dispatchable": False}
+            for row, replayed in results
+        ],
+        "count": len(results),
+        "created": sum(not replayed for _, replayed in results),
+        "replayed": sum(replayed for _, replayed in results),
+        "rights_verified": False, "scan_enabled": False,
+        "dispatchable": False,
+    }
 
 
 @router.post("/shops/{shop_id}/access-declarations", status_code=201)
