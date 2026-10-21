@@ -114,9 +114,12 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: browser-qa-evidence-${{ matrix.group }}
+          # Only the deterministic fixture QA reports, not screenshots or
+          # browser profiles. The directory is hidden, so opt in explicitly.
           path: |
-            apps/client/.ui-qa/
-            artifacts/ui-qa/
+            apps/client/.ui-qa/**/report.json
+            artifacts/ui-qa/coverage.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
