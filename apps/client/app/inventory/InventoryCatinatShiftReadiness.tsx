@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  catinatShiftApi, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
+  catinatShiftApi, catinatApprovalApi, InventoryApiError, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
   type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping,
 } from "./api";
 
@@ -54,6 +54,27 @@ export const CATINAT_MAPPING_STATUS:Record<string,string>={
 
 function itemKey(sheet:string,cell:string){return sheet+"|"+cell;}
 
+export function buildCatinatMappingReviewProposal(
+  mapping:CatinatCatalogMapping, row:CatinatCatalogMapping["items"][number],
+):Record<string,unknown> {
+  const valid=mapping.items.find(candidate=>
+    candidate.sheet===row.sheet&&candidate.cell===row.cell);
+  const location=mapping.locations.find(candidate=>candidate.sheet===row.sheet);
+  if(!valid || !location || JSON.stringify(valid)!==JSON.stringify(row)){
+    throw new Error("Ứng viên ánh xạ không còn khớp. Hãy tải lại Google Sheets.");
+  }
+  return {
+    source_hash:mapping.source_hash,
+    source_sheet:row.sheet,source_cell:row.cell,
+    material_display:row.material,source_form:row.form,source_unit:row.unit,
+    matching_status:row.status,
+    candidate_item_ids:[...row.candidate_item_ids],
+    candidate_location_ids:[...location.candidate_location_ids],
+    mapping_certified:false,inventory_write_performed:false,sheets_writes:0,
+  };
+}
+
+
 export function InventoryCatinatShiftReadiness(){
   const [businessDate,setBusinessDate]=useState(todayVietnam);
   const [data,setData]=useState<CatinatEveningReadiness|null>(null);
@@ -64,6 +85,9 @@ export function InventoryCatinatShiftReadiness(){
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
   const [staffChecked,setStaffChecked]=useState(false);
+  const [mappingDraft,setMappingDraft]=useState<CatinatCatalogMapping["items"][number]|null>(null);
+  const [mappingReason,setMappingReason]=useState("");
+  const reviewKey=useRef<string|null>(null);
 
   useEffect(()=>{
     setData(null);
@@ -72,6 +96,9 @@ export function InventoryCatinatShiftReadiness(){
     setCatalog(null);
     setSelected([]);
     setStaffChecked(false);
+    setMappingDraft(null);
+    setMappingReason("");
+    reviewKey.current=null;
   },[businessDate]);
 
   async function readCurrent(){
@@ -86,7 +113,7 @@ export function InventoryCatinatShiftReadiness(){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
-    setCatalog(null);
+      setCatalog(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
@@ -105,6 +132,9 @@ export function InventoryCatinatShiftReadiness(){
     setCatalog(null);
     setSelected([]);
     setStaffChecked(false);
+    setMappingDraft(null);
+    setMappingReason("");
+    reviewKey.current=null;
     try{await readCurrent();}
     catch(error){setMessage(error instanceof Error?error.message:"Không thể đọc Google Sheets.");}
     finally{setBusy(false);}
@@ -151,13 +181,62 @@ export function InventoryCatinatShiftReadiness(){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
-    setCatalog(null);
+      setCatalog(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
         (error instanceof Error?error.message:"Không lưu được xác nhận.")+
         " Vui lòng tải lại và đối chiếu Google Sheets trước khi thử lại."
       );
+    }finally{setBusy(false);}
+  }
+
+  async function requestCatalogMappingReview(){
+    if(!mappingDraft||!catalog||busy)return;
+    if(mappingReason.trim().length<8){
+      setMessage("Vui lòng nhập lý do xác minh ánh xạ, ít nhất 8 ký tự.");
+      return;
+    }
+    if(!window.confirm(
+      "Gửi bằng chứng ô Sheets này để quản lý xét duyệt? "+
+      "Thao tác chỉ tạo yêu cầu xét duyệt, không áp dụng mapping, chỉnh tồn hoặc ghi Sheets."
+    ))return;
+    setBusy(true);
+    setMessage("");
+    try{
+      // Reload authoritative source and catalog before asking for approval.
+      // Matching the workbook fingerprint alone does not detect catalog changes.
+      const fresh=await catinatShiftApi.catalogMappingPreview(businessDate);
+      const sourceRow=fresh.items.find(item=>
+        item.sheet===mappingDraft.sheet&&item.cell===mappingDraft.cell);
+      const currentLocation=fresh.locations.find(item=>item.sheet===mappingDraft.sheet);
+      const oldLocation=catalog.locations.find(item=>item.sheet===mappingDraft.sheet);
+      if(fresh.source_hash!==catalog.source_hash ||
+         JSON.stringify(sourceRow)!==JSON.stringify(mappingDraft) ||
+         JSON.stringify(currentLocation)!==JSON.stringify(oldLocation)){
+        setCatalog(null);
+        setMappingDraft(null);
+        reviewKey.current=null;
+        throw new Error("Dữ liệu Sheets/danh mục đã thay đổi. Tải lại trước khi tạo yêu cầu.");
+      }
+      if(!reviewKey.current)reviewKey.current=crypto.randomUUID();
+      const proposal=buildCatinatMappingReviewProposal(fresh,mappingDraft);
+      await catinatApprovalApi.create({
+        idempotency_key:reviewKey.current,business_date:businessDate,
+        kind:"catalog_mapping",
+        subject_ref:itemKey(mappingDraft.sheet,mappingDraft.cell),
+        proposal,reason:mappingReason.trim(),
+      });
+      setMappingDraft(null);
+      setMappingReason("");
+      reviewKey.current=null;
+      setMessage("Đã gửi quản lý yêu cầu xác minh. Danh mục và tồn kho chưa được thay đổi.");
+    }catch(error){
+      if(error instanceof InventoryApiError&&error.status===403){
+        setMessage("Tài khoản cần quyền đề xuất kiểm kê (inventory.review hoặc inventory.control).");
+      }else{
+        setMessage(error instanceof Error?error.message:"Chưa gửi được yêu cầu xác minh.");
+      }
     }finally{setBusy(false);}
   }
 
@@ -270,14 +349,38 @@ export function InventoryCatinatShiftReadiness(){
           <summary>Xem đối chiếu theo từng ô nguyên liệu ({catalog.items.length})</summary>
           <div style={{overflowX:"auto"}}>
             <table>
-              <thead><tr><th>Kho</th><th>Ô Sheets</th><th>Nguyên liệu</th><th>Đơn vị</th><th>Kết quả đối chiếu</th></tr></thead>
+              <thead><tr><th>Kho</th><th>Ô Sheets</th><th>Nguyên liệu</th><th>Đơn vị</th><th>Kết quả đối chiếu</th><th>Yêu cầu</th></tr></thead>
               <tbody>{catalog.items.map(row=><tr key={itemKey(row.sheet,row.cell)}>
                 <td>{row.sheet}</td><td>{row.cell}</td><td>{row.material}</td><td>{row.unit||"Thiếu"}</td>
                 <td>{CATINAT_MAPPING_STATUS[row.status]||row.status}</td>
+                <td><button type="button" disabled={busy} onClick={()=>{
+                  setMappingDraft(row);setMappingReason("");reviewKey.current=null;
+                }}>Đề nghị xác minh</button></td>
               </tr>)}</tbody>
             </table>
           </div>
         </details>
+        {mappingDraft&&<div className="inventory-material-candidate" style={{marginTop:12}}>
+          <h4>Gửi quản lý xác minh · {mappingDraft.sheet} · {mappingDraft.cell}</h4>
+          <p className="inventory-muted">
+            {mappingDraft.material} ({mappingDraft.unit||"chưa có đơn vị"}).
+            Yêu cầu đính kèm phiên bản Sheets và các ứng viên hiện có.
+            <strong> Việc xét duyệt không tự sửa danh mục, tồn kho hay Google Sheets.</strong>
+          </p>
+          <label htmlFor="catinat-mapping-reason">Lý do cần quản lý xác minh (ít nhất 8 ký tự)</label>
+          <textarea id="catinat-mapping-reason" rows={2} value={mappingReason}
+            onChange={event=>{setMappingReason(event.target.value);reviewKey.current=null;}}
+            placeholder="Nêu nguyên liệu, kho hoặc đơn vị cần xác minh"/>
+          <div className="inventory-actions">
+            <button type="button" disabled={busy||mappingReason.trim().length<8}
+              onClick={()=>void requestCatalogMappingReview()}>
+              {busy?"Đang gửi…":"Gửi yêu cầu xác minh"}
+            </button>
+            <button type="button" disabled={busy} onClick={()=>{
+              setMappingDraft(null);setMappingReason("");reviewKey.current=null;
+            }}>Hủy</button>
+          </div>
+        </div>}
       </section>}
       <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"

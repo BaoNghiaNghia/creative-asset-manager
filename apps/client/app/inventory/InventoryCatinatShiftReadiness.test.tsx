@@ -1,8 +1,8 @@
 import {createElement} from "react";
 import {renderToStaticMarkup} from "react-dom/server";
 import {afterEach,describe,expect,it,vi} from "vitest";
-import {catinatShiftApi,type CatinatPhysicalReadinessItem} from "./api";
-import {InventoryCatinatShiftReadiness,summarizeCatinatReadiness,CATINAT_MAPPING_STATUS} from "./InventoryCatinatShiftReadiness";
+import {catinatShiftApi,type CatinatPhysicalReadinessItem,type CatinatCatalogMapping} from "./api";
+import {InventoryCatinatShiftReadiness,summarizeCatinatReadiness,CATINAT_MAPPING_STATUS,buildCatinatMappingReviewProposal} from "./InventoryCatinatShiftReadiness";
 
 describe("Catinat shift readiness",()=>{
   afterEach(()=>vi.unstubAllGlobals());
@@ -19,6 +19,34 @@ describe("Catinat shift readiness",()=>{
     ]);
     expect(results["KHO PHA CHẾ"]).toEqual({total:1,missing:1,present:0});
     expect(results["PHÒNG PHA CHẾ"]).toEqual({total:2,missing:0,present:2});
+  });
+
+  it("builds a source-bound manager review request with uncertified candidates only",()=>{
+    const row={
+      sheet:"KHO PHA CHẾ",cell:"L5",material:"SỮA ĐẶC",
+      unit:"lon",form:"whole",status:"exact_name_and_unit_candidate",
+      candidate_item_ids:["milk-a"],location_status:"exact_name_candidate",
+    };
+    const report:CatinatCatalogMapping={
+      business_date:"2026-10-20",shift:"evening",source_hash:"a".repeat(64),
+      mode:"read_only_uncertified_catalog_candidates",
+      catalog_coverage:{active_item_count:14,active_location_count:1,certified:false},
+      locations:[{sheet:"KHO PHA CHẾ",status:"exact_name_candidate",
+                  candidate_location_ids:["bar-a"]}],
+      items:[row],summary:{total:1,exact_candidates:1,requires_review:0,by_status:{}},
+      ready_to_sign:false,automatic_carry_forward_allowed:false,
+      inventory_writes:0,sheets_writes:0,
+    };
+    const evidence=buildCatinatMappingReviewProposal(report,row);
+    expect(evidence).toMatchObject({
+      source_hash:"a".repeat(64),source_sheet:"KHO PHA CHẾ",source_cell:"L5",
+      material_display:"SỮA ĐẶC",source_form:"whole",source_unit:"lon",
+      candidate_item_ids:["milk-a"],candidate_location_ids:["bar-a"],
+      mapping_certified:false,inventory_write_performed:false,sheets_writes:0,
+    });
+    expect(evidence).not.toHaveProperty("approved_item_id");
+    expect(()=>buildCatinatMappingReviewProposal(report,{...row,cell:"L6"}))
+      .toThrow("không còn khớp");
   });
 
   it("only renders a read-only preflight action, not a premature close button",()=>{

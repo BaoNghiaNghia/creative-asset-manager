@@ -93,6 +93,14 @@ clone already found at revision 0173. Production migration was not run.
 
 **Still required before enabling ledger/carry-forward:** manager-approved persistent mapping with versioned source evidence; explicit physical warehouse identities; approved conversions and package/batch/expiry/waste checks; transactional transfer ledger posting; human close sign-off and conflict-proof Sheets writer protocol.
 
+## Q44 — direct source-bound catalog mapping review requests (21 Oct)
+
+- The evening count page's Catalog Mapping table now lets a staff reviewer select a specific Sheets warehouse + cell and **explicitly** send a reasoned `catalog_mapping` request to the existing append-only approval workflow, instead of manually composing JSON evidence.
+- The UI refetches the tenant-bound catalog report before submission and **blocks** changed source fingerprints, row candidates or warehouse candidate identities. The request retains workbook source hash, sheet/cell, source material/form/unit and current candidate item/location ID arrays. **No canonical ID is auto-selected and `mapping_certified=false`**.
+- The existing POST `/catinat/approvals` requires `inventory.review` or `inventory.control`. A separate tenant-admin/manager role plus `inventory.finalize` is required for decisions, and actors cannot approve their own requests. Ordinary viewers receive a permissions explanation; no implicit grants.
+- A successful submission only records an **audit request**, with an idempotency key retained for network retries. Manager approval alone does not create an inventory location, certify a mapping, sign a shift or write Google Sheets.
+- UI regression tests cover the exact evidence shape, uncertified values, source-linked row checks and the existing read-only/approval/transfer screens. Further manager-approved canonical mapping persistence and stock-ledger integration remain **STOP gates**.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.
