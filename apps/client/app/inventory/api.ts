@@ -1,3 +1,16 @@
+export type CatinatMaterialGroup = {
+  name:string;aliases:string[];source_row_count:number;sheets:string[];
+  evidence_units:string[];status:string;candidate_item_ids:string[];certified:false;
+};
+export type CatinatMaterialGroupsResponse = {
+  source_rows:number;unique_names:number;groups:CatinatMaterialGroup[];
+  automatic_approvals:0;inventory_writes:0;sheet_writes:0;
+};
+export const catinatMaterialGroupsApi = {
+  // API is tenant-scoped and returns review candidates, never certified inventory.
+  list:()=>request<CatinatMaterialGroupsResponse>("/daily-sheet/catinat/catalog/material-candidate-groups"),
+};
+
 export type InventoryReview = { id:string; document_id:string; line_id:string|null; reason_code:string; status:string; original_value:Record<string, unknown>; suggested_value:Record<string, unknown>; final_value:Record<string, unknown>|null; reviewer_id:string|null; reviewed_at:string|null };
 export type InventoryExport = { id:string; business_date:string; status:string; main_drive_file_id:string|null; backup_drive_file_id:string|null; content_sha256:string|null; completed_at:string|null; error_code:string|null; archive_status:string; archive_error_code:string|null };
 export type InventoryDailyRun = { id:string; business_date:string; status:string; ready:boolean; finalized:boolean; forced:boolean; blockers:Array<{code:string;document_ids?:string[];review_ids?:string[];job_ids?:string[]}>; report:Record<string,unknown>; finalized_at:string|null; finalized_by:string|null };
