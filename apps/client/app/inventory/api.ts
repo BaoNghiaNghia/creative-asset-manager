@@ -128,7 +128,28 @@ export type CatinatPackageConversionReview = {
   conversion_applied:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
   inventory_writes:0;sheets_writes:0;
 };
+export type CatinatSafetyTriage = {
+  mode:"read_only_shelf_life_waste_transfer_triage";
+  business_date:string;source_hash:string;
+  prepared_report_hints:Array<{sheet:string;row:number;status:string}>;
+  items:Array<{sheet:string;cell:string;material:string;form:string;unit:string;
+    batch_expiry_status:string;disposal_status:string}>;
+  transfers:Array<{id:string;business_date:string;item_id:string;
+    source_location_id:string;destination_location_id:string;unit:string;
+    dispatched_quantity:string;received_quantity:string;remaining_in_transit:string;
+    receipt_status:string;ledger_posted:boolean;requires_receipt:boolean;
+    requires_ledger_reconciliation:boolean;stock_posted_by_this_audit:false}>;
+  summary:{physical_cells_without_batch_expiry_certification:number;
+    date_only_preparation_hints:number;pending_receipt_transfers:number;
+    unposted_ledger_transfers:number};
+  batch_expiration_and_waste_certified:false;transfer_ledger_reconciled:false;
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
 export const catinatShiftApi = {
+  safetyTriage:(businessDate:string)=>request<CatinatSafetyTriage>(
+    "/daily-sheet/catinat/shift/safety-triage?business_date="+encodeURIComponent(businessDate),
+  ),
   packageConversionReview:(businessDate:string)=>request<CatinatPackageConversionReview>(
     "/daily-sheet/catinat/catalog-certifications/conversion-review?business_date="+encodeURIComponent(businessDate),
   ),

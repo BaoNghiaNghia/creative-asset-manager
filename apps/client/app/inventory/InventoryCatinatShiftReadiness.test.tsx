@@ -80,6 +80,33 @@ describe("Catinat shift readiness",()=>{
     });
   });
 
+  it("retrieves source-bound batch, waste and transfer triage without stock writes",async()=>{
+    const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
+      ok:true,json:async()=>({
+        mode:"read_only_shelf_life_waste_transfer_triage",
+        business_date:"2026-10-20",source_hash:"a".repeat(64),
+        prepared_report_hints:[],items:[],transfers:[],
+        summary:{physical_cells_without_batch_expiry_certification:1,
+          date_only_preparation_hints:0,pending_receipt_transfers:0,
+          unposted_ledger_transfers:0},
+        batch_expiration_and_waste_certified:false,transfer_ledger_reconciled:false,
+        ready_to_sign:false,automatic_carry_forward_allowed:false,
+        inventory_writes:0,sheets_writes:0,
+      }),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    const result=await catinatShiftApi.safetyTriage("2026-10-20");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/shift/safety-triage?business_date=2026-10-20"
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+    expect(result.batch_expiration_and_waste_certified).toBe(false);
+    expect(result.transfer_ledger_reconciled).toBe(false);
+    expect(result.ready_to_sign).toBe(false);
+    expect(result.inventory_writes).toBe(0);
+    expect(result.sheets_writes).toBe(0);
+  });
+
   it("reads package conversion evidence without applying it or closing inventory",async()=>{
     const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
       ok:true,json:async()=>({

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   catinatShiftApi, catinatApprovalApi, InventoryApiError, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
-  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage, type CatinatPackageConversionReview,
+  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping, type CatinatCertificationCoverage, type CatinatPackageConversionReview, type CatinatSafetyTriage,
 } from "./api";
 
 function todayVietnam(){
@@ -83,6 +83,7 @@ export function InventoryCatinatShiftReadiness(){
   const [catalog,setCatalog]=useState<CatinatCatalogMapping|null>(null);
   const [coverage,setCoverage]=useState<CatinatCertificationCoverage|null>(null);
   const [conversions,setConversions]=useState<CatinatPackageConversionReview|null>(null);
+  const [triage,setTriage]=useState<CatinatSafetyTriage|null>(null);
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -98,6 +99,7 @@ export function InventoryCatinatShiftReadiness(){
     setCatalog(null);
     setCoverage(null);
     setConversions(null);
+    setTriage(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -106,23 +108,25 @@ export function InventoryCatinatShiftReadiness(){
   },[businessDate]);
 
   async function readCurrent(){
-    const [next,proof,safety,mapping,verification,units]=await Promise.all([
+    const [next,proof,safety,mapping,verification,units,risk]=await Promise.all([
       catinatShiftApi.readiness(businessDate),
       catinatShiftApi.confirmations(businessDate),
       catinatShiftApi.closingPreflight(businessDate),
       catinatShiftApi.catalogMappingPreview(businessDate),
       catinatShiftApi.certificationCoverage(businessDate),
       catinatShiftApi.packageConversionReview(businessDate),
+      catinatShiftApi.safetyTriage(businessDate),
     ]);
     if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash
        || next.source_hash!==mapping.source_hash || next.source_hash!==verification.source_hash
-       || next.source_hash!==units.source_hash){
+       || next.source_hash!==units.source_hash || next.source_hash!==risk.source_hash){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
       setCatalog(null);
     setCoverage(null);
     setConversions(null);
+    setTriage(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
@@ -131,6 +135,7 @@ export function InventoryCatinatShiftReadiness(){
     setCatalog(mapping);
     setCoverage(verification);
     setConversions(units);
+    setTriage(risk);
   }
 
   async function load(){
@@ -143,6 +148,7 @@ export function InventoryCatinatShiftReadiness(){
     setCatalog(null);
     setCoverage(null);
     setConversions(null);
+    setTriage(null);
     setSelected([]);
     setStaffChecked(false);
     setMappingDraft(null);
@@ -197,6 +203,7 @@ export function InventoryCatinatShiftReadiness(){
       setCatalog(null);
     setCoverage(null);
     setConversions(null);
+    setTriage(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
@@ -232,6 +239,7 @@ export function InventoryCatinatShiftReadiness(){
         setCatalog(null);
     setCoverage(null);
     setConversions(null);
+    setTriage(null);
         setMappingDraft(null);
         reviewKey.current=null;
         throw new Error("Dữ liệu Sheets/danh mục đã thay đổi. Tải lại trước khi tạo yêu cầu.");
@@ -345,6 +353,58 @@ export function InventoryCatinatShiftReadiness(){
         </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
+      </section>}
+      {triage&&<section aria-label="Theo dõi hạn sử dụng hủy hàng và chuyển kho">
+        <h3>Hạn sử dụng, hủy nguyên liệu và chuyển kho</h3>
+        <p className="inventory-muted">
+          Có {triage.summary.physical_cells_without_batch_expiry_certification} ô tồn chưa đủ
+          chứng cứ lô/hạn dùng, {triage.summary.date_only_preparation_hints} dòng chế biến
+          chỉ có ngày mà thiếu thời điểm chính xác. Còn
+          {" "}{triage.summary.pending_receipt_transfers} chuyến chưa nhận đủ và
+          {" "}{triage.summary.unposted_ledger_transfers} chuyến chưa được ghi sổ.
+          <strong> Không tự xác nhận hạn dùng, hủy nguyên liệu hoặc điều chỉnh tồn.</strong>
+        </p>
+        <details>
+          <summary>Dòng chế biến cần xác minh giờ và hạn dùng ({triage.prepared_report_hints.length})</summary>
+          {triage.prepared_report_hints.length?
+            <ul>{triage.prepared_report_hints.map((row,index)=>
+              <li key={row.sheet+":"+row.row+":"+index}>{row.sheet} · dòng {row.row} —
+                nhân viên cần xác minh chính xác giờ chế biến, lô và hạn dùng (tối đa 96 giờ,
+                trừ khi có quy định ngắn hơn).</li>)}</ul>:
+            <p>Chưa thấy dấu hiệu ngày chế biến theo mẫu trong dữ liệu đang đọc.
+              Điều này không chứng nhận các lô đã an toàn.</p>}
+        </details>
+        <details>
+          <summary>Ô tồn chưa có chứng cứ lô/hủy hàng ({triage.items.length})</summary>
+          <div style={{overflowX:"auto"}}>
+            <table><thead><tr><th>Kho</th><th>Ô</th><th>Nguyên liệu</th><th>Yêu cầu</th></tr></thead>
+              <tbody>{triage.items.map(row=><tr key={itemKey(row.sheet,row.cell)}>
+                <td>{row.sheet}</td><td>{row.cell}</td><td>{row.material}</td>
+                <td>Cần mã lô, thời điểm mở/chế biến, quy định hạn dùng và bằng chứng
+                    hủy (nếu có); chưa xác nhận</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </details>
+        <details>
+          <summary>Chuyển kho cần đối soát ({triage.transfers.length})</summary>
+          {triage.transfers.length?
+            <div style={{overflowX:"auto"}}><table>
+              <thead><tr><th>Chuyển kho</th><th>Nguyên liệu</th><th>Đã gửi</th><th>Đã nhận</th>
+                <th>Đang chuyển</th><th>Trạng thái</th></tr></thead>
+              <tbody>{triage.transfers.map(t=><tr key={t.id}>
+                <td>{t.id}</td><td>{t.item_id}</td>
+                <td>{t.dispatched_quantity} {t.unit}</td><td>{t.received_quantity} {t.unit}</td>
+                <td>{t.remaining_in_transit} {t.unit}</td>
+                <td>{t.requires_receipt?"Cần xác nhận nhận đủ. ":""}
+                  {t.requires_ledger_reconciliation?"Chưa đối soát sổ tồn. ":""}
+                  {!t.requires_receipt&&!t.requires_ledger_reconciliation?
+                    "Có trạng thái hoàn tất trong bảng theo dõi, chưa xác nhận chốt ca":""}</td>
+              </tr>)}</tbody>
+            </table></div>:
+            <p>Chưa có sự kiện chuyển kho trong bảng theo dõi tại ngày kiểm tra.
+              Không đồng nghĩa sổ kho đã được đối soát.</p>}
+        </details>
       </section>}
       {conversions&&<section aria-label="Kiểm tra quy đổi nguyên liệu Catinat">
         <h3>Kiểm tra quy đổi bao bì và đơn vị nguyên liệu</h3>
