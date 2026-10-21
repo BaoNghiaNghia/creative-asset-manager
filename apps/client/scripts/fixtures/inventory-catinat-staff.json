@@ -1,0 +1,643 @@
+{
+  "name": "inventory-catinat-staff",
+  "identity": {
+    "user_id": "qa-catinat-staff",
+    "actor_id": "qa-catinat-staff",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Catinat",
+        "slug": "qa-catinat"
+      }
+    ],
+    "roles": [
+      "operator"
+    ],
+    "permissions": [
+      "assets.read",
+      "inventory.read",
+      "inventory.review"
+    ],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Catinat Staff",
+    "email": "qa-catinat-staff@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-google-catinat-staff",
+      "name": "QA Catinat Staff",
+      "email": "qa-catinat-staff@example.test"
+    }
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/status",
+      "body": {
+        "enabled": true,
+        "configured": true,
+        "execution_mode": "v4_slots",
+        "operational_state": "healthy",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "current_local_date": "2026-10-21",
+        "working_business_date": "2026-10-21",
+        "working_spreadsheet_url": null,
+        "snapshot_time": "17:00",
+        "reconcile_time": "22:00",
+        "carry_forward_time": "09:00",
+        "next_snapshot_at": "2026-10-22T10:00:00Z",
+        "next_reconcile_at": "2026-10-21T15:00:00Z",
+        "next_carry_forward_at": "2026-10-22T02:00:00Z",
+        "last_snapshot": null,
+        "last_reconciliation": null,
+        "carry_forward": null,
+        "invariants": [],
+        "lifecycle": {
+          "business_date": "2026-10-21",
+          "morning_reset": {
+            "status": "failed",
+            "scheduled_time": "09:00",
+            "source_business_date": "2026-10-20",
+            "source_gemini_file_id": null,
+            "error_code": "qa_previous_count_unverified"
+          },
+          "afternoon_snapshot": {
+            "status": "completed",
+            "scheduled_time": "17:00",
+            "snapshot_file_id": "qa-snapshot",
+            "gemini_file_id": "qa-gemini"
+          },
+          "evening_reconcile": {
+            "status": "completed",
+            "scheduled_time": "22:00",
+            "verified": true,
+            "run_id": null,
+            "plan_hash": null,
+            "prompt_version": null,
+            "prompt_hash": null
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/lifecycle-history",
+      "body": {
+        "page": 1,
+        "page_size": 25,
+        "pages": 1,
+        "total": 0,
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/jobs",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/approvals",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/shift/readiness",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shift": "evening",
+        "mode": "read_only_not_a_signed_close",
+        "staff_confirmation_available": false,
+        "automatic_carry_forward_allowed": false,
+        "sheets_writes": 0,
+        "items": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "row": 5,
+            "material": "SỮA ĐẶC QA",
+            "unit": "lon",
+            "quantity": "2",
+            "form": "whole",
+            "raw": "2",
+            "status": "unconfirmed",
+            "blocker": "employee_physical_confirmation_required"
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "row": 5,
+            "material": "TRÀ QA",
+            "unit": "kg",
+            "quantity": "1",
+            "form": "whole",
+            "raw": "1",
+            "status": "unconfirmed",
+            "blocker": "employee_physical_confirmation_required"
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "row": 5,
+            "material": "CÀ PHÊ QA",
+            "unit": "kg",
+            "quantity": "3",
+            "form": "whole",
+            "raw": "3",
+            "status": "unconfirmed",
+            "blocker": "employee_physical_confirmation_required"
+          }
+        ],
+        "blockers": [
+          {
+            "code": "employee_physical_confirmation_required",
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5"
+          },
+          {
+            "code": "employee_physical_confirmation_required",
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5"
+          },
+          {
+            "code": "employee_physical_confirmation_required",
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5"
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/shift/count-confirmations",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_status": "current",
+        "confirmed_count": 0,
+        "required_count": 3,
+        "cells": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "material": "SỮA ĐẶC QA",
+            "unit": "lon",
+            "quantity": "2",
+            "confirmed": false,
+            "confirmed_by": null
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "material": "TRÀ QA",
+            "unit": "kg",
+            "quantity": "1",
+            "confirmed": false,
+            "confirmed_by": null
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "material": "CÀ PHÊ QA",
+            "unit": "kg",
+            "quantity": "3",
+            "confirmed": false,
+            "confirmed_by": null
+          }
+        ],
+        "official_shift_closed": false,
+        "automatic_carry_forward_allowed": false,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/shift/closing-preflight",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shift": "evening",
+        "confirmed_count": 0,
+        "required_count": 3,
+        "outstanding_transfer_count": 0,
+        "unreconciled_transfer_count": 0,
+        "approval_requests_count": 0,
+        "identity_source": "q01_q47_configured_worksheet_and_closing_cell",
+        "warehouse_sources": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "whole_column": "L",
+            "loose_column": "M",
+            "required_cells": 1,
+            "confirmed_cells": 0
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "whole_column": "H",
+            "loose_column": "J",
+            "required_cells": 1,
+            "confirmed_cells": 0
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "whole_column": "J",
+            "loose_column": "L",
+            "required_cells": 1,
+            "confirmed_cells": 0
+          }
+        ],
+        "physical_identity_verified_for_preview": true,
+        "blockers": [
+          {
+            "code": "physical_count_unconfirmed_or_stale"
+          }
+        ],
+        "ready_to_sign": false,
+        "official_shift_closed": false,
+        "automatic_carry_forward_allowed": false,
+        "sheets_writes": 0,
+        "mode": "read_only_safety_preflight"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog/mapping-preview",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "shift": "evening",
+        "mode": "read_only_uncertified_catalog_candidates",
+        "catalog_coverage": {
+          "active_item_count": 0,
+          "active_location_count": 0,
+          "certified": false
+        },
+        "locations": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "status": "location_not_found",
+            "candidate_location_ids": []
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "status": "location_not_found",
+            "candidate_location_ids": []
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "status": "location_not_found",
+            "candidate_location_ids": []
+          }
+        ],
+        "items": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "material": "SỮA ĐẶC QA",
+            "form": "whole",
+            "unit": "lon",
+            "status": "material_review_required",
+            "candidate_item_ids": [],
+            "location_status": "location_not_found"
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "material": "TRÀ QA",
+            "form": "whole",
+            "unit": "kg",
+            "status": "material_review_required",
+            "candidate_item_ids": [],
+            "location_status": "location_not_found"
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "material": "CÀ PHÊ QA",
+            "form": "whole",
+            "unit": "kg",
+            "status": "material_review_required",
+            "candidate_item_ids": [],
+            "location_status": "location_not_found"
+          }
+        ],
+        "summary": {
+          "total": 3,
+          "exact_candidates": 0,
+          "requires_review": 3,
+          "by_status": {
+            "material_review_required": 3
+          }
+        },
+        "ready_to_sign": false,
+        "automatic_carry_forward_allowed": false,
+        "inventory_writes": 0,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog-certifications/coverage",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mode": "read_only_certification_coverage",
+        "areas": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "source_cells": 1,
+            "evidence_cells": 0,
+            "pending_cells": 1,
+            "missing_location": true,
+            "ambiguous_location": false
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "source_cells": 1,
+            "evidence_cells": 0,
+            "pending_cells": 1,
+            "missing_location": true,
+            "ambiguous_location": false
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "source_cells": 1,
+            "evidence_cells": 0,
+            "pending_cells": 1,
+            "missing_location": true,
+            "ambiguous_location": false
+          }
+        ],
+        "items": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "material": "SỮA ĐẶC QA",
+            "unit": "lon",
+            "mapping_status": "material_review_required",
+            "evidence_status": "pending",
+            "certification_version": null
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "material": "TRÀ QA",
+            "unit": "kg",
+            "mapping_status": "material_review_required",
+            "evidence_status": "pending",
+            "certification_version": null
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "material": "CÀ PHÊ QA",
+            "unit": "kg",
+            "mapping_status": "material_review_required",
+            "evidence_status": "pending",
+            "certification_version": null
+          }
+        ],
+        "summary": {
+          "source_cells": 3,
+          "evidence_cells": 0,
+          "pending_cells": 3,
+          "warehouse_areas_with_exact_candidate": 0,
+          "total_warehouse_areas": 3
+        },
+        "mapping_activated": false,
+        "ready_to_sign": false,
+        "automatic_carry_forward_allowed": false,
+        "inventory_writes": 0,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog-certifications/conversion-review",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mode": "read_only_package_conversion_evidence",
+        "items": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "material": "SỮA ĐẶC QA",
+            "form": "whole",
+            "source_unit": "lon",
+            "status": "catalog_mapping_requires_review",
+            "approved_factor_evidence": null,
+            "approved_target_unit_evidence": null,
+            "conversion_applied": false
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "material": "TRÀ QA",
+            "form": "whole",
+            "source_unit": "kg",
+            "status": "catalog_mapping_requires_review",
+            "approved_factor_evidence": null,
+            "approved_target_unit_evidence": null,
+            "conversion_applied": false
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "material": "CÀ PHÊ QA",
+            "form": "whole",
+            "source_unit": "kg",
+            "status": "catalog_mapping_requires_review",
+            "approved_factor_evidence": null,
+            "approved_target_unit_evidence": null,
+            "conversion_applied": false
+          }
+        ],
+        "summary": {
+          "total_cells": 3,
+          "by_status": {
+            "catalog_mapping_requires_review": 3
+          },
+          "approved_conversion_evidence_cells": 0
+        },
+        "conversion_applied": false,
+        "ready_to_sign": false,
+        "automatic_carry_forward_allowed": false,
+        "inventory_writes": 0,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/shift/safety-triage",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mode": "read_only_shelf_life_waste_transfer_triage",
+        "prepared_report_hints": [],
+        "items": [
+          {
+            "sheet": "KHO PHA CHẾ",
+            "cell": "L5",
+            "material": "SỮA ĐẶC QA",
+            "form": "whole",
+            "unit": "lon",
+            "batch_expiry_status": "physical_batch_evidence_required",
+            "disposal_status": "physical_disposal_evidence_required"
+          },
+          {
+            "sheet": "PHÒNG PHA CHẾ",
+            "cell": "H5",
+            "material": "TRÀ QA",
+            "form": "whole",
+            "unit": "kg",
+            "batch_expiry_status": "physical_batch_evidence_required",
+            "disposal_status": "physical_disposal_evidence_required"
+          },
+          {
+            "sheet": "KHO PHÒNG RANG",
+            "cell": "J5",
+            "material": "CÀ PHÊ QA",
+            "form": "whole",
+            "unit": "kg",
+            "batch_expiry_status": "physical_batch_evidence_required",
+            "disposal_status": "physical_disposal_evidence_required"
+          }
+        ],
+        "transfers": [],
+        "summary": {
+          "physical_cells_without_batch_expiry_certification": 3,
+          "date_only_preparation_hints": 0,
+          "pending_receipt_transfers": 0,
+          "unposted_ledger_transfers": 0
+        },
+        "batch_expiration_and_waste_certified": false,
+        "transfer_ledger_reconciled": false,
+        "ready_to_sign": false,
+        "automatic_carry_forward_allowed": false,
+        "inventory_writes": 0,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/batch-evidence",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [],
+        "mode": "batch_staff_evidence_only",
+        "ready_to_sign": false,
+        "inventory_writes": 0,
+        "sheets_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/waste-evidence",
+      "body": {
+        "business_date": "2026-10-21",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "items": [],
+        "mode": "read_only_waste_evidence_unposted",
+        "stock_writes": 0,
+        "sheets_writes": 0,
+        "ready_to_sign": false,
+        "automatic_carry_forward_allowed": false
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog/material-candidate-groups",
+      "body": {
+        "source_rows": 1,
+        "unique_names": 1,
+        "groups": [
+          {
+            "name": "SỮA ĐẶC QA",
+            "aliases": [
+              "SỮA ĐẶC QA"
+            ],
+            "source_row_count": 1,
+            "sheets": [
+              "KHO PHA CHẾ"
+            ],
+            "evidence_units": [
+              "lon"
+            ],
+            "status": "exact_name_and_evidence_unit_candidate",
+            "suggested_item_id": "qa-item-milk",
+            "suggested_item_name": "SỮA ĐẶC QA",
+            "candidate_item_ids": [
+              "qa-item-milk"
+            ],
+            "certified": false,
+            "source_rows": [
+              {
+                "candidate_id": "qa-candidate-milk",
+                "sheet": "KHO PHA CHẾ",
+                "row": 5,
+                "category": null,
+                "name": "SỮA ĐẶC QA",
+                "status": "pending",
+                "suggested_item_id": "qa-item-milk",
+                "suggested_canonical_name": "SỮA ĐẶC QA",
+                "confidence": 1,
+                "reasons": [],
+                "name_cell": "B5",
+                "unit_evidence": [
+                  {
+                    "value": "lon",
+                    "header": "ĐVT",
+                    "value_cell": "C5",
+                    "header_cell": "C4",
+                    "evidence_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                  }
+                ]
+              }
+            ],
+            "approval_groups": [
+              {
+                "candidate_id": "qa-candidate-milk",
+                "candidate_ids": [
+                  "qa-candidate-milk"
+                ],
+                "expected_count": 1,
+                "sheet": "KHO PHA CHẾ",
+                "category": null,
+                "name": "SỮA ĐẶC QA",
+                "item_id": "qa-item-milk",
+                "item_name": "SỮA ĐẶC QA",
+                "item_units": [
+                  "lon"
+                ],
+                "can_bulk_approve": true,
+                "blocker": null,
+                "evidence_cells": [
+                  "C5"
+                ],
+                "evidence_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              }
+            ]
+          }
+        ],
+        "can_approve_candidates": false,
+        "automatic_approvals": 0,
+        "inventory_writes": 0,
+        "sheet_writes": 0
+      }
+    }
+  ]
+}

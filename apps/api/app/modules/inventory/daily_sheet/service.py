@@ -28,6 +28,12 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
     if not code:
         return {"category": None, "retryable": False}
     value = str(code).strip().lower()
+    # Q29/Q47: changed evidence or a conflicting readback needs human review,
+    # not an outage retry that may overwrite a staff edit on the next attempt.
+    if value == "catinat_signed_close_required" or any(
+        token in value for token in ("stale_evidence", "read_back_mismatch")
+    ):
+        return {"category": "REVIEW", "retryable": False}
     if any(token in value for token in ("invariant", "completed_without_", "without_durable_state")):
         category = "STATE_INVARIANT"
     elif "requires_auto_apply_mode" in value:
@@ -67,7 +73,6 @@ def inventory_error_metadata(code: str | None) -> dict[str, Any]:
             "previous_day_gemini_not_verified",
             "morning_reset_not_completed",
             "afternoon_snapshot_not_ready",
-            "stale_evidence",
             "inventory_sheet_agent_v4_missing_tool_call",
             "inventory_sheet_agent_v4_round_limit",
             "carry_forward_plan_not_submitted",

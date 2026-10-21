@@ -87,12 +87,21 @@ export function InventoryCatinatShiftReadiness(){
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
+  const [diagnosticWarnings,setDiagnosticWarnings]=useState<string[]>([]);
   const [staffChecked,setStaffChecked]=useState(false);
   const [mappingDraft,setMappingDraft]=useState<CatinatCatalogMapping["items"][number]|null>(null);
   const [mappingReason,setMappingReason]=useState("");
   const reviewKey=useRef<string|null>(null);
+  const requestVersion=useRef(0);
+  const currentDate=useRef(businessDate);
+  currentDate.current=businessDate;
+  const isCurrent=(date:string,version:number)=>currentDate.current===date&&requestVersion.current===version;
 
   useEffect(()=>{
+    requestVersion.current++;
+    setBusy(false);
+    setMessage("");
+    setDiagnosticWarnings([]);
     setData(null);
     setConfirmed(null);
     setPreflight(null);
@@ -105,30 +114,36 @@ export function InventoryCatinatShiftReadiness(){
     setMappingDraft(null);
     setMappingReason("");
     reviewKey.current=null;
+    return()=>{requestVersion.current++;};
   },[businessDate]);
 
-  async function readCurrent(){
-    const [next,proof,safety,mapping,verification,units,risk]=await Promise.all([
-      catinatShiftApi.readiness(businessDate),
-      catinatShiftApi.confirmations(businessDate),
-      catinatShiftApi.closingPreflight(businessDate),
-      catinatShiftApi.catalogMappingPreview(businessDate),
-      catinatShiftApi.certificationCoverage(businessDate),
-      catinatShiftApi.packageConversionReview(businessDate),
-      catinatShiftApi.safetyTriage(businessDate),
+  async function readCurrent(requestedDate:string,version:number){
+    const [next,proof,safety,optional]=await Promise.all([
+      catinatShiftApi.readiness(requestedDate),
+      catinatShiftApi.confirmations(requestedDate),
+      catinatShiftApi.closingPreflight(requestedDate),
+      // Internal catalog and supplemental diagnostics must not hide the
+      // independently authorized physical-count roster when unavailable.
+      Promise.allSettled([
+        catinatShiftApi.catalogMappingPreview(requestedDate),
+        catinatShiftApi.certificationCoverage(requestedDate),
+        catinatShiftApi.packageConversionReview(requestedDate),
+        catinatShiftApi.safetyTriage(requestedDate),
+      ]),
     ]);
-    if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash
-       || next.source_hash!==mapping.source_hash || next.source_hash!==verification.source_hash
-       || next.source_hash!==units.source_hash || next.source_hash!==risk.source_hash){
-      setData(null);
-      setConfirmed(null);
-      setPreflight(null);
-      setCatalog(null);
-    setCoverage(null);
-    setConversions(null);
-    setTriage(null);
-      throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
+    if(!isCurrent(requestedDate,version))return false;
+    const [mappingResult,coverageResult,unitResult,riskResult]=optional;
+    const mapping=mappingResult.status==="fulfilled"?mappingResult.value:null;
+    const verification=coverageResult.status==="fulfilled"?coverageResult.value:null;
+    const units=unitResult.status==="fulfilled"?unitResult.value:null;
+    const risk=riskResult.status==="fulfilled"?riskResult.value:null;
+    const reports=[next,proof,safety,mapping,verification,units,risk];
+    if(reports.some(report=>report&&(report.business_date!==requestedDate||
+       report.source_hash!==next.source_hash))){
+      throw new Error("Ngày kiểm kê hoặc Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
+    const labels=["ánh xạ danh mục","chứng cứ liên kết danh mục","quy đổi đơn vị","hạn dùng, hủy hàng và chuyển kho"];
+    setDiagnosticWarnings(optional.flatMap((result,index)=>result.status==="rejected"?[labels[index]]:[]));
     setData(next);
     setConfirmed(proof);
     setPreflight(safety);
@@ -136,12 +151,16 @@ export function InventoryCatinatShiftReadiness(){
     setCoverage(verification);
     setConversions(units);
     setTriage(risk);
+    return true;
   }
 
   async function load(){
     if(busy||!businessDate)return;
+    const requestedDate=businessDate;
+    const version=++requestVersion.current;
     setBusy(true);
     setMessage("");
+    setDiagnosticWarnings([]);
     setData(null);
     setConfirmed(null);
     setPreflight(null);
@@ -154,9 +173,9 @@ export function InventoryCatinatShiftReadiness(){
     setMappingDraft(null);
     setMappingReason("");
     reviewKey.current=null;
-    try{await readCurrent();}
-    catch(error){setMessage(error instanceof Error?error.message:"Không thể đọc Google Sheets.");}
-    finally{setBusy(false);}
+    try{await readCurrent(requestedDate,version);}
+    catch(error){if(isCurrent(requestedDate,version))setMessage(error instanceof Error?error.message:"Không thể đọc Google Sheets.");}
+    finally{if(isCurrent(requestedDate,version))setBusy(false);}
   }
 
   const confirmedKeys=new Set(
@@ -167,7 +186,7 @@ export function InventoryCatinatShiftReadiness(){
   for(const blocker of preflight?.blockers||[]) {
     safetyReasons.set(blocker.code,(safetyReasons.get(blocker.code)||0)+1);
   }
-  const usable=Boolean(data&&confirmed&&data.source_hash===confirmed.source_hash);
+  const usable=Boolean(data&&confirmed&&data.business_date===businessDate&&confirmed.business_date===businessDate&&data.source_hash===confirmed.source_hash);
   const selectable=selected.length>0&&selected.length<=50&&staffChecked&&usable&&!busy;
 
   function toggle(sheet:string,cell:string){
@@ -186,17 +205,21 @@ export function InventoryCatinatShiftReadiness(){
     ))return;
     const cells=data.items.filter(item=>selected.includes(itemKey(item.sheet,item.cell)))
       .map(item=>({sheet:item.sheet,cell:item.cell}));
+    const requestedDate=businessDate;
+    const version=++requestVersion.current;
     setBusy(true);
     setMessage("");
     try{
       await catinatShiftApi.confirmCounts({
-        business_date:businessDate,expected_source_hash:data.source_hash,cells,
+        business_date:requestedDate,expected_source_hash:data.source_hash,cells,
       });
+      if(!isCurrent(requestedDate,version))return;
       setSelected([]);
       setStaffChecked(false);
-      await readCurrent();
-      setMessage("Đã lưu xác nhận kiểm đếm và người xác nhận. Ca tối CHƯA được chốt.");
+      if(await readCurrent(requestedDate,version))
+        setMessage("Đã lưu xác nhận kiểm đếm và người xác nhận. Ca tối CHƯA được chốt.");
     }catch(error){
+      if(!isCurrent(requestedDate,version))return;
       setData(null);
       setConfirmed(null);
       setPreflight(null);
@@ -210,7 +233,7 @@ export function InventoryCatinatShiftReadiness(){
         (error instanceof Error?error.message:"Không lưu được xác nhận.")+
         " Vui lòng tải lại và đối chiếu Google Sheets trước khi thử lại."
       );
-    }finally{setBusy(false);}
+    }finally{if(isCurrent(requestedDate,version))setBusy(false);}
   }
 
   async function requestCatalogMappingReview(){
@@ -223,19 +246,29 @@ export function InventoryCatinatShiftReadiness(){
       "Gửi bằng chứng ô Sheets này để quản lý xét duyệt? "+
       "Thao tác chỉ tạo yêu cầu xét duyệt, không áp dụng mapping, chỉnh tồn hoặc ghi Sheets."
     ))return;
+    const requestedDate=businessDate;
+    const version=++requestVersion.current;
     setBusy(true);
     setMessage("");
     try{
       // Reload authoritative source and catalog before asking for approval.
       // Matching the workbook fingerprint alone does not detect catalog changes.
-      const fresh=await catinatShiftApi.catalogMappingPreview(businessDate);
+      const fresh=await catinatShiftApi.catalogMappingPreview(requestedDate);
+      if(!isCurrent(requestedDate,version))return;
       const sourceRow=fresh.items.find(item=>
         item.sheet===mappingDraft.sheet&&item.cell===mappingDraft.cell);
       const currentLocation=fresh.locations.find(item=>item.sheet===mappingDraft.sheet);
       const oldLocation=catalog.locations.find(item=>item.sheet===mappingDraft.sheet);
-      if(fresh.source_hash!==catalog.source_hash ||
-         JSON.stringify(sourceRow)!==JSON.stringify(mappingDraft) ||
+      const sourceChanged=fresh.business_date!==requestedDate || fresh.source_hash!==catalog.source_hash;
+      if(sourceChanged || JSON.stringify(sourceRow)!==JSON.stringify(mappingDraft) ||
          JSON.stringify(currentLocation)!==JSON.stringify(oldLocation)){
+        if(sourceChanged){
+          setData(null);
+          setConfirmed(null);
+          setPreflight(null);
+          setSelected([]);
+          setStaffChecked(false);
+        }
         setCatalog(null);
     setCoverage(null);
     setConversions(null);
@@ -247,22 +280,24 @@ export function InventoryCatinatShiftReadiness(){
       if(!reviewKey.current)reviewKey.current=crypto.randomUUID();
       const proposal=buildCatinatMappingReviewProposal(fresh,mappingDraft);
       await catinatApprovalApi.create({
-        idempotency_key:reviewKey.current,business_date:businessDate,
+        idempotency_key:reviewKey.current,business_date:requestedDate,
         kind:"catalog_mapping",
         subject_ref:itemKey(mappingDraft.sheet,mappingDraft.cell),
         proposal,reason:mappingReason.trim(),
       });
+      if(!isCurrent(requestedDate,version))return;
       setMappingDraft(null);
       setMappingReason("");
       reviewKey.current=null;
       setMessage("Đã gửi quản lý yêu cầu xác minh. Danh mục và tồn kho chưa được thay đổi.");
     }catch(error){
+      if(!isCurrent(requestedDate,version))return;
       if(error instanceof InventoryApiError&&error.status===403){
         setMessage("Tài khoản cần quyền đề xuất kiểm kê (inventory.review hoặc inventory.control).");
       }else{
         setMessage(error instanceof Error?error.message:"Chưa gửi được yêu cầu xác minh.");
       }
-    }finally{setBusy(false);}
+    }finally{if(isCurrent(requestedDate,version))setBusy(false);}
   }
 
   return <section className="inventory-daily">
@@ -274,7 +309,7 @@ export function InventoryCatinatShiftReadiness(){
     </p>
     <div className="inventory-actions" style={{alignItems:"flex-end",flexWrap:"wrap"}}>
       <label htmlFor="catinat-shift-day">Ngày kinh doanh
-        <input id="catinat-shift-day" type="date" value={businessDate}
+        <input id="catinat-shift-day" type="date" value={businessDate} disabled={busy}
           onChange={event=>setBusinessDate(event.target.value)}/>
       </label>
       <button type="button" disabled={busy||!businessDate} onClick={()=>void load()}>
@@ -283,6 +318,11 @@ export function InventoryCatinatShiftReadiness(){
     </div>
     {message&&<p role="status" className="inventory-muted">{message}</p>}
     {data&&confirmed&&<>
+      {diagnosticWarnings.length>0&&<p role="status" className="inventory-warning">
+        Chưa tải được báo cáo {diagnosticWarnings.join("; ")}. Vẫn có thể xác nhận từng ô
+        đã kiểm đếm trên nguồn hiện tại; các điều kiện chốt ca chưa được xác minh.
+        Hãy tải lại để đối chiếu đầy đủ.
+      </p>}
       <p role="status" className="inventory-muted">
         Đã xác nhận {confirmed.confirmed_count}/{confirmed.required_count} ô tồn.
         Ca vẫn chưa được chốt; cần xử lý thêm {data.blockers.length} mục kiểm tra/cảnh báo.
@@ -499,7 +539,7 @@ export function InventoryCatinatShiftReadiness(){
               <tbody>{catalog.items.map(row=><tr key={itemKey(row.sheet,row.cell)}>
                 <td>{row.sheet}</td><td>{row.cell}</td><td>{row.material}</td><td>{row.unit||"Thiếu"}</td>
                 <td>{CATINAT_MAPPING_STATUS[row.status]||row.status}</td>
-                <td><button type="button" disabled={busy} onClick={()=>{
+                <td><button type="button" className="inventory-pipeline-action" disabled={busy} onClick={()=>{
                   setMappingDraft(row);setMappingReason("");reviewKey.current=null;
                 }}>Đề nghị xác minh</button></td>
               </tr>)}</tbody>

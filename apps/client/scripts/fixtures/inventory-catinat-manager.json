@@ -1,0 +1,208 @@
+{
+  "name": "inventory-catinat-manager",
+  "identity": {
+    "user_id": "qa-catinat-manager",
+    "actor_id": "qa-catinat-manager",
+    "active_tenant_id": "qa-tenant",
+    "available_tenants": [
+      {
+        "id": "qa-tenant",
+        "name": "QA Catinat",
+        "slug": "qa-catinat"
+      }
+    ],
+    "roles": [
+      "catinat_manager"
+    ],
+    "permissions": [
+      "assets.read",
+      "inventory.read",
+      "inventory.review",
+      "inventory.finalize"
+    ],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "QA Catinat Manager",
+    "email": "qa-catinat-manager@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-google-catinat-manager",
+      "name": "QA Catinat Manager",
+      "email": "qa-catinat-manager@example.test"
+    }
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/status",
+      "body": {
+        "enabled": true,
+        "configured": true,
+        "execution_mode": "v4_slots",
+        "operational_state": "healthy",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "current_local_date": "2026-10-21",
+        "working_business_date": "2026-10-21",
+        "working_spreadsheet_url": null,
+        "snapshot_time": "17:00",
+        "reconcile_time": "22:00",
+        "carry_forward_time": "09:00",
+        "next_snapshot_at": "2026-10-22T10:00:00Z",
+        "next_reconcile_at": "2026-10-21T15:00:00Z",
+        "next_carry_forward_at": "2026-10-22T02:00:00Z",
+        "last_snapshot": null,
+        "last_reconciliation": null,
+        "carry_forward": null,
+        "invariants": [],
+        "lifecycle": {
+          "business_date": "2026-10-21",
+          "morning_reset": {
+            "status": "failed",
+            "scheduled_time": "09:00",
+            "source_business_date": "2026-10-20",
+            "source_gemini_file_id": null,
+            "error_code": "qa_previous_count_unverified"
+          },
+          "afternoon_snapshot": {
+            "status": "completed",
+            "scheduled_time": "17:00",
+            "snapshot_file_id": "qa-snapshot",
+            "gemini_file_id": "qa-gemini"
+          },
+          "evening_reconcile": {
+            "status": "completed",
+            "scheduled_time": "22:00",
+            "verified": true,
+            "run_id": null,
+            "plan_hash": null,
+            "prompt_version": null,
+            "prompt_hash": null
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/lifecycle-history",
+      "body": {
+        "page": 1,
+        "page_size": 25,
+        "pages": 1,
+        "total": 0,
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/gemini/replay/jobs",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/approvals",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog/material-candidate-groups",
+      "body": {
+        "source_rows": 1,
+        "unique_names": 1,
+        "groups": [
+          {
+            "name": "SỮA ĐẶC QA",
+            "aliases": [
+              "SỮA ĐẶC QA"
+            ],
+            "source_row_count": 1,
+            "sheets": [
+              "KHO PHA CHẾ"
+            ],
+            "evidence_units": [
+              "lon"
+            ],
+            "status": "exact_name_and_evidence_unit_candidate",
+            "suggested_item_id": "qa-item-milk",
+            "suggested_item_name": "SỮA ĐẶC QA",
+            "candidate_item_ids": [
+              "qa-item-milk"
+            ],
+            "certified": false,
+            "source_rows": [
+              {
+                "candidate_id": "qa-candidate-milk",
+                "sheet": "KHO PHA CHẾ",
+                "row": 5,
+                "category": null,
+                "name": "SỮA ĐẶC QA",
+                "status": "pending",
+                "suggested_item_id": "qa-item-milk",
+                "suggested_canonical_name": "SỮA ĐẶC QA",
+                "confidence": 1,
+                "reasons": [],
+                "name_cell": "B5",
+                "unit_evidence": [
+                  {
+                    "value": "lon",
+                    "header": "ĐVT",
+                    "value_cell": "C5",
+                    "header_cell": "C4",
+                    "evidence_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                  }
+                ]
+              }
+            ],
+            "approval_groups": [
+              {
+                "candidate_id": "qa-candidate-milk",
+                "candidate_ids": [
+                  "qa-candidate-milk"
+                ],
+                "expected_count": 1,
+                "sheet": "KHO PHA CHẾ",
+                "category": null,
+                "name": "SỮA ĐẶC QA",
+                "item_id": "qa-item-milk",
+                "item_name": "SỮA ĐẶC QA",
+                "item_units": [
+                  "lon"
+                ],
+                "can_bulk_approve": true,
+                "blocker": null,
+                "evidence_cells": [
+                  "C5"
+                ],
+                "evidence_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+              }
+            ]
+          }
+        ],
+        "can_approve_candidates": true,
+        "automatic_approvals": 0,
+        "inventory_writes": 0,
+        "sheet_writes": 0
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/inventory/materials/candidates/bulk-approve",
+      "body": {
+        "status": "approved",
+        "approved_groups": 1,
+        "approved_candidates": 1,
+        "inventory_balance_writes": 0,
+        "google_sheet_writes": 0
+      }
+    }
+  ]
+}

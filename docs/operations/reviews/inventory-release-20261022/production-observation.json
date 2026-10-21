@@ -1,0 +1,47 @@
+{
+  "observed_at_utc": "2026-10-21T23:19:38.584726+00:00",
+  "url": "https://creative-assets.ddns.net",
+  "read_only": true,
+  "results": [
+    {
+      "path": "/version",
+      "http_status": 200,
+      "data": {
+        "version": "0.4.0",
+        "commit": "ef1e85b996426d9f068cbed0a4bc7cd2a2a8bb14"
+      },
+      "sha256": "40ba620fa8d0b99314f5abb047156f4b40eaffd0c9853ac70049ea9f9301b9c2"
+    },
+    {
+      "path": "/build-info.json",
+      "http_status": 200,
+      "data": {
+        "build_commit": "50ee0b355fb8bf6a96c4e1c19d966469f7791743",
+        "build_utc_timestamp": "2026-10-21T15:25:32.000Z",
+        "frontend_version": "0.1.0"
+      },
+      "sha256": "9ce3d095c3747f2c0d2e0c676f96ea41db180a0612321aaec36e80bf22f1d691"
+    },
+    {
+      "path": "/live",
+      "http_status": 200,
+      "data": {
+        "status": "ok"
+      },
+      "sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288"
+    },
+    {
+      "path": "/ready",
+      "http_status": 200,
+      "data": {
+        "status": "ready",
+        "dependencies": {
+          "postgresql": "available",
+          "elasticsearch": "available"
+        }
+      },
+      "sha256": "499b6ca2d352367bd984b4e8c9b3b08322024cf1c14af23193a63121864f9131"
+    }
+  ],
+  "limitation": "Public health/version endpoints do not prove immutable release marker or live Alembic head."
+}

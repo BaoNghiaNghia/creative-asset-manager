@@ -59,7 +59,9 @@ class CarryForwardReviewRequired(CarryForwardError):
         self.code = resolved
 
 
-class CarryForwardStaleEvidence(CarryForwardError):
+class CarryForwardStaleEvidence(CarryForwardReviewRequired):
+    """A source or readback conflict must pause for a fresh human review."""
+
     code = "stale_evidence"
 
     def __init__(self, message: str | None = None):
@@ -191,6 +193,42 @@ class InventorySharedCarryForwardService:
                 str(settings.daily_working_spreadsheet_file_id), str(snapshot.gemini_file_id),
                 str(snapshot.id), connection_id, previous_business_date,
             )
+
+    def _assert_legacy_write_allowed(
+        self, tenant_id: str, *, source_meta: dict[str, Any] | None = None,
+        target_meta: dict[str, Any] | None = None,
+    ) -> None:
+        """Keep Q47 physical stock out of the legacy Gemini-only writer.
+
+        The signed-close, expiry/transfer and concurrent-write gates are not
+        integrated into this writer. A verified Gemini copy cannot replace
+        them. Recognize any exact Q47 area in the configured or observed
+        workbook identities, including partial layouts; never infer identity
+        from catalog counts or a hard-coded tenant.
+        """
+        from app.modules.inventory.daily_sheet.catinat_shift_readiness import WAREHOUSES
+
+        with self.session_factory() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == tenant_id,
+            ))
+            config = settings.daily_sheet_config_json if settings else None
+        source = config.get("source") if isinstance(config, dict) else None
+        names: set[str] = set()
+        if isinstance(source, dict):
+            allowed = source.get("allowed_sheets")
+            if isinstance(allowed, list):
+                names.update(name for name in allowed if isinstance(name, str))
+            if isinstance(source.get("sheet"), str):
+                names.add(source["sheet"])
+        for metadata in (source_meta, target_meta):
+            if metadata:
+                names.update(
+                    str((item.get("properties") or {}).get("title") or "")
+                    for item in metadata.get("sheets") or []
+                )
+        if names.intersection(WAREHOUSES):
+            raise CarryForwardReviewRequired("catinat_signed_close_required")
 
     def _operation(self, tenant_id: str, target_business_date: date, previous_business_date: date) -> InventoryDailyCarryForwardModel:
         with self.session_factory() as session:
@@ -699,19 +737,22 @@ class InventorySharedCarryForwardService:
             expected_target_id = operation.shared_target_file_id
             operation_id = operation.id
 
-        shared_id, source_id, _snapshot_id, connection_id, _previous_date = self._context(
-            tenant_id, target_business_date
-        )
-        if source_id != expected_source_id or shared_id != expected_target_id:
-            raise CarryForwardStaleEvidence("stale_evidence")
-
         try:
+            shared_id, source_id, _snapshot_id, connection_id, _previous_date = self._context(
+                tenant_id, target_business_date
+            )
+            if source_id != expected_source_id or shared_id != expected_target_id:
+                raise CarryForwardStaleEvidence("stale_evidence")
+            self._assert_legacy_write_allowed(tenant_id)
             with self.client_factory(self._token(connection_id)) as google:
                 source_meta = google.spreadsheet_metadata(source_id)
                 target_drive = google.validate_native_spreadsheet(shared_id)
                 if (target_drive.get("capabilities") or {}).get("canEdit") is False:
                     raise CarryForwardError("shared_workbook_not_editable")
                 target_meta = google.spreadsheet_metadata(shared_id)
+                self._assert_legacy_write_allowed(
+                    tenant_id, source_meta=source_meta, target_meta=target_meta,
+                )
                 validated = self._validate_plan(
                     tenant_id,
                     CarryForwardPlan(rows, [], None, 3),
@@ -836,6 +877,7 @@ class InventorySharedCarryForwardService:
             )
             if resolved_previous_date != previous_date:
                 raise CarryForwardError("carry_forward_business_date_mismatch")
+            self._assert_legacy_write_allowed(tenant_id)
             with self.client_factory(self._token(connection_id)) as google:
                 google.validate_native_spreadsheet(source_id)
                 source_meta = google.spreadsheet_metadata(source_id)
@@ -843,6 +885,9 @@ class InventorySharedCarryForwardService:
                 if (target_drive.get("capabilities") or {}).get("canEdit") is False:
                     raise CarryForwardError("shared_workbook_not_editable")
                 target_meta = google.spreadsheet_metadata(shared_id)
+                self._assert_legacy_write_allowed(
+                    tenant_id, source_meta=source_meta, target_meta=target_meta,
+                )
                 persisted = operation.plan_json if isinstance(operation.plan_json, dict) else None
                 if persisted and operation.status in {"applying", "verifying", "retryable_failure"}:
                     if persisted.get("contract_version") != 3:

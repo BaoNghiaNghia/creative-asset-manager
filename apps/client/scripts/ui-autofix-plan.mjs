@@ -18,9 +18,11 @@ const SUPPORTED_STATES = [
   "candidate-filter-focus",
   "kpi-hover",
   "filter-focus",
-  "material-hover",
-  "material-search-focus",
-  "candidate-hover",
+  "overview-ready",
+  "status-hover",
+  "status-refresh-focus",
+  "status-refresh",
+  "human-attestation-collapsed",
   "member-row-hover",
   "member-search-focus",
   "roles-tab",
@@ -123,10 +125,11 @@ export function classifyUiTask(task, changedFiles = []) {
     if (hoverLike || includesAny(text, ["kpi", "card"])) states.push("kpi-hover");
     if (searchLike || focusLike) states.push("filter-focus");
   } else if (scope === "inventory") {
-    states.push("default");
-    if (hoverLike || includesAny(text, ["material", "vật tư", "card"])) states.push("material-hover");
-    if (searchLike || focusLike) states.push("material-search-focus");
-    if (hoverLike || includesAny(text, ["candidate", "review", "gợi ý"])) states.push("candidate-hover");
+    states.push("overview-ready");
+    if (hoverLike || includesAny(text, ["material", "vật tư", "card"])) states.push("status-hover");
+    if (searchLike || focusLike) states.push("status-refresh-focus");
+    if (includesAny(text, ["refresh", "status", "state", "date", "ngày"])) states.push("status-refresh");
+    if (includesAny(text, ["candidate", "review", "gợi ý", "approval", "attestation", "kiểm đếm"])) states.push("human-attestation-collapsed");
   } else if (scope === "access-management") {
     states.push("default");
     if (hoverLike || includesAny(text, ["member", "thành viên", "row"])) states.push("member-row-hover");

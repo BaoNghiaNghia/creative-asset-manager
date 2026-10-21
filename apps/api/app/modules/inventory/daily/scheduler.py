@@ -178,15 +178,19 @@ class InventoryDailyScheduler:
 
     @staticmethod
     def _retryable_v4_error(error: Exception) -> bool:
+        code = str(getattr(error, "code", None) or error).strip().lower()
+        metadata = inventory_error_metadata(code)
+        # Evidence conflicts stay review-blocked even if a generic wrapper
+        # marks itself retryable or happens to be a timeout exception.
+        if metadata["category"] == "REVIEW":
+            return False
         # A Gemini provider error carries the authoritative retryability bit.
         # A 4xx rejection can share the generic inventory_gemini_request_failed
         # string with a transient 5xx; never override explicit non-retryable.
         provider_retryable = getattr(error, "retryable", None)
         if isinstance(provider_retryable, bool):
             return provider_retryable
-        code = str(error).strip().lower()
         name = type(error).__name__.lower()
-        metadata = inventory_error_metadata(code)
         return bool(metadata["retryable"]) or any(
             value in name for value in ("timeout", "connection", "transport")
         )
@@ -237,6 +241,10 @@ class InventoryDailyScheduler:
                     if lease_expires_at is not None and lease_expires_at > now:
                         continue
                 if job.status == "failed":
+                    if inventory_error_metadata(job.last_error_code)["category"] == "REVIEW":
+                        # An older verified snapshot cannot resolve a newer
+                        # source conflict or count as a fresh human review.
+                        continue
                     # Preserve true terminal failures, but self-heal retryable
                     # rows created with an older, smaller bounded-attempt budget.
                     effective_max_attempts = max(job.max_attempts, self._slot_attempt_budget(slot_kind))
@@ -314,6 +322,24 @@ class InventoryDailyScheduler:
                 query = query.with_for_update()
             job = session.scalar(query)
             if job is None:
+                return None
+            if job.status != "completed" and (
+                inventory_error_metadata(job.last_error_code)["category"] == "REVIEW"
+            ):
+                # A conflict must not be cleared by an old verified snapshot
+                # or reclaimed after a retry delay. Respect a live worker's
+                # lease; otherwise preserve the cause as a terminal review.
+                lease_expires_at = job.lease_expires_at
+                if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+                    lease_expires_at = lease_expires_at.replace(tzinfo=timezone.utc)
+                if job.status == "processing" and lease_expires_at is not None and lease_expires_at > now:
+                    return None
+                job.status = "failed"
+                job.completed_at = job.completed_at or now
+                job.claimed_by = None
+                job.claimed_at = None
+                job.lease_expires_at = None
+                job.updated_at = now
                 return None
             durable_completed_at = self._durable_v4_slot_completed_at(
                 session,

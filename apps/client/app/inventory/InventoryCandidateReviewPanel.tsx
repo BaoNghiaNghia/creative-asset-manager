@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  catinatMaterialGroupsApi,
+  catinatMaterialGroupsApi, InventoryApiError,
   type CatinatCandidateApprovalGroup,
   type CatinatMaterialGroupsResponse,
 } from "./api";
@@ -34,6 +34,8 @@ export function InventoryCandidateReviewPanel() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
+    setSelected([]);
+    setReport(null);
     try {
       setReport(await catinatMaterialGroupsApi.list());
     } catch (cause) {
@@ -50,9 +52,10 @@ export function InventoryCandidateReviewPanel() {
     [report, filter],
   );
   const approvalGroups = useMemo(
-    () => (report?.groups || []).flatMap(item => item.approval_groups || []),
-    [report],
+    () => groups.flatMap(item => item.approval_groups || []),
+    [groups],
   );
+  const canApprove = report?.can_approve_candidates === true;
   const actionable = useMemo(
     () => approvalGroups.filter(item => item.can_bulk_approve),
     [approvalGroups],
@@ -66,7 +69,7 @@ export function InventoryCandidateReviewPanel() {
   ).length || 0;
 
   const approveSelected = useCallback(async () => {
-    if (!selectedGroups.length || approving) return;
+    if (!canApprove || !selectedGroups.length || selectedGroups.length > 50 || approving || loading) return;
     setApproving(true);
     setError("");
     setNotice("");
@@ -77,6 +80,7 @@ export function InventoryCandidateReviewPanel() {
           item_id: item.item_id as string,
           expected_count: item.expected_count,
           expected_candidate_ids: item.candidate_ids,
+          expected_evidence_hash: item.evidence_hash,
         })),
       });
       setSelected([]);
@@ -85,11 +89,20 @@ export function InventoryCandidateReviewPanel() {
       );
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể duyệt nhóm nguyên liệu");
+      setSelected([]);
+      if (cause instanceof InventoryApiError && cause.status === 403) {
+        setReport(current => current ? { ...current, can_approve_candidates: false } : null);
+        setError("Tài khoản cần quyền quản lý nguyên liệu để phê duyệt. Bạn vẫn có thể xem bằng chứng.");
+      } else if (cause instanceof InventoryApiError && ["candidate_group_evidence_changed", "candidate_group_changed"].includes(cause.code || "")) {
+        setReport(null);
+        setError("Bằng chứng nguyên liệu đã thay đổi. Hãy làm mới, kiểm tra và chọn lại nhóm trước khi duyệt.");
+      } else {
+        setError(cause instanceof Error ? cause.message : "Không thể duyệt nhóm nguyên liệu");
+      }
     } finally {
       setApproving(false);
     }
-  }, [selectedGroups, approving, refresh]);
+  }, [canApprove, selectedGroups, approving, loading, refresh]);
 
   return <section className="inventory-pipeline">
     <details>
@@ -97,7 +110,7 @@ export function InventoryCandidateReviewPanel() {
       <p>Đề xuất không đồng nghĩa với chứng nhận. Chỉ nhóm có tên chính xác, đơn vị có bằng chứng theo ô Sheets và không có xung đột mới được chọn duyệt. Không duyệt quy đổi bao bì, số tồn hoặc ký ca tại đây.</p>
       <div className="inventory-pipeline-header-actions">
         <label>Hiển thị{" "}
-          <select value={filter} onChange={event => setFilter(event.target.value)}>
+          <select value={filter} onChange={event => { setFilter(event.target.value); setSelected([]); }}>
             <option value="all">Tất cả</option>
             <option value="exact_name_and_evidence_unit_candidate">Tên và đơn vị khớp</option>
             <option value="material_review_required">Cần xác nhận vật tư</option>
@@ -111,20 +124,22 @@ export function InventoryCandidateReviewPanel() {
       </div>
       {error ? <p className="inventory-error" role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
+      {report && !canApprove ? <p role="status">Bạn có thể xem và đối chiếu bằng chứng. Chỉ quản lý có quyền phê duyệt nguyên liệu mới được duyệt các nhóm.</p> : null}
       {report ? <p>{readyCount} tên khớp cả tên và đơn vị; {actionable.length} nhóm có đủ bằng chứng để quản lý duyệt. {report.unique_names - readyCount} tên cần xác minh thêm.</p> : null}
       <div className="inventory-pipeline-header-actions">
-        <button type="button" className="secondary" disabled={!actionable.length || approving}
-          onClick={() => setSelected(actionable.map(item => item.candidate_id))}>
-          Chọn tất cả nhóm đủ bằng chứng
+        <button type="button" className="secondary" disabled={!canApprove || !actionable.length || approving || loading}
+          onClick={() => setSelected(actionable.slice(0,50).map(item => item.candidate_id))}>
+          {actionable.length > 50 ? "Chọn 50 nhóm đủ bằng chứng" : "Chọn tất cả nhóm đủ bằng chứng"}
         </button>
-        <button type="button" className="secondary" disabled={!selected.length || approving}
+        <button type="button" className="secondary" disabled={!canApprove || !selected.length || approving || loading}
           onClick={() => setSelected([])}>
           Bỏ chọn
         </button>
-        <button type="button" disabled={!selectedGroups.length || approving} onClick={() => void approveSelected()}>
+        <button type="button" disabled={!canApprove || !selectedGroups.length || approving || loading} onClick={() => void approveSelected()}>
           {approving ? "Đang kiểm tra và duyệt…" : `Duyệt nhóm đã chọn (${selectedGroups.length})`}
         </button>
       </div>
+      {canApprove && actionable.length > 50 ? <p>Mỗi lần duyệt tối đa 50 nhóm đang hiển thị. Sau khi duyệt, hãy làm mới và kiểm tra các nhóm còn lại.</p> : null}
       <div className="inventory-pipeline-scroll">
         <table>
           <thead><tr><th>NGUYÊN LIỆU / BẰNG CHỨNG</th><th>DÒNG NGUỒN</th><th>ĐƠN VỊ ĐƯỢC GHI NHẬN</th><th>TRẠNG THÁI / DUYỆT NHÓM</th></tr></thead>
@@ -154,7 +169,7 @@ export function InventoryCandidateReviewPanel() {
                   <label>
                     <input type="checkbox"
                       checked={selected.includes(approval.candidate_id)}
-                      disabled={!approval.can_bulk_approve || approving}
+                      disabled={!canApprove || !approval.can_bulk_approve || approving || loading || (selected.length >= 50 && !selected.includes(approval.candidate_id))}
                       onChange={event => {
                         const checked = event.currentTarget.checked;
                         setSelected(current => checked
