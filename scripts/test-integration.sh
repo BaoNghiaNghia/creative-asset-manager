@@ -34,9 +34,16 @@ if [[ ! -x "$PYTHON_BIN" ]]; then PYTHON_BIN=python; fi
 
 heads="$($PYTHON_BIN -m alembic heads | grep -c '(head)')"
 test "$heads" -eq 1
-$PYTHON_BIN -m alembic upgrade head 2>&1 | tee "$ARTIFACT_DIR/migration-upgrade.log"
-$PYTHON_BIN -m alembic downgrade 0012_ai_batch_processing 2>&1 | tee "$ARTIFACT_DIR/migration-downgrade.log"
-$PYTHON_BIN -m alembic upgrade head 2>&1 | tee -a "$ARTIFACT_DIR/migration-upgrade.log"
+"$PYTHON_BIN" -m alembic upgrade head 2>&1 | tee "$ARTIFACT_DIR/migration-upgrade.log"
+"$PYTHON_BIN" -m alembic current | grep -F '0170_branding_dna_browser_observation_reviews'
+
+# Match CI: rehearse only the latest protected audit migration on this
+# disposable cam_integration database, preserving all earlier audit history.
+CAM_ALLOW_BROWSER_REVIEW_DROP_FOR_TEST=1 "$PYTHON_BIN" -m alembic downgrade 0169_branding_dna_browser_observations 2>&1 | tee "$ARTIFACT_DIR/migration-downgrade.log"
+"$PYTHON_BIN" -m alembic current | grep -F '0169_branding_dna_browser_observations'
+
+"$PYTHON_BIN" -m alembic upgrade head 2>&1 | tee -a "$ARTIFACT_DIR/migration-upgrade.log"
+"$PYTHON_BIN" -m alembic current | grep -F '0170_branding_dna_browser_observation_reviews'
 
 timeout 15m "$PYTHON_BIN" -m unittest \
   tests.integration.test_postgresql \
