@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { InventoryDailyTab } from "../ai-operations/InventoryDailyTab";
+import { InventoryDailyPipeline } from "./InventoryDailyPipeline";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 
 /** The only Inventory surface: preserve old bookmarks by collapsing to /inventory. */
@@ -13,6 +14,7 @@ export function InventoryOverviewPage() {
     <WorkspacePageHeader route="inventory" actions={<WorkspaceBackToAssets />} />
     <section className="inventory-workspace-content" aria-label="Inventory Daily">
       <InventoryDailyTab />
+      <InventoryDailyPipeline embedded />
     </section>
   </main>;
 }
