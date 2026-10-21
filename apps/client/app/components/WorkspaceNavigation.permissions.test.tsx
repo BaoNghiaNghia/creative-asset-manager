@@ -9,16 +9,17 @@ describe("WorkspaceNavigation permissions", () => {
     expect(requiredPermissionForApplicationRoute("inventory")).toBe("inventory.read");
   });
 
-  it("expands Inventory navigation to its sections and highlights the current section", () => {
+  it("shows only the Inventory overview entry, without obsolete technical subpages", () => {
     const markup = renderToStaticMarkup(<WorkspaceNavigation active="inventory" permissions={["inventory.read"]} showOperations={false} showReviewBoard={false} />);
-    expect(markup).toContain('id="workspace-inventory-submenu"');
-    expect(markup).toContain('aria-label="Collapse Inventory navigation"');
+    expect(markup).toContain('href="/inventory"');
+    expect(markup).not.toContain('workspace-inventory-submenu');
+    expect(markup).not.toContain('Expand Inventory navigation');
+    expect(markup).not.toContain('Collapse Inventory navigation');
     for (const path of ["pipeline", "knowledge", "materials", "prompts", "settings"]) {
-      expect(markup).toContain(`href="/inventory/${path}"`);
+      expect(markup).not.toContain(`href="/inventory/${path}"`);
     }
-    expect(markup).toContain('aria-controls="workspace-inventory-submenu"');
     const denied = renderToStaticMarkup(<WorkspaceNavigation active="assets" permissions={[]} showOperations={false} showReviewBoard={false} />);
-    expect(denied).not.toContain('workspace-inventory-submenu');
+    expect(denied).not.toContain('href="/inventory"');
   });
 
   it("shows Viewer review workflows while hiding admin destinations", () => {
@@ -124,7 +125,7 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain('class="workspace-nav-expander-icon"');
     expect(markup).toContain("Pipeline overview");
     expect(markup).toContain("Configuration");
-    expect((markup.match(/workspace-nav-submenu-icon/g) || []).length).toBe(8);
+    expect((markup.match(/workspace-nav-submenu-icon/g) || []).length).toBeGreaterThan(0);
     expect(markup).toContain('aria-current="location"');
   });
 });

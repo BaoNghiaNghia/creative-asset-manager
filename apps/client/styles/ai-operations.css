@@ -2575,3 +2575,27 @@
 /* Prevent long Save prompt labels from pushing compact configuration cards outside the viewport. */
 .ops-config-prompt .ops-prompt-footer{grid-template-columns:minmax(0,1fr)}
 .ops-config-prompt .ops-prompt-footer .primary{width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere}
+
+/* Inventory is an automatic, overview-only workspace; advanced human attestations stay collapsed. */
+.ops-inventory-source-link{display:inline-flex;align-items:center;gap:6px;min-height:34px;
+  padding:7px 10px;border:1px solid #d6e0ed;border-radius:8px;
+  color:#3159b8;text-decoration:none;font-size:12px;font-weight:700;background:#fff}
+.ops-inventory-source-link:hover{background:#f4f8ff}
+.ops-inventory-source-link svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8}
+.ops-inventory-automation-note{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;
+  padding:14px 18px;margin:14px 0;border:1px solid #dce7f2;border-radius:12px;background:#f7fafe}
+.ops-inventory-automation-note strong{font-size:13px;color:#1e4677}
+.ops-inventory-automation-note span{font-size:12px;color:#53647b}
+.ops-inventory-automation-note small{width:100%;color:#ad6034}
+.ops-inventory-human-actions{margin-top:14px;background:#fff;border:1px solid #dde5ef;
+  border-radius:12px;padding:14px 18px;font-size:13px}
+.ops-inventory-human-actions>summary{font-weight:750;color:#2b496e;cursor:pointer;list-style-position:inside}
+.ops-inventory-human-actions>p{color:#64748b;line-height:1.5;max-width:850px}
+.ops-inventory-human-buttons{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}
+.ops-inventory-human-buttons button{padding:9px 12px;border:1px solid #cbd9ed;border-radius:8px;
+  color:#3159b8;background:#f7faff;font-weight:650;cursor:pointer}
+.ops-inventory-human-buttons button:hover{background:#e9f1ff}
+.ops-inventory-blockers details{margin-top:8px}
+.ops-inventory-blockers summary{cursor:pointer;font-weight:650}
+@media(max-width:700px){.ops-inventory-human-buttons button{width:100%}
+  .ops-inventory-heading-actions{justify-content:flex-start}}

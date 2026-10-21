@@ -6,15 +6,15 @@ import App from "./App";
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
-import { InventoryNavIcon, WorkspaceNavigation } from "./components/WorkspaceNavigation";
-import { WorkspacePageHeader, WorkspaceBackToAssets } from "./components/WorkspacePageHeader";
+import { WorkspaceNavigation } from "./components/WorkspaceNavigation";
+
 import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
 
 const AccessManagementPage = lazy(() => import("./access-management/AccessManagementPage").then(module => ({ default: module.AccessManagementPage })));
 const AiOperationsPage = lazy(() => import("./ai-operations/AiOperationsPage").then(module => ({ default: module.AiOperationsPage })));
 const JobQueuePage = lazy(() => import("./job-queue/JobQueuePage").then(module => ({ default: module.JobQueuePage })));
 const BrandingDnaPage = lazy(() => import("./branding-dna/BrandingDnaPage").then(module => ({ default: module.BrandingDnaPage })));
-const InventoryApp = lazy(() => import("./inventory/InventoryApp").then(module => ({ default: module.InventoryApp })));
+
 const InventoryOverviewPage = lazy(() => import("./inventory/InventoryOverviewPage").then(module => ({ default: module.InventoryOverviewPage })));
 const PrivacyPolicyPage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import("./legal/LegalPages").then(module => ({ default: module.TermsOfServicePage })));
@@ -102,25 +102,12 @@ export function AppRoute() {
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />
     : route === "branding-dna" ? <BrandingDnaPage />
-    : route === "inventory" ? (legacyInventoryTab || window.location.pathname.replace(/\/$/, "") === "/inventory"
-      ? <InventoryOverviewPage /> : <InventoryApp />)
+    : route === "inventory" ? <InventoryOverviewPage />
     : route === "privacy" ? <PrivacyPolicyPage />
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{(route === "inventory" || route === "branding-dna") ? <aside className="inventory-desktop-sidebar" aria-label={route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={route === "branding-dna" ? "branding-dna" : "inventory"} /></aside> : null}<div className={route === "inventory" || route === "branding-dna" ? "inventory-route-main" : "app-route-content"}>{route === "inventory" ? <>
-    <WorkspacePageHeader route="inventory" className="inventory-global-header" actions={<WorkspaceBackToAssets />} />
-    <nav className="inventory-global-tabs" aria-label="Inventory sections">
-      {([
-        ["/inventory", "Tổng quan", "pipeline"],
-        ["/inventory/pipeline", "Tiến trình", "pipeline"],
-        ["/inventory/knowledge", "Kiến thức", "knowledge"],
-        ["/inventory/materials", "Nguyên vật liệu", "materials"],
-        ["/inventory/prompts", "Gemini Prompts", "prompts"],
-        ["/inventory/settings", "Cấu hình", "settings"],
-      ] as const).map(([href,label,icon]) => <a key={href} href={href} aria-current={window.location.pathname.replace(/\/$/, "") === href ? "page" : undefined}><InventoryNavIcon name={icon} />{label}</a>)}
-    </nav>
-  </> : null}<Suspense fallback={<CenteredLoadingState
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{(route === "inventory" || route === "branding-dna") ? <aside className="inventory-desktop-sidebar" aria-label={route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={route === "branding-dna" ? "branding-dna" : "inventory"} /></aside> : null}<div className={route === "inventory" || route === "branding-dna" ? "inventory-route-main" : "app-route-content"}><Suspense fallback={<CenteredLoadingState
     kind="application"
     title="Loading application…"
     detail="Preparing the workspace and interface."
