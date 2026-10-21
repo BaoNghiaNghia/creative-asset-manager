@@ -99,11 +99,29 @@ test("page blockers halt scan without CAPTCHA solving",()=>{
  assert.equal(isBlockingPage("Handmade Caps","Shop all our caps"),null);
 });
 
-function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLinks=[productUrl]}={}){
- let closed=false,routed=null,visitCount=0,clickCount=0,backCount=0;
- const current={url:shopUrl};
+function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLinks=[productUrl],popupLinks=false,popupRedirect=false}={}){
+ let closed=false,routed=null,visitCount=0,clickCount=0,backCount=0,popupsClosed=0;
+ const current={url:shopUrl}, popupListeners=new Set();
+ const makePopup=(clicked)=>({
+  url:()=>popupRedirect ? "https://www.amazon.com/signin" : clicked,
+  waitForLoadState:async()=>{},
+  title:async()=>challenge ? "Robot Check" : "Product details",
+  close:async()=>{popupsClosed++},
+  locator(selector){
+   if(selector==="body")return {innerText:async()=>challenge?"Verify you are human":"Product details"};
+   if(selector==="h1")return {first(){return {textContent:async()=> "Five Panel Hat"}}};
+   if(selector.startsWith("img["))return {
+    count:async()=>1,
+    nth(){return {isVisible:async()=>true,getAttribute:async()=>
+      clicked.includes("etsy.com")?"https://i.etsystatic.com/img.jpg":"https://m.media-amazon.com/images/I/pic.jpg"}},
+   };
+   return {count:async()=>0};
+  },
+ });
  const page={
   setDefaultTimeout(){},
+  on(event,handler){assert.equal(event,"popup");popupListeners.add(handler)},
+  off(event,handler){assert.equal(event,"popup");popupListeners.delete(handler)},
   async goto(url){
     visitCount++;
     current.url=redirect && visitCount===2 ? shopUrl:url;
@@ -118,7 +136,13 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
       count:async()=>current.url===shopUrl?uiLinks.length:0,
       nth(i){return {
         isVisible:async()=>true,getAttribute:async()=>uiLinks[i],
-        click:async()=>{clickCount++;current.url=uiLinks[i]},
+        click:async()=>{
+          clickCount++;
+          if(popupLinks){
+            const newPage=makePopup(uiLinks[i]);
+            for(const callback of popupListeners)callback(newPage);
+          }else current.url=uiLinks[i];
+        },
       }},
     };
   },
@@ -133,9 +157,9 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
     };
     if(selector.startsWith("img["))return {
       count:async()=>1,
-      nth(){return {isVisible:async()=>true,getAttribute:async()=>(
-        current.url.includes("etsy.com") ? "https://i.etsystatic.com/img.jpg":"https://m.media-amazon.com/images/I/pic.jpg"
-      )}},
+      nth(){return {isVisible:async()=>true,getAttribute:async()=>
+        (current.url.includes("etsy.com") ? "https://i.etsystatic.com/img.jpg":"https://m.media-amazon.com/images/I/pic.jpg")
+      }},
     };
     return {count:async()=>0};
   },
@@ -156,6 +180,7 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
   getVisits:()=>visitCount,
   getClicks:()=>clickCount,
   getBacks:()=>backCount,
+  getPopupsClosed:()=>popupsClosed,
  };
 }
 
@@ -229,6 +254,40 @@ test("visible UI mode uses accessible link clicks and returns to shop for next p
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
 
+test("visible UI inspects products opened in new tabs and closes each popup",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-popup-"));
+ try{
+  const second="https://www.amazon.com/dp/B012345679";
+  const browser=fakeBrowser(AMAZON,AMAZON_LINK,{uiLinks:[AMAZON_LINK,second],popupLinks:true});
+  const result=await runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"popup-profile"),interactionMode:"visible_click",maxProducts:2,
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}});
+  assert.equal(result.status,"preview_completed");
+  assert.deepEqual(result.items.map(item=>item.listing_key),["amazon:B012345678","amazon:B012345679"]);
+  assert.equal(browser.getVisits(),1,"never navigate directly to product");
+  assert.equal(browser.getClicks(),2);
+  assert.equal(browser.getBacks(),0,"parent shop never navigated away");
+  assert.equal(browser.getPopupsClosed(),2,"each product popup must close");
+  assert.equal(browser.getClosed(),true);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
+test("visible UI rejects popup redirect to login and cleans up popup and browser",async()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bdna-popup-deny-"));
+ try{
+  const browser=fakeBrowser(AMAZON,AMAZON_LINK,{popupLinks:true,popupRedirect:true});
+  await assert.rejects(()=>runBrowserPilot({
+    shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
+    profileDir:join(dir,"popup-profile"),interactionMode:"visible_click",maxProducts:1,
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}}),
+  /non_product_link/);
+  assert.equal(browser.getClicks(),1);
+  assert.equal(browser.getPopupsClosed(),1);
+  assert.equal(browser.getClosed(),true);
+ }finally{rmSync(dir,{recursive:true,force:true})}
+});
+
 test("visible UI rate limits shop entry, product clicks and return navigation",async()=>{
  const dir=mkdtempSync(join(tmpdir(),"bdna-paced-click-"));
  try{
@@ -242,7 +301,7 @@ test("visible UI rate limits shop entry, product clicks and return navigation",a
   },{launchPersistentContext:browser.launchPersistentContext,
       wait:async ms=>{waits.push(ms)},random:span=>span-1});
   assert.equal(report.status,"preview_completed");
-  assert.deepEqual(waits,[18000,18000,18000,18000]);
+  assert.deepEqual(waits,[18000,18000,4000,18000,18000,4000]);
   assert.equal(browser.getClicks(),2);
   assert.equal(browser.getBacks(),1);
  }finally{rmSync(dir,{recursive:true,force:true})}

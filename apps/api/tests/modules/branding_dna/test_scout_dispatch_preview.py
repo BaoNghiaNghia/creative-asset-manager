@@ -96,7 +96,7 @@ def test_preview_lists_blockers_without_dispatching_or_leaking_shops(db):
     assert item["status"] == "blocked"
     assert "scan_task_dispatch_not_deployed" in item["blockers"]
     assert "marketplace_authorization_not_verified" in item["blockers"]
-    assert "shop_access_not_declared" in item["blockers"]
+    assert "shop_access_not_declared" not in item["blockers"]
     assert "storefront_url" not in item
     assert "tenant_id" not in item
     assert not any("etsy" in str(x).lower() for x in result["items"])
@@ -112,7 +112,7 @@ def test_preview_lists_blockers_without_dispatching_or_leaking_shops(db):
     assert declared["rights_verified"] is False
     pending = dispatch_preview(
         agent_a.id, Response(), authorization="Bearer " + TOKEN, session=db)
-    assert "shop_access_pending_verification" in pending["items"][0]["blockers"]
+    assert "shop_access_pending_verification" not in pending["items"][0]["blockers"]
     assert "shop_access_not_declared" not in pending["items"][0]["blockers"]
     assert "declaration_relationship" not in pending["items"][0]
     assert "evidence_reference" not in str(pending)

@@ -90,7 +90,10 @@ test("symlinked checkpoint folder is refused",()=>{
  const dir=mkdtempSync(join(tmpdir(),"bdna-progress-"));
  const external=mkdtempSync(join(tmpdir(),"bdna-external-"));
  try{
-  symlinkSync(external,join(dir,".bdna-local-progress"),"dir");
+  // Windows junctions do not require the Developer Mode/admin privilege
+  // needed for directory symlinks, but are still reparse points that must
+  // be rejected. Keep the exact symlink path test on other platforms.
+  symlinkSync(external,join(dir,".bdna-local-progress"),process.platform==="win32"?"junction":"dir");
   assert.throws(()=>openShopProgress(dir,shop),/progress_directory_untrusted/);
  }finally{rmSync(dir,{recursive:true,force:true});rmSync(external,{recursive:true,force:true})}
 });

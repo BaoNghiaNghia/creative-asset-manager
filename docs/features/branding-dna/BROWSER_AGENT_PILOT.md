@@ -1,5 +1,79 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — Bounded visible storefront scrolling v0.2.10
+
+The reviewed Windows pilot reads visible product cards from top to bottom
+using up to eight normal Chromium viewport scroll steps, clicks each permitted
+product link, and resumes from per-shop checkpoints. It does not claim full
+shop coverage or change tenant access levels. Access requirements for every
+marketplace remain in force. A site refusal ends the pilot.
+
+## 2026-10-21 — Local CAM shop-by-shop visible runner v0.2.9
+
+Provides an explicit operator-only, sequential `--run-approved` command using
+CAM's exact shop UUID and authoritative URL, without a duplicated local shop
+catalog. Local approval documents, isolated Chromium profile directories, and
+SQLite-backed partial reports are stored outside the checkout under the
+Windows user's LOCALAPPDATA. `--inspect` only verifies metadata and local
+approval presence and makes **zero** marketplace requests. `--run-approved`
+runs a maximum of five separately eligible shops (one by default), three
+product pages per shop, one Chromium context at a time, with bounded navigation
+delays and immediate halt upon needs-operator/access restrictions. No periodic
+loop, forced login, CAPTCHA bypass, stealth, marketplace APIs, remote lease,
+database ingestion, rights inference or automatic training.
+
+Platform compliance is NOT established by an operator's own CAM or local
+declaration. Written Etsy authorization and Amazon's current Agent Policy
+still require independent evidence and review. The production dispatch-preview
+contract remains disabled; an approved local pilot should never masquerade as
+a production scan job.
+
+
+
+## 2026-10-21 — Visible browsing hardening, Windows v0.2.8
+
+The `visible_click` option launches a headed Chromium browser, clicks only
+visible marketplace product links, supports both same-tab links and legitimate
+new-tab product links, validates every opened product URL against the pinned
+shop host and listing path, and closes product popups after review. A popup
+redirecting to a login, an unrelated website or an unexpected listing fails
+closed; it cannot fall back to direct URL scraping. Same-tab navigation uses
+Back, but popup navigation leaves the parent storefront intact. Each
+successful product detail remains visible for 4 seconds before returning,
+allowing an operator to observe the screen.
+
+Default bounded navigation delays remain 10–18 seconds; browsing does not
+attempt to impersonate human identity, conceal automation, or circumvent
+CAPTCHA, rate limits, access controls or marketplace policies. Reports are
+still local and only 1–5 products per manually approved invocation. Existing
+paired standby agent `Start` continues to connect to CAM **without opening
+a marketplace browser**. Real production job dispatch remains disabled.
+A browser QA run on an approved Windows host is still required before calling
+this build field-verified.
+
+## 2026-10-21 — CAM-source resumable manual pilot, Windows v0.2.7
+
+The same paired CAM Shop Library powers a new opt-in `--resume` invocation
+in `apps/branding-dna-worker/src/cam_shop_pilot.mjs`. A shop URL is
+resolved from CAM by its exact UUID; no second local shop catalog or source URL
+is needed. The existing, separately reviewed, exact-shop approval document is
+still mandatory. A durable per-shop SQLite checkpoint is reconciled from
+immutable Windows-local reports before each manually requested pilot run.
+Successfully observed product keys are skipped; unresolved/blocked pages never
+count as completed. Each invocation remains restricted to at most five product
+pages on the visible first shop page. It does not claim full coverage or
+automatically crawl multiple pages. No cookies, product media, shop URLs,
+credential values or unverified Best Seller claims are exported to CAM.
+
+The v0.2.7 portable **bootstrap** build now includes
+`src/cam_shop_pilot.mjs`, `src/start_cam_paired_agent.mjs`, and their tests;
+the older v0.2.6 packaging omitted these modules. CI publishes a checksummed
+ZIP artifact, not a native compiled executable. Windows runtime verification,
+permission evidence, live browser QA and eventual audited production dispatch
+are separate release gates. The standby agent continues to report zero real
+scan jobs until those gates are satisfied.
+
+
 ## 2026-10-17 Agent-only Windows UI, no local shop setup
 
 Scout Manager 0.1.34 replaces the manual pilot configuration screen with

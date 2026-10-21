@@ -1,4 +1,136 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.6"
+# Branding DNA Windows Worker — Windows Portable v0.2.11
+
+## v0.2.11 — Remove CAM ownership authorization gating
+
+CAM shop ownership declarations and second-person documentary reviews no longer
+gate Shop Registry activation, browser pilot eligibility or access to the normal
+public storefront browser. A `draft` shop is a saved source, not an authorization
+failure; a deliberately `paused` shop is still withheld from automated pilots.
+Existing source labels and documentary history are preserved without granting
+any browsing privilege.
+
+External browser automation requirements remain independent: each pilot must
+have appropriate marketplace access approval and honor platform-specific
+terms; stop on a challenge or access refusal. This change does not enable
+production dispatch, marketplace scraping without permission, or bypass tools.
+
+
+
+## v0.2.10 — Bounded top-to-bottom browser scroll
+
+For a **separately authorized** Amazon/Etsy shop, the visible Chromium pilot
+now scrolls down in up to eight controlled viewport steps to discover product
+cards loaded below the fold. It deduplicates observed listing keys, skips
+previously completed checkpoint keys, returns to the shop top, clicks visible
+product links (same-tab or popup) and reads each bounded product detail.
+Only at most 3 shop products per serial batch and 5 per direct pilot invocation
+are handled. Each call is finite and must be deliberately started.
+
+These are normal browser UI interactions; the Agent user-agent is always
+disclosed. Browsing halts on CAPTCHA, access denied, login or unusual-traffic
+warnings. No stealth or proxy rotation, internal APIs, background full-shop
+crawl, auto-approval, remote job lease or media download is added. A published
+shop URL does not establish authority to automate access.
+Etsy automation needs **express written authorization from Etsy**, whether
+the shop belongs to the operator or a competitor; Amazon Agent Policy must
+be reviewed and respected. A shop with no verified permission remains blocked.
+
+
+
+## v0.2.9 — Serial CAM shop browser operator runner
+
+The existing **CAM Shop Library** supplies shop IDs, URLs and their ownership
+status. `INSPECT_CAM_SHOPS.cmd` checks each shop without opening any marketplace.
+`RUN_CAM_APPROVED_SHOPS.cmd` starts a **finite, explicit, sequential** series
+of visible Chromium pilots, up to five independently approved shops per call
+(default one shop), max three product pages per shop. It stops the series on
+a challenge, redirect error or parser failure rather than moving to the next shop.
+Reports and SQLite progress remain isolated by shop and are never uploaded.
+
+Windows checkout `D:\\Desify_Agentic\\scan_pinterest`:
+```cmd
+apps\branding-dna-worker\INSPECT_CAM_SHOPS.cmd
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5
+```
+
+Private approval file for each exact shop must be placed at
+`%LOCALAPPDATA%\\CreativeAssetManager\\BrandingDNA\\cam-shop-pilots\\SHOP_UUID\\approval.json`.
+It must reflect reviewed **actual** platform permission, not merely checking
+boxes; Etsy requires Etsy's express written permission for browser automation,
+and Amazon requires a reviewed current Agent Policy. The runner does not
+create approval files, mark any shop as authorized, or bypass an access block.
+A shop is excluded if CAM marks it inactive or not owned/authorized, if the
+local approval is missing/expired, or if platform-specific evidence is absent.
+The approval file remains private and outside the repository. This operator
+runner is NOT the production CAM lease dispatcher, and Start Agent continues
+to be standby-only. No scheduled mass scan or remote task execution is enabled.
+
+
+
+## v0.2.8 — Visible Chromium product inspection
+
+The manual `visible_click` browser pilot follows product links using
+Chromium's actual accessibility/UI links. It handles both same-tab navigation
+and new tabs (`target=_blank`), safely closes product popups, and leaves each
+product on screen for 4 seconds after inspection. Login/invalid-domain
+redirects are refused without bypass or direct HTTP fallback. Browser identity
+is still explicitly `Agent/CreativeAssetManagerBrandDNA`; no human
+impersonation, anti-bot evasion or hidden API.
+
+The `Start agent` action in Scout Manager is a CAM heartbeat and does not
+automatically run this manual browser pilot. The latter still needs
+shop-specific authorization, `headless:false`,
+`interaction_mode:"visible_click"`, and is limited to 1–5 products per
+manual run. Production dispatch is not enabled.
+
+## CAM paired Agent readiness diagnostics (2026-10-21)
+
+Run `node src/start_cam_paired_agent.mjs --once` from the existing Windows
+`scan_pinterest` checkout to check the paired CAM Shop Library and its
+read-only dispatch blockers. The output includes `blocked_reasons`, a
+count of shops per validated blocker code. In continuous `--run` mode,
+the `cam_heartbeat` log includes the same aggregate counts. Shop URLs,
+bearer tokens, approval documents, and listing details are never logged.
+The existing Scout pairing is reused; no second local shop registry is
+introduced.
+
+## CAM Shop Library → resumable browser pilot (2026-10-21)
+
+A separately and explicitly approved shop can use the existing Windows browser
+pilot with durable progress while taking its URL exclusively from CAM:
+
+```powershell
+node apps/branding-dna-worker/src/cam_shop_pilot.mjs --resume `
+  --shop-id "SHOP_UUID_FROM_CAM" `
+  --approval-file "C:\\CAM-Private\\amazon-shop-approval.json" `
+  --profile-dir "C:\\CAM-Private\\chrome-amazon-shop" `
+  --report-dir "C:\\CAM-Private\\reports-amazon-shop" `
+  --env-file "scout.local.env"
+```
+
+Run only on an authorized **Windows** machine with Node 22.13+, pinned
+Playwright/Chromium and an individually reviewed approval document. This mode
+reuses the immutable report + per-shop SQLite checkpoint from the preexisting
+local pilot. Successfully observed listing keys are skipped on the next
+*explicit manual* run. Partial/blocked observations are never treated as
+completed. Reports are saved locally before checkpoint acknowledgment; after a
+crash, the next manual run reconciles them without deleting previous reports.
+Nothing uploads product media or unverified observations to CAM. The local
+approval remains mandatory for every invocation (Etsy requires documented
+written permission; Amazon requires Agent Policy review).
+
+The legacy `--report ABS_PATH` behavior remains available for one-off
+observation handoffs; `--resume --report-dir ABS_PATH` is a distinct opt-in
+mode and never schedules itself. One run stays capped at five product pages;
+it does not claim full-shop coverage.
+
+These diagnostics **do not create a scan job or open Amazon/Etsy**. As long
+as CAM reports `scan_task_dispatch_not_deployed` or
+`marketplace_authorization_not_verified`, the worker remains
+`connected_waiting`. A real production scan requires a separate
+audited dispatcher and platform-specific authorization; an operator's
+request to start the agent is not permission to bypass those gates.
 
 ## Recommended: use the existing Scan Pinterest tool
 
