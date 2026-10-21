@@ -3,6 +3,9 @@ mod branding_pilot;
 mod cam_agent_supervisor;
 mod branding_pilot_review;
 mod branding_pilot_handoff;
+mod startup;
+#[cfg(all(test, windows))]
+mod startup_tests;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -546,6 +549,32 @@ impl Controller {
             _ => Err("Unsupported automation command.".into()),
         }
     }
+    // Called only during synchronous startup, before the supervisor threads
+    // and UI exist. A later Pause/Quit can never be undone by a queued start.
+    fn apply_startup(&self, action: startup::StartupAction) -> Result<(), String> {
+        if action == startup::StartupAction::Idle {
+            return Ok(());
+        }
+        self.require_manager_lock()?;
+        if self.shutdown_requested.load(Ordering::SeqCst) {
+            return Err("Manager is shutting down.".into());
+        }
+        if self.updating.load(Ordering::SeqCst) {
+            return Err("Source update is in progress.".into());
+        }
+        if !is_paired(&self.repo) {
+            return Err("Pairing required. Save Scout Agent ID and token, then retry.".into());
+        }
+        if let Err(error) = self.control_all("start") {
+            // Startup is all-or-paused. Use the same owned-tree termination
+            // and bounded own-agent lease release as the normal Pause action.
+            return match self.control_all("stop") {
+                Ok(()) => Err(format!("All Scouts paused: {error}")),
+                Err(_) => Err("Could not complete startup cleanup. Quit and stop before retrying.".into()),
+            };
+        }
+        Ok(())
+    }
     fn tick(&self) {
         if !self.owns_manager_lock() || self.shutdown_requested.load(Ordering::SeqCst) || self.updating.load(Ordering::SeqCst) {
             return;
@@ -840,8 +869,10 @@ mod winjob {
     unsafe impl Sync for ManagerLock {}
     impl ManagerLock {
         pub fn acquire() -> Result<Option<Self>, String> {
-            let wide: Vec<u16> = "Local\\CreativeAssetManager.RrugcScout.Manager"
-                .encode_utf16()
+            Self::acquire_named("Local\\CreativeAssetManager.RrugcScout.Manager")
+        }
+        pub(super) fn acquire_named(name: &str) -> Result<Option<Self>, String> {
+            let wide: Vec<u16> = name.encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
             unsafe {
@@ -1526,11 +1557,25 @@ fn save_pairing(
     Ok(())
 }
 pub fn run() {
+    let startup = match startup::parse_args(std::env::args_os().skip(1)) {
+        Ok(action) => action,
+        Err(message) => {
+            // The diagnostic is fixed; never reflect arbitrary command-line
+            // values into logs or a console.
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
     let controller = Controller::new().expect("A compatible scan_pinterest checkout is required");
     #[cfg(windows)]
     if !controller.owns_manager_lock() && winjob::focus_existing_manager() {
         // Do not create a second WebView/tray icon. Reopen the original Manager.
         return;
+    }
+    if let Err(error) = controller.apply_startup(startup) {
+        if let Ok(mut status) = controller.update_state.lock() {
+            *status = format!("Startup failed: {error}");
+        }
     }
     let state = Arc::new(controller);
     let polling = Arc::clone(&state);
@@ -1594,7 +1639,8 @@ pub fn run() {
             let managed = app.state::<Arc<Controller>>();
             // The paired CAM heartbeat Agent runs automatically while the
             // Manager is open. It never opens marketplaces or claims scan jobs.
-            // Review, keyword and cap-stack Scouts remain manual-start only.
+            // Review, keyword and cap-stack Scouts require an explicit UI or
+            // --start-automation request; this heartbeat never starts them.
             let controller=managed.inner().clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_secs(2));

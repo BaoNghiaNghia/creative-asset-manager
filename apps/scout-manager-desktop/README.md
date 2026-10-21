@@ -292,6 +292,60 @@ Tauri NSIS installer: src-tauri/target/release/bundle/nsis. Windows build was ve
 
 The native app uses the checkout at CAM_SCOUT_REPO_ROOT (or the current ancestor checkout / D:\Bot_Tool_Auto_Game\scan_pinterest). It runs the existing scripts/start_scout_auto_update.ps1 -SkipUpdate with separate Review / Keyword Chrome profiles and log files. Tauri 0.1.2 shares the `Local\\CreativeAssetManager.RrugcScout.Manager` named Windows mutex with WinForms. Only the holder can start, stop, pair, or update Scouts; a second Manager shows a warning and disables its controls. Close the old WinForms Manager when ready to switch. It is preserved for rollback.
 
+## Native 0.1.44 — explicit startup automation
+
+Normal launch stays **Idle**. For an operator-requested restart, Manager
+**0.1.44 or later** also accepts one explicit startup option:
+
+```bat
+START_SCOUT_TAURI.cmd --start-automation
+```
+
+The verified Portable EXE accepts the same `--start-automation` option when
+`CAM_SCOUT_REPO_ROOT` points at the existing checkout. The startup request
+performs the normal **Run automation** action once, before background
+controllers and the UI are exposed. Review, Keyword and CapStack then belong
+to this Manager's Windows Job Objects, with the existing separate profiles,
+runner mutexes, bounded recovery and automatic source checks. Server queue
+enable/pause controls still apply.
+
+Missing pairing leaves all modes stopped. If any mode fails during the initial
+synchronous process launch, the Manager pauses all of its Scouts through the normal Stop path and shows
+a bounded failure in the dashboard; it does not leave partial automation
+enabled. Successful launch is not a business-readiness check: later login,
+network or process failures still follow the existing per-mode recovery. Normal Stop releases only this agent's unfinished keyword leases
+with the existing two-second timeout. Incomplete work can be retried; saved
+results, pairing and browser profiles are preserved.
+
+This option does not adopt external PowerShell/Python runners. Before using
+it for a migration, stop the verified external Scout launcher trees and quit
+the prior Manager. A second Manager invocation attempts to focus the existing
+instance; if focusing fails, its controls remain unavailable because it does
+not own the Manager lock. Ownership checks prevent it from remotely enabling
+the existing instance or starting duplicate Scouts.
+Do not pass the option to an older installed EXE and assume it was applied.
+
+The option does not start a Branding DNA marketplace pilot, grant shop
+authorization, enable automatic marketplace dispatch or change API/provider
+permissions. The paired CAM heartbeat retains its existing independent
+standby behavior. No startup preference is persisted: the next ordinary
+double-click still opens Idle.
+
+The launcher forwards only the canonical option and rejects unsupported or
+extra arguments. `CAM_SCOUT_MANAGER_RESOLVE_ONLY=1` remains a no-launch check
+and now reports `Startup action: idle` or `Startup action: start-automation`.
+The native argument parser rejects unsupported arguments before reading
+pairing or profiles and never echoes the supplied values.
+
+Rollback: use **Quit and stop**, select the retained verified previous
+Portable release, and launch it normally; use its **Run automation** action
+if desired. Do not delete pairing, profiles or saved results.
+
+Windows verification uses `scripts/test_scout_manager_startup.ps1` for the
+launcher parser and native Rust fixtures for three-mode startup, repeated
+Start, missing pairing, ownership refusal and partial-failure cleanup. These
+fixtures use temporary fake launchers and no live CAM or marketplace calls.
+
 ## Native 0.1.20 / Scout v55 — Cap Stack lane (Reviews Stage 1)
 
 The Windows Scout Manager now presents a third, individually controllable

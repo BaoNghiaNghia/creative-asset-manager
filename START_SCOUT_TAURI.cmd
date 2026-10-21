@@ -1,5 +1,18 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
+rem Accept only the explicit startup request. Never forward arbitrary arguments.
+set "SCOUT_START_AUTOMATION="
+if not "%~2"=="" goto :invalid_arguments
+rem Distinguish an omitted argument from an explicitly supplied empty argument.
+if not [%2]==[] goto :invalid_arguments
+if "%~1"=="--start-automation" goto :start_requested
+if not "%~1"=="" goto :invalid_arguments
+if not [%1]==[] goto :invalid_arguments
+goto :arguments_validated
+:start_requested
+set "SCOUT_START_AUTOMATION=1"
+:arguments_validated
+
 cd /d "%~dp0"
 title RRUGC Scout Manager - Tauri
 set "SCOUT_TAURI=%~dp0scout-manager-releases\RRUGC_Scout_Manager_Latest_x64.exe"
@@ -37,12 +50,26 @@ if not defined CAM_SCOUT_REPO_ROOT set "CAM_SCOUT_REPO_ROOT=%~dp0"
 rem Diagnostics/CI: verify selected version without actually opening the GUI.
 if /I "%CAM_SCOUT_MANAGER_RESOLVE_ONLY%"=="1" (
   echo Resolved Scout Manager: %SCOUT_TAURI%
+  if defined SCOUT_START_AUTOMATION (
+    echo Startup action: start-automation
+  ) else (
+    echo Startup action: idle
+  )
+
   exit /b 0
 )
-start "" "%SCOUT_TAURI%"
+if defined SCOUT_START_AUTOMATION (
+  start "" "%SCOUT_TAURI%" --start-automation
+) else (
+  start "" "%SCOUT_TAURI%"
+)
+
 if errorlevel 1 (
   echo [ERROR] The Tauri Scout Manager did not start.
   pause
   exit /b 3
 )
 exit /b 0
+:invalid_arguments
+echo [ERROR] Usage: START_SCOUT_TAURI.cmd [--start-automation]
+exit /b 2
