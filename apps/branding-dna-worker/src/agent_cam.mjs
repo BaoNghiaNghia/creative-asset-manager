@@ -46,7 +46,7 @@ export async function readDispatchPreview(config,request=fetch){
  if(resp.status===401||resp.status===403)throw Error("scout_pairing_revoked");
  // Allow staggered API and Windows worker upgrades. The old API still
  // cannot dispatch, and this fallback never activates the browser.
- if(resp.status===404)return {available:false,blocked:0,stagedTasks:0};
+ if(resp.status===404)return {available:false,blocked:0,stagedTasks:0,blockedReasons:{}};
  if(!resp.ok)throw Error("dispatch_preview_http_"+resp.status);
  const data=await resp.json();
  if(data?.version!==1||data.scan_enabled!==false||
@@ -66,8 +66,20 @@ export async function readDispatchPreview(config,request=fetch){
       !item.blockers.includes("scan_task_dispatch_not_deployed")||
       !item.blockers.includes("marketplace_authorization_not_verified")))
    throw Error("dispatch_preview_cannot_enable_scan");
+ // Only aggregate validated blocker codes. Never expose shop URLs or tokens
+ // in the agent's operational logs.
+ const reasonCounts=new Map();
+ for(const item of data.items){
+  for(const reason of new Set(item.blockers)){
+   if(typeof reason!=="string"||!/^[a-z][a-z0-9_]{2,79}$/.test(reason))
+     throw Error("dispatch_preview_cannot_enable_scan");
+   reasonCounts.set(reason,(reasonCounts.get(reason)??0)+1);
+  }
+ }
+ const blockedReasons=Object.fromEntries([...reasonCounts].sort(([a],[b])=>a.localeCompare(b)));
  return {available:true,blocked:data.blocked_count,
-         stagedTasks:data.items.reduce((sum,item)=>sum+item.staged_tasks,0)};
+         stagedTasks:data.items.reduce((sum,item)=>sum+item.staged_tasks,0),
+         blockedReasons};
 }
 
 export async function sendStandbyHeartbeat(config,request=fetch){
@@ -99,7 +111,8 @@ export async function run(config=settings(),{request=fetch,wait=sleep,log=consol
    log(JSON.stringify({event:"cam_heartbeat",connected:true,shops:receipt.shopCount,
      dispatch_enabled:false,reason:"scan_pipeline_not_deployed",
      state:"connected_waiting",preview_available:preview.available,
-     blocked_shops:preview.blocked,staged_tasks:preview.stagedTasks}));
+     blocked_shops:preview.blocked,staged_tasks:preview.stagedTasks,
+     blocked_reasons:preview.blockedReasons}));
    failures=0;
   }catch(error){
    const reason=error instanceof Error?error.message:"cam_unavailable";
