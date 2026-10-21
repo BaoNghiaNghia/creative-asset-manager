@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from app.core.database import SessionLocal
-from app.modules.authorization.principal import CurrentPrincipal, require_permission
+from app.modules.authorization.principal import (
+    CurrentPrincipal, require_permission, require_principal_permission,
+)
 from app.modules.inventory.daily_sheet.config import GeminiToolSheetAgentConfig, parse_daily_sheet_config
 from app.modules.inventory.daily_sheet.audit import InventoryOperationAuditService
 from app.modules.inventory.daily_sheet.knowledge import InventoryKnowledgeError, InventoryKnowledgeService
@@ -23,7 +25,10 @@ from app.modules.inventory.daily.catinat_close_preflight import CatinatClosePref
 from app.modules.inventory.daily.catinat_safety_audit import read_only_shelf_life_transfer_audit
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
-from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
+from app.modules.inventory.daily.catinat_approval_router import (
+    _manager_guard, router as catinat_approval_router,
+)
+from app.modules.inventory.daily.catinat_material_grouping import grouped_material_candidates
 from app.modules.inventory.daily.catinat_certification_router import router as catinat_certification_router
 from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
 from app.modules.inventory.daily.catinat_transfer_router import router as catinat_transfer_router
@@ -324,6 +329,24 @@ def get_catinat_closing_preflight(
         raise HTTPException(409, detail={"code": exc.code}) from exc
     except DailySheetProviderError as exc:
         raise HTTPException(503, detail={"code": exc.code}) from exc
+
+
+
+@router.get("/catinat/catalog/material-candidate-groups")
+def get_catinat_material_candidate_groups(
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Keep source-row previews readable by staff; advertise server-derived approval capability."""
+    can_approve = False
+    try:
+        require_principal_permission(principal, INVENTORY_FINALIZE_PERMISSION)
+        _manager_guard(principal)
+        can_approve = True
+    except HTTPException:
+        pass
+    with SessionLocal() as session:
+        report = grouped_material_candidates(session, principal.active_tenant_id)
+    return {**report, "can_approve_candidates": can_approve}
 
 
 @router.get("/status")

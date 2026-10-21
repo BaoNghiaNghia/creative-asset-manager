@@ -2,6 +2,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 import tempfile
 
+import pytest
+
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
@@ -605,7 +607,7 @@ def test_manual_recovery_apply_rejects_target_drift_after_preview():
                 == date(2030, 8, 10)
             )
         )
-        assert persisted.status == "retryable_failure"
+        assert persisted.status == "review_required"
         assert persisted.error_code == "stale_evidence"
     engine.dispose(); temp.cleanup()
 
@@ -660,7 +662,7 @@ def test_read_back_mismatch_is_not_completed():
     google = NoopWriterGoogle(source_values={"H14": 50}, target_values={"B14": 1})
     rows = [row("material-a", "warehouse-a", "H14", "B14", 50, 1)]
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(rows)).run("tenant-a", date(2030, 8, 10))
-    assert result.status == "retryable_failure"
+    assert result.status == "review_required"
     assert result.error_code == "stale_evidence"
     engine.dispose(); temp.cleanup()
 
@@ -1047,7 +1049,7 @@ def test_clear_formula_or_stale_target_is_blocked_without_clear():
     google = Google(target_values={"D14": 3})
     operations = [{"type": "clear_cell", "semantic_context": {}, "target": {"spreadsheet_file_id": "shared", "sheet": "Warehouses", "cell": "D14", "current_value": 3, "evidence_hash": canonical_hash([999])}}]
     result = InventorySharedCarryForwardService(sessions, client_factory=lambda _token: google, token_resolver=lambda _id: "token", planner=Planner(operations)).run("tenant-a", date(2030, 8, 10))
-    assert result.status == "retryable_failure" and google.clears == []
+    assert result.status == "review_required" and google.clears == []
     engine.dispose(); temp.cleanup()
 
 
@@ -1093,7 +1095,8 @@ def test_recovery_accepts_already_desired_target_after_interrupted_write():
     temp, engine, sessions = make_db()
     class InterruptedGoogle(Google):
         def batch_update_values(self, file_id, updates):
-            self.writes.extend(updates)
+            super().batch_update_values(file_id, updates)
+            raise TimeoutError("timeout after server accepted write")
     first = InterruptedGoogle(source_values={"H14": 50}, target_values={"B14": 1})
     rows = [row("material-a", "warehouse-a", "H14", "B14", 50, 1)]
     service = InventorySharedCarryForwardService(
@@ -1108,4 +1111,168 @@ def test_recovery_accepts_already_desired_target_after_interrupted_write():
     ).run("tenant-a", date(2030, 8, 10))
     assert recovered.status == "completed"
     assert resumed.writes == []
+    engine.dispose(); temp.cleanup()
+
+def test_stale_source_requires_review_before_any_set_or_clear():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 99}, target_values={"B14": 1, "D14": 7})
+    operations = [
+        row("material-a", "warehouse-a", "H14", "B14", 50, 1),
+        {"type": "clear_cell", "semantic_context": {"role": "daily_entry"},
+         "target": {"spreadsheet_file_id": "shared", "sheet": "Warehouses",
+                    "cell": "D14", "current_value": 7,
+                    "evidence_hash": canonical_hash([7])}},
+    ]
+    result = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token", planner=Planner(operations),
+    ).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "review_required"
+    assert result.error_code == "stale_evidence"
+    assert google.writes == [] and google.clears == []
+    assert google.target_values == {"B14": 1, "D14": 7}
+    engine.dispose(); temp.cleanup()
+
+
+class Q47Google(Google):
+    def __init__(self, *, marker_file, area="KHO PHA CHẾ"):
+        super().__init__(source_values={"H14": 50}, target_values={"B14": 1})
+        self.marker_file = marker_file
+        self.area = area
+
+    def spreadsheet_metadata(self, file_id):
+        metadata = super().spreadsheet_metadata(file_id)
+        if file_id == self.marker_file:
+            metadata["sheets"].append({
+                "properties": {"sheetId": 5, "title": self.area},
+            })
+        return metadata
+
+
+@pytest.mark.parametrize("marker_file", ["gemini", "shared"])
+@pytest.mark.parametrize("area", ["KHO PHA CHẾ", "PHÒNG PHA CHẾ", "KHO PHÒNG RANG"])
+def test_q47_metadata_blocks_legacy_reset_before_planning(marker_file, area):
+    temp, engine, sessions = make_db()
+    google = Q47Google(marker_file=marker_file, area=area)
+    planner = Planner([row("material-a", "warehouse-a", "H14", "B14", 50, 1)])
+    result = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token", planner=planner,
+    ).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "review_required"
+    assert result.error_code == "catinat_signed_close_required"
+    assert planner.last_prompt is None
+    assert google.writes == [] and google.clears == []
+    assert google.target_values["B14"] == 1
+    engine.dispose(); temp.cleanup()
+
+
+def test_q47_config_blocks_reset_before_provider_access_even_if_tabs_are_missing():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel).where(
+            InventorySettingsModel.tenant_id == "tenant-a"
+        ))
+        settings.daily_sheet_config_json = {
+            "version": 4, "source": {"allowed_sheets": ["KHO PHA CHẾ"]},
+        }
+
+    def no_provider(_identifier):
+        pytest.fail("configured Q47 reset must be blocked before provider access")
+
+    result = InventorySharedCarryForwardService(
+        sessions, client_factory=no_provider, token_resolver=no_provider,
+        planner=Planner([]),
+    ).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "review_required"
+    assert result.error_code == "catinat_signed_close_required"
+    engine.dispose(); temp.cleanup()
+
+
+def test_q47_configuration_guard_is_tenant_scoped():
+    temp, engine, sessions = make_db()
+    with sessions.begin() as session:
+        session.add(ExternalSourceModel(
+            id="source-b", tenant_id="tenant-b", source_key="b",
+            source_type="google_drive",
+        ))
+        session.flush()
+        session.add(InventorySettingsModel(
+            tenant_id="tenant-b", external_source_id="source-b",
+            inbox_folder_id="inbox-b", enabled=True,
+            daily_sheet_config_json={
+                "version": 4, "source": {"allowed_sheets": ["KHO PHA CHẾ"]},
+            },
+        ))
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    result = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([row("material-a", "warehouse-a", "H14", "B14", 50, 1)]),
+    ).run("tenant-a", date(2030, 8, 10))
+    assert result.status == "completed"
+    assert google.target_values["B14"] == 50
+    engine.dispose(); temp.cleanup()
+
+
+@pytest.mark.parametrize("marker", ["config", "gemini", "shared"])
+def test_q47_manual_apply_rechecks_config_and_both_workbooks(marker):
+    temp, engine, sessions = make_db()
+    google = Q47Google(marker_file=None)
+    service = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([row("material-a", "warehouse-a", "H14", "B14", 50, 1)]),
+    )
+    preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+    if marker == "config":
+        with sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_sheet_config_json = {
+                "version": 4, "source": {"allowed_sheets": ["KHO PHÒNG RANG"]},
+            }
+    else:
+        google.marker_file = marker
+    with pytest.raises(CarryForwardReviewRequired, match="catinat_signed_close_required"):
+        service.apply_manual_recovery(
+            "tenant-a", date(2030, 8, 10), plan_hash=preview["plan_hash"],
+        )
+    assert google.writes == [] and google.clears == []
+    assert google.target_values["B14"] == 1
+    with sessions() as session:
+        persisted = session.scalar(select(InventoryDailyCarryForwardModel).where(
+            InventoryDailyCarryForwardModel.tenant_id == "tenant-a",
+        ))
+        assert persisted.status == "review_required"
+        assert persisted.error_code == "catinat_signed_close_required"
+    engine.dispose(); temp.cleanup()
+
+
+def test_changed_workbook_after_manual_preview_persists_review_block():
+    temp, engine, sessions = make_db()
+    google = Google(source_values={"H14": 50}, target_values={"B14": 1})
+    service = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([row("material-a", "warehouse-a", "H14", "B14", 50, 1)]),
+    )
+    preview = service.preview_manual_recovery("tenant-a", date(2030, 8, 10))
+    with sessions.begin() as session:
+        settings = session.scalar(select(InventorySettingsModel).where(
+            InventorySettingsModel.tenant_id == "tenant-a"
+        ))
+        settings.daily_working_spreadsheet_file_id = "new-shared-workbook"
+    with pytest.raises(CarryForwardStaleEvidence):
+        service.apply_manual_recovery(
+            "tenant-a", date(2030, 8, 10), plan_hash=preview["plan_hash"],
+        )
+    assert google.writes == [] and google.clears == []
+    with sessions() as session:
+        persisted = session.scalar(select(InventoryDailyCarryForwardModel).where(
+            InventoryDailyCarryForwardModel.tenant_id == "tenant-a",
+        ))
+        assert persisted.status == "review_required"
+        assert persisted.error_code == "stale_evidence"
     engine.dispose(); temp.cleanup()

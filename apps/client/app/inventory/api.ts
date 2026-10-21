@@ -9,7 +9,7 @@ export type CatinatCandidateSourceRow = {
 export type CatinatCandidateApprovalGroup = {
   candidate_id:string;candidate_ids:string[];expected_count:number;sheet:string;
   category:string|null;name:string;item_id:string|null;item_name:string|null;
-  item_units:string[];can_bulk_approve:boolean;blocker:string|null;evidence_cells:string[];
+  item_units:string[];can_bulk_approve:boolean;blocker:string|null;evidence_cells:string[];evidence_hash:string;
 };
 export type CatinatMaterialGroup = {
   name:string;aliases:string[];source_row_count:number;sheets:string[];
@@ -18,12 +18,12 @@ export type CatinatMaterialGroup = {
   source_rows:CatinatCandidateSourceRow[];approval_groups:CatinatCandidateApprovalGroup[];
 };
 export type CatinatMaterialGroupsResponse = {
-  source_rows:number;unique_names:number;groups:CatinatMaterialGroup[];
+  source_rows:number;unique_names:number;groups:CatinatMaterialGroup[];can_approve_candidates:boolean;
   automatic_approvals:0;inventory_writes:0;sheet_writes:0;
 };
 export type CatinatBulkApprovalRequest = {
   groups:Array<{
-    candidate_id:string;item_id:string;expected_count:number;expected_candidate_ids:string[];
+    candidate_id:string;item_id:string;expected_count:number;expected_candidate_ids:string[];expected_evidence_hash:string;
   }>;
 };
 export const catinatMaterialGroupsApi = {

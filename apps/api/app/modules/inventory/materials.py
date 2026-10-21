@@ -1,10 +1,12 @@
 from __future__ import annotations
+import hashlib
+import json
 import re, unicodedata
 from dataclasses import dataclass, asdict
 from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Any, Callable, Mapping
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from app.modules.inventory.persistence_model import InventoryItemAliasModel, InventoryItemModel, InventoryMaterialCandidateModel, InventoryMaterialExternalIdentityModel, InventoryMaterialPackageConversionModel, InventoryLocationModel, inventory_utcnow
 
@@ -12,6 +14,30 @@ def normalize_material_text(value: object) -> str:
     text=unicodedata.normalize("NFKC",str(value or "")).strip().casefold()
     text="".join(c for c in unicodedata.normalize("NFD",text) if unicodedata.category(c)!="Mn")
     return re.sub(r"[^a-z0-9]+"," ",text).strip()
+
+
+def material_candidate_group_evidence_hash(
+    rows: list[InventoryMaterialCandidateModel], item: InventoryItemModel,
+) -> str:
+    """Bind the exact reviewed source rows and catalog units, never stock approval."""
+    payload = {
+        "item": {
+            "id": item.id, "name": item.name, "active": item.active,
+            "base_unit": item.base_unit, "whole_unit": item.whole_unit,
+            "fraction_unit": item.fraction_unit,
+        },
+        "rows": [{
+            "id": row.id, "source_id": row.source_id, "sheet": row.sheet,
+            "source_row": row.source_row, "external_key": row.external_key,
+            "raw_name": row.raw_name, "category": row.category,
+            "suggested_item_id": row.suggested_item_id,
+            "review_evidence": (row.context_json or {}).get("review_evidence")
+                if isinstance(row.context_json, dict) else None,
+        } for row in sorted(rows, key=lambda value: value.id)],
+    }
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
 
 @dataclass(frozen=True,slots=True)
 class MaterialResolution:
@@ -146,7 +172,12 @@ class MaterialRegistry:
                 return MaterialResolution("possible_rename" if mid else "new_material",mid,raw_name,str(proposal.get("suggested_canonical_name") or raw_name),category,Decimal(str(proposal.get("confidence") or 0)),tuple(proposal.get("reasons") or ("gemini_semantic_candidate",)),True,"gemini")
         return MaterialResolution("new_material",None,raw_name,raw_name,category,Decimal("0"),("no_approved_match",),True)
     def queue_candidate(self,tenant_id:str,*,source_id:str,external_key:str,raw_name:str,category:str|None,source_row:int,sheet:str,resolution:MaterialResolution,context:Mapping[str,Any]|None=None):
-        row=self.session.scalar(select(InventoryMaterialCandidateModel).where(InventoryMaterialCandidateModel.tenant_id==tenant_id,InventoryMaterialCandidateModel.source_id==source_id,InventoryMaterialCandidateModel.external_key==external_key,InventoryMaterialCandidateModel.raw_name==raw_name))
+        row=self.session.scalar(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id==tenant_id,
+            InventoryMaterialCandidateModel.source_id==source_id,
+            InventoryMaterialCandidateModel.external_key==external_key,
+            InventoryMaterialCandidateModel.raw_name==raw_name,
+        ).with_for_update().execution_options(populate_existing=True))
         if row is None:
             row=InventoryMaterialCandidateModel(tenant_id=tenant_id,source_id=source_id,sheet=sheet,source_row=source_row,external_key=external_key,raw_name=raw_name,category=category,status=resolution.status,suggested_item_id=resolution.material_id,suggested_canonical_name=resolution.suggested_canonical_name,confidence=resolution.confidence,reasons_json=list(resolution.reasons),context_json=dict(context or {}));self.session.add(row)
         elif context and row.status in {"new_material","possible_rename","ambiguous"}:
@@ -165,23 +196,38 @@ class MaterialRegistry:
         seed = self.session.scalar(select(InventoryMaterialCandidateModel).where(
             InventoryMaterialCandidateModel.tenant_id == tenant_id,
             InventoryMaterialCandidateModel.id == candidate_id,
-        ).with_for_update())
-        if seed is None or seed.status not in {"new_material", "possible_rename", "ambiguous"}:
+        ))
+        if seed is None:
             raise LookupError("material_candidate_not_pending")
+        seed_sheet = seed.sheet
+        # Share the batch route's candidate -> catalog -> registry lock order.
+        # Locking an arbitrary seed first can deadlock an overlapping selection.
         candidates = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
             InventoryMaterialCandidateModel.tenant_id == tenant_id,
-            InventoryMaterialCandidateModel.sheet == seed.sheet,
-            InventoryMaterialCandidateModel.status.in_(("new_material", "possible_rename", "ambiguous")),
-        ).order_by(InventoryMaterialCandidateModel.id).with_for_update()))
+            or_(InventoryMaterialCandidateModel.sheet == seed_sheet,
+                InventoryMaterialCandidateModel.id == candidate_id),
+        ).order_by(InventoryMaterialCandidateModel.id).with_for_update()
+          .execution_options(populate_existing=True)))
+        seed = next((row for row in candidates if row.id == candidate_id), None)
+        if seed is None or seed.status not in {"new_material", "possible_rename", "ambiguous"}:
+            raise LookupError("material_candidate_not_pending")
+        if seed.sheet != seed_sheet:
+            raise ValueError("candidate_group_changed")
         group = [
             c for c in candidates
-            if normalize_material_text(c.raw_name) == normalize_material_text(seed.raw_name)
+            if c.status in {"new_material", "possible_rename", "ambiguous"}
+            and c.sheet == seed_sheet
+            and normalize_material_text(c.raw_name) == normalize_material_text(seed.raw_name)
             and normalize_material_text(c.category) == normalize_material_text(seed.category)
         ]
         if (not 1 <= expected_count <= 100 or len(group) != expected_count
             or sorted(c.id for c in group) != sorted(expected_candidate_ids)):
             raise ValueError("candidate_group_changed")
-        material = self._item(tenant_id, item_id)
+        material = self.session.scalar(select(InventoryItemModel).where(
+            InventoryItemModel.tenant_id == tenant_id,
+            InventoryItemModel.id == item_id,
+            InventoryItemModel.active.is_(True),
+        ).with_for_update().execution_options(populate_existing=True))
         if material is None:
             raise LookupError("material_not_found")
         if any(c.suggested_item_id and c.suggested_item_id != item_id for c in group):
@@ -189,6 +235,178 @@ class MaterialRegistry:
         for candidate in group:
             self.approve(tenant_id, candidate.id, actor_id=actor_id, item_id=item_id)
         return {"item_id": material.id, "approved": len(group)}
+
+
+    def approve_equivalent_batch(
+        self, tenant_id: str, *, groups: list[dict[str, Any]], actor_id: str,
+    ) -> dict[str, Any]:
+        """Approve one explicitly reviewed batch atomically and safely on replay.
+
+        Source evidence and catalog units must still match the manager's preview.
+        Ordered row locks precede all checks and registry writes. The caller owns
+        the database transaction; no stock, conversion or Sheets write is made.
+        """
+        if not actor_id:
+            raise ValueError("candidate_approval_actor_required")
+        if not isinstance(groups, list) or not 1 <= len(groups) <= 50:
+            raise ValueError("candidate_batch_size_invalid")
+        hash_pattern = re.compile(r"^[0-9a-f]{64}$")
+        seen_ids: set[str] = set()
+        specs: list[dict[str, Any]] = []
+        for spec in groups:
+            if not isinstance(spec, dict):
+                raise ValueError("candidate_batch_payload_invalid")
+            candidate_id = spec.get("candidate_id")
+            item_id = spec.get("item_id")
+            expected_ids = spec.get("expected_candidate_ids")
+            expected_count = spec.get("expected_count")
+            evidence_hash = spec.get("expected_evidence_hash")
+            if (
+                not isinstance(candidate_id, str) or not candidate_id
+                or not isinstance(item_id, str) or not item_id
+                or not isinstance(expected_ids, list) or not 1 <= len(expected_ids) <= 100
+                or type(expected_count) is not int or expected_count != len(expected_ids)
+                or any(not isinstance(value, str) or not value for value in expected_ids)
+                or len(set(expected_ids)) != len(expected_ids) or candidate_id not in expected_ids
+                or not isinstance(evidence_hash, str) or not hash_pattern.fullmatch(evidence_hash)
+            ):
+                raise ValueError("candidate_batch_payload_invalid")
+            if seen_ids.intersection(expected_ids):
+                raise ValueError("candidate_batch_duplicate_selection")
+            seen_ids.update(expected_ids)
+            specs.append({
+                "candidate_id": candidate_id, "item_id": item_id,
+                "expected_count": expected_count, "expected_candidate_ids": sorted(expected_ids),
+                "expected_evidence_hash": evidence_hash,
+            })
+        specs.sort(key=lambda spec: spec["candidate_id"])
+        batch_hash = hashlib.sha256(json.dumps(
+            {"tenant_id": tenant_id, "actor_id": actor_id, "groups": specs},
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        selected = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == tenant_id,
+            InventoryMaterialCandidateModel.id.in_(seen_ids),
+        )))
+        if len(selected) != len(seen_ids):
+            raise LookupError("material_candidate_not_found")
+        sheets = {row.sheet for row in selected}
+        # Lock every potentially matching row in one stable order. Locking each
+        # group's seed first can deadlock two overlapping manager selections.
+        records = list(self.session.scalars(select(InventoryMaterialCandidateModel).where(
+            InventoryMaterialCandidateModel.tenant_id == tenant_id,
+            or_(InventoryMaterialCandidateModel.sheet.in_(sheets),
+                InventoryMaterialCandidateModel.id.in_(seen_ids)),
+        ).order_by(InventoryMaterialCandidateModel.id).with_for_update()
+          .execution_options(populate_existing=True)))
+        by_id = {row.id: row for row in records}
+        if any(row_id not in by_id for row_id in seen_ids):
+            raise LookupError("material_candidate_not_found")
+        if any(by_id[row_id].sheet not in sheets for row_id in seen_ids):
+            raise ValueError("candidate_group_changed")
+        selected = [by_id[row_id] for row_id in seen_ids]
+        results = [{
+            "item_id": spec["item_id"], "approved": spec["expected_count"],
+        } for spec in specs]
+
+        def result(replay: bool) -> dict[str, Any]:
+            return {
+                "status": "approved", "approved_groups": len(specs),
+                "approved_candidates": len(seen_ids), "results": results,
+                "idempotent_replay": replay,
+                "inventory_balance_writes": 0, "google_sheet_writes": 0,
+            }
+
+        if any(row.status == "approved" for row in selected):
+            for spec in specs:
+                for row_id in spec["expected_candidate_ids"]:
+                    row = by_id[row_id]
+                    context = row.context_json if isinstance(row.context_json, dict) else {}
+                    saved = context.get("bulk_approval")
+                    if (
+                        row.status != "approved" or row.suggested_item_id != spec["item_id"]
+                        or context.get("approved_by") != actor_id
+                        or not isinstance(saved, dict) or saved.get("batch_hash") != batch_hash
+                    ):
+                        raise ValueError("candidate_batch_idempotency_conflict")
+            return result(True)
+
+        catalog = list(self.session.scalars(select(InventoryItemModel).where(
+            InventoryItemModel.tenant_id == tenant_id,
+            InventoryItemModel.active.is_(True),
+        ).order_by(InventoryItemModel.id).with_for_update()
+          .execution_options(populate_existing=True)))
+
+        def strict_text(value: object) -> str:
+            text = unicodedata.normalize("NFC", str(value or "")).strip().casefold()
+            return re.sub(r"\s+", " ", text)
+
+        prepared: list[tuple[dict[str, Any], list[InventoryMaterialCandidateModel]]] = []
+        for spec in specs:
+            seed = by_id[spec["candidate_id"]]
+            if seed.status not in {"new_material", "possible_rename", "ambiguous"}:
+                raise LookupError("material_candidate_not_pending")
+            actual = [
+                row for row in records
+                if row.status in {"new_material", "possible_rename", "ambiguous"}
+                and row.sheet == seed.sheet
+                and normalize_material_text(row.raw_name) == normalize_material_text(seed.raw_name)
+                and normalize_material_text(row.category) == normalize_material_text(seed.category)
+            ]
+            if sorted(row.id for row in actual) != spec["expected_candidate_ids"]:
+                raise ValueError("candidate_group_changed")
+            matches = [
+                item for item in catalog
+                if normalize_material_text(item.name) == normalize_material_text(seed.raw_name)
+            ]
+            if len(matches) != 1:
+                raise ValueError("candidate_catalog_match_ambiguous")
+            item = matches[0]
+            if item.id != spec["item_id"]:
+                raise ValueError("candidate_catalog_match_changed")
+            if material_candidate_group_evidence_hash(actual, item) != spec["expected_evidence_hash"]:
+                raise ValueError("candidate_group_evidence_changed")
+            allowed_units = {
+                strict_text(value) for value in (item.base_unit, item.whole_unit, item.fraction_unit)
+                if strict_text(value)
+            }
+            for row in actual:
+                if strict_text(row.raw_name) != strict_text(item.name):
+                    raise ValueError("candidate_name_not_exact")
+                if row.suggested_item_id and row.suggested_item_id != item.id:
+                    raise ValueError("candidate_conflicting_suggestion")
+                context = row.context_json if isinstance(row.context_json, dict) else {}
+                review = context.get("review_evidence")
+                if not isinstance(review, dict) or review.get("status") != "explicit_unit_found":
+                    raise ValueError("candidate_unit_evidence_missing")
+                evidence = review.get("unit_evidence")
+                if not isinstance(evidence, list) or not evidence:
+                    raise ValueError("candidate_unit_evidence_missing")
+                for unit in evidence:
+                    if (
+                        not isinstance(unit, dict) or not strict_text(unit.get("value"))
+                        or not strict_text(unit.get("value_cell"))
+                        or not strict_text(unit.get("header_cell"))
+                        or not isinstance(unit.get("evidence_hash"), str)
+                        or not hash_pattern.fullmatch(unit["evidence_hash"])
+                    ):
+                        raise ValueError("candidate_unit_evidence_invalid")
+                    if strict_text(unit["value"]) not in allowed_units:
+                        raise ValueError("candidate_unit_not_certified")
+            prepared.append((spec, actual))
+
+        for spec, rows in prepared:
+            for row in rows:
+                self.approve(tenant_id, row.id, actor_id=actor_id, item_id=spec["item_id"])
+                row.context_json = {
+                    **dict(row.context_json or {}),
+                    "bulk_approval": {
+                        "batch_hash": batch_hash,
+                        "group_evidence_hash": spec["expected_evidence_hash"],
+                    },
+                }
+        self.session.flush()
+        return result(False)
 
     def approve(
         self,
@@ -201,15 +419,23 @@ class MaterialRegistry:
         preferred_unit: str | None = None,
         canonical_dimension: str | None = None,
     ):
+        # Every approval path acquires candidate -> catalog locks before an
+        # alias/identity flush, and rechecks state after a competing transaction.
         c = self.session.scalar(
             select(InventoryMaterialCandidateModel).where(
                 InventoryMaterialCandidateModel.tenant_id == tenant_id,
                 InventoryMaterialCandidateModel.id == candidate_id,
-            )
+            ).with_for_update().execution_options(populate_existing=True)
         )
         if c is None:
             raise LookupError("material_candidate_not_found")
-        item = self._item(tenant_id, item_id) if item_id else None
+        if c.status not in {"new_material", "possible_rename", "ambiguous"}:
+            raise ValueError("material_candidate_not_pending")
+        item = self.session.scalar(select(InventoryItemModel).where(
+            InventoryItemModel.tenant_id == tenant_id,
+            InventoryItemModel.id == item_id,
+            InventoryItemModel.active.is_(True),
+        ).with_for_update().execution_options(populate_existing=True)) if item_id else None
         if item_id and item is None:
             raise LookupError("material_not_found")
         if item is None:

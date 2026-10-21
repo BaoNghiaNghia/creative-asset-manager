@@ -21,16 +21,21 @@
     "default",
     "material-hover",
     "material-search-focus",
-    "candidate-hover"
+    "candidate-hover",
+    "overview-ready",
+    "status-hover",
+    "status-refresh-focus",
+    "status-refresh",
+    "human-attestation-collapsed"
   ],
   "pixelThreshold": 0.1,
   "maxDiffRatio": 0.001,
   "governance": {
-    "lastAcceptedProposalId": "20261002T084537Z-68b86dd1-inventory",
-    "task": "Bootstrap fixture-backed visual regression coverage for Inventory as the next requested UI automation phase",
-    "acceptanceReason": "User requested continuation of fixture-backed visual regression coverage; this bootstraps Inventory from the current verified UI.",
-    "sourceHead": "68b86dd1ab36fd324a5bce8cbbee65366d856a80",
-    "workspaceFingerprint": "55be4f563743db99faad825ce9e31a2ad37981e98a89435521e018e6320c7e57",
-    "acceptedAt": "2026-10-02T08:46:13.281012+00:00"
+    "lastAcceptedProposalId": "20261021T150736Z-b1a9bc23-inventory",
+    "task": "Inventory responsive business audit: state reporting, source date consistency and manager approvals",
+    "acceptanceReason": "User explicitly authorized automatic Browser QA approval on 2026-10-21: \"X\u00e1c nh\u1eadn t\u1ef1 \u0111\u1ed9ng duy\u1ec7t cho browser qa\". This accepts the reviewed 15-image Inventory proposal 20261021T150736Z-b1a9bc23-inventory supplied in the handoff; the corrected disclosure captures and candidate hashes were verified.",
+    "sourceHead": "b1a9bc23cc3d5dfcf340e0d6cbc8b20690c3ace8",
+    "workspaceFingerprint": "9927fce889397633d8468a5372aadfbd216d06d306b35ac2d3df64da26572fe3",
+    "acceptedAt": "2026-10-21T15:23:18.683020+00:00"
   }
 }

@@ -321,6 +321,26 @@
           }
         ]
       }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog/material-candidate-groups",
+      "body": {
+        "source_rows": 0,
+        "unique_names": 0,
+        "groups": [],
+        "can_approve_candidates": false,
+        "automatic_approvals": 0,
+        "inventory_writes": 0,
+        "sheet_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/approvals",
+      "body": {
+        "items": []
+      }
     }
   ]
 }

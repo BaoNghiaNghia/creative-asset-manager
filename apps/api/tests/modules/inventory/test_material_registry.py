@@ -21,6 +21,8 @@ from app.modules.inventory.persistence_model import (
     InventoryItemAliasModel,
     InventoryItemModel,
     InventoryLocationModel,
+    InventoryMaterialCandidateModel,
+    InventoryMaterialExternalIdentityModel,
     InventoryMaterialPackageConversionModel,
 )
 
@@ -195,6 +197,72 @@ def test_batch_equivalent_candidate_confirmation_rejects_stale_count_and_foreign
                 actor_id="admin", expected_count=1, expected_candidate_ids=["stale-candidate"],
             )
         assert c.status == "new_material"
+
+
+@pytest.mark.parametrize(("field", "value"), (
+    ("raw_name", "Whipping cream"),
+    ("category", "Topping"),
+    ("sheet", "Moved worksheet"),
+    ("status", "rejected"),
+))
+def test_equivalent_approval_rechecks_cached_candidate_after_other_session_changes(sessions, field, value):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        material = item(session, name="Milk Reference", sku="MILK")
+        pending = []
+        for key in ("31", "32"):
+            pending.append(registry.queue_candidate(
+                "tenant-a", source_id="sheet-1", external_key=key,
+                raw_name="Sữa tươi", category="Milk", source_row=int(key),
+                sheet="Daily", resolution=resolve(registry, name="Sữa tươi", key=key),
+            ))
+        session.commit()
+        ids = [row.id for row in pending]
+        with sessions() as other:
+            changed = other.get(InventoryMaterialCandidateModel, ids[0])
+            setattr(changed, field, value)
+            other.commit()
+        # An ORM identity-map hit is still the earlier preview. The lock read
+        # must reload it before choosing the group or writing any registry data.
+        assert getattr(pending[0], field) != value
+        error_type = LookupError if field == "status" else ValueError
+        error_code = "material_candidate_not_pending" if field == "status" else "candidate_group_changed"
+        with pytest.raises(error_type, match=error_code):
+            registry.approve_equivalent(
+                "tenant-a", candidate_id=ids[0], item_id=material.id,
+                actor_id="admin", expected_count=2, expected_candidate_ids=ids,
+            )
+        session.rollback()
+
+    with sessions() as verifier:
+        assert getattr(verifier.get(InventoryMaterialCandidateModel, ids[0]), field) == value
+        assert verifier.get(InventoryMaterialCandidateModel, ids[1]).status == "new_material"
+        assert not verifier.query(InventoryMaterialCandidateModel).filter_by(status="approved").count()
+        assert not verifier.query(InventoryItemAliasModel).count()
+        assert not verifier.query(InventoryMaterialExternalIdentityModel).count()
+
+
+def test_equivalent_approval_cannot_approve_a_foreign_seed(sessions):
+    with sessions() as session:
+        registry = MaterialRegistry(session)
+        material = item(session, name="Milk Reference", sku="MILK")
+        candidates = []
+        for tenant in ("tenant-a", "tenant-b"):
+            candidates.append(registry.queue_candidate(
+                tenant, source_id="sheet-1", external_key="31",
+                raw_name="Sữa tươi", category="Milk", source_row=31,
+                sheet="Daily", resolution=resolve(registry, name="Sữa tươi", key="31", tenant=tenant),
+            ))
+        session.flush()
+        with pytest.raises(LookupError, match="material_candidate_not_pending"):
+            registry.approve_equivalent(
+                "tenant-a", candidate_id=candidates[1].id, item_id=material.id,
+                actor_id="admin", expected_count=1,
+                expected_candidate_ids=[candidates[0].id],
+            )
+        assert [row.status for row in candidates] == ["new_material", "new_material"]
+        assert not session.query(InventoryItemAliasModel).count()
+        assert not session.query(InventoryMaterialExternalIdentityModel).count()
 
 
 def test_material_readiness_no_implicit_warehouse_or_material_creation(sessions):

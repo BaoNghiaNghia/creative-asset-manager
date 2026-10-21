@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { getUiQaProfile } from "./ui-qa-profiles.mjs";
+import { selectPlanSteps, selectExecutionSteps } from "./ui-qa-targeting.mjs";
 import { classifyUiTask, buildAutofixSessionId } from "./ui-autofix-plan.mjs";
 import { selectSmartTests } from "./ui-smart-tests.mjs";
 
@@ -51,8 +54,32 @@ test("selects the Inventory fixture-backed profile", () => {
   assert.equal(plan.scope, "inventory");
   assert.equal(plan.visualProfileSupported, true);
   assert.equal(plan.profile, "inventory");
-  assert.ok(plan.states.includes("material-hover"));
-  assert.ok(plan.states.includes("material-search-focus"));
+  assert.deepEqual(plan.states, ["overview-ready", "status-hover", "status-refresh-focus"]);
+});
+
+test("Inventory autofix targets resolve against the current Overview plan", () => {
+  const profile = getUiQaProfile("inventory");
+  const uiPlan = JSON.parse(readFileSync(
+    new URL("../../../" + profile.plan, import.meta.url), "utf8",
+  ));
+  const tasks = [
+    "Inventory responsive business audit: state reporting, source date consistency and manager approvals",
+    "Inventory material grid hover and search",
+    "Inventory keyboard focus",
+    "Inventory refresh status",
+    "Inventory candidate review and count attestation",
+  ];
+  for (const task of tasks) {
+    const plan = classifyUiTask(task, ["apps/client/app/inventory/InventoryOverviewPage.tsx"]);
+    assert.ok(plan.states.length > 0 && plan.states.length <= 3, task);
+    const captured = selectPlanSteps(uiPlan.steps, plan.states);
+    const executed = selectExecutionSteps(uiPlan.steps, plan.states);
+    assert.equal(captured[0].name, "overview-ready", task);
+    assert.ok(captured.every(step => executed.includes(step)), task);
+  }
+  assert.deepEqual(classifyUiTask(tasks[0]).states, [
+    "overview-ready", "status-refresh", "human-attestation-collapsed",
+  ]);
 });
 
 test("selects the Access Management fixture-backed profile", () => {
