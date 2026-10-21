@@ -1,6 +1,6 @@
 # Inventory business audit — 21 October 2026
 
-Status: **implemented and locally verified; final role/viewport evidence and visual baseline review pending; not deployed**.
+Status: **implemented; compiled staff/manager browser verification passed; visual baseline review and production compatibility gates remain open; not deployed**.
 
 This bounded audit continues the approved [Catinat Q01–Q47 implementation](INVENTORY_CATINAT_Q47_IMPLEMENTATION.md). It repairs retry, review, and stale-state behavior. Official shift signing, stock-ledger posting, and Catinat Google Sheets carry-forward remain disabled until their separate business and concurrency gates are satisfied.
 
@@ -21,25 +21,35 @@ These are completed local checks, not a claim of CI success or a final release S
 | Check | Recorded result | Evidence / scope |
 | --- | --- | --- |
 | Inventory API regression suite | **820 passed** | Finished CodeLocal terminal record `1792592299336593568`, exit `0`, duration `138843 ms`; pytest cache contains 820 node IDs and `lastfailed={}`. |
-| Frontend tests | **814 passed, 146 files** | Completed client test run. |
+| Frontend tests | **814 passed, 146 files** | Includes request/evidence regressions. The final grid-width and button-class presentation changes were subsequently verified by the build and compiled browser runs. |
 | Analyzer tests | **86 passed** | Completed analyzer regression run. |
 | Frontend typecheck | **PASS** | Completed local check. |
-| Frontend build | **PASS** | Verification build; final committed release artifact is still pending. |
+| Frontend build | **PASS** | Built at source `955af39383ba80ce0680f428c786cb1191aef8b9`; `build_utc_timestamp=2026-10-21T14:35:32.689Z`, Vite 8.43 s. Existing large-chunk advisory only. |
 | Real PostgreSQL concurrency scheduling | **NOT RUN** | Controlled SQLite committed-session regressions do not prove PostgreSQL lock scheduling. |
 | Independent CI / PR checks | **NOT VERIFIED** | No CI result or PR completion is asserted by this audit. |
 
 ### Final browser evidence
 
-The development-server run captured all 30 states with successful steps and zero overflow, unnamed controls, missing alt text, or small targets. Strict/full mode nevertheless returned exit 2 for an aborted `/api/v1/auth/identity` request per viewport; this is not recorded as a passing strict gate. The compiled release rerun is pending.
+Both role plans passed in strict/full mode against the compiled preview at `http://127.0.0.1:4183/inventory`, with build metadata bound to source `955af39383ba80ce0680f428c786cb1191aef8b9`. Staff exercises six states per viewport; manager exercises four.
 
-| Role | Phone | Tablet | Desktop |
+| Role | Phone (390 × 844) | Tablet (768 × 1024) | Desktop (1440 × 900) |
 | --- | --- | --- | --- |
-| Staff | Functional states pass; compiled strict run pending | Functional states pass; compiled strict run pending | Functional states pass; compiled strict run pending |
-| Manager | Functional states pass; compiled strict run pending | Functional states pass; compiled strict run pending | Functional states pass; compiled strict run pending |
+| Staff | **PASS — 6 states** | **PASS — 6 states** | **PASS — 6 states** |
+| Manager | **PASS — 4 states** | **PASS — 4 states** | **PASS — 4 states** |
 
-Use `ui-qa-inventory-catinat-staff-plan.json` and `ui-qa-inventory-catinat-manager-plan.json` with their matching fixtures. Earlier screenshots or a permission-only empty state are not substitutes for the final candidate/count states.
+All **30 states** have zero viewport overflow, unnamed controls, missing alt text, and small targets. All console/page errors, failed requests, ignored failed requests, bad HTTP responses, and failed steps are empty. Both commands exited `0`.
 
-The default UI Auto-Fix path exhausted its **two repair attempts**. Stale fixture/state mappings were corrected, and test-environment setup resolved the font-installation 403 failure. The accepted older visual baseline still blocks the final visual gate for the intended UI changes. The candidate-table grid now constrains its column width while preserving internal table scrolling. Development-server metrics show zero overflow at all three viewports; the final compiled rerun remains pending. **No visual baseline has been automatically accepted.** Any baseline proposal must follow explicit user review under `AGENTS.md` and the existing UI workflow.
+Evidence, relative to the repository:
+
+- Staff: `apps/client/.ui-qa/inventory-catinat-staff-release/2026-10-21T14-36-21-280Z/report.json`.
+- Manager: `apps/client/.ui-qa/inventory-catinat-manager-release/2026-10-21T14-37-18-412Z/report.json`.
+- Plans: `ui-qa-inventory-catinat-staff-plan.json` and `ui-qa-inventory-catinat-manager-plan.json`, with matching client fixtures.
+
+These are synthetic role fixtures. The staff scenario stops before saving a count; the manager scenario uses a fixture approval response. Exact submit payload and server authorization behavior are covered by the UI/API regressions. No real physical count, approval, stock, or Sheets write is implied. Native iOS/Android/iPad checks were not run.
+
+The default UI Auto-Fix path exhausted its **two repair attempts**. Stale fixture/state mappings were corrected, and normal local dependency installation resolved the earlier font 403 environment failure. The accepted baseline contains older Inventory state names, so the final visual gate still requires an explicit baseline proposal and user review under `AGENTS.md`. **No visual baseline has been automatically accepted.**
+
+Candidate-table overflow was repaired by constraining the parent grid column and retaining horizontal scrolling inside the table. The compiled three-viewport runs confirm zero viewport overflow. An earlier development-server strict run returned exit 2 for an identity request abort; that run was not claimed as a passing strict gate, and the final compiled reports contain no failed or ignored requests.
 
 ## Production boundary and remaining uncertainty
 
@@ -51,13 +61,13 @@ The candidate's existing release lineage includes earlier migrations through Cat
 
 ## Packaging and release gates
 
+Source commit **S** is `955af39383ba80ce0680f428c786cb1191aef8b9`. The frontend was rebuilt at that exact commit. The accompanying artifact commit packages generated `apps/client/dist` and this final verification record; no frontend source changes were made after S. Runtime dependencies and the temporary backend virtualenv link are excluded from Git.
+
 Follow [VPS deployment](VPS_DEPLOYMENT.md) after the remaining gates pass:
 
-1. Commit the completed source, tests, fixtures, and current audit evidence as **S**; exclude test-generated dist and runtime links.
-2. Rebuild frontend at **S** and complete final compiled staff/manager browser evidence.
-3. Record those results in the audit documentation, then commit generated dist and documentation separately as **R**. Produce the visual baseline proposal at that final HEAD and obtain explicit review before accepting it. S and R are placeholders, not assigned commit hashes. Do not ship a verification build whose metadata points to the older base while frontend source has changed.
-4. Recheck concurrent `origin/main`, preserve its work, obtain actual CI evidence, and use a clean release checkout at **R**.
-5. Establish live backend schema compatibility before selecting migration behavior. The official backend `--no-migrate` option does not prove compatibility and still permits normal service/timer activation.
-6. Preflight the exact official release command. For backend rollback readiness retain at least two releases; the current script's default retention is one. Verify live revision, health, and authenticated read-only production UI smoke after any eventual deployment.
+1. Create the governed Inventory visual baseline proposal at the final clean HEAD, present its candidates, and obtain explicit current-user approval before accepting it or rerunning the final visual gate.
+2. Recheck concurrent `origin/main`, preserve its work, publish the review branch, and obtain actual CI evidence. This note does not assert a PR or CI result.
+3. Establish live backend schema compatibility and unambiguous release provenance before selecting migration behavior. The official backend `--no-migrate` option does not prove compatibility and still permits normal service/timer activation.
+4. Preflight the exact official release command from a clean checkout. For backend rollback readiness retain at least two releases; the script's default retention is one. Verify live revision, health, and authenticated read-only production UI smoke after any eventual deployment.
 
-The official scripts remain `scripts/deploy-cam-frontend.sh` and `scripts/cam-rebuild-backend.sh`. Standing authorization covers a normal reviewed release once its gates pass; it does not authorize baseline acceptance, unsafe migrations, or bypassing CodeLocal policy. Backend rollback does not downgrade the database. **Source/dist commits and deployment are forthcoming, not completed.**
+The official scripts remain `scripts/deploy-cam-frontend.sh` and `scripts/cam-rebuild-backend.sh`. Standing authorization covers a normal reviewed release once its gates pass; it does not authorize baseline acceptance, unsafe migrations, or bypassing CodeLocal policy. Backend rollback does not downgrade the database. **No deployment has been performed.**

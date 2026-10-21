@@ -7,9 +7,11 @@
 - [x] Add manager-authorized, evidence-bound atomic material bulk review and protect approval audit metadata against stale candidate/evidence updates.
 - [x] Correct UI authorization/request lifecycle and add staff/manager fixtures and targeted regressions.
 - [x] Record Inventory API 820 passed, frontend 814 passed across 146 files, analyzer 86 passed, typecheck/build PASS.
-- [ ] Fill final staff/manager phone/tablet/desktop browser outcomes and finish explicit visual baseline review; no automatic baseline acceptance.
+- [x] Pass all 30 compiled strict/full staff/manager browser states on phone, tablet, and desktop, with zero recorded issues and zero viewport overflow.
+- [ ] Finish explicit visual baseline proposal review and the final visual gate; no automatic baseline acceptance.
 - [ ] Establish live backend provenance/schema compatibility and record real PostgreSQL concurrency validation limits.
-- [ ] Create source commit S, rebuild at S, commit dist R, verify CI, and follow the reviewed clean-checkout release workflow; no deployment yet.
+- [x] Commit source `955af39383ba80ce0680f428c786cb1191aef8b9`, rebuild at that exact source, and package dist with final verification evidence.
+- [ ] Publish the review branch, obtain actual CI, and follow the reviewed clean-checkout release workflow after the remaining gates; no deployment yet.
 
 Details: [Inventory business audit — 21 October 2026](docs/operations/INVENTORY_BUSINESS_AUDIT_20261021.md).
 
