@@ -82,6 +82,17 @@ unchanged source row counts, scoped Branding constraints and validated dump
 checksum. This evidence **does not claim a fresh migration run**; it audits a
 clone already found at revision 0173. Production migration was not run.
 
+## Q01/Q14/Q44 — read-only catalog and warehouse mapping candidate audit (21 Oct)
+
+- `GET /api/inventory/daily-sheet/catinat/catalog/mapping-preview?business_date=...` requires `inventory.read` and obtains the configured tenant workbook through the existing read-only evening readiness loader. The caller cannot submit a workbook, tenant, SKU or material mapping. Responses include the authoritative source hash and source cell identities for all three physical warehouse tabs.
+- Exact Unicode NFC + trimmed/collapsed whitespace + case-insensitive **name candidates**, separate whole/loose unit checks, active items and exact warehouse names are evaluated within **one tenant**. No fuzzy/AI guesses, invented unit conversions, SKU equivalence, cross-tenant fallback or inferred missing warehouses.
+- Records distinguish no item, duplicate item, missing unit, mismatched unit and missing/ambiguous warehouse. Even a perfect name/unit/location candidate is `uncertified` until a manager verifies canonical material identities and location assignments; this endpoint does **not** create catalog data or approve exceptions.
+- The Vietnamese `Kiểm kê ca tối` page shows all three location states, total candidate/missing cells and per-cell review reasons. It cross-checks the same `source_hash` as readiness, count confirmations and closing preflight. If any fresh read differs it fails closed and clears the screen.
+- `ready_to_sign=false`, `automatic_carry_forward_allowed=false`, `inventory_writes=0`, `sheets_writes=0`. Real signed shift closing remains disabled. No production database or Google Sheets mutation.
+- Test: `test_catinat_catalog_mapping.py` covers tenant separation, duplicate candidates, missing locations, unit mismatch, stale date, untrusted source, duplicate cell and authenticated GET-only access. The Catinat UI test covers read-only route and Vietnamese review states.
+
+**Still required before enabling ledger/carry-forward:** manager-approved persistent mapping with versioned source evidence; explicit physical warehouse identities; approved conversions and package/batch/expiry/waste checks; transactional transfer ledger posting; human close sign-off and conflict-proof Sheets writer protocol.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.

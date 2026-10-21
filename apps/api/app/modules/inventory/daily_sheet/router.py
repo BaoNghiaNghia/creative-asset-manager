@@ -20,6 +20,7 @@ from app.modules.inventory.daily_sheet.replay_queue import HistoricalReplayQueue
 from app.modules.inventory.daily_sheet.catinat_preview import CatinatPreviewError, load_catinat_preview
 from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_evening_readiness
 from app.modules.inventory.daily.catinat_close_preflight import CatinatClosePreflightService
+from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
 from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
@@ -258,6 +259,25 @@ def get_catinat_shift_readiness(
             principal.active_tenant_id, business_date, sessions=SessionLocal,
         )
     except CatinatPreviewError as exc:
+        raise HTTPException(409, detail={"code": exc.code}) from exc
+    except DailySheetProviderError as exc:
+        raise HTTPException(503, detail={"code": exc.code}) from exc
+
+
+@router.get("/catinat/catalog/mapping-preview")
+def get_catinat_catalog_mapping_preview(
+    business_date: date,
+    principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION)),
+):
+    """Read-only exact-match candidates, never approved catalog mappings."""
+    try:
+        return CatinatCatalogMappingPreview(SessionLocal).inspect(
+            tenant_id=principal.active_tenant_id, business_date=business_date,
+            current_readiness=lambda: load_evening_readiness(
+                principal.active_tenant_id, business_date, sessions=SessionLocal,
+            ),
+        )
+    except (CatinatCountBlocked, CatinatPreviewError) as exc:
         raise HTTPException(409, detail={"code": exc.code}) from exc
     except DailySheetProviderError as exc:
         raise HTTPException(503, detail={"code": exc.code}) from exc
