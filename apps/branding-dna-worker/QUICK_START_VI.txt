@@ -1,4 +1,4 @@
-BRANDING DNA BROWSER AGENT - WINDOWS v0.2.8
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.9
 ==========================================
 Type: Windows portable bootstrap ZIP, not a standalone EXE.
 Sites: Amazon and Etsy only. Uses Chromium browser, no marketplace API
@@ -37,11 +37,22 @@ or third-party scraping service.
    plus SQLite progress, skips already observed product IDs, and never
    uploads to CAM or starts automatic shop scanning.
 
+10. CAM shop-by-shop runner (use in the existing scan_pinterest checkout):
+    apps\\branding-dna-worker\\INSPECT_CAM_SHOPS.cmd
+    apps\\branding-dna-worker\\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID
+    apps\\branding-dna-worker\\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5
+    Each shop needs its own actual reviewed approval at
+    %LOCALAPPDATA%\\CreativeAssetManager\\BrandingDNA\\cam-shop-pilots\\SHOP_UUID\\approval.json
+    Shop URLs are taken solely from CAM. Inspect does not browse.
+    Run-approved opens browsers ONLY for shops that pass all gates.
+    Etsy needs express written permission, and Amazon must follow its Agent Policy.
+    No approval is created automatically and no CAM job lease is claimed.
+
 If a site requests CAPTCHA, login or denies access, stop and review manually.
 Do not work around challenges or rate limits. No production job dispatch,
 gallery upload, Best Seller inference or automatic full-shop crawling yet.
 
 Release checksum: see .zip.sha256 adjacent to ZIP. To verify on Windows:
-  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.8-win-x64.zip" SHA256
+  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.9-win-x64.zip" SHA256
 
 More details: README.md and docs\BROWSER_AGENT_PILOT.md

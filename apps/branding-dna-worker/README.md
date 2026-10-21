@@ -1,4 +1,35 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.8
+# Branding DNA Windows Worker — Windows Portable v0.2.9
+
+## v0.2.9 — Serial CAM shop browser operator runner
+
+The existing **CAM Shop Library** supplies shop IDs, URLs and their ownership
+status. `INSPECT_CAM_SHOPS.cmd` checks each shop without opening any marketplace.
+`RUN_CAM_APPROVED_SHOPS.cmd` starts a **finite, explicit, sequential** series
+of visible Chromium pilots, up to five independently approved shops per call
+(default one shop), max three product pages per shop. It stops the series on
+a challenge, redirect error or parser failure rather than moving to the next shop.
+Reports and SQLite progress remain isolated by shop and are never uploaded.
+
+Windows checkout `D:\\Desify_Agentic\\scan_pinterest`:
+```cmd
+apps\branding-dna-worker\INSPECT_CAM_SHOPS.cmd
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5
+```
+
+Private approval file for each exact shop must be placed at
+`%LOCALAPPDATA%\\CreativeAssetManager\\BrandingDNA\\cam-shop-pilots\\SHOP_UUID\\approval.json`.
+It must reflect reviewed **actual** platform permission, not merely checking
+boxes; Etsy requires Etsy's express written permission for browser automation,
+and Amazon requires a reviewed current Agent Policy. The runner does not
+create approval files, mark any shop as authorized, or bypass an access block.
+A shop is excluded if CAM marks it inactive or not owned/authorized, if the
+local approval is missing/expired, or if platform-specific evidence is absent.
+The approval file remains private and outside the repository. This operator
+runner is NOT the production CAM lease dispatcher, and Start Agent continues
+to be standby-only. No scheduled mass scan or remote task execution is enabled.
+
+
 
 ## v0.2.8 — Visible Chromium product inspection
 

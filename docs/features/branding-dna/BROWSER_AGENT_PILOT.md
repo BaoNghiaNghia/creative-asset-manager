@@ -1,5 +1,27 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — Local CAM shop-by-shop visible runner v0.2.9
+
+Provides an explicit operator-only, sequential `--run-approved` command using
+CAM's exact shop UUID and authoritative URL, without a duplicated local shop
+catalog. Local approval documents, isolated Chromium profile directories, and
+SQLite-backed partial reports are stored outside the checkout under the
+Windows user's LOCALAPPDATA. `--inspect` only verifies metadata and local
+approval presence and makes **zero** marketplace requests. `--run-approved`
+runs a maximum of five separately eligible shops (one by default), three
+product pages per shop, one Chromium context at a time, with bounded navigation
+delays and immediate halt upon needs-operator/access restrictions. No periodic
+loop, forced login, CAPTCHA bypass, stealth, marketplace APIs, remote lease,
+database ingestion, rights inference or automatic training.
+
+Platform compliance is NOT established by an operator's own CAM or local
+declaration. Written Etsy authorization and Amazon's current Agent Policy
+still require independent evidence and review. The production dispatch-preview
+contract remains disabled; an approved local pilot should never masquerade as
+a production scan job.
+
+
+
 ## 2026-10-21 — Visible browsing hardening, Windows v0.2.8
 
 The `visible_click` option launches a headed Chromium browser, clicks only
