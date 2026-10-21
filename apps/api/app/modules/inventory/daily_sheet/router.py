@@ -23,6 +23,7 @@ from app.modules.inventory.daily.catinat_close_preflight import CatinatClosePref
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
+from app.modules.inventory.daily.catinat_certification_router import router as catinat_certification_router
 from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
 from app.modules.inventory.daily.catinat_transfer_router import router as catinat_transfer_router
 
@@ -710,5 +711,6 @@ def set_baseline(body: BaselineRequest, principal: CurrentPrincipal = Depends(re
 
 # Separate tenant-scoped manager approval API; approvals never apply inventory writes.
 router.include_router(catinat_approval_router)
+router.include_router(catinat_certification_router)
 router.include_router(catinat_count_router)
 router.include_router(catinat_transfer_router)

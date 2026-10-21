@@ -153,6 +153,27 @@ export const catinatApprovalApi = {
   ),
 };
 
+export type CatinatCatalogCertification = {
+  id:string;version:number;business_date:string;sheet:string;cell:string;
+  source_hash:string;material:string;form:string;unit:string;
+  item_id:string;location_id:string;approval_request_id:string;
+  approved_by:string;certified_by:string;certification_note:string;
+  certified_at:string|null;status:"evidence_only";mapping_activated:false;
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;idempotent_replay:boolean;
+};
+/** An approved request must still pass fresh server-side evidence checks. */
+export const catinatCatalogCertificationApi = {
+  list:(businessDate:string)=>request<{items:CatinatCatalogCertification[];mapping_activated:false;
+    ready_to_sign:false;sheets_writes:0}>(
+    "/daily-sheet/catinat/catalog-certifications?business_date="+encodeURIComponent(businessDate),
+  ),
+  certify:(body:{approval_request_id:string;item_id:string;location_id:string;note:string})=>
+    request<CatinatCatalogCertification>("/daily-sheet/catinat/catalog-certifications",{
+      method:"POST",body:JSON.stringify(body),
+    }),
+};
+
 export type InventoryDailySheetConfiguration = {
   image_pipeline_enabled:boolean;
   daily_sheet_automation_enabled:boolean;

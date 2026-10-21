@@ -46,7 +46,7 @@ class CatinatCatalogMappingPreview:
     def inspect(self, *, tenant_id: str, business_date: date,
                 current_readiness: Callable[[], dict]) -> dict:
         ready = current_readiness()
-        digest, _ = _source(ready, business_date)
+        digest, spreadsheet = _source(ready, business_date)
         source_rows = ready["items"]
         # Even this read-only preview must fail closed on repeated or malformed
         # cell identity; a duplicated spreadsheet row cannot be silently accepted.
@@ -118,7 +118,7 @@ class CatinatCatalogMappingPreview:
             })
         candidates_count = counts.get("exact_name_and_unit_candidate", 0)
         return {
-            "business_date": business_date.isoformat(),
+            "business_date": business_date.isoformat(), "spreadsheet_id": spreadsheet,
             "shift": "evening", "source_hash": digest,
             "mode": "read_only_uncertified_catalog_candidates",
             "catalog_coverage": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  catinatApprovalApi, InventoryApiError,
+  catinatApprovalApi, catinatCatalogCertificationApi, InventoryApiError,
+  type CatinatCatalogCertification,
   type CatinatApproval, type CatinatApprovalKind, type CatinatApprovalStatus,
 } from "./api";
 
@@ -29,6 +30,18 @@ export function parseCatinatProposal(value:string):Record<string,unknown> {
   return parsed as Record<string,unknown>;
 }
 
+export function exactCatinatCertificationCandidates(approval:CatinatApproval|null):
+  {item_id:string;location_id:string}|null {
+  if(approval?.kind!=="catalog_mapping"||approval.status!=="approved"||
+     approval.proposal.matching_status!=="exact_name_and_unit_candidate")return null;
+  const items=approval.proposal.candidate_item_ids;
+  const places=approval.proposal.candidate_location_ids;
+  if(!Array.isArray(items)||!Array.isArray(places)||
+     items.length!==1||places.length!==1||
+     typeof items[0]!=="string"||typeof places[0]!=="string")return null;
+  return {item_id:items[0],location_id:places[0]};
+}
+
 function errorMessage(error:unknown):string {
   if (error instanceof InventoryApiError && error.status===403) {
     return "Tài khoản không có quyền thực hiện thao tác này, hoặc người tạo không được tự phê duyệt.";
@@ -49,6 +62,8 @@ export function InventoryCatinatApprovals(){
   const [reason,setReason]=useState("");
   const [proposal,setProposal]=useState("{\n  \"material_id\": \"\",\n  \"location_id\": \"\",\n  \"physical_quantity\": \"\"\n}");
   const [decisionNote,setDecisionNote]=useState("");
+  const [certificationNote,setCertificationNote]=useState("");
+  const [certifications,setCertifications]=useState<CatinatCatalogCertification[]>([]);
   const requestKey=useRef<string|null>(null);
 
   const reload=useCallback(async()=>{
@@ -68,9 +83,44 @@ export function InventoryCatinatApprovals(){
     return()=>{active=false;};
   },[filter]);
 
+  useEffect(()=>{
+    setSelected(null);
+    setCertificationNote("");
+    setCertifications([]);
+  },[businessDate]);
+
   const changeDraft=(setter:(value:string)=>void,value:string)=>{
     setter(value);
     requestKey.current=null;
+  };
+
+  const certificationCandidates=exactCatinatCertificationCandidates(selected);
+
+  const loadCertifications=async()=>{
+    try{
+      const result=await catinatCatalogCertificationApi.list(businessDate);
+      setCertifications(result.items);
+    }catch(error){setMessage(errorMessage(error));}
+  };
+
+  const certifyApprovedMapping=async()=>{
+    if(!selected||!certificationCandidates||busy||certificationNote.trim().length<8)return;
+    if(!window.confirm(
+      "Lưu chứng cứ ánh xạ đã được quản lý phê duyệt? "+
+      "Việc này không kích hoạt mapping, ghi tồn hoặc chốt ca."
+    ))return;
+    setBusy(true);setMessage("");
+    try{
+      const result=await catinatCatalogCertificationApi.certify({
+        approval_request_id:selected.id,
+        ...certificationCandidates,note:certificationNote.trim(),
+      });
+      setCertifications(previous=>[result,...previous.filter(row=>row.id!==result.id)]);
+      setCertificationNote("");
+      setMessage("Đã lưu chứng cứ xác minh phiên bản "+result.version+
+        ". Ánh xạ CHƯA được kích hoạt; tồn kho và Sheets chưa thay đổi.");
+    }catch(error){setMessage(errorMessage(error));}
+    finally{setBusy(false);}
   };
 
   const submit=async()=>{
@@ -162,6 +212,22 @@ export function InventoryCatinatApprovals(){
             {JSON.stringify(selected.proposal,null,2)}
           </pre>
           {selected.decided_by&&<p><b>Người duyệt:</b> {selected.decided_by} · {selected.decision_reason}</p>}
+          {certificationCandidates&&<section className="inventory-material-candidate">
+            <h4>Lưu chứng cứ ánh xạ đã duyệt (không kích hoạt)</h4>
+            <p className="inventory-muted">
+              Nguyên liệu ID: {certificationCandidates.item_id}, kho ID: {certificationCandidates.location_id}.
+              Hệ thống sẽ đối chiếu lại dữ liệu Sheets và danh mục trước khi ghi chứng cứ.
+              <strong> Chứng cứ không thay đổi số tồn, không chốt ca hoặc tự ghi Sheets.</strong>
+            </p>
+            <label htmlFor="catinat-cert-note">Ghi chú xác minh của quản lý (ít nhất 8 ký tự)</label>
+            <textarea id="catinat-cert-note" rows={2} value={certificationNote}
+              onChange={event=>setCertificationNote(event.target.value)}/>
+            <button type="button" disabled={busy||certificationNote.trim().length<8}
+              onClick={()=>void certifyApprovedMapping()}>
+              Lưu chứng cứ đã xác minh
+            </button>
+          </section>}
+
           {selected.status==="pending"&&<>
             <label htmlFor="catinat-decision-note">Lý do quyết định (bắt buộc)</label>
             <textarea id="catinat-decision-note" rows={3} value={decisionNote} onChange={event=>setDecisionNote(event.target.value)}/>
@@ -173,6 +239,17 @@ export function InventoryCatinatApprovals(){
         </div>:<p className="inventory-muted">Chọn một yêu cầu để xem chi tiết.</p>}
       </section>
     </div>
+    <section style={{marginTop:20}}>
+      <h3>Lịch sử chứng cứ ánh xạ (chưa kích hoạt)</h3>
+      <button type="button" disabled={busy} onClick={()=>void loadCertifications()}>
+        Xem chứng cứ ngày {businessDate}
+      </button>
+      {certifications.map(record=><p key={record.id} className="inventory-muted">
+        v{record.version} · {record.sheet} {record.cell} · {record.material} ·
+        {record.item_id} / {record.location_id} ·
+        {record.certified_by} · Chỉ lưu chứng cứ, chưa cập nhật tồn
+      </p>)}
+    </section>
     <section style={{marginTop:20}}>
       <h3>Gửi yêu cầu mới</h3>
       <p className="inventory-muted">Số liệu bên dưới là đề xuất cần duyệt, không phải tồn kho đã xác nhận.</p>

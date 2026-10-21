@@ -1097,6 +1097,55 @@ class InventoryCatinatApprovalEventModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
 
 
+class InventoryCatinatCatalogCertificationModel(Base):
+    """Immutable, versioned manager evidence; NOT an activated mapping or stock record."""
+    __tablename__ = "inventory_catinat_catalog_certifications"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "approval_request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_approval",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "item_id"], ["inventory_items.tenant_id", "inventory_items.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_item",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "location_id"], ["inventory_locations.tenant_id", "inventory_locations.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_location",
+        ),
+        UniqueConstraint("tenant_id", "approval_request_id", name="uq_catinat_cert_approval"),
+        UniqueConstraint(
+            "tenant_id", "spreadsheet_file_id", "sheet_name", "cell_ref", "version",
+            name="uq_catinat_cert_cell_version",
+        ),
+        CheckConstraint("version > 0", name="ck_catinat_cert_version"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_cert_hash"),
+        CheckConstraint("status = 'evidence_only'", name="ck_catinat_cert_not_activated"),
+        Index("ix_catinat_cert_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    approval_request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    approved_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    certified_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    certification_note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    certified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="evidence_only")
+
+
 class InventoryCatinatCountConfirmationModel(Base):
     """Append-only per-cell physical count confirmations; NOT a shift close."""
     __tablename__ = "inventory_catinat_count_confirmations"
