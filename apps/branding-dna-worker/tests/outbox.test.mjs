@@ -126,11 +126,20 @@ test("hard queue cap rejects new events without deleting older ones",()=>{
  });
 });
 
-test("refuses an existing symlink as a database location",()=>{
+test("refuses an existing symlink as a database location",t=>{
  withDir((path,dir)=>{
   const target=join(dir,"target.sqlite");
   const o=openOutbox(target);o.close();
-  symlinkSync(target,path);
+  try{symlinkSync(target,path)}catch(error){
+    // Windows without Developer Mode or SeCreateSymbolicLinkPrivilege cannot
+    // construct this fixture. Report a real SKIP, never a false PASS. The
+    // rejection remains tested on Linux CI and on capable Windows hosts.
+    if(process.platform==="win32" && ["EPERM","EACCES"].includes(error?.code)){
+      t.skip("Windows user cannot create file symlinks; Linux CI verifies rejection");
+      return;
+    }
+    throw error;
+  }
   assert.throws(()=>openOutbox(path),/symlink/);
  });
 });
