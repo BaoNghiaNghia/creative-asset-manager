@@ -1023,6 +1023,323 @@ class InventoryDailyCarryForwardModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow, onupdate=inventory_utcnow)
 
 
+class InventoryCatinatSignedShiftModel(Base):
+    """Append-only authoritative employee-confirmed shift inventory snapshot."""
+    __tablename__ = "inventory_catinat_signed_shifts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "business_date", "shift", name="uq_catinat_signed_shift_tenant_day"),
+        CheckConstraint("shift IN ('morning','evening')", name="ck_catinat_signed_shift_name"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_signed_shift_source_hash"),
+        CheckConstraint("length(snapshot_hash) = 64", name="ck_catinat_signed_shift_hash"),
+        Index("ix_catinat_signed_shifts_date", "tenant_id", "business_date", "shift"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    shift: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    counts_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryCatinatApprovalRequestModel(Base):
+    """Audited proposals; approved status never mutates stock or Sheets directly."""
+    __tablename__ = "inventory_catinat_approval_requests"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_approval_request_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_approval_tenant_key"),
+        CheckConstraint(
+            "kind IN ('discrepancy','catalog_mapping','package_conversion','post_close_adjustment','transfer_exception','waste_disposal')",
+            name="ck_catinat_approval_kind",
+        ),
+        CheckConstraint("status IN ('pending','approved','rejected')", name="ck_catinat_approval_status"),
+        Index("ix_catinat_approval_tenant_day_status", "tenant_id", "business_date", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(String(1000), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+    decision_reason: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InventoryCatinatApprovalEventModel(Base):
+    """Append-only audit trail of requests and decisions."""
+    __tablename__ = "inventory_catinat_approval_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_approval_event_request",
+        ),
+        CheckConstraint("action IN ('requested','approved','rejected')", name="ck_catinat_approval_event_action"),
+        Index("ix_catinat_approval_event_request", "tenant_id", "request_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryCatinatCatalogCertificationModel(Base):
+    """Immutable, versioned manager evidence; NOT an activated mapping or stock record."""
+    __tablename__ = "inventory_catinat_catalog_certifications"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "approval_request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_approval",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "item_id"], ["inventory_items.tenant_id", "inventory_items.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_item",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "location_id"], ["inventory_locations.tenant_id", "inventory_locations.id"],
+            ondelete="RESTRICT", name="fk_catinat_cert_location",
+        ),
+        UniqueConstraint("tenant_id", "approval_request_id", name="uq_catinat_cert_approval"),
+        UniqueConstraint(
+            "tenant_id", "spreadsheet_file_id", "sheet_name", "cell_ref", "version",
+            name="uq_catinat_cert_cell_version",
+        ),
+        CheckConstraint("version > 0", name="ck_catinat_cert_version"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_cert_hash"),
+        CheckConstraint("status = 'evidence_only'", name="ck_catinat_cert_not_activated"),
+        Index("ix_catinat_cert_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    approval_request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_proposal_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    approved_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    certified_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    certification_note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    certified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="evidence_only")
+
+
+class InventoryCatinatCountConfirmationModel(Base):
+    """Append-only per-cell physical count confirmations; NOT a shift close."""
+    __tablename__ = "inventory_catinat_count_confirmations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "business_date", "shift", "sheet_name",
+            "cell_ref", "source_hash",
+            name="uq_catinat_count_confirmation_source_cell",
+        ),
+        CheckConstraint("shift IN ('morning','evening')", name="ck_catinat_count_confirmation_shift"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_count_confirmation_hash"),
+        Index("ix_catinat_confirmations_day", "tenant_id", "business_date", "shift"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    shift: Mapped[str] = mapped_column(String(16), nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    physical_quantity: Mapped[str] = mapped_column(String(64), nullable=False)
+    physical_raw: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryCatinatBatchEvidenceModel(Base):
+    """Append-only, staff-attested batch timestamps; not accepted stock/expiry/waste."""
+    __tablename__ = "inventory_catinat_batch_evidence"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_batch_tenant_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_batch_tenant_key"),
+        CheckConstraint("event_kind IN ('prepared','opened')", name="ck_catinat_batch_event_kind"),
+        CheckConstraint("status = 'staff_attested_unverified'", name="ck_catinat_batch_unverified"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_batch_source_hash"),
+        Index("ix_catinat_batch_day", "tenant_id", "business_date", "sheet_name", "cell_ref"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    lot_reference: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    package_expiry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    attested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="staff_attested_unverified")
+
+
+class InventoryCatinatWasteWitnessModel(Base):
+    """One independently witnessed physical-disposal statement per approved request.
+
+    These evidence rows do not debit canonical stock, verify Google Sheets
+    writeback, or create any ledger transaction.
+    """
+    __tablename__ = "inventory_catinat_waste_witnesses"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_waste_witness_tenant_id"),
+        UniqueConstraint("tenant_id", "approval_request_id", name="uq_catinat_waste_witness_approval"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_waste_witness_key"),
+        ForeignKeyConstraint(
+            ["tenant_id", "approval_request_id"],
+            ["inventory_catinat_approval_requests.tenant_id", "inventory_catinat_approval_requests.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_witness_approval",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "batch_evidence_id"],
+            ["inventory_catinat_batch_evidence.tenant_id", "inventory_catinat_batch_evidence.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_witness_batch",
+        ),
+        CheckConstraint("quantity > 0", name="ck_catinat_waste_witness_quantity"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_waste_witness_hash"),
+        CheckConstraint("status = 'staff_witnessed_unposted'", name="ck_catinat_waste_witness_unposted"),
+        Index("ix_catinat_waste_witness_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    approval_request_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    batch_evidence_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    method: Mapped[str] = mapped_column(String(100), nullable=False)
+    evidence_reference: Mapped[str] = mapped_column(String(2048), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    witnessed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    witnessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    evidence_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="staff_witnessed_unposted")
+
+
+class InventoryCatinatWasteCertificationModel(Base):
+    """Separate manager countersign of physical witness; still no stock writes."""
+    __tablename__ = "inventory_catinat_waste_certifications"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "witness_id", name="uq_catinat_waste_cert_witness"),
+        ForeignKeyConstraint(
+            ["tenant_id", "witness_id"],
+            ["inventory_catinat_waste_witnesses.tenant_id", "inventory_catinat_waste_witnesses.id"],
+            ondelete="RESTRICT", name="fk_catinat_waste_cert_witness",
+        ),
+        CheckConstraint("status = 'countersigned_unposted'", name="ck_catinat_waste_cert_unposted"),
+        Index("ix_catinat_waste_cert_tenant_day", "tenant_id", "business_date"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    witness_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    approved_source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    certified_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    certified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="countersigned_unposted")
+
+
+class InventoryCatinatTransferModel(Base):
+    """Audited handoff/receipt tracker, intentionally separate from stock ledger."""
+    __tablename__ = "inventory_catinat_transfers"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_transfer_tenant_id"),
+        UniqueConstraint("tenant_id", "reference_key", name="uq_catinat_transfer_tenant_reference"),
+        ForeignKeyConstraint(["tenant_id", "item_id"],
+                             ["inventory_items.tenant_id", "inventory_items.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_item"),
+        ForeignKeyConstraint(["tenant_id", "source_location_id"],
+                             ["inventory_locations.tenant_id", "inventory_locations.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_source"),
+        ForeignKeyConstraint(["tenant_id", "destination_location_id"],
+                             ["inventory_locations.tenant_id", "inventory_locations.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_destination"),
+        CheckConstraint("dispatched_quantity > 0", name="ck_catinat_transfer_dispatched_positive"),
+        CheckConstraint("received_quantity >= 0 AND received_quantity <= dispatched_quantity",
+                        name="ck_catinat_transfer_receipt_bounds"),
+        CheckConstraint("status IN ('pending_receipt','partial_receipt','received')",
+                        name="ck_catinat_transfer_status"),
+        Index("ix_catinat_transfer_day_status", "tenant_id", "business_date", "status"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    reference_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    item_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    source_location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    destination_location_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatched_quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    received_quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False, default=Decimal("0"))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_receipt")
+    dispatched_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    dispatched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    received_last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ledger_posted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class InventoryCatinatTransferEventModel(Base):
+    """Append-only events with a per-transfer receipt idempotency key."""
+    __tablename__ = "inventory_catinat_transfer_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "transfer_id"],
+                             ["inventory_catinat_transfers.tenant_id", "inventory_catinat_transfers.id"],
+                             ondelete="RESTRICT", name="fk_catinat_transfer_event_transfer"),
+        UniqueConstraint("tenant_id", "transfer_id", "event_key",
+                         name="uq_catinat_transfer_event_key"),
+        CheckConstraint("action IN ('dispatched','received')", name="ck_catinat_transfer_event_action"),
+        CheckConstraint("quantity > 0", name="ck_catinat_transfer_event_quantity"),
+        Index("ix_catinat_transfer_events_transfer", "tenant_id", "transfer_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, nullable=False)
+    transfer_id: Mapped[str] = mapped_column(ENTITY_ID, nullable=False)
+    event_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(QUANTITY, nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
 class InventoryPromptVersionModel(Base):
     __tablename__ = "inventory_prompt_versions"
     __table_args__ = (

@@ -35,7 +35,13 @@ PHASE2_RUNTIME_TABLES = {
     "inventory_prompt_versions", "inventory_material_external_identities",
     "inventory_material_package_conversions", "inventory_material_candidates",
     "inventory_operation_audits", "inventory_operation_changes",
-    "inventory_knowledge_entries",
+    "inventory_knowledge_entries", "inventory_catinat_signed_shifts",
+    "inventory_catinat_approval_requests", "inventory_catinat_approval_events",
+    "inventory_catinat_count_confirmations",
+    "inventory_catinat_transfers", "inventory_catinat_transfer_events",
+    "inventory_catinat_catalog_certifications",
+    "inventory_catinat_batch_evidence",
+    "inventory_catinat_waste_witnesses", "inventory_catinat_waste_certifications",
 }
 
 
@@ -50,6 +56,16 @@ class InventoryPersistenceMetadataTest(unittest.TestCase):
         self.assertEqual(inventory_tables, PHASE2_TABLES)
         for table_name in PHASE2_TABLES:
             self.assertIn("tenant_id", Base.metadata.tables[table_name].c)
+
+    def test_catinat_signed_shifts_have_unique_tenant_day_shift(self) -> None:
+        table = Base.metadata.tables["inventory_catinat_signed_shifts"]
+        self.assertIn("tenant_id", table.c)
+        self.assertIn("source_hash", table.c)
+        self.assertIn("snapshot_hash", table.c)
+        self.assertTrue(any(
+            set(constraint.columns.keys()) == {"tenant_id", "business_date", "shift"}
+            for constraint in table.constraints
+        ))
 
     def test_foreign_keys_do_not_target_creative_business_tables(self) -> None:
         allowed = PHASE2_TABLES | {"tenants", "external_sources"}

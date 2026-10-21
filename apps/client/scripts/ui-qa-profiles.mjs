@@ -32,14 +32,14 @@ export const UI_QA_PROFILES = Object.freeze({
   },
   "inventory": {
     scope: "inventory",
-    route: "/inventory/materials",
-    fixture: "apps/client/scripts/fixtures/inventory.json",
+    route: "/inventory",
+    fixture: "apps/client/scripts/fixtures/inventory-daily.json",
     plan: "docs/operations/ui-qa-inventory-plan.json",
     baseline: "apps/client/visual-baselines/inventory",
   },
   "inventory-daily": {
     scope: "inventory-daily",
-    route: "/inventory/pipeline",
+    route: "/inventory",
     fixture: "apps/client/scripts/fixtures/inventory-daily.json",
     plan: "docs/operations/ui-qa-inventory-daily-plan.json",
     baseline: "apps/client/visual-baselines/inventory-daily",

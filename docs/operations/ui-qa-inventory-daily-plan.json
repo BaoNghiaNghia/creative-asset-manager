@@ -1,9 +1,31 @@
 {
-  "viewports": ["desktop", "compact", "tabletLandscape", "tabletPortrait", "mobile", "mobileSmall"],
+  "viewports": [
+    "desktop",
+    "compact",
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
   "steps": [
-    { "name": "pipeline-default", "waitFor": ".inventory-pipeline table tbody tr", "waitMs": 250 },
-    { "name": "refresh-focus", "focus": ".inventory-pipeline-header-actions button:last-child" },
-    { "name": "refresh-click", "click": ".inventory-pipeline-header-actions button:last-child", "waitFor": ".inventory-pipeline table tbody tr", "waitMs": 250 },
-    { "name": "refresh-hover", "hover": ".inventory-pipeline-header-actions button:last-child" }
+    {
+      "name": "overview-default",
+      "waitFor": "main.inventory-workspace .ops-inventory-summary-card.run",
+      "waitMs": 350
+    },
+    {
+      "name": "stage-hover",
+      "hover": ".ops-inventory-grid .ops-inventory-card:first-child"
+    },
+    {
+      "name": "refresh-focus",
+      "focus": ".ops-inventory-refresh-action"
+    },
+    {
+      "name": "exception-summary-toggle",
+      "click": ".ops-inventory-human-actions > summary",
+      "waitFor": ".ops-inventory-human-buttons",
+      "waitMs": 120
+    }
   ]
 }
