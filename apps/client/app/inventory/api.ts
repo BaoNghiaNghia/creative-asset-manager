@@ -93,7 +93,21 @@ export type CatinatCountConfirmationResult = {
   confirmed:Array<{sheet:string;cell:string;quantity:string;confirmed_by:string}>;
   official_shift_closed:false;inventory_write_performed:false;sheets_writes:0;
 };
+export type CatinatCatalogMapping = {
+  business_date:string;shift:"evening";source_hash:string;
+  mode:"read_only_uncertified_catalog_candidates";
+  catalog_coverage:{active_item_count:number;active_location_count:number;certified:false};
+  locations:Array<{sheet:string;status:string;candidate_location_ids:string[]}>;
+  items:Array<{sheet:string;cell:string;material:string;form:string;unit:string;
+    status:string;candidate_item_ids:string[];location_status:string}>;
+  summary:{total:number;exact_candidates:number;requires_review:number;by_status:Record<string,number>};
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
 export const catinatShiftApi = {
+  catalogMappingPreview:(businessDate:string)=>request<CatinatCatalogMapping>(
+    "/daily-sheet/catinat/catalog/mapping-preview?business_date="+encodeURIComponent(businessDate),
+  ),
   readiness:(businessDate:string)=>request<CatinatEveningReadiness>(
     "/daily-sheet/catinat/shift/readiness?business_date="+encodeURIComponent(businessDate),
   ),

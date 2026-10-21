@@ -2,7 +2,7 @@ import {createElement} from "react";
 import {renderToStaticMarkup} from "react-dom/server";
 import {afterEach,describe,expect,it,vi} from "vitest";
 import {catinatShiftApi,type CatinatPhysicalReadinessItem} from "./api";
-import {InventoryCatinatShiftReadiness,summarizeCatinatReadiness} from "./InventoryCatinatShiftReadiness";
+import {InventoryCatinatShiftReadiness,summarizeCatinatReadiness,CATINAT_MAPPING_STATUS} from "./InventoryCatinatShiftReadiness";
 
 describe("Catinat shift readiness",()=>{
   afterEach(()=>vi.unstubAllGlobals());
@@ -50,6 +50,20 @@ describe("Catinat shift readiness",()=>{
       business_date:"2026-10-20",expected_source_hash:"a".repeat(64),
       cells:[{sheet:"KHO PHA CHẾ",cell:"L5"}],
     });
+  });
+
+  it("uses read-only tenant-scoped catalog mapping preview with Vietnamese review reasons",async()=>{
+    const fetchMock=vi.fn(async (_url:string,_options?:RequestInit)=>({
+      ok:true,json:async()=>({items:[],locations:[],ready_to_sign:false,sheets_writes:0}),
+    }));
+    vi.stubGlobal("fetch",fetchMock);
+    await catinatShiftApi.catalogMappingPreview("2026-10-20");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/inventory/daily-sheet/catinat/catalog/mapping-preview?business_date=2026-10-20"
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+    expect(CATINAT_MAPPING_STATUS.ambiguous_item).toContain("trùng tên");
+    expect(CATINAT_MAPPING_STATUS.exact_name_and_unit_candidate).toContain("chờ quản lý");
   });
 
   it("uses the protected inventory-read API rather than a writer endpoint",async()=>{

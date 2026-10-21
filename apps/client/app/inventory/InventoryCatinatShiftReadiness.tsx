@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   catinatShiftApi, type CatinatEveningReadiness, type CatinatPhysicalReadinessItem,
-  type CatinatCountConfirmationState, type CatinatClosePreflight,
+  type CatinatCountConfirmationState, type CatinatClosePreflight, type CatinatCatalogMapping,
 } from "./api";
 
 function todayVietnam(){
@@ -39,6 +39,19 @@ const ISSUE:Record<string,string>={
   physical_count_unconfirmed_or_stale:"Kiểm đếm chưa xác nhận hoặc Sheets đã thay đổi",
 };
 
+export const CATINAT_MAPPING_STATUS:Record<string,string>={
+  exact_name_and_unit_candidate:"Tên, đơn vị và tên kho trùng khớp; chờ quản lý xác nhận",
+  no_exact_item:"Chưa tìm thấy nguyên liệu cùng tên trong danh mục",
+  ambiguous_item:"Nhiều nguyên liệu trùng tên; cần quản lý phân biệt",
+  material_name_missing:"Dòng Sheets chưa có tên nguyên liệu",
+  source_unit_missing:"Thiếu đơn vị tồn kho trong Sheets",
+  unit_mismatch:"Đơn vị Sheets khác danh mục; chưa xác nhận quy đổi",
+  location_requires_review:"Khu vực kho chưa có ánh xạ rõ ràng",
+  no_exact_location:"Chưa tìm thấy vị trí kho cùng tên",
+  ambiguous_location:"Nhiều vị trí kho trùng tên; cần phân biệt",
+  exact_name_candidate:"Tên kho trùng khớp; chưa được phê duyệt",
+};
+
 function itemKey(sheet:string,cell:string){return sheet+"|"+cell;}
 
 export function InventoryCatinatShiftReadiness(){
@@ -46,6 +59,7 @@ export function InventoryCatinatShiftReadiness(){
   const [data,setData]=useState<CatinatEveningReadiness|null>(null);
   const [confirmed,setConfirmed]=useState<CatinatCountConfirmationState|null>(null);
   const [preflight,setPreflight]=useState<CatinatClosePreflight|null>(null);
+  const [catalog,setCatalog]=useState<CatinatCatalogMapping|null>(null);
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
@@ -55,25 +69,30 @@ export function InventoryCatinatShiftReadiness(){
     setData(null);
     setConfirmed(null);
     setPreflight(null);
+    setCatalog(null);
     setSelected([]);
     setStaffChecked(false);
   },[businessDate]);
 
   async function readCurrent(){
-    const [next,proof,safety]=await Promise.all([
+    const [next,proof,safety,mapping]=await Promise.all([
       catinatShiftApi.readiness(businessDate),
       catinatShiftApi.confirmations(businessDate),
       catinatShiftApi.closingPreflight(businessDate),
+      catinatShiftApi.catalogMappingPreview(businessDate),
     ]);
-    if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash){
+    if(next.source_hash!==proof.source_hash || next.source_hash!==safety.source_hash
+       || next.source_hash!==mapping.source_hash){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
+    setCatalog(null);
       throw new Error("Google Sheets thay đổi trong lúc kiểm tra. Hãy tải lại dữ liệu.");
     }
     setData(next);
     setConfirmed(proof);
     setPreflight(safety);
+    setCatalog(mapping);
   }
 
   async function load(){
@@ -83,6 +102,7 @@ export function InventoryCatinatShiftReadiness(){
     setData(null);
     setConfirmed(null);
     setPreflight(null);
+    setCatalog(null);
     setSelected([]);
     setStaffChecked(false);
     try{await readCurrent();}
@@ -131,6 +151,7 @@ export function InventoryCatinatShiftReadiness(){
       setData(null);
       setConfirmed(null);
       setPreflight(null);
+    setCatalog(null);
       setSelected([]);
       setStaffChecked(false);
       setMessage(
@@ -228,6 +249,35 @@ export function InventoryCatinatShiftReadiness(){
         </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
           <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
+      </section>}
+      {catalog&&<section>
+        <h3>Đối chiếu danh mục nguyên liệu và vị trí kho</h3>
+        <p className="inventory-muted">
+          Tìm thấy {catalog.summary.exact_candidates}/{catalog.summary.total} ô có tên nguyên liệu,
+          đơn vị và tên kho khớp chính xác; còn {catalog.summary.requires_review} ô cần rà soát.
+          <strong> Đây chỉ là ứng viên, chưa được quản lý duyệt và không được dùng để chốt tồn.</strong>
+        </p>
+        <div style={{overflowX:"auto"}}>
+          <table>
+            <thead><tr><th>Khu vực trên Sheets</th><th>Trạng thái danh mục kho</th></tr></thead>
+            <tbody>{catalog.locations.map(place=><tr key={place.sheet}>
+              <td>{place.sheet}</td>
+              <td>{CATINAT_MAPPING_STATUS[place.status]||place.status}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <details>
+          <summary>Xem đối chiếu theo từng ô nguyên liệu ({catalog.items.length})</summary>
+          <div style={{overflowX:"auto"}}>
+            <table>
+              <thead><tr><th>Kho</th><th>Ô Sheets</th><th>Nguyên liệu</th><th>Đơn vị</th><th>Kết quả đối chiếu</th></tr></thead>
+              <tbody>{catalog.items.map(row=><tr key={itemKey(row.sheet,row.cell)}>
+                <td>{row.sheet}</td><td>{row.cell}</td><td>{row.material}</td><td>{row.unit||"Thiếu"}</td>
+                <td>{CATINAT_MAPPING_STATUS[row.status]||row.status}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </details>
       </section>}
       <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"
