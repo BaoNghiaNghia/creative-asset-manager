@@ -16,7 +16,7 @@ from app.modules.authorization.principal import CurrentPrincipal
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily_sheet.router import router
-from app.modules.inventory.persistence_model import InventoryItemModel, InventoryLocationModel
+from app.modules.inventory.persistence_model import InventoryItemModel, InventoryLocationModel, InventoryMaterialCandidateModel
 
 DAY = date(2026, 10, 20)
 
@@ -40,6 +40,7 @@ def db():
                            connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine, tables=[
         TenantModel.__table__, InventoryItemModel.__table__, InventoryLocationModel.__table__,
+        InventoryMaterialCandidateModel.__table__,
     ])
     sessions = sessionmaker(engine, expire_on_commit=False)
     with sessions.begin() as session:
@@ -67,6 +68,55 @@ def db():
         ))
     yield CatinatCatalogMappingPreview(sessions), sessions
     engine.dispose()
+
+
+def test_confirmed_locations_bootstrap_is_idempotent_and_does_not_touch_stock(db):
+    from app.modules.inventory.daily.catinat_location_bootstrap import bootstrap_confirmed_locations
+    _, sessions = db
+    with sessions.begin() as session:
+        preview = bootstrap_confirmed_locations(session, "tenant-a")
+        assert [row["status"] for row in preview["locations"]] == [
+            "existing", "would_create", "would_create",
+        ]
+    with sessions.begin() as session:
+        applied = bootstrap_confirmed_locations(session, "tenant-a", apply=True)
+        assert [row["status"] for row in applied["locations"]] == [
+            "existing", "created", "created",
+        ]
+        assert applied["inventory_writes"] == applied["sheet_writes"] == 0
+    with sessions.begin() as session:
+        again = bootstrap_confirmed_locations(session, "tenant-a", apply=True)
+        assert all(row["status"] == "existing" for row in again["locations"])
+    with sessions() as session:
+        assert len(session.query(InventoryLocationModel).filter_by(tenant_id="tenant-a").all()) == 3
+        assert len(session.query(InventoryLocationModel).filter_by(tenant_id="tenant-b").all()) == 1
+
+
+def test_material_grouping_preserves_source_and_never_auto_certifies(db):
+    from app.modules.inventory.daily.catinat_material_grouping import grouped_material_candidates
+    _, sessions = db
+    with sessions.begin() as session:
+        for index, name in enumerate(("SỮA ĐẶC", " SỮA  ĐẶC ", "SỮA KHÁC")):
+            session.add(InventoryMaterialCandidateModel(
+                tenant_id="tenant-a", source_id="source", sheet="KHO PHA CHẾ",
+                source_row=index + 1, external_key=str(index), raw_name=name,
+                status="new_material", context_json={
+                    "review_evidence": {"status": "explicit_unit_found", "unit_evidence": [
+                        {"value": "lon" if index < 2 else "hộp"}
+                    ]}
+                },
+            ))
+    with sessions() as session:
+        result = grouped_material_candidates(session, "tenant-a")
+        assert result["source_rows"] == 3
+        assert result["unique_names"] == 2
+        assert result["automatic_approvals"] == 0
+        assert result["inventory_writes"] == result["sheet_writes"] == 0
+        exact = next(item for item in result["groups"] if item["source_row_count"] == 2)
+        assert exact["status"] == "exact_name_and_evidence_unit_candidate"
+        assert exact["certified"] is False
+        assert exact["candidate_item_ids"] == ["milk-a"]
+        assert grouped_material_candidates(session, "tenant-b")["source_rows"] == 0
 
 
 def test_exact_name_unit_location_are_candidates_only(db):

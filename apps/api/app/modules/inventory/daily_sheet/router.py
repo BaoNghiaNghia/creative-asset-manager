@@ -22,6 +22,7 @@ from app.modules.inventory.daily_sheet.catinat_shift_readiness import load_eveni
 from app.modules.inventory.daily.catinat_close_preflight import CatinatClosePreflightService
 from app.modules.inventory.daily.catinat_safety_audit import read_only_shelf_life_transfer_audit
 from app.modules.inventory.daily.catinat_catalog_mapping import CatinatCatalogMappingPreview
+from app.modules.inventory.daily.catinat_material_grouping import grouped_material_candidates
 from app.modules.inventory.daily.catinat_count_confirmations import CatinatCountBlocked
 from app.modules.inventory.daily.catinat_approval_router import router as catinat_approval_router
 from app.modules.inventory.daily.catinat_certification_router import router as catinat_certification_router
@@ -325,6 +326,11 @@ def get_catinat_closing_preflight(
     except DailySheetProviderError as exc:
         raise HTTPException(503, detail={"code": exc.code}) from exc
 
+
+@router.get("/catinat/catalog/material-candidate-groups")
+def get_catinat_material_candidate_groups(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
+    with SessionLocal() as session:
+        return grouped_material_candidates(session, principal.active_tenant_id)
 
 @router.get("/status")
 def get_status(principal: CurrentPrincipal = Depends(require_permission(INVENTORY_READ_PERMISSION))):
