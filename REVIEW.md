@@ -2868,3 +2868,12 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Artifacts: `docs/features/branding-dna/PRODUCT_CREATIVE_SYSTEM_SPEC.md`, `PRODUCT_CREATIVE_IMPLEMENTATION_PLAN.md`, README and UI spec cross-links, ROADMAP status.
 - Documentation-only change: no migration, dependencies, secrets, worker/scanner activation, new queue, image generation, runtime deployment or live model training. Existing tenant/SSRF/rights gates remain mandatory; rollback by reverting this documentation commit.
 - Validation: links, content invariants and `git diff --check` are planned for the commit; no production Browser QA is asserted for this docs-only change.
+
+## 2026-10-22 — Scout Manager explicit startup request (0.1.44 source)
+
+- Added strict, opt-in `--start-automation` for the native Manager and its CMD launcher. It invokes the same three-mode Run automation before background controllers/UI exist; ordinary launch stays Idle, and a second instance cannot control the current owner.
+- Missing pairing fails closed. Synchronous initial launch failure pauses all owned modes through the existing Stop/Windows Job Object path and bounded own-agent lease release, with a visible fixed-scope error. No external runner adoption, new IPC, environment-wide preference, browser-profile deletion or credential change.
+- No backend/frontend API change, migration, dependency or Browser Agent marketplace authorization/dispatch change. Five Manager version manifests advance to 0.1.44 so published 0.1.43 assets remain immutable.
+- Added native argument/lifecycle/process-cleanup fixtures and a 12-case resolve-only Windows launcher regression. CI runs the launcher gate before packaging/publication, alongside the existing native, install, tamper and legacy-preservation gates.
+- Verification: Manager manifest/lockfile preflight passed for 0.1.44; `git diff --check` and the staging gate passed against ef1e85b9 (Python compileall passed, API pytest skipped because the isolated checkout has no API virtualenv; unchanged web frontend skipped). Independent source review found no blocker. Native Rust and Windows PowerShell execution are unavailable on the editing VPS, so those runtime/parser tests remain Windows CI gates. No installation or deployment success is asserted here.
+- Rollback: Quit and stop, restore the retained verified prior Portable release and launch normally; preserve all pairing, profiles and completed results. Startup failure may leave unfinished work to retry through normal lease rules.

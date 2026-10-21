@@ -7,6 +7,8 @@ on:
       - "apps/scout-manager-desktop/**"
       - "apps/rrugc_scout/**"
       - "apps/branding-dna-worker/**"
+      - "START_SCOUT_TAURI.cmd"
+      - "scripts/test_scout_manager_startup.ps1"
       - ".github/workflows/scout-manager-windows.yml"
   push:
     branches: [main]
@@ -19,6 +21,8 @@ on:
       - "scripts/build_scout_manager_tauri.ps1"
       - "scripts/install_scout_manager_release.ps1"
       - "scripts/check_scout_manager_versions.py"
+      - "START_SCOUT_TAURI.cmd"
+      - "scripts/test_scout_manager_startup.ps1"
       - ".github/workflows/scout-manager-windows.yml"
 
 permissions:
@@ -107,6 +111,11 @@ jobs:
           } finally {
             Write-Host "::endgroup::"
           }
+      - name: Explicit startup launcher regression (Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/test_scout_manager_startup.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Validate Scout Manager manifest and dependency lockfile
         shell: pwsh
         run: python scripts/check_scout_manager_versions.py
