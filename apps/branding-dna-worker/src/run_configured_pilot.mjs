@@ -8,7 +8,9 @@ import {pathToFileURL,fileURLToPath} from "node:url";
 import {assertShopUrl,validateBrowserPermission,runBrowserPilot} from "./browser_pilot.mjs";
 import {openShopProgress} from "./local_scan_progress.mjs";
 
-export const VERSION="0.2.3";
+import {WORKER_VERSION} from "./version.mjs";
+
+export const VERSION=WORKER_VERSION;
 const ROOT=resolve(fileURLToPath(new URL("..",import.meta.url)));
 const KEYS=new Set([
   "platform","shop_url","approval_file","profile_dir","report_dir",

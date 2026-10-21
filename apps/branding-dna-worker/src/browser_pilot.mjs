@@ -13,6 +13,14 @@ const AMAZON_ASSETS = ["images-na.ssl-images-amazon.com", "m.media-amazon.com", 
 const ETSY_ASSETS = ["i.etsystatic.com", "img0.etsystatic.com", "img1.etsystatic.com", "img2.etsystatic.com", "img3.etsystatic.com", "img4.etsystatic.com"];
 const MAX_PRODUCT_PAGES=5;
 const USER_AGENT = "Agent/CreativeAssetManagerBrandDNA (BrowserPilot; +https://creative-assets.ddns.net)";
+const BROWSER_REVIEW_REASONS=new Set([
+  "unexpected_shop_redirect","marketplace_access_limited_on_scroll",
+  "product_redirect_mismatch","popup_parent_shop_changed",
+  "visible_product_link_not_found","shop_back_navigation_mismatch",
+  "invalid_product_link","cross_origin_product_link","unsafe_product_path",
+  "non_listing_link","non_product_link","product_navigation_response_unavailable",
+  "marketplace_access_limited",
+]);
 const normalizePath=(p)=>{try{return decodeURIComponent(p)}catch{throw new Error("unsafe_path")}};
 const digest=(text)=>createHash("sha256").update(text).digest("hex");
 
@@ -245,7 +253,15 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
     throw new Error("invalid_product_limit");
   // Validate the cooldown window before launching any browser or saving state.
   boundedCooldownMs(minimumDelayMs,maximumDelayMs,()=>0);
-  const pauseNavigation=async()=>wait(boundedCooldownMs(minimumDelayMs,maximumDelayMs,random));
+  let accessLimited=false;
+  const requireAccess=()=>{
+    if(accessLimited)throw new Error("marketplace_access_limited");
+  };
+  const pauseNavigation=async()=>{
+    requireAccess();
+    await wait(boundedCooldownMs(minimumDelayMs,maximumDelayMs,random));
+    requireAccess();
+  };
   if(!profileDir || typeof profileDir!=="string")throw new Error("dedicated_profile_dir_required");
   const dir=resolve(profileDir);
   const normalized=dir.replaceAll("\\","/").toLowerCase();
@@ -256,95 +272,153 @@ export async function runBrowserPilot({shopUrl,platform,authorization,profileDir
   // Lock is never auto-recovered: operator must verify process is stopped.
   const lock=dir+".pilot.lock";
   const fd=openSync(lock,"wx",0o600);
+  const records=[];
+  const outcome=(status,reason)=>({
+    status,platform,shop_url_sha256:digest(shop.url),
+    observed_at:new Date().toISOString(),
+    items:records,observed_count:records.length,coverage_state:"partial",
+    rights_verified:false,sales_verified:false,evidence_committed:false,scan_enabled:false,
+    ...(reason ? {reason} : {}),
+    note:"Local pilot only; no CAM upload or task dispatch",
+  });
+  const documentResponses=new WeakMap();
+  // Register on the context before navigating: a popup's document response
+  // can arrive before the opener emits its popup event. Images and child
+  // frames cannot replace the status of the product's main document.
+  const onResponse=response=>{
+    try{
+      const request=response.request();
+      if(!request.isNavigationRequest() || request.resourceType()!=="document")return;
+      const frame=request.frame(), responsePage=frame.page();
+      if(frame===responsePage.mainFrame()){
+        const status=response.status();
+        documentResponses.set(responsePage,{url:response.url(),status});
+        // A refusal stays latched even if another document later succeeds.
+        if([403,429].includes(status))accessLimited=true;
+      }
+    }catch{/* An unavailable/detached frame cannot verify a product document. */}
+  };
   let context;
-  try{
-    const launch=launchPersistentContext ?? (await import("playwright")).chromium.launchPersistentContext;
-    context=await launch(dir,{
-      headless,
-      acceptDownloads:false,
-      serviceWorkers:"block",
-      permissions:[],
-      userAgent:USER_AGENT,
-      viewport:{width:1280,height:900},
-    });
-    await context.route("**/*",async route=>{
-      const request=route.request();
-      const url=request.url();
-      const allowed=request.isNavigationRequest()
-        ? navigationAllowed(url,shop)
-        : resourceAllowed(url,shop);
-      if(allowed)await route.continue();
-      else await route.abort();
-    });
-    const page=await context.newPage();
-    page.setDefaultTimeout(10000);
-    await pauseNavigation();
-    const shopResponse=await page.goto(shop.url,{waitUntil:"domcontentloaded",timeout:30000});
-    if([403,429].includes(shopResponse?.status?.()))
-      return {status:"needs_operator",platform,reason:"marketplace_access_limited",items:[],scan_enabled:false};
-    if(page.url().replace(/\/$/,"")!==shop.url)throw new Error("unexpected_shop_redirect");
-    const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
-    const blocker=isBlockingPage(await page.title(),summary);
-    if(blocker)return {status:"needs_operator",platform,reason:blocker,items:[],scan_enabled:false};
-    const links=await collectVisibleLinks(page,shop,interactionMode,skipKeys,{limit:maxProducts,wait});
-    if(links.length===0)return {
-      status:"needs_operator",platform,
-      reason:skipKeys.size ? "no_new_visible_listings_review_shop_page" : "no_visible_listings_or_parser_changed",
-      items:[],scan_enabled:false,
-    };
-    const records=[];
-    let mainPageOnProduct=false;
-    for(const [index,link] of links.slice(0,maxProducts).entries()){
-      let detailPage=page,openedPopup=false;
-      if(interactionMode==="visible_click"){
-        // Same-tab products require Back; popup products leave the original
-        // shop page unchanged. Never walk unrelated browser history.
-        if(index>0 && mainPageOnProduct){
+  const execute=async()=>{
+    try{
+      const launch=launchPersistentContext ?? (await import("playwright")).chromium.launchPersistentContext;
+      context=await launch(dir,{
+        headless,
+        acceptDownloads:false,
+        serviceWorkers:"block",
+        permissions:[],
+        userAgent:USER_AGENT,
+        viewport:{width:1280,height:900},
+      });
+      context.on("response",onResponse);
+      await context.route("**/*",async route=>{
+        const request=route.request();
+        const url=request.url();
+        const allowed=request.isNavigationRequest()
+          ? navigationAllowed(url,shop)
+          : resourceAllowed(url,shop);
+        if(allowed)await route.continue();
+        else await route.abort();
+      });
+      const page=await context.newPage();
+      page.setDefaultTimeout(10000);
+      await pauseNavigation();
+      const shopResponse=await page.goto(shop.url,{waitUntil:"domcontentloaded",timeout:30000});
+      if([403,429].includes(shopResponse?.status?.()))
+        return outcome("needs_operator","marketplace_access_limited");
+      if(page.url().replace(/\/$/,"")!==shop.url)throw new Error("unexpected_shop_redirect");
+      const summary=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
+      const blocker=isBlockingPage(await page.title(),summary);
+      if(blocker)return outcome("needs_operator",blocker);
+      const links=await collectVisibleLinks(page,shop,interactionMode,skipKeys,{limit:maxProducts,wait});
+      if(links.length===0)return outcome("needs_operator",
+        skipKeys.size ? "no_new_visible_listings_review_shop_page" : "no_visible_listings_or_parser_changed");
+
+      let mainPageOnProduct=false;
+      for(const [index,link] of links.slice(0,maxProducts).entries()){
+        let detailPage=page,openedPopup=false;
+        if(interactionMode==="visible_click"){
+          // Same-tab products require Back; popup products leave the original
+          // shop page unchanged. Never walk unrelated browser history.
+          if(index>0 && mainPageOnProduct){
+            await pauseNavigation();
+            const backResponse=await page.goBack({waitUntil:"domcontentloaded",timeout:30000});
+            if([403,429].includes(backResponse?.status?.()))
+              return outcome("needs_operator","marketplace_access_limited_on_return");
+            if(page.url().replace(/\/$/,"")!==shop.url)
+              throw new Error("shop_back_navigation_mismatch");
+            const returnedBody=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
+            if(isBlockingPage(await page.title(),returnedBody))
+              return outcome("needs_operator","page_blocked_on_return");
+            mainPageOnProduct=false;
+          }
           await pauseNavigation();
-          const backResponse=await page.goBack({waitUntil:"domcontentloaded",timeout:30000});
-          if([403,429].includes(backResponse?.status?.()))
-            return {status:"needs_operator",platform,reason:"marketplace_access_limited_on_return",items:records,scan_enabled:false};
-          if(page.url().replace(/\/$/,"")!==shop.url)
-            throw new Error("shop_back_navigation_mismatch");
-          const returnedBody=(await page.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
-          if(isBlockingPage(await page.title(),returnedBody))
-            return {status:"needs_operator",platform,reason:"page_blocked_on_return",items:records,scan_enabled:false};
-          mainPageOnProduct=false;
+          documentResponses.delete(page);
+          ({detailPage,openedPopup}=await clickVisibleProductLink(page,shop,link));
+          mainPageOnProduct=!openedPopup;
+        }else{
+          await pauseNavigation();
+          const productResponse=await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
+          if([403,429].includes(productResponse?.status?.()))
+            return outcome("needs_operator","marketplace_access_limited");
         }
-        await pauseNavigation();
-        ({detailPage,openedPopup}=await clickVisibleProductLink(page,shop,link));
-        mainPageOnProduct=!openedPopup;
-      }else{
-        await pauseNavigation();
-        const productResponse=await page.goto(link.url,{waitUntil:"domcontentloaded",timeout:30000});
-        if([403,429].includes(productResponse?.status?.()))
-          return {status:"needs_operator",platform,reason:"marketplace_access_limited",items:records,scan_enabled:false};
+        try {
+          if(interactionMode==="visible_click"){
+            const response=documentResponses.get(detailPage);
+            if(!response || response.url.split("#",1)[0]!==detailPage.url().split("#",1)[0])
+              throw new Error("product_navigation_response_unavailable");
+            if([403,429].includes(response.status))
+              return outcome("needs_operator","marketplace_access_limited");
+          }
+          const finalProduct=assertProductLink(detailPage.url(),shop);
+          if(finalProduct.key!==link.key)throw new Error("product_redirect_mismatch");
+          const text=(await detailPage.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
+          const stopped=isBlockingPage(await detailPage.title(),text);
+          if(stopped)return outcome("needs_operator",stopped);
+          let record;
+          try{record=await collectDetail(detailPage,shop,link)}
+          catch {return outcome("needs_operator",accessLimited
+            ? "marketplace_access_limited" : "detail_parser_review_required");}
+          requireAccess();
+          records.push(record);
+          // Hold the visible product page for an operator to inspect. This is
+          // display time, not stealth or an attempt to imitate a person.
+          if(interactionMode==="visible_click")await wait(4000);
+          requireAccess();
+        }finally {
+          if(openedPopup)await detailPage.close().catch(()=>{});
+        }
       }
-      try {
-        const finalProduct=assertProductLink(detailPage.url(),shop);
-        if(finalProduct.key!==link.key)throw new Error("product_redirect_mismatch");
-        const text=(await detailPage.locator("body").innerText({timeout:5000}).catch(()=>"")).slice(0,2500);
-        const stopped=isBlockingPage(await detailPage.title(),text);
-        if(stopped)return {status:"needs_operator",platform,reason:stopped,items:records,scan_enabled:false};
-        try{records.push(await collectDetail(detailPage,shop,link))}
-        catch {records.push({listing_key:link.key,source_kind:"browser_dom_observation",source_verification:"unverified",error_code:"detail_parser_review_required"});}
-        // Hold the visible product page for an operator to inspect. This is
-        // display time, not stealth or an attempt to imitate a person.
-        if(interactionMode==="visible_click")await wait(4000);
-      }finally {
-        if(openedPopup)await detailPage.close().catch(()=>{});
-      }
+      return outcome("preview_completed");
+    } catch(error){
+      // Prelaunch rejection is still a rejection. Once a browser exists, save
+      // the successful prefix for explicit resume, and halt the serial batch.
+      // Playwright messages can include page URLs/content; persist fixed codes.
+      if(!context)throw error;
+      return outcome("needs_operator",BROWSER_REVIEW_REASONS.has(error?.message)
+        ? error.message : "browser_navigation_review_required");
     }
-    return {
-      status:"preview_completed",platform,shop_url_sha256:digest(shop.url),
-      observed_at:new Date().toISOString(),
-      items:records,observed_count:records.length,coverage_state:"partial",
-      rights_verified:false,sales_verified:false,evidence_committed:false,scan_enabled:false,
-      note:"Local pilot only; no CAM upload or task dispatch",
-    };
-  } finally{
-    try{await context?.close()}finally{closeSync(fd);unlinkSync(lock)}
+  };
+  let report,cleanupFailed=false;
+  try{
+    report=await execute();
+  }finally{
+    try{await context?.close()}
+    catch{cleanupFailed=true}
+    finally{
+      context?.off("response",onResponse);
+      closeSync(fd);
+      // A failed close leaves browser ownership uncertain. Preserve the
+      // lock for operator review while still saving the successful prefix.
+      if(!cleanupFailed)unlinkSync(lock);
+    }
   }
+  if(cleanupFailed)return {
+    ...outcome("needs_operator","browser_cleanup_review_required"),
+    profile_lock_retained:true,
+  };
+  if(accessLimited)return outcome("needs_operator","marketplace_access_limited");
+  return report;
 }
 
 function getCliArg(name){

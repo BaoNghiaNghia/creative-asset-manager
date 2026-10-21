@@ -2,6 +2,22 @@
 
 **Decision:** Build a dedicated **Branding DNA Scanner** process with its own Playwright runtime and browser profiles, hosted on a separate authorized Windows machine (or isolated Windows VM). **Reuse Scout Manager's deployment/monitoring patterns, not its Pinterest scraping code or Chrome profiles.** CAM VPS stays the central API, database, queue, Gemini and profile aggregator. No live scanner has been installed yet.
 
+## Implementation checkpoint — 2026-10-21 recovery
+
+The finite Windows browser pilot now preserves successful local observations
+when later parsing/navigation/cleanup fails. JSON reports remain authoritative
+over SQLite progress; stopped reports do not become CAM evidence. Main-document
+403/429 is latched, and uncertain browser cleanup retains its exclusive lock.
+
+Scout Manager 0.1.42 source supervises only the paired CAM standby child.
+Start, Stop, update exclusion and retry state share its process mutex. Four
+rapid launch attempts exhaust the budget; it resets after a 60-second stable
+child or an explicit Start. The supervisor never launches browser pilots or
+Pinterest, and worker lease/dispatch remains a separate unimplemented gate.
+
+Native Windows integration and an explicitly approved browser QA run are still
+required before field release. Linux policy tests do not satisfy those gates.
+
 ## 1. Evaluated options
 
 | Approach | Advantages | Disadvantages / risks | Decision |

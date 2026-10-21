@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { defaultOutboxPath, openOutbox, flushOutboxOnce } from "./outbox.mjs";
+import {WORKER_VERSION} from "./version.mjs";
 
 export function resolveSettings(env = process.env) {
   const address = env.BRANDING_DNA_SERVER_URL || "https://creative-assets.ddns.net";
@@ -21,7 +22,7 @@ export async function heartbeatOnce(config, requester=fetch) {
   const response=await requester(
     config.url + "/api/v1/branding-dna/workers/" + encodeURIComponent(config.agentId) + "/heartbeat",
     {method:"POST",headers:{"Authorization":"Bearer "+config.token,"Content-Type":"application/json"},
-     body:JSON.stringify({status:"idle",agent_version:"0.2.3"}),redirect:"error",signal:AbortSignal.timeout(15000)}
+     body:JSON.stringify({status:"idle",agent_version:WORKER_VERSION}),redirect:"error",signal:AbortSignal.timeout(15000)}
   );
   if(response.status===401 || response.status===403) throw new Error("enrollment_revoked");
   if(!response.ok) throw new Error("heartbeat_http_" + response.status);

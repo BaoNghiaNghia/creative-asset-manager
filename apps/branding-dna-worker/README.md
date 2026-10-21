@@ -1,4 +1,28 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.11
+# Branding DNA Windows Worker — Windows Portable v0.2.12
+
+## v0.2.12 — Halt safely and preserve local progress
+
+Parser/navigation failures stop the current pilot and serial batch with
+`needs_operator`. Only successfully parsed product details count as observations.
+Their immutable report is saved before the per-shop SQLite checkpoint; the next
+explicit run skips that successful prefix. Stopped reports cannot be prepared
+as CAM evidence.
+
+Same-tab and popup products require a fresh main-document response. HTTP 403/429
+also stops the run if it arrives during extraction or the visible display hold.
+Image and child-frame errors do not replace the product document's status.
+Errors use bounded reason codes without saving raw browser exception text.
+
+If Chromium cleanup fails, the report keeps successful observations and records
+`browser_cleanup_review_required` / `profile_lock_retained:true`. The profile
+lock is kept. An operator must verify that the browser process has stopped
+before removing that exact lock and explicitly resuming.
+
+Report and heartbeat versions now come from the shipped package metadata.
+The accompanying Scout Manager 0.1.42 source serializes Start/Stop with its
+standby supervisor and limits rapid restart attempts. Native Windows tests and
+a real approved browser pilot remain separate release acceptance gates.
+
 
 ## v0.2.11 — Remove CAM ownership authorization gating
 
@@ -49,9 +73,9 @@ Reports and SQLite progress remain isolated by shop and are never uploaded.
 
 Windows checkout `D:\\Desify_Agentic\\scan_pinterest`:
 ```cmd
-apps\branding-dna-worker\INSPECT_CAM_SHOPS.cmd
-apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID
-apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5
+node apps\branding-dna-worker\src\cam_shop_batch.mjs --inspect --env-file "scout.local.env"
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID --env-file "D:\Desify_Agentic\scan_pinterest\scout.local.env"
+apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5 --env-file "D:\Desify_Agentic\scan_pinterest\scout.local.env"
 ```
 
 Private approval file for each exact shop must be placed at
@@ -60,8 +84,9 @@ It must reflect reviewed **actual** platform permission, not merely checking
 boxes; Etsy requires Etsy's express written permission for browser automation,
 and Amazon requires a reviewed current Agent Policy. The runner does not
 create approval files, mark any shop as authorized, or bypass an access block.
-A shop is excluded if CAM marks it inactive or not owned/authorized, if the
-local approval is missing/expired, or if platform-specific evidence is absent.
+Current eligibility follows v0.2.11: CAM excludes deliberately paused shops;
+draft status and ownership declarations are not exclusion gates. Exact-shop
+local platform approval must still be present, valid and unexpired.
 The approval file remains private and outside the repository. This operator
 runner is NOT the production CAM lease dispatcher, and Start Agent continues
 to be standby-only. No scheduled mass scan or remote task execution is enabled.
@@ -134,19 +159,21 @@ request to start the agent is not permission to bypass those gates.
 
 ## Recommended: use the existing Scan Pinterest tool
 
-This worker is now **integrated in Scout Manager v0.1.21** using the
-`D:\Bot_Tool_Auto_Game\scan_pinterest` checkout. Do not install a second
-tool. Open `START_SCOUT_TAURI.cmd`, use the Branding DNA card's
-Install/Config/Check/Run/Stop and dedicated Live logs. All Pinterest modes
-remain unaffected. The v0.2.0 ZIP is retained only as a fallback.
-The v0.2.4 source adds optional visible UI clicks and per-shop durable
-SQLite progress to the same Manager,
-without installing any Chromium/Scout runtime on CAM's VPS.
+Use the existing paired Scout Manager checkout. Open `START_SCOUT_TAURI.cmd`
+and use the Branding DNA card's Start/Stop and dedicated live logs.
+Start maintains CAM standby; use the explicit shop commands above for a finite
+browser pilot. The 0.1.42 source adds bounded standby supervision and still
+requires native Windows validation before upgrading the installed Manager.
+
+The pilot keeps its own Chromium profile and per-shop SQLite progress,
+separate from Pinterest. Browser runtime remains on the authorized Windows
+host; it is not installed on CAM's VPS.
 
 ## Release / build mới (Windows)
 
-**Bản Windows Portable Bootstrap v0.2.4**, dự kiến GitHub Windows CI build
-`BrandingDNA-BrowserAgent-v0.2.4-win-x64.zip`. Chưa được cài trên máy Windows. Đây là
+**Mã nguồn Windows Portable Bootstrap v0.2.12**, đóng gói thành
+`BrandingDNA-BrowserAgent-v0.2.12-win-x64.zip`. Bản sửa cần qua kiểm thử
+Windows trước khi xác nhận đã triển khai. Đây là
 gói cài + launcher `.cmd`, **không phải EXE đã kèm Node/Chromium**. Đọc
 `QUICK_START_VI.txt` trong ZIP trước khi cài. ZIP và file `.zip.sha256`
 chỉ có thể dùng khi workflow build/release trên GitHub hoàn thành;
@@ -160,9 +187,11 @@ source code và phiên bản trong repo không tự chứng minh artefact đã x
   đường dẫn *tuyệt đối* tới file quyền riêng, profile và reports ở **bên ngoài**
   thư mục tool. `config/approval.example.json` chỉ là mẫu tất cả các quyền
   đều tắt, tuyệt đối không nhầm với giấy phép của Etsy/Amazon.
-- `CHECK_TOOL.cmd` kiểm tra máy, không duyệt web; `START_BROWSER_PILOT.cmd`
-  chỉ chạy sau khi xác minh đủ điều kiện đúng shop, bản phê duyệt còn hiệu lực.
-  Mỗi job pilot tối đa 5 trang sản phẩm, dừng khi có CAPTCHA/login/block.
+- `CHECK_TOOL.cmd` kiểm tra runtime. `START_CAM_AGENT.cmd` và tên tương thích
+  `START_BROWSER_PILOT.cmd` chỉ giữ kết nối CAM bằng pairing hiện có.
+  Chúng không duyệt sản phẩm. Dùng `RUN_CAM_APPROVED_SHOPS.cmd` hoặc
+  `cam_shop_pilot.mjs --resume` để chủ động chạy pilot của shop đủ điều kiện.
+  Mỗi batch tối đa 3 sản phẩm/shop; một pilot trực tiếp tối đa 5 sản phẩm.
 - `START_BRANDING_DNA_WORKER.cmd` giữ nguyên chế độ **heartbeat only**. Không
   có phát job production hay kết nối API của Etsy/Amazon.
 - Nâng cấp: giải nén bản mới trong thư mục riêng. Đừng xóa profile, reports,

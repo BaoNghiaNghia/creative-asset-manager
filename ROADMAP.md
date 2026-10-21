@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## Browser Agent recovery candidate 0.2.12 / Manager 0.1.42 (2026-10-21)
+
+- [x] Reproduce and repair parser counts, successful-prefix loss, serial-batch continuation and same-tab/popup refusal handling.
+- [x] Preserve immutable reports on cleanup failure and retain uncertain profile ownership for operator review.
+- [x] Serialize standby Start/Stop/retry/update decisions; verify six isolated Rust lifecycle-policy tests.
+- [x] Verify all 93 worker tests (including 20 recovery regressions), three release-builder tests, extracted-ZIP smoke, Manager frontend tests/build, version preflight and scoped staging gate.
+- [x] Unify package/report/heartbeat provenance and correct Start-versus-browse instructions.
+- [ ] Complete native Windows/Tauri build and real approved browser acceptance; do not equate source or heartbeat with deployed scanning.
+- [ ] Deploy the verified candidate through the existing Windows release workflow; production scan dispatch remains disabled.
+
 ## Branding DNA Windows runtime (2026-10-20)
 
 - [x] Implement paired live CAM heartbeat launcher with read-only shop/job diagnostics and no duplicate local shop configuration.

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {EventEmitter} from "node:events";
 import {mkdtempSync,rmSync,openSync,closeSync,unlinkSync,mkdirSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -102,6 +103,15 @@ test("page blockers halt scan without CAPTCHA solving",()=>{
 function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLinks=[productUrl],popupLinks=false,popupRedirect=false}={}){
  let closed=false,routed=null,visitCount=0,clickCount=0,backCount=0,popupsClosed=0;
  const current={url:shopUrl}, popupListeners=new Set();
+ const context=new EventEmitter();
+ function documentResponse(page){
+  if(!page.mainFrame){const frame={page:()=>page,parentFrame:()=>null};page.mainFrame=()=>frame;}
+  const frame=page.mainFrame(),url=page.url();
+  const request={url:()=>url,isNavigationRequest:()=>true,resourceType:()=>"document",frame:()=>frame};
+  const response={url:()=>url,status:()=>200,request:()=>request,frame:()=>frame};
+  context.emit("response",response);
+  return response;
+ }
  const makePopup=(clicked)=>({
   url:()=>popupRedirect ? "https://www.amazon.com/signin" : clicked,
   waitForLoadState:async()=>{},
@@ -125,9 +135,10 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
   async goto(url){
     visitCount++;
     current.url=redirect && visitCount===2 ? shopUrl:url;
+    return documentResponse(page);
   },
   url(){return current.url},
-  async goBack(){backCount++;current.url=shopUrl;},
+  async goBack(){backCount++;current.url=shopUrl;return documentResponse(page);},
   async waitForLoadState(){},
   getByRole(role){
     assert.equal(role,"link");
@@ -140,8 +151,9 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
           clickCount++;
           if(popupLinks){
             const newPage=makePopup(uiLinks[i]);
+            documentResponse(newPage);
             for(const callback of popupListeners)callback(newPage);
-          }else current.url=uiLinks[i];
+          }else {current.url=uiLinks[i];documentResponse(page);}
         },
       }},
     };
@@ -164,11 +176,9 @@ function fakeBrowser(shopUrl, productUrl, {challenge=false,redirect=false,uiLink
     return {count:async()=>0};
   },
  };
- const context={
-  newPage:async()=>page,
-  route:async(_glob, handler)=>{routed=handler},
-  close:async()=>{closed=true},
- };
+ context.newPage=async()=>page;
+ context.route=async(_glob,handler)=>{routed=handler};
+ context.close=async()=>{closed=true};
  return {
   launchPersistentContext:async(_dir,options)=>{
     assert.match(options.userAgent,/Agent\/CreativeAssetManagerBrandDNA/);
@@ -228,10 +238,14 @@ test("Etsy and Amazon manual challenge and redirect fail closed",async()=>{
   assert.equal(report.items.length,0);
   assert.ok(browser.getClosed());
   const redirected=fakeBrowser(AMAZON,AMAZON_LINK,{redirect:true});
-  await assert.rejects(()=>runBrowserPilot({
+  const redirectedReport=await runBrowserPilot({
     shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
     profileDir:join(dir,"amazon"),maxProducts:1,
-  },{launchPersistentContext:redirected.launchPersistentContext,wait:async()=>{}}),/non_product_link/);
+  },{launchPersistentContext:redirected.launchPersistentContext,wait:async()=>{}});
+  assert.equal(redirectedReport.status,"needs_operator");
+  assert.equal(redirectedReport.reason,"non_product_link");
+  assert.deepEqual(redirectedReport.items,[]);
+  assert.equal(redirectedReport.observed_count,0);
   assert.ok(redirected.getClosed());
  }finally{rmSync(dir,{recursive:true,force:true})}
 });
@@ -277,11 +291,14 @@ test("visible UI rejects popup redirect to login and cleans up popup and browser
  const dir=mkdtempSync(join(tmpdir(),"bdna-popup-deny-"));
  try{
   const browser=fakeBrowser(AMAZON,AMAZON_LINK,{popupLinks:true,popupRedirect:true});
-  await assert.rejects(()=>runBrowserPilot({
+  const report=await runBrowserPilot({
     shopUrl:AMAZON,platform:"amazon",authorization:authorization("amazon",AMAZON),
     profileDir:join(dir,"popup-profile"),interactionMode:"visible_click",maxProducts:1,
-  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}}),
-  /non_product_link/);
+  },{launchPersistentContext:browser.launchPersistentContext,wait:async()=>{}});
+  assert.equal(report.status,"needs_operator");
+  assert.equal(report.reason,"non_product_link");
+  assert.deepEqual(report.items,[]);
+  assert.equal(report.observed_count,0);
   assert.equal(browser.getClicks(),1);
   assert.equal(browser.getPopupsClosed(),1);
   assert.equal(browser.getClosed(),true);

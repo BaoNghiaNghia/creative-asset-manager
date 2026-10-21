@@ -1,5 +1,34 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-21 — Recovery and release provenance v0.2.12
+
+Only successfully parsed product details count toward observed products.
+A parser, navigation, Back or redirect failure returns a bounded
+`needs_operator` result and stops the serial batch. The successful prefix
+is saved as an immutable report before SQLite progress; an explicitly resumed
+run skips those keys. A stopped report remains ineligible for CAM evidence
+preparation, even when it contains useful local observations.
+
+Visible same-tab and popup products require their own fresh main-document
+response. A main-document HTTP 403/429 remains latched through parsing,
+display holds and cleanup; image/child-frame failures cannot overwrite it.
+A refusal while parsing prevents that product being recorded. A refusal
+after a successful observation preserves it but prevents further navigation.
+
+If closing Chromium fails, return `browser_cleanup_review_required` with
+`profile_lock_retained:true` and preserve the successful report. The operator
+must confirm the old browser process has stopped before removing that exact
+profile lock. There is no automatic lock recovery or unattended resume.
+
+Report and heartbeat provenance comes from package metadata. The associated
+Scout Manager 0.1.42 source supervises the paired standby heartbeat, with
+Start/Stop/update/shutdown decisions serialized under the process mutex and
+at most four rapid start attempts. Stable running for 60 seconds or explicit
+Start resets the retry budget. Starting the Manager does not start a pilot.
+
+The local/mock tests and package smoke are separate from native Windows
+build and real approved browser QA. No production dispatcher is enabled.
+
 ## 2026-10-21 — Bounded visible storefront scrolling v0.2.10
 
 The reviewed Windows pilot reads visible product cards from top to bottom

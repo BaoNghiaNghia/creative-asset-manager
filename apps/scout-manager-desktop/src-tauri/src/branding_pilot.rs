@@ -435,6 +435,8 @@ pub fn list_local_reports(repo:&Path)->Result<Vec<PilotReportCard>,String>{
 }
 
 pub struct BrandPilot {
+    // Intent and retry state share the child's Controller mutex.
+    cam_agent_supervisor: crate::cam_agent_supervisor::CamAgentSupervisor,
     child: Option<Child>,
     #[cfg(windows)]
     job: Option<winjob::Job>,
@@ -444,7 +446,8 @@ pub struct BrandPilot {
 }
 impl BrandPilot {
     pub fn new() -> Self {
-        Self { child:None,
+        Self { cam_agent_supervisor: crate::cam_agent_supervisor::CamAgentSupervisor::new(),
+               child:None,
                #[cfg(windows)] job:None,
                state:"Not configured".into(),last_error:None,action:None }
     }
@@ -610,6 +613,31 @@ impl BrandPilot {
         self.child=Some(child);
         Ok(())
     }
+    pub fn request_cam_agent_start(&mut self) {
+        self.cam_agent_supervisor.request_start();
+    }
+    pub fn next_cam_agent_start(
+        &mut self, gate: crate::cam_agent_supervisor::StartGate, now: std::time::Instant,
+    ) -> crate::cam_agent_supervisor::StartDecision {
+        self.check_status();
+        let decision = self.cam_agent_supervisor.next_start(gate, self.child.is_some(), now);
+        if decision == crate::cam_agent_supervisor::StartDecision::Paused {
+            self.state = "Agent paused · press Start Agent to retry".into();
+            self.last_error = Some("Agent exited repeatedly. Review the local logs before restarting.".into());
+        }
+        decision
+    }
+    pub fn cam_agent_started(&mut self, now: std::time::Instant) {
+        self.cam_agent_supervisor.started(now);
+    }
+    pub fn cam_agent_start_failed(&mut self, error: &str) {
+        self.state = if self.cam_agent_supervisor.launch_failed() {
+            "Agent paused · press Start Agent to retry"
+        } else {
+            "Agent needs attention · retry pending"
+        }.into();
+        self.last_error = Some(error.into());
+    }
     /// Starts a dedicated CAM-connected agent, never a selected local shop.
     /// A paired Scout token is injected only through the child environment,
     /// not shell arguments or logs. The current server has no scan dispatcher.
@@ -653,6 +681,7 @@ impl BrandPilot {
         Ok(())
     }
     pub fn stop(&mut self){
+        self.cam_agent_supervisor.stop();
         if let Some(mut child)=self.child.take(){
             #[cfg(windows)]{self.job.take();}
             let _=child.kill();

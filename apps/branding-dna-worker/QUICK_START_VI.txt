@@ -1,58 +1,61 @@
-BRANDING DNA BROWSER AGENT - WINDOWS v0.2.11
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.12
 ==========================================
-Type: Windows portable bootstrap ZIP, not a standalone EXE.
-Sites: Amazon and Etsy only. Uses Chromium browser, no marketplace API
-or third-party scraping service.
+Gói Windows Portable Bootstrap ZIP; cần cài Node và Chromium riêng.
+Mã nguồn hoặc ZIP kiểm thử chưa chứng minh đã triển khai trên Windows.
 
-1. Extract ZIP to an isolated directory, e.g. D:\CAM\BrandingDNA-BrowserAgent.
-2. Install official Node.js 22.13+ (includes npm) if not already installed.
-3. Double-click INSTALL_TOOL.cmd once. It downloads pinned Playwright
-   dependencies and Chromium. Does not run any shop scan.
-4. Edit config\pilot.local.json. Set exact shop URL, platform, profile,
-   report directory and an ABSOLUTE approval_file path outside the tool.
-   Use "headless": false, "interaction_mode": "visible_click" to click
-   actual visible product links inside Chromium (not disguised human traffic).
-   v0.2.8 handles normal product links and new-tab product links.
-   Each product stays visible for 4 seconds so you can observe Chromium.
-   Never use this mode to disguise automation or bypass site challenges.
-5. The approval file must reflect actual permission and source rights review.
-   Etsy automation requires express written authorization from Etsy.
-   Keep approvals, profiles, cookies and reports outside the tool directory.
-6. Double-click CHECK_TOOL.cmd to validate local Node/Chromium readiness.
-7. Only for an explicitly approved shop: double-click START_BROWSER_PILOT.cmd.
-   Pilot browses up to 5 public product pages, saves a local JSON result.
-   Run again manually to skip successfully observed products in the first
-   shop page. Progress is stored in <report_dir>\\.bdna-local-progress\\,
-   separately for each shop. Keep this folder during upgrades.
-   No claim of full-shop coverage; no automatic repeating scans.
-8. START_BRANDING_DNA_WORKER.cmd is heartbeat-only. It never starts scanning.
-9. Optional CAM Shop Library resumable pilot: from the extracted package
-   run node src\\cam_shop_pilot.mjs --resume --shop-id SHOP_UUID
-   --approval-file "D:\\CAM-Private\\approval.json"
-   --profile-dir "D:\\CAM-Private\\profile"
-   --report-dir "D:\\CAM-Private\\reports"
-   --env-file "D:\\Bot_Tool_Auto_Game\\scan_pinterest\\scout.local.env"
-   (put the command on one line). This requires a separately authorized
-   exact CAM shop and per-shop approval. It stores immutable local reports
-   plus SQLite progress, skips already observed product IDs, and never
-   uploads to CAM or starts automatic shop scanning.
+1. Cài và kiểm tra runtime
+   Ưu tiên Scout Manager đã pair với CAM trong checkout hiện có.
+   Nếu dùng ZIP, giải nén vào thư mục riêng, ví dụ:
+   D:\CAM\BrandingDNA-BrowserAgent
+   Cài Node.js 22.13+ rồi chạy INSTALL_TOOL.cmd để cài dependency
+   Playwright đã khóa phiên bản và Chromium. Lệnh này không quét shop.
+   Chạy CHECK_TOOL.cmd theo hướng dẫn cấu hình trong README.md.
+   Giữ approval, profile, cookie, pairing và report ở ngoài thư mục tool.
 
-10. CAM shop-by-shop runner (use in the existing scan_pinterest checkout):
-    apps\\branding-dna-worker\\INSPECT_CAM_SHOPS.cmd
-    apps\\branding-dna-worker\\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID
-    apps\\branding-dna-worker\\RUN_CAM_APPROVED_SHOPS.cmd --max-shops 5
-    Each shop needs its own actual reviewed approval at
-    %LOCALAPPDATA%\\CreativeAssetManager\\BrandingDNA\\cam-shop-pilots\\SHOP_UUID\\approval.json
-    Shop URLs are taken solely from CAM. Inspect does not browse.
-    Run-approved opens browsers ONLY for shops that pass all gates.
-    Etsy needs express written permission, and Amazon must follow its Agent Policy.
-    No approval is created automatically and no CAM job lease is claimed.
+2. Start chỉ giữ kết nối CAM
+   START_CAM_AGENT.cmd cần pairing hiện có qua môi trường của Scout Manager.
+   START_BROWSER_PILOT.cmd là tên tương thích, gọi đúng launcher trên.
+   Cả hai chỉ heartbeat/đọc trạng thái CAM; không tự mở Amazon/Etsy.
+   START_BRANDING_DNA_WORKER.cmd cũng chỉ heartbeat.
+   Không chép token vào script, Git hoặc ZIP.
 
-If a site requests CAPTCHA, login or denies access, stop and review manually.
-Do not work around challenges or rate limits. No production job dispatch,
-gallery upload, Best Seller inference or automatic full-shop crawling yet.
+3. Duyệt shop từ CAM bằng một lệnh chủ động
+   CAM cung cấp shop UUID và URL; không tạo danh sách shop trùng ở máy.
+   Từ thư mục gốc checkout đã pair, có thể kiểm tra danh sách bằng:
+   node apps\branding-dna-worker\src\cam_shop_batch.mjs --inspect --env-file "scout.local.env"
 
-Release checksum: see .zip.sha256 adjacent to ZIP. To verify on Windows:
-  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.11-win-x64.zip" SHA256
+   Để chạy một shop, dùng lệnh sau trên MỘT dòng, với đường dẫn env tuyệt đối:
+   apps\branding-dna-worker\RUN_CAM_APPROVED_SHOPS.cmd --shop-id SHOP_UUID --env-file "D:\Desify_Agentic\scan_pinterest\scout.local.env"
 
-More details: README.md and docs\BROWSER_AGENT_PILOT.md
+   Mỗi lần gọi mặc định một shop, tối đa năm shop nối tiếp nếu chỉ định
+   --max-shops 5; tối đa ba sản phẩm/shop. --inspect không duyệt marketplace.
+   Approval riêng của từng shop phải nằm tại:
+   %LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\cam-shop-pilots\SHOP_UUID\approval.json
+   Approval phải phản ánh quyền truy cập thực tế đã được kiểm tra.
+   CAM không còn yêu cầu khai báo sở hữu để kích hoạt shop; shop paused
+   vẫn bị loại. Quyền browser theo nền tảng là điều kiện riêng.
+   Etsy cần chấp thuận bằng văn bản của Etsy; Amazon cần review Agent Policy.
+   Tool không tự tạo approval, tự giải CAPTCHA hay tự cấp quyền.
+
+4. Tiếp tục từ tiến độ đã lưu
+   Chạy lại một cách chủ động để bỏ qua các sản phẩm đã quan sát thành công.
+   Có thể dùng cam_shop_pilot.mjs --resume với shop UUID và các đường dẫn
+   approval/profile/report riêng; xem câu lệnh đầy đủ trong README.md.
+   Report JSON được ghi trước checkpoint SQLite. Giữ cả report và thư mục
+   .bdna-local-progress khi nâng cấp. Sản phẩm lỗi không tính là hoàn tất.
+   Lỗi parser, click, Back, redirect, CAPTCHA/login hoặc HTTP 403/429 sẽ
+   dừng pilot và không chuyển sang shop tiếp theo.
+   Nếu report ghi browser_cleanup_review_required và profile_lock_retained,
+   phải xác nhận browser đã dừng trước khi gỡ đúng file .pilot.lock.
+   Tool không tự xóa lock này hoặc tự chạy lại.
+
+5. Phạm vi kết quả
+   Chỉ report local với coverage partial; rights/sales vẫn unknown.
+   Report needs_operator không được chuẩn bị thành evidence trong CAM.
+   Không tải media, suy luận Best Seller, tự upload evidence hoặc phát job
+   quét production. Các lần pilot vẫn phải được chủ động khởi chạy.
+
+Xác minh SHA-256, đối chiếu file .zip.sha256 đi kèm:
+  certutil -hashfile "BrandingDNA-BrowserAgent-v0.2.12-win-x64.zip" SHA256
+
+Chi tiết: README.md và docs\BROWSER_AGENT_PILOT.md

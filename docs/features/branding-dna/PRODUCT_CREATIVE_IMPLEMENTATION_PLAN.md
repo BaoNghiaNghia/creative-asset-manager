@@ -5,6 +5,20 @@
 **Gắn với:** [Product Creative System Spec](./PRODUCT_CREATIVE_SYSTEM_SPEC.md) (source of truth cho nghiệp vụ mới) và [Branding DNA Readiness Audit](./READINESS_AUDIT.md).
 **Tình trạng tại thời điểm lập:** CAM đã có Shop Registry theo tenant, worker registry/heartbeat và lease trả no-job; Scanner thực tế, listing evidence, Brand Pick/Best Seller, image generation theo 2 nhánh và supervised learning **chưa được chứng minh đang chạy production**. Tài liệu này là kế hoạch phát triển, không phải xác nhận release.
 
+## Checkpoint Browser Agent — 2026-10-21
+
+- Đã có pilot Windows hữu hạn lấy shop UUID/URL từ CAM, duyệt nối tiếp và lưu
+  report/checkpoint riêng cho từng shop. Đây chưa phải dispatcher production.
+- Đợt v0.2.12 sửa việc tính nhầm sản phẩm lỗi, mất phần đã quan sát khi lỗi
+  điều hướng/đóng browser, và bỏ sót HTTP 403/429 trong cùng tab hoặc popup.
+  Khi cần operator, batch dừng; lần chạy chủ động tiếp theo bỏ qua phần thành công.
+- Report dừng vẫn local, không được chuẩn bị thành evidence CAM. Coverage
+  partial, quyền sử dụng và sales unknown; không tự suy luận Best Seller.
+- Source Manager 0.1.42 hoàn thiện giám sát heartbeat và thứ tự Start/Stop.
+  Online/heartbeat chưa chứng minh có scan; browser pilot vẫn phải khởi chạy riêng.
+- Còn gate native Windows/Tauri và Browser QA trên shop có quyền thực tế.
+  Không đánh dấu BD-01 hoặc scanner production hoàn tất chỉ từ mock tests.
+
 ## Nguyên tắc delivery
 
 - Mỗi phase phải có regression tests **trước hoặc cùng với code**, migrations non-destructive, RBAC server-side, idempotency, feature flag mặc định off và rollback.

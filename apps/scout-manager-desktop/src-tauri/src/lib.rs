@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod branding_pilot;
+mod cam_agent_supervisor;
 mod branding_pilot_review;
 mod branding_pilot_handoff;
 use serde::{Deserialize, Serialize};
@@ -652,16 +653,58 @@ impl Controller {
             modes,
         }
     }
+    // Sample these gates only while holding branding_pilot. Stop, startup,
+    // shutdown and the update handoff must use the same process lifecycle lock.
+    fn branding_agent_start_gate(&self) -> cam_agent_supervisor::StartGate {
+        cam_agent_supervisor::StartGate {
+            paired: is_paired(&self.repo),
+            owns_manager_lock: self.owns_manager_lock(),
+            updating: self.updating.load(Ordering::SeqCst),
+            shutting_down: self.shutdown_requested.load(Ordering::SeqCst),
+        }
+    }
+    fn start_paired_branding_agent(
+        &self, pilot: &mut branding_pilot::BrandPilot,
+    ) -> Result<(), String> {
+        let result = (|| {
+            let settings = config_values(&self.repo);
+            let get = |key: &str| settings.iter().find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str());
+            let id = get("RRUGC_AGENT_ID").ok_or("CAM Scout pairing missing.")?;
+            let token = get("RRUGC_SCOUT_TOKEN").ok_or("CAM Scout token missing.")?;
+            let base = get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+            pilot.run_cam_agent(&self.repo, &self.log_root, id, token, base)
+        })();
+        match &result {
+            Ok(()) => pilot.cam_agent_started(Instant::now()),
+            Err(error) => pilot.cam_agent_start_failed(error),
+        }
+        result
+    }
+    fn tick_branding_agent(&self) {
+        let Ok(mut pilot) = self.branding_pilot.lock() else { return; };
+        let gate = self.branding_agent_start_gate();
+        if pilot.next_cam_agent_start(gate, Instant::now())
+            == cam_agent_supervisor::StartDecision::Start {
+            let _ = self.start_paired_branding_agent(&mut pilot);
+        }
+    }
     fn check_update(&self) -> Result<(), String> {
         self.require_manager_lock()?;
-        if self.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?.status(&self.repo).running {
-            return Err("Stop Branding DNA installation/pilot before updating source.".into());
-        }
-        if self.shutdown_requested.load(Ordering::SeqCst) {
-            return Err("Scout Manager is shutting down.".into());
-        }
-        if self.updating.swap(true, Ordering::SeqCst) {
-            return Err("An update is already running.".into());
+        {
+            // Claim the update gate before releasing the no-child check.
+            // The heartbeat supervisor cannot launch into a source update.
+            let mut pilot = self.branding_pilot.lock()
+                .map_err(|_| "Branding DNA controller unavailable.")?;
+            if pilot.status(&self.repo).running {
+                return Err("Stop Branding DNA installation/pilot before updating source.".into());
+            }
+            if self.shutdown_requested.load(Ordering::SeqCst) {
+                return Err("Scout Manager is shutting down.".into());
+            }
+            if self.updating.swap(true, Ordering::SeqCst) {
+                return Err("An update is already running.".into());
+            }
         }
         let result = self.apply_update();
         if let Ok(mut status) = self.update_state.lock() {
@@ -1277,18 +1320,26 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
     let controller=state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         controller.require_manager_lock()?;
-        if controller.updating.load(Ordering::SeqCst) { return Err("Source update in progress.".into()); }
         let mut pilot=controller.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
-        if command=="agent_start" {
-            let settings=config_values(&controller.repo);
-            let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
-            let id=get("RRUGC_AGENT_ID").ok_or("CAM Scout pairing missing.")?;
-            let token=get("RRUGC_SCOUT_TOKEN").ok_or("CAM Scout token missing.")?;
-            let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
-            pilot.run_cam_agent(&controller.repo,&controller.log_root,id,token,base)
-        } else if command=="stop" {
+        if command=="stop" {
+            // Stop remains available during source updates and invalidates any
+            // supervisor tick still waiting for this same lifecycle lock.
             pilot.stop();
             Ok(())
+        } else if command=="agent_start" {
+            let gate = controller.branding_agent_start_gate();
+            if gate.shutting_down { return Err("Scout Manager is shutting down.".into()); }
+            if gate.updating { return Err("Source update in progress.".into()); }
+            if !gate.paired { return Err("CAM Scout pairing missing.".into()); }
+            if pilot.status(&controller.repo).running {
+                return Err("Branding DNA agent already active.".into());
+            }
+            pilot.request_cam_agent_start();
+            if pilot.next_cam_agent_start(gate, Instant::now())
+                != cam_agent_supervisor::StartDecision::Start {
+                return Err("CAM Agent start is unavailable.".into());
+            }
+            controller.start_paired_branding_agent(&mut pilot)
         } else {
             // Manual per-shop pilot remains in legacy code for rollback only.
             // This UI must never trigger it as a replacement for CAM jobs.
@@ -1541,9 +1592,21 @@ pub fn run() {
             }
             let _ = tray.build(app)?;
             let managed = app.state::<Arc<Controller>>();
-            // Manual-start policy: never start either Scout on app startup.
-            // Only the Run automation button enables processing and updates.
-            let _ = managed;
+            // The paired CAM heartbeat Agent runs automatically while the
+            // Manager is open. It never opens marketplaces or claims scan jobs.
+            // Review, keyword and cap-stack Scouts remain manual-start only.
+            let controller=managed.inner().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(2));
+                loop {
+                    if controller.shutdown_requested.load(Ordering::SeqCst)
+                        || !controller.owns_manager_lock() { break; }
+                    // Recheck all gates after acquiring the process mutex.
+                    // A successful spawn alone does not reset the retry budget.
+                    controller.tick_branding_agent();
+                    thread::sleep(Duration::from_secs(25));
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
