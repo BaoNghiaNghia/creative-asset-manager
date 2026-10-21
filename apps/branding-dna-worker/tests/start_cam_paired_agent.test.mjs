@@ -43,8 +43,9 @@ test("one-shot pairing makes three authenticated CAM requests and no marketplace
  const result=await checkOnce(config,http.request);
  assert.deepEqual(result,{
   event:"cam_live_check",connected:true,state:"connected_waiting",shop_count:1,
-  preview_available:true,blocked_shops:1,staged_tasks:0,dispatch_enabled:false,
-  active_scan_jobs:0,marketplace_requests:0,
+  preview_available:true,blocked_shops:1,staged_tasks:0,
+  blocked_reasons:{scan_task_dispatch_not_deployed:1,marketplace_authorization_not_verified:1},
+  dispatch_enabled:false,active_scan_jobs:0,marketplace_requests:0,
  });
  assert.equal(http.paths.length,3);
  assert.ok(http.paths.every(path=>path.startsWith("/api/v1/branding-dna/")));
