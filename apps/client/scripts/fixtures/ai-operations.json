@@ -41,6 +41,25 @@
   "apiRoutes": [
     {
       "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/catalog/material-candidate-groups",
+      "body": {
+        "source_rows": 0,
+        "unique_names": 0,
+        "groups": [],
+        "automatic_approvals": 0,
+        "inventory_writes": 0,
+        "sheet_writes": 0
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/inventory/daily-sheet/catinat/approvals",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/ai-operations/summary",
       "body": {
         "requested": 1280,
