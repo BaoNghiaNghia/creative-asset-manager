@@ -30,6 +30,7 @@ export async function checkOnce(config,request=fetch){
   event:"cam_live_check",connected:true,state:"connected_waiting",
   shop_count:heartbeat.shopCount,preview_available:preview.available,
   blocked_shops:preview.blocked,staged_tasks:preview.stagedTasks,
+  blocked_reasons:preview.blockedReasons,
   dispatch_enabled:control.dispatchEnabled,active_scan_jobs:0,
   marketplace_requests:0,
  };
