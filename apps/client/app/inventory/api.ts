@@ -174,7 +174,40 @@ export const catinatShiftApi = {
   ),
 };
 
-export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception";
+export type CatinatBatchEvidence = {
+  id:string;business_date:string;sheet:string;cell:string;source_hash:string;
+  material:string;form:string;unit:string;lot_reference:string;
+  event_kind:"prepared"|"opened";event_at:string;package_expiry_at:string|null;
+  note:string;attested_by:string;attested_at:string|null;
+  status:"staff_attested_unverified";source_current:boolean|null;
+  expiry_certified:false;disposal_performed:false;ready_to_sign:false;
+  inventory_writes:0;sheets_writes:0;idempotent_replay:boolean;
+};
+export type CatinatBatchInput = {
+  idempotency_key:string;business_date:string;expected_source_hash:string;
+  sheet:string;cell:string;lot_reference:string;event_kind:"prepared"|"opened";
+  event_at:string;package_expiry_at?:string|null;note:string;
+};
+export type CatinatBatchDisposalRequest = {
+  business_date:string;expected_source_hash:string;idempotency_key:string;
+  quantity:string;reason:string;
+};
+export const catinatBatchApi = {
+  list:(businessDate:string)=>request<{
+    business_date:string;source_hash:string;items:CatinatBatchEvidence[];
+    mode:"batch_staff_evidence_only";ready_to_sign:false;inventory_writes:0;sheets_writes:0;
+  }>("/daily-sheet/catinat/batch-evidence?business_date="+encodeURIComponent(businessDate)),
+  record:(body:CatinatBatchInput)=>request<CatinatBatchEvidence>(
+    "/daily-sheet/catinat/batch-evidence",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+  requestDisposal:(batchId:string,body:CatinatBatchDisposalRequest)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/batch-evidence/"+encodeURIComponent(batchId)+"/request-disposal",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+};
+
+export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception" | "waste_disposal";
 export type CatinatApprovalStatus = "pending" | "approved" | "rejected";
 export type CatinatApproval = {
   id:string; business_date:string; kind:CatinatApprovalKind; subject_ref:string;

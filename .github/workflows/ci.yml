@@ -290,9 +290,12 @@ jobs:
           assert len(heads) == 1, f"Expected one migration head, got {heads}"
           certification = script.get_revision("0174_catinat_catalog_cert")
           assert certification.down_revision == "0173_catinat_branding_merge"
+          batch = script.get_revision("0175_catinat_batch_evidence")
+          assert batch.down_revision == "0174_catinat_catalog_cert"
           # Allow future additive migrations while preserving the audited chain.
           revisions = {revision.revision for revision in script.walk_revisions()}
-          assert {"0174_catinat_catalog_cert", "0173_catinat_branding_merge"} <= revisions
+          assert {"0175_catinat_batch_evidence", "0174_catinat_catalog_cert",
+                  "0173_catinat_branding_merge"} <= revisions
           merged = script.get_revision("0173_catinat_branding_merge")
           assert set(merged.down_revision) == {
               "0172_catinat_transfers",

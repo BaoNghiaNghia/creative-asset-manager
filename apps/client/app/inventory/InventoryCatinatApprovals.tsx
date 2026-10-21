@@ -196,7 +196,7 @@ export function InventoryCatinatApprovals(){
           <ul>{items.map(item=><li key={item.id}>
             <button type="button" className={selected?.id===item.id?"selected":""}
               onClick={()=>setSelected(item)}>
-              <b>{KINDS.find(x=>x.value===item.kind)?.label||item.kind}</b>
+              <b>{item.kind==="waste_disposal"?"Đề nghị hủy lô — chưa trừ tồn":KINDS.find(x=>x.value===item.kind)?.label||item.kind}</b>
               <small>{item.business_date} · {item.subject_ref} · {item.status}</small>
             </button>
           </li>)}</ul>}

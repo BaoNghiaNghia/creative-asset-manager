@@ -24,7 +24,7 @@ from app.modules.inventory.persistence_model import (
 
 KINDS = frozenset({
     "discrepancy", "catalog_mapping", "package_conversion",
-    "post_close_adjustment", "transfer_exception",
+    "post_close_adjustment", "transfer_exception", "waste_disposal",
 })
 DECISIONS = frozenset({"approved", "rejected"})
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
@@ -88,6 +88,7 @@ class CatinatApprovalService:
         self, *, tenant_id: str, actor_id: str, idempotency_key: str,
         business_date: date, kind: str, subject_ref: str,
         proposal: dict[str, Any], reason: str,
+        trusted_waste_source: bool = False,
     ) -> dict:
         tenant = _nonblank(tenant_id, minimum=1, maximum=255, code="tenant_required")
         actor = _nonblank(actor_id, minimum=1, maximum=255, code="actor_required")
@@ -95,6 +96,8 @@ class CatinatApprovalService:
             raise CatinatApprovalBlocked("invalid_approval_idempotency_key")
         if kind not in KINDS:
             raise CatinatApprovalBlocked("invalid_approval_kind")
+        if kind == "waste_disposal" and not trusted_waste_source:
+            raise CatinatApprovalBlocked("waste_disposal_requires_verified_batch_source")
         subject = _nonblank(subject_ref, minimum=1, maximum=255, code="approval_subject_required")
         why = _nonblank(reason, minimum=8, maximum=1000, code="approval_reason_required")
         if not isinstance(proposal, dict) or not proposal:

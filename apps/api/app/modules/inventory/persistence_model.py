@@ -1053,7 +1053,7 @@ class InventoryCatinatApprovalRequestModel(Base):
         UniqueConstraint("tenant_id", "id", name="uq_catinat_approval_request_id"),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_approval_tenant_key"),
         CheckConstraint(
-            "kind IN ('discrepancy','catalog_mapping','package_conversion','post_close_adjustment','transfer_exception')",
+            "kind IN ('discrepancy','catalog_mapping','package_conversion','post_close_adjustment','transfer_exception','waste_disposal')",
             name="ck_catinat_approval_kind",
         ),
         CheckConstraint("status IN ('pending','approved','rejected')", name="ck_catinat_approval_status"),
@@ -1174,6 +1174,39 @@ class InventoryCatinatCountConfirmationModel(Base):
     physical_raw: Mapped[str] = mapped_column(String(255), nullable=False)
     confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+
+
+class InventoryCatinatBatchEvidenceModel(Base):
+    """Append-only, staff-attested batch timestamps; not accepted stock/expiry/waste."""
+    __tablename__ = "inventory_catinat_batch_evidence"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_catinat_batch_tenant_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_catinat_batch_tenant_key"),
+        CheckConstraint("event_kind IN ('prepared','opened')", name="ck_catinat_batch_event_kind"),
+        CheckConstraint("status = 'staff_attested_unverified'", name="ck_catinat_batch_unverified"),
+        CheckConstraint("length(source_hash) = 64", name="ck_catinat_batch_source_hash"),
+        Index("ix_catinat_batch_day", "tenant_id", "business_date", "sheet_name", "cell_ref"),
+    )
+    id: Mapped[str] = mapped_column(ENTITY_ID, primary_key=True, default=new_inventory_id)
+    tenant_id: Mapped[str] = mapped_column(TENANT_ID, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    spreadsheet_file_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    sheet_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    cell_ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_display: Mapped[str] = mapped_column(String(255), nullable=False)
+    form: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(64), nullable=False)
+    lot_reference: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    package_expiry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    attested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=inventory_utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="staff_attested_unverified")
 
 
 class InventoryCatinatTransferModel(Base):

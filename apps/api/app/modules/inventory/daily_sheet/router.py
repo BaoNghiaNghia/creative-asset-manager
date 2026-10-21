@@ -27,6 +27,7 @@ from app.modules.inventory.daily.catinat_approval_router import router as catina
 from app.modules.inventory.daily.catinat_certification_router import router as catinat_certification_router
 from app.modules.inventory.daily.catinat_count_router import router as catinat_count_router
 from app.modules.inventory.daily.catinat_transfer_router import router as catinat_transfer_router
+from app.modules.inventory.daily.catinat_batch_router import router as catinat_batch_router
 
 router = APIRouter(prefix="/daily-sheet", tags=["inventory-daily-sheet"])
 
@@ -735,3 +736,4 @@ router.include_router(catinat_approval_router)
 router.include_router(catinat_certification_router)
 router.include_router(catinat_count_router)
 router.include_router(catinat_transfer_router)
+router.include_router(catinat_batch_router)

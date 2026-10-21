@@ -27,7 +27,7 @@ class ApprovalRequestBody(BaseModel):
     business_date: date
     kind: Literal[
         "discrepancy", "catalog_mapping", "package_conversion",
-        "post_close_adjustment", "transfer_exception",
+        "post_close_adjustment", "transfer_exception", "waste_disposal",
     ]
     subject_ref: str = Field(min_length=1, max_length=255)
     proposal: dict[str, Any]
