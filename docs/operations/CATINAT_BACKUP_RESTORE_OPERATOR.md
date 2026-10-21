@@ -110,6 +110,22 @@ python3 scripts/cam_catinat_migrate_restored_clone.py \
 
 Expect `ISOLATED_MIGRATION=PASS`, `SOURCE_REVISION=0168_branding_dna_outline_versions`, `TARGET_REVISION=0173_catinat_branding_merge`, `CREATED_CATINAT_TABLES=6`, `PRODUCTION_MIGRATION=NOT_RUN`. Stop on `BLOCKED` rather than rerunning against partially migrated clone.
 
+## Verified 0173 merge rehearsal — 21 October 2026
+
+The private isolated PostgreSQL clone retained its original validated backup proof (SHA-256 recorded in `restore-proof.json`), prior `0168 -> 0172` migration proof and an immutable mode-0600 `migration-0173-proof.json`. A read-only audit confirmed **one Alembic head** `0173_catinat_branding_merge`, both independent parent revisions, 180 restored tables plus six Catinat and two Branding tables (**188 total**), the expected scoped Branding constraints, and unchanged representative source row counts. This is clone-only evidence; production migration and Google Sheets writes were not performed.
+
+To repeat the audit from the reviewed release checkout on the VPS, without changing database state or overwriting existing proof:
+
+```bash
+cd /root/catinat-db-rehearsal-20261020/release_candidate
+python3 -m unittest discover -s scripts -p 'test_cam_catinat_verify_0173_rehearsal.py' -v
+python3 scripts/cam_catinat_verify_0173_rehearsal.py --ack-read-only-isolated
+```
+
+The validator targets the **fixed, private rehearsal directory** `/root/catinat-db-rehearsal-20261020`, checks the backup checksum, restored clone identity, schema/constraint counts and migration ancestry; if existing immutable proof is present, repeated audit results must match every field except audit timestamp. The `--write-private-proof` option is only for an initial isolated proof creation and refuses existing filenames. Never use either mode as a production migration command.
+
+The restored backup had `inventory_items=14` and `inventory_locations=0` at the source snapshot. Treat this as a **catalog/location mapping blocker**, not permission to infer or auto-create locations. Obtain a tenant-scoped, manager-approved location catalog and reconcile with all three physical stock areas before any close, transfer ledger posting or carry-forward is enabled.
+
 ## Release activation conditions
 
 Only after steps 1–4 PASS: (1) verify release candidate matches reviewed commit and latest main, (2) execute the official production deploy with a short-lived lock, (3) apply migration together with matching API release, (4) verify `/live`, `/ready`, `alembic current`, UI and read-only Inventory endpoints, (5) keep current+previous release and a tested restore route. **No automatic Google Sheets write, inventory carry-forward, silent catalog merge or unconfirmed shift close is authorized.**
