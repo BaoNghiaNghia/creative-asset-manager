@@ -176,6 +176,9 @@ struct Controller {
     log_root: PathBuf,
     modes: Mutex<Vec<Scout>>,
     branding_pilot: Mutex<branding_pilot::BrandPilot>,
+    // A stopped Agent stays stopped until manually started; Scout modes
+    // remain under their existing independent Run automation control.
+    branding_agent_desired: AtomicBool,
     #[cfg(windows)]
     manager_lock: Option<winjob::ManagerLock>,
     update_state: Mutex<String>,
@@ -352,6 +355,7 @@ impl Controller {
             log_root,
             modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
+            branding_agent_desired: AtomicBool::new(true),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
             update_state: Mutex::new("Idle - press Run automation".into()),
@@ -1280,6 +1284,7 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
         if controller.updating.load(Ordering::SeqCst) { return Err("Source update in progress.".into()); }
         let mut pilot=controller.branding_pilot.lock().map_err(|_|"Branding DNA controller unavailable.")?;
         if command=="agent_start" {
+            controller.branding_agent_desired.store(true,Ordering::SeqCst);
             let settings=config_values(&controller.repo);
             let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
             let id=get("RRUGC_AGENT_ID").ok_or("CAM Scout pairing missing.")?;
@@ -1287,6 +1292,7 @@ async fn branding_pilot_action(state: tauri::State<'_, Arc<Controller>>, command
             let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
             pilot.run_cam_agent(&controller.repo,&controller.log_root,id,token,base)
         } else if command=="stop" {
+            controller.branding_agent_desired.store(false,Ordering::SeqCst);
             pilot.stop();
             Ok(())
         } else {
@@ -1541,9 +1547,49 @@ pub fn run() {
             }
             let _ = tray.build(app)?;
             let managed = app.state::<Arc<Controller>>();
-            // Manual-start policy: never start either Scout on app startup.
-            // Only the Run automation button enables processing and updates.
-            let _ = managed;
+            // The paired CAM heartbeat Agent runs automatically while the
+            // Manager is open. It never opens marketplaces or claims scan jobs.
+            // Review, keyword and cap-stack Scouts remain manual-start only.
+            let controller=managed.inner().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(2));
+                let mut consecutive_failures=0_u8;
+                loop {
+                    if controller.shutdown_requested.load(Ordering::SeqCst)
+                        || !controller.owns_manager_lock() { break; }
+                    if !controller.branding_agent_desired.load(Ordering::SeqCst)
+                        || controller.updating.load(Ordering::SeqCst) {
+                        thread::sleep(Duration::from_secs(5));
+                        continue;
+                    }
+                    if !is_paired(&controller.repo) {
+                        thread::sleep(Duration::from_secs(25));
+                        continue;
+                    }
+                    let result=controller.branding_pilot.lock()
+                        .map_err(|_|"Branding DNA lock unavailable".to_string())
+                        .and_then(|mut pilot|{
+                            if pilot.status(&controller.repo).running {return Ok(false)}
+                            let settings=config_values(&controller.repo);
+                            let get=|key:&str|settings.iter().find(|(k,_)|k==key).map(|(_,v)|v.as_str());
+                            let id=get("RRUGC_AGENT_ID").ok_or("Missing Scout pairing ID")?;
+                            let token=get("RRUGC_SCOUT_TOKEN").ok_or("Missing Scout token")?;
+                            let base=get("RRUGC_BASE_URL").unwrap_or("https://creative-assets.ddns.net");
+                            pilot.run_cam_agent(&controller.repo,&controller.log_root,id,token,base)?;
+                            Ok(true)
+                        });
+                    match result {
+                        Ok(_)=>consecutive_failures=0,
+                        Err(_)=>{
+                            consecutive_failures=consecutive_failures.saturating_add(1);
+                            if consecutive_failures>=4 {
+                                controller.branding_agent_desired.store(false,Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    thread::sleep(Duration::from_secs(25));
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
