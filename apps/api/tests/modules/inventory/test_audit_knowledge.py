@@ -548,6 +548,37 @@ def test_historical_learner_ignores_unverified_changes():
     engine.dispose(); temp.cleanup()
 
 
+def test_review_required_audit_exposes_actionable_issues_without_verifying_stock():
+    temp, engine, sessions = db()
+    issue = {
+        "code": "UNMAPPED_REPORT_ONLY_MATERIAL",
+        "message": "Needs operator mapping evidence",
+        "requires_review": True,
+        "evidence": [{"sheet": "Daily", "cell": "B9", "evidence_hash": "e" * 64}],
+    }
+    result = SimpleNamespace(
+        run_id="a" * 64, status="review_required", tool_rounds=2,
+        read_calls=2, read_cells=42, writes=0, plan_hash="p" * 64,
+        staged=SimpleNamespace(operations=[], issues=[issue], material_actions=[], summary="Needs review"),
+        assessment={"observations": []}, tool_trace=[], ranges_read=[],
+        business_prompt_source="default", business_prompt_version="v1",
+        business_prompt_hash="h" * 64, knowledge_hash="k" * 64, knowledge_version=0,
+        model="gemini-test", execution={"verification_status": "not_executed"},
+        knowledge_proposals=[], change_audit=[],
+    )
+    service = InventoryOperationAuditService(sessions)
+    persisted = service.persist_v4_result("tenant-a", date(2026, 10, 20),
+                                          stage="evening_reconcile", result=result)
+    detail = service.stage_detail("tenant-a", date(2026, 10, 20), "evening_reconcile")
+    assert detail["status"] == "review_required"
+    assert detail["issues"] == [issue]
+    assert detail["summary"]["issue_count"] == 1
+    assert detail["writes"] == 0
+    assert persisted["issues"] == [issue]
+    engine.dispose()
+    temp.cleanup()
+
+
 def test_operation_audit_persists_before_after_and_provenance():
     temp, engine, sessions = db()
     result = SimpleNamespace(

@@ -17,12 +17,17 @@ depends_on = None
 def upgrade():
     # A composite FK must enforce tenant and shop scope at the database layer,
     # not just at the HTTP API. Production observations already exist.
-    # SQLite cannot ALTER TABLE ADD CONSTRAINT; Alembic batch mode
-    # reconstructs the table while preserving existing observations/indexes.
-    # PostgreSQL uses the ordinary ALTER TABLE path automatically.
-    with op.batch_alter_table("bc_browser_observations") as batch:
-        batch.create_unique_constraint(
-            "uq_bc_browser_observation_scope",
+    # SQLite does not support ALTER TABLE ADD CONSTRAINT. A unique index
+    # provides the same composite parent key needed by the scoped FK, while
+    # PostgreSQL keeps the named unique constraint for production.
+    if op.get_bind().dialect.name == "sqlite":
+        op.create_index(
+            "uq_bc_browser_observation_scope", "bc_browser_observations",
+            ["tenant_id", "shop_id", "id"], unique=True,
+        )
+    else:
+        op.create_unique_constraint(
+            "uq_bc_browser_observation_scope", "bc_browser_observations",
             ["tenant_id", "shop_id", "id"],
         )
     op.create_table(
@@ -72,5 +77,9 @@ def downgrade():
     op.drop_index("ix_bc_browser_reviews_scope_date",
                   table_name="bc_browser_observation_reviews")
     op.drop_table("bc_browser_observation_reviews")
-    with op.batch_alter_table("bc_browser_observations") as batch:
-        batch.drop_constraint("uq_bc_browser_observation_scope", type_="unique")
+    if op.get_bind().dialect.name == "sqlite":
+        op.drop_index("uq_bc_browser_observation_scope",
+                      table_name="bc_browser_observations")
+    else:
+        op.drop_constraint("uq_bc_browser_observation_scope",
+                           "bc_browser_observations", type_="unique")

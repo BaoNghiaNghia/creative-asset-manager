@@ -45,6 +45,7 @@ def _audit_view(row: InventoryOperationAuditModel, changes: list[InventoryOperat
         "run_id": row.run_id,
         "status": row.status,
         "summary": dict(row.summary_json or {}),
+        "issues": list((row.summary_json or {}).get("issues") or []),
         "assessment": dict(row.assessment_json or {}),
         "tool_trace": list(row.tool_trace_json or []),
         "read_ranges": list(row.read_ranges_json or []),
@@ -113,6 +114,12 @@ class InventoryOperationAuditService:
             "read_cells": int(getattr(result, "read_cells", 0) or 0),
             "operation_count": len(getattr(staged, "operations", []) or []),
             "issue_count": len(getattr(staged, "issues", []) or []),
+            # Preserve actionable, evidence-backed blockers instead of only a count.
+            # Review-required runs remain unverified and never authorize writes.
+            "issues": [
+                issue.model_dump(mode="json") if hasattr(issue, "model_dump") else dict(issue)
+                for issue in (getattr(staged, "issues", []) or [])
+            ],
             "material_action_count": len(getattr(staged, "material_actions", []) or []),
             "knowledge_proposal_count": len(getattr(result, "knowledge_proposals", []) or []),
             "learning_memory_hash": getattr(result, "learning_memory_hash", None),

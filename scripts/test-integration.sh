@@ -34,16 +34,37 @@ if [[ ! -x "$PYTHON_BIN" ]]; then PYTHON_BIN=python; fi
 
 heads="$($PYTHON_BIN -m alembic heads | grep -c '(head)')"
 test "$heads" -eq 1
+# Match CI: validate both audited branches and upgrade only on this
+# disposable database. Protected merged histories must never be downgraded.
+"$PYTHON_BIN" - <<'PY'
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+script = ScriptDirectory.from_config(Config("alembic.ini"))
+heads = script.get_heads()
+assert len(heads) == 1, f"Expected one migration head, got {heads}"
+certification = script.get_revision("0174_catinat_catalog_cert")
+assert certification.down_revision == "0173_catinat_branding_merge"
+batch = script.get_revision("0175_catinat_batch_evidence")
+assert batch.down_revision == "0174_catinat_catalog_cert"
+waste = script.get_revision("0176_catinat_waste_witness")
+assert waste.down_revision == "0175_catinat_batch_evidence"
+# Allow future additive migrations while preserving the audited chain.
+revisions = {revision.revision for revision in script.walk_revisions()}
+assert {"0176_catinat_waste_witness", "0175_catinat_batch_evidence",
+        "0174_catinat_catalog_cert",
+        "0173_catinat_branding_merge"} <= revisions
+merged = script.get_revision("0173_catinat_branding_merge")
+assert set(merged.down_revision) == {
+    "0172_catinat_transfers",
+    "0170_branding_dna_browser_observation_reviews",
+}
+for ancestor in merged.down_revision:
+    assert script.get_revision(ancestor).revision == ancestor
+PY
 "$PYTHON_BIN" -m alembic upgrade head 2>&1 | tee "$ARTIFACT_DIR/migration-upgrade.log"
-"$PYTHON_BIN" -m alembic current | grep -F '0170_branding_dna_browser_observation_reviews'
-
-# Match CI: rehearse only the latest protected audit migration on this
-# disposable cam_integration database, preserving all earlier audit history.
-CAM_ALLOW_BROWSER_REVIEW_DROP_FOR_TEST=1 "$PYTHON_BIN" -m alembic downgrade 0169_branding_dna_browser_observations 2>&1 | tee "$ARTIFACT_DIR/migration-downgrade.log"
-"$PYTHON_BIN" -m alembic current | grep -F '0169_branding_dna_browser_observations'
-
-"$PYTHON_BIN" -m alembic upgrade head 2>&1 | tee -a "$ARTIFACT_DIR/migration-upgrade.log"
-"$PYTHON_BIN" -m alembic current | grep -F '0170_branding_dna_browser_observation_reviews'
+EXPECTED_HEAD="$("$PYTHON_BIN" -m alembic heads | awk '{print $1}')"
+test -n "$EXPECTED_HEAD"
+"$PYTHON_BIN" -m alembic current | grep -F "$EXPECTED_HEAD"
 
 timeout 15m "$PYTHON_BIN" -m unittest \
   tests.integration.test_postgresql \

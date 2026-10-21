@@ -23,6 +23,277 @@ async function request<T>(path:string, init?:RequestInit):Promise<T> { let respo
 export const inventoryApi={ listReviews:()=>request<{items:InventoryReview[]}>("/reviews"), getReview:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}`), approve:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/approve`,{method:"POST"}), correct:(id:string,values:Record<string,unknown>)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/correct`,{method:"POST",body:JSON.stringify({values})}), requestReupload:(id:string)=>request<InventoryReview>(`/reviews/${encodeURIComponent(id)}/request-reupload`,{method:"POST"}), getDailyRun:(businessDate:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}`), finalizeDailyRun:(businessDate:string,force=false,reason?:string)=>request<InventoryDailyRun>(`/daily-runs/${encodeURIComponent(businessDate)}/finalize`,{method:"POST",body:JSON.stringify({force,reason})}), getExport:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`), exportDay:(businessDate:string)=>request<InventoryExport>(`/exports/${encodeURIComponent(businessDate)}`,{method:"POST"}), getAiCredential:()=>request<InventoryAiCredential>("/configuration/ai-credential"), testAiCredential:(api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>("/configuration/ai-credential/test",{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiCredential:(api_key:string,label?:string)=>request<InventoryAiCredential>("/configuration/ai-credential",{method:"PUT",body:JSON.stringify({api_key,label})}), listAiBackupCredentials:()=>request<InventoryAiBackupCredential[]>("/configuration/ai-credential-backups"), testAiBackupCredential:(slot:number,api_key?:string,label?:string)=>request<{provider:string;status:InventoryGeminiCredentialStatus;tested_at:string}>(`/configuration/ai-credential-backups/${slot}/test`,{method:"POST",body:JSON.stringify(api_key ? {api_key,label} : {})}), replaceAiBackupCredential:(slot:number,api_key:string,label?:string)=>request<InventoryAiBackupCredential>(`/configuration/ai-credential-backups/${slot}`,{method:"PUT",body:JSON.stringify({api_key,label})}), deleteAiBackupCredential:(slot:number)=>request<{provider:string;deleted:boolean}>(`/configuration/ai-credential-backups/${slot}`,{method:"DELETE"}) };
 
 
+export type CatinatTransferRecord = {
+  id:string;business_date:string;item_id:string;
+  source_location_id:string;destination_location_id:string;
+  unit:string;dispatched_quantity:string;received_quantity:string;
+  in_transit_quantity:string;status:"pending_receipt"|"partial_receipt"|"received";
+  dispatched_by:string;dispatched_at:string|null;received_last_at:string|null;
+  mode:"handoff_tracking_only";ledger_posted:boolean;
+  inventory_write_performed:false;sheets_writes:0;idempotent_replay:boolean;
+};
+export type CatinatTransferDispatch = {
+  reference_key:string;business_date:string;item_id:string;
+  source_location_id:string;destination_location_id:string;
+  unit:string;quantity:string;
+};
+export const catinatTransferApi = {
+  list:(pendingOnly:boolean)=>request<{items:CatinatTransferRecord[]}>(
+    "/daily-sheet/catinat/transfers?pending_only="+String(pendingOnly)
+  ),
+  dispatch:(input:CatinatTransferDispatch)=>request<CatinatTransferRecord>(
+    "/daily-sheet/catinat/transfers",
+    {method:"POST",body:JSON.stringify(input)}
+  ),
+  receive:(id:string,body:{event_key:string;quantity:string})=>request<CatinatTransferRecord>(
+    "/daily-sheet/catinat/transfers/"+encodeURIComponent(id)+"/receive",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+};
+
+export type CatinatClosePreflight = {
+  business_date:string;shift:"evening";source_hash:string;
+  confirmed_count:number;required_count:number;
+  outstanding_transfer_count:number;unreconciled_transfer_count:number;
+  approval_requests_count:number;
+  identity_source:"q01_q47_configured_worksheet_and_closing_cell";
+  warehouse_sources:Array<{sheet:string;whole_column:string;loose_column:string;
+    required_cells:number;confirmed_cells:number}>;
+  physical_identity_verified_for_preview:boolean;
+  blockers:Array<{code:string;sheet?:string;cell?:string;request_id?:string;
+    transfer_ids?:string[];snapshot_id?:string}>;
+  ready_to_sign:false;official_shift_closed:boolean;
+  automatic_carry_forward_allowed:false;sheets_writes:0;
+  mode:"read_only_safety_preflight";
+};
+export type CatinatPhysicalReadinessItem = {
+  sheet:string;row:number;form:"whole"|"loose";cell:string;unit:string;
+  raw:string;quantity:string|null;status:string;blocker:string;material:string;
+};
+export type CatinatPhysicalReadinessBlocker = {
+  sheet?:string;row?:number;cell?:string;form?:string;code:string;
+};
+export type CatinatEveningReadiness = {
+  business_date:string;shift:"evening";mode:"read_only_not_a_signed_close";
+  source_hash:string;items:CatinatPhysicalReadinessItem[];
+  blockers:CatinatPhysicalReadinessBlocker[];
+  staff_confirmation_available:false;automatic_carry_forward_allowed:false;
+  sheets_writes:0;
+};
+export type CatinatCountConfirmationState = {
+  business_date:string; source_hash:string; source_status:string;
+  confirmed_count:number; required_count:number;
+  cells:Array<{sheet:string;cell:string;material:string;unit:string;
+    quantity:string|null;confirmed:boolean;confirmed_by:string|null}>;
+  official_shift_closed:false; automatic_carry_forward_allowed:false; sheets_writes:0;
+};
+export type CatinatConfirmCountRequest = {
+  business_date:string;expected_source_hash:string;
+  cells:Array<{sheet:string;cell:string}>;
+};
+export type CatinatCountConfirmationResult = {
+  business_date:string;source_hash:string;
+  confirmed:Array<{sheet:string;cell:string;quantity:string;confirmed_by:string}>;
+  official_shift_closed:false;inventory_write_performed:false;sheets_writes:0;
+};
+export type CatinatCatalogMapping = {
+  business_date:string;shift:"evening";source_hash:string;
+  mode:"read_only_uncertified_catalog_candidates";
+  catalog_coverage:{active_item_count:number;active_location_count:number;certified:false};
+  locations:Array<{sheet:string;status:string;candidate_location_ids:string[]}>;
+  items:Array<{sheet:string;cell:string;material:string;form:string;unit:string;
+    status:string;candidate_item_ids:string[];location_status:string}>;
+  summary:{total:number;exact_candidates:number;requires_review:number;by_status:Record<string,number>};
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
+export type CatinatCertificationCoverage = {
+  business_date:string;source_hash:string;mode:"read_only_certification_coverage";
+  areas:Array<{sheet:string;source_cells:number;evidence_cells:number;pending_cells:number;
+    missing_location:boolean;ambiguous_location:boolean}>;
+  items:Array<{sheet:string;cell:string;material:string;unit:string;
+    mapping_status:string;evidence_status:string;certification_version:number|null}>;
+  summary:{source_cells:number;evidence_cells:number;pending_cells:number;
+    warehouse_areas_with_exact_candidate:number;total_warehouse_areas:number};
+  mapping_activated:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
+export type CatinatPackageConversionReview = {
+  business_date:string;source_hash:string;
+  mode:"read_only_package_conversion_evidence";
+  items:Array<{sheet:string;cell:string;material:string;form:string;
+    source_unit:string;status:string;
+    approved_factor_evidence:string|null;
+    approved_target_unit_evidence:string|null;
+    conversion_applied:false}>;
+  summary:{total_cells:number;by_status:Record<string,number>;
+    approved_conversion_evidence_cells:number};
+  conversion_applied:false;ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
+export type CatinatSafetyTriage = {
+  mode:"read_only_shelf_life_waste_transfer_triage";
+  business_date:string;source_hash:string;
+  prepared_report_hints:Array<{sheet:string;row:number;status:string}>;
+  items:Array<{sheet:string;cell:string;material:string;form:string;unit:string;
+    batch_expiry_status:string;disposal_status:string}>;
+  transfers:Array<{id:string;business_date:string;item_id:string;
+    source_location_id:string;destination_location_id:string;unit:string;
+    dispatched_quantity:string;received_quantity:string;remaining_in_transit:string;
+    receipt_status:string;ledger_posted:boolean;requires_receipt:boolean;
+    requires_ledger_reconciliation:boolean;stock_posted_by_this_audit:false}>;
+  summary:{physical_cells_without_batch_expiry_certification:number;
+    date_only_preparation_hints:number;pending_receipt_transfers:number;
+    unposted_ledger_transfers:number};
+  batch_expiration_and_waste_certified:false;transfer_ledger_reconciled:false;
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;
+};
+export const catinatShiftApi = {
+  safetyTriage:(businessDate:string)=>request<CatinatSafetyTriage>(
+    "/daily-sheet/catinat/shift/safety-triage?business_date="+encodeURIComponent(businessDate),
+  ),
+  packageConversionReview:(businessDate:string)=>request<CatinatPackageConversionReview>(
+    "/daily-sheet/catinat/catalog-certifications/conversion-review?business_date="+encodeURIComponent(businessDate),
+  ),
+  certificationCoverage:(businessDate:string)=>request<CatinatCertificationCoverage>(
+    "/daily-sheet/catinat/catalog-certifications/coverage?business_date="+encodeURIComponent(businessDate),
+  ),
+  catalogMappingPreview:(businessDate:string)=>request<CatinatCatalogMapping>(
+    "/daily-sheet/catinat/catalog/mapping-preview?business_date="+encodeURIComponent(businessDate),
+  ),
+  readiness:(businessDate:string)=>request<CatinatEveningReadiness>(
+    "/daily-sheet/catinat/shift/readiness?business_date="+encodeURIComponent(businessDate),
+  ),
+  closingPreflight:(businessDate:string)=>request<CatinatClosePreflight>(
+    "/daily-sheet/catinat/shift/closing-preflight?business_date="+encodeURIComponent(businessDate),
+  ),
+  confirmations:(businessDate:string)=>request<CatinatCountConfirmationState>(
+    "/daily-sheet/catinat/shift/count-confirmations?business_date="+encodeURIComponent(businessDate),
+  ),
+  confirmCounts:(body:CatinatConfirmCountRequest)=>request<CatinatCountConfirmationResult>(
+    "/daily-sheet/catinat/shift/count-confirmations",
+    {method:"POST",body:JSON.stringify(body)},
+  ),
+};
+
+export type CatinatBatchEvidence = {
+  id:string;business_date:string;sheet:string;cell:string;source_hash:string;
+  material:string;form:string;unit:string;lot_reference:string;
+  event_kind:"prepared"|"opened";event_at:string;package_expiry_at:string|null;
+  note:string;attested_by:string;attested_at:string|null;
+  status:"staff_attested_unverified";source_current:boolean|null;
+  expiry_certified:false;disposal_performed:false;ready_to_sign:false;
+  inventory_writes:0;sheets_writes:0;idempotent_replay:boolean;
+};
+export type CatinatBatchInput = {
+  idempotency_key:string;business_date:string;expected_source_hash:string;
+  sheet:string;cell:string;lot_reference:string;event_kind:"prepared"|"opened";
+  event_at:string;package_expiry_at?:string|null;note:string;
+};
+export type CatinatBatchDisposalRequest = {
+  business_date:string;expected_source_hash:string;idempotency_key:string;
+  quantity:string;reason:string;
+};
+export const catinatBatchApi = {
+  list:(businessDate:string)=>request<{
+    business_date:string;source_hash:string;items:CatinatBatchEvidence[];
+    mode:"batch_staff_evidence_only";ready_to_sign:false;inventory_writes:0;sheets_writes:0;
+  }>("/daily-sheet/catinat/batch-evidence?business_date="+encodeURIComponent(businessDate)),
+  record:(body:CatinatBatchInput)=>request<CatinatBatchEvidence>(
+    "/daily-sheet/catinat/batch-evidence",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+  requestDisposal:(batchId:string,body:CatinatBatchDisposalRequest)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/batch-evidence/"+encodeURIComponent(batchId)+"/request-disposal",
+    {method:"POST",body:JSON.stringify(body)}
+  ),
+};
+
+export type CatinatWasteEvidence = {
+  id:string;approval_request_id:string;batch_evidence_id:string;
+  business_date:string;source_hash:string;source_current:boolean;
+  quantity:string;unit:string;observed_at:string;method:string;
+  evidence_reference:string;note:string;witnessed_by:string;witnessed_at:string|null;
+  status:"staff_witnessed_unposted";manager_certified_by:string|null;
+  manager_certified_at:string|null;manager_certification_note:string|null;
+  physical_evidence_countersigned:boolean;ledger_posted:false;
+  inventory_writes:0;sheets_writes:0;ready_to_sign:false;
+  automatic_carry_forward_allowed:false;idempotent_replay:boolean;
+};
+export const catinatWasteEvidenceApi = {
+  list:(businessDate:string)=>request<{
+    source_hash:string;business_date:string;items:CatinatWasteEvidence[];
+    mode:"read_only_waste_evidence_unposted";stock_writes:0;sheets_writes:0;
+    ready_to_sign:false;automatic_carry_forward_allowed:false;
+  }>("/daily-sheet/catinat/waste-evidence?business_date="+encodeURIComponent(businessDate)),
+  witness:(body:{
+    approval_request_id:string;business_date:string;expected_source_hash:string;
+    idempotency_key:string;quantity:string;observed_at:string;method:string;
+    evidence_reference:string;note:string;
+  })=>request<CatinatWasteEvidence>("/daily-sheet/catinat/waste-evidence/witness",{
+    method:"POST",body:JSON.stringify(body),
+  }),
+  countersign:(witnessId:string,body:{
+    business_date:string;expected_source_hash:string;note:string;
+  })=>request<CatinatWasteEvidence>(
+    "/daily-sheet/catinat/waste-evidence/"+encodeURIComponent(witnessId)+"/countersign",{
+      method:"POST",body:JSON.stringify(body),
+    }
+  ),
+};
+
+export type CatinatApprovalKind = "discrepancy" | "catalog_mapping" | "package_conversion" | "post_close_adjustment" | "transfer_exception" | "waste_disposal";
+export type CatinatApprovalStatus = "pending" | "approved" | "rejected";
+export type CatinatApproval = {
+  id:string; business_date:string; kind:CatinatApprovalKind; subject_ref:string;
+  proposal:Record<string,unknown>; proposal_hash:string; reason:string;
+  status:CatinatApprovalStatus; requested_by:string; decided_by:string|null;
+  decision_reason:string|null; created_at:string|null; decided_at:string|null;
+  idempotent_replay:boolean; inventory_write_performed:false;
+};
+export type CatinatApprovalInput = {
+  idempotency_key:string; business_date:string; kind:CatinatApprovalKind;
+  subject_ref:string; proposal:Record<string,unknown>; reason:string;
+};
+/** These endpoints log approvals only, they never mutate the production Sheet. */
+export const catinatApprovalApi = {
+  list: (status?:CatinatApprovalStatus)=>request<{items:CatinatApproval[]}>(
+    "/daily-sheet/catinat/approvals"+(status?"?status="+encodeURIComponent(status):"")
+  ),
+  get: (id:string)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals/"+encodeURIComponent(id)
+  ),
+  create: (body:CatinatApprovalInput)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals", {method:"POST",body:JSON.stringify(body)}
+  ),
+  decide: (id:string,decision:"approved"|"rejected",reason:string)=>request<CatinatApproval>(
+    "/daily-sheet/catinat/approvals/"+encodeURIComponent(id)+"/decision",
+    {method:"POST",body:JSON.stringify({decision,reason})}
+  ),
+};
+
+export type CatinatCatalogCertification = {
+  id:string;version:number;business_date:string;sheet:string;cell:string;
+  source_hash:string;material:string;form:string;unit:string;
+  item_id:string;location_id:string;approval_request_id:string;
+  approved_by:string;certified_by:string;certification_note:string;
+  certified_at:string|null;status:"evidence_only";mapping_activated:false;
+  ready_to_sign:false;automatic_carry_forward_allowed:false;
+  inventory_writes:0;sheets_writes:0;idempotent_replay:boolean;
+};
+/** An approved request must still pass fresh server-side evidence checks. */
+export const catinatCatalogCertificationApi = {
+  list:(businessDate:string)=>request<{items:CatinatCatalogCertification[];mapping_activated:false;
+    ready_to_sign:false;sheets_writes:0}>(
+    "/daily-sheet/catinat/catalog-certifications?business_date="+encodeURIComponent(businessDate),
+  ),
+  certify:(body:{approval_request_id:string;item_id:string;location_id:string;note:string})=>
+    request<CatinatCatalogCertification>("/daily-sheet/catinat/catalog-certifications",{
+      method:"POST",body:JSON.stringify(body),
+    }),
+};
+
 export type InventoryDailySheetConfiguration = {
   image_pipeline_enabled:boolean;
   daily_sheet_automation_enabled:boolean;
