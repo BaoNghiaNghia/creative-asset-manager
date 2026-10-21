@@ -1,0 +1,140 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "v4-warning",
+      "click": ".ops-inventory-blockers > details > summary",
+      "waitFor": ".ops-inventory-blockers",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-summary-card.run",
+          "value": "Cần recovery"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-summary-card.result",
+          "value": "Chưa có dữ liệu"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-blockers",
+          "value": "Reset đầu ngày: Thất bại"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-blockers",
+          "value": "qa_previous_count_unverified"
+        },
+        {
+          "type": "count",
+          "selector": ".ops-inventory-clear",
+          "value": 0
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "manager-material-preview",
+      "click": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) > details > summary",
+      "waitFor": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\"))",
+          "value": "SỮA ĐẶC QA"
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]:disabled",
+          "value": 0
+        },
+        {
+          "type": "checked",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+          "value": false
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\"):disabled",
+          "value": 1
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "manager-explicit-selection",
+      "click": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "checked",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+          "value": true
+        },
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\")",
+          "value": "Duyệt nhóm đã chọn (1)"
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\"):disabled",
+          "value": 0
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "manager-approval-result",
+      "click": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\")",
+      "waitFor": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) p[role=\"status\"]:has-text(\"Đã duyệt 1 nhóm\")",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) p[role=\"status\"]",
+          "value": "Đã duyệt 1 nhóm / 1 dòng ứng viên."
+        },
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) p[role=\"status\"]",
+          "value": "Không ghi số tồn và không ghi Google Sheets."
+        },
+        {
+          "type": "checked",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+          "value": false
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\"):disabled",
+          "value": 1
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    }
+  ]
+}

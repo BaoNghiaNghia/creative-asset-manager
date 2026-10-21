@@ -12,7 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.daily.catinat_catalog_mapping import _normal
-from app.modules.inventory.materials import normalize_material_text
+from app.modules.inventory.materials import (
+    material_candidate_group_evidence_hash, normalize_material_text,
+)
 from app.modules.inventory.persistence_model import InventoryItemModel, InventoryMaterialCandidateModel
 
 _EVIDENCE_HASH = re.compile(r"^[0-9a-f]{64}$")
@@ -50,6 +52,8 @@ def _has_certifiable_units(row: InventoryMaterialCandidateModel, item: Inventory
     evidence = _unit_evidence(row)
     if review.get("status") != "explicit_unit_found" or not evidence:
         return False, "missing_unit_evidence"
+    if len(evidence) != len(review.get("unit_evidence") or []):
+        return False, "candidate_unit_evidence_invalid"
     allowed = {
         _normal(value) for value in (item.base_unit, item.whole_unit, item.fraction_unit)
         if isinstance(value, str) and _normal(value)
@@ -165,6 +169,7 @@ def grouped_material_candidates(session: Session, tenant_id: str) -> dict:
                 "candidate_id": seed.id,
                 "candidate_ids": sorted(row.id for row in group_rows),
                 "expected_count": len(group_rows),
+                "evidence_hash": material_candidate_group_evidence_hash(group_rows, item) if item else "",
                 "sheet": sheet,
                 "category": seed.category,
                 "name": seed.raw_name,

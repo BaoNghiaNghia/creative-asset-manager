@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "proposalId": "20261021T150736Z-b1a9bc23-inventory",
+  "acceptedAt": "2026-10-21T15:23:18.683020+00:00",
+  "acceptanceReason": "User explicitly authorized automatic Browser QA approval on 2026-10-21: \"X\u00e1c nh\u1eadn t\u1ef1 \u0111\u1ed9ng duy\u1ec7t cho browser qa\". This accepts the reviewed 15-image Inventory proposal 20261021T150736Z-b1a9bc23-inventory supplied in the handoff; the corrected disclosure captures and candidate hashes were verified.",
+  "changedScreenshots": [
+    "desktop--human-attestation-collapsed.png",
+    "desktop--overview-ready.png",
+    "desktop--status-hover.png",
+    "desktop--status-refresh-focus.png",
+    "desktop--status-refresh.png",
+    "mobile--human-attestation-collapsed.png",
+    "mobile--overview-ready.png",
+    "mobile--status-hover.png",
+    "mobile--status-refresh-focus.png",
+    "mobile--status-refresh.png",
+    "tabletPortrait--human-attestation-collapsed.png",
+    "tabletPortrait--overview-ready.png",
+    "tabletPortrait--status-hover.png",
+    "tabletPortrait--status-refresh-focus.png",
+    "tabletPortrait--status-refresh.png"
+  ],
+  "sourceHead": "b1a9bc23cc3d5dfcf340e0d6cbc8b20690c3ace8",
+  "workspaceFingerprint": "9927fce889397633d8468a5372aadfbd216d06d306b35ac2d3df64da26572fe3"
+}

@@ -1,0 +1,232 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "v4-warning",
+      "click": ".ops-inventory-blockers > details > summary",
+      "waitFor": ".ops-inventory-blockers",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-summary-card.run",
+          "value": "Cần recovery"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-summary-card.result",
+          "value": "Chưa có dữ liệu"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-blockers",
+          "value": "Reset đầu ngày: Thất bại"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".ops-inventory-blockers",
+          "value": "qa_previous_count_unverified"
+        },
+        {
+          "type": "count",
+          "selector": ".ops-inventory-clear",
+          "value": 0
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "staff-material-preview",
+      "click": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) > details > summary",
+      "waitFor": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\"))",
+          "value": "SỮA ĐẶC QA"
+        },
+        {
+          "type": "text-includes",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\"))",
+          "value": "Chỉ quản lý có quyền phê duyệt nguyên liệu"
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]:disabled",
+          "value": 1
+        },
+        {
+          "type": "checked",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) input[type=\"checkbox\"]",
+          "value": false
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Duyệt nhóm đã chọn\"):disabled",
+          "value": 1
+        },
+        {
+          "type": "count",
+          "selector": "section.inventory-pipeline:has(> details > summary:has-text(\"Danh mục nguyên liệu cần đối chiếu\")) button:has-text(\"Chọn tất cả nhóm đủ bằng chứng\"):disabled",
+          "value": 1
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "staff-count-day",
+      "click": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) > summary",
+      "fill": {
+        "selector": "#catinat-shift-day",
+        "value": "2026-10-21"
+      },
+      "waitFor": "#catinat-shift-day",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "count",
+          "selector": "#catinat-shift-day:disabled",
+          "value": 0
+        },
+        {
+          "type": "visible",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Kiểm tra số liệu Google Sheets\")"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "staff-count-roster",
+      "click": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Kiểm tra số liệu Google Sheets\")",
+      "waitFor": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label=\"Xác nhận đã kiểm đếm SỮA ĐẶC QA KHO PHA CHẾ L5\"]",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "count",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label^=\"Xác nhận đã kiểm đếm\"]",
+          "value": 3
+        },
+        {
+          "type": "count",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label^=\"Xác nhận đã kiểm đếm\"]:disabled",
+          "value": 0
+        },
+        {
+          "type": "checked",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label=\"Xác nhận đã kiểm đếm SỮA ĐẶC QA KHO PHA CHẾ L5\"]",
+          "value": false
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "Đã xác nhận 0/3 ô tồn."
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "KHO PHA CHẾ (L/M: 0/1 ô đã xác nhận)"
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "PHÒNG PHA CHẾ (H/J: 0/1 ô đã xác nhận)"
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "KHO PHÒNG RANG (J/L: 0/1 ô đã xác nhận)"
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "Chưa cho phép chốt ca hoặc tự chuyển tồn."
+        },
+        {
+          "type": "count",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Lưu xác nhận kiểm đếm\")",
+          "value": 0
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "staff-count-selection",
+      "click": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label=\"Xác nhận đã kiểm đếm SỮA ĐẶC QA KHO PHA CHẾ L5\"]",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "checked",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) input[aria-label=\"Xác nhận đã kiểm đếm SỮA ĐẶC QA KHO PHA CHẾ L5\"]",
+          "value": true
+        },
+        {
+          "type": "checked",
+          "selector": "#catinat-confirm-physical",
+          "value": false
+        },
+        {
+          "type": "count",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Lưu xác nhận kiểm đếm\"):disabled",
+          "value": 1
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    },
+    {
+      "name": "staff-count-attestation-ready",
+      "click": "#catinat-confirm-physical",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "checked",
+          "selector": "#catinat-confirm-physical",
+          "value": true
+        },
+        {
+          "type": "visible",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Lưu xác nhận kiểm đếm (1 ô)\")"
+        },
+        {
+          "type": "count",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\")) button:has-text(\"Lưu xác nhận kiểm đếm\"):disabled",
+          "value": 0
+        },
+        {
+          "type": "text-includes",
+          "selector": "details.inventory-pipeline:has(> summary:has-text(\"Kiểm đếm ca tối và chứng cứ Google Sheets\"))",
+          "value": "Ca vẫn chưa được chốt"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "html",
+          "maxPx": 0
+        }
+      ]
+    }
+  ]
+}
