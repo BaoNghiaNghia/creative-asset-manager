@@ -15,6 +15,19 @@ OLD_KINDS = "kind IN ('discrepancy','catalog_mapping','package_conversion','post
 NEW_KINDS = "kind IN ('discrepancy','catalog_mapping','package_conversion','post_close_adjustment','transfer_exception','waste_disposal')"
 
 
+def _set_approval_kind_constraint(expression):
+    """SQLite requires copy-and-move for CHECK changes; PostgreSQL uses DDL."""
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("inventory_catinat_approval_requests", recreate="always") as batch:
+            batch.drop_constraint("ck_catinat_approval_kind", type_="check")
+            batch.create_check_constraint("ck_catinat_approval_kind", expression)
+    else:
+        op.drop_constraint("ck_catinat_approval_kind",
+                           "inventory_catinat_approval_requests", type_="check")
+        op.create_check_constraint("ck_catinat_approval_kind",
+                                   "inventory_catinat_approval_requests", expression)
+
+
 def upgrade():
     op.create_table(
         "inventory_catinat_batch_evidence",
@@ -47,8 +60,7 @@ def upgrade():
     )
     op.create_index("ix_catinat_batch_day", "inventory_catinat_batch_evidence",
                     ["tenant_id", "business_date", "sheet_name", "cell_ref"])
-    op.drop_constraint("ck_catinat_approval_kind", "inventory_catinat_approval_requests", type_="check")
-    op.create_check_constraint("ck_catinat_approval_kind", "inventory_catinat_approval_requests", NEW_KINDS)
+    _set_approval_kind_constraint(NEW_KINDS)
 
 
 def downgrade():
@@ -61,7 +73,6 @@ def downgrade():
         raise RuntimeError("waste_disposal_requests_prevent_downgrade")
     if conn.scalar(sa.text("SELECT COUNT(*) FROM inventory_catinat_batch_evidence")):
         raise RuntimeError("batch_evidence_prevents_downgrade")
-    op.drop_constraint("ck_catinat_approval_kind", "inventory_catinat_approval_requests", type_="check")
-    op.create_check_constraint("ck_catinat_approval_kind", "inventory_catinat_approval_requests", OLD_KINDS)
+    _set_approval_kind_constraint(OLD_KINDS)
     op.drop_index("ix_catinat_batch_day", table_name="inventory_catinat_batch_evidence")
     op.drop_table("inventory_catinat_batch_evidence")
