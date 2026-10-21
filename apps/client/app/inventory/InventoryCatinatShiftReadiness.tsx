@@ -30,6 +30,13 @@ const ISSUE:Record<string,string>={
   unmapped_quantity_row:"Có dữ liệu ở dòng chưa xác định nguyên liệu",
   stock_unit_missing:"Thiếu đơn vị của phần tồn kho",
   no_physical_counts_discovered:"Chưa tìm thấy tồn cuối để kiểm kê",
+  inventory_items_missing_for_tenant:"Chưa cấu hình nguyên liệu hoạt động cho cửa hàng",
+  inventory_locations_missing_for_tenant:"Chưa cấu hình kho/vị trí hoạt động cho cửa hàng",
+  catalog_item_and_location_mapping_not_certified:"Chưa xác minh đối chiếu nguyên liệu và kho với Google Sheets",
+  batch_expiration_and_waste_reconciliation_not_certified:"Chưa đối chiếu hạn sử dụng và hủy nguyên liệu",
+  shift_reconciliation_and_transfer_posting_not_certified:"Chưa đối soát bàn giao ca và ghi sổ chuyển kho",
+  concurrent_google_sheet_write_protocol_not_certified:"Chưa có cơ chế khóa/đối chiếu khi nhiều người sửa Sheets",
+  physical_count_unconfirmed_or_stale:"Kiểm đếm chưa xác nhận hoặc Sheets đã thay đổi",
 };
 
 function itemKey(sheet:string,cell:string){return sheet+"|"+cell;}
@@ -214,8 +221,13 @@ export function InventoryCatinatShiftReadiness(){
           {preflight.approval_requests_count} yêu cầu quản lý liên quan.
           <strong> Chưa cho phép chốt ca hoặc tự chuyển tồn.</strong>
         </p>
+        <p className="inventory-muted">
+          Danh mục hiện có {preflight.catalog_coverage.active_item_count} nguyên liệu và
+          {" "}{preflight.catalog_coverage.active_location_count} kho/vị trí đang hoạt động.
+          <strong> Chưa có xác nhận ghép từng dòng Sheets với danh mục chuẩn.</strong>
+        </p>
         <ul>{[...safetyReasons.entries()].map(([code,count])=>
-          <li key={code}>{code}: {count} mục</li>)}</ul>
+          <li key={code}>{ISSUE[code]||code}: {count} mục</li>)}</ul>
       </section>}
       <h3>Cảnh báo cần xử lý trước khi đóng ca</h3>
       <ul>{data.blockers.filter(row=>row.code!=="employee_physical_confirmation_required"

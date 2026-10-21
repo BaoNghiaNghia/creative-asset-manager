@@ -57,6 +57,31 @@ Business timezone: `Asia/Ho_Chi_Minh`. Production workbook remains staff-operate
 - GET `/api/inventory/daily-sheet/catinat/shift/closing-preflight?business_date=...` requires `inventory.read`; the `Kiểm kê ca` screen cross-checks 3 fresh read hashes and displays remaining blockers. All returned documents have `ready_to_sign=false` until the missing policy gates below are built and demonstrated. No POST close or auto carry-forward has been enabled.
 - QA: `test_catinat_transfers.py` and `test_catinat_close_preflight.py` exercise tenant isolation, pending/partial/received state, replay/over-receipt, manager approval evidence, stale source hash, and no Sheets write paths.
 
+## P0 follow-up — tenant catalog coverage diagnostics (21 Oct 2026)
+
+The **read-only** evening closing preflight now separately counts active catalog materials and
+active storage locations for the authenticated tenant. The response includes
+`catalog_coverage: { active_item_count, active_location_count, certified: false }`.
+A tenant with zero active materials or zero active locations receives explicit
+`inventory_items_missing_for_tenant` / `inventory_locations_missing_for_tenant`
+blockers, localized in the Vietnamese staff view. Cross-tenant catalog entries
+never count toward readiness. Even non-zero counts do **not** certify name,
+variant, batch, unit conversion, or per-sheet location mapping.
+
+In the independently restored 20 Oct production-source snapshot, the checked
+row counts were 14 `inventory_items` and 0 `inventory_locations`; therefore
+the current data is **not** ready to sign or carry forward. Staff/manager
+mapping approval must precede actual writes. No catalog records are
+auto-created, no physical counts are inferred and no Sheets values are changed.
+
+A separate 21 Oct private read-only verifier recorded
+`/root/catinat-db-rehearsal-20261020/migration-0173-proof.json`: the
+isolated loopback PostgreSQL clone reports one `0173_catinat_branding_merge`
+Alembic revision, 188 total tables (180 restored + 6 Catinat + 2 Branding),
+unchanged source row counts, scoped Branding constraints and validated dump
+checksum. This evidence **does not claim a fresh migration run**; it audits a
+clone already found at revision 0173. Production migration was not run.
+
 ## Hard requirements NOT yet implemented or live-verified
 
 1. **P0/R0**: Live catalog/warehouse mapping audit, missing items/location recovery, production `apply_mode`/reset paths, job queue and persistent retries, backend migration health. Without proof, keep automatic resets/carry-forward disabled for Catinat.

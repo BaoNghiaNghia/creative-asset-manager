@@ -56,6 +56,7 @@ export type CatinatClosePreflight = {
   confirmed_count:number;required_count:number;
   outstanding_transfer_count:number;unreconciled_transfer_count:number;
   approval_requests_count:number;
+  catalog_coverage:{active_item_count:number;active_location_count:number;certified:false};
   blockers:Array<{code:string;sheet?:string;cell?:string;request_id?:string;
     transfer_ids?:string[];snapshot_id?:string}>;
   ready_to_sign:false;official_shift_closed:boolean;

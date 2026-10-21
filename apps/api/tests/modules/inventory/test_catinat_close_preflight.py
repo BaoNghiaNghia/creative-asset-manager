@@ -78,6 +78,50 @@ def codes(result):
     return [row["code"] for row in result["blockers"]]
 
 
+def test_catalog_coverage_shows_missing_locations_and_never_certifies_by_count(db):
+    service, sessions = db
+    with sessions.begin() as session:
+        for location in session.query(InventoryLocationModel).filter_by(tenant_id="tenant-a"):
+            location.active = False
+        session.add(TenantModel(id="tenant-b", name="Other shop", slug="other-shop"))
+        session.add(InventoryLocationModel(
+            id="other-location", tenant_id="tenant-b", code="store",
+            name="Other shop warehouse", active=True,
+        ))
+        session.add(InventoryItemModel(
+            id="other-item", tenant_id="tenant-b", sku="other-item",
+            name="Other material", base_unit="kg", conversion_factor=Decimal("1"),
+            active=True,
+        ))
+    report = service.inspect(
+        tenant_id="tenant-a", business_date=DAY, current_readiness=ready,
+    )
+    assert report["catalog_coverage"] == {
+        "active_item_count": 1,
+        "active_location_count": 0,
+        "certified": False,
+    }
+    assert "inventory_locations_missing_for_tenant" in codes(report)
+    assert "catalog_item_and_location_mapping_not_certified" in codes(report)
+    assert report["ready_to_sign"] is False
+    assert report["sheets_writes"] == 0
+
+
+def test_catalog_coverage_fails_closed_when_items_inactive(db):
+    service, sessions = db
+    with sessions.begin() as session:
+        item = session.get(InventoryItemModel, "milk")
+        item.active = False
+    report = service.inspect(
+        tenant_id="tenant-a", business_date=DAY, current_readiness=ready,
+    )
+    assert report["catalog_coverage"]["active_item_count"] == 0
+    assert report["catalog_coverage"]["active_location_count"] == 2
+    assert report["catalog_coverage"]["certified"] is False
+    assert "inventory_items_missing_for_tenant" in codes(report)
+    assert report["ready_to_sign"] is False
+
+
 def test_unconfirmed_counts_block_close_without_any_write(db):
     service, _ = db
     output = service.inspect(

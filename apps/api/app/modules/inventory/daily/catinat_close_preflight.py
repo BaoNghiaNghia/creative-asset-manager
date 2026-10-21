@@ -9,7 +9,7 @@ batch expiry/waste and safe concurrent carry-forward are fully integrated.
 from __future__ import annotations
 
 from datetime import date
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.inventory.daily.catinat_count_confirmations import (
@@ -20,6 +20,8 @@ from app.modules.inventory.persistence_model import (
     InventoryCatinatCountConfirmationModel,
     InventoryCatinatSignedShiftModel,
     InventoryCatinatTransferModel,
+    InventoryItemModel,
+    InventoryLocationModel,
 )
 
 
@@ -61,6 +63,14 @@ class CatinatClosePreflightService:
                 InventoryCatinatSignedShiftModel.business_date == business_date,
                 InventoryCatinatSignedShiftModel.shift == "evening",
             ))
+            active_item_count = session.scalar(select(func.count(InventoryItemModel.id)).where(
+                InventoryItemModel.tenant_id == tenant_id,
+                InventoryItemModel.active.is_(True),
+            )) or 0
+            active_location_count = session.scalar(select(func.count(InventoryLocationModel.id)).where(
+                InventoryLocationModel.tenant_id == tenant_id,
+                InventoryLocationModel.active.is_(True),
+            )) or 0
         evidence = {(e.sheet_name, e.cell_ref): e for e in confirmed}
         confirmed_count = 0
         for cell in rows:
@@ -122,6 +132,10 @@ class CatinatClosePreflightService:
                          else "post_close_sheet_changed_manager_review_required"),
                 "snapshot_id": signed.id,
             })
+        if active_item_count == 0:
+            blockers.append({"code": "inventory_items_missing_for_tenant"})
+        if active_location_count == 0:
+            blockers.append({"code": "inventory_locations_missing_for_tenant"})
         # The following gates remain mandatory and are NOT satisfied by
         # simple name matching or by a manager 'approve' click alone.
         blockers.extend([
@@ -139,6 +153,12 @@ class CatinatClosePreflightService:
             "outstanding_transfer_count": len(pending),
             "unreconciled_transfer_count": len(unreconciled),
             "approval_requests_count": len(requests),
+            "catalog_coverage": {
+                "active_item_count": active_item_count,
+                "active_location_count": active_location_count,
+                # Raw item/location counts do not certify sheet-to-catalog mapping.
+                "certified": False,
+            },
             "blockers": blockers,
             "ready_to_sign": False,
             "official_shift_closed": signed is not None,
