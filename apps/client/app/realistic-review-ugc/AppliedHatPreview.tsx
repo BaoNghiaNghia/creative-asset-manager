@@ -1,29 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
-import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
+import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import "./AppliedHatPreview.css";
 
 const HAT_VIEWS = [
-  { key: "front", label: "front", surface: "front" },
-  { key: "side", label: "right side", surface: "side" },
-  { key: "back", label: "back", surface: "front" },
+  { key: "front", label: "front" },
+  { key: "side", label: "right side" },
+  { key: "back", label: "back" },
 ] as const;
 
 const STOCK_ROOT = "/rrugc/blueprint/stock/natural-black";
 
-function HatImage({
-  designSrc,
-  view,
-}: {
+function HatImage({ designSrc, view }: {
   designSrc: string;
   view: (typeof HAT_VIEWS)[number];
 }) {
   const tileRef = useRef<HTMLDivElement>(null);
-  const [nearViewport, setNearViewport] = useState(
-    () => typeof IntersectionObserver === "undefined",
-  );
+  const [nearViewport, setNearViewport] = useState(() => typeof IntersectionObserver === "undefined");
+  const front = view.key === "front";
+  // Reuse the exact same painted-artwork fit at 100% as the Blueprint
+  // 'Front embroidery area', including transparent PNG padding removal.
+  const fit = useBlueprintArtworkFit(front ? designSrc : "", 100);
   useEffect(() => {
-    if (nearViewport) return;
+    if (nearViewport || !front) return;
     const tile = tileRef.current;
     if (!tile) return;
     const observer = new IntersectionObserver(entries => {
@@ -31,60 +30,44 @@ function HatImage({
     }, { rootMargin: "360px" });
     observer.observe(tile);
     return () => observer.disconnect();
-  }, [nearViewport]);
+  }, [nearViewport, front]);
 
-  const hatSrc = view.key === "front"
+  const hatSrc = front
     ? "/rrugc/blueprint/fronts/natural-black.webp"
     : `${STOCK_ROOT}/${view.key}.jpg`;
-  // Each view is composed immediately. No action is required to apply design.
   const embroiderySrc = useBlueprintEmbroideryComposite(
-    nearViewport ? designSrc : "",
+    front && nearViewport ? designSrc : "",
     hatSrc,
     "black",
-    "original" as ThreadMode,
+    "original",
     0,
-    view.surface,
+    "front",
     "tile",
   );
 
-  return <div
-    className="rrugc-applied-hat-image"
-    ref={tileRef}
-    role="img"
-    aria-label={`Valucap 8869 ${view.label} view with embroidery design applied`}
-  >
-    <img src={hatSrc} alt="" aria-hidden="true" loading="lazy" />
-    {nearViewport && <img
-      className={`rrugc-applied-hat-artwork is-${view.key}`}
-      src={embroiderySrc}
-      alt=""
-      aria-hidden="true"
-      loading="lazy"
-    />}
+  return <div className="rrugc-applied-hat-image" ref={tileRef} role="img"
+    aria-label={`Valucap 8869 ${view.label} view${front ? " with front embroidery design applied" : " without applied embroidery"}`}>
+    {front ? <div className="rrugc-applied-hat-front-scene">
+      <img className="rrugc-applied-hat-stock" src={hatSrc} alt="" aria-hidden="true" loading="lazy" />
+      {nearViewport && <div className="rrugc-applied-hat-front-frame" ref={fit.frameRef}>
+        <img className="rrugc-applied-hat-front-artwork"
+          src={embroiderySrc} onLoad={fit.onLoad}
+          style={fit.style ?? { opacity: 0 }} alt="" aria-hidden="true" />
+      </div>}
+    </div> : <img src={hatSrc} alt="" aria-hidden="true" loading="lazy" />}
   </div>;
 }
 
-export function AppliedHatPreview({
-  designSrc,
-  designName,
-  revision,
-}: {
+export function AppliedHatPreview({ designSrc, designName, revision }: {
   designSrc: string;
   designName: string;
   revision: string;
 }) {
-  return <div
-    className="rrugc-applied-hat-grid"
-    key={revision}
-    aria-label="Embroidery design and three applied hat views"
-  >
+  return <div className="rrugc-applied-hat-grid" key={revision}
+    aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
     <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
       <img src={designSrc} alt="" aria-hidden="true" loading="lazy" />
     </div>
-    {HAT_VIEWS.map(view => <HatImage
-      key={view.key}
-      designSrc={designSrc}
-      view={view}
-    />)}
+    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} />)}
   </div>;
 }

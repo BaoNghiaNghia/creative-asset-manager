@@ -1,50 +1,14 @@
-/* Four equal tiles: original artwork, front, side, and back. */
-.rrugc-applied-hat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
+/* Keep the original design and three reference photos in a compact 2x2. */
+.rrugc-applied-hat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;min-width:0}
+.rrugc-applied-hat-image{position:relative;width:100%;aspect-ratio:1/1;min-width:0;overflow:hidden;box-sizing:border-box;border:1px solid #dde6f1;border-radius:10px;background:#f7f9fd}
+.rrugc-applied-hat-image>img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.rrugc-applied-hat-front-scene{
+  --rrugc-guide-left:15.2%;
+  --rrugc-guide-top:30.9%;
+  --rrugc-guide-width:69.6%;
+  --rrugc-guide-height:23.1%;
+  position:relative;width:80%;height:100%;margin:auto;aspect-ratio:4/5;
 }
-
-.rrugc-applied-hat-image {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid #dde6f1;
-  border-radius: 10px;
-  background: #f7f9fd;
-  box-sizing: border-box;
-}
-
-.rrugc-applied-hat-image > img {
-  display: block;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.rrugc-applied-hat-image > .rrugc-applied-hat-artwork {
-  width: 35%;
-  height: 20%;
-  left: 32.5%;
-  top: 34%;
-}
-
-.rrugc-applied-hat-image > .rrugc-applied-hat-artwork.is-side {
-  width: 25%;
-  height: 16%;
-  left: 43%;
-  top: 35%;
-}
-
-.rrugc-applied-hat-image > .rrugc-applied-hat-artwork.is-back {
-  width: 28%;
-  height: 14%;
-  left: 36%;
-  top: 25%;
-}
+.rrugc-applied-hat-stock{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.rrugc-applied-hat-front-frame{position:absolute;left:var(--rrugc-guide-left);top:var(--rrugc-guide-top);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height);overflow:visible}
+.rrugc-applied-hat-front-artwork{position:absolute;display:block;max-width:none;max-height:none;object-fit:fill;transform:none;pointer-events:none}

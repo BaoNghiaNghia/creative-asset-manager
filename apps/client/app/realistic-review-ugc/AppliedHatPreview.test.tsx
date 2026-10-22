@@ -8,28 +8,23 @@ vi.mock("./embroidery/useBlueprintEmbroideryComposite", () => ({
 }));
 
 describe("Product embroidery design gallery", () => {
-  it("renders artwork plus three automatically embroidered hats, with no visible controls or descriptions", () => {
-    const markup = renderToStaticMarkup(
-      <AppliedHatPreview
-        designSrc="/stage1/design-02.png"
-        designName="THE ORIGINAL"
-        revision="rev-02"
-      />,
-    );
-    expect((markup.match(/class="rrugc-applied-hat-image"/g) || []).length).toBe(4);
-    expect(markup).toContain('src="/stage1/design-02.png"');
-    expect(markup).toContain('src="/rrugc/blueprint/fronts/natural-black.webp"');
-    expect(markup).toContain('src="/rrugc/blueprint/stock/natural-black/side.jpg"');
-    expect(markup).toContain('src="/rrugc/blueprint/stock/natural-black/back.jpg"');
-    for (const view of ["front", "side", "back"]) {
-      expect(markup).toContain(`rrugc-applied-hat-artwork is-${view}`);
-      expect(markup).toContain(`${view === "side" ? "right side" : view} view with embroidery design applied`);
-    }
-    expect(markup).not.toMatch(/<button\b|<small\b|<strong\b/i);
-    expect(markup.replace(/<[^>]*>/g, "").trim()).toBe("");
+  it("applies embroidery ONLY to the front image while retaining the 2x2 image-only layout", () => {
+    const html = renderToStaticMarkup(<AppliedHatPreview
+      designSrc="/stage1/design-02.png" designName="THE ORIGINAL" revision="rev-02" />);
+    expect((html.match(/class="rrugc-applied-hat-image"/g) || []).length).toBe(4);
+    for (const stock of [
+      "/rrugc/blueprint/fronts/natural-black.webp",
+      "/rrugc/blueprint/stock/natural-black/side.jpg",
+      "/rrugc/blueprint/stock/natural-black/back.jpg",
+    ]) expect(html).toContain(stock);
+    expect((html.match(/rrugc-applied-hat-front-artwork/g) || []).length).toBe(1);
+    expect(html).not.toContain("is-side");
+    expect(html).not.toContain("is-back");
+    expect(html).not.toMatch(/<button\b|<small\b|<strong\b/i);
+    expect(html.replace(/<[^>]*>/g, "").trim()).toBe("");
   });
 
-  it("limits tile compositing cost without changing standard previews", () => {
+  it("limits only gallery thumbnail rasterization", () => {
     expect(chooseEmbroideryRasterSize(1254, 1254, "tile")).toEqual({ width: 384, height: 384 });
     expect(chooseEmbroideryRasterSize(1254, 1254, "preview")).toEqual({ width: 1254, height: 1254 });
   });
