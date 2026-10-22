@@ -17,7 +17,7 @@ describe("Products Stage 2 photo workflow", () => {
       expect(html).toContain(label);
     }
     expect(html).not.toContain('class="rrugc-products-photo-inputs"');
-    expect(html).toContain("Needs skill");
+    expect(html).toContain("Duration:");
     expect((html.match(/aria-disabled="true"/g) || []).length).toBe(7);
   });
 
@@ -82,8 +82,8 @@ describe("Products Stage 2 photo workflow", () => {
     ]) {
       expect(html).toContain(skill);
     }
-    expect((html.match(/Worker pending/g) || []).length).toBe(2);
-    expect(html).toContain("Needs skill");
+    expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
+    expect(html).toContain("Duration:");
     expect(html).toContain('title="8869 scale"');
     expect(html).toContain('<strong>8869 scale</strong>');
     expect(html).not.toContain('aria-label="13 Hat Colors skill for design.png"');

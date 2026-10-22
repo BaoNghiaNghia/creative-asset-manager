@@ -668,6 +668,7 @@ export type ColorwayJob = {
   attempt_count: number;
   error_code: string | null;
   output_url: string | null;
+  started_at?: string | null; completed_at?: string | null;
 };
 
 export type ProductsStage2PhotoStep = {
@@ -687,6 +688,7 @@ export type EcommerceJob = {
   status: "queued" | "running" | "completed" | "failed";
   retry_count: number; attempt_count: number; error_code: string | null;
   output_url: string | null; skill_name: string;
+  started_at?: string | null; completed_at?: string | null;
 };
 export type EcommerceJobLogs = {
   job_id: string; stage: string; status: string; skill: string;

@@ -342,3 +342,13 @@
 .rrugc-products-photo-pipeline-summary{margin-top:15px;margin-bottom:0;padding:11px 4px 6px;min-height:44px;row-gap:9px}
 .rrugc-products-photo-download-all{gap:7px;padding:8px 15px;min-height:34px}
 .rrugc-products-photo-download-icon{display:inline-flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-weight:900}
+/* Replace status badge with a consistently aligned Stage 1-style duration. */
+.rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls .rrugc-products-photo-duration{
+ display:inline-flex;align-items:center;justify-content:center;width:90px;
+ white-space:nowrap;color:#536a85;font-size:10px;font-weight:800;font-variant-numeric:tabular-nums;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+ scrollbar-width:none;-ms-overflow-style:none;cursor:grab;touch-action:pan-y;user-select:none;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors::-webkit-scrollbar{display:none}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors:active{cursor:grabbing}

@@ -325,6 +325,8 @@ class EcommerceService:
             "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{row.id}/output"
                           if row.output_remote_file_id else None,
             "skill_name": row.skill_name,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
         } for row, processing in rows]
 
 

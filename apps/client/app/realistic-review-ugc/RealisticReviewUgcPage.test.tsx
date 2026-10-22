@@ -446,7 +446,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain("0 completed · 0 active · 0 failed");
     expect(markup).toContain("13 Hat Colors");
     expect(markup).toContain("Skill 7");
-    expect(markup).toContain("Needs skill");
+    expect(markup).toContain("Duration:");
     for (const [sortBy, direction, header] of [
       ["updated", "desc", "Last updated"],
 

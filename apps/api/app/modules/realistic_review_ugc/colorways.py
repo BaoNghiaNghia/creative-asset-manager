@@ -304,6 +304,8 @@ class ColorwayService:
             {"id": row.id, "source_plan_id": row.source_plan_id, "color_key": row.color_key,
              "color_name": dict(COLORS)[row.color_key], "status": effective_status(row, processing),
              "retry_count": row.retry_count,
+             "started_at": row.started_at.isoformat() if row.started_at else None,
+             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
              "attempt_count": processing.attempt_count if processing else 0,
              "error_code": row.last_error_code or (processing.last_error_code if processing else None),
              "output_url": f"/api/v1/realistic-review-ugc/colorways/{row.id}/output"

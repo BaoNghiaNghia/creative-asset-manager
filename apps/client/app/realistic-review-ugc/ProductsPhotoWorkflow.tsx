@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { formatKeywordJobDuration } from "./KeywordImageStage";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
@@ -102,6 +103,8 @@ export function ProductsPhotoWorkflow({
   const [logs, setLogs] = useState<EcommerceJobLogs | null>(null);
   const [versionsFor, setVersionsFor] = useState<string | null>(null);
   const [versions, setVersions] = useState<EcommerceOutputVersion[]>([]);
+  const drag = useRef<{ startX: number; scrollLeft: number; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
   useEffect(() => {
     if (!sourcePlanId || !expandedStep?.startsWith("prod_s2_ec")) return;
     const controller = new AbortController();
@@ -206,10 +209,7 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-stage-controls">
             <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-            <span className={"rrugc-products-photo-state " + (status === "Ready" || status === "Completed" ? "is-done" : status === "Failed" ? "is-failed" : status === "Running" || status === "Queued" ? "is-running" : "is-unavailable")}
-              title={isEcommerce
-                ? (slotInputs ? "Missing persisted inputs: " + slotInputs.missing_roles.join(", ") : "Waiting for input readiness from server")
-                : state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
+            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">Duration: {shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : "—"}</span>
             <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
               aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
@@ -284,7 +284,18 @@ export function ProductsPhotoWorkflow({
           <span className="rrugc-products-photo-number">7</span>
           <div><strong>13 Hat Colors</strong><small>{complete}/13 images</small></div>
         </div>
-        <div className="rrugc-products-photo-output-strip is-colors" role="group" aria-label="13 hat color output slots">
+        <div className="rrugc-products-photo-output-strip is-colors" role="group" aria-label="13 hat color output slots" onPointerDown={event => {
+          if (event.pointerType === "touch") return;
+          const el = event.currentTarget;
+          drag.current = { startX: event.clientX, scrollLeft: el.scrollLeft, moved: false };
+        }} onPointerMove={event => {
+          if (!drag.current || event.buttons !== 1) return;
+          const dx = event.clientX - drag.current.startX;
+          if (Math.abs(dx) > 5) drag.current.moved = true;
+          if (drag.current.moved) { event.currentTarget.scrollLeft = drag.current.scrollLeft - dx; event.preventDefault(); }
+        }} onPointerUp={() => { suppressClick.current = Boolean(drag.current?.moved); drag.current = null; }} onPointerCancel={() => { drag.current = null; }} onClickCapture={event => {
+          if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; }
+        }}>
           {PHOTO_COLOR_KEYS.map((key, index) => {
             const job = byColor.get(key);
             const colorName = job?.color_name || key.replaceAll("-", " ");
@@ -313,9 +324,14 @@ export function ProductsPhotoWorkflow({
         </div>
         <div className="rrugc-products-photo-stage-controls">
           <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-          <span className={"rrugc-products-photo-state " + (failed ? "is-failed" : active ? "is-running" : complete === 13 ? "is-done" : "")}>
-            {colorStatus}
-          </span>
+          <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion">Duration: {(() => {
+            const starts = colors.map(job => job.started_at).filter((date): date is string => Boolean(date));
+            if (!starts.length) return "—";
+            const earliest = starts.reduce((a, b) => Date.parse(a) <= Date.parse(b) ? a : b);
+            const ends = colors.map(job => job.completed_at).filter((date): date is string => Boolean(date));
+            const latest = complete === 13 && ends.length === 13 ? ends.reduce((a, b) => Date.parse(a) >= Date.parse(b) ? a : b) : null;
+            return formatKeywordJobDuration(earliest, latest);
+          })()}</span>
           <button type="button" className={"rrugc-products-photo-run-button is-" + (colorwayRunning || active ? "processing" : failed ? "retry" : complete === 13 ? "completed" : colorwayReady ? "ready" : "unavailable")} aria-label="Run 13 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === 13} onClick={onQueueColors}><ActionIcon kind={colorwayRunning || active ? "loader" : failed ? "retry" : complete === 13 ? "check" : colorwayReady ? "play" : "clock"} />{colorwayRunning ? "Queueing…" : complete === 13 ? "Done" : "Run"}</button>
           <button type="button" className="rrugc-products-photo-detail-toggle"
             aria-expanded={expandedStep === "colorway"} aria-label="13 Hat Colors details"
