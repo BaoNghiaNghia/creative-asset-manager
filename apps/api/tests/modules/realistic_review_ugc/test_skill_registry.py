@@ -214,7 +214,7 @@ def test_registry_reconcile_and_disable_filters_stage2_catalog(monkeypatch):
         monkeypatch.setattr(
             skill_registry,
             "installed_stage2_skill_sha256",
-            lambda _name: "a" * 64,
+            lambda _name, **kwargs: "a" * 64,
         )
         with Session(engine) as session:
             rows = skill_registry.reconcile_skill_registry(

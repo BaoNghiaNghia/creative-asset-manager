@@ -338,6 +338,29 @@ def ensure_skill_registry(
             actor_id=actor_id,
             refresh=True,
         )
+    # A deployment may introduce new bundled Ecommerce skills after a tenant
+    # has already populated its registry. Discover only those new local skills
+    # without refreshing the remote catalog or altering any existing assignment.
+    from app.core.config import get_settings
+    from app.modules.realistic_review_ugc.stage2_skills import _local_item, _local_manifests
+    settings = get_settings()
+    existing = {(row.source, row.skill_name) for row in rows}
+    added = False
+    for name, manifest in _local_manifests(settings).items():
+        if not name.startswith("gatorhats-8869-ecommerce-") or ("local", name) in existing:
+            continue
+        item = _local_item(settings, manifest)
+        if item is None or not item.ready:
+            continue
+        _upsert_catalog_item(session, tenant_id=tenant_id, actor_id=None, item=item)
+        added = True
+    if added:
+        session.commit()
+        rows = list(session.scalars(select(RrugcStage2SkillRegistryModel).where(
+            RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
+            RrugcStage2SkillRegistryModel.deleted_at.is_(None),
+        ).order_by(RrugcStage2SkillRegistryModel.enabled.desc(),
+                   RrugcStage2SkillRegistryModel.display_name)))
     _sync_changed_local_skills(session, tenant_id=tenant_id, rows=rows)
     return rows
 
