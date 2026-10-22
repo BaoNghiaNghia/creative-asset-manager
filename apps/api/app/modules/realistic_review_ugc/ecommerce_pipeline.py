@@ -22,6 +22,7 @@ from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountP
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS_BY_STAGE
 from app.modules.realistic_review_ugc.ecommerce_stock_evidence import read_release_stock
+from app.modules.realistic_review_ugc.ecommerce_front_reference import FrontReferenceError, render_front_reference
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -220,6 +221,10 @@ class EcommerceService:
             front_reference_remote_file_id=front.output_remote_file_id if front else None,
             front_reference_content_type=front.output_content_type if front else None,
             front_reference_size_bytes=front.output_size_bytes if front else None,
+            front_preview_remote_file_id=front.front_preview_remote_file_id if front else None,
+            front_preview_content_type=front.front_preview_content_type if front else None,
+            front_preview_size_bytes=front.front_preview_size_bytes if front else None,
+            front_preview_design_sha256=front.front_preview_design_sha256 if front else None,
             skill_source=skill.source,
             skill_id=skill.skill_id, skill_name=skill.skill_name,
             skill_version=skill.skill_version,
@@ -280,6 +285,10 @@ class EcommerceService:
             row.front_reference_remote_file_id = front.output_remote_file_id
             row.front_reference_content_type = front.output_content_type
             row.front_reference_size_bytes = front.output_size_bytes
+            row.front_preview_remote_file_id = front.front_preview_remote_file_id
+            row.front_preview_content_type = front.front_preview_content_type
+            row.front_preview_size_bytes = front.front_preview_size_bytes
+            row.front_preview_design_sha256 = front.front_preview_design_sha256
         # Keep the version's original Skill pinned; do not silently switch to
         # another assigned Skill in a historical photo job.
         row.status = "queued"
@@ -341,6 +350,11 @@ class EcommerceGenerateHandler:
         except (EcommerceError, Stage2SkillRegistryError) as exc:
             self._failure(context, exc.code, exc.message, terminal=True)
             return JobHandlerResult.non_retryable(exc.code, exc.message)
+        except FrontReferenceError:
+            self._failure(context, "ecommerce_artwork_invalid",
+                          "Cannot compose an embroidered front reference.", terminal=True)
+            return JobHandlerResult.non_retryable(
+                "ecommerce_artwork_invalid", "Invalid embroidery artwork.")
         except (StorageProviderError, RrugcGenerationHandlerError) as exc:
             code = getattr(exc, "code", "ecommerce_storage_error")
             retryable = bool(getattr(exc, "retryable", True))
@@ -422,6 +436,10 @@ class EcommerceGenerateHandler:
             plan_id, mime, size, source_file_id = (
                 plan.id, plan.source_mime_type, plan.source_size_bytes, plan.source_file_id)
             folder_id, stage, skill_name = plan.source_parent_folder_id, row.stage, row.skill_name
+            preview_remote_id = row.front_preview_remote_file_id
+            preview_mime = row.front_preview_content_type
+            preview_size = row.front_preview_size_bytes
+            preview_design_sha = row.front_preview_design_sha256
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             session.commit()
@@ -434,6 +452,48 @@ class EcommerceGenerateHandler:
             references.append(ReferenceImageInput(
                 image=_prepared_image(design_bytes), role="design_reference",
                 label="exact embroidery artwork"))
+            design_sha = hashlib.sha256(design_bytes).hexdigest()
+            if preview_remote_id:
+                if preview_design_sha != design_sha:
+                    raise EcommerceError("ecommerce_design_changed",
+                                         "Embroidery artwork changed after preview was pinned.")
+                preview_bytes = await self._open_bytes(
+                    storage, context, "rrugc-ecommerce-front-preview:" + context.job.entity_id,
+                    preview_remote_id, preview_mime, preview_size)
+            elif stage == "prod_s2_ec1":
+                preview_bytes = render_front_reference(refs[0][1], design_bytes)
+                stored_preview = await storage.store_asset(StoreAssetInput(
+                    tenant_id=context.job.tenant_id,
+                    content_hash=hashlib.sha256(preview_bytes).hexdigest(),
+                    body=_bytes_body(preview_bytes),
+                    asset_id="rrugc-ecommerce-front-preview:" + context.job.entity_id,
+                    content_type="image/png", size_bytes=len(preview_bytes),
+                    filename=f"input_embroidered_front_{context.job.entity_id}.png",
+                    destination_folder_id=folder_id or None,
+                ))
+                if not stored_preview.remote_file_id:
+                    raise StorageProviderError("Front preview input could not be persisted.",
+                                               retryable=True, code="ecommerce_preview_storage_failed")
+                with context.dependencies.session_factory() as pin_session:
+                    pinned = pin_session.scalar(select(RrugcEcommerceJobModel).where(
+                        RrugcEcommerceJobModel.tenant_id == context.job.tenant_id,
+                        RrugcEcommerceJobModel.id == context.job.entity_id,
+                    ).with_for_update())
+                    if pinned is None:
+                        return JobHandlerResult.non_retryable(
+                            "ecommerce_job_not_found", "Ecommerce job missing.")
+                    pinned.front_preview_remote_file_id = stored_preview.remote_file_id
+                    pinned.front_preview_content_type = "image/png"
+                    pinned.front_preview_size_bytes = len(preview_bytes)
+                    pinned.front_preview_design_sha256 = design_sha
+                    pin_session.commit()
+                preview_remote_id = stored_preview.remote_file_id
+            else:
+                preview_bytes = None
+            if preview_bytes:
+                references.append(ReferenceImageInput(
+                    image=_prepared_image(preview_bytes), role="embroidered_front_preview",
+                    label="persisted artwork fitted inside calibrated front embroidery area"))
         front_image = None
         if front_asset:
             front_remote, front_mime, front_size = front_asset
@@ -520,6 +580,8 @@ class EcommerceGenerateHandler:
                                     "stock_sha256": row.stock_sha256,
                                     "skill_bundle_sha256": row.skill_bundle_sha256,
                                     "front_reference_remote_file_id": row.front_reference_remote_file_id,
+                                    "front_preview_remote_file_id": row.front_preview_remote_file_id,
+                                    "front_preview_design_sha256": row.front_preview_design_sha256,
                                 }})
             row.output_remote_file_id = stored.remote_file_id
             row.output_content_type = generated.mime_type

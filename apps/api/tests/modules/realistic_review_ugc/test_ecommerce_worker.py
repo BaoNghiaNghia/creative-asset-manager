@@ -42,6 +42,12 @@ class _Storage:
 
     async def open_asset(self, request):
         self.opened.append(request.remote_file_id)
+        if request.remote_file_id == "design-remote":
+            canvas = Image.new("RGBA", (600, 650), (0, 0, 0, 0))
+            canvas.paste((175, 35, 42, 255), (155, 200, 455, 420))
+            output = BytesIO()
+            canvas.save(output, format="PNG")
+            return _Stream(output.getvalue())
         return _Stream(_image())
 
     async def store_asset(self, request):
@@ -128,12 +134,16 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             RrugcEcommerceJobModel.id == job_id))
         assert row.status == "completed"
         assert row.output_remote_file_id == "persisted-photo-output"
+        assert row.front_preview_remote_file_id == "persisted-photo-output"
+        assert row.front_preview_design_sha256
         assert (row.output_width, row.output_height) == (600, 650)
         versions = list(session.scalars(select(RrugcImageOutputVersionModel)))
         assert len(versions) == 1
         assert versions[0].stage == "ecommerce"
         assert versions[0].remote_file_id == "persisted-photo-output"
     assert storage.opened == ["design-remote"]
-    assert len(storage.saved) == 1 and storage.saved[0][1] > 0
-    assert len(calls) == 1 and len(calls[0]["references"]) == 1
+    assert len(storage.saved) == 2 and all(item[1] > 0 for item in storage.saved)
+    assert storage.saved[0][0].startswith("input_embroidered_front_")
+    assert len(calls) == 1 and len(calls[0]["references"]) == 2
+    assert calls[0]["references"][1].role == "embroidered_front_preview"
     assert "FRONT high" in calls[0]["prompt"]
