@@ -825,7 +825,7 @@ def test_zero_png_failed_job_can_be_manually_regenerated_as_new_one_attempt_run(
     assert db.get(ProcessingJobModel, previous.id).status == "failed"
     second = db.get(ProcessingJobModel, renewed.processing_job_id)
     assert second.max_attempts == 1
-    assert second.payload_json == {"keyword_image_job_id": job.id, "replace_outputs": True}
+    assert second.payload_json == {"keyword_image_job_id": job.id, "replace_outputs": True, "expected_output_count": 6}
     assert db.query(ProcessingJobModel).count() == 2
 
 

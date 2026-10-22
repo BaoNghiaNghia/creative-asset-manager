@@ -218,6 +218,7 @@ class Settings(BaseSettings):
     CODEX_IMAGE_SKILL: str = "worker-hat-v1"
     CODEX_IMAGE_MODEL: str = ""
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
+    RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
     CLOUDFLARE_AI_ACCOUNT_ID: str = ""
     CLOUDFLARE_AI_API_TOKEN: str = ""
@@ -900,6 +901,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CODEX_IMAGE_TIMEOUT_SECONDS must be between 30 and 3600"
             )
+        return value
+
+    @field_validator("RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT")
+    @classmethod
+    def validate_stage1_output_count(cls, value: int) -> int:
+        if not 1 <= value <= 24:
+            raise ValueError("RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT must be between 1 and 24")
         return value
 
     @field_validator("APP_VERSION", "BUILD_COMMIT")

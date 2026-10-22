@@ -247,6 +247,7 @@ export type KeywordImageRow = {
   auto_retry_max?: number;
   next_retry_at?: string | null;
   checkpoint_count?: number;
+  expected_output_count?: number;
   saved_output_count: number;
   upload_recovery_available?: boolean;
   attempt_count: number;

@@ -192,10 +192,10 @@ def test_partial_set_error_reports_count_and_missing_indexes(tmp_path):
 
 def test_stage1_prompt_does_not_request_v4_ten_concepts_or_colorways():
     value = runner()._prompt(person_name=None, references=[], user_prompt="BEACH LIFE")
-    assert "exactly six" in value
+    assert "exactly 6" in value
     assert "design_06.png" in value
     assert "Do not generate, write, upload, or retain any preview/draft files" in value
-    assert "Persist only the six numbered final PNGs" in value
+    assert "Persist only the 6 numbered final PNGs" in value
     assert "BEACH LIFE" in value
     assert "TEN separate" not in value
     assert "13 ORIGINAL Valucap" not in value
@@ -303,3 +303,27 @@ def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pi
     assert "output/final/design_01.png through design_06.png" in value
     assert "WELL READ" in value
     assert "Do not generate, save, upload or" in value
+@pytest.mark.parametrize("expected_count", [4, 8])
+def test_variable_final_count_checkpoint_and_publish_contract(tmp_path, expected_count):
+    final = tmp_path / "output" / "final"
+    final.mkdir(parents=True)
+    for number in range(1, expected_count + 1):
+        Image.new("RGBA", (800, 800), (number * 17, 75, 120, 255)).save(
+            final / f"design_{number:02}.png"
+        )
+    generated = runner()._collect_six_final_designs(tmp_path, expected_count)
+    assert len(generated) == expected_count
+    assert runner().stage1_missing_final_numbers(tmp_path, expected_count) == ()
+    (final / f"design_{expected_count:02}.png").unlink()
+    assert runner().stage1_missing_final_numbers(tmp_path, expected_count) == (expected_count,)
+    with pytest.raises(CodexImageProviderError):
+        runner()._collect_six_final_designs(tmp_path, expected_count)
+
+
+@pytest.mark.parametrize("expected_count", [4, 8])
+def test_variable_stage1_prompt_declares_count(expected_count):
+    from dataclasses import replace
+    custom = CodexImageGenRunner(replace(runner().config, expected_output_count=expected_count))
+    prompt = custom._prompt(person_name=None, references=[], user_prompt="GATORHATS")
+    assert f"exactly {expected_count}" in prompt
+    assert f"design_{expected_count:02}.png" in prompt

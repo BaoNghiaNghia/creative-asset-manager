@@ -173,7 +173,7 @@ export function KeywordImageRowControls({
       </span>}
       {row.retry_count > 0 && row.status !== "completed" && <span className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry " + new Date(row.next_retry_at).toLocaleString() : "Automatic recovery budget"}>
         {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
-        {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/6 checkpoint" : ""}
+        {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}
       </span>}
     </div>
     {confirmRegenerate && regenerate && createPortal(
@@ -495,7 +495,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>6 final images per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Partial designs are preserved, retried within a bounded budget, and Drive cleanup runs after safe publish.</span>
+        <span>Configurable final image count per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Partial designs are preserved, retried within a bounded budget, and Drive cleanup runs after safe publish.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
@@ -535,7 +535,7 @@ export function KeywordImageStage({
                   {row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}
                   {row.retry_count > 0 && <small className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry: " + new Date(row.next_retry_at).toLocaleString() : "Durable Stage 1 recovery"}>
                     {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
-                    {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/6 checkpoint" : ""}
+                    {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}
                     {row.next_retry_at && row.status === "queued" ? " · Next " + new Date(row.next_retry_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                   </small>}
                   {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Running image-generation Skill"}</small> : null}

@@ -55,6 +55,7 @@ class CodexImageRunnerConfig:
     timeout_seconds: int = 900
     model: str | None = None
     output_contract: str = "single_png"
+    expected_output_count: int = 6
     expected_quote: str | None = None
     execution_log_id: str | None = None
     font_plan: tuple[dict, ...] | None = None
@@ -436,17 +437,19 @@ class CodexImageGenRunner:
         return None
 
     @staticmethod
-    def stage1_missing_final_numbers(workspace: Path) -> tuple[int, ...] | None:
+    def stage1_missing_final_numbers(workspace: Path, expected_count: int = 6) -> tuple[int, ...] | None:
         """Inspect checkpoint candidates without trusting partial/unknown PNG sets.
 
         None denotes an unsafe workspace, six numbers denotes no usable
         checkpoint, () denotes all six complete.
         """
+        if not 1 <= expected_count <= 24:
+            raise ValueError("Expected final image count must be between 1 and 24.")
         root = workspace.resolve()
         finals = workspace / "output" / "final"
         if finals.is_symlink() or not finals.is_dir():
-            return tuple(range(1, 7))
-        expected = {f"design_{number:02}.png": number for number in range(1, 7)}
+            return tuple(range(1, expected_count + 1))
+        expected = {f"design_{number:02}.png": number for number in range(1, expected_count + 1)}
         digests: set[str] = set()
         found: set[int] = set()
         for path in finals.iterdir():
@@ -466,7 +469,7 @@ class CodexImageGenRunner:
             except (OSError, ValueError, Image.DecompressionBombError):
                 return None
             found.add(expected[path.name])
-        return tuple(sorted(set(range(1, 7)) - found))
+        return tuple(sorted(set(range(1, expected_count + 1)) - found))
 
     async def generate_from_references(
         self,
@@ -507,7 +510,7 @@ class CodexImageGenRunner:
             if (workspace.is_symlink() or not output_dir.is_dir()
                     or self.config.output_contract != "stage1_six_final_designs"
                     or not resume_missing_numbers
-                    or self.stage1_missing_final_numbers(workspace) != tuple(sorted(resume_missing_numbers))):
+                    or self.stage1_missing_final_numbers(workspace, self.config.expected_output_count) != tuple(sorted(resume_missing_numbers))):
                 raise CodexImageProviderError(
                     "stage1_resume_checkpoint_invalid",
                     "Stage 1 recovery checkpoint is missing or has changed; original PNGs were not overwritten.",
@@ -518,7 +521,7 @@ class CodexImageGenRunner:
             if checkpoint_dir.exists():
                 shutil.rmtree(checkpoint_dir)
             checkpoint_dir.mkdir()
-            for number in sorted(set(range(1, 7)) - set(resume_missing_numbers)):
+            for number in sorted(set(range(1, self.config.expected_output_count + 1)) - set(resume_missing_numbers)):
                 filename = f"design_{number:02}.png"
                 current = output_dir / "final" / filename
                 checkpoint_hashes[number] = hashlib.sha256(current.read_bytes()).hexdigest()
@@ -700,7 +703,7 @@ class CodexImageGenRunner:
                 if wait_seconds:
                     await asyncio.sleep(wait_seconds)
                 try:
-                    files = self._collect_six_final_designs(workspace)
+                    files = self._collect_six_final_designs(workspace, self.config.expected_output_count)
                     break
                 except CodexImageProviderError as exc:
                     if exc.code != "stage1_no_generated_images":
@@ -745,12 +748,14 @@ class CodexImageGenRunner:
         )
 
     @staticmethod
-    def _collect_six_final_designs(workspace: Path) -> tuple[GeneratedImageFile, ...]:
+    def _collect_six_final_designs(workspace: Path, expected_count: int = 6) -> tuple[GeneratedImageFile, ...]:
         """Read *only* six named final files; never import temporary images.
 
         Fail closed on missing files, accidental extras or duplicates. Do not
         mark a 100-image job complete by merely taking its first six files.
         """
+        if not 1 <= expected_count <= 24:
+            raise ValueError("Expected final image count must be between 1 and 24.")
         final_dir = workspace / "output" / "final"
         if final_dir.is_symlink() or (final_dir.exists() and not final_dir.is_dir()):
             raise CodexImageProviderError(
@@ -759,7 +764,7 @@ class CodexImageGenRunner:
         # A Skill may place all six correctly numbered PNGs directly in
         # output/. Normalize only when a complete, unambiguous set exists.
         final_dir.mkdir(parents=True, exist_ok=True)
-        expected = [f"design_{number:02}.png" for number in range(1, 7)]
+        expected = [f"design_{number:02}.png" for number in range(1, expected_count + 1)]
         # Codex can write harmless README/manifest sidecars in final/, or
         # save the six numbered PNGs under output/ instead. These must not
         # turn a successfully generated set into a failed job.
@@ -770,7 +775,7 @@ class CodexImageGenRunner:
             if path.is_file() and path.suffix.lower() == ".png"
         ]
         canonical_complete = (
-            len(direct_final_pngs) == 6
+            len(direct_final_pngs) == expected_count
             and all((final_dir / name).is_file() for name in expected)
         )
         if canonical_complete:
@@ -800,7 +805,7 @@ class CodexImageGenRunner:
                         and path.resolve().is_relative_to(workspace.resolve())
                         and not any(parent.is_symlink() for parent in path.parents if parent != workspace)
                     )
-        number_pattern = re.compile(r"(?i)^(?:design|final|artwork|concept)[_. -]*0?([1-6])$")
+        number_pattern = re.compile(r"(?i)^(?:design|final|artwork|concept)[_. -]*0?([0-9]{1,2})$")
         numbered: dict[int, Path] = {}
         unmatched = []
         for path in candidates:
@@ -809,11 +814,11 @@ class CodexImageGenRunner:
                 unmatched.append(path)
                 continue
             number = int(match.group(1))
-            if number in numbered:
+            if not 1 <= number <= expected_count or number in numbered:
                 unmatched.append(path)
                 continue
             numbered[number] = path
-        if len(candidates) == 6 and not unmatched and len(numbered) == 6:
+        if len(candidates) == expected_count and not unmatched and len(numbered) == expected_count:
             # Copy instead of moving so temp diagnostic previews can still be
             # collected, and rename only within this isolated attempt.
             from shutil import copyfile
@@ -834,11 +839,11 @@ class CodexImageGenRunner:
                     "No outputs were discarded. Check this job's Skill logs; "
                     "a new generation requires manual confirmation.",
                 )
-            missing = sorted(set(range(1, 7)) - set(numbered))
+            missing = sorted(set(range(1, expected_count + 1)) - set(numbered))
             raise CodexImageProviderError(
                 "stage1_six_outputs_invalid",
                 f"Stage 1 returned {len(candidates)} PNG candidates, "
-                f"{len(numbered)}/6 uniquely numbered finals; "
+                f"{len(numbered)}/{expected_count} uniquely numbered finals; "
                 f"missing design numbers {','.join(map(str, missing)) or 'none'}. "
                 "No outputs were discarded or counted as completed.",
             )
@@ -1088,15 +1093,18 @@ class CodexImageGenRunner:
         extra = user_prompt.strip()
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
         if self.config.output_contract == "stage1_six_final_designs":
+            n = self.config.expected_output_count
+            if not 1 <= n <= 24:
+                raise ValueError("Expected final image count must be between 1 and 24.")
             return (
                 "Use $" + self.config.skill_name + " and $imagegen.\n"
-                "This is Stage 1: SIX independent embroidery design concepts only.\n"
-                "Generate exactly six final artworks, one per image-generation call; no trial "
+                f"This is Stage 1: {n} independent embroidery design concepts only.\n"
+                f"Generate exactly {n} final artworks, one per image-generation call; no trial "
                 "image generations, 10-concept boards, Hero selection, 13 hats, mockups or colorways.\n"
                 "Keep the quote's exact text and make each concept truly distinct.\n"
-                "Save exactly six PNG files: output/final/design_01.png through design_06.png.\n"
+                f"Save exactly {n} PNG files: output/final/design_01.png through design_{n:02}.png.\n"
                 "Do not generate, write, upload, or retain any preview/draft files, "
-                "including working/previews/. Persist only the six numbered final PNGs.\n"
+                f"including working/previews/. Persist only the {n} numbered final PNGs.\n"
                 "Do not use an API-key-backed image generation fallback.\n"
                 "Invoke the actual $imagegen image-generation tool once for EACH "
                 "design, then ensure the corresponding numbered PNG exists and "

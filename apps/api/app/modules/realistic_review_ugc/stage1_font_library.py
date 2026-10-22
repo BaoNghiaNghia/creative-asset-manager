@@ -66,6 +66,7 @@ def select_font_plan(
     *,
     rng: random.Random | None = None,
     pool: tuple[dict[str, Any], ...] | None = None,
+    expected_count: int = DESIGNS_PER_JOB,
 ) -> list[dict[str, Any]]:
     """Six distinct families, maximizing non-repetition across recent jobs.
 
@@ -74,15 +75,17 @@ def select_font_plan(
     relax the exclusion window without blocking generation; recency penalties
     still discourage overused fonts.
     """
+    if not 1 <= expected_count <= 24:
+        raise ValueError("Stage 1 output count must be between 1 and 24")
     source = tuple(pool if pool is not None else approved_font_pool())
-    if len({row["font"] for row in source}) < DESIGNS_PER_JOB:
+    if len({row["font"] for row in source}) < expected_count:
         raise ValueError("Not enough unique approved font families")
     histories = recent_plans or []
     eligible = list(source)
     for window in range(min(RECENT_JOB_EXCLUSION_WINDOW, len(histories)), -1, -1):
         blocked = {record["font"] for batch in histories[:window] for record in batch}
         candidates = [row for row in source if row["font"] not in blocked]
-        if len(candidates) >= DESIGNS_PER_JOB:
+        if len(candidates) >= expected_count:
             eligible = candidates
             break
     counts = {
@@ -92,7 +95,7 @@ def select_font_plan(
     }
     random_source = rng if rng is not None else random.SystemRandom()
     choices: list[dict[str, Any]] = []
-    for number in range(DESIGNS_PER_JOB):
+    for number in range(expected_count):
         used_categories = {row["category"] for row in choices}
         scored = sorted(
             (
@@ -104,23 +107,23 @@ def select_font_plan(
             key=lambda item: item[0], reverse=True,
         )
         chosen = scored[0][1].copy()
-        chosen["layout"] = LAYOUTS[number]
+        chosen["layout"] = LAYOUTS[number % len(LAYOUTS)]
         choices.append(chosen)
     return choices
 
 
 def font_info_for_number(number: int, *, font_plan: list[dict] | tuple[dict, ...] | None = None,
                          font_dir: Path | None = None) -> dict:
-    if not 1 <= number <= DESIGNS_PER_JOB:
-        raise ValueError("Stage 1 design index must be 1..6")
+    if not 1 <= number <= (len(font_plan) if font_plan is not None else DESIGNS_PER_JOB):
+        raise ValueError("Stage 1 design index is outside the stored font plan")
     if font_plan is None:
         # Backward compatibility for existing output reports with pre-pool jobs.
         family = _LEGACY_SEQUENCE[number - 1]
         entry = next(row for row in approved_font_pool() if row["font"] == family)
         layout = LAYOUTS[number - 1]
     else:
-        if len(font_plan) != DESIGNS_PER_JOB:
-            raise ValueError("Stored DaFont plan must contain exactly six fonts")
+        if not 1 <= len(font_plan) <= 24:
+            raise ValueError("Stored DaFont plan has an invalid font count")
         entry = font_plan[number - 1]
         layout = entry["layout"]
     if not (font_dir or FONTS_DIR).joinpath(entry["file"]).is_file():
@@ -148,15 +151,15 @@ def font_brief(font_plan: list[dict] | tuple[dict, ...] | None = None) -> str:
     )
 
 
-def ensure_job_font_plan(session, job) -> list[dict[str, Any]]:
+def ensure_job_font_plan(session, job, expected_count: int = DESIGNS_PER_JOB) -> list[dict[str, Any]]:
     """Persist once before Codex starts, stable on retry/resume.
 
     The job row is locked by the worker to prevent divergent assignments.
     On explicit Regenerate the caller resets job.font_plan_json.
     """
     if job.font_plan_json is not None:
-        if len(job.font_plan_json) != DESIGNS_PER_JOB:
-            raise ValueError("Invalid persisted six-font plan")
+        if len(job.font_plan_json) != expected_count:
+            raise ValueError("Persisted font plan does not match the job output count")
         return job.font_plan_json
     from sqlalchemy import select
     from app.modules.realistic_review_ugc.model import (
@@ -182,12 +185,12 @@ def ensure_job_font_plan(session, job) -> list[dict[str, Any]]:
             RrugcImageOutputVersionModel.stage == "stage1",
             RrugcImageOutputVersionModel.job_id == job.id,
             RrugcImageOutputVersionModel.font_info_json.is_not(None),
-        ).order_by(RrugcImageOutputVersionModel.created_at.desc()).limit(DESIGNS_PER_JOB)
+        ).order_by(RrugcImageOutputVersionModel.created_at.desc()).limit(expected_count)
     ).all()
     previous_batch = [{"font": info["font_name"]} for info in old_outputs if info and info.get("font_name")]
     if previous_batch:
         histories.insert(0, previous_batch)
-    job.font_plan_json = select_font_plan(histories)
+    job.font_plan_json = select_font_plan(histories, expected_count=expected_count)
     session.flush()
     return job.font_plan_json
 
@@ -202,8 +205,8 @@ def render_font_guides(
     if not quote or len(quote) > 500:
         raise ValueError("Stage 1 quote must be 1..500 characters")
     plan = list(font_plan) if font_plan is not None else select_font_plan()
-    if len(plan) != DESIGNS_PER_JOB or len({row["font"] for row in plan}) != DESIGNS_PER_JOB:
-        raise ValueError("Stage 1 font plan must contain six unique families")
+    if not 1 <= len(plan) <= 24 or len({row["font"] for row in plan}) != len(plan):
+        raise ValueError("Stage 1 font plan must contain unique families matching output count")
     base = font_dir or FONTS_DIR
     target = workspace / "working" / "font-guides"
     target.mkdir(parents=True, exist_ok=True)

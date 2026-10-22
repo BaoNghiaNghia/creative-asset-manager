@@ -1,3 +1,4 @@
+import pytest
 """Stage 1 DaFont pool: licensed, diverse, retry-stable and anti-repeat."""
 from pathlib import Path
 from random import Random
@@ -85,3 +86,12 @@ def test_real_font_guides_are_brown_transparent_and_match_report(tmp_path):
             assert im.getchannel("A").getbbox() is not None
             colors = {pixel[:3] for pixel in im.getdata() if pixel[3] >= 254}
             assert colors <= {(107, 63, 40), (116, 71, 48)}
+
+@pytest.mark.parametrize("count", [4, 8])
+def test_font_plan_adapts_to_configured_output_count(count, tmp_path):
+    plan = select_font_plan(rng=Random(1234), expected_count=count)
+    assert len(plan) == count
+    assert len({row["font"] for row in plan}) == count
+    folder = render_font_guides(tmp_path, "EACH ARTWORK IS UNIQUE", font_plan=plan)
+    assert folder.is_dir()
+    assert font_info_for_number(count, font_plan=plan)["font_name"] == plan[-1]["font"]

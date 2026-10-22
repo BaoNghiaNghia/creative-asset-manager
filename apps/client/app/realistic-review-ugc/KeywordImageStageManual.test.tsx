@@ -63,7 +63,7 @@ describe("Stage 1 manual keyword generation", () => {
     expect(host.querySelector(".rrugc-keyword-manual-heading")?.textContent)
       .toContain("6 separate high-resolution final designs");
     expect(host.querySelector(".rrugc-keyword-gen-list-title")?.textContent)
-      .toContain("6 final images per job");
+      .toContain("Configurable final image count per job");
     await act(async () => root.unmount());
   });
 

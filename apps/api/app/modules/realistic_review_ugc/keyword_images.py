@@ -243,6 +243,7 @@ class KeywordImageService:
             entity_id=job.id, idempotency_key=f"rrugc-keyword-image:{job.id}:{sequence}",
             payload={
                 "keyword_image_job_id": job.id,
+                "expected_output_count": max(1, min(24, int(getattr(self.settings, "RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT", 6)))),
                 **({"upload_only": True, "generation_processing_id": generation_processing_id}
                    if upload_only else {}),
                 **({"replace_outputs": True} if replace_outputs else {}),
@@ -542,8 +543,9 @@ class KeywordImageService:
                     and int(job.retry_count or 0) > 0):
                 workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                              / "codex" / job.id)
-                missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace)
-                checkpoint_count = 6 - len(missing) if missing is not None else 0
+                output_count = int((processing.payload_json or {}).get("expected_output_count", 6)) if processing else 6
+                missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace, output_count)
+                checkpoint_count = output_count - len(missing) if missing is not None else 0
             replacing = bool(job and state in ("queued", "running")
                              and processing and (processing.payload_json or {}).get("replace_outputs"))
             items.append({
@@ -558,6 +560,7 @@ class KeywordImageService:
                 "retry_count": job.retry_count if job else 0,
                 "auto_retry_max": len(STAGE1_AUTO_RETRY_DELAYS_SECONDS),
                 "checkpoint_count": checkpoint_count,
+                "expected_output_count": int((processing.payload_json or {}).get("expected_output_count", 6)) if processing else 6,
                 "next_retry_at": (processing.next_attempt_at.isoformat()
                                   if processing and processing.status in ("pending", "retry")
                                   and job and int(job.retry_count or 0) > 0 else None),
@@ -626,8 +629,9 @@ class KeywordImageGenerateHandler:
             settings = self.settings or get_settings()
             workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                          / "codex" / context.job.entity_id)
-            missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace)
-            if missing is None or not (0 < len(missing) < 6):
+            expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
+            missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace, expected_count)
+            if missing is None or not (0 < len(missing) < expected_count):
                 return None
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
@@ -699,9 +703,10 @@ class KeywordImageGenerateHandler:
                 RrugcImageOutputVersionModel.job_id == job_id,
                 RrugcImageOutputVersionModel.processing_job_id == active_processing_id,
             )))
-            if (len(active) != 6
+            expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
+            if (len(active) != expected_count
                     or job.output_remote_file_id not in {row.remote_file_id for row in active}
-                    or len({row.output_name for row in active}) != 6):
+                    or len({row.output_name for row in active}) != expected_count):
                 return 0
             previous = [(row.id, row.remote_file_id) for row in session.scalars(
                 select(RrugcImageOutputVersionModel).where(
@@ -869,6 +874,9 @@ class KeywordImageGenerateHandler:
         if context.is_cancelled:
             return JobHandlerResult.cancelled()
         settings = self.settings or get_settings()
+        output_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
+        if not 1 <= output_count <= 24:
+            return JobHandlerResult.non_retryable("stage1_output_count_invalid", "Job output count must be between 1 and 24.")
         if not (settings.PROCESSING_JOBS_ENABLED and settings.IMAGE_GENERATION_ENABLED
                 and getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)):
             self._fail(context, "keyword_image_disabled", "Image generation is disabled.", terminal=True)
@@ -905,12 +913,12 @@ class KeywordImageGenerateHandler:
                 if manifest is None or "keyword_six_designs" not in manifest.workflows:
                     job.status = "failed"
                     job.last_error_code = "stage1_legacy_skill_not_supported"
-                    job.last_error_message = "Stage 1 requires exactly six final designs. Legacy jobs must be requeued using the new Six Designs Skill."
+                    job.last_error_message = "Stage 1 requires a supported keyword-design Skill; legacy job must be requeued using a compatible Skill."
                     session.commit()
                     return JobHandlerResult.non_retryable(
                         "stage1_legacy_skill_not_supported", job.last_error_message,
                     )
-            font_plan = (ensure_job_font_plan(session, job)
+            font_plan = (ensure_job_font_plan(session, job, expected_count=output_count)
                          if job.skill_name == "gatorhats-stage1-six-designs" else None)
             job.status = "running"
             job.started_at = job.started_at or datetime.now(timezone.utc)
@@ -929,6 +937,7 @@ class KeywordImageGenerateHandler:
             ),
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
             output_contract="stage1_six_final_designs",
+            expected_output_count=output_count,
             expected_quote=keyword_text if skill_name in ("hanh-redesign-8869-ver-4", "gatorhats-stage1-six-designs") else None,
             execution_log_id=context.job.id,
             font_plan=tuple(font_plan) if font_plan else None,
@@ -942,8 +951,8 @@ class KeywordImageGenerateHandler:
         # validated, existing per-design PNG checkpoints.
         resume_missing: tuple[int, ...] | None = None
         if not upload_only and (int(job.retry_count or 0) > 0 or context.job.attempt_count > 1):
-            missing = runner.stage1_missing_final_numbers(workspace)
-            if missing is not None and len(missing) < 6:
+            missing = runner.stage1_missing_final_numbers(workspace, output_count)
+            if missing is not None and len(missing) < output_count:
                 resume_missing = missing
         try:
             # Regeneration is copy-on-write: never delete published Drive
@@ -951,14 +960,14 @@ class KeywordImageGenerateHandler:
             # A fresh runner clears only its disposable local workspace.
             if upload_only:
                 # No Skill call on recovery. Verify the existing six final files.
-                final_files = CodexImageGenRunner._collect_six_final_designs(workspace)
+                final_files = CodexImageGenRunner._collect_six_final_designs(workspace, output_count)
                 generated = GeneratedImageResult(
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
                 )
             elif resume_missing == ():
                 # Crash recovery: six valid finals were already generated.
-                final_files = runner._collect_six_final_designs(workspace)
+                final_files = runner._collect_six_final_designs(workspace, output_count)
                 generated = GeneratedImageResult(
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
@@ -1020,8 +1029,8 @@ class KeywordImageGenerateHandler:
             # A valid 1–5 checkpoint is never deleted on generation failure.
             # Even failed CLI turns or timeouts can be resumed without
             # repeating the already-created numbered PNGs.
-            missing = runner.stage1_missing_final_numbers(workspace)
-            preserve_finals = missing is not None and len(missing) < 6
+            missing = runner.stage1_missing_final_numbers(workspace, output_count)
+            preserve_finals = missing is not None and len(missing) < output_count
             raise
         finally:
             # Preview files are NEVER persisted, including after partial/failed
@@ -1049,10 +1058,13 @@ class KeywordImageGenerateHandler:
                 (f"output_{index + 1:03}.png", generated.mime_type, None, body)
                 for index, body in enumerate(bodies)
             ]
-        if len(payloads) != 6:
+        expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
+        if not 1 <= expected_count <= 24:
+            raise CodexImageProviderError("stage1_output_count_invalid", "Invalid Stage 1 expected output count.", retryable=False)
+        if len(payloads) != expected_count:
             raise CodexImageProviderError(
                 "stage1_six_outputs_required",
-                "Stage 1 requires exactly six individual final design images.",
+                f"Stage 1 requires exactly {expected_count} individual final design images.",
                 retryable=False,
             )
 
