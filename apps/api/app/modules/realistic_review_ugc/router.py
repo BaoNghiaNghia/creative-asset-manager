@@ -5760,6 +5760,112 @@ def product_photo_pipeline_readiness(
     return readiness()
 
 
+@router.get("/products/source-plans/{source_plan_id}/outputs/archive")
+async def download_product_skill_outputs_archive(
+    source_plan_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Download current completed outputs from seven product skill slots.
+
+    No placeholders, source artwork, or incomplete jobs are included.
+    """
+    from app.modules.realistic_review_ugc.model import RrugcEcommerceJobModel
+    from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS
+    from app.modules.realistic_review_ugc.output_downloads import MAX_ARCHIVE_FILES
+
+    tenant_id = principal.active_tenant_id
+    plan = session.scalar(select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.id == source_plan_id,
+        RrugcSourcePlanModel.tenant_id == tenant_id,
+        RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+    ))
+    if plan is None or plan.status == "missing":
+        raise HTTPException(status_code=404, detail="Product source plan not found")
+    current_revision = plan.source_file_id
+    rows = []
+    for job in session.scalars(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == tenant_id,
+        RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+        RrugcEcommerceJobModel.source_revision == plan.source_revision,
+        RrugcEcommerceJobModel.status == "completed",
+        RrugcEcommerceJobModel.output_remote_file_id.is_not(None),
+    ).order_by(RrugcEcommerceJobModel.stage)):
+        if job.stage not in {shot.stage for shot in SHOTS}:
+            continue
+        rows.append({
+            "version": len(rows) + 1, "remote_file_id": job.output_remote_file_id,
+            "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,
+            "created_at": job.completed_at or job.created_at,
+            "output_name": job.stage + ".png",
+            "asset_id": "rrugc-ecommerce:" + job.id + ":" + (job.processing_job_id or ""),
+        })
+    for job in session.scalars(select(RrugcColorwayJobModel).where(
+        RrugcColorwayJobModel.tenant_id == tenant_id,
+        RrugcColorwayJobModel.source_plan_id == source_plan_id,
+        RrugcColorwayJobModel.source_revision == plan.source_revision,
+        RrugcColorwayJobModel.status == "completed",
+        RrugcColorwayJobModel.output_remote_file_id.is_not(None),
+    ).order_by(RrugcColorwayJobModel.color_key)):
+        rows.append({
+            "version": len(rows) + 1, "remote_file_id": job.output_remote_file_id,
+            "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,
+            "created_at": job.completed_at or job.created_at,
+            "output_name": "color_" + job.color_key + ".png",
+            "asset_id": "rrugc-colorway:" + job.id,
+        })
+    for job in session.scalars(select(RrugcStage2JobModel).where(
+        RrugcStage2JobModel.tenant_id == tenant_id,
+        RrugcStage2JobModel.source_plan_id == source_plan_id,
+        RrugcStage2JobModel.source_revision == plan.source_revision,
+        RrugcStage2JobModel.status == "completed",
+        RrugcStage2JobModel.output_remote_file_id.is_not(None),
+    ).order_by(RrugcStage2JobModel.created_at.desc())):
+        skill = job.skill_name.lower()
+        slot = "multihat" if "multihat" in skill else "ugc" if "ugc" in skill else None
+        if slot is None:
+            continue
+        rows.append({
+            "version": len(rows) + 1, "remote_file_id": job.output_remote_file_id,
+            "content_type": job.output_content_type, "size_bytes": job.output_size_bytes,
+            "created_at": job.completed_at or job.created_at,
+            "output_name": slot + "_" + job.id[:8] + ".png",
+            "asset_id": "rrugc-output:stage4:" + job.id + ":1",
+        })
+    # One ZIP of current images, never historical versions. Keep a hard bound.
+    if not rows:
+        raise HTTPException(status_code=404, detail="No completed outputs available")
+    if len(rows) > MAX_ARCHIVE_FILES:
+        raise HTTPException(status_code=413, detail="Too many outputs")
+    session.close()
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    try:
+        archive = await build_output_archive(
+            storage, tenant_id=tenant_id, stage="products", job_id=source_plan_id,
+            rows=rows,
+        )
+    except OutputArchiveError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail="Unable to download all original images") from exc
+
+    def chunks():
+        while (chunk := archive.read(256 * 1024)):
+            yield chunk
+    return StreamingResponse(
+        chunks(), media_type="application/zip",
+        background=BackgroundTask(archive.close),
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_filename("products", source_plan_id)}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/colorways/readiness")
 def colorway_readiness(
     session: Session = Depends(get_db),

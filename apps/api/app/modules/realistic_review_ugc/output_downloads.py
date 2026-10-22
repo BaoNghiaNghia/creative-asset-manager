@@ -73,7 +73,7 @@ async def build_output_archive(storage: Any, *, tenant_id: str, stage: str, job_
                 remote_id = row["remote_file_id"]
                 stream = await storage.open_asset(OpenStoredAssetInput(
                     tenant_id=tenant_id,
-                    asset_id=f"rrugc-output:{stage}:{job_id}:{row['version']}",
+                    asset_id=row.get("asset_id") or f"rrugc-output:{stage}:{job_id}:{row['version']}",
                     remote_file_id=remote_id,
                     content_type=row.get("content_type"),
                     size_bytes=row.get("size_bytes"),

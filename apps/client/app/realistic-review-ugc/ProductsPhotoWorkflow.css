@@ -195,3 +195,7 @@
  }
  .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{grid-template-columns:repeat(auto-fit,minmax(38px,1fr))}
 }
+.rrugc-products-photo-download-all{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;min-height:27px;padding:5px 12px;border:1px solid #a8c3e9;border-radius:7px;background:#eaf3ff;color:#215b9d;text-decoration:none;font-size:10px;font-weight:800}
+.rrugc-products-photo-download-all:hover{background:#dcecff}
+.rrugc-products-photo-download-all[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
+.rrugc-products-photo-download-all:focus-visible{outline:2px solid #326be6;outline-offset:2px}
