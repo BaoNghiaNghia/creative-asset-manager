@@ -45,6 +45,11 @@ function openSkillsManager() {
   button?.click();
 }
 
+function ActionIcon({ kind }: { kind: "play" | "retry" | "check" | "clock" | "warning" | "chevron" | "loader" | "eye" }) {
+  const symbol = { play: "▶", retry: "↻", check: "✓", clock: "◷", warning: "!", chevron: "⌄", loader: "◌", eye: "▣" }[kind];
+  return <span className="rrugc-action-icon" aria-hidden="true">{symbol}</span>;
+}
+
 function HatSlotIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M5.2 13.1c.5-4.5 3.2-7.2 6.8-7.2s6.3 2.7 6.8 7.2" />
@@ -211,17 +216,17 @@ export function ProductsPhotoWorkflow({
               title={isEcommerce
                 ? (slotInputs ? "Missing persisted inputs: " + slotInputs.missing_roles.join(", ") : "Waiting for input readiness from server")
                 : state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
-            <button type="button" className="rrugc-products-photo-run-button"
+            <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
               aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
               disabled={!!busyStage || Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))}
               title={runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
               onClick={() => runnable ? void invokeEcommerce(step.key)
                 : shotJob?.status === "failed" ? void invokeEcommerce(step.key, shotJob)
-                : setExpandedStep(step.key)}>{busyStage === step.key ? "Queueing…" : shotJob?.status === "failed" ? "Retry" : "Run"}</button>
+                : setExpandedStep(step.key)}><ActionIcon kind={busyStage === step.key || status === "Running" || status === "Queued" ? "loader" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "check" : !runnable ? "clock" : "play"} />{busyStage === step.key ? "Queueing…" : shotJob?.status === "failed" ? "Retry" : status === "Completed" ? "Done" : status === "Running" || status === "Queued" ? "Running" : "Run"}</button>
             <button type="button" className="rrugc-products-photo-detail-toggle"
               aria-expanded={opened} aria-label={step.title + " details"}
-              onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
+              onClick={() => setExpandedStep(opened ? null : step.key)}><ActionIcon kind="eye" />{opened ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
           {opened && <div className="rrugc-products-photo-stage-detail is-ecommerce-detail">
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
@@ -317,11 +322,11 @@ export function ProductsPhotoWorkflow({
           <span className={"rrugc-products-photo-state " + (failed ? "is-failed" : active ? "is-running" : complete === 13 ? "is-done" : "")}>
             {colorStatus}
           </span>
-          <button type="button" className="rrugc-products-photo-run-button" aria-label="Run 13 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === 13} onClick={onQueueColors}>{colorwayRunning ? "Queueing…" : "Run"}</button>
+          <button type="button" className={"rrugc-products-photo-run-button is-" + (colorwayRunning || active ? "processing" : failed ? "retry" : complete === 13 ? "completed" : colorwayReady ? "ready" : "unavailable")} aria-label="Run 13 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === 13} onClick={onQueueColors}><ActionIcon kind={colorwayRunning || active ? "loader" : failed ? "retry" : complete === 13 ? "check" : colorwayReady ? "play" : "clock"} />{colorwayRunning ? "Queueing…" : complete === 13 ? "Done" : "Run"}</button>
           <button type="button" className="rrugc-products-photo-detail-toggle"
             aria-expanded={expandedStep === "colorway"} aria-label="13 Hat Colors details"
             onClick={() => setExpandedStep(value => value === "colorway" ? null : "colorway")}>
-            {expandedStep === "colorway" ? "Hide" : "Details"} <span aria-hidden="true">{expandedStep === "colorway" ? "⌃" : "⌄"}</span>
+            <ActionIcon kind="eye" />{expandedStep === "colorway" ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{expandedStep === "colorway" ? "⌃" : "⌄"}</span>
           </button>
         </div>
         {expandedStep === "colorway" && <div className="rrugc-products-photo-stage-detail">

@@ -280,3 +280,39 @@
    flex:1 1 115px;max-width:155px;
  }
 }
+/* State-aware skill actions and accessible outline details buttons. */
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button,
+.rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle{
+ display:inline-flex;align-items:center;justify-content:center;gap:5px;
+ min-height:31px;font-size:10px;font-weight:800;border-radius:7px;
+ transition:background-color .15s,border-color .15s,color .15s;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button{
+ width:70px;padding:5px 7px;border:1px solid #a5c2ed;
+ background:#eaf2ff;color:#265caa;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button.is-ready{background:#e8f2ff;border-color:#89b7f3;color:#175da9}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button.is-retry{background:#fff1e5;border-color:#efbd82;color:#aa5d15}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button.is-processing{background:#eaf2ff;border-color:#c9d9f4;color:#4574aa}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button.is-completed{background:#ebf8f0;border-color:#b9dec8;color:#24794a}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button.is-unavailable{background:#f4f5f7;border-color:#d6dbe3;color:#728095}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle{
+ width:83px;padding:5px 7px;border:1px solid #cad7e8;
+ background:#fff;color:#486487;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle:hover,
+.rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle[aria-expanded="true"]{
+ background:#edf4ff;border-color:#98b9e7;color:#215b9f;
+}
+.rrugc-action-icon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;line-height:1;font-weight:900}
+.rrugc-details-chevron{font-size:10px}
+@media(min-width:761px){
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  width:420px;grid-template-columns:150px 90px 76px 90px;gap:5px;
+ }
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  grid-template-columns:minmax(90px,1fr) 84px 76px 90px;gap:4px;max-width:none;
+ }
+}
