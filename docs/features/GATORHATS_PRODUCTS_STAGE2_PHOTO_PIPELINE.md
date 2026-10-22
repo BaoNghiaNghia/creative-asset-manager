@@ -94,3 +94,30 @@ checks do NOT mark factory-correct images as passed.
 - An actual end-to-end run on a test design with 4+3+3 assets saved and verified.
 - Production deploy only when no in-flight job will be involuntarily interrupted
   or maintenance is explicitly coordinated.
+## Workflow-specific Manage Skills (2026-10-22)
+
+GatorHats Products and GatorHats Reviews now have separate Manage Skills
+screens and independent tenant-scoped default selections. The underlying
+ZIP/version registry remains shared and permissions remain unchanged.
+
+Products Stage 2 exposes **exactly seven independent Skill assignment slots**:
+1. Ecommerce — 4 existing photos; exact approved Ecommerce bundle
+2. Multi-hat — 3 existing photos; exact approved Multi-hat bundle
+3. UGC — 3 existing photos; exact approved UGC bundle
+4. 13 Hat Colors — 13 existing colorway outputs; existing execution lane
+5. Additional Skill A — configuration only, no worker/output mapping
+6. Additional Skill B — configuration only, no worker/output mapping
+7. Additional Skill C — configuration only, no worker/output mapping
+
+Seven assignments do NOT imply seven runnable workers or extra generated photos.
+The total remains 23 outputs per design. The original three photo pipeline
+workers remain disabled until the documented execution gate passes; slots 5–7
+must never be presented as runnable without an approved execution mapping.
+Each Stage 2 Product slot rejects duplicate assignment of the same Skill.
+Review defaults are independent: Review Stage 2 (colorways), Review Stage 4
+(UGC images). Product Stage 1 (Six Designs) also has its own default.
+
+The existing legacy defaults are read-only fallbacks for old installations.
+New changes write only short workflow keys that fit the existing 16-character
+database column; no DB schema migration and no rewrites of historical job
+Skill versions or generated outputs are needed.

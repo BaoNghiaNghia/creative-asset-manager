@@ -16,6 +16,9 @@ import {
   syncStage2SkillRegistry,
 } from "./api";
 import type { Stage2SkillRegistry, Stage2SkillRegistryItem } from "./types";
+import { PRODUCT_STAGE2_SKILL_SLOTS, WORKFLOW_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
+import type { WorkflowSkillStage } from "./workflowSkillSlots";
+import type { RrugcWorkflowGroup } from "./workflowRouting";
 
 const EMPTY_REGISTRY: Stage2SkillRegistry = { can_manage: false, items: [] };
 
@@ -72,10 +75,12 @@ export function SkillManagerModal({
   open,
   onClose,
   onChanged,
+  workflow = "products",
 }: {
   open: boolean;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
+  workflow?: RrugcWorkflowGroup;
 }) {
   const [registry, setRegistry] = useState<Stage2SkillRegistry>(EMPTY_REGISTRY);
   const [loading, setLoading] = useState(false);
@@ -131,6 +136,8 @@ export function SkillManagerModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, busyKey, onClose]);
 
+  const skillSlots = WORKFLOW_SKILL_SLOTS[workflow];
+  const displayWorkflow = workflow === "products" ? "GatorHats Products" : "GatorHats Reviews";
   const enabledCount = useMemo(
     () => registry.items.filter(item => item.enabled).length,
     [registry.items],
@@ -231,7 +238,7 @@ export function SkillManagerModal({
   }
 
   async function hardDelete(item: Stage2SkillRegistryItem) {
-    if (!window.confirm('Remove "' + item.display_name + '" from the shared registry? Existing outputs are preserved. Local bundled runtime files are retained. Active jobs block removal.')) {
+    if (!window.confirm('Remove "' + item.display_name + '" from the shared registry for both workflows? Existing outputs are preserved. Local bundled runtime files are retained. Active jobs block removal.')) {
       return;
     }
     await mutate(
@@ -256,9 +263,9 @@ export function SkillManagerModal({
         <div className="rrugc-skill-heading">
           <span className="rrugc-skill-heading-icon"><SkillIcon name="layers" size={20} /></span>
           <div>
-            <small>WORKFLOW / SHARED SKILLS</small>
-            <h2 id="rrugc-skill-modal-title">Manage Skills</h2>
-            <p>Choose a Skill for each stage, or manage installed versions and notes.</p>
+            <small>WORKFLOW / {workflow === "products" ? "PRODUCT SKILLS" : "REVIEW SKILLS"}</small>
+            <h2 id="rrugc-skill-modal-title">Manage Skills · {displayWorkflow}</h2>
+            <p>Independent {workflow === "products" ? "Product" : "Review"} stage assignments. Installed ZIP packages remain in the shared library.</p>
           </div>
         </div>
         <button type="button" className="rrugc-skill-modal-close" onClick={onClose} disabled={Boolean(busyKey)} aria-label="Close skill manager"><SkillIcon name="close" size={17} /></button>
@@ -273,52 +280,99 @@ export function SkillManagerModal({
         <button type="button" onClick={() => void reload(true)} disabled={loading || Boolean(busyKey)} className="rrugc-skill-refresh"><SkillIcon name="refresh" size={14} />{loading ? "Refreshing…" : "Refresh"}</button>
       </div>
 
-      {registry.can_manage && <div className="rrugc-stage-defaults" aria-label="Default skill per Stage">
+      {registry.can_manage && <div className="rrugc-stage-defaults" aria-label={displayWorkflow + " skill defaults"}>
         <div className="rrugc-stage-default-heading">
-          <div><strong>Default Skills by stage</strong><small>Independent settings · Affect new jobs only</small></div>
+          <div>
+            <strong>{workflow === "products" ? "GatorHats Products · Stage Skills" : "GatorHats Reviews · Stage Skills"}</strong>
+            <small>Independent by workflow · Affect new jobs only</small>
+          </div>
         </div>
-        <div className="rrugc-stage-default-grid">
-          {([ ["stage1", "Stage 1", "Keywords", "sparkles"], ["stage2", "Stage 2", "13 Colors", "image"], ["stage4", "Stage 4", "UGC Images", "users"] ] as const).map(([stage, number, label, icon]) => <label key={stage}>
-            <span className="rrugc-stage-default-label"><span className={"rrugc-stage-default-icon is-" + stage}><SkillIcon name={icon} size={15} /></span><span><strong>{number}</strong><small>{label}</small></span></span>
-            <select
-              aria-label={number + " default skill"}
-              value={registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === registry.stage_defaults?.[stage])?.id || ""}
-              disabled={Boolean(busyKey) || loading}
-              onChange={event => void mutate("stage:" + stage, () => updateStageSkillDefault(stage, event.target.value || null), "Default skill saved for " + number + ".")}
-            >
-              <option value="">Automatic · No override</option>
-              {registry.items.filter(item => item.enabled && item.validation_status === "valid").map(item => <option key={item.id} value={item.id}>{item.display_name}</option>)}
-            </select>
-          </label>)}
+        {workflow === "products" && <p className="rrugc-skill-slot-section-title">Stage 1 · Six Designs</p>}
+        <div className={"rrugc-stage-default-grid" + (workflow === "products" ? " is-workflow-scoped" : "")}>
+          {(workflow === "products" ? skillSlots.slice(0, 1) : skillSlots).map(slot => {
+            const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);
+            const matching = registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === chosen);
+            return <label key={slot.key} className="rrugc-workflow-skill-slot">
+              <span className="rrugc-stage-default-label">
+                <span className={"rrugc-stage-default-icon is-" + slot.key}><SkillIcon name={slot.key === "prod_s1" ? "sparkles" : slot.key === "rev_s4" ? "users" : "image"} size={15}/></span>
+                <span><strong>{slot.title}</strong><small>{slot.label}</small></span>
+              </span>
+              <select
+                aria-label={displayWorkflow + " " + slot.title + " default skill"}
+                value={matching?.id || ""}
+                disabled={Boolean(busyKey) || loading}
+                onChange={event => void mutate("stage:" + slot.key,
+                  () => updateStageSkillDefault(slot.key, event.target.value || null),
+                  "Default Skill saved for " + displayWorkflow + " " + slot.title + ".")}
+              >
+                <option value="">Automatic · No override</option>
+                {registry.items.filter(item => item.enabled && item.validation_status === "valid").map(item =>
+                  <option key={item.id} value={item.id}>{item.display_name}</option>
+                )}
+              </select>
+              <small className="rrugc-skill-slot-note">{slot.detail}</small>
+            </label>;
+          })}
         </div>
-
-        {!hasAvailableSkills && (archivedKeywordSkill || disabledKeywordSkill) && <div className="rrugc-stage1-skill-recovery" role="status">
+        {workflow === "products" && <>
+          <p className="rrugc-skill-slot-section-title">Stage 2 · 7 independent Skills · 23 existing outputs</p>
+          <div className="rrugc-stage-default-grid is-workflow-scoped is-seven">
+            {PRODUCT_STAGE2_SKILL_SLOTS.map(slot => {
+              const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);
+              const matching = registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === chosen);
+              const candidates = registry.items.filter(item =>
+                item.enabled && item.validation_status === "valid" &&
+                (!slot.expectedSkill || item.skill_name === slot.expectedSkill)
+              );
+              const alreadyAssigned = (item: Stage2SkillRegistryItem) =>
+                PRODUCT_STAGE2_SKILL_SLOTS.some(other => other.key !== slot.key &&
+                  skillDefaultForStage(registry.stage_defaults, other.key) === [item.source, item.skill_id || item.skill_name].join(":"));
+              return <label key={slot.key} className="rrugc-workflow-skill-slot" data-stage2-slot={slot.key}>
+                <span className="rrugc-stage-default-label">
+                  <span className={"rrugc-stage-default-icon is-" + slot.key}><SkillIcon name={slot.active ? "image" : "layers"} size={15} /></span>
+                  <span><strong>{slot.title}</strong><small>{slot.label}</small></span>
+                </span>
+                <select
+                  aria-label={"GatorHats Products Stage 2 " + slot.title}
+                  value={matching?.id || ""}
+                  disabled={Boolean(busyKey) || loading}
+                  onChange={event => void mutate("stage:" + slot.key,
+                    () => updateStageSkillDefault(slot.key, event.target.value || null),
+                    "Product Stage 2 " + slot.title + " saved.")}
+                >
+                  <option value="">{slot.expectedSkill && !matching ? "Needs skill · Upload exact ZIP" : "Not assigned"}</option>
+                  {candidates.map(item => <option key={item.id} value={item.id}
+                    disabled={alreadyAssigned(item) && item.id !== matching?.id}>
+                    {item.display_name}{alreadyAssigned(item) && item.id !== matching?.id ? " · already assigned" : ""}
+                  </option>)}
+                </select>
+                <small className="rrugc-skill-slot-note">{slot.detail}{slot.expectedSkill ? " · " + slot.expectedSkill : ""}</small>
+                {!slot.active && <small className="rrugc-skill-slot-warning">Configuration only · No job/worker activated</small>}
+              </label>;
+            })}
+          </div>
+        </>}
+        {workflow === "products" && !hasAvailableSkills && (archivedKeywordSkill || disabledKeywordSkill) && <div className="rrugc-stage1-skill-recovery" role="status">
           <span className="rrugc-stage1-skill-recovery-icon"><SkillIcon name="alert" size={15} /></span>
           <div>
             <strong>{archivedKeywordSkill ? "Stage 1 Skill is archived" : "No enabled Skills available"}</strong>
             <small>{archivedKeywordSkill
-              ? archivedKeywordSkill.display_name + " was archived. Restore it to generate images from Stage 0 keywords."
-              : disabledKeywordSkill ? "The compatible Skill is disabled. Enable it to make Stage 1 ready."
-              : "Install or enable an image-generation Skill."}</small>
+              ? archivedKeywordSkill.display_name + " was archived. Restore it for Product Stage 1."
+              : disabledKeywordSkill ? "Enable the compatible Stage 1 Skill." : "Install or enable a Skill."}</small>
           </div>
           {archivedKeywordSkill && <button type="button" className="rrugc-stage1-skill-restore" disabled={Boolean(busyKey) || loading}
-            onClick={() => void mutate("restore:stage1",
-              () => restoreArchivedStage1Skill(archivedKeywordSkill.id),
-              "Skill restored and set as the default for Stage 1.")}>
-            <SkillIcon name="refresh" size={14} />
-            {busyKey === "restore:stage1" ? "Restoring…" : "Restore & set Stage 1"}
+            onClick={() => void mutate("restore:stage1", () => restoreArchivedStage1Skill(archivedKeywordSkill.id), "Stage 1 Skill restored.")}>
+            <SkillIcon name="refresh" size={14} />Restore & set Stage 1
           </button>}
           {!archivedKeywordSkill && disabledKeywordSkill && <button type="button" className="rrugc-stage1-skill-restore" disabled={Boolean(busyKey) || loading}
-            onClick={() => void mutate("enabled:" + disabledKeywordSkill.id,
-              () => setStage2SkillEnabled(disabledKeywordSkill.id, true),
-              "Skill enabled. You can now choose it as Stage 1 default.")}>
+            onClick={() => void mutate("enabled:" + disabledKeywordSkill.id, () => setStage2SkillEnabled(disabledKeywordSkill.id, true), "Skill enabled.")}>
             <SkillIcon name="power" size={14} />Enable Skill
           </button>}
         </div>}
       </div>}
 
       <div className="rrugc-skill-catalog-toolbar">
-        <div className="rrugc-skill-catalog-title"><strong>Installed Skills</strong><small>{filteredSkills.length} of {registry.items.length}</small></div>
+        <div className="rrugc-skill-catalog-title"><strong>Installed Skills · Shared Library</strong><small>{filteredSkills.length} of {registry.items.length}</small></div>
         <label className="rrugc-skill-search">
           <SkillIcon name="search" size={16} />
           <input type="search" placeholder="Search skills…" value={skillSearch} onChange={event => setSkillSearch(event.target.value)} aria-label="Search installed skills" />
@@ -358,11 +412,10 @@ export function SkillManagerModal({
           const hosted = item.source === "openai";
           const expanded = expandedIds.has(item.id);
           const noteValue = noteDrafts[item.id] ?? item.note ?? "";
-          const stages = ([
-            ["stage1", "Stage 1"],
-            ["stage2", "Stage 2"],
-            ["stage4", "Stage 4"],
-          ] as const).filter(([stage]) => registry.stage_defaults?.[stage] === [item.source, item.skill_id || item.skill_name].join(":"));
+          const stages = skillSlots.filter(slot =>
+            skillDefaultForStage(registry.stage_defaults, slot.key as WorkflowSkillStage) ===
+            [item.source, item.skill_id || item.skill_name].join(":"),
+          ).map(slot => [slot.key, slot.title + " · " + slot.label] as const);
           return <article className={"rrugc-skill-card" + (item.enabled ? "" : " is-disabled") + (expanded ? " is-expanded" : "")} key={item.id}>
             <div className="rrugc-skill-compact-row">
               <span className={"rrugc-skill-type-icon" + (item.enabled ? "" : " is-muted")}><SkillIcon name={hosted ? "cloud" : "local"} size={19} /></span>

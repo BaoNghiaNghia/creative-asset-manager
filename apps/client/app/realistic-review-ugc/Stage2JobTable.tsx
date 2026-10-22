@@ -651,7 +651,7 @@ function skillStatus(skill: Stage2Skill) {
 
 function defaultSkill(catalog: Stage2SkillCatalog) {
   return (
-    catalog.items.find(skill => skill.ready && skillKey(skill) === catalog.stage_defaults?.stage4)
+    catalog.items.find(skill => skill.ready && skillKey(skill) === (catalog.stage_defaults?.rev_s4 ?? catalog.stage_defaults?.stage4))
     ||     catalog.items.find(skill => skill.ready && skill.skill_name === FALLBACK_SKILL_NAME)
     || catalog.items.find(skill => skill.ready)
     || catalog.items[0]

@@ -97,8 +97,8 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
     expect(host.textContent).not.toContain("Stage 1 Skill is archived");
-    expect(host.querySelector('select[aria-label="Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
-    expect(host.querySelector('select[aria-label="Stage 2 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 4"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-upload")).toBeNull();
 
     const keywordCard = [...host.querySelectorAll(".rrugc-skill-card")].find(card => card.textContent?.includes("GatorHats"));
@@ -210,14 +210,14 @@ describe("Stage 1 shared Skill defaults", () => {
     const root = createRoot(host);
     await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Stage 1 default skill"]')!;
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="GatorHats Products Stage 1 default skill"]')!;
     expect([...select.options].map(option => option.textContent)).toContain("hanh-redesign-8869-ver-3");
     await act(async () => {
       select.value = "hanh";
       select.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
-    expect(updateStageSkillDefault).toHaveBeenCalledWith("stage1", "hanh");
+    expect(updateStageSkillDefault).toHaveBeenCalledWith("prod_s1", "hanh");
     await act(async () => root.unmount());
   });
 });
@@ -269,6 +269,50 @@ describe("Duplicate local Skill ZIP upload", () => {
     expect(confirm).toHaveBeenCalledOnce();
     expect(createStage2Skill).toHaveBeenCalledTimes(1);
     confirm.mockRestore();
+    await act(async () => root.unmount());
+  });
+});
+
+describe("GatorHats workflow-specific Skill Manager", () => {
+  it("shows seven distinct Product Stage 2 slots, without shared Review selectors", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal workflow="products" open
+      onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.textContent).toContain("Manage Skills · GatorHats Products");
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
+    expect(host.textContent).toContain("Configuration only · No job/worker activated");
+    expect(host.querySelector('select[aria-label="GatorHats Reviews Stage 2 default skill"]')).toBeNull();
+    const colorway = host.querySelector<HTMLSelectElement>(
+      'select[aria-label="GatorHats Products Stage 2 Skill 4"]',
+    );
+    expect(colorway?.value).toBe("scale"); // existing legacy default migrates to Products only as read
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the Reviews Skill Manager separate from Product's seven slots", async () => {
+    vi.mocked(updateStageSkillDefault).mockClear();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal workflow="reviews" open
+      onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.textContent).toContain("Manage Skills · GatorHats Reviews");
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(0);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 4"]')).toBeNull();
+    const reviewSelect = host.querySelector<HTMLSelectElement>(
+      'select[aria-label="GatorHats Reviews Stage 2 default skill"]',
+    );
+    expect(reviewSelect?.value).toBe("scale");
+    await act(async () => {
+      reviewSelect!.value = "";
+      reviewSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(updateStageSkillDefault).toHaveBeenCalledWith("rev_s2", null);
     await act(async () => root.unmount());
   });
 });

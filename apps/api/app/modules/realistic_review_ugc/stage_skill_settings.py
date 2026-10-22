@@ -14,7 +14,26 @@ from app.modules.realistic_review_ugc.skill_registry import (
 from app.modules.realistic_review_ugc.stage2_skills import list_stage2_skill_catalog
 from app.providers.ai.codex_image import CodexImageProviderError, load_codex_skill_manifest
 
-STAGES = ("stage1", "stage2", "stage4")
+# Stage names fit the existing String(16) database column; no data migration.
+# Keep legacy stage1/stage2/stage4 for old clients, but never write a shared
+# stage key from the new workflow-specific Manage Skills dialogs.
+LEGACY_STAGES = ("stage1", "stage2", "stage4")
+PRODUCT_STAGE2_SLOTS = tuple(f"prod_s2_{index}" for index in range(1, 8))
+PRODUCT_STAGE2_PHOTO_SKILLS = {
+    "prod_s2_1": "gatorhats-8869-ecommerce-v2-4",
+    "prod_s2_2": "gatorhats-8869-multihat-v2-4",
+    "prod_s2_3": "gatorhats-8869-ugc-v3",
+}
+WORKFLOW_STAGES = ("prod_s1", *PRODUCT_STAGE2_SLOTS, "rev_s2", "rev_s4")
+STAGES = (*LEGACY_STAGES, *WORKFLOW_STAGES)
+# Read-only migration of existing defaults. An explicit null/new default
+# overrides the fallback; changing Products never mutates Reviews or vice versa.
+LEGACY_FALLBACKS = {
+    "prod_s1": "stage1",
+    "prod_s2_4": "stage2",
+    "rev_s2": "stage2",
+    "rev_s4": "stage4",
+}
 
 
 def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = None) -> bool:
@@ -34,23 +53,42 @@ def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = Non
 
 
 def stage_skill_defaults(session: Session, *, tenant_id: str) -> dict[str, str]:
-    """Stable selection keys shared with client; ignore disabled, missing or deleted skills."""
+    """Tenant-scoped selections with independent Product and Review defaults.
+
+    Explicit empty assignments suppress migration fallbacks. Deleted or
+    invalid skills are never returned as a selectable default.
+    """
     rows = session.execute(
-        select(RrugcStageSkillDefaultModel.stage, RrugcStage2SkillRegistryModel)
-        .join(RrugcStage2SkillRegistryModel,
-              RrugcStage2SkillRegistryModel.id == RrugcStageSkillDefaultModel.registry_id)
-        .where(RrugcStageSkillDefaultModel.tenant_id == tenant_id,
-               RrugcStageSkillDefaultModel.stage.in_(STAGES),
-               RrugcStage2SkillRegistryModel.tenant_id == tenant_id,
-               RrugcStage2SkillRegistryModel.enabled.is_(True),
-               RrugcStage2SkillRegistryModel.deleted_at.is_(None),
-               RrugcStage2SkillRegistryModel.validation_status == "valid")
-    )
-    return {
-        stage: f"{skill.source}:{skill.skill_id or skill.skill_name}"
-        for stage, skill in rows
-        if stage != "stage1" or keyword_skill_compatible(skill.skill_name)
+        select(RrugcStageSkillDefaultModel, RrugcStage2SkillRegistryModel)
+        .outerjoin(
+            RrugcStage2SkillRegistryModel,
+            RrugcStage2SkillRegistryModel.id == RrugcStageSkillDefaultModel.registry_id,
+        )
+        .where(
+            RrugcStageSkillDefaultModel.tenant_id == tenant_id,
+            RrugcStageSkillDefaultModel.stage.in_(STAGES),
+        )
+    ).all()
+    explicit = {row.stage for row, _skill in rows}
+    selections = {
+        row.stage: f"{skill.source}:{skill.skill_id or skill.skill_name}"
+        for row, skill in rows
+        if skill is not None
+        and skill.tenant_id == tenant_id
+        and skill.enabled
+        and skill.deleted_at is None
+        and skill.validation_status == "valid"
+        and (row.stage not in ("stage1", "prod_s1")
+             or keyword_skill_compatible(skill.skill_name))
     }
+    # An explicit null/disabled workflow selection is different from a missing
+    # row: return an empty string so browsers never fall back to legacy stages.
+    for stage in explicit.intersection(WORKFLOW_STAGES):
+        selections.setdefault(stage, "")
+    for stage, legacy in LEGACY_FALLBACKS.items():
+        if stage not in explicit and legacy in selections:
+            selections[stage] = selections[legacy]
+    return selections
 
 
 def set_stage_skill_default(
@@ -58,7 +96,11 @@ def set_stage_skill_default(
     stage: str, registry_id: str | None,
 ) -> dict[str, str]:
     if stage not in STAGES:
-        raise Stage2SkillRegistryError("stage_skill_invalid_stage", "Only stages 1, 2 and 4 support generation defaults.", status_code=422)
+        raise Stage2SkillRegistryError(
+            "stage_skill_invalid_stage",
+            "Only configured Product/Review image-generation stages support Skill defaults.",
+            status_code=422,
+        )
     selected = None
     if registry_id:
         selected = get_registry_row(session, tenant_id=tenant_id, registry_id=registry_id)
@@ -68,18 +110,43 @@ def set_stage_skill_default(
         if not any(item.source == selected.source and item.skill_name == selected.skill_name and item.ready
                    for item in catalog.items):
             raise Stage2SkillRegistryError("stage_skill_not_ready", "The selected Skill is not ready in the runtime.", status_code=409)
-        if stage == "stage1":
+        if stage in ("stage1", "prod_s1"):
             if not keyword_skill_compatible(selected.skill_name):
                 raise Stage2SkillRegistryError(
                     "stage_skill_requires_references",
-                    "Stage 1 requires an installed image-generation Skill.", status_code=422,
+                    "Product Stage 1 requires an installed six-design keyword Skill.",
+                    status_code=422,
                 )
-        else:
-            manifest = load_codex_skill_manifest(get_settings().CODEX_IMAGE_HOME, selected.skill_name)
+        elif stage in PRODUCT_STAGE2_PHOTO_SKILLS:
+            # These rows have exact bundled references and a disabled worker.
+            # Never advertise an unrelated image_studio ZIP as a ready photo worker.
+            if selected.skill_name != PRODUCT_STAGE2_PHOTO_SKILLS[stage]:
+                raise Stage2SkillRegistryError(
+                    "stage_skill_workflow_incompatible",
+                    "This photo output row requires its exact approved GatorHats Skill package.",
+                    status_code=422,
+                )
+        elif stage not in PRODUCT_STAGE2_SLOTS[4:]:
+            manifest = load_codex_skill_manifest(
+                get_settings().CODEX_IMAGE_HOME, selected.skill_name
+            )
             if manifest is None or "image_studio" not in manifest.workflows:
                 raise Stage2SkillRegistryError(
                     "stage_skill_workflow_incompatible",
-                    "Stages 2 and 4 require an installed image_studio Skill.", status_code=422,
+                    "Colorway and Review stages require an installed image_studio Skill.",
+                    status_code=422,
+                )
+        if stage in PRODUCT_STAGE2_SLOTS:
+            # Seven distinct assignments; a configured row may not reuse
+            # another slot's Skill (including inherited legacy colorway default).
+            selected_key = f"{selected.source}:{selected.skill_id or selected.skill_name}"
+            effective = stage_skill_defaults(session, tenant_id=tenant_id)
+            if any(effective.get(other) == selected_key
+                   for other in PRODUCT_STAGE2_SLOTS if other != stage):
+                raise Stage2SkillRegistryError(
+                    "stage_skill_duplicate_assignment",
+                    "Each Product Stage 2 slot requires a different Skill.",
+                    status_code=409,
                 )
     row = session.get(RrugcStageSkillDefaultModel, (tenant_id, stage))
     if row is None:

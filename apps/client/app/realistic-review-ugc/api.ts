@@ -766,7 +766,7 @@ export const updateStage2SkillNote = (registryId: string, note: string) =>
     { method: "PATCH", body: JSON.stringify({ note }) },
   );
 
-export const updateStageSkillDefault = (stage: "stage1" | "stage2" | "stage4", registryId: string | null) =>
+export const updateStageSkillDefault = (stage: import("./workflowSkillSlots").WorkflowSkillStage, registryId: string | null) =>
   request<{ stage_defaults: Record<string, string> }>(
     "/api/v1/realistic-review-ugc/stage2-skills/defaults/" + stage,
     { method: "PATCH", body: JSON.stringify({ registry_id: registryId }) },

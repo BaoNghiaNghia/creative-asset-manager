@@ -59,5 +59,10 @@ def test_default_skill_isolated_by_tenant_and_stage(monkeypatch):
             ))
         session.commit()
         assert stage_skill_defaults(session, tenant_id="tenant-a") == {
-            "stage1": "local:keyword", "stage2": "local:scale", "stage4": "local:ugc"}
-        assert stage_skill_defaults(session, tenant_id="tenant-b") == {"stage1": "local:other"}
+            "stage1": "local:keyword", "stage2": "local:scale", "stage4": "local:ugc",
+            "prod_s1": "local:keyword", "prod_s2_4": "local:scale",
+            "rev_s2": "local:scale", "rev_s4": "local:ugc",
+        }
+        assert stage_skill_defaults(session, tenant_id="tenant-b") == {
+            "stage1": "local:other", "prod_s1": "local:other",
+        }

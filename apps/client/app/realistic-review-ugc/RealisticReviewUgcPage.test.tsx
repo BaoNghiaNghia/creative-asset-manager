@@ -425,8 +425,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(reviewMarkup).toContain("Only JPG/PNG files");
     expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
     expect(markup).toContain('id="rrugc-stage2-search-input"');
-    expect(markup).toContain("Embroidery design → 4-skill photo &amp; color pipeline");
-    expect(markup).toContain("4-skill pipeline · 23 outputs");
+    expect(markup).toContain("Embroidery design → 7-skill Product Stage 2");
+    expect(markup).toContain("7-skill configuration · 23 outputs");
     expect(markup).not.toContain("<th>13-color batch</th>");
     expect(reviewMarkup).toContain("<th>13-color batch</th>");
     expect(markup).toContain("JPG / PNG");

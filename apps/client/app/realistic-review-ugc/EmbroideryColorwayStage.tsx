@@ -3,6 +3,8 @@ import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
 import type { ColorwayJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
+import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import { OutputActivityLoader } from "./OutputActivityLoader";
@@ -154,10 +156,13 @@ export function EmbroideryColorwayStage({
     void listStage2Skills(false, controller.signal)
       .then(result => {
         setCatalog(result);
-        const firstReady = result.items.find(item => item.ready && skillKey(item) === result.stage_defaults?.stage2)
+        const defaultKey = workflow === "products"
+          ? skillDefaultForStage(result.stage_defaults, "prod_s2_4")
+          : skillDefaultForStage(result.stage_defaults, "rev_s2");
+        const firstReady = result.items.find(item => item.ready && skillKey(item) === defaultKey)
           || result.items.find(item => item.skill_name === PREFERRED_COLORWAY_SKILL && item.ready)
           || result.items.find(item => item.ready) || result.items[0];
-        if (firstReady) setSelectedSkillKey(current => result.stage_defaults?.stage2 ? skillKey(firstReady) : current || skillKey(firstReady));
+        if (firstReady) setSelectedSkillKey(current => defaultKey ? skillKey(firstReady) : current || skillKey(firstReady));
       })
       .catch(reason => {
         if (!controller.signal.aborted) {
@@ -168,7 +173,16 @@ export function EmbroideryColorwayStage({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [active, skillCatalogRevision]);
+  }, [active, workflow, skillCatalogRevision]);
+
+  const productStage2SkillNames = useMemo(() => {
+    const entries = PRODUCT_STAGE2_SKILL_SLOTS.flatMap(slot => {
+      const key = skillDefaultForStage(catalog.stage_defaults, slot.key);
+      const item = catalog.items.find(candidate => skillKey(candidate) === key);
+      return item ? [[slot.key, item.display_name] as const] : [];
+    });
+    return Object.fromEntries(entries) as Partial<Record<ProductStage2SkillKey, string>>;
+  }, [catalog.items, catalog.stage_defaults]);
 
   const selectedSkill = useMemo(
     () => catalog.items.find(item => skillKey(item) === selectedSkillKey) || null,
@@ -334,9 +348,9 @@ export function EmbroideryColorwayStage({
     <RrugcStageHeader
       className="rrugc-colorway-header"
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
-      title={workflow === "products" ? "Embroidery design → 4-skill photo & color pipeline" : "Embroidery design → 13 colorways"}
+      title={workflow === "products" ? "Embroidery design → 7-skill Product Stage 2" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Each Stage 1 design has four separate skill rows: Ecommerce (4), Multi-hat (3), UGC (3), and 13 hat colors. The first three photo workers remain unavailable until their execution pipeline is enabled; the existing 13-color jobs stay operational.</>
+        ? <>Seven independent Skill assignments: Ecommerce (4), Multi-hat (3), UGC (3), 13 Hat Colors (13), plus three reserved slots with no output workers. The existing 23 outputs remain unchanged. Photo workers remain disabled pending end-to-end QA.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
@@ -410,7 +424,7 @@ export function EmbroideryColorwayStage({
           <tr>
             <th aria-label="Select design" />
             <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
-            <th>{workflow === "products" ? "4-skill pipeline · 23 outputs" : "13-color batch"}</th>
+            <th>{workflow === "products" ? "7-skill configuration · 23 outputs" : "13-color batch"}</th>
             {workflow === "reviews" && <><th>Progress</th>
             <th>Skill</th>
             <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th></>}
@@ -464,6 +478,7 @@ export function EmbroideryColorwayStage({
                 </div>
               </td> : <td><ProductsPhotoWorkflow
                 sourceName={plan.source_name} readiness={photoReadiness}
+                configuredSkillNames={productStage2SkillNames}
                 colors={Array.from(slots?.values() || [])}
                 colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
                 colorwaySkillKey={selectedSkillKey}

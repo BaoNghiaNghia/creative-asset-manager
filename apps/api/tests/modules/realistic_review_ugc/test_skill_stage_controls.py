@@ -93,7 +93,11 @@ def test_stage_defaults_independent_and_tenant_scoped(monkeypatch):
             stage_skill_settings.set_stage_skill_default(
                 session, tenant_id="tenant-a", actor_id="admin", stage="stage4", registry_id=b.id)
             defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
-            assert defaults == {"stage2": "local:colors", "stage4": "local:studio"}
+            assert defaults == {
+                "stage2": "local:colors", "stage4": "local:studio",
+                "prod_s2_4": "local:colors", "rev_s2": "local:colors",
+                "rev_s4": "local:studio",
+            }
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-b") == {}
             with pytest.raises(stage2_skills.Stage2SkillRegistryError):
                 stage_skill_settings.set_stage_skill_default(
@@ -107,7 +111,7 @@ def test_stage_defaults_independent_and_tenant_scoped(monkeypatch):
             skill_registry.set_skill_enabled(session, tenant_id="tenant-a", actor_id="admin",
                                              registry_id=a.id, enabled=False)
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == {
-                "stage4": "local:studio",
+                "stage4": "local:studio", "rev_s4": "local:studio",
             }
     finally:
         engine.dispose()
@@ -189,5 +193,80 @@ def test_stage1_keeps_every_generated_image_and_original_filename():
             assert rows[0]["output_name"].endswith("concept_36/v001.png")
             assert rows[-1]["remote_file_id"] == "image-0"
             assert len({item["version"] for item in rows}) == 37
+    finally:
+        engine.dispose()
+
+def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypatch):
+    engine = _engine()
+    try:
+        photo_names = (
+            "gatorhats-8869-ecommerce-v2-4",
+            "gatorhats-8869-multihat-v2-4",
+            "gatorhats-8869-ugc-v3",
+        )
+        names = (*photo_names, "scale-image-8869-13-mau", "extra-five", "extra-six", "extra-seven", "reviews-colors")
+        monkeypatch.setattr(
+            stage_skill_settings, "list_stage2_skill_catalog",
+            lambda refresh=False: SimpleNamespace(items=[
+                SimpleNamespace(source="local", skill_name=name, ready=True) for name in names
+            ]),
+        )
+        monkeypatch.setattr(
+            stage_skill_settings, "load_codex_skill_manifest",
+            lambda *_args: SimpleNamespace(workflows=("image_studio", "keyword_six_designs")),
+        )
+        with Session(engine) as session:
+            skills = {name: _skill("tenant-a", name) for name in names}
+            session.add_all(skills.values())
+            session.commit()
+            for index, name in enumerate(names[:7], start=1):
+                stage_skill_settings.set_stage_skill_default(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    stage=f"prod_s2_{index}", registry_id=skills[name].id,
+                )
+            stage_skill_settings.set_stage_skill_default(
+                session, tenant_id="tenant-a", actor_id="admin",
+                stage="rev_s2", registry_id=skills["reviews-colors"].id,
+            )
+            defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
+            assert [defaults[f"prod_s2_{i}"] for i in range(1, 8)] == [
+                f"local:{name}" for name in names[:7]
+            ]
+            assert defaults["rev_s2"] == "local:reviews-colors"
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-b") == {}
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as duplicate:
+                stage_skill_settings.set_stage_skill_default(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    stage="prod_s2_7", registry_id=skills["extra-five"].id,
+                )
+            assert duplicate.value.code == "stage_skill_duplicate_assignment"
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == defaults
+            stage_skill_settings.set_stage_skill_default(
+                session, tenant_id="tenant-a", actor_id="admin", stage="rev_s2", registry_id=None,
+            )
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["rev_s2"] == ""
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["prod_s2_4"] == "local:scale-image-8869-13-mau"
+    finally:
+        engine.dispose()
+
+
+def test_explicit_empty_workflow_assignment_suppresses_legacy_fallback():
+    engine = _engine()
+    try:
+        with Session(engine) as session:
+            a = _skill("tenant-a", "old-colorway")
+            session.add(a)
+            session.commit()
+            session.add(RrugcStageSkillDefaultModel(
+                tenant_id="tenant-a", stage="stage2", registry_id=a.id,
+            ))
+            session.add(RrugcStageSkillDefaultModel(
+                tenant_id="tenant-a", stage="prod_s2_4", registry_id=None,
+            ))
+            session.commit()
+            defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
+            assert defaults["stage2"] == "local:old-colorway"
+            assert defaults["prod_s2_4"] == ""
+            assert defaults["rev_s2"] == "local:old-colorway"
     finally:
         engine.dispose()

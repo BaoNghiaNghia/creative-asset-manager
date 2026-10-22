@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 import type { ColorwayJob, ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
+import { PRODUCT_STAGE2_SKILL_SLOTS } from "./workflowSkillSlots";
+import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
 type StepDefinition = {
   key: "ecommerce" | "multihat" | "ugc";
@@ -60,13 +62,14 @@ type Props = {
   onRetryColor?: (job: ColorwayJob) => void;
   onOpenColor?: (job: ColorwayJob) => void;
   onOpenLog?: (job: ColorwayJob) => void;
+  configuredSkillNames?: Partial<Record<ProductStage2SkillKey, string>>;
 };
 
 export function ProductsPhotoWorkflow({
   sourceName, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
-  onQueueColors, onRetryColor, onOpenColor, onOpenLog,
+  onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const colorSkillSelectId = useId();
@@ -76,16 +79,16 @@ export function ProductsPhotoWorkflow({
   const active = colors.filter(job => job.status === "running" || job.status === "queued").length;
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
 
-  return <div className="rrugc-products-photo-pipeline" aria-label={"Four-skill photo workflow for " + sourceName}>
+  return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     <div className="rrugc-products-photo-pipeline-summary">
-      <strong>4 skills <span aria-hidden="true">·</span> 23 outputs</strong>
-      <small>Each skill has its own outputs and status</small>
+      <strong>7 skill slots <span aria-hidden="true">·</span> 23 outputs</strong>
+      <small>Four output groups · three additional configurable skills reserved</small>
     </div>
     <div className="rrugc-products-photo-stage-list">
       {PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.key);
         const opened = expandedStep === step.key;
-        const skillName = state?.skill_name || step.skillName;
+        const skillName = configuredSkillNames[PRODUCT_STAGE2_SKILL_SLOTS[index].key] || state?.skill_name || step.skillName;
         const status = state?.ready ? "Ready" : state?.bundle_installed ? "Worker pending" : state ? "Needs skill" : "Checking skill";
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
           <div className="rrugc-products-photo-stage-title">
@@ -181,6 +184,36 @@ export function ProductsPhotoWorkflow({
             {colors.map(job => <option key={job.id} value={job.id}>{job.color_name} · {job.status}</option>)}
           </select>}
         </div>}
+      {PRODUCT_STAGE2_SKILL_SLOTS.slice(4).map((slot, index) => {
+        const name = configuredSkillNames[slot.key] || "Not assigned";
+        const opened = expandedStep === slot.key;
+        return <div key={slot.key} className="rrugc-products-photo-stage-row is-reserved"
+          data-skill={slot.key}>
+          <div className="rrugc-products-photo-stage-title">
+            <span className="rrugc-products-photo-number">{index + 5}</span>
+            <div><strong>{slot.label}</strong><small>No mapped outputs</small></div>
+          </div>
+          <div className="rrugc-products-photo-output-strip is-reserved" role="group"
+            aria-label={slot.label + " reserved output mapping"}>
+            <small>Reserved for a future output group</small>
+          </div>
+          <div className="rrugc-products-photo-skill" title={name}>
+            <span>{slot.title}</span><strong>{name}</strong>
+          </div>
+          <div className="rrugc-products-photo-stage-controls">
+            <span className="rrugc-products-photo-state is-unavailable">Not connected</span>
+            <button type="button" className="rrugc-products-photo-detail-toggle"
+              aria-expanded={opened} aria-label={slot.label + " details"}
+              onClick={() => setExpandedStep(opened ? null : slot.key)}>
+              {opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span>
+            </button>
+          </div>
+          {opened && <div className="rrugc-products-photo-stage-detail">
+            <div><strong>{name}</strong><p>Independent Skill assignment only. No worker or output generation is connected to this reserved slot.</p></div>
+            <button type="button" onClick={openSkillsManager}>Manage skill</button>
+          </div>}
+        </div>;
+      })}
       </div>
     </div>
   </div>;

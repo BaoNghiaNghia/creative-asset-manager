@@ -258,7 +258,7 @@ export function KeywordImageStage({
       .then(value => {
         if (!controller.signal.aborted) {
           setCatalog(value);
-          const preferred = value.items.find(item => skillKey(item) === value.stage_defaults?.stage1 && isKeywordArtworkSkill(item))
+          const preferred = value.items.find(item => skillKey(item) === (value.stage_defaults?.prod_s1 ?? value.stage_defaults?.stage1) && isKeywordArtworkSkill(item))
             || value.items.find(item => isKeywordArtworkSkill(item));
           if (preferred) setSelectedSkillKey(skillKey(preferred));
         }
