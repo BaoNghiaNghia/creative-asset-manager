@@ -26,6 +26,10 @@
 .rrugc-products-photo-skill-select:focus-visible{outline:2px solid #315fe9;outline-offset:1px}
 .rrugc-products-photo-skill-select:disabled{opacity:.65}
 .rrugc-products-photo-stage-controls{grid-area:controls;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
+.rrugc-products-photo-run-button{border:1px solid #b9cfef;border-radius:6px;padding:6px 12px;font:inherit;font-size:10px;font-weight:800;background:#e8f0ff;color:#385f91;cursor:pointer}
+.rrugc-products-photo-run-button:hover{background:#dbeafe}
+.rrugc-products-photo-run-button:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
+.rrugc-products-photo-no-logs{font-size:9px;color:#7f8b9a}
 .rrugc-products-photo-state{display:inline-flex;align-items:center;max-width:100%;padding:3px 6px;border-radius:5px;background:#eef2f7;font-size:9px;font-weight:750;color:#657b99;line-height:1.2;text-align:right}
 .rrugc-products-photo-state.is-unavailable{background:#fff6e9;color:#996c3a}
 .rrugc-products-photo-state.is-failed{background:#fff2f2;color:#b04747}

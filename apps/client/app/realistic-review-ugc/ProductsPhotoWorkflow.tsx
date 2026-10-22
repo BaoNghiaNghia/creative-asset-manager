@@ -122,6 +122,11 @@ export function ProductsPhotoWorkflow({
               title={isEcommerce
                 ? "One Skill per Ecommerce image. No per-image execution worker has been enabled."
                 : state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
+            <button type="button" className="rrugc-products-photo-run-button"
+              aria-label={"Run " + step.title}
+              aria-disabled="true"
+              title="Input assets and Ecommerce worker are not ready"
+              onClick={() => setExpandedStep(step.key)}>Run</button>
             <button type="button" className="rrugc-products-photo-detail-toggle"
               aria-expanded={opened} aria-label={step.title + " details"}
               onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
@@ -151,7 +156,8 @@ export function ProductsPhotoWorkflow({
               {!!state?.missing_assets?.length && <small>Missing assets: {state.missing_assets.join(", ")}</small>}
             </div>
             <button type="button" onClick={openSkillsManager}>Manage skill</button>
-            <button type="button" disabled title="Photo execution requires separate worker, persistence and end-to-end approval.">Run / Retry / Logs</button>
+            <button type="button" aria-disabled="true" onClick={() => setExpandedStep(step.key)} title="Retry requires a completed persisted job and an enabled worker.">Retry</button>
+            <span className="rrugc-products-photo-no-logs" role="status">Logs available after a job is queued</span>
           </div>}
         </div>;
       })}

@@ -12,7 +12,8 @@ describe("Products Stage 2 photo workflow", () => {
       expect(html).toContain(label);
     }
     expect(html).not.toContain('class="rrugc-products-photo-inputs"');
-    expect(html).toContain("Worker pending");
+    expect(html).toContain("Needs skill");
+    expect((html.match(/aria-disabled="true"/g) || []).length).toBe(6);
   });
 
   it("shows seven configurable skill rows with 10 photo placeholders and 13 colors", () => {
