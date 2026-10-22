@@ -177,6 +177,9 @@ jobs:
           bash -n scripts/dev-api.sh
           bash -n scripts/test-integration.sh
           python -m compileall -q apps/api/app apps/worker apps/inventory_worker
+      - name: CAM free shop-aware discovery safety tests (offline)
+        if: matrix.shard == 0
+        run: python integrations/agent-reach/test_auto_discover.py
       - name: Catinat isolated-restore proof replay unit checks
         if: matrix.shard == 0
         run: python -m unittest discover -s scripts -p 'test_cam_catinat_verify_0173_rehearsal.py' -v

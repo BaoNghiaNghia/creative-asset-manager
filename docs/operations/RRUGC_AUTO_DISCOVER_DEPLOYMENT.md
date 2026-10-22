@@ -1,5 +1,12 @@
 # RRUGC Agent-Reach Auto Discover — production operations
 
+> 2026-10-22 shop-aware **opt-in** extension: see
+> [CAM_SHOP_AWARE_AUTO_DISCOVER.md](CAM_SHOP_AWARE_AUTO_DISCOVER.md).
+> CAM Shop Library may seed indexed public search queries without web scraping,
+> changing provider quota or adding credentials. The rollout flag defaults OFF.
+> To keep the whole service free, pin the search provider to Tavily Keyless.
+
+
 **2026-10-11 / delivery v3.** Runs independently of Windows Scout Manager. Tavily Keyless, Exa and Brave are general web-search providers, **not** authenticated Etsy/Amazon/Pinterest catalog APIs. This phase collects item-level public search evidence into the existing tenant-scoped **Research Inbox**; operator review and existing Stage 0 keyword/AEBrowse ingestion rules are preserved. Do NOT claim that all discovered titles are verified quote embroidery.
 
 ## Runtime / safety boundaries
