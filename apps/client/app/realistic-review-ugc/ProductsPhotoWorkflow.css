@@ -58,26 +58,11 @@
 .rrugc-products-photo-output-strip.is-reserved{overflow:hidden}
 .rrugc-products-photo-output-strip.is-reserved small{font-size:9px;color:#8b98ac;font-style:italic}
 
-/* Product-only source column: full-width artwork above readable metadata. */
+/* The Product source cell is an image-only gallery with four equal tiles. */
 .rrugc-colorway-table.is-products td:has(.rrugc-colorway-source.is-product-card){vertical-align:top}
 .rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card{
-  display:flex;flex-direction:column;align-items:stretch;gap:9px;width:100%;min-width:0;
+  display:block;width:100%;min-width:0;
 }
-.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card .rrugc-colorway-thumb{
-  display:flex;align-items:center;justify-content:center;width:100%;height:auto;
-  aspect-ratio:1/1;box-sizing:border-box;min-height:0;border-radius:10px;background:#f7f9fd;
+.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card>.rrugc-applied-hat-grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
 }
-.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card .rrugc-colorway-thumb img{
-  width:100%;height:100%;object-fit:contain;
-}
-.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card>div{
-  display:grid;gap:5px;min-width:0;width:100%;overflow-wrap:anywhere;
-}
-.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card strong{
-  font-size:11px;line-height:1.4;white-space:normal;overflow-wrap:anywhere;
-}
-.rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card>div>small{
-  font-size:9px;line-height:1.4;white-space:normal;overflow-wrap:anywhere;
-}
-.rrugc-colorway-table.is-products .rrugc-colorway-source-meta{gap:5px}
-.rrugc-colorway-table.is-products .rrugc-colorway-source-meta span{font-size:8px;padding:4px 6px}

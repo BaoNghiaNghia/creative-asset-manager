@@ -54,6 +54,15 @@ function HatSlotIcon() {
 }
 
 function DesignSource({ plan, productLayout = false }: { plan: SourcePlan; productLayout?: boolean }) {
+  if (productLayout) {
+    return <div className="rrugc-colorway-source is-product-card">
+      <AppliedHatPreview
+        designSrc={plan.source_preview_url}
+        designName={cleanDesignName(plan.source_name)}
+        revision={plan.source_revision}
+      />
+    </div>;
+  }
   const groupCount = Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1);
   return <div className={"rrugc-colorway-source" + (productLayout ? " is-product-card" : "")}>
     <button type="button" className="rrugc-colorway-thumb" title={plan.source_name}>
@@ -70,7 +79,6 @@ function DesignSource({ plan, productLayout = false }: { plan: SourcePlan; produ
           : null}
       </div>
     </div>
-    {productLayout && <AppliedHatPreview designSrc={plan.source_preview_url} revision={plan.source_revision} />}
   </div>;
 }
 

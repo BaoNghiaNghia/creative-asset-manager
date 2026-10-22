@@ -1,68 +1,90 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import "./AppliedHatPreview.css";
 
-/** Visual preview only. These blob previews must NOT be passed to a server skill as durable assets. */
-const VIEWS = [
-  { key: "front", title: "Front", surface: "front", description: "Front center embroidery" },
-  { key: "side", title: "Angle", surface: "side", description: "Right-side embroidery placement" },
-  { key: "back", title: "Back", surface: "front", description: "Reference only; do not invent rear embroidery" }
+const HAT_VIEWS = [
+  { key: "front", label: "front", surface: "front" },
+  { key: "side", label: "right side", surface: "side" },
+  { key: "back", label: "back", surface: "front" },
 ] as const;
 
-const ROOT = "/rrugc/blueprint/stock/natural-black";
-type View = (typeof VIEWS)[number]["key"];
+const STOCK_ROOT = "/rrugc/blueprint/stock/natural-black";
 
-function HatCard({ designSrc, view, enabled, onToggle }: {
+function HatImage({
+  designSrc,
+  view,
+}: {
   designSrc: string;
-  view: (typeof VIEWS)[number];
-  enabled: boolean;
-  onToggle: () => void;
+  view: (typeof HAT_VIEWS)[number];
 }) {
+  const tileRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(
+    () => typeof IntersectionObserver === "undefined",
+  );
+  useEffect(() => {
+    if (nearViewport) return;
+    const tile = tileRef.current;
+    if (!tile) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) setNearViewport(true);
+    }, { rootMargin: "360px" });
+    observer.observe(tile);
+    return () => observer.disconnect();
+  }, [nearViewport]);
+
   const hatSrc = view.key === "front"
     ? "/rrugc/blueprint/fronts/natural-black.webp"
-    : ROOT + "/" + view.key + ".jpg";
-  const materialSrc = useBlueprintEmbroideryComposite(
-    enabled && view.key !== "back" ? designSrc : "", hatSrc, "black", "original" as ThreadMode,
-    0, view.surface, "preview",
+    : `${STOCK_ROOT}/${view.key}.jpg`;
+  // Each view is composed immediately. No action is required to apply design.
+  const embroiderySrc = useBlueprintEmbroideryComposite(
+    nearViewport ? designSrc : "",
+    hatSrc,
+    "black",
+    "original" as ThreadMode,
+    0,
+    view.surface,
+    "tile",
   );
-  return <section className="rrugc-applied-hat-card" aria-label={view.title + " hat preview"}>
-    <div className="rrugc-applied-hat-heading">
-      <strong>{view.title}</strong>
-      <span>{enabled ? "Preview" : "Not applied"}</span>
-    </div>
-    <div className="rrugc-applied-hat-image">
-      <img src={hatSrc} alt={"Natural black 8869 hat " + view.title.toLowerCase()} loading="lazy" />
-      {enabled && view.key !== "back" && <img className={"rrugc-applied-hat-artwork is-" + view.key}
-        src={materialSrc} alt="" aria-hidden="true" />}
-    </div>
-    <small>{view.description}</small>
-    <button type="button" onClick={onToggle} disabled={view.key === "back"}
-      title={view.key === "back" ? "Rear view remains a faithful unembroidered stock reference" : undefined}>
-      {view.key === "back" ? "Reference view" : enabled ? "Reset preview" : "Apply preview"}
-    </button>
-  </section>;
+
+  return <div
+    className="rrugc-applied-hat-image"
+    ref={tileRef}
+    role="img"
+    aria-label={`Valucap 8869 ${view.label} view with embroidery design applied`}
+  >
+    <img src={hatSrc} alt="" aria-hidden="true" loading="lazy" />
+    {nearViewport && <img
+      className={`rrugc-applied-hat-artwork is-${view.key}`}
+      src={embroiderySrc}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+    />}
+  </div>;
 }
 
-export function AppliedHatPreview({ designSrc, revision }: { designSrc: string; revision: string }) {
-  const [state, setState] = useState<{ revision: string; enabled: Record<View, boolean> }>({
-    revision, enabled: { front: false, side: false, back: false },
-  });
-  const active = state.revision === revision
-    ? state.enabled : { front: false, side: false, back: false };
-  return <div className="rrugc-applied-hat-section" aria-label="Applied hat previews">
-    <div className="rrugc-applied-hat-top">
-      <strong>Hat previews</strong>
-      <span>Visual proof only · not saved skill inputs</span>
+export function AppliedHatPreview({
+  designSrc,
+  designName,
+  revision,
+}: {
+  designSrc: string;
+  designName: string;
+  revision: string;
+}) {
+  return <div
+    className="rrugc-applied-hat-grid"
+    key={revision}
+    aria-label="Embroidery design and three applied hat views"
+  >
+    <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
+      <img src={designSrc} alt="" aria-hidden="true" loading="lazy" />
     </div>
-    <button type="button" className="rrugc-applied-hat-all"
-      onClick={() => setState({ revision, enabled: { front: true, side: true, back: false } })}>
-      Apply design previews
-    </button>
-    <div className="rrugc-applied-hat-grid">
-      {VIEWS.map(view => <HatCard key={view.key} designSrc={designSrc} view={view}
-        enabled={active[view.key]}
-        onToggle={() => setState({ revision, enabled: { ...active, [view.key]: !active[view.key] } })} />)}
-    </div>
+    {HAT_VIEWS.map(view => <HatImage
+      key={view.key}
+      designSrc={designSrc}
+      view={view}
+    />)}
   </div>;
 }
