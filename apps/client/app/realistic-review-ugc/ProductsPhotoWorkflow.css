@@ -113,3 +113,23 @@
 .rrugc-ecommerce-lightbox .rrugc-stable-masonry{display:grid;gap:14px}
 .rrugc-ecommerce-lightbox .rrugc-stable-masonry-column{min-width:0}
 @media(max-width:650px){.rrugc-ecommerce-lightbox-overlay{padding:8px}.rrugc-ecommerce-lightbox{padding:12px;max-height:96vh}.rrugc-products-photo-hover-preview{display:none!important}}
+/* Keep every output visible, and place it after controls. */
+.rrugc-products-photo-stage-row:not(.is-colorway){grid-template-columns:minmax(160px,215px) minmax(130px,1fr) max-content max-content;grid-template-areas:"title skill controls outputs";align-items:center}
+.rrugc-products-photo-stage-row .rrugc-products-photo-output-strip{overflow:visible;max-width:none;min-width:0;justify-content:flex-end;flex-wrap:wrap;gap:5px;padding:0}
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{display:flex;justify-content:flex-end}
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-controls{justify-content:flex-end}
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-empty-shot{width:52px;height:52px}
+.rrugc-products-photo-stage-row.is-colorway{grid-template-columns:minmax(155px,220px) minmax(150px,1fr) max-content;grid-template-areas:"title controls outputs" "skill skill outputs";column-gap:12px;row-gap:5px}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:4px;width:min(100%,620px);justify-self:end}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-colorway-slot{width:100%;min-width:0;height:46px}
+@media(max-width:1500px){
+ .rrugc-products-photo-stage-row:not(.is-colorway){grid-template-columns:minmax(145px,185px) minmax(110px,1fr) max-content;grid-template-areas:"title skill controls" "outputs outputs outputs";row-gap:6px}
+ .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{justify-content:flex-end}
+ .rrugc-products-photo-stage-row.is-colorway{grid-template-columns:minmax(150px,220px) minmax(0,1fr);grid-template-areas:"title controls" "skill skill" "outputs outputs"}
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{justify-self:stretch;width:100%}
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row:not(.is-colorway){grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "skill" "controls" "outputs"}
+ .rrugc-products-photo-stage-row.is-colorway{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "skill" "controls" "outputs"}
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{grid-template-columns:repeat(auto-fit,minmax(38px,1fr))}
+}
