@@ -338,3 +338,7 @@
   width:100%;max-width:400px;justify-self:stretch;
  }
 }
+/* Footer summary spacing and icon-bearing download action. */
+.rrugc-products-photo-pipeline-summary{margin-top:15px;margin-bottom:0;padding:11px 4px 6px;min-height:44px;row-gap:9px}
+.rrugc-products-photo-download-all{gap:7px;padding:8px 15px;min-height:34px}
+.rrugc-products-photo-download-icon{display:inline-flex;align-items:center;justify-content:center;font-size:17px;line-height:1;font-weight:900}
