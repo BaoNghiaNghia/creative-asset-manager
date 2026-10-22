@@ -316,3 +316,25 @@
   grid-template-columns:minmax(90px,1fr) 84px 76px 90px;gap:4px;max-width:none;
  }
 }
+/* Slot 7: show up to eight fixed thumbnails, scroll horizontally for the rest. */
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+ display:flex;flex-flow:row nowrap;align-items:center;justify-content:flex-start;
+ width: min(100%, 400px);max-width:400px;min-width:0;
+ overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;
+ gap:4px;scrollbar-width:thin;scroll-snap-type:x proximity;
+ padding:3px 0 7px;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors .rrugc-colorway-slot{
+ flex:0 0 46px;width:46px;min-width:46px;height:46px;scroll-snap-align:start;
+}
+.rrugc-products-photo-group-label-footer{margin-top:5px}
+@media(max-width:1500px){
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+  justify-self:end;width:min(100%,400px);max-width:400px;
+ }
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+  width:100%;max-width:400px;justify-self:stretch;
+ }
+}

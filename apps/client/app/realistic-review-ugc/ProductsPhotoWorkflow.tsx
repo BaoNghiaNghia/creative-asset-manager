@@ -155,13 +155,7 @@ export function ProductsPhotoWorkflow({
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
-    <div className="rrugc-products-photo-pipeline-summary">
-      <strong>7 skill slots <span aria-hidden="true">·</span> 23 outputs</strong>
-      <small>Skills 1–4: Ecommerce Images 01–04 · Skill 5: Multi-hat · Skill 6: UGC · Skill 7: 13 Colors</small>
-      <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP">Download all outputs ↓</a>
-    </div>
     <div className="rrugc-products-photo-stage-list">
-      <div className="rrugc-products-photo-group-label">Ecommerce · 4 individual image Skills</div>
       {PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.readinessKey);
         const opened = expandedStep === step.key;
@@ -355,6 +349,12 @@ export function ProductsPhotoWorkflow({
 
       </div>
     </div>
+    <div className="rrugc-products-photo-pipeline-summary">
+      <strong>7 skill slots <span aria-hidden="true">·</span> 23 outputs</strong>
+      <small>Skills 1–4: Ecommerce Images 01–04 · Skill 5: Multi-hat · Skill 6: UGC · Skill 7: 13 Colors</small>
+      <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP">Download all outputs ↓</a>
+    </div>
+    <div className="rrugc-products-photo-group-label rrugc-products-photo-group-label-footer">Ecommerce · 4 individual image Skills</div>
     {previewGallery && <EcommerceInputGalleryModal items={previewGallery} onClose={() => setPreviewGallery(null)} />}
   </div>;
 }
