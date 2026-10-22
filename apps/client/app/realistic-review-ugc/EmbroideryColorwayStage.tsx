@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
-import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
-import type { ColorwayJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
+import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
+import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
 import { AppliedHatPreview } from "./AppliedHatPreview";
 import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
@@ -19,6 +19,15 @@ import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage
 
 const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
 const COLOR_SLOT_COUNT = COLOR_KEYS.length;
+async function listEcommercePageJobs(ids: string[], signal?: AbortSignal): Promise<EcommerceJob[]> {
+  const batches: string[][] = [];
+  for (let index = 0; index < ids.length; index += 50) {
+    batches.push(ids.slice(index, index + 50));
+  }
+  if (!batches.length) return [];
+  const responses = await Promise.all(batches.map(batch => listEcommerceJobs(batch, signal)));
+  return responses.flat();
+}
 const PREFERRED_COLORWAY_SKILL = "gatorhats-8869-scale-image";
 const STAGE1_PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
 const EMPTY_CATALOG: Stage2SkillCatalog = {
@@ -123,6 +132,7 @@ export function EmbroideryColorwayStage({
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [colorwayJobs, setColorwayJobs] = useState<ColorwayJob[]>([]);
+  const [ecommerceJobs, setEcommerceJobs] = useState<EcommerceJob[]>([]);
   const [queueing, setQueueing] = useState(false);
   const [queueingPlanId, setQueueingPlanId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -218,6 +228,51 @@ export function EmbroideryColorwayStage({
     if (!byPlan.has(job.source_plan_id)) byPlan.set(job.source_plan_id, new Map());
     byPlan.get(job.source_plan_id)!.set(job.color_key, job);
   }
+  const ecommerceByPlan = new Map<string, EcommerceJob[]>();
+  for (const job of ecommerceJobs) {
+    const group = ecommerceByPlan.get(job.source_plan_id) || [];
+    group.push(job);
+    ecommerceByPlan.set(job.source_plan_id, group);
+  }
+
+  useEffect(() => {
+    if (!active || workflow !== "products" || !pagePlanKey) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let busy = false;
+    let refreshDelay = 30000;
+    const refresh = async () => {
+      if (busy || controller.signal.aborted) return;
+      window.clearTimeout(timer);
+      busy = true;
+      try {
+        const result = await listEcommercePageJobs(pagePlanKey.split(","), controller.signal);
+        if (!controller.signal.aborted) {
+          setEcommerceJobs(result);
+          refreshDelay = result.some(job => job.status === "queued" || job.status === "running")
+            ? 5000 : 30000;
+        }
+      } catch {
+        refreshDelay = 30000;
+      } finally {
+        busy = false;
+        if (!controller.signal.aborted) timer = window.setTimeout(refresh, refreshDelay);
+      }
+    };
+    const visibility = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener("visibilitychange", visibility);
+    void refresh();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [active, workflow, pagePlanKey]);
+
+  const refreshEcommerceJobs = async () => {
+    if (pagePlanKey) setEcommerceJobs(await listEcommercePageJobs(pagePlanKey.split(",")));
+  };
+
   const skillInput: Stage2SkillSelection | null = ready && selectedSkill ? {
     source: selectedSkill.source, skill_id: selectedSkill.skill_id,
     skill_name: selectedSkill.skill_name,
@@ -360,7 +415,7 @@ export function EmbroideryColorwayStage({
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
       title={workflow === "products" ? "Embroidery design → 7-skill Product Stage 2" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers remain disabled pending end-to-end QA.</>
+        ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers use independently assigned Skills and their persisted job outputs.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
@@ -488,6 +543,8 @@ export function EmbroideryColorwayStage({
                 </div>
               </td> : <td><ProductsPhotoWorkflow
                 sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} readiness={photoReadiness}
+                ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
+                onEcommerceJobChange={refreshEcommerceJobs}
                 configuredSkillNames={productStage2SkillNames}
                 colors={Array.from(slots?.values() || [])}
                 colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}

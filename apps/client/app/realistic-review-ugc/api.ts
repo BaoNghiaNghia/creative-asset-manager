@@ -682,6 +682,54 @@ export type ProductsStage2PhotoStep = {
   missing_assets: string[];
   required_inputs: string;
 };
+export type EcommerceJob = {
+  id: string; source_plan_id: string; stage: string;
+  status: "queued" | "running" | "completed" | "failed";
+  retry_count: number; attempt_count: number; error_code: string | null;
+  output_url: string | null; skill_name: string;
+};
+export type EcommerceJobLogs = {
+  job_id: string; stage: string; status: string; skill: string;
+  error_code: string | null;
+  attempts: Array<{ id: string; status: string; attempt_count: number;
+    error_code: string | null; error_message: string | null;
+    created_at: string; completed_at: string | null }>;
+};
+export type EcommerceOutputVersion = {
+  version: number; created_at: string; output_url: string;
+  width: number | null; height: number | null;
+};
+const ECOMMERCE_PATH = "/api/v1/realistic-review-ugc/products-stage2/ecommerce";
+export const listEcommerceJobs = (sourcePlanIds: string[], signal?: AbortSignal) => {
+  const params = new URLSearchParams();
+  for (const id of sourcePlanIds) params.append("source_plan_id", id);
+  return request<EcommerceJob[]>(ECOMMERCE_PATH + "/jobs?" + params.toString(), { signal });
+};
+export const runEcommerceJob = (sourcePlanId: string, stage: string) =>
+  request<{ job_id: string; status: string }>(ECOMMERCE_PATH + "/run", {
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, stage }),
+  });
+export const retryEcommerceJob = (jobId: string) =>
+  request<{ job_id: string; status: string }>(
+    ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/retry",
+    { method: "POST" },
+  );
+export const regenerateEcommerceJob = (jobId: string) =>
+  request<{ job_id: string; status: string }>(
+    ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/regenerate",
+    { method: "POST" },
+  );
+export const getEcommerceJobLogs = (jobId: string, signal?: AbortSignal) =>
+  request<EcommerceJobLogs>(
+    ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/logs",
+    { signal },
+  );
+export const getEcommerceOutputVersions = (jobId: string, signal?: AbortSignal) =>
+  request<EcommerceOutputVersion[]>(
+    ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/versions",
+    { signal },
+  );
+
 export type EcommerceSlotInputReadiness = {
   stage: string; view: string; required_roles: string[]; missing_roles: string[];
   ready: boolean; status: "missing_inputs" | "missing_skill" | "worker_pending" | "ready";

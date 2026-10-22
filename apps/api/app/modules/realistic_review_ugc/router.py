@@ -5516,6 +5516,176 @@ def sync_stage2_skill(
     return _stage2_skill(item)
 
 
+class EcommerceRunRequest(BaseModel):
+    source_plan_id: str = Field(min_length=1, max_length=36)
+    stage: str = Field(pattern=r"^prod_s2_ec[1-4]$")
+
+
+@router.post("/products-stage2/ecommerce/run", status_code=202)
+def run_ecommerce_skill(
+    body: EcommerceRunRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    try:
+        return EcommerceService(session).queue(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            source_plan_id=body.source_plan_id, stage=body.stage,
+        )
+    except EcommerceError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.get("/products-stage2/ecommerce/jobs")
+def ecommerce_jobs(
+    source_plan_id: list[str] = Query(default=[]),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    try:
+        return EcommerceService(session).list(
+            tenant_id=principal.active_tenant_id, source_ids=source_plan_id)
+    except EcommerceError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/products-stage2/ecommerce/jobs/{job_id}/retry", status_code=202)
+def retry_ecommerce_job(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    try:
+        return EcommerceService(session).retry(
+            tenant_id=principal.active_tenant_id, job_id=job_id)
+    except EcommerceError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.post("/products-stage2/ecommerce/jobs/{job_id}/regenerate", status_code=202)
+def regenerate_ecommerce_job(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    try:
+        return EcommerceService(session).regenerate(
+            tenant_id=principal.active_tenant_id, job_id=job_id)
+    except EcommerceError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.get("/products-stage2/ecommerce/jobs/{job_id}/versions")
+def ecommerce_output_versions(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.model import RrugcEcommerceJobModel
+    from app.modules.realistic_review_ugc.output_versions import output_versions
+    row = session.scalar(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == principal.active_tenant_id,
+        RrugcEcommerceJobModel.id == job_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ecommerce job not found")
+    return [{
+        "version": item["version"], "created_at": item["created_at"],
+        "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{job_id}/output?version={item['version']}",
+        "width": item["width"], "height": item["height"],
+    } for item in output_versions(session, tenant_id=principal.active_tenant_id,
+                                  stage="ecommerce", job=row)]
+
+
+@router.get("/products-stage2/ecommerce/jobs/{job_id}/logs")
+def ecommerce_job_logs(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.model import RrugcEcommerceJobModel
+    from app.modules.processing.model import ProcessingJobModel
+    row = session.scalar(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == principal.active_tenant_id,
+        RrugcEcommerceJobModel.id == job_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ecommerce job not found")
+    attempts = list(session.scalars(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == principal.active_tenant_id,
+        ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
+        ProcessingJobModel.entity_id == job_id,
+    ).order_by(ProcessingJobModel.created_at.asc())))
+    return {
+        "job_id": row.id, "stage": row.stage, "status": row.status,
+        "skill": row.skill_name, "error_code": row.last_error_code,
+        "attempts": [{
+            "id": job.id, "status": job.status, "attempt_count": job.attempt_count,
+            "error_code": job.last_error_code, "error_message": job.last_error_message,
+            "created_at": job.created_at, "completed_at": job.completed_at,
+        } for job in attempts],
+    }
+
+
+@router.get("/products-stage2/ecommerce/jobs/{job_id}/output")
+async def ecommerce_job_output(
+    job_id: str,
+    version: int | None = Query(default=None, ge=1),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.model import (
+        RrugcEcommerceJobModel, RrugcImageOutputVersionModel,
+    )
+    row = session.scalar(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == principal.active_tenant_id,
+        RrugcEcommerceJobModel.id == job_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Ecommerce job not found")
+    remote_id, mime, size = (
+        row.output_remote_file_id, row.output_content_type, row.output_size_bytes)
+    if version is not None:
+        saved = session.scalar(select(RrugcImageOutputVersionModel).where(
+            RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
+            RrugcImageOutputVersionModel.stage == "ecommerce",
+            RrugcImageOutputVersionModel.job_id == job_id,
+            RrugcImageOutputVersionModel.version == version,
+        ))
+        if saved is None:
+            raise HTTPException(status_code=404, detail="Ecommerce output version not found")
+        remote_id, mime, size = saved.remote_file_id, saved.content_type, saved.size_bytes
+    if not remote_id:
+        raise HTTPException(status_code=409, detail="Ecommerce output not ready")
+    session.close()
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    try:
+        stream = await storage.open_asset(OpenStoredAssetInput(
+            tenant_id=principal.active_tenant_id,
+            asset_id="rrugc-ecommerce:" + job_id,
+            remote_file_id=remote_id, content_type=mime, size_bytes=size,
+        ))
+    except StorageProviderError as exc:
+        raise HTTPException(status_code=503 if exc.retryable else 502,
+                            detail={"code": exc.code, "message": "Ecommerce output unavailable"}) from exc
+    return StreamingResponse(stream.body, media_type=mime or stream.content_type,
+                             background=BackgroundTask(stream.close),
+                             headers={"Cache-Control": "private, max-age=300"})
+
+
 @router.get("/products-stage2/ecommerce/input-readiness")
 def ecommerce_input_readiness(
     source_plan_id: str = Query(..., min_length=1, max_length=36),
@@ -5536,18 +5706,49 @@ def ecommerce_input_readiness(
         raise HTTPException(status_code=404, detail="Product source plan not found")
     from pathlib import Path
     from app.modules.realistic_review_ugc.ecommerce_stock_evidence import release_stock_evidence
-    stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[4])
+    stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[5])
+    import shutil
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import (
+        EcommerceError, _front_job,
+    )
+    from app.modules.realistic_review_ugc.model import (
+        RrugcStageSkillDefaultModel, RrugcStage2SkillRegistryModel,
+    )
+    settings = get_settings()
+    worker_ready = all((
+        settings.PROCESSING_JOBS_ENABLED, settings.IMAGE_GENERATION_ENABLED,
+        settings.MANAGED_ASSET_STORAGE_ENABLED, settings.CODEX_IMAGE_GENERATION_ENABLED,
+        bool(shutil.which(settings.CODEX_IMAGE_BINARY or "codex")),
+    ))
     assets = {"design": plan.source_file_id}
-    # Official frontend stock paths are NOT durable, tenant-owned references.
-    # A future input-builder must persist the prepared views before declaring ready.
+    for role, evidence in stock.items():
+        if evidence.get("ready") and evidence.get("sha256"):
+            assets[role] = "sha256:" + evidence["sha256"]
+    try:
+        front = _front_job(session, plan)
+        assets["embroidered_front"] = front.output_remote_file_id
+    except EcommerceError:
+        pass
+    slots = []
+    for shot in SHOTS:
+        assignment = session.get(
+            RrugcStageSkillDefaultModel, (principal.active_tenant_id, shot.stage))
+        skill = session.get(
+            RrugcStage2SkillRegistryModel, assignment.registry_id
+        ) if assignment and assignment.registry_id else None
+        skill_ready = bool(
+            skill and skill.tenant_id == principal.active_tenant_id
+            and skill.enabled and skill.deleted_at is None
+            and skill.validation_status == "valid" and skill.skill_name
+        )
+        slots.append(build_execution_preflight(
+            shot.stage, assets, worker_ready=worker_ready, skill_ready=skill_ready,
+        ))
     return {
         "source_plan_id": plan.id,
         "source_revision": plan.source_revision,
         "stock_evidence": stock,
-        "slots": [
-            build_execution_preflight(shot.stage, assets, worker_ready=False, skill_ready=False)
-            for shot in SHOTS
-        ],
+        "slots": slots,
     }
 
 

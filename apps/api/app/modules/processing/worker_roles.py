@@ -19,6 +19,7 @@ IMAGE_AI_JOB_TYPES = (
     "ai_batch_import", "ai_batch_retry_items", "image_generate",
     "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
     "rrugc_stage2_generate", "rrugc_keyword_image_generate", "rrugc_colorway_generate",
+    "rrugc_ecommerce_generate",
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
     "rrugc_research_vision",
