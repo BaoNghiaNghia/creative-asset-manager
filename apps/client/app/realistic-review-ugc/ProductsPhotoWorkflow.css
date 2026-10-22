@@ -133,3 +133,35 @@
  .rrugc-products-photo-stage-row.is-colorway{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "skill" "controls" "outputs"}
  .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{grid-template-columns:repeat(auto-fit,minmax(38px,1fr))}
 }
+/* Consistent action columns for every skill, irrespective of badge or date length. */
+.rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  display:grid;grid-template-columns:150px 90px 54px 65px;
+  grid-template-rows:minmax(30px,auto);align-items:center;justify-content:end;justify-items:center;
+  gap:7px;flex-wrap:nowrap;min-width:0;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-updated{
+  width:100%;justify-self:start;text-align:right;white-space:nowrap;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-state{
+  width:90px;box-sizing:border-box;justify-content:center;text-align:center;white-space:nowrap;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-run-button{
+  width:54px;box-sizing:border-box;text-align:center;padding:6px 2px;
+}
+.rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle{
+  width:65px;box-sizing:border-box;text-align:center;white-space:nowrap;padding:5px 2px;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+  grid-area:controls;
+}
+.rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot b,
+.rrugc-products-photo-output-strip .rrugc-colorway-slot b{display:none}
+.rrugc-products-photo-output-strip .rrugc-colorway-slot img{object-fit:contain}
+@media(max-width:650px){
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+   grid-template-columns:minmax(110px,1fr) 84px 50px 60px;width:100%;gap:4px;
+ }
+ .rrugc-products-photo-stage-controls .rrugc-products-photo-state{width:84px}
+ .rrugc-products-photo-stage-controls .rrugc-products-photo-run-button{width:50px}
+ .rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle{width:60px}
+}

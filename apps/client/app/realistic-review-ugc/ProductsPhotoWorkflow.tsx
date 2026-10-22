@@ -194,12 +194,11 @@ export function ProductsPhotoWorkflow({
                   onClick={() => setPreviewGallery([{ key: shotJob.id, label: shot.label + " · output", src: shotJob.output_url! }])}
                   aria-label={"Open " + shot.label + " Ecommerce output"}>
                   <img src={shotJob.output_url} alt={shot.label} loading="lazy" />
-                  <b>{String(shot.number).padStart(2, "0")}</b>
                 </button>
               : <span key={shot.number} className="rrugc-products-photo-empty-shot"
                   title={shot.label + " · " + (shotJob?.status || "Not generated")}
                   aria-label={shot.label + " · " + (shotJob?.status || "Not generated")}>
-                  <HatSlotIcon /><b>{String(shot.number).padStart(2, "0")}</b>
+                  <HatSlotIcon />
                 </span>)}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
@@ -291,7 +290,7 @@ export function ProductsPhotoWorkflow({
             const preview = job?.output_url && job.status === "completed"
               ? <img loading="lazy" src={job.output_url} alt={colorName} />
               : <HatSlotIcon />;
-            const content = <>{preview}<b>{String(index + 1).padStart(2, "0")}</b></>;
+            const content = preview;
             const className = "rrugc-colorway-slot is-" + status;
             if (job?.status === "completed" && job.output_url && onOpenColor) {
               return <button type="button" key={key} className={className} onClick={() => onOpenColor(job)}
@@ -319,9 +318,11 @@ export function ProductsPhotoWorkflow({
           </select>
         </div>
         <div className="rrugc-products-photo-stage-controls">
+          <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
           <span className={"rrugc-products-photo-state " + (failed ? "is-failed" : active ? "is-running" : complete === 13 ? "is-done" : "")}>
             {colorStatus}
           </span>
+          <button type="button" className="rrugc-products-photo-run-button" aria-label="Run 13 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === 13} onClick={onQueueColors}>{colorwayRunning ? "Queueing…" : "Run"}</button>
           <button type="button" className="rrugc-products-photo-detail-toggle"
             aria-expanded={expandedStep === "colorway"} aria-label="13 Hat Colors details"
             onClick={() => setExpandedStep(value => value === "colorway" ? null : "colorway")}>
