@@ -84,9 +84,9 @@ describe("Products Stage 2 photo workflow", () => {
     }
     expect((html.match(/Worker pending/g) || []).length).toBe(2);
     expect(html).toContain("Needs skill");
-    expect(html).toContain('aria-label="13 Hat Colors skill for design.png"');
-    expect(html).toContain('<option value="scale" selected="">8869 scale</option>');
-    expect(html).toContain("Other colorway · needs sync");
+    expect(html).toContain('title="8869 scale"');
+    expect(html).toContain('<strong>8869 scale</strong>');
+    expect(html).not.toContain('aria-label="13 Hat Colors skill for design.png"');
     expect(html).toContain("Not run");
   });
 

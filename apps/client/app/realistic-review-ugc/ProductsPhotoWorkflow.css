@@ -165,3 +165,33 @@
  .rrugc-products-photo-stage-controls .rrugc-products-photo-run-button{width:50px}
  .rrugc-products-photo-stage-controls .rrugc-products-photo-detail-toggle{width:60px}
 }
+/* Skill 7 matches the standard one-line skill rows; selection lives in Details. */
+.rrugc-products-photo-stage-row.is-colorway{
+  background:#fff;border-color:#e1e8f2;
+  grid-template-columns:minmax(160px,215px) minmax(130px,1fr) max-content max-content;
+  grid-template-areas:"title skill controls outputs";align-items:center;column-gap:10px;row-gap:0;padding:7px 10px;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-number{background:#eaf0fa;color:#416492}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-title small{display:none}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{
+  grid-area:outputs;display:grid;grid-template-columns:repeat(13,minmax(0,1fr));
+  gap:3px;width:min(100%,620px);max-width:620px;justify-self:end;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{grid-area:controls}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-skill{grid-area:skill}
+.rrugc-products-photo-colorway-selector{display:grid;gap:6px;min-width:200px}
+.rrugc-products-photo-colorway-selector label{font-size:10px;font-weight:750;color:#506981}
+.rrugc-products-photo-colorway-selector select{max-width:100%;width:100%}
+@media(max-width:1500px){
+ .rrugc-products-photo-stage-row.is-colorway{
+   grid-template-columns:minmax(145px,185px) minmax(110px,1fr) max-content;
+   grid-template-areas:"title skill controls" "outputs outputs outputs";row-gap:6px;
+ }
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{width:100%;max-width:none;justify-self:stretch}
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row.is-colorway{
+   grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "skill" "controls" "outputs";
+ }
+ .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{grid-template-columns:repeat(auto-fit,minmax(38px,1fr))}
+}

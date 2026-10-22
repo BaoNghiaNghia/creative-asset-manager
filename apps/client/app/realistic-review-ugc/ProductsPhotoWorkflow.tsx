@@ -306,16 +306,8 @@ export function ProductsPhotoWorkflow({
               aria-label={colorName + " · " + (job?.status || "Not run")}>{content}</span>;
           })}
         </div>
-        <div className="rrugc-products-photo-skill">
-          <label htmlFor={colorSkillSelectId}><span>Skill 7</span></label>
-          <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
-            aria-label={"13 Hat Colors skill for " + sourceName}
-            title={colorwaySkillName || "Choose 13 Hat Colors skill"}
-            value={colorwaySkillKey} disabled={colorwaySkillDisabled || !onColorwaySkillChange}
-            onChange={event => onColorwaySkillChange?.(event.target.value)}>
-            {colorwaySkillOptions.length === 0 && <option value="">{colorwaySkillDisabled ? "Loading skills…" : "No skill available"}</option>}
-            {colorwaySkillOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.ready ? "" : " · needs sync"}</option>)}
-          </select>
+        <div className="rrugc-products-photo-skill" title={colorwaySkillName || "Not assigned"}>
+          <span>Skill 7</span><strong>{colorwaySkillName || "Not assigned"}</strong>
         </div>
         <div className="rrugc-products-photo-stage-controls">
           <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
@@ -330,6 +322,17 @@ export function ProductsPhotoWorkflow({
           </button>
         </div>
         {expandedStep === "colorway" && <div className="rrugc-products-photo-stage-detail">
+          <div className="rrugc-products-photo-colorway-selector">
+            <label htmlFor={colorSkillSelectId}>Skill 7 configuration</label>
+            <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
+              aria-label={"13 Hat Colors skill for " + sourceName}
+              title={colorwaySkillName || "Choose 13 Hat Colors skill"}
+              value={colorwaySkillKey} disabled={colorwaySkillDisabled || !onColorwaySkillChange}
+              onChange={event => onColorwaySkillChange?.(event.target.value)}>
+              {colorwaySkillOptions.length === 0 && <option value="">{colorwaySkillDisabled ? "Loading skills…" : "No skill available"}</option>}
+              {colorwaySkillOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.ready ? "" : " · needs sync"}</option>)}
+            </select>
+          </div>
           <div><strong>{colorwaySkillName || "Select colorway skill"}</strong>
             <p>Generate each of 13 Valucap 8869 colors. Finished versions stay available; click an image to view versions or a failed slot to retry.</p></div>
           <button type="button" onClick={openSkillsManager}>Manage skill</button>
