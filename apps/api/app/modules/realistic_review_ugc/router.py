@@ -6396,7 +6396,7 @@ def list_stage3_review_groups(
                     analysis.review_generated_at if analysis else None
                 ),
                 sample_email=(stage5_sample_email(job.id, analysis.reviewer_name) if analysis and analysis.reviewer_name and analysis.review_text else None),
-                sample_review_date=(stage5_sample_review_date(job.id, analysis.review_generated_at or job.completed_at) if analysis and analysis.reviewer_name and analysis.review_text else None),
+                sample_review_date=(stage5_sample_review_date(analysis.id, analysis.review_generated_at or job.completed_at or analysis.created_at) if analysis and analysis.reviewer_name and analysis.review_text else None),
                 reject_reasons=(
                     list(analysis.reject_reasons_json or [])
                     if analysis
@@ -6637,6 +6637,7 @@ def export_stage5_loox_review_concepts(
         .order_by(RrugcStage3AnalysisModel.created_at.asc(), RrugcStage3AnalysisModel.id.asc())
     )
     rows = []
+    used_sample_dates: set[str] = set()
     missing_photos = 0
     normalized_handles = 0
     for review, image, plan in joined:
@@ -6654,14 +6655,27 @@ def export_stage5_loox_review_concepts(
         if not photo_url:
             missing_photos += 1
         created = review.review_generated_at or image.completed_at
+        created_at_value = format_stage5_created_at(created)
+        if format == "xlsx":
+            # Preview/Test only: use the unique review ID, not the shared image ID.
+            # Rehash rare collisions so rows have unique sample timestamps;
+            # deterministic order ensures identical re-exports.
+            stable_anchor = created or review.created_at or image.created_at
+            for nonce in range(100_000):
+                candidate = stage5_sample_review_date(review.id, stable_anchor, nonce=nonce)
+                if candidate and candidate not in used_sample_dates:
+                    created_at_value = candidate
+                    used_sample_dates.add(candidate)
+                    break
+            else:
+                raise HTTPException(status_code=422, detail="Unable to allocate distinct sample timestamps.")
         rows.append((
             product_handle,
             int(review.star_rating),
             clean_concept_copy(review.reviewer_name, author=True),
             stage5_sample_email(image.id, review.reviewer_name),  # Name-based, non-deliverable test email.
             clean_concept_copy(review.review_text),
-            format_stage5_created_at(created) if format in ("csv", "internal_csv")
-            else stage5_sample_review_date(image.id, created),
+            created_at_value,
             photo_url,
             "",  # No verified order information exists for synthetic concepts.
         ))

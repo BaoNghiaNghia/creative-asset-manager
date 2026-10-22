@@ -92,23 +92,38 @@ def format_stage5_created_at(value: datetime | str | None) -> str:
     return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
 
 
-def stage5_sample_review_date(stage2_job_id: str, generated_at: datetime | None = None) -> str:
-    """Stable fictitious date for internal synthetic-review fixture previews.
+def stage5_sample_review_date(
+    review_id: str, generated_at: datetime | None = None, *, nonce: int = 0,
+) -> str:
+    """Deterministic two-calendar-year date for clearly labeled test previews.
 
-    This is not the DB created_at or evidence of a customer review. It should
-    never replace real event timestamps or be used in a public review import.
+    Seed each *review*, not its source photo: multiple reviews can share the
+    same image. Pin the window to the review's stored generation timestamp so
+    re-exporting an unchanged sample data set produces identical timestamps.
+    A nonce lets the XLSX exporter resolve rare within-file collisions without
+    making the output non-deterministic. Never use these dates as real events.
     """
     try:
-        stable_id = str(UUID(str(stage2_job_id)))
+        stable_id = str(UUID(str(review_id)))
     except (TypeError, ValueError, AttributeError):
         return ""
+    if nonce < 0:
+        raise ValueError("Sample timestamp nonce must not be negative")
     end = generated_at or datetime.now(timezone.utc)
     if end.tzinfo is None:
         end = end.replace(tzinfo=timezone.utc)
-    end = end.astimezone(timezone.utc)
-    seconds = int.from_bytes(hashlib.sha256((stable_id + ':fixture-date').encode()).digest()[:8], 'big') % (730 * 24 * 3600)
-    date = end - timedelta(seconds=seconds)
-    return format_stage5_created_at(date)
+    end = end.astimezone(timezone.utc).replace(microsecond=0)
+    try:
+        start = end.replace(year=end.year - 2)
+    except ValueError:
+        # February 29 cannot exist in a non-leap start year.
+        start = end.replace(year=end.year - 2, month=2, day=28)
+    span_seconds = int((end - start).total_seconds())
+    digest = hashlib.sha256(
+        f"{stable_id}:fixture-date-v2:{nonce}".encode("ascii")
+    ).digest()
+    offset = int.from_bytes(digest[:16], "big") % (span_seconds + 1)
+    return format_stage5_created_at(start + timedelta(seconds=offset))
 
 
 def clean_concept_copy(value: str | None, *, author: bool = False) -> str:
@@ -220,7 +235,7 @@ def build_loox_xlsx(rows: list[tuple]) -> bytes:
         "AI-GENERATED CONCEPTS ONLY — not real customer reviews or verified purchases.",
         "Review author names and copy are synthetic drafts, not customer testimonials.",
         "The email field contains name-based sample addresses @example.invalid, never real customer inboxes.",
-        "XLSX created_at is a fictional sample date in the past 2 years, NOT the time of an actual customer review.",
+        "XLSX created_at is a fictional sample date from the 2 calendar years before stored AI generation, NOT an actual customer review date.",
         "CSV created_at remains the actual AI generation date, NOT a customer review date.",
         "verified_purchase remains blank until actual customer order proof exists.",
         "Only publish confirmed customer submissions with documented consent.",

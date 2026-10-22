@@ -2881,7 +2881,25 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     with ZipFile(BytesIO(pre_export.content)) as book:
         worksheet = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
         namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-        assert len(worksheet.findall(".//x:sheetData/x:row", namespace)) == 3
+        records_before_hide = worksheet.findall(".//x:sheetData/x:row", namespace)
+        assert len(records_before_hide) == 3
+        # Two review records with the same generation instant must get distinct,
+        # stable sample dates across the full calendar range in Preview only.
+        sample_dates = [
+            row.findtext("x:c[@r='F" + str(index) + "']/x:is/x:t", namespaces=namespace)
+            for index, row in enumerate(records_before_hide[1:], start=2)
+        ]
+        assert len(set(sample_dates)) == 2
+        assert all(len(value) == 19 and value[4] == "-" and value[10] == " " for value in sample_dates)
+    repeat_preview = api.get("/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=xlsx")
+    assert repeat_preview.status_code == 200
+    with ZipFile(BytesIO(repeat_preview.content)) as book:
+        repeat = ElementTree.fromstring(book.read("xl/worksheets/sheet1.xml"))
+        repeated_rows = repeat.findall(".//x:sheetData/x:row", namespace)
+        assert [
+            row.findtext("x:c[@r='F" + str(index) + "']/x:is/x:t", namespaces=namespace)
+            for index, row in enumerate(repeated_rows[1:], start=2)
+        ] == sample_dates
 
     hidden = api.delete(f"/api/v1/realistic-review-ugc/stage3/reviews/{hidden_id}")
     assert hidden.status_code == 200 and hidden.json()["hidden"] is True
