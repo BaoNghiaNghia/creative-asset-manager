@@ -1,17 +1,17 @@
-.rrugc-products-photo-pipeline{width:100%;min-width:800px;font-size:11px;color:#334b6a}
+.rrugc-products-photo-pipeline{width:100%;min-width:0;font-size:11px;color:#334b6a}
 .rrugc-products-photo-pipeline-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px}
 .rrugc-products-photo-pipeline-summary strong{font-size:11px;color:#354b6d}
 .rrugc-products-photo-pipeline-summary small{font-size:9px;color:#8694a5}
 .rrugc-products-photo-stage-list{display:grid;gap:6px}
-.rrugc-products-photo-stage-row{display:grid;grid-template-columns:112px minmax(190px,1fr) minmax(155px,195px) 93px;gap:9px;align-items:center;padding:9px 10px;border:1px solid #e1e8f2;border-radius:9px;background:#fff;min-width:0}
+.rrugc-products-photo-stage-row{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);grid-template-areas:"title outputs" "skill controls";column-gap:14px;row-gap:8px;align-items:center;padding:10px 12px;border:1px solid #e1e8f2;border-radius:9px;background:#fff;min-width:0}
 .rrugc-products-photo-stage-row.is-colorway{background:#f8fbff;border-color:#ccdaed}
-.rrugc-products-photo-stage-title{display:flex;align-items:center;min-width:0;gap:7px}
+.rrugc-products-photo-stage-title{grid-area:title;display:flex;align-items:center;min-width:0;gap:9px}
 .rrugc-products-photo-number{display:grid;place-items:center;flex-shrink:0;width:20px;height:20px;border-radius:6px;background:#eaf0fa;color:#416492;font-size:10px;font-weight:900}
 .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-number{background:#dbeafe;color:#1e55a0}
 .rrugc-products-photo-stage-title>div{min-width:0;display:grid;gap:2px}
-.rrugc-products-photo-stage-title strong{font-size:10px;font-weight:800;line-height:1.2;white-space:nowrap}
+.rrugc-products-photo-stage-title strong{font-size:12px;font-weight:800;line-height:1.35;white-space:normal;overflow-wrap:anywhere}
 .rrugc-products-photo-stage-title small{font-size:9px;color:#8091a6;font-variant-numeric:tabular-nums}
-.rrugc-products-photo-output-strip{display:flex;align-items:center;gap:5px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;min-width:0;padding:2px 0 4px}
+.rrugc-products-photo-output-strip{grid-area:outputs;display:flex;align-items:center;justify-content:safe flex-end;gap:5px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;min-width:0;max-width:100%;padding:2px 0 4px}
 .rrugc-products-photo-empty-shot{display:grid;place-items:center;align-content:center;gap:2px;width:39px;height:41px;flex-shrink:0;border:1px dashed #d5dfed;border-radius:6px;background:#f9fbfe;color:#a5b1c1}
 .rrugc-products-photo-empty-shot svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;fill:none}
 .rrugc-products-photo-empty-shot b{font-size:8px;font-variant-numeric:tabular-nums;font-weight:800}
@@ -19,13 +19,13 @@
 .rrugc-products-photo-output-strip .rrugc-colorway-slot{width:38px;height:41px;flex-shrink:0;position:relative;overflow:hidden;padding:0}
 .rrugc-products-photo-output-strip .rrugc-colorway-slot img{width:100%;height:100%;display:block;object-fit:cover}
 .rrugc-products-photo-output-strip .rrugc-colorway-slot:has(img) b{position:absolute;bottom:0;right:0;left:0;padding:2px 0;background:#1f2937b8;color:#fff;font-size:8px;text-align:center}
-.rrugc-products-photo-skill{display:flex;flex-direction:column;min-width:0;gap:4px;align-self:center}
+.rrugc-products-photo-skill{grid-area:skill;display:flex;flex-direction:row;align-items:center;min-width:0;gap:8px;align-self:center}
 .rrugc-products-photo-skill>span,.rrugc-products-photo-skill label span{font-size:8px;color:#7f8fa3;font-weight:850;text-transform:uppercase;letter-spacing:.035em}
-.rrugc-products-photo-skill strong{display:block;min-width:0;font-size:9px;color:#3a567a;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rrugc-products-photo-skill-select{display:block;min-width:0;width:100%;max-width:100%;height:29px;box-sizing:border-box;padding:4px 20px 4px 6px;border:1px solid #ccd8e8;border-radius:6px;background:#fff;color:#344d70;font-size:9px;font-weight:700;text-overflow:ellipsis}
+.rrugc-products-photo-skill strong{display:block;min-width:0;font-size:10px;color:#3a567a;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rrugc-products-photo-skill-select{display:block;flex:1;min-width:0;width:100%;max-width:100%;height:29px;box-sizing:border-box;padding:4px 20px 4px 6px;border:1px solid #ccd8e8;border-radius:6px;background:#fff;color:#344d70;font-size:9px;font-weight:700;text-overflow:ellipsis}
 .rrugc-products-photo-skill-select:focus-visible{outline:2px solid #315fe9;outline-offset:1px}
 .rrugc-products-photo-skill-select:disabled{opacity:.65}
-.rrugc-products-photo-stage-controls{display:grid;gap:5px;justify-items:end;min-width:0}
+.rrugc-products-photo-stage-controls{grid-area:controls;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
 .rrugc-products-photo-state{display:inline-flex;align-items:center;max-width:100%;padding:3px 6px;border-radius:5px;background:#eef2f7;font-size:9px;font-weight:750;color:#657b99;line-height:1.2;text-align:right}
 .rrugc-products-photo-state.is-unavailable{background:#fff6e9;color:#996c3a}
 .rrugc-products-photo-state.is-failed{background:#fff2f2;color:#b04747}
@@ -48,7 +48,8 @@
 .rrugc-colorway-table.is-products th:nth-child(3){width:auto}
 .rrugc-colorway-table.is-products th:nth-child(4){width:108px}
 .rrugc-colorway-table.is-products tbody td:nth-child(3){min-width:800px}
-@media(max-width:960px){.rrugc-colorway-table.is-products{min-width:1190px}.rrugc-products-photo-pipeline{min-width:790px}.rrugc-products-photo-stage-row{grid-template-columns:105px minmax(170px,1fr) 164px 86px;gap:6px;padding:8px}.rrugc-products-photo-stage-detail>div{min-width:100%}}
+@media(max-width:960px){.rrugc-colorway-table.is-products{min-width:1190px}.rrugc-products-photo-pipeline{min-width:0}.rrugc-products-photo-stage-row{grid-template-columns:minmax(175px,215px) minmax(0,1fr);column-gap:10px;padding:9px}.rrugc-products-photo-stage-detail>div{min-width:100%}}
+@media(max-width:700px){.rrugc-products-photo-stage-row{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "outputs" "skill" "controls"}.rrugc-products-photo-output-strip{justify-content:flex-start}.rrugc-products-photo-stage-controls{justify-content:flex-start}}
 @media(prefers-reduced-motion:reduce){.rrugc-products-photo-pipeline *{scroll-behavior:auto}}
 
 .rrugc-products-photo-group-label{font-size:10px;font-weight:800;color:#536481;padding:6px 9px 2px;letter-spacing:.015em}
