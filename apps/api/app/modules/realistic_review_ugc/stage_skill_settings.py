@@ -17,20 +17,31 @@ from app.providers.ai.codex_image import CodexImageProviderError, load_codex_ski
 # Stage names fit the existing String(16) database column; no data migration.
 # Keep legacy stage1/stage2/stage4 for old clients, but never write a shared
 # stage key from the new workflow-specific Manage Skills dialogs.
-LEGACY_STAGES = ("stage1", "stage2", "stage4")
-PRODUCT_STAGE2_SLOTS = tuple(f"prod_s2_{index}" for index in range(1, 8))
+# Keep previous 7-slot assignments readable without reinterpreting old
+# Ecommerce/Multi-hat/UGC/Colorway keys as single-photo outputs.
+LEGACY_PRODUCT_STAGE2_SLOTS = tuple(f"prod_s2_{i}" for i in range(1, 8))
+LEGACY_STAGES = ("stage1", "stage2", "stage4", *LEGACY_PRODUCT_STAGE2_SLOTS)
+ECOMMERCE_SHOT_SLOTS = tuple(f"prod_s2_ec{i}" for i in range(1, 5))
+PRODUCT_STAGE2_SLOTS = (*ECOMMERCE_SHOT_SLOTS, "prod_s2_mh", "prod_s2_ugc", "prod_s2_col")
 PRODUCT_STAGE2_PHOTO_SKILLS = {
+    # Backwards-compatible read/write rules for previously deployed clients.
     "prod_s2_1": "gatorhats-8869-ecommerce-v2-4",
     "prod_s2_2": "gatorhats-8869-multihat-v2-4",
     "prod_s2_3": "gatorhats-8869-ugc-v3",
+    # Current group-specific slots.
+    "prod_s2_mh": "gatorhats-8869-multihat-v2-4",
+    "prod_s2_ugc": "gatorhats-8869-ugc-v3",
 }
 WORKFLOW_STAGES = ("prod_s1", *PRODUCT_STAGE2_SLOTS, "rev_s2", "rev_s4")
 STAGES = (*LEGACY_STAGES, *WORKFLOW_STAGES)
-# Read-only migration of existing defaults. An explicit null/new default
-# overrides the fallback; changing Products never mutates Reviews or vice versa.
+# Inherited legacy groups are read-only fallbacks. Crucially, old
+# prod_s2_1 was a FOUR-output bundle, not a single Ecommerce image.
 LEGACY_FALLBACKS = {
     "prod_s1": "stage1",
     "prod_s2_4": "stage2",
+    "prod_s2_mh": "prod_s2_2",
+    "prod_s2_ugc": "prod_s2_3",
+    "prod_s2_col": "prod_s2_4",
     "rev_s2": "stage2",
     "rev_s4": "stage4",
 }
@@ -83,7 +94,7 @@ def stage_skill_defaults(session: Session, *, tenant_id: str) -> dict[str, str]:
     }
     # An explicit null/disabled workflow selection is different from a missing
     # row: return an empty string so browsers never fall back to legacy stages.
-    for stage in explicit.intersection(WORKFLOW_STAGES):
+    for stage in explicit.intersection((*WORKFLOW_STAGES, *LEGACY_PRODUCT_STAGE2_SLOTS)):
         selections.setdefault(stage, "")
     for stage, legacy in LEGACY_FALLBACKS.items():
         if stage not in explicit and legacy in selections:
@@ -118,15 +129,31 @@ def set_stage_skill_default(
                     status_code=422,
                 )
         elif stage in PRODUCT_STAGE2_PHOTO_SKILLS:
-            # These rows have exact bundled references and a disabled worker.
-            # Never advertise an unrelated image_studio ZIP as a ready photo worker.
+            # Multi-hat and UGC still require their exact approved bundles.
             if selected.skill_name != PRODUCT_STAGE2_PHOTO_SKILLS[stage]:
                 raise Stage2SkillRegistryError(
                     "stage_skill_workflow_incompatible",
                     "This photo output row requires its exact approved GatorHats Skill package.",
                     status_code=422,
                 )
-        elif stage not in PRODUCT_STAGE2_SLOTS[4:]:
+        elif stage in ECOMMERCE_SHOT_SLOTS:
+            # A bulk four-photo bundle cannot silently run as one photo Skill.
+            if selected.skill_name == "gatorhats-8869-ecommerce-v2-4":
+                raise Stage2SkillRegistryError(
+                    "stage_skill_requires_single_image",
+                    "Choose a dedicated Skill for this Ecommerce image, not the four-output bundle.",
+                    status_code=422,
+                )
+            manifest = load_codex_skill_manifest(
+                get_settings().CODEX_IMAGE_HOME, selected.skill_name
+            )
+            if manifest is None or "image_studio" not in manifest.workflows:
+                raise Stage2SkillRegistryError(
+                    "stage_skill_workflow_incompatible",
+                    "An Ecommerce photo Skill must support image_studio.",
+                    status_code=422,
+                )
+        elif stage not in LEGACY_PRODUCT_STAGE2_SLOTS[4:]:
             manifest = load_codex_skill_manifest(
                 get_settings().CODEX_IMAGE_HOME, selected.skill_name
             )

@@ -157,7 +157,7 @@ export function EmbroideryColorwayStage({
       .then(result => {
         setCatalog(result);
         const defaultKey = workflow === "products"
-          ? skillDefaultForStage(result.stage_defaults, "prod_s2_4")
+          ? skillDefaultForStage(result.stage_defaults, "prod_s2_col")
           : skillDefaultForStage(result.stage_defaults, "rev_s2");
         const firstReady = result.items.find(item => item.ready && skillKey(item) === defaultKey)
           || result.items.find(item => item.skill_name === PREFERRED_COLORWAY_SKILL && item.ready)
@@ -350,7 +350,7 @@ export function EmbroideryColorwayStage({
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
       title={workflow === "products" ? "Embroidery design → 7-skill Product Stage 2" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Seven independent Skill assignments: Ecommerce (4), Multi-hat (3), UGC (3), 13 Hat Colors (13), plus three reserved slots with no output workers. The existing 23 outputs remain unchanged. Photo workers remain disabled pending end-to-end QA.</>
+        ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers remain disabled pending end-to-end QA.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>

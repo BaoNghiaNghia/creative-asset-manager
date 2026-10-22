@@ -1,23 +1,28 @@
 import { useId, useState } from "react";
 import type { ColorwayJob, ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
-import { PRODUCT_STAGE2_SKILL_SLOTS } from "./workflowSkillSlots";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
 type StepDefinition = {
-  key: "ecommerce" | "multihat" | "ugc";
+  key: ProductStage2SkillKey;
+  readinessKey: "ecommerce" | "multihat" | "ugc";
   title: string;
   skillName: string;
-  shots: string[];
+  shots: ReadonlyArray<{ label: string; number: number }>;
 };
 
+/** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 const PHOTO_STEPS: StepDefinition[] = [
-  { key: "ecommerce", title: "Ecommerce", skillName: "gatorhats-8869-ecommerce-v2-4",
-    shots: ["Front High", "Front Right 3/4", "Right Side", "Back High"] },
-  { key: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4",
-    shots: ["Multi-hat 1", "Multi-hat 2", "Multi-hat 3"] },
-  { key: "ugc", title: "UGC", skillName: "gatorhats-8869-ugc-v3",
-    shots: ["UGC 1", "UGC 2", "UGC 3"] },
+  { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }] },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }] },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }] },
+  { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }] },
+  { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
+    { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
+  ] },
+  { key: "prod_s2_ugc", readinessKey: "ugc", title: "UGC", skillName: "gatorhats-8869-ugc-v3", shots: [
+    { label: "UGC 1", number: 8 }, { label: "UGC 2", number: 9 }, { label: "UGC 3", number: 10 },
+  ] },
 ];
 
 export const PHOTO_COLOR_KEYS = [
@@ -82,49 +87,57 @@ export function ProductsPhotoWorkflow({
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     <div className="rrugc-products-photo-pipeline-summary">
       <strong>7 skill slots <span aria-hidden="true">·</span> 23 outputs</strong>
-      <small>Four output groups · three additional configurable skills reserved</small>
+      <small>Skills 1–4: Ecommerce Images 01–04 · Skill 5: Multi-hat · Skill 6: UGC · Skill 7: 13 Colors</small>
     </div>
     <div className="rrugc-products-photo-stage-list">
+      <div className="rrugc-products-photo-group-label">Ecommerce · 4 individual image Skills</div>
       {PHOTO_STEPS.map((step, index) => {
-        const state = readiness?.steps.find(item => item.key === step.key);
+        const state = readiness?.steps.find(item => item.key === step.readinessKey);
         const opened = expandedStep === step.key;
-        const skillName = configuredSkillNames[PRODUCT_STAGE2_SKILL_SLOTS[index].key] || state?.skill_name || step.skillName;
-        const status = state?.ready ? "Ready" : state?.bundle_installed ? "Worker pending" : state ? "Needs skill" : "Checking skill";
+        const configured = configuredSkillNames[step.key];
+        const skillName = configured || step.skillName;
+        const isEcommerce = index < 4;
+        // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
+        const status = !configured ? "Needs skill" : isEcommerce ? "Worker pending" :
+          state?.ready ? "Ready" : "Worker pending";
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
-            <div><strong>{step.title}</strong><small>{step.shots.length} shots</small></div>
+            <div><strong>{step.title}</strong><small>{step.shots.length} {step.shots.length === 1 ? "shot" : "shots"}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
-            {step.shots.map((label, shotIndex) => <span key={label} className="rrugc-products-photo-empty-shot"
-              title={label + " · Not generated"} aria-label={label + " · Not generated"}>
-              <HatSlotIcon />
-              <b>{String(PHOTO_STEPS.slice(0, index).reduce((n, item) => n + item.shots.length, 0) + shotIndex + 1).padStart(2, "0")}</b>
+            {step.shots.map(shot => <span key={shot.number} className="rrugc-products-photo-empty-shot"
+              title={shot.label + " · Not generated"} aria-label={shot.label + " · Not generated"}>
+              <HatSlotIcon /><b>{String(shot.number).padStart(2, "0")}</b>
             </span>)}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
             <span>Skill {index + 1}</span><strong>{skillName}</strong>
           </div>
           <div className="rrugc-products-photo-stage-controls">
-            <span className={"rrugc-products-photo-state " + (state?.ready ? "is-done" : "is-unavailable")}
-              title={state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
+            <span className={"rrugc-products-photo-state " + (status === "Ready" ? "is-done" : "is-unavailable")}
+              title={isEcommerce
+                ? "One Skill per Ecommerce image. No per-image execution worker has been enabled."
+                : state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
             <button type="button" className="rrugc-products-photo-detail-toggle"
               aria-expanded={opened} aria-label={step.title + " details"}
               onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
           {opened && <div className="rrugc-products-photo-stage-detail">
             <div><strong>{skillName}</strong>
-              <p>{state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
+              <p>{isEcommerce
+                ? "This Skill is assigned to " + step.title + " only. Output persists independently once a verified per-image worker is enabled."
+                : state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
               {!!state?.missing_assets?.length && <small>Missing assets: {state.missing_assets.join(", ")}</small>}
             </div>
             <button type="button" onClick={openSkillsManager}>Manage skill</button>
-            <button type="button" disabled title="The photo worker, output persistence and job APIs have not yet been enabled.">Run / Retry / Logs</button>
+            <button type="button" disabled title="Photo execution requires separate worker, persistence and end-to-end approval.">Run / Retry / Logs</button>
           </div>}
         </div>;
       })}
       <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway">
         <div className="rrugc-products-photo-stage-title">
-          <span className="rrugc-products-photo-number">4</span>
+          <span className="rrugc-products-photo-number">7</span>
           <div><strong>13 Hat Colors</strong><small>{complete}/13 images</small></div>
         </div>
         <div className="rrugc-products-photo-output-strip is-colors" role="group" aria-label="13 hat color output slots">
@@ -152,7 +165,7 @@ export function ProductsPhotoWorkflow({
           })}
         </div>
         <div className="rrugc-products-photo-skill">
-          <label htmlFor={colorSkillSelectId}><span>Skill 4</span></label>
+          <label htmlFor={colorSkillSelectId}><span>Skill 7</span></label>
           <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
             aria-label={"13 Hat Colors skill for " + sourceName}
             title={colorwaySkillName || "Choose 13 Hat Colors skill"}
@@ -184,36 +197,7 @@ export function ProductsPhotoWorkflow({
             {colors.map(job => <option key={job.id} value={job.id}>{job.color_name} · {job.status}</option>)}
           </select>}
         </div>}
-      {PRODUCT_STAGE2_SKILL_SLOTS.slice(4).map((slot, index) => {
-        const name = configuredSkillNames[slot.key] || "Not assigned";
-        const opened = expandedStep === slot.key;
-        return <div key={slot.key} className="rrugc-products-photo-stage-row is-reserved"
-          data-skill={slot.key}>
-          <div className="rrugc-products-photo-stage-title">
-            <span className="rrugc-products-photo-number">{index + 5}</span>
-            <div><strong>{slot.label}</strong><small>No mapped outputs</small></div>
-          </div>
-          <div className="rrugc-products-photo-output-strip is-reserved" role="group"
-            aria-label={slot.label + " reserved output mapping"}>
-            <small>Reserved for a future output group</small>
-          </div>
-          <div className="rrugc-products-photo-skill" title={name}>
-            <span>{slot.title}</span><strong>{name}</strong>
-          </div>
-          <div className="rrugc-products-photo-stage-controls">
-            <span className="rrugc-products-photo-state is-unavailable">Not connected</span>
-            <button type="button" className="rrugc-products-photo-detail-toggle"
-              aria-expanded={opened} aria-label={slot.label + " details"}
-              onClick={() => setExpandedStep(opened ? null : slot.key)}>
-              {opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span>
-            </button>
-          </div>
-          {opened && <div className="rrugc-products-photo-stage-detail">
-            <div><strong>{name}</strong><p>Independent Skill assignment only. No worker or output generation is connected to this reserved slot.</p></div>
-            <button type="button" onClick={openSkillsManager}>Manage skill</button>
-          </div>}
-        </div>;
-      })}
+
       </div>
     </div>
   </div>;

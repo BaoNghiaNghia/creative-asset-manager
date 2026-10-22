@@ -1,15 +1,15 @@
 import type { RrugcWorkflowGroup } from "./workflowRouting";
 
-/** Independent Stage 2 assignments; the three additional slots do not
- * create new photo outputs or activate workers until their workflow is wired. */
+/** One Skill per Ecommerce image, plus one per Multi-hat, UGC, and colorway group.
+ * Photo workers remain gated; these rows configure Skill assignments only. */
 export const PRODUCT_STAGE2_SKILL_SLOTS = [
-  { key: "prod_s2_1", title: "Skill 1", label: "Ecommerce", detail: "4 photo outputs", expectedSkill: "gatorhats-8869-ecommerce-v2-4", active: true },
-  { key: "prod_s2_2", title: "Skill 2", label: "Multi-hat", detail: "3 photo outputs", expectedSkill: "gatorhats-8869-multihat-v2-4", active: true },
-  { key: "prod_s2_3", title: "Skill 3", label: "UGC", detail: "3 photo outputs", expectedSkill: "gatorhats-8869-ugc-v3", active: true },
-  { key: "prod_s2_4", title: "Skill 4", label: "13 Hat Colors", detail: "13 colorway outputs", expectedSkill: null, active: true },
-  { key: "prod_s2_5", title: "Skill 5", label: "Additional Skill A", detail: "Reserved · no worker connected", expectedSkill: null, active: false },
-  { key: "prod_s2_6", title: "Skill 6", label: "Additional Skill B", detail: "Reserved · no worker connected", expectedSkill: null, active: false },
-  { key: "prod_s2_7", title: "Skill 7", label: "Additional Skill C", detail: "Reserved · no worker connected", expectedSkill: null, active: false },
+  { key: "prod_s2_ec1", title: "Skill 1", label: "Ecommerce · Image 01", detail: "Front High · 1 photo output", expectedSkill: null, active: true },
+  { key: "prod_s2_ec2", title: "Skill 2", label: "Ecommerce · Image 02", detail: "Front Right 3/4 · 1 photo output", expectedSkill: null, active: true },
+  { key: "prod_s2_ec3", title: "Skill 3", label: "Ecommerce · Image 03", detail: "Right Side · 1 photo output", expectedSkill: null, active: true },
+  { key: "prod_s2_ec4", title: "Skill 4", label: "Ecommerce · Image 04", detail: "Back High · 1 photo output", expectedSkill: null, active: true },
+  { key: "prod_s2_mh", title: "Skill 5", label: "Multi-hat", detail: "Images 05–07 · 3 photo outputs", expectedSkill: "gatorhats-8869-multihat-v2-4", active: true },
+  { key: "prod_s2_ugc", title: "Skill 6", label: "UGC", detail: "Images 08–10 · 3 photo outputs", expectedSkill: "gatorhats-8869-ugc-v3", active: true },
+  { key: "prod_s2_col", title: "Skill 7", label: "13 Hat Colors", detail: "13 colorway outputs · existing worker", expectedSkill: null, active: true },
 ] as const;
 
 export type ProductStage2SkillKey = typeof PRODUCT_STAGE2_SKILL_SLOTS[number]["key"];
@@ -33,11 +33,15 @@ export const WORKFLOW_SKILL_SLOTS: Record<RrugcWorkflowGroup, ReadonlyArray<{
   ],
 };
 
-/** Fallback for older read-only clients; new writes only use workflow keys. */
+/** Preserve old product group assignments read-only; do not mistake a bulk
+ * Ecommerce Skill for one of the four independent single-image jobs. */
 export function skillDefaultForStage(defaults: Record<string, string> | undefined, stage: WorkflowSkillStage): string {
   if (defaults && Object.hasOwn(defaults, stage)) return defaults[stage] || "";
   const legacy: Partial<Record<WorkflowSkillStage, string>> = {
-    prod_s1: "stage1", prod_s2_4: "stage2", rev_s2: "stage2", rev_s4: "stage4",
+    prod_s1: "stage1", prod_s2_mh: "prod_s2_2", prod_s2_ugc: "prod_s2_3",
+    prod_s2_col: "prod_s2_4", rev_s2: "stage2", rev_s4: "stage4",
   };
+  if (stage === "prod_s2_col" && defaults && !Object.hasOwn(defaults, "prod_s2_4"))
+    return defaults.stage2 || "";
   return defaults?.[legacy[stage] || ""] || "";
 }

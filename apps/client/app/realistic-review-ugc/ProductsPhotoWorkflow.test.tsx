@@ -7,7 +7,10 @@ import type { ColorwayJob } from "./api";
 describe("Products Stage 2 photo workflow", () => {
   it("shows seven configurable skill rows with 10 photo placeholders and 13 colors", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
-    expect(html).toContain("Ecommerce");
+    expect(html).toContain("Ecommerce · Image 01");
+    expect(html).toContain("Ecommerce · Image 02");
+    expect(html).toContain("Ecommerce · Image 03");
+    expect(html).toContain("Ecommerce · Image 04");
     expect(html).toContain("Multi-hat");
     expect(html).toContain("UGC");
     expect(html).toContain("13 Hat Colors");
@@ -15,6 +18,11 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("7 skill slots");
     expect(html).toContain("23 outputs");
     expect((html.match(/rrugc-products-photo-stage-row/g) || []).length).toBe(7);
+    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
+    for (const slot of ["prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_mh", "prod_s2_ugc", "colorway"]) {
+      expect(html).toContain('data-skill="' + slot + '"');
+    }
+    expect(html).toContain("Skill 7");
     expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
     expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
     expect(html).not.toContain("Completed · 10/10");
@@ -44,11 +52,21 @@ describe("Products Stage 2 photo workflow", () => {
         { value: "scale", label: "8869 scale", ready: true },
         { value: "alternate", label: "Other colorway", ready: false },
       ]}
-      onColorwaySkillChange={() => undefined} />);
-    for (const skill of ["ecommerce-v2", "multihat-v2", "ugc-v3"]) {
+      onColorwaySkillChange={() => undefined}
+      configuredSkillNames={{
+        prod_s2_ec1: "ecommerce-image-01",
+        prod_s2_ec2: "ecommerce-image-02",
+        prod_s2_ec3: "ecommerce-image-03",
+        prod_s2_mh: "multihat-v2",
+        prod_s2_ugc: "ugc-v3",
+      }} />);
+    for (const skill of [
+      "ecommerce-image-01", "ecommerce-image-02", "ecommerce-image-03",
+      "multihat-v2", "ugc-v3",
+    ]) {
       expect(html).toContain(skill);
     }
-    expect((html.match(/Worker pending/g) || []).length).toBe(2);
+    expect((html.match(/Worker pending/g) || []).length).toBe(5);
     expect(html).toContain("Needs skill");
     expect(html).toContain('aria-label="13 Hat Colors skill for design.png"');
     expect(html).toContain('<option value="scale" selected="">8869 scale</option>');

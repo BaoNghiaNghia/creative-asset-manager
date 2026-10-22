@@ -51,6 +51,7 @@
 @media(max-width:960px){.rrugc-colorway-table.is-products{min-width:1190px}.rrugc-products-photo-pipeline{min-width:790px}.rrugc-products-photo-stage-row{grid-template-columns:105px minmax(170px,1fr) 164px 86px;gap:6px;padding:8px}.rrugc-products-photo-stage-detail>div{min-width:100%}}
 @media(prefers-reduced-motion:reduce){.rrugc-products-photo-pipeline *{scroll-behavior:auto}}
 
+.rrugc-products-photo-group-label{font-size:10px;font-weight:800;color:#536481;padding:6px 9px 2px;letter-spacing:.015em}
 .rrugc-products-photo-stage-row.is-reserved{background:#fafbfd;border-style:dashed}
 .rrugc-products-photo-stage-row.is-reserved .rrugc-products-photo-number{background:#f0f2f7;color:#738197}
 .rrugc-products-photo-output-strip.is-reserved{overflow:hidden}

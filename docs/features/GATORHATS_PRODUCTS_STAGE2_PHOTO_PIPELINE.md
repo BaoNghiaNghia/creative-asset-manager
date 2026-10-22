@@ -100,24 +100,29 @@ GatorHats Products and GatorHats Reviews now have separate Manage Skills
 screens and independent tenant-scoped default selections. The underlying
 ZIP/version registry remains shared and permissions remain unchanged.
 
-Products Stage 2 exposes **exactly seven independent Skill assignment slots**:
-1. Ecommerce — 4 existing photos; exact approved Ecommerce bundle
-2. Multi-hat — 3 existing photos; exact approved Multi-hat bundle
-3. UGC — 3 existing photos; exact approved UGC bundle
-4. 13 Hat Colors — 13 existing colorway outputs; existing execution lane
-5. Additional Skill A — configuration only, no worker/output mapping
-6. Additional Skill B — configuration only, no worker/output mapping
-7. Additional Skill C — configuration only, no worker/output mapping
+Products Stage 2 exposes **exactly seven independent Skill assignment slots**, mapped
+1-to-1 to the existing 23 output positions:
+1. Ecommerce · Image 01 — Front High; **one independent image Skill**
+2. Ecommerce · Image 02 — Front Right 3/4; **one independent image Skill**
+3. Ecommerce · Image 03 — Right Side; **one independent image Skill**
+4. Ecommerce · Image 04 — Back High; **one independent image Skill**
+5. Multi-hat — existing photos 05, 06 and 07 (3 outputs)
+6. UGC — existing photos 08, 09 and 10 (3 outputs)
+7. 13 Hat Colors — 13 existing colorway outputs; existing colorway execution lane
 
-Seven assignments do NOT imply seven runnable workers or extra generated photos.
-The total remains 23 outputs per design. The original three photo pipeline
-workers remain disabled until the documented execution gate passes; slots 5–7
-must never be presented as runnable without an approved execution mapping.
-Each Stage 2 Product slot rejects duplicate assignment of the same Skill.
-Review defaults are independent: Review Stage 2 (colorways), Review Stage 4
-(UGC images). Product Stage 1 (Six Designs) also has its own default.
+The old four-shot Ecommerce ZIP `gatorhats-8869-ecommerce-v2-4` **must not**
+be treated as a single-image Skill. New Ecommerce selections require distinct,
+valid, installed `image_studio` Skills; the per-image photo workers remain
+disabled until they pass end-to-end execution/visual QA. A configured assignment
+is *not* proof of runtime readiness, and the 23 photo positions are not changed.
 
-The existing legacy defaults are read-only fallbacks for old installations.
-New changes write only short workflow keys that fit the existing 16-character
-database column; no DB schema migration and no rewrites of historical job
-Skill versions or generated outputs are needed.
+Legacy Stage 2 defaults (`prod_s2_1`–`prod_s2_7`) remain stored and readable
+without database rewrite. Old Multi-hat, UGC and colorway selections fall back
+to new slots 5–7 if those slots have no explicit values. The old bulk Ecommerce
+selection never populates slots 1–4. Explicit empty selections always override
+fallback. No migration is needed and historical image outputs are untouched.
+
+All seven new slot keys are tenant-scoped, cannot reuse the same Skill,
+and fit the existing 16-character column. Review defaults remain separate:
+Review Stage 2 (colorways), Review Stage 4 (UGC images); Product Stage 1
+(Six Designs) keeps its own default.

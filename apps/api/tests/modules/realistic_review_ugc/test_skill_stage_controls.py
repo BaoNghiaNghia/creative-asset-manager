@@ -95,7 +95,8 @@ def test_stage_defaults_independent_and_tenant_scoped(monkeypatch):
             defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
             assert defaults == {
                 "stage2": "local:colors", "stage4": "local:studio",
-                "prod_s2_4": "local:colors", "rev_s2": "local:colors",
+                "prod_s2_4": "local:colors", "prod_s2_col": "local:colors",
+                "rev_s2": "local:colors",
                 "rev_s4": "local:studio",
             }
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-b") == {}
@@ -199,12 +200,12 @@ def test_stage1_keeps_every_generated_image_and_original_filename():
 def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypatch):
     engine = _engine()
     try:
-        photo_names = (
-            "gatorhats-8869-ecommerce-v2-4",
-            "gatorhats-8869-multihat-v2-4",
-            "gatorhats-8869-ugc-v3",
-        )
-        names = (*photo_names, "scale-image-8869-13-mau", "extra-five", "extra-six", "extra-seven", "reviews-colors")
+        ecommerce_names = tuple(f"ecommerce-shot-{i:02d}" for i in range(1, 5))
+        multi_name = "gatorhats-8869-multihat-v2-4"
+        ugc_name = "gatorhats-8869-ugc-v3"
+        color_name = "scale-image-8869-13-mau"
+        names = (*ecommerce_names, multi_name, ugc_name, color_name,
+                 "reviews-colors", "gatorhats-8869-ecommerce-v2-4")
         monkeypatch.setattr(
             stage_skill_settings, "list_stage2_skill_catalog",
             lambda refresh=False: SimpleNamespace(items=[
@@ -219,33 +220,83 @@ def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypa
             skills = {name: _skill("tenant-a", name) for name in names}
             session.add_all(skills.values())
             session.commit()
-            for index, name in enumerate(names[:7], start=1):
+            expected = (*ecommerce_names, multi_name, ugc_name, color_name)
+            assert len(stage_skill_settings.PRODUCT_STAGE2_SLOTS) == 7
+            for slot, name in zip(stage_skill_settings.PRODUCT_STAGE2_SLOTS, expected):
                 stage_skill_settings.set_stage_skill_default(
                     session, tenant_id="tenant-a", actor_id="admin",
-                    stage=f"prod_s2_{index}", registry_id=skills[name].id,
+                    stage=slot, registry_id=skills[name].id,
                 )
             stage_skill_settings.set_stage_skill_default(
                 session, tenant_id="tenant-a", actor_id="admin",
                 stage="rev_s2", registry_id=skills["reviews-colors"].id,
             )
             defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
-            assert [defaults[f"prod_s2_{i}"] for i in range(1, 8)] == [
-                f"local:{name}" for name in names[:7]
+            assert [defaults[slot] for slot in stage_skill_settings.PRODUCT_STAGE2_SLOTS] == [
+                f"local:{name}" for name in expected
             ]
             assert defaults["rev_s2"] == "local:reviews-colors"
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-b") == {}
             with pytest.raises(stage2_skills.Stage2SkillRegistryError) as duplicate:
                 stage_skill_settings.set_stage_skill_default(
                     session, tenant_id="tenant-a", actor_id="admin",
-                    stage="prod_s2_7", registry_id=skills["extra-five"].id,
+                    stage="prod_s2_ec4", registry_id=skills[ecommerce_names[0]].id,
                 )
             assert duplicate.value.code == "stage_skill_duplicate_assignment"
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as bulk:
+                stage_skill_settings.set_stage_skill_default(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    stage="prod_s2_ec1",
+                    registry_id=skills["gatorhats-8869-ecommerce-v2-4"].id,
+                )
+            assert bulk.value.code == "stage_skill_requires_single_image"
+            with pytest.raises(stage2_skills.Stage2SkillRegistryError) as mismatch:
+                stage_skill_settings.set_stage_skill_default(
+                    session, tenant_id="tenant-a", actor_id="admin",
+                    stage="prod_s2_mh", registry_id=skills["reviews-colors"].id,
+                )
+            assert mismatch.value.code == "stage_skill_workflow_incompatible"
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == defaults
             stage_skill_settings.set_stage_skill_default(
                 session, tenant_id="tenant-a", actor_id="admin", stage="rev_s2", registry_id=None,
             )
             assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["rev_s2"] == ""
-            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["prod_s2_4"] == "local:scale-image-8869-13-mau"
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["prod_s2_col"] == "local:scale-image-8869-13-mau"
+    finally:
+        engine.dispose()
+
+
+def test_old_product_group_assignments_fallback_without_relabeling_ecommerce_shots(monkeypatch):
+    engine = _engine()
+    try:
+        names = ("gatorhats-8869-ecommerce-v2-4", "gatorhats-8869-multihat-v2-4",
+                 "gatorhats-8869-ugc-v3", "scale-image-8869-13-mau")
+        monkeypatch.setattr(
+            stage_skill_settings, "list_stage2_skill_catalog",
+            lambda refresh=False: SimpleNamespace(items=[
+                SimpleNamespace(source="local", skill_name=name, ready=True) for name in names
+            ]),
+        )
+        with Session(engine) as session:
+            skills = {name: _skill("tenant-a", name) for name in names}
+            session.add_all(skills.values())
+            session.commit()
+            for old_slot, name in zip(("prod_s2_1", "prod_s2_2", "prod_s2_3", "prod_s2_4"), names):
+                session.add(RrugcStageSkillDefaultModel(
+                    tenant_id="tenant-a", stage=old_slot, registry_id=skills[name].id,
+                ))
+            session.commit()
+            defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
+            assert all(f"prod_s2_ec{i}" not in defaults for i in range(1, 5))
+            assert defaults["prod_s2_mh"] == "local:gatorhats-8869-multihat-v2-4"
+            assert defaults["prod_s2_ugc"] == "local:gatorhats-8869-ugc-v3"
+            assert defaults["prod_s2_col"] == "local:scale-image-8869-13-mau"
+            # New explicit NULL overrides any legacy colorway assignment.
+            session.add(RrugcStageSkillDefaultModel(
+                tenant_id="tenant-a", stage="prod_s2_col", registry_id=None,
+            ))
+            session.commit()
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")["prod_s2_col"] == ""
     finally:
         engine.dispose()
 
@@ -267,6 +318,7 @@ def test_explicit_empty_workflow_assignment_suppresses_legacy_fallback():
             defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
             assert defaults["stage2"] == "local:old-colorway"
             assert defaults["prod_s2_4"] == ""
+            assert defaults["prod_s2_col"] == ""
             assert defaults["rev_s2"] == "local:old-colorway"
     finally:
         engine.dispose()

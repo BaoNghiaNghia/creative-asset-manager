@@ -98,7 +98,7 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
     expect(host.textContent).not.toContain("Stage 1 Skill is archived");
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
-    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 4"]')?.querySelectorAll("option")).toHaveLength(2);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-upload")).toBeNull();
 
     const keywordCard = [...host.querySelectorAll(".rrugc-skill-card")].find(card => card.textContent?.includes("GatorHats"));
@@ -283,10 +283,18 @@ describe("GatorHats workflow-specific Skill Manager", () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.textContent).toContain("Manage Skills · GatorHats Products");
     expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
-    expect(host.textContent).toContain("Configuration only · No job/worker activated");
+    expect(host.textContent).toContain("Assignment only · Photo worker not enabled");
+    for (const image of ["Image 01", "Image 02", "Image 03", "Image 04"]) {
+      expect(host.textContent).toContain("Ecommerce · " + image);
+    }
+    expect(host.textContent).toContain("Skill 5");
+    expect(host.textContent).toContain("Multi-hat");
+    expect(host.textContent).toContain("Skill 6");
+    expect(host.textContent).toContain("UGC");
+    expect(host.textContent).toContain("Skill 7");
     expect(host.querySelector('select[aria-label="GatorHats Reviews Stage 2 default skill"]')).toBeNull();
     const colorway = host.querySelector<HTMLSelectElement>(
-      'select[aria-label="GatorHats Products Stage 2 Skill 4"]',
+      'select[aria-label="GatorHats Products Stage 2 Skill 7"]',
     );
     expect(colorway?.value).toBe("scale"); // existing legacy default migrates to Products only as read
     await act(async () => root.unmount());

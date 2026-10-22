@@ -320,9 +320,15 @@ export function SkillManagerModal({
             {PRODUCT_STAGE2_SKILL_SLOTS.map(slot => {
               const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);
               const matching = registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === chosen);
+              const singleImage = slot.key.startsWith("prod_s2_ec");
               const candidates = registry.items.filter(item =>
                 item.enabled && item.validation_status === "valid" &&
-                (!slot.expectedSkill || item.skill_name === slot.expectedSkill)
+                (!slot.expectedSkill || item.skill_name === slot.expectedSkill) &&
+                (!singleImage || (
+                  item.workflow === "image_studio" &&
+                  !["gatorhats-8869-ecommerce-v2-4", "gatorhats-8869-multihat-v2-4",
+                    "gatorhats-8869-ugc-v3", "scale-image-8869-13-mau"].includes(item.skill_name)
+                ))
               );
               const alreadyAssigned = (item: Stage2SkillRegistryItem) =>
                 PRODUCT_STAGE2_SKILL_SLOTS.some(other => other.key !== slot.key &&
@@ -340,14 +346,15 @@ export function SkillManagerModal({
                     () => updateStageSkillDefault(slot.key, event.target.value || null),
                     "Product Stage 2 " + slot.title + " saved.")}
                 >
-                  <option value="">{slot.expectedSkill && !matching ? "Needs skill · Upload exact ZIP" : "Not assigned"}</option>
+                  <option value="">{slot.expectedSkill && !matching ? "Needs skill · Upload exact ZIP" :
+                    slot.key.startsWith("prod_s2_ec") ? "Needs skill · One-image ZIP" : "Not assigned"}</option>
                   {candidates.map(item => <option key={item.id} value={item.id}
                     disabled={alreadyAssigned(item) && item.id !== matching?.id}>
                     {item.display_name}{alreadyAssigned(item) && item.id !== matching?.id ? " · already assigned" : ""}
                   </option>)}
                 </select>
                 <small className="rrugc-skill-slot-note">{slot.detail}{slot.expectedSkill ? " · " + slot.expectedSkill : ""}</small>
-                {!slot.active && <small className="rrugc-skill-slot-warning">Configuration only · No job/worker activated</small>}
+                {slot.key !== "prod_s2_col" && <small className="rrugc-skill-slot-warning">Assignment only · Photo worker not enabled</small>}
               </label>;
             })}
           </div>
