@@ -1155,6 +1155,11 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 /* Stage 2 Skill Registry */
 .rrugc-stage2-manage{min-height:30px;padding:5px 10px;border:1px solid #9eb4d7;border-radius:7px;background:#eef4ff;color:#315d9b;font:inherit;font-size:10px;font-weight:850;cursor:pointer}
 .rrugc-stage2-manage:hover{border-color:#7898c9;background:#e6efff}
+.rrugc-skill-workflow-tabs{display:flex;align-items:center;gap:8px;padding:10px 22px;border-bottom:1px solid #dbe3ee;background:#f6f8fc;flex-wrap:wrap}
+.rrugc-skill-workflow-tabs button{padding:9px 14px;border:1px solid #d5deeb;border-radius:9px;background:#fff;color:#5c6e88;font-weight:800;font-size:11px;cursor:pointer}
+.rrugc-skill-workflow-tabs button.is-active{color:#264ec3;border-color:#8aa3f4;background:#edf2ff;box-shadow:inset 0 -2px 0 #5375e3}
+.rrugc-skill-workflow-tabs button:focus-visible{outline:2px solid #466be0;outline-offset:2px}
+@media(max-width:600px){.rrugc-skill-workflow-tabs{padding:9px 12px;gap:5px}.rrugc-skill-workflow-tabs button{font-size:10px;padding:8px}}
 .rrugc-skill-modal-backdrop{position:fixed;inset:0;z-index:1400;display:grid;place-items:center;padding:24px;background:rgba(15,23,42,.52);backdrop-filter:blur(2px)}
 .rrugc-skill-modal{display:flex;width:min(1040px,calc(100vw - 40px));max-height:min(860px,calc(100vh - 40px));box-sizing:border-box;flex-direction:column;overflow:hidden;border:1px solid #d7deea;border-radius:16px;background:#fff;box-shadow:0 24px 80px rgba(15,23,42,.24);color:#344054}
 .rrugc-skill-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:20px 22px 16px;border-bottom:1px solid #edf0f4}.rrugc-skill-modal-header>div{min-width:0}.rrugc-skill-modal-header small{color:#7a8798;font-size:9px;font-weight:850;letter-spacing:.07em}.rrugc-skill-modal-header h2{margin:3px 0;color:#27364d;font-size:18px}.rrugc-skill-modal-header p{max-width:680px;margin:0;color:#768499;font-size:10px;line-height:1.5}.rrugc-skill-modal-close{display:grid;flex:0 0 32px;width:32px;height:32px;padding:0;place-items:center;border:1px solid #d6dde7;border-radius:8px;background:#fff;color:#68768a;font-size:20px;cursor:pointer}

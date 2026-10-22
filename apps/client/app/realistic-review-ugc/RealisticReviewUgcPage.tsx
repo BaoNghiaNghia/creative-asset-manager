@@ -1065,7 +1065,7 @@ export function RealisticReviewUgcPage() {
             type="button"
             className="rrugc-global-management-button"
             onClick={() => setSkillManagerOpen(true)}
-          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m2 10 10-6 10 6-10 6-10-6Z"/><path d="M6 12.4V18c4 3 8 3 12 0v-5.6M22 10v7"/></svg>Manage skills · {workflowGroupForStage(activeStage) === "products" ? "Product" : "Review"}</button>
+          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m2 10 10-6 10 6-10 6-10-6Z"/><path d="M6 12.4V18c4 3 8 3 12 0v-5.6M22 10v7"/></svg>Manage skills</button>
           <button
             type="button"
             className="rrugc-global-management-button"

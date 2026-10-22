@@ -94,6 +94,7 @@ export function SkillManagerModal({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [skillSearch, setSkillSearch] = useState("");
   const [showUpload, setShowUpload] = useState(false);
+  const [activeTab, setActiveTab] = useState<RrugcWorkflowGroup | "library">(workflow);
 
   async function reload(refresh = false) {
     setLoading(true);
@@ -124,8 +125,9 @@ export function SkillManagerModal({
 
   useEffect(() => {
     if (!open) return;
+    setActiveTab(workflow);
     void reload(false);
-  }, [open]);
+  }, [open, workflow]);
 
   useEffect(() => {
     if (!open) return;
@@ -136,8 +138,9 @@ export function SkillManagerModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, busyKey, onClose]);
 
-  const skillSlots = WORKFLOW_SKILL_SLOTS[workflow];
-  const displayWorkflow = workflow === "products" ? "GatorHats Products" : "GatorHats Reviews";
+  const scopedWorkflow: RrugcWorkflowGroup = activeTab === "reviews" ? "reviews" : "products";
+  const skillSlots = WORKFLOW_SKILL_SLOTS[scopedWorkflow];
+  const displayWorkflow = scopedWorkflow === "products" ? "GatorHats Products" : "GatorHats Reviews";
   const enabledCount = useMemo(
     () => registry.items.filter(item => item.enabled).length,
     [registry.items],
@@ -263,9 +266,9 @@ export function SkillManagerModal({
         <div className="rrugc-skill-heading">
           <span className="rrugc-skill-heading-icon"><SkillIcon name="layers" size={20} /></span>
           <div>
-            <small>WORKFLOW / {workflow === "products" ? "PRODUCT SKILLS" : "REVIEW SKILLS"}</small>
-            <h2 id="rrugc-skill-modal-title">Manage Skills · {displayWorkflow}</h2>
-            <p>Independent {workflow === "products" ? "Product" : "Review"} stage assignments. Installed ZIP packages remain in the shared library.</p>
+            <small>WORKFLOW / SKILL MANAGEMENT</small>
+            <h2 id="rrugc-skill-modal-title">Manage Skills · GatorHats</h2>
+            <p>Product and Review defaults remain independent. Installed Skills are managed once in the shared library.</p>
           </div>
         </div>
         <button type="button" className="rrugc-skill-modal-close" onClick={onClose} disabled={Boolean(busyKey)} aria-label="Close skill manager"><SkillIcon name="close" size={17} /></button>
@@ -280,16 +283,22 @@ export function SkillManagerModal({
         <button type="button" onClick={() => void reload(true)} disabled={loading || Boolean(busyKey)} className="rrugc-skill-refresh"><SkillIcon name="refresh" size={14} />{loading ? "Refreshing…" : "Refresh"}</button>
       </div>
 
+      <div className="rrugc-skill-workflow-tabs" role="tablist" aria-label="Manage Skills sections">
+        {([["products", "GatorHats Products"], ["reviews", "GatorHats Reviews"], ["library", "Installed Skills"]] as const).map(([id, name]) => <button key={id} type="button" role="tab" id={"rrugc-skill-tab-" + id}
+          aria-selected={activeTab === id} aria-controls={"rrugc-skill-panel-" + id} tabIndex={activeTab === id ? 0 : -1}
+          className={activeTab === id ? "is-active" : ""} onClick={() => setActiveTab(id)}>{name}{id === "library" ? ` (${registry.items.length})` : ""}</button>)}
+      </div>
+      {activeTab !== "library" && <div role="tabpanel" id={"rrugc-skill-panel-" + activeTab} aria-labelledby={"rrugc-skill-tab-" + activeTab}>
       {registry.can_manage && <div className="rrugc-stage-defaults" aria-label={displayWorkflow + " skill defaults"}>
         <div className="rrugc-stage-default-heading">
           <div>
-            <strong>{workflow === "products" ? "GatorHats Products · Stage Skills" : "GatorHats Reviews · Stage Skills"}</strong>
+            <strong>{scopedWorkflow === "products" ? "GatorHats Products · Stage Skills" : "GatorHats Reviews · Stage Skills"}</strong>
             <small>Independent by workflow · Affect new jobs only</small>
           </div>
         </div>
-        {workflow === "products" && <p className="rrugc-skill-slot-section-title">Stage 1 · Six Designs</p>}
-        <div className={"rrugc-stage-default-grid" + (workflow === "products" ? " is-workflow-scoped" : "")}>
-          {(workflow === "products" ? skillSlots.slice(0, 1) : skillSlots).map(slot => {
+        {scopedWorkflow === "products" && <p className="rrugc-skill-slot-section-title">Stage 1 · Six Designs</p>}
+        <div className={"rrugc-stage-default-grid" + (scopedWorkflow === "products" ? " is-workflow-scoped" : "")}>
+          {(scopedWorkflow === "products" ? skillSlots.slice(0, 1) : skillSlots).map(slot => {
             const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);
             const matching = registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === chosen);
             return <label key={slot.key} className="rrugc-workflow-skill-slot">
@@ -314,7 +323,7 @@ export function SkillManagerModal({
             </label>;
           })}
         </div>
-        {workflow === "products" && <>
+        {scopedWorkflow === "products" && <>
           <p className="rrugc-skill-slot-section-title">Stage 2 · 7 independent Skills · 23 existing outputs</p>
           <div className="rrugc-stage-default-grid is-workflow-scoped is-seven">
             {PRODUCT_STAGE2_SKILL_SLOTS.map(slot => {
@@ -359,7 +368,7 @@ export function SkillManagerModal({
             })}
           </div>
         </>}
-        {workflow === "products" && !hasAvailableSkills && (archivedKeywordSkill || disabledKeywordSkill) && <div className="rrugc-stage1-skill-recovery" role="status">
+        {scopedWorkflow === "products" && !hasAvailableSkills && (archivedKeywordSkill || disabledKeywordSkill) && <div className="rrugc-stage1-skill-recovery" role="status">
           <span className="rrugc-stage1-skill-recovery-icon"><SkillIcon name="alert" size={15} /></span>
           <div>
             <strong>{archivedKeywordSkill ? "Stage 1 Skill is archived" : "No enabled Skills available"}</strong>
@@ -378,6 +387,8 @@ export function SkillManagerModal({
         </div>}
       </div>}
 
+      </div>}
+      {activeTab === "library" && <div role="tabpanel" id="rrugc-skill-panel-library" aria-labelledby="rrugc-skill-tab-library">
       <div className="rrugc-skill-catalog-toolbar">
         <div className="rrugc-skill-catalog-title"><strong>Installed Skills · Shared Library</strong><small>{filteredSkills.length} of {registry.items.length}</small></div>
         <label className="rrugc-skill-search">
@@ -533,6 +544,7 @@ export function SkillManagerModal({
           </article>;
         })}
       </div>
+      </div>}
     </section>
   </div>;
 }

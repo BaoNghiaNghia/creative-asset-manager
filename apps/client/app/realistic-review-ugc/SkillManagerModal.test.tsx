@@ -44,6 +44,14 @@ vi.mock("./api", async (importOriginal) => ({
 
 afterEach(() => { document.body.replaceChildren(); });
 
+async function openLibrary(host: HTMLElement) {
+  const tab = host.querySelector<HTMLButtonElement>('#rrugc-skill-tab-library');
+  expect(tab).not.toBeNull();
+  await act(async () => { tab!.click(); });
+  expect(tab?.getAttribute('aria-selected')).toBe('true');
+}
+
+
 describe("Upload-time Skill versions", () => {
   it("shows hh_mm_dd_mm_yy as the release version but retains runtime IDs for controls", async () => {
     vi.mocked(listStage2SkillRegistry).mockResolvedValueOnce({
@@ -71,6 +79,7 @@ describe("Upload-time Skill versions", () => {
     const root = createRoot(host);
     await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await openLibrary(host);
     expect(host.querySelector(".rrugc-skill-compact-subtitle")?.textContent).toContain("v18_39_12_10_26");
     const details = host.querySelector<HTMLButtonElement>(".rrugc-skill-details-toggle")!;
     await act(async () => details.click());
@@ -91,14 +100,15 @@ describe("SkillManagerModal compact redesign", () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
     expect(host.querySelector(".rrugc-skill-summary-role")?.textContent).toBe("Manage access");
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
+    await openLibrary(host);
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-skill-delete-icon")).toHaveLength(2);
     expect(host.querySelector('button[aria-label="Delete skill GatorHats · Keyword Embroidery"]')).not.toBeNull();
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");
     expect(host.textContent).not.toContain("Stage 1 Skill is archived");
-    expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
-    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector(".rrugc-skill-upload")).toBeNull();
 
     const keywordCard = [...host.querySelectorAll(".rrugc-skill-card")].find(card => card.textContent?.includes("GatorHats"));
@@ -171,6 +181,7 @@ describe("Existing local redesign skill Stage 1 setup", () => {
     const root = createRoot(host);
     await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await openLibrary(host);
     const details = host.querySelector<HTMLButtonElement>(".rrugc-skill-details-toggle")!;
     await act(async () => details.click());
     const input = host.querySelector<HTMLInputElement>(".rrugc-stage1-skill-update input[type=file]")!;
@@ -234,6 +245,7 @@ describe("Duplicate local Skill ZIP upload", () => {
     const root = createRoot(host);
     await act(async () => root.render(<><ActionToastViewport /><SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} /></>));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await openLibrary(host);
     await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-skill-add-toggle")!.click());
     const input = host.querySelector<HTMLInputElement>(".rrugc-skill-upload input[type=file]")!;
     const file = new File(["updated bundle"], "existing-studio.zip", { type: "application/zip" });
@@ -258,6 +270,7 @@ describe("Duplicate local Skill ZIP upload", () => {
     const root = createRoot(host);
     await act(async () => root.render(<SkillManagerModal open onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await openLibrary(host);
     await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-skill-add-toggle")!.click());
     const input = host.querySelector<HTMLInputElement>(".rrugc-skill-upload input[type=file]")!;
     Object.defineProperty(input, "files", {
@@ -281,7 +294,8 @@ describe("GatorHats workflow-specific Skill Manager", () => {
     await act(async () => root.render(<SkillManagerModal workflow="products" open
       onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(host.textContent).toContain("Manage Skills · GatorHats Products");
+    expect(host.textContent).toContain("Manage Skills · GatorHats");
+    expect(host.querySelector('#rrugc-skill-tab-products')?.getAttribute('aria-selected')).toBe('true');
     expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
     expect(host.textContent).toContain("Assignment only · Photo worker not enabled");
     for (const image of ["Image 01", "Image 02", "Image 03", "Image 04"]) {
@@ -308,7 +322,8 @@ describe("GatorHats workflow-specific Skill Manager", () => {
     await act(async () => root.render(<SkillManagerModal workflow="reviews" open
       onClose={() => undefined} onChanged={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(host.textContent).toContain("Manage Skills · GatorHats Reviews");
+    expect(host.textContent).toContain("Manage Skills · GatorHats");
+    expect(host.querySelector('#rrugc-skill-tab-reviews')?.getAttribute('aria-selected')).toBe('true');
     expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(0);
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 4"]')).toBeNull();
     const reviewSelect = host.querySelector<HTMLSelectElement>(
@@ -321,6 +336,36 @@ describe("GatorHats workflow-specific Skill Manager", () => {
       await Promise.resolve();
     });
     expect(updateStageSkillDefault).toHaveBeenCalledWith("rev_s2", null);
+    await act(async () => root.unmount());
+  });
+});
+describe("Unified GatorHats Manage Skills tabs", () => {
+  it("switches Products, Reviews and the one shared library without reopening the modal", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal workflow="products" open
+      onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
+    expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(0);
+
+    await act(async () => { (host.querySelector("#rrugc-skill-tab-reviews") as HTMLButtonElement).click(); });
+    expect(host.querySelector("#rrugc-skill-tab-reviews")?.getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('select[aria-label="GatorHats Reviews Stage 2 default skill"]')).not.toBeNull();
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(0);
+
+    await openLibrary(host);
+    expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
+    expect(host.querySelectorAll(".rrugc-skill-catalog-toolbar")).toHaveLength(1);
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(0);
+
+    await act(async () => { (host.querySelector("#rrugc-skill-tab-products") as HTMLButtonElement).click(); });
+    expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
+    expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(0);
+    expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     await act(async () => root.unmount());
   });
 });
