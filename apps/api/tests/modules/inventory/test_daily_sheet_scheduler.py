@@ -1300,6 +1300,43 @@ class DailySheetSchedulerTest(unittest.TestCase):
             scheduler.run_once(datetime(2030, 8, 9, 0, 0, tzinfo=timezone.utc)),
         )
 
+    def test_v4_shadow_skips_shared_reset_but_runs_snapshot_copy(self):
+        self._enable_v4()
+        with self.sessions.begin() as session:
+            settings = session.scalar(select(InventorySettingsModel).where(
+                InventorySettingsModel.tenant_id == "tenant-a"
+            ))
+            settings.daily_carry_forward_time_local = "05:00"
+            settings.daily_snapshot_time_local = "23:50"
+            settings.daily_reconcile_time_local = "23:57"
+
+        class Carry:
+            def run(self, *_args, **_kwargs):
+                raise AssertionError("shadow mode must not invoke Shared Sheet reset")
+
+        class Sheets:
+            def __init__(self):
+                self.calls = []
+            def run_agent_v4(self, _tenant, _day, *, slot_kind=None):
+                self.calls.append(slot_kind)
+                return SimpleNamespace(status="completed", writes=0)
+
+        sheets = Sheets()
+        scheduler = InventoryDailyScheduler(
+            self.sessions, sheet_service=sheets, carry_forward_service=Carry(),
+            shadow_mode=True,
+        )
+        morning = datetime(2030, 8, 10, 2, 0, tzinfo=timezone.utc)
+        self.assertEqual(0, scheduler.run_once(morning))
+        self.assertEqual(0, scheduler.execute_v4_slot("morning_reset", morning))
+        with self.sessions() as session:
+            self.assertIsNone(session.scalar(select(InventoryJobModel).where(
+                InventoryJobModel.job_type == "inventory_v5_morning_reset_slot",
+            )))
+        evening = datetime(2030, 8, 10, 16, 50, tzinfo=timezone.utc)
+        self.assertEqual(1, scheduler.run_once(evening))
+        self.assertEqual(["afternoon_snapshot"], sheets.calls)
+
     def test_default_scheduler_uses_real_carry_forward_planner(self):
         from app.modules.inventory.daily.carry_forward_planner import GeminiCarryForwardPlanner
         class Sheets: pass

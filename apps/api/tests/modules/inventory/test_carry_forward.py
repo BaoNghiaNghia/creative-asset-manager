@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import tempfile
 
 import pytest
@@ -1248,6 +1250,34 @@ def test_q47_manual_apply_rechecks_config_and_both_workbooks(marker):
         assert persisted.status == "review_required"
         assert persisted.error_code == "catinat_signed_close_required"
     engine.dispose(); temp.cleanup()
+
+
+def test_shadow_mode_blocks_shared_write_and_manual_apply_before_google():
+    temp, engine, sessions = make_db()
+    google = Google()
+    service = InventorySharedCarryForwardService(
+        sessions, client_factory=lambda _token: google,
+        token_resolver=lambda _id: "token",
+        planner=Planner([row("material-a", "warehouse-a", "H14", "B14", 50, 1)]),
+    )
+    with patch(
+        "app.modules.inventory.daily.carry_forward.get_settings",
+        return_value=SimpleNamespace(INVENTORY_SHADOW_MODE=True),
+    ):
+        with pytest.raises(CarryForwardReviewRequired, match="inventory_shadow_mode_carry_forward_blocked"):
+            service.run("tenant-a", date(2030, 8, 10))
+        with pytest.raises(CarryForwardReviewRequired, match="inventory_shadow_mode_carry_forward_blocked"):
+            service.apply_manual_recovery("tenant-a", date(2030, 8, 10), plan_hash="not-approved")
+        with pytest.raises(CarryForwardReviewRequired, match="inventory_shadow_mode_carry_forward_blocked"):
+            service._assert_legacy_write_allowed("tenant-a")
+
+    assert google.writes == []
+    assert google.clears == []
+    assert google.batch_get_calls == []
+    with sessions() as session:
+        assert session.scalar(select(InventoryDailyCarryForwardModel)) is None
+    engine.dispose()
+    temp.cleanup()
 
 
 def test_changed_workbook_after_manual_preview_persists_review_block():

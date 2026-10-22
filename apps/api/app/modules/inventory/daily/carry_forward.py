@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.config import get_settings
 from app.modules.inventory.daily_sheet.google_client import GoogleSheetsInventoryClient
 from app.modules.inventory.daily_sheet.parser import canonical_hash
 from app.modules.inventory.persistence_model import (
@@ -194,6 +195,13 @@ class InventorySharedCarryForwardService:
                 str(snapshot.id), connection_id, previous_business_date,
             )
 
+    @staticmethod
+    def _assert_not_shadow_write() -> None:
+        # A verified Gemini copy never authorizes writes to the Shared Sheet
+        # while the production pilot is in shadow mode.
+        if get_settings().INVENTORY_SHADOW_MODE:
+            raise CarryForwardReviewRequired("inventory_shadow_mode_carry_forward_blocked")
+
     def _assert_legacy_write_allowed(
         self, tenant_id: str, *, source_meta: dict[str, Any] | None = None,
         target_meta: dict[str, Any] | None = None,
@@ -208,6 +216,7 @@ class InventorySharedCarryForwardService:
         """
         from app.modules.inventory.daily_sheet.catinat_shift_readiness import WAREHOUSES
 
+        self._assert_not_shadow_write()
         with self.session_factory() as session:
             settings = session.scalar(select(InventorySettingsModel).where(
                 InventorySettingsModel.tenant_id == tenant_id,
@@ -693,6 +702,7 @@ class InventorySharedCarryForwardService:
         self, tenant_id: str, target_business_date: date, *, plan_hash: str
     ) -> dict[str, Any]:
         """Apply a previously previewed safe-opening-only recovery plan."""
+        self._assert_not_shadow_write()
         with self.session_factory() as session:
             operation = session.scalar(
                 select(InventoryDailyCarryForwardModel).where(
@@ -864,6 +874,7 @@ class InventorySharedCarryForwardService:
             raise
 
     def run(self, tenant_id: str, target_business_date: date) -> InventoryDailyCarryForwardModel:
+        self._assert_not_shadow_write()
         # Persist the operation before dependency resolution so failures such as
         # previous_day_gemini_not_verified remain visible in lifecycle audit.
         previous_date = date.fromordinal(target_business_date.toordinal() - 1)

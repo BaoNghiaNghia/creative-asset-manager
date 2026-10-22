@@ -6,6 +6,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
+from app.core.config import get_settings
 from app.modules.inventory.daily.service import InventoryDailyRunService
 from app.modules.inventory.daily.report import DailyReportNotFinalized, InventoryDailyReportService
 from app.modules.inventory.daily_sheet.service import InventoryDailySheetService, inventory_error_metadata
@@ -64,6 +65,7 @@ class InventoryDailyScheduler:
         carry_forward_service: InventorySharedCarryForwardService | None = None,
         *,
         allowed_tenant_ids: frozenset[str] | None = None,
+        shadow_mode: bool | None = None,
     ):
         self.session_factory = session_factory
         self.service = service or InventoryDailyRunService(session_factory)
@@ -78,6 +80,7 @@ class InventoryDailyScheduler:
                 session_factory, semantic_analyzer=semantic_analyzer
             )
         self.allowed_tenant_ids = allowed_tenant_ids
+        self.shadow_mode = get_settings().INVENTORY_SHADOW_MODE if shadow_mode is None else shadow_mode
         self.carry_forward_service = carry_forward_service or InventorySharedCarryForwardService(session_factory)
         # V1/V2 use persisted daily records. V3 has no persistence migration in
         # its first release, so suppress repeated successful planning within the
@@ -300,6 +303,9 @@ class InventoryDailyScheduler:
     def _claim_v4_slot(
         self, *, tenant_id: str, business_date: date, slot_kind: str, now: datetime
     ) -> tuple[str, str] | None:
+        # Never even claim a Shared Sheet mutation slot during shadow rollout.
+        if slot_kind == "morning_reset" and self.shadow_mode:
+            return None
         job_type = V4_SLOT_JOB_TYPES[slot_kind]
         worker_id = f"inventory-v5-{slot_kind}-{uuid4()}"
         repository_types = tuple(V4_SLOT_JOB_TYPES.values())
@@ -910,7 +916,7 @@ class InventoryDailyScheduler:
                     v4_candidates: frozenset[str] = frozenset()
                     if is_v4:
                         due_slots: list[str] = []
-                        if carry_forward_due:
+                        if carry_forward_due and not self.shadow_mode:
                             due_slots.append("morning_reset")
                         if snapshot_due:
                             due_slots.append("afternoon_snapshot")
@@ -922,7 +928,7 @@ class InventoryDailyScheduler:
                             slot_kinds=tuple(due_slots),
                             now=moment,
                         )
-                    if is_v4 and carry_forward_due and "morning_reset" in v4_candidates:
+                    if is_v4 and not self.shadow_mode and carry_forward_due and "morning_reset" in v4_candidates:
                         claimed = self._claim_v4_slot(tenant_id=tenant_id, business_date=target_business_date, slot_kind="morning_reset", now=moment)
                         if claimed:
                             job_id, worker_id = claimed
