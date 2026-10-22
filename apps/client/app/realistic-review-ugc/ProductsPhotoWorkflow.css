@@ -199,3 +199,43 @@
 .rrugc-products-photo-download-all:hover{background:#dcecff}
 .rrugc-products-photo-download-all[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .rrugc-products-photo-download-all:focus-visible{outline:2px solid #326be6;outline-offset:2px}
+/* Single shared column geometry: Last updated begins at the same x coordinate
+   on all seven skill rows, independent of output count. */
+.rrugc-products-photo-stage-row:not(.is-colorway),
+.rrugc-products-photo-stage-row.is-colorway{
+ grid-template-columns:215px minmax(0,1fr) 390px minmax(0,620px);
+ grid-template-areas:"title skill controls outputs";
+ column-gap:10px;align-items:center;
+}
+.rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+ grid-area:controls;
+ width:390px;
+ justify-self:stretch;
+ justify-content:start;
+ grid-template-columns:150px 90px 54px 65px;
+}
+.rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip{
+ width:100%;max-width:none;min-width:0;
+}
+@media(max-width:1500px){
+ .rrugc-products-photo-stage-row:not(.is-colorway),
+ .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:215px minmax(0,1fr) 390px;
+  grid-template-areas:"title skill controls" "outputs outputs outputs";
+  row-gap:6px;
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-output-strip{
+  grid-area:outputs;justify-content:flex-end;
+ }
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row:not(.is-colorway),
+ .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"title" "skill" "controls" "outputs";
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  width:100%;max-width:390px;
+  grid-template-columns:minmax(110px,1fr) 84px 50px 60px;
+ }
+}
