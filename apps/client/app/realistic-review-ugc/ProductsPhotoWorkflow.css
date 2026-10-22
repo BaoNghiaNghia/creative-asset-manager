@@ -352,3 +352,49 @@
 }
 .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors::-webkit-scrollbar{display:none}
 .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors:active{cursor:grabbing}
+/* Shared, evenly spaced Stage 2 columns: skill / updated / duration / actions / output. */
+@media(min-width:1501px){
+ .rrugc-products-photo-stage-row:not(.is-colorway),
+ .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:215px minmax(180px,1fr) 485px minmax(55px,400px);
+  grid-template-areas:"title skill controls outputs";
+  column-gap:18px;
+ }
+}
+@media(min-width:761px) and (max-width:1500px){
+ .rrugc-products-photo-stage-row:not(.is-colorway),
+ .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:215px minmax(140px,1fr) 485px;
+  grid-template-areas:"title skill controls" "outputs outputs outputs";
+  column-gap:18px;
+ }
+}
+@media(min-width:761px){
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  width:485px;max-width:485px;
+  display:grid;grid-template-columns:165px 115px 82px 92px;
+  align-items:center;justify-content:space-between;justify-items:center;gap:10px;
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-updated{
+  text-align:left;justify-self:start;width:165px;
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls .rrugc-products-photo-duration{
+  text-align:center;width:115px;justify-self:center;
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-run-button{justify-self:center}
+ .rrugc-products-photo-stage-row .rrugc-products-photo-detail-toggle{justify-self:center}
+}
+@media(max-width:760px){
+ .rrugc-products-photo-stage-row:not(.is-colorway),
+ .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"title" "skill" "controls" "outputs";
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls{
+  width:100%;max-width:none;
+  display:grid;grid-template-columns:minmax(108px,1fr) 95px 76px 90px;
+  gap:7px;justify-content:space-between;
+ }
+ .rrugc-products-photo-stage-row .rrugc-products-photo-updated{justify-self:start;text-align:left}
+ .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls .rrugc-products-photo-duration{width:95px}
+}
