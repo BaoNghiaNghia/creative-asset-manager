@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-ecommerce-front",
+  "display_name": "8869 Ecommerce Front 0 degrees",
+  "description": "Single-image Valucap 8869 catalog front 0 degrees",
+  "workflows": [
+    "image_studio"
+  ],
+  "product_types": [
+    "hat",
+    "cap",
+    "baseball_cap"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [
+    "stock_reference",
+    "design_reference",
+    "embroidered_front_preview",
+    "front_reference",
+    "side_reference"
+  ],
+  "max_references": 8
+}
