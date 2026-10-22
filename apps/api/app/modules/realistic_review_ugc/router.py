@@ -5534,12 +5534,16 @@ def ecommerce_input_readiness(
     ))
     if plan is None or plan.status == "missing":
         raise HTTPException(status_code=404, detail="Product source plan not found")
+    from pathlib import Path
+    from app.modules.realistic_review_ugc.ecommerce_stock_evidence import release_stock_evidence
+    stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[4])
     assets = {"design": plan.source_file_id}
     # Official frontend stock paths are NOT durable, tenant-owned references.
     # A future input-builder must persist the prepared views before declaring ready.
     return {
         "source_plan_id": plan.id,
         "source_revision": plan.source_revision,
+        "stock_evidence": stock,
         "slots": [
             build_execution_preflight(shot.stage, assets, worker_ready=False, skill_ready=False)
             for shot in SHOTS
