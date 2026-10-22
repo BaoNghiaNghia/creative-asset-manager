@@ -1,0 +1,15 @@
+.rrugc-applied-hat-section{width:100%;display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #e1e7f0}
+.rrugc-applied-hat-top{display:grid;gap:3px}.rrugc-applied-hat-top strong{font-size:12px;color:#2b405b}.rrugc-applied-hat-top span{font-size:10px;color:#64748b}
+.rrugc-applied-hat-grid{display:grid;gap:9px}
+.rrugc-applied-hat-card{display:grid;gap:6px;padding:8px;border:1px solid #dde6f1;border-radius:12px;background:#fbfcff;min-width:0}
+.rrugc-applied-hat-heading{display:flex;justify-content:space-between;align-items:center;gap:5px;font-size:11px}
+.rrugc-applied-hat-heading span{font-size:9px;color:#64748b}
+.rrugc-applied-hat-image{position:relative;width:100%;aspect-ratio:4/5;overflow:hidden;background:#f6f8fc;border-radius:9px}
+.rrugc-applied-hat-image>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.rrugc-applied-hat-image>.rrugc-applied-hat-artwork{position:absolute;width:35%;height:20%;left:32.5%;top:34%;object-fit:contain}
+.rrugc-applied-hat-image>.rrugc-applied-hat-artwork.is-side{width:25%;height:16%;left:43%;top:35%}
+.rrugc-applied-hat-card small{font-size:10px;color:#64748b}
+.rrugc-applied-hat-card button,.rrugc-applied-hat-all{border:1px solid #b8c7db;border-radius:8px;background:#fff;color:#31557f;min-height:32px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer}
+.rrugc-applied-hat-card button:focus-visible,.rrugc-applied-hat-all:focus-visible{outline:2px solid #2f6ea9;outline-offset:2px}
+.rrugc-applied-hat-card button:disabled{opacity:.55;cursor:not-allowed}
+@media(min-width:1100px){.rrugc-applied-hat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.rrugc-applied-hat-card{padding:5px}.rrugc-applied-hat-card button{font-size:9px}}

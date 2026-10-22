@@ -3,6 +3,7 @@ import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
 import type { ColorwayJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import { AppliedHatPreview } from "./AppliedHatPreview";
 import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -69,6 +70,7 @@ function DesignSource({ plan, productLayout = false }: { plan: SourcePlan; produ
           : null}
       </div>
     </div>
+    {productLayout && <AppliedHatPreview designSrc={plan.source_preview_url} revision={plan.source_revision} />}
   </div>;
 }
 
