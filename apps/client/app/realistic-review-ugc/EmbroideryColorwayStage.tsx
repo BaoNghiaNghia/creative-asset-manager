@@ -52,9 +52,9 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan }: { plan: SourcePlan }) {
+function DesignSource({ plan, productLayout = false }: { plan: SourcePlan; productLayout?: boolean }) {
   const groupCount = Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1);
-  return <div className="rrugc-colorway-source">
+  return <div className={"rrugc-colorway-source" + (productLayout ? " is-product-card" : "")}>
     <button type="button" className="rrugc-colorway-thumb" title={plan.source_name}>
       <img src={plan.source_preview_url} alt={cleanDesignName(plan.source_name)} loading="lazy" />
       <span className="rrugc-colorway-prefix">JPG / PNG</span>
@@ -453,7 +453,7 @@ export function EmbroideryColorwayStage({
                   onChange={() => toggleDesign(plan.id)}
                 />
               </td>
-              <td><DesignSource plan={plan} /></td>
+              <td><DesignSource plan={plan} productLayout={workflow === "products"} /></td>
               {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
