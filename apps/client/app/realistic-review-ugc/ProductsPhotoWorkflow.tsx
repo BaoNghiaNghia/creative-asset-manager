@@ -34,6 +34,10 @@ export const PHOTO_COLOR_KEYS = [
   "natural-red", "natural-royal",
 ] as const;
 
+export function legacyMissingAssetsForStep(isEcommerce: boolean, missingAssets: string[] | undefined): string[] {
+  return isEcommerce ? [] : missingAssets || [];
+}
+
 function openSkillsManager() {
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>(".rrugc-global-management-button"))
     .find(item => item.textContent?.includes("Manage skills"));
@@ -237,7 +241,7 @@ export function ProductsPhotoWorkflow({
               <p>{isEcommerce
                 ? "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."
                 : state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
-              {!!state?.missing_assets?.length && <small>Missing assets: {state.missing_assets.join(", ")}</small>}
+              {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).length > 0 && <small>Missing assets: {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).join(", ")}</small>}
             </div>
             <button type="button" onClick={openSkillsManager}>Manage skill</button>
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}

@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import { ProductsPhotoWorkflow, legacyMissingAssetsForStep } from "./ProductsPhotoWorkflow";
 import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
+  it("does not apply obsolete four-image bundle requirements to independent Ecommerce slots", () => {
+    const obsolete = ["SKILL.md", "references/SHOT_VISIBILITY_AND_QA.md", "scripts/release_check.py"];
+    expect(legacyMissingAssetsForStep(true, obsolete)).toEqual([]);
+    expect(legacyMissingAssetsForStep(false, obsolete)).toEqual(obsolete);
+  });
   it("maps the four Ecommerce skills to their own design/hat reference sets without enabling unfinished workers", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow
       sourceName="design_02.png" designSrc="/source/design-02.png" readiness={null} />);
