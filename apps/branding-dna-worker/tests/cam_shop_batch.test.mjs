@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,readdirSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
-import {localShopPaths,checkShopEligibility,runCamShopBatch,parseBatchCli} from "../src/cam_shop_batch.mjs";
+import {join,dirname} from "node:path";
+import {localShopPaths,marketplacePolicyFile,checkShopEligibility,runCamShopBatch,parseBatchCli} from "../src/cam_shop_batch.mjs";
 
 const idA="12345678-1234-1234-1234-123456789abc";
 const idB="12345678-1234-1234-1234-123456789abd";
@@ -32,6 +32,21 @@ function authorize(base,shop){
  writeFileSync(p.approvalFile,JSON.stringify(approval(shop)));
  return p;
 }
+function reviewMarketplace(base,platform,authorizedShopUrls=[]){
+ const path=marketplacePolicyFile(base,platform);
+ mkdirSync(dirname(path),{recursive:true});
+ const review={review_scope:"marketplace_policy",platform,
+  platform_terms_reviewed:true,robots_policy_reviewed:true,
+  approved_by:"Fixture policy reviewer",approved_at:new Date().toISOString(),
+  ...(platform==="amazon"?{amazon_agent_policy_reviewed:true,
+   amazon_reviewed_hosts:["www.amazon.com"]}:{
+   etsy_written_authorization:true,etsy_authorization_reference:"Fixture Etsy permission document",
+   etsy_authorized_shop_urls:authorizedShopUrls,
+  }),
+ };
+ writeFileSync(path,JSON.stringify(review));
+ return {path,review};
+}
 test("CLI requires an explicit mode and caps serial work to five shops",()=>{
  assert.deepEqual(parseBatchCli(["--inspect"]),{
   mode:"inspect",shopId:null,maxShops:1,envFile:"scout.local.env"});
@@ -47,8 +62,8 @@ test("unapproved and competitor shops never open browser; no shop URL in summary
   pilot:async()=>{launched++;throw Error("must never run")}});
  assert.equal(launched,0);assert.equal(result.run_count,0);
  assert.equal(result.blocked,3);
- assert.equal(result.items[0].reason,"per_shop_approval_missing");
- assert.equal(result.items[2].reason,"per_shop_approval_missing");
+ assert.equal(result.items[0].reason,"marketplace_policy_or_legacy_approval_missing");
+ assert.equal(result.items[2].reason,"marketplace_policy_or_legacy_approval_missing");
  assert.equal(JSON.stringify(result).includes(amazon.storefront_url),false);
 }));
 test("draft competitor relationship does not require CAM ownership permission",async()=>withDir(async base=>{
@@ -115,4 +130,46 @@ test("invalid rights declarations cannot silently authorize Etsy or Amazon",()=>
  assert.equal(row.state,"blocked");
  assert.equal(row.reason,"etsy_written_authorization_required");
  assert.equal(checkShopEligibility({...amazon,access_mode:"competitor_research"},base).state,"blocked"); // No Amazon-specific approval file
+}));
+test("one marketplace review permits Amazon public competitor shops without owner or per-shop approval",async()=>withDir(async base=>{
+ const competitor={...amazon,status:"draft",access_mode:"competitor_research"};
+ reviewMarketplace(base,"amazon");
+ assert.equal(checkShopEligibility(competitor,base).state,"locally_approved");
+ assert.equal(readdirSync(base).includes("cam-shop-pilots"),false);
+ let count=0;
+ const result=await runCamShopBatch(config,{mode:"run_approved",baseDir:base,
+  request:request([competitor]),pilot:async()=>{
+   count++;
+   return {status:"needs_operator",reason:"marketplace_access_limited",items:[],scan_enabled:false};
+  }});
+ assert.equal(count,1);
+ assert.equal(result.needs_operator,1);
+ assert.equal(result.scan_enabled,false);
+ assert.equal(checkShopEligibility({...competitor,status:"paused"},base).reason,"shop_paused");
+ assert.equal(checkShopEligibility({...competitor,status:"archived"},base).reason,"shop_status_not_eligible");
+}));
+test("Etsy written platform permission is limited to its documented storefront scope",async()=>withDir(async base=>{
+ const other={...etsy,id:"12345678-1234-1234-1234-123456789abe",
+  storefront_url:"https://www.etsy.com/shop/OtherCaps",access_mode:"competitor_research"};
+ const {path,review}=reviewMarketplace(base,"etsy",[etsy.storefront_url]);
+ const result=await runCamShopBatch(config,{mode:"inspect",baseDir:base,request:request([etsy,other])});
+ assert.equal(result.eligible,1);
+ assert.equal(result.blocked,1);
+ assert.equal(result.items[1].reason,"etsy_permission_scope_not_verified");
+ writeFileSync(path,JSON.stringify({...review,etsy_written_authorization:false}));
+ assert.equal(checkShopEligibility(etsy,base).reason,"etsy_written_authorization_required");
+}));
+test("duplicate CAM shop UUIDs are rejected before opening a browser",async()=>withDir(async base=>{
+ reviewMarketplace(base,"amazon");
+ let opened=0;
+ await assert.rejects(()=>runCamShopBatch(config,{mode:"run_approved",baseDir:base,
+  request:request([amazon,{...amazon,access_mode:"competitor_research"}]),
+  pilot:async()=>{opened++}}),/cam_shop_library_contract_untrusted/);
+ assert.equal(opened,0);
+}));
+test("an invalid shared policy fails closed even when a legacy shop approval exists",()=>withDir(base=>{
+ authorize(base,amazon);
+ const {path,review}=reviewMarketplace(base,"amazon");
+ writeFileSync(path,JSON.stringify({...review,amazon_agent_policy_reviewed:false}));
+ assert.equal(checkShopEligibility(amazon,base).reason,"amazon_agent_policy_review_required");
 }));

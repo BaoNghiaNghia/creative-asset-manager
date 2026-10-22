@@ -65,8 +65,8 @@ export async function runCamShopPilot(config,{shopId,approval,profileDir,
  maxProducts=3,minimumDelayMs=10000,maximumDelayMs=18000,
  interactionMode="visible_click",headless=false},deps={}){
  const shop=await fetchConfiguredShop(config,shopId,deps.request??fetch);
- // A self-declared owned flag in CAM is NOT proof: a second, dated,
- // per-exact-shop operator approval and policy review remains mandatory.
+ // CAM ownership never grants browser rights: a dated marketplace policy
+ // review (or a legacy exact-shop approval) remains mandatory.
  validateBrowserPermission(assertShopUrl(shop.shopUrl,shop.platform),approval);
  return await (deps.pilot??runBrowserPilot)({
   shopUrl:shop.shopUrl,platform:shop.platform,authorization:approval,

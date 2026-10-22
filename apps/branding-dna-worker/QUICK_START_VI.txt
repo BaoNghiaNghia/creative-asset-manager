@@ -1,4 +1,4 @@
-BRANDING DNA BROWSER AGENT - WINDOWS v0.2.12
+BRANDING DNA BROWSER AGENT - WINDOWS v0.2.13
 ==========================================
 Gói Windows Portable Bootstrap ZIP; cần cài Node và Chromium riêng.
 Mã nguồn hoặc ZIP kiểm thử chưa chứng minh đã triển khai trên Windows.
@@ -29,13 +29,20 @@ Mã nguồn hoặc ZIP kiểm thử chưa chứng minh đã triển khai trên W
 
    Mỗi lần gọi mặc định một shop, tối đa năm shop nối tiếp nếu chỉ định
    --max-shops 5; tối đa ba sản phẩm/shop. --inspect không duyệt marketplace.
-   Approval riêng của từng shop phải nằm tại:
-   %LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\cam-shop-pilots\SHOP_UUID\approval.json
-   Approval phải phản ánh quyền truy cập thực tế đã được kiểm tra.
-   CAM không còn yêu cầu khai báo sở hữu để kích hoạt shop; shop paused
-   vẫn bị loại. Quyền browser theo nền tảng là điều kiện riêng.
-   Etsy cần chấp thuận bằng văn bản của Etsy; Amazon cần review Agent Policy.
-   Tool không tự tạo approval, tự giải CAPTCHA hay tự cấp quyền.
+   Không cần xin quyền từ chủ từng shop hay tạo approval.json riêng cho
+   mỗi shop khi duyệt storefront công khai có trong CAM. Thay vào đó, lưu
+   một hồ sơ rà soát chính sách cho mỗi nền tảng (mẫu mặc định từ chối):
+   %LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\marketplace-access\amazon.json
+   %LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\marketplace-access\etsy.json
+   Dùng config/marketplace-policy.amazon.example.json hoặc
+   config/marketplace-policy.etsy.example.json làm mẫu, KHÔNG đánh dấu
+   quyền chưa có. Amazon phải rà soát Agent Policy và robots/terms,
+   khai báo đúng marketplace host đã kiểm tra (amazon_reviewed_hosts).
+   Etsy cần chấp thuận thực tế bằng văn bản của Etsy, kèm danh sách URL
+   shop nằm trong phạm vi văn bản (etsy_authorized_shop_urls).
+   File approval.json theo shop cũ vẫn đọc được nếu chưa có hồ sơ chung.
+   CAM shop paused vẫn bị loại; draft và nhãn sở hữu không phải điều kiện.
+   Tool không tự cấp quyền, vượt CAPTCHA hoặc mở dispatch production.
 
 4. Tiếp tục từ tiến độ đã lưu
    Chạy lại một cách chủ động để bỏ qua các sản phẩm đã quan sát thành công.

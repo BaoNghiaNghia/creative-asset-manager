@@ -1,4 +1,39 @@
-# Branding DNA Windows Worker — Windows Portable v0.2.12
+# Branding DNA Windows Worker — Windows Portable v0.2.13
+
+## v0.2.13 — No per-shop owner authorization for CAM public storefront pilots
+
+A CAM Shop Library record (including a draft competitor shop) no longer
+requires a separate approval from that shop owner or one local approval.json
+per shop. Shop status `paused` still blocks the pilot. Source metadata is
+not a grant of platform access or of image/artwork reuse rights.
+
+For manually initiated, visible CAM shop pilots, one **marketplace policy
+review** can be used for multiple public shops. Keep the private, reviewed
+policy files outside the checkout:
+
+```text
+%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\marketplace-access\amazon.json
+%LOCALAPPDATA%\CreativeAssetManager\BrandingDNA\marketplace-access\etsy.json
+```
+
+Copy the corresponding default-deny `config/marketplace-policy.*.example.json`
+file as a starting point. The reviewer must document the marketplace's
+current terms and robots policy, a real reviewer and a recent review date.
+Amazon additionally requires review of its current Agent Policy for each
+listed host in `amazon_reviewed_hosts`; Etsy still
+requires actual written authorization **from Etsy** and an explicit list
+(`etsy_authorized_shop_urls`) of canonical shop URLs covered by that
+authorization. A letter covering one Etsy shop cannot authorize another.
+These are platform permissions, **not shop-owner consent**.
+
+The serial `--inspect` command prefers the shared marketplace policy;
+older exact-shop approvals are supported as a fallback if no shared file
+exists. Invalid shared policies fail closed rather than silently reverting
+to an older individual approval. Direct `--approval-file` pilots may point
+to the shared policy, but still need an exact CAM shop UUID, separate profile
+and report paths. Nothing auto-scans or auto-uploads evidence; production
+dispatch remains disabled and 403/429, CAPTCHA and login challenges still
+halt immediately. Unverified image rights and sales remain unknown.
 
 ## v0.2.12 — Halt safely and preserve local progress
 
