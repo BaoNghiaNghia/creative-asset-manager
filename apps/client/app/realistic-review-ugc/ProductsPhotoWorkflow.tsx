@@ -223,7 +223,7 @@ export function ProductsPhotoWorkflow({
               aria-expanded={opened} aria-label={step.title + " details"}
               onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
-          {opened && <div className="rrugc-products-photo-stage-detail">
+          {opened && <div className="rrugc-products-photo-stage-detail is-ecommerce-detail">
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
               <strong>Input references · {step.inputs?.length}</strong>
               <small>{slotInputs
@@ -247,12 +247,13 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>Actual inputs are checked by the server. Stock references are pinned to the released file hashes; generated Front references must complete before Skills 2–3 can run.</small>
             </div>}
-            <div><strong>{skillName}</strong>
+            <div className="rrugc-products-photo-detail-info"><strong>{skillName}</strong>
               <p>{isEcommerce
                 ? "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."
                 : state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
               {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).length > 0 && <small>Missing assets: {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).join(", ")}</small>}
             </div>
+            <div className="rrugc-products-photo-detail-actions">
             <button type="button" onClick={openSkillsManager}>Manage skill</button>
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
               onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
@@ -261,6 +262,7 @@ export function ProductsPhotoWorkflow({
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
               onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
             {!shotJob && <small>Logs available after the first job is queued</small>}
+            </div>
             {jobActionError && expandedStep === step.key && <p role="alert">{jobActionError}</p>}
             {shotJob && logFor === shotJob.id && logs && <div className="rrugc-products-photo-execution-log">
               <strong>Execution attempts</strong>

@@ -239,3 +239,44 @@
   grid-template-columns:minmax(110px,1fr) 84px 50px 60px;
  }
 }
+/* Compact Ecommerce details: balanced preview thumbnails and one action toolbar. */
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-ecommerce-detail{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,280px);
+  grid-template-areas:"inputs info" "actions actions" "feedback feedback";
+  align-items:start;gap:10px 14px;margin-top:8px;padding-top:10px;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-inputs{
+  grid-area:inputs;grid-column:auto;grid-row:auto;min-width:0;
+  padding:10px;gap:7px;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-input-grid{
+  display:flex;flex-wrap:wrap;align-items:flex-start;gap:9px;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-input{
+  flex:0 1 154px;width:154px;max-width:calc(33.333% - 6px);min-width:95px;gap:5px;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-input img{
+  width:100%;height:112px;max-height:112px;aspect-ratio:auto;object-fit:contain;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-detail-info{
+  grid-area:info;grid-column:auto;min-width:0;padding:5px 0;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-detail-actions{
+  grid-area:actions;grid-column:1/-1;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;width:100%;padding-top:9px;border-top:1px solid #e5ebf3;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-detail-actions button{
+  width:auto;min-width:84px;white-space:nowrap;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-execution-log,
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail > [role="alert"]{
+  grid-column:1/-1;min-width:0;
+}
+@media(max-width:850px){
+ .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-ecommerce-detail{
+   grid-template-columns:minmax(0,1fr);grid-template-areas:"inputs" "info" "actions" "feedback";
+ }
+ .rrugc-products-photo-stage-row:not(.is-colorway) .is-ecommerce-detail .rrugc-products-photo-input{
+   flex:1 1 115px;max-width:155px;
+ }
+}
