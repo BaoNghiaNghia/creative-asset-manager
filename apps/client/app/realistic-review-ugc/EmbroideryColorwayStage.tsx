@@ -487,7 +487,7 @@ export function EmbroideryColorwayStage({
                   })}
                 </div>
               </td> : <td><ProductsPhotoWorkflow
-                sourceName={plan.source_name} readiness={photoReadiness}
+                sourceName={plan.source_name} designSrc={plan.source_preview_url} readiness={photoReadiness}
                 configuredSkillNames={productStage2SkillNames}
                 colors={Array.from(slots?.values() || [])}
                 colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}

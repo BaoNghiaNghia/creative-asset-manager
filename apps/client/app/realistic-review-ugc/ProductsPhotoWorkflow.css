@@ -66,3 +66,10 @@
 .rrugc-colorway-table.is-products .rrugc-colorway-source.is-product-card>.rrugc-applied-hat-grid{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
 }
+
+.rrugc-products-photo-inputs{flex:1 1 100%;display:grid;gap:7px;padding:9px;border:1px solid #d9e5f2;border-radius:9px;background:#f8fbff}
+.rrugc-products-photo-input-grid{display:flex;gap:10px;flex-wrap:wrap}
+.rrugc-products-photo-input{display:grid;gap:5px;width:110px;max-width:calc(33.333% - 7px);min-width:80px}
+.rrugc-products-photo-input img,.rrugc-products-photo-input>span{display:grid;place-items:center;width:100%;aspect-ratio:1;object-fit:contain;border:1px solid #d8e3ef;border-radius:8px;background:#fff}
+.rrugc-products-photo-input small{font-size:9px;color:#506981;line-height:1.3}
+.rrugc-products-photo-inputs>small{color:#7c8795}

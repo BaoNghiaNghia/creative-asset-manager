@@ -9,14 +9,16 @@ type StepDefinition = {
   title: string;
   skillName: string;
   shots: ReadonlyArray<{ label: string; number: number }>;
+  inputs?: ReadonlyArray<{ label: string; kind: "design" | "front" | "angle" | "side" | "back" }>;
+  inputInstruction?: string;
 };
 
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 const PHOTO_STEPS: StepDefinition[] = [
-  { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }] },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }] },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }] },
-  { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }] },
+  { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "front" }, { label: "Three-quarter hat", kind: "angle" }], inputInstruction: "Hat ThreeQuarter Embroidery: match the front design and cap color while adjusting placement to the angled crown." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "front" }, { label: "Side-angle hat", kind: "side" }], inputInstruction: "Hat Side90 Embroidery: preserve the design, scaled for the visible side perspective, without inventing lettering." },
+  { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "GatorHats 8869 Front to Back: use the real back stock image; do not invent rear embroidery." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
   ] },
@@ -54,6 +56,7 @@ export type ColorwaySkillOption = {
 
 type Props = {
   sourceName: string;
+  designSrc?: string;
   readiness: ProductsStage2PhotoReadiness | null;
   colors?: ColorwayJob[];
   colorwaySkillName?: string;
@@ -71,7 +74,7 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, designSrc = "", readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
@@ -124,6 +127,23 @@ export function ProductsPhotoWorkflow({
               onClick={() => setExpandedStep(opened ? null : step.key)}>{opened ? "Hide" : "Details"} <span aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
           {opened && <div className="rrugc-products-photo-stage-detail">
+            {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
+              <strong>Input references · {step.inputs?.length}</strong>
+              <div className="rrugc-products-photo-input-grid">
+                {step.inputs?.map(input => {
+                  const src = input.kind === "design" ? designSrc :
+                    input.kind === "front" ? "/rrugc/blueprint/fronts/natural-black.webp" :
+                    input.kind === "back" ? "/rrugc/blueprint/stock/natural-black/back.jpg" :
+                    "/rrugc/blueprint/stock/natural-black/side.jpg";
+                  return <div className="rrugc-products-photo-input" key={input.kind}>
+                    {src ? <img src={src} alt={input.label} loading="lazy" /> : <span>Missing artwork</span>}
+                    <small>{input.label}</small>
+                  </div>;
+                })}
+              </div>
+              <p>{step.inputInstruction}</p>
+              <small>Preview references only. Saved embroidered input assets and a verified worker are required before running.</small>
+            </div>}
             <div><strong>{skillName}</strong>
               <p>{isEcommerce
                 ? "This Skill is assigned to " + step.title + " only. Output persists independently once a verified per-image worker is enabled."

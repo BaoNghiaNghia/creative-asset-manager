@@ -5,6 +5,16 @@ import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
 import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
+  it("maps the four Ecommerce skills to their own design/hat reference sets without enabling unfinished workers", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow
+      sourceName="design_02.png" designSrc="/source/design-02.png" readiness={null} />);
+    for (const label of ["Ecommerce · Image 01", "Ecommerce · Image 02", "Ecommerce · Image 03", "Ecommerce · Image 04"]) {
+      expect(html).toContain(label);
+    }
+    expect(html).not.toContain('class="rrugc-products-photo-inputs"');
+    expect(html).toContain("Worker pending");
+  });
+
   it("shows seven configurable skill rows with 10 photo placeholders and 13 colors", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
     expect(html).toContain("Ecommerce · Image 01");
