@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
+import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
 type StepDefinition = {
@@ -88,6 +89,7 @@ export function ProductsPhotoWorkflow({
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
   const [inputs, setInputs] = useState<EcommerceInputReadiness | null>(null);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [jobActionError, setJobActionError] = useState("");
@@ -161,6 +163,15 @@ export function ProductsPhotoWorkflow({
         const skillName = configured || step.skillName;
         const isEcommerce = index < 4;
         const slotInputs = inputs?.slots.find(item => item.stage === step.key);
+        const previewItems: InputPreviewItem[] = (step.inputs || []).map(input => ({
+          key: input.kind,
+          label: input.label,
+          src: input.kind === "design" ? designSrc : input.kind === "embroidered_front"
+            ? (jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
+            : input.kind === "front" ? "/rrugc/blueprint/fronts/natural-black.webp"
+            : input.kind === "back" ? "/rrugc/blueprint/stock/natural-black/back.jpg"
+            : "/rrugc/blueprint/stock/natural-black/side.jpg",
+        })).filter(item => Boolean(item.src));
         const shotJob = jobs.find(item => item.stage === step.key);
         const runnable = isEcommerce && Boolean(configured && slotInputs?.ready && sourcePlanId)
           && !busyStage && !shotJob;
@@ -179,12 +190,12 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
             {step.shots.map(shot => shotJob?.output_url && shotJob.status === "completed"
-              ? <a key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
-                  href={shotJob.output_url} target="_blank" rel="noopener noreferrer"
+              ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
+                  onClick={() => setPreviewGallery([{ key: shotJob.id, label: shot.label + " · output", src: shotJob.output_url! }])}
                   aria-label={"Open " + shot.label + " Ecommerce output"}>
                   <img src={shotJob.output_url} alt={shot.label} loading="lazy" />
                   <b>{String(shot.number).padStart(2, "0")}</b>
-                </a>
+                </button>
               : <span key={shot.number} className="rrugc-products-photo-empty-shot"
                   title={shot.label + " · " + (shotJob?.status || "Not generated")}
                   aria-label={shot.label + " · " + (shotJob?.status || "Not generated")}>
@@ -223,13 +234,12 @@ export function ProductsPhotoWorkflow({
               </small>
               <div className="rrugc-products-photo-input-grid">
                 {step.inputs?.map(input => {
-                  const src = input.kind === "design" ? designSrc :
-                    input.kind === "embroidered_front" ? (jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "") :
-                    input.kind === "front" ? "/rrugc/blueprint/fronts/natural-black.webp" :
-                    input.kind === "back" ? "/rrugc/blueprint/stock/natural-black/back.jpg" :
-                    "/rrugc/blueprint/stock/natural-black/side.jpg";
+                  const item = previewItems.find(preview => preview.key === input.kind);
                   return <div className="rrugc-products-photo-input" key={input.kind}>
-                    {src ? <img src={src} alt={input.label} loading="lazy" /> : <span>Missing artwork</span>}
+                    {item ? <button type="button" className="rrugc-products-photo-preview-trigger" aria-label={"Preview " + input.label} onClick={() => setPreviewGallery(previewItems)}>
+                      <img src={item.src} alt={input.label} loading="lazy" />
+                      <span className="rrugc-products-photo-hover-preview" aria-hidden="true"><img src={item.src} alt="" /></span>
+                    </button> : <span>Missing artwork</span>}
                     <small>{input.label}</small>
                   </div>;
                 })}
@@ -333,5 +343,6 @@ export function ProductsPhotoWorkflow({
 
       </div>
     </div>
+    {previewGallery && <EcommerceInputGalleryModal items={previewGallery} onClose={() => setPreviewGallery(null)} />}
   </div>;
 }
