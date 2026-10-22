@@ -25,6 +25,7 @@
 .rrugc-products-photo-skill-select{display:block;flex:1;min-width:0;width:100%;max-width:100%;height:29px;box-sizing:border-box;padding:4px 20px 4px 6px;border:1px solid #ccd8e8;border-radius:6px;background:#fff;color:#344d70;font-size:9px;font-weight:700;text-overflow:ellipsis}
 .rrugc-products-photo-skill-select:focus-visible{outline:2px solid #315fe9;outline-offset:1px}
 .rrugc-products-photo-skill-select:disabled{opacity:.65}
+.rrugc-products-photo-updated{font-size:9px;color:#6f8198;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rrugc-products-photo-stage-controls{grid-area:controls;display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
 .rrugc-products-photo-run-button{border:1px solid #b9cfef;border-radius:6px;padding:6px 12px;font:inherit;font-size:10px;font-weight:800;background:#e8f0ff;color:#385f91;cursor:pointer}
 .rrugc-products-photo-run-button:hover{background:#dbeafe}
@@ -50,12 +51,10 @@
 .rrugc-products-photo-stage-detail button,.rrugc-products-photo-stage-detail select{font:inherit;font-size:9px;min-height:27px;padding:5px 7px;border-radius:6px;border:1px solid #cbd8e9;background:#fff;color:#305b91;font-weight:750;cursor:pointer}
 .rrugc-products-photo-stage-detail button:disabled{opacity:.55;cursor:not-allowed}
 .rrugc-products-photo-stage-detail select{max-width:165px}
-.rrugc-colorway-table.is-products{min-width:1240px}
-.rrugc-colorway-table.is-products th:nth-child(1){width:32px}
-.rrugc-colorway-table.is-products th:nth-child(2){width:230px}
-.rrugc-colorway-table.is-products th:nth-child(3){width:auto}
-.rrugc-colorway-table.is-products th:nth-child(4){width:108px}
-.rrugc-colorway-table.is-products tbody td:nth-child(3){min-width:800px}
+.rrugc-colorway-table.is-products{min-width:1120px}
+.rrugc-colorway-table.is-products th:nth-child(1){width:230px}
+.rrugc-colorway-table.is-products th:nth-child(2){width:auto}
+.rrugc-colorway-table.is-products tbody td:nth-child(2){min-width:800px}
 @media(max-width:960px){.rrugc-colorway-table.is-products{min-width:1190px}.rrugc-products-photo-pipeline{min-width:0}.rrugc-products-photo-stage-row{grid-template-columns:minmax(175px,215px) minmax(0,1fr);column-gap:10px;padding:9px}.rrugc-products-photo-stage-detail>div{min-width:100%}}
 @media(max-width:700px){.rrugc-products-photo-stage-row{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "outputs" "skill" "controls"}.rrugc-products-photo-output-strip{justify-content:flex-start}.rrugc-products-photo-stage-controls{justify-content:flex-start}}
 @media(prefers-reduced-motion:reduce){.rrugc-products-photo-pipeline *{scroll-behavior:auto}}

@@ -487,19 +487,19 @@ export function EmbroideryColorwayStage({
         data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead>
           <tr>
-            <th aria-label="Select design" />
-            <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
+            {workflow === "reviews" && <th aria-label="Select design" />}
+            <th className={workflow === "reviews" && sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
             <th>{workflow === "products" ? "7-skill configuration · 23 outputs" : "13-color batch"}</th>
             {workflow === "reviews" && <><th>Progress</th>
             <th>Skill</th>
             <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th></>}
-            <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>
+            {workflow === "reviews" && <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>}
           </tr>
         </thead>
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
             <tr key={index} className="rrugc-colorway-skeleton-row">
-              <td><span /></td><td><span /></td><td><span /></td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td></>}<td><span /></td>
+              {workflow === "reviews" && <td><span /></td>}<td><span /></td><td><span /></td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td><td><span /></td></>}
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -509,15 +509,15 @@ export function EmbroideryColorwayStage({
             const inProgress = Array.from(slots?.values() || []).filter(job => job.status === "running" || job.status === "queued").length;
             const lastUpdated = plan.updated_at && Number.isFinite(Date.parse(plan.updated_at))
               ? new Date(plan.updated_at) : null;
-            return <tr key={plan.id} className={selected ? "is-selected" : ""}>
-              <td className="rrugc-colorway-check-cell">
+            return <tr key={plan.id} className={workflow === "reviews" && selected ? "is-selected" : ""}>
+              {workflow === "reviews" && <td className="rrugc-colorway-check-cell">
                 <input
                   type="checkbox"
                   checked={selected}
                   aria-label={"Select " + cleanDesignName(plan.source_name)}
                   onChange={() => toggleDesign(plan.id)}
                 />
-              </td>
+              </td>}
               <td><DesignSource plan={plan} productLayout={workflow === "products"} /></td>
               {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
@@ -542,6 +542,7 @@ export function EmbroideryColorwayStage({
                   })}
                 </div>
               </td> : <td><ProductsPhotoWorkflow
+                lastUpdated={plan.updated_at}
                 sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} readiness={photoReadiness}
                 ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
                 onEcommerceJobChange={refreshEcommerceJobs}
@@ -575,17 +576,17 @@ export function EmbroideryColorwayStage({
                 </div>
               </td>
               <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td></>}
-              <td className="rrugc-colorway-sort-meta">
+              {workflow === "reviews" && <td className="rrugc-colorway-sort-meta">
                 {lastUpdated
                   ? <time dateTime={lastUpdated.toISOString()} title={lastUpdated.toLocaleString()}>
                     {lastUpdated.toLocaleDateString()}
                   </time>
                   : "—"}
-              </td>
+              </td>}
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={workflow === "products" ? 4 : 7} className="rrugc-source-plan-empty">
+            <td colSpan={workflow === "products" ? 2 : 7} className="rrugc-source-plan-empty">
               No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}

@@ -433,8 +433,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("bad day hotdog");
     expect(markup).not.toContain("<th>13-color batch</th>");
     expect(markup).toContain('data-sort-column="source" data-sort-direction="asc"');
-    expect(markup).toContain('<th class="is-sort-column">Embroidery design</th>');
-    expect(markup).toContain(">Last updated</th>");
+    expect(markup).toContain('<th class="">Embroidery design</th>');
+    expect(markup).not.toContain(">Last updated</th>");
+    expect(markup).toContain('rrugc-products-photo-updated');
+    expect(markup).not.toContain('rrugc-colorway-check-cell');
     expect(markup).not.toContain(">Status</th>");
     expect(markup).not.toContain(">13-color progress</th>");
     expect(markup).not.toContain(">Colorway skill</th>");
@@ -459,7 +461,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         />,
       );
       expect(sorted).toContain(`data-sort-column="${sortBy}" data-sort-direction="${direction}"`);
-      expect(sorted).toContain(`<th class="is-sort-column">${header}</th>`);
+      expect(sorted).not.toContain(`<th class="is-sort-column">${header}</th>`);
     }
   });
 

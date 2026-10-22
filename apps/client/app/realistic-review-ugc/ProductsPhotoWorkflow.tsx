@@ -56,6 +56,7 @@ export type ColorwaySkillOption = {
 
 type Props = {
   sourceName: string;
+  lastUpdated?: string | null;
   sourcePlanId?: string;
   designSrc?: string;
   ecommerceJobs?: EcommerceJob[];
@@ -77,7 +78,7 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, sourcePlanId = "", designSrc = "", ecommerceJobs: jobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", ecommerceJobs: jobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
@@ -190,6 +191,7 @@ export function ProductsPhotoWorkflow({
             <span>Skill {index + 1}</span><strong>{skillName}</strong>
           </div>
           <div className="rrugc-products-photo-stage-controls">
+            <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
             <span className={"rrugc-products-photo-state " + (status === "Ready" || status === "Completed" ? "is-done" : status === "Failed" ? "is-failed" : status === "Running" || status === "Queued" ? "is-running" : "is-unavailable")}
               title={isEcommerce
                 ? (slotInputs ? "Missing persisted inputs: " + slotInputs.missing_roles.join(", ") : "Waiting for input readiness from server")
