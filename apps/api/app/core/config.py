@@ -138,6 +138,9 @@ class Settings(BaseSettings):
     AI_BATCH_FALLBACK_TO_SINGLE_ENABLED: bool = False
     PERSISTENT_AUTH_ENABLED: bool = False
     RETENTION_CLEANUP_ENABLED: bool = False
+    # "all" preserves the existing policy; production can explicitly canary only
+    # completed_job_payloads without touching sessions, outbox or source history.
+    RETENTION_CLEANUP_RECORD_TYPES: str = "all"
     # Explicit opt-in prevents cleanup from deleting an existing backlog on deploy.
     MANAGED_STORAGE_AUTO_CLEANUP_ENABLED: bool = False
     DEVELOPMENT_PERSONAL_TENANT_ENABLED: bool = False

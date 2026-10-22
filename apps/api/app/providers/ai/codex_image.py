@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import signal
@@ -13,7 +14,6 @@ from pathlib import Path
 from PIL import Image
 
 from app.providers.ai.codex_execution_log import CodexExecutionLog, stream_codex_process, prune_codex_execution_logs
-
 from app.modules.image_generation.providers import (
     GeneratedImageFile,
     GeneratedImageResult,
@@ -21,6 +21,7 @@ from app.modules.image_generation.providers import (
     ReferenceImageInput,
 )
 
+_cleanup_logger = logging.getLogger(__name__)
 
 _SAFE_SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _SAFE_LABEL_RE = re.compile(r"[^a-z0-9]+")
@@ -663,8 +664,11 @@ class CodexImageGenRunner:
                 try:
                     if not transient.is_symlink() and transient.is_dir():
                         shutil.rmtree(transient)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    _cleanup_logger.warning(
+                        "codex_job_runtime_cache_cleanup_failed error_type=%s",
+                        type(exc).__name__,
+                    )
         if checkpoint_hashes:
             preserved_changed = False
             for number, digest in checkpoint_hashes.items():
@@ -1060,17 +1064,30 @@ class CodexImageGenRunner:
                     continue
                 if transient.is_dir() and transient.resolve().is_relative_to(workspace.resolve()):
                     shutil.rmtree(transient)
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as exc:
+                _cleanup_logger.warning(
+                    "codex_job_preview_cleanup_failed error_type=%s", type(exc).__name__,
+                )
 
     def cleanup_attempt(self, attempt_id: str) -> None:
-        workspace = Path(self.config.staging_root).resolve() / "codex" / attempt_id
+        """Only remove a direct job workspace; never follow links or parent traversal."""
+        if (not attempt_id or attempt_id in (".", "..")
+                or "/" in attempt_id or "\\" in attempt_id):
+            _cleanup_logger.warning("codex_job_cleanup_skipped invalid_attempt_id")
+            return
+        codex_root = Path(self.config.staging_root).resolve() / "codex"
+        workspace = codex_root / attempt_id
+        if codex_root.is_symlink() or workspace.is_symlink():
+            _cleanup_logger.warning("codex_job_cleanup_skipped symlink_workspace")
+            return
         try:
             shutil.rmtree(workspace)
         except FileNotFoundError:
             pass
-        except OSError:
-            pass
+        except OSError as exc:
+            _cleanup_logger.warning(
+                "codex_job_workspace_cleanup_failed error_type=%s", type(exc).__name__,
+            )
 
     def _skill_path(self) -> Path:
         return (

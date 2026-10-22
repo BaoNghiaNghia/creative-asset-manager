@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import time
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -104,6 +106,29 @@ class VideoProxyPreparationServiceTest(unittest.TestCase):
         with self.sessions() as session: return build_video_source_fingerprint(session.get(SourceAssetModel, "asset-a"))
     def service(self, factory=None, resolver=None, settings=None, free=10**9):
         return VideoProxyPreparationService(self.sessions, settings or self.settings(), content_resolver=resolver or FakeResolver(), create_subprocess_exec=factory or FakeProcessFactory(), disk_usage=lambda _path: SimpleNamespace(free=free), storage_poll_seconds=.001)
+    def test_stale_cleanup_counts_only_deleted_proxy_directories(self):
+        root = Path(self.temp.name)
+        stale = root / "video-proxy-abandoned"
+        stale.mkdir()
+        (stale / "chunk.mp4").write_bytes(b"video" * 20)
+        old = time.time() - 48 * 3600
+        os.utime(stale, (old, old))
+        source = root / "important-source"
+        source.mkdir()
+        (source / "protected.mp4").write_bytes(b"original")
+        (root / "video-proxy-linked").symlink_to(source, target_is_directory=True)
+        service = self.service(settings=self.settings(VIDEO_PROXY_STALE_RETENTION_HOURS=24))
+        self.assertEqual(service.cleanup_stale(dry_run=True), (1, 100))
+        self.assertTrue(stale.exists())
+        with patch("app.modules.video_search.proxy.shutil.rmtree", side_effect=PermissionError("private path")):
+            with self.assertLogs("app.modules.video_search.proxy", level="WARNING") as recorded:
+                self.assertEqual(service.cleanup_stale(), (0, 0))
+            self.assertTrue(any("video_proxy_stale_cleanup_failed error_type=PermissionError" in x for x in recorded.output))
+            self.assertFalse(any("private path" in x for x in recorded.output))
+        self.assertEqual(service.cleanup_stale(), (1, 100))
+        self.assertFalse(stale.exists())
+        self.assertEqual((source / "protected.mp4").read_bytes(), b"original")
+
     def test_streams_many_blocks_to_seekable_source_file_and_builds_safe_command(self):
         factory, resolver = FakeProcessFactory(), FakeResolver(tuple(bytes([n]) for n in range(20)))
         service = self.service(factory, resolver)

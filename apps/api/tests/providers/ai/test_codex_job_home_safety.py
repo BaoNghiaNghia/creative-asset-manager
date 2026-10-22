@@ -57,6 +57,39 @@ def test_codex_job_home_isolated_cache_and_cleanup_preserves_final_checkpoint(tm
     with pytest.raises(CodexImageProviderError, match="unsafe"):
         _isolated_job_codex_home(source, other)
 
+def test_cleanup_attempt_rejects_traversal_and_link_targets(tmp_path):
+    root = tmp_path / "stage"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "important.png").write_bytes(b"source")
+    codex = root / "codex"
+    codex.mkdir(parents=True)
+    (codex / "linked").symlink_to(outside, target_is_directory=True)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(staging_root=str(root)))
+    for attempt_id in ("../outside", ".", "..", str(outside), "linked", ""):
+        runner.cleanup_attempt(attempt_id)
+    assert (outside / "important.png").read_bytes() == b"source"
+    assert (codex / "linked").is_symlink()
+
+
+def test_cleanup_attempt_errors_are_logged_not_silenced(tmp_path, monkeypatch, caplog):
+    import logging
+    from app.providers.ai import codex_image
+
+    root = tmp_path / "stage"
+    workspace = root / "codex" / "job-one"
+    workspace.mkdir(parents=True)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(staging_root=str(root)))
+    def deny_delete(path):
+        raise PermissionError("private path and token must not be logged")
+    monkeypatch.setattr(codex_image.shutil, "rmtree", deny_delete)
+    with caplog.at_level(logging.WARNING, logger=codex_image.__name__):
+        runner.cleanup_attempt("job-one")
+    assert workspace.exists()
+    assert "codex_job_workspace_cleanup_failed error_type=PermissionError" in caplog.text
+    assert "private path and token" not in caplog.text
+
+
 def test_timeout_drops_job_cache_but_keeps_partial_final(tmp_path, monkeypatch):
     import asyncio
     account=tmp_path/"account"

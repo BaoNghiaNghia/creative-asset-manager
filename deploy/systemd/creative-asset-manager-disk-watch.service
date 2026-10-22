@@ -1,0 +1,20 @@
+[Unit]
+Description=CAM read-only VPS disk pressure monitor
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+WorkingDirectory=/
+ExecStart=/usr/bin/python3 /opt/creative-asset-manager/current/scripts/cam-disk-watch.py --mount /
+TimeoutStartSec=20s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX

@@ -1,5 +1,18 @@
 # Implementation Roadmap
 
+## Disk pressure P0/P1/P2 safeguards — 2026-10-22
+
+- [x] Add opt-in tenant retention canary for completed job payloads only, without deleting job identities or changing the default disabled production policy.
+- [x] Recover from partially created cleanup runs if queue enqueue fails; protect job idempotency and keep errors redacted.
+- [x] Harden Codex/video proxy temporary cleanup observability and reject unsafe attempt paths.
+- [x] Add retry for transient Google Drive *reads* in legacy Stage 1 retention; never retry deletion.
+- [x] Add lightweight disk threshold monitor and optional systemd timer (source only, not automatically installed).
+- [ ] Approve and activate low-rate retention canary after validated backups/free-space, then verify count-only metrics.
+- [ ] Design a separate reviewed PostgreSQL job-history archival/tombstone migration; never mass-delete existing job rows.
+- [ ] Schedule standalone review of orphaned video-final checkpoints, safely mapped to committed remote objects.
+
+Runbook: [Disk pressure and retention operations](docs/operations/DISK_PRESSURE_RETENTION_20261022.md).
+
 ## Inventory business audit (2026-10-21)
 
 - [x] Make stale source/readback conflicts terminal for human review; preserve technical retries and active leases.

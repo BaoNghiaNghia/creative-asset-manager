@@ -58,6 +58,52 @@ def test_retention_token_errors_never_mutate_drive(monkeypatch, retryable, expec
     assert delays == ([1, 2] if retryable else [])
 
 
+def test_temp_retention_retries_drive_reads_but_never_retries_writes(monkeypatch):
+    attempts, sleeps = [], []
+    async def no_wait(delay):
+        sleeps.append(delay)
+    monkeypatch.setattr("app.operations.stage1_temp_retention.asyncio.sleep", no_wait)
+
+    def handler(request):
+        assert request.method == "GET"
+        if request.url.path.endswith("/" + TEMP_FOLDER_ID):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise httpx.ConnectTimeout("transient", request=request)
+            return httpx.Response(200, json={
+                "id": TEMP_FOLDER_ID,
+                "mimeType": "application/vnd.google-apps.folder", "trashed": False,
+            })
+        return httpx.Response(200, json={"files": []})
+
+    storage = GoogleDriveAssetStorage(
+        storage_access_token="test", root_folder_id="final-root",
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(purge(storage, apply=True, purge_all_owned=True))
+    assert result["deleted"] == result["errors"] == 0
+    assert len(attempts) == 3
+    assert sleeps == [1, 2]
+
+
+def test_temp_retention_exhausted_drive_reads_fail_closed(monkeypatch):
+    async def no_wait(_):
+        pass
+    monkeypatch.setattr("app.operations.stage1_temp_retention.asyncio.sleep", no_wait)
+    attempts = []
+    def handler(request):
+        assert request.method == "GET"
+        attempts.append(1)
+        raise httpx.ConnectTimeout("temporary unavailable", request=request)
+    storage = GoogleDriveAssetStorage(
+        storage_access_token="test", root_folder_id="final-root",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(httpx.ConnectTimeout):
+        asyncio.run(purge(storage, apply=True, purge_all_owned=True))
+    assert len(attempts) == 3
+
+
 def record(name, *, now, age_hours, owned=True, folder=TEMP_FOLDER_ID):
     return {
         "id": name,

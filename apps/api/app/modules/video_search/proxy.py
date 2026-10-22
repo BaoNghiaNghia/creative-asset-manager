@@ -682,21 +682,32 @@ class VideoProxyPreparationService:
 
     @staticmethod
     def _remove_working_directory(directory: Path) -> None:
-        shutil.rmtree(directory, ignore_errors=True)
+        try:
+            shutil.rmtree(directory)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning("video_proxy_temp_cleanup_failed error_type=%s", type(exc).__name__)
 
     def cleanup_stale(self, *, dry_run: bool = False) -> tuple[int, int]:
-        """Remove abandoned proxy workspaces older than the configured TTL."""
+        """Sweep owned stale proxy workspaces, reporting only confirmed deletions."""
         root = self._configured_root().resolve()
         cutoff = time.time() - (getattr(self._settings, "VIDEO_PROXY_STALE_RETENTION_HOURS", 24) * 3600)
         removed = bytes_freed = 0
         for directory in root.glob("video-proxy-*"):
-            if not directory.is_dir() or directory.is_symlink() or directory.stat().st_mtime >= cutoff:
-                continue
-            size = sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
-            if not dry_run:
-                shutil.rmtree(directory, ignore_errors=True)
-            removed += 1
-            bytes_freed += size
+            try:
+                if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mtime >= cutoff:
+                    continue
+                size = sum(
+                    path.stat().st_size for path in directory.rglob("*")
+                    if not path.is_symlink() and path.is_file()
+                )
+                if not dry_run:
+                    shutil.rmtree(directory)
+                removed += 1
+                bytes_freed += size
+            except OSError as exc:
+                logger.warning("video_proxy_stale_cleanup_failed error_type=%s", type(exc).__name__)
         return removed, bytes_freed
 
     def cleanup(self, chunks: tuple[PreparedVideoChunk, ...] | list[PreparedVideoChunk]) -> None:

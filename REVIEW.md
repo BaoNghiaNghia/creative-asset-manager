@@ -1,3 +1,12 @@
+## Disk pressure P0/P1/P2 hardening — 2026-10-22 (candidate, not deployed)
+
+- Source base: latest inspected Git object `e5eeb96d`; production release was `ef99c463` at audit time. Changes live in isolated `fix/cam-disk-pressure-guard-20261022` worktree, not the active working branch.
+- P0: live PostgreSQL observed ~638k processing jobs with ~321,764 completed >30 days retaining payload. Production retention flag was OFF, with zero scheduled cleanup runs. Candidate adds an explicit allowlisted scope option to canary only completed-job payloads and marks orphaned queue-bootstrap runs failed. No job deletion or database schema changes.
+- P1: Codex cleanup now rejects traversal and links, reports failures using error classes only; video proxy stale deletion counts confirmed results only. Historical unverified shared PNG files remain protected.
+- P2: Stage 1 Drive cleanup retries idempotent read operations only, preserving deletion ownership checks and no write retries. A lightweight read-only disk usage monitor and optional 15-minute systemd timer were added, not enabled.
+- Deployment: no production deployment, no production config change, no migration, no secrets or user media touched by this code patch. Backup verification, disk headroom, canary metrics and latest-release reconciliation remain gates. Rollback uses immutable release pointer and disables retention flag; previously redacted fields are not reconstructible.
+- Test and known-risk details: see `docs/operations/DISK_PRESSURE_RETENTION_20261022.md`. Full job-history archival/tombstone migration and verified orphan video-final retention are deferred explicitly.
+
 ## Inventory business audit (2026-10-21)
 
 - Scope: repaired stale-evidence retry/recovery, added the exact-Q47 legacy carry-forward guard, implemented explicit manager-authorized atomic material bulk review, and corrected UI permission/request lifecycle behavior. Physical close, stock posting, and Catinat Sheets carry-forward remain gated.

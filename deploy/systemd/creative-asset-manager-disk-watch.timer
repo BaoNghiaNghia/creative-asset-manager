@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch CAM root disk pressure every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/15
+AccuracySec=1min
+Persistent=true
+Unit=creative-asset-manager-disk-watch.service
+
+[Install]
+WantedBy=timers.target

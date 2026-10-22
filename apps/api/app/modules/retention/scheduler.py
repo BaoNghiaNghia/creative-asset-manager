@@ -10,7 +10,9 @@ from app.core.config import Settings
 from app.modules.application_logs.model import LogApplicationModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
-from app.modules.retention.service import CleanupAlreadyRunning, RetentionCleanupService
+from app.modules.retention.service import (
+    RECORD_TYPES, CleanupAlreadyRunning, RetentionCleanupService,
+)
 
 
 class RetentionCleanupScheduler:
@@ -20,26 +22,46 @@ class RetentionCleanupScheduler:
         self.session_factory = session_factory
         self.settings = settings
 
+    def _record_types(self) -> tuple[str, ...]:
+        configured = self.settings.RETENTION_CLEANUP_RECORD_TYPES.strip()
+        if configured.lower() == "all":
+            return RECORD_TYPES
+        selected = tuple(item.strip() for item in configured.split(","))
+        if not selected or any(not item for item in selected):
+            raise ValueError("RETENTION_CLEANUP_RECORD_TYPES contains an empty record type")
+        if len(set(selected)) != len(selected) or any(item not in RECORD_TYPES for item in selected):
+            raise ValueError("RETENTION_CLEANUP_RECORD_TYPES must contain unique supported record types")
+        return selected
+
     def schedule_tenant(
         self, tenant_id: str, *, cutoff_at: datetime, next_attempt_at: datetime
     ) -> bool:
+        record_types = self._record_types()
         try:
             run = RetentionCleanupService(
                 self.session_factory, self.settings
-            ).create_run(tenant_id=tenant_id, now=cutoff_at)
+            ).create_run(tenant_id=tenant_id, now=cutoff_at, record_types=record_types)
         except CleanupAlreadyRunning:
             return False
-        with self.session_factory() as session:
-            ProcessingRepository(session).create_job(
-                tenant_id=tenant_id,
-                job_type="retention_cleanup",
-                entity_type="retention_cleanup_run",
-                entity_id=run.id,
-                idempotency_key=f"retention-cleanup:{run.id}",
-                payload={"cleanup_run_id": run.id},
-                next_attempt_at=next_attempt_at,
+        try:
+            with self.session_factory() as session:
+                ProcessingRepository(session).create_job(
+                    tenant_id=tenant_id,
+                    job_type="retention_cleanup",
+                    entity_type="retention_cleanup_run",
+                    entity_id=run.id,
+                    idempotency_key=f"retention-cleanup:{run.id}",
+                    payload={"cleanup_run_id": run.id},
+                    next_attempt_at=next_attempt_at,
+                )
+                session.commit()
+        except Exception as exc:
+            # Run creation uses a separate transaction. Without this failure
+            # transition a stranded pending run blocks all future scheduling.
+            RetentionCleanupService(self.session_factory, self.settings).record_failure(
+                tenant_id=tenant_id, run_id=run.id, error_code=type(exc).__name__,
             )
-            session.commit()
+            raise
         return True
 
     def schedule_known_tenants(self, *, now: datetime | None = None) -> int:

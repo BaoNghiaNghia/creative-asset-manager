@@ -27,6 +27,21 @@ OWNED_ASSET = re.compile(
 )
 ENDPOINT = "https://www.googleapis.com/drive/v3/files"
 TOKEN_ATTEMPTS = 3
+DRIVE_GET_ATTEMPTS = 3
+
+
+async def drive_get_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Retry transient read-only Drive requests; never retry mutations or 4xx."""
+    for attempt in range(DRIVE_GET_ATTEMPTS):
+        try:
+            return await client.get(url, **kwargs)
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as exc:
+            if attempt == DRIVE_GET_ATTEMPTS - 1:
+                raise
+            log.warning("stage1_temp_drive_read_retry attempt=%d error_type=%s",
+                        attempt + 1, type(exc).__name__)
+            await asyncio.sleep(2 ** attempt)
+    raise AssertionError("Unreachable Drive read retry state")
 
 
 async def access_token_with_retry(storage: GoogleDriveAssetStorage) -> str:
@@ -87,7 +102,7 @@ async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
     ) as client:
         # A query against an inaccessible folder can silently return zero
         # results; explicitly confirm the destination folder is visible.
-        check = await client.get(
+        check = await drive_get_with_retry(client,
             f"{ENDPOINT}/{TEMP_FOLDER_ID}",
             params={"fields": "id,mimeType,trashed", "supportsAllDrives": "true"},
         )
@@ -108,7 +123,7 @@ async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
             }
             if page:
                 params["pageToken"] = page
-            response = await client.get(ENDPOINT, params=params)
+            response = await drive_get_with_retry(client, ENDPOINT, params=params)
             storage._raise_for_status(response)
             body = response.json()
             for record in body.get("files") or []:
@@ -127,7 +142,7 @@ async def purge(storage: GoogleDriveAssetStorage, *, apply: bool = False,
                     # Recheck before deleting, including folder parents and
                     # immutable ownership / creation metadata, to prevent
                     # deleting a file moved or repurposed during pagination.
-                    response = await client.get(
+                    response = await drive_get_with_retry(client,
                         f"{ENDPOINT}/{record['id']}",
                         params={
                             "fields": "id,name,parents,createdTime,mimeType,trashed,appProperties",
