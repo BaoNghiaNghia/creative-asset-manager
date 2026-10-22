@@ -362,6 +362,44 @@ def ensure_skill_registry(
         ).order_by(RrugcStage2SkillRegistryModel.enabled.desc(),
                    RrugcStage2SkillRegistryModel.display_name)))
     _sync_changed_local_skills(session, tenant_id=tenant_id, rows=rows)
+    # Assign only never-configured Ecommerce slots. An explicit NULL assignment
+    # is the tenant's opt-out, and must remain untouched.
+    defaults = {
+        "prod_s2_ec1": "gatorhats-8869-ecommerce-front",
+        "prod_s2_ec2": "gatorhats-8869-ecommerce-three-quarter",
+        "prod_s2_ec3": "gatorhats-8869-ecommerce-right-side",
+        "prod_s2_ec4": "gatorhats-8869-ecommerce-back",
+    }
+    configured = set(session.scalars(
+        select(RrugcStageSkillDefaultModel.stage).where(
+            RrugcStageSkillDefaultModel.tenant_id == tenant_id,
+            RrugcStageSkillDefaultModel.stage.in_(tuple(defaults)),
+        )
+    ))
+    by_name = {
+        row.skill_name: row for row in rows
+        if row.source == "local" and row.enabled and row.deleted_at is None
+        and row.validation_status == "valid"
+    }
+    occupied = set(session.scalars(
+        select(RrugcStageSkillDefaultModel.registry_id).where(
+            RrugcStageSkillDefaultModel.tenant_id == tenant_id,
+            RrugcStageSkillDefaultModel.registry_id.is_not(None),
+        )
+    ))
+    assigned = False
+    for stage, name in defaults.items():
+        skill = by_name.get(name)
+        if stage in configured or skill is None or skill.id in occupied:
+            continue
+        session.add(RrugcStageSkillDefaultModel(
+            tenant_id=tenant_id, stage=stage, registry_id=skill.id,
+            updated_at=utcnow(),
+        ))
+        occupied.add(skill.id)
+        assigned = True
+    if assigned:
+        session.commit()
     return rows
 
 
