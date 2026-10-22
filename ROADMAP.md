@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## Disk pressure — phase 2 fail-closed production rollout (2026-10-23)
+
+- [x] Keep legacy job identities/idempotency intact; inspect live FK/index dependencies.
+- [x] Add private remote-backup receipt published only after checksum-verified workflow success; never equate with tested restore.
+- [x] Refuse to schedule/execute retention in production without >=8GiB free and a recent remote backup receipt; keep flag OFF by default.
+- [x] Include fixed read-only disk-watch service/timer in the reviewed backend deployment workflow.
+- [ ] Verify isolated restore of recent production dump, disk >=8GiB and activate the bounded retention canary.
+- [ ] Review job-history tombstone/archival proposal and controlled index rebuild separately; do not mass-delete 646k jobs.
+
 ## Disk pressure P0/P1/P2 safeguards — 2026-10-22
 
 - [x] Add opt-in tenant retention canary for completed job payloads only, without deleting job identities or changing the default disabled production policy.

@@ -20,6 +20,43 @@ canary. Unsupported, empty or repeated values fail without scheduling.
 If creation of a cleanup run succeeds but enqueue of the cleanup job fails,
 the orphaned run is marked failed so future schedules are not blocked.
 
+## P0 phase 2 production safety controls (2026-10-23)
+
+Production retention additionally refuses to **schedule** or **execute** any
+mutating job unless all of the following are true:
+
+- `RETENTION_CLEANUP_ENABLED=true` explicitly (default stays false).
+- The root partition has at least 8 GiB **available to non-root**, using
+  statvfs(f_bavail), not gross disk size. Override only after separate capacity
+  review using `RETENTION_CLEANUP_MIN_FREE_BYTES`.
+- The managed backup feature is enabled and a private,
+  `/var/lib/creative-asset-manager/database-backup/.latest-verified-remote-backup.json`
+  receipt was written by the backup CLI after a **new remote checksum-verified
+  Google Drive upload**. The receipt contains only checksum, size, UTC time
+  and a non-secret verification flag; no tokens, PostgreSQL URL or Drive folder
+  IDs. Missing, symlinked, world/group readable, invalid, future-dated or
+  older than 108 hours fails closed. Max age follows the longest Fri→Tue
+  96-hour backup schedule gap plus 12 hours of tolerance.
+
+**Important:** The receipt is not proof of a successful test restore. Restore
+verification into an isolated database is still a manual release gate and is
+not silently inferred from an upload/checksum. The receipt is written only
+after the full verified backup workflow succeeds. The first backup after
+this version is deployed creates the first receipt; earlier backup logs do
+not silently backfill the marker. An on-disk marker is operational evidence,
+not a cryptographic attestation against compromise of the application account.
+
+On 2026-10-23 06:27, VPS space was ~7.5 GiB and production had no new
+receipt, so **both automatic production gates correctly block retention**.
+No database rows have been redacted by this phase.
+
+The normal reviewed backend release script now installs, enables and starts
+the pre-existing read-only `creative-asset-manager-disk-watch` systemd timer.
+Its exact unit is fixed in the repository. It uses the immutable release's
+`creative-assets` owner (release directory mode 0750), strict filesystem
+protection, no network and no write paths. Standalone arbitrary host-level
+service modifications are not part of this workflow.
+
 ## P0 rollout gates
 
 1. Use the latest approved frontend/backend release, not an unrelated stale
@@ -39,7 +76,8 @@ the orphaned run is marked failed so future schedules are not blocked.
    SELECT pg_size_pretty(pg_total_relation_size('processing_jobs'));
    ```
 
-3. Production canary variables (requires an approved, reviewed config rollout):
+3. Production canary variables (requires a verified fresh backup receipt,
+   an isolated test restore, at least 8 GiB headroom and a reviewed config rollout):
 
    ```text
    RETENTION_CLEANUP_ENABLED=true
@@ -47,6 +85,8 @@ the orphaned run is marked failed so future schedules are not blocked.
    RETENTION_CLEANUP_BATCH_SIZE=100
    RETENTION_CLEANUP_MAX_ROWS=1000
    RETENTION_CLEANUP_INTERVAL_SECONDS=3600
+   RETENTION_CLEANUP_MIN_FREE_BYTES=8589934592
+   RETENTION_CLEANUP_BACKUP_MAX_AGE_HOURS=108
    ```
 
    The initial rate must be verified on a small test tenant or a known

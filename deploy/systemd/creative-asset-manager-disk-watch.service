@@ -3,7 +3,9 @@ Description=CAM read-only VPS disk pressure monitor
 
 [Service]
 Type=oneshot
-DynamicUser=yes
+# The immutable backend release is mode 0750 and owned by creative-assets.
+User=creative-assets
+Group=creative-assets
 WorkingDirectory=/
 ExecStart=/usr/bin/python3 /opt/creative-asset-manager/current/scripts/cam-disk-watch.py --mount /
 TimeoutStartSec=20s

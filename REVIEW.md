@@ -1,3 +1,13 @@
+## Disk pressure follow-up — 2026-10-23 (phase 2)
+
+- Source starts at deployed backend `de8de794`; no schema/data migration.
+- The backup CLI writes a private, atomic non-secret remote-verification receipt only after its existing backup workflow succeeds; no change to Drive retention or dump commands.
+- Retention scheduler and executor independently enforce a production >=8GiB available-space threshold and a receipt not older than 108h. Missing data fails closed and only sanitized reason codes are logged. The receipt proves a remote copy, **not a successful restore**.
+- The official backend deployer installs and enables the fixed read-only disk watchdog timer as a normal reviewed release change; its user matches the private release owner `creative-assets`, with no network or write paths.
+- Production retention remains disabled pending a fresh backup + isolated restore verification and sufficient disk. No job data has been deleted/redacted by this patch.
+- Migration/secret changes: none. Rollback: use previously retained immutable release, disable retention flag and timer if necessary; preserve all assets, backup data and job IDs.
+- Regressions: receipt freshness/symlink/privacy, low-disk/missing backup guard, backup CLI, retention idempotency, deployment script timer contract.
+
 ## Disk pressure P0/P1/P2 hardening — 2026-10-22 (candidate, not deployed)
 
 - Source base: latest inspected Git object `e5eeb96d`; production release was `ef99c463` at audit time. Changes live in isolated `fix/cam-disk-pressure-guard-20261022` worktree, not the active working branch.

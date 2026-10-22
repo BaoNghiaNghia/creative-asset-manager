@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Callable
+import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.retention.service import (
     RECORD_TYPES, CleanupAlreadyRunning, RetentionCleanupService,
 )
+from app.modules.retention.production_guard import retention_block_reason
+
+_log = logging.getLogger(__name__)
 
 
 class RetentionCleanupScheduler:
@@ -36,6 +40,10 @@ class RetentionCleanupScheduler:
     def schedule_tenant(
         self, tenant_id: str, *, cutoff_at: datetime, next_attempt_at: datetime
     ) -> bool:
+        reason = retention_block_reason(self.settings)
+        if reason is not None:
+            _log.warning("retention_production_preflight_blocked reason=%s", reason)
+            return False
         record_types = self._record_types()
         try:
             run = RetentionCleanupService(
@@ -66,6 +74,10 @@ class RetentionCleanupScheduler:
 
     def schedule_known_tenants(self, *, now: datetime | None = None) -> int:
         if not self.settings.RETENTION_CLEANUP_ENABLED:
+            return 0
+        reason = retention_block_reason(self.settings)
+        if reason is not None:
+            _log.warning("retention_production_preflight_blocked reason=%s", reason)
             return 0
         current = now or datetime.now(timezone.utc)
         with self.session_factory() as session:

@@ -185,6 +185,20 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         self.assertIn("OnUnitActiveSec=5min", timer)
         self.assertIn("Persistent=true", timer)
 
+    def test_backend_installs_read_only_disk_watchdog_with_normal_release(self) -> None:
+        source = BACKEND.read_text()
+        watcher = (ROOT / "deploy/systemd/creative-asset-manager-disk-watch.service").read_text()
+        timer = (ROOT / "deploy/systemd/creative-asset-manager-disk-watch.timer").read_text()
+        self.assertIn("creative-asset-manager-disk-watch.service", source)
+        self.assertEqual(source.count("creative-asset-manager-disk-watch.timer"), 3)
+        self.assertIn("User=creative-assets", watcher)
+        self.assertIn("Group=creative-assets", watcher)
+        self.assertNotIn("DynamicUser=yes", watcher)
+        self.assertIn("ProtectSystem=strict", watcher)
+        self.assertNotIn("ReadWritePaths=", watcher)
+        self.assertIn("OnCalendar=*:0/15", timer)
+        self.assertIn("Persistent=true", timer)
+
     def test_alembic_configuration_includes_the_api_module_path(self) -> None:
         config = (ROOT / "apps" / "api" / "alembic.ini").read_text()
         self.assertIn("prepend_sys_path = %(here)s", config)

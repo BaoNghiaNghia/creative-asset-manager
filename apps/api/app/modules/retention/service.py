@@ -17,6 +17,7 @@ from app.modules.external_ingestion.model import (
 )
 from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
 from app.modules.retention.model import RetentionCleanupRunModel
+from app.modules.retention.production_guard import enforce_retention_guard
 from app.modules.search.operations_model import SearchOperationItemModel, SearchOperationRunModel
 from app.modules.source_sync.model import SourceSyncRunModel
 
@@ -110,6 +111,7 @@ class RetentionCleanupService:
             session.commit()
 
     def execute(self, *, tenant_id: str, run_id: str, cancelled: Callable[[], bool] | None = None) -> RetentionCleanupRunModel:
+        enforce_retention_guard(self.settings)
         processed_this_call = 0
         while processed_this_call < self.settings.RETENTION_CLEANUP_MAX_ROWS:
             with self.session_factory() as session:

@@ -495,6 +495,10 @@ class Settings(BaseSettings):
     RETENTION_CLEANUP_BATCH_SIZE: int = 500
     RETENTION_CLEANUP_MAX_ROWS: int = 5000
     RETENTION_CLEANUP_INTERVAL_SECONDS: int = 86400
+    # Production retention never starts without this much actual free space and
+    # a recently verified remote database backup receipt.
+    RETENTION_CLEANUP_MIN_FREE_BYTES: int = 8 * 1024 * 1024 * 1024
+    RETENTION_CLEANUP_BACKUP_MAX_AGE_HOURS: int = 108
     MANAGED_STORAGE_COMPLETED_RETENTION_HOURS: int = 6
     MANAGED_STORAGE_FAILED_RETENTION_HOURS: int = 24
     MANAGED_STORAGE_CLEANUP_INTERVAL_SECONDS: int = 3600
@@ -1326,6 +1330,8 @@ class Settings(BaseSettings):
             self.RETENTION_CLEANUP_BATCH_SIZE,
             self.RETENTION_CLEANUP_MAX_ROWS,
             self.RETENTION_CLEANUP_INTERVAL_SECONDS,
+            self.RETENTION_CLEANUP_MIN_FREE_BYTES,
+            self.RETENTION_CLEANUP_BACKUP_MAX_AGE_HOURS,
         )
         if min(retention_values) <= 0:
             raise ValueError("Retention settings must be positive")

@@ -131,13 +131,38 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
         workflow = SimpleNamespace(run=lambda: _async_result(workflow_result))
         with patch.object(cli, "verify_configuration"), patch.object(
             cli, "build_components", return_value=(object(), object(), object())
-        ), patch.object(cli, "DatabaseBackupWorkflow", return_value=workflow):
+        ), patch.object(cli, "DatabaseBackupWorkflow", return_value=workflow), patch.object(
+            cli, "write_verified_receipt"
+        ) as receipt:
             result = await cli.run_backup(settings())
+        receipt.assert_called_once()
         self.assertEqual(result["DATABASE_BACKUP"], "SUCCESS")
         self.assertEqual(result["REMOTE_BACKUP_COUNT"], 6)
         self.assertEqual(result["LOCAL_CLEANUP"], "PASS")
         self.assertEqual(result["BACKUP_MD5"], "b" * 32)
         self.assertEqual(result["REMOTE_MD5_CHECKSUM"], "b" * 32)
+
+    async def test_backup_receipt_write_error_fails_closed_without_secret_logs(self):
+        from app.modules.database_backup.workflow import DatabaseBackupWorkflowResult
+        backup = VerifiedDatabaseBackup(
+            Path("/private/path/cam.dump"), datetime.now(timezone.utc), 123,
+            "a" * 64, "b" * 32,
+        )
+        remote = RemoteDatabaseBackup(
+            "remote", "cam.dump", 123, datetime.now(timezone.utc),
+            ("backup-folder",), {"cam_kind": DATABASE_BACKUP_KIND}, "b" * 32,
+        )
+        result = DatabaseBackupWorkflowResult(
+            backup, remote, DatabaseBackupRetentionResult(1, 0, 0, 1)
+        )
+        workflow = SimpleNamespace(run=lambda: _async_result(result))
+        with patch.object(cli, "verify_configuration"), patch.object(
+            cli, "build_components", return_value=(object(), object(), object()),
+        ), patch.object(cli, "DatabaseBackupWorkflow", return_value=workflow), patch.object(
+            cli, "write_verified_receipt", side_effect=PermissionError("token=do-not-log")
+        ), self.assertRaises(DatabaseBackupConfigurationError) as context:
+            await cli.run_backup(settings())
+        self.assertNotIn("do-not-log", str(context.exception))
 
     def test_failure_output_never_includes_exception_message(self):
         output = io.StringIO()

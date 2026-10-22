@@ -25,6 +25,7 @@ from app.modules.database_backup.service import (
     DatabaseBackupService,
 )
 from app.modules.database_backup.workflow import DatabaseBackupWorkflow
+from app.modules.database_backup.verified_receipt import write_verified_receipt
 from app.modules.storage.managed_oauth import resolve_managed_storage_credential
 
 
@@ -100,6 +101,20 @@ async def run_backup(settings: Any) -> dict[str, Any]:
     verify_configuration(settings)
     local, remote, retention = build_components(settings)
     result = await DatabaseBackupWorkflow(local, remote, retention).run()
+    # This is only a remote-copy verification marker; a restore test remains
+    # an independent operator rollout gate. The receipt contains no secrets.
+    try:
+        write_verified_receipt(
+            str(settings.DATABASE_BACKUP_STAGING_DIRECTORY),
+            sha256=result.backup.sha256,
+            local_md5=result.backup.md5_checksum,
+            remote_md5=result.remote.md5_checksum,
+            size_bytes=result.backup.size_bytes,
+        )
+    except (OSError, ValueError) as exc:
+        raise DatabaseBackupConfigurationError(
+            "Remote backup verification receipt could not be saved."
+        ) from exc
     return {
         "BACKUP_STARTED": "YES",
         "STORAGE_PREFLIGHT": "PASS",

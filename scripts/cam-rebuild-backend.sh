@@ -2004,6 +2004,8 @@ for unit in \
   creative-asset-manager-api.service \
   creative-asset-manager-error-logger.service \
   creative-asset-manager-error-logger.timer \
+  creative-asset-manager-disk-watch.service \
+  creative-asset-manager-disk-watch.timer \
   creative-asset-manager-stage1-temp-retention.service \
   creative-asset-manager-stage1-temp-retention.timer \
   creative-asset-manager-stage0-enrichment.service \
@@ -2099,6 +2101,7 @@ info \
 systemctl enable \
   creative-asset-manager-api.service \
   creative-asset-manager-error-logger.timer \
+  creative-asset-manager-disk-watch.timer \
   creative-asset-manager-stage1-temp-retention.timer \
   creative-asset-manager-stage0-enrichment.timer \
   creative-asset-manager-stage1-recovery.timer \
@@ -2186,8 +2189,11 @@ fi
 
 info \
   "Starting 10-day system error logger"
+info \
+  "Starting read-only disk watchdog"
 
 systemctl start \
+  creative-asset-manager-disk-watch.timer \
   creative-asset-manager-error-logger.timer
 
 systemctl start \

@@ -219,6 +219,20 @@ dump failure, unavailable Drive credentials, upload failure, and remote
 verification failure all fail closed. No failure path may delete an existing
 managed backup before a new remote copy has been verified.
 
+## Verified remote-copy receipt (2026-10-23 implementation)
+
+After the complete backup workflow succeeds (PostgreSQL dump and local
+verification, Drive upload, remote independent MD5/size metadata verification,
+retention and local cleanup), the CLI atomically writes a private 0600 receipt
+in the existing backup staging directory. The receipt is lightweight metadata
+for the separately gated production retention worker, not the backup itself.
+It includes no access tokens, connection URLs, personal data or Drive file IDs.
+The receipt does **not** replace an isolated PostgreSQL restore test, and an
+older backup log is not silently trusted as a new receipt. Invalid/missing
+receipts must prevent production retention from scheduling or executing.
+The backup service is authorized to write only under its pre-existing staging
+path; no additional permissions or secret storage are required.
+
 ## Restore and observability
 
 Every dump must support `pg_restore --list`. Never improvise a restore into
