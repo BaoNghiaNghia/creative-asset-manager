@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, BLUEPRINT_SIDE_CALIBRATION_DESIGN, blueprintNavigate, blueprintWindow, blueprintSidePosition } from "./BlueprintPreview";
+import { BlueprintPreview, BLUEPRINT_HAT_COLORS, BLUEPRINT_SIDE_ATLAS, BLUEPRINT_SIDE_CALIBRATION_DESIGN, blueprintNavigate, blueprintWindow, blueprintSidePosition, blueprintHatPhoto } from "./BlueprintPreview";
 import type { GenerationOutputVersion } from "./api";
 import { RIGHT_SIDE_GUIDE } from "./BlueprintSideGuides";
 
@@ -52,6 +52,14 @@ function drag(track: Element, x: number, y: number, endX: number, endY: number) 
 }
 
 describe("Stage 1 Blueprint Cross Puzzle", () => {
+  it("uses updated 12-color front photography and preserves legacy Khaki/Maroon", () => {
+    for (const color of BLUEPRINT_HAT_COLORS) {
+      const url = blueprintHatPhoto(color.id);
+      if (color.id === "khaki-maroon") expect(url).toBe("/rrugc/blueprint/fronts/khaki-maroon.jpg");
+      else expect(url).toBe("/rrugc/blueprint/fronts/natural-" + color.id + ".webp");
+    }
+  });
+
   it("renders ONE horizontal design carousel, ONE vertical color carousel, ONE fixed preview, not a table", () => {
     expect(BLUEPRINT_HAT_COLORS).toHaveLength(13);
     const html = renderToStaticMarkup(<BlueprintPreview versions={versions} />);
@@ -100,7 +108,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     const image = document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img")!;
     // Detail fetches the full output, never the 512px preview thumbnail.
     expect(image.getAttribute("src")).toBe(versions[0].url);
-    expect(document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/black.jpg");
+    expect(document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/natural-black.webp");
     await act(async () => click(document.body, "Zoom in front detail"));
     expect(document.querySelector(".rrugc-blueprint-detail-zoom-controls output")?.textContent).toBe("125%");
     expect(document.querySelector<HTMLElement>(".rrugc-blueprint-detail-pan")?.style.transform).toContain("scale(1.25)");
@@ -182,7 +190,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.style.opacity).toBe("0");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.getAttribute("alt")).toContain("Natural / Brown");
     expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.classList.contains("rrugc-blueprint-smooth-img")).toBe(true);
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/natural-brown.webp");
     expect(host.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-color-hat").length).toBeGreaterThanOrEqual(5);
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Right side design zoom"]')?.max).toBe("200");
     await act(async () => root.render(<BlueprintPreview versions={versions} guides />));
@@ -406,7 +414,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(host.querySelector(".rrugc-blueprint-side-unavailable")?.textContent).toContain("could not be loaded");
     await act(async () => click(host, "Select hat color Natural / Brown"));
     expect(host.querySelector(".rrugc-blueprint-side-unavailable")).not.toBeNull();
-    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/brown.jpg");
+    expect(host.querySelector<HTMLImageElement>(".rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/natural-brown.webp");
     await act(async () => root.unmount());
   });
 

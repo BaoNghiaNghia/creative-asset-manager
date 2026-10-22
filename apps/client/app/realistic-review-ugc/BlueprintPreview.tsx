@@ -48,7 +48,9 @@ export function blueprintNavigate(
 }
 
 export function blueprintHatPhoto(colorId: string) {
-  return "/rrugc/blueprint/fronts/" + encodeURIComponent(colorId) + ".jpg";
+  return colorId === "khaki-maroon"
+    ? "/rrugc/blueprint/fronts/khaki-maroon.jpg"
+    : "/rrugc/blueprint/fronts/natural-" + encodeURIComponent(colorId) + ".webp";
 }
 
 export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.webp";

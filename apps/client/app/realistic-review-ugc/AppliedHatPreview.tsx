@@ -19,7 +19,9 @@ function HatCard({ designSrc, view, enabled, onToggle }: {
   enabled: boolean;
   onToggle: () => void;
 }) {
-  const hatSrc = ROOT + "/" + view.key + ".jpg";
+  const hatSrc = view.key === "front"
+    ? "/rrugc/blueprint/fronts/natural-black.webp"
+    : ROOT + "/" + view.key + ".jpg";
   const materialSrc = useBlueprintEmbroideryComposite(
     enabled && view.key !== "back" ? designSrc : "", hatSrc, "black", "original" as ThreadMode,
     0, view.surface, "preview",
