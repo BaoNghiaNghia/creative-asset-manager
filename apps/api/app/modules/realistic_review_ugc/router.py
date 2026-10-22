@@ -5516,6 +5516,37 @@ def sync_stage2_skill(
     return _stage2_skill(item)
 
 
+@router.get("/products-stage2/ecommerce/input-readiness")
+def ecommerce_input_readiness(
+    source_plan_id: str = Query(..., min_length=1, max_length=36),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Per-design server-backed inventory of durable roles; never treat UI previews as assets."""
+    from app.modules.realistic_review_ugc.ecommerce_input_contract import (
+        SHOTS, build_execution_preflight,
+    )
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    plan = session.scalar(select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.id == source_plan_id,
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+        RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+    ))
+    if plan is None or plan.status == "missing":
+        raise HTTPException(status_code=404, detail="Product source plan not found")
+    assets = {"design": plan.source_file_id}
+    # Official frontend stock paths are NOT durable, tenant-owned references.
+    # A future input-builder must persist the prepared views before declaring ready.
+    return {
+        "source_plan_id": plan.id,
+        "source_revision": plan.source_revision,
+        "slots": [
+            build_execution_preflight(shot.stage, assets, worker_ready=False, skill_ready=False)
+            for shot in SHOTS
+        ],
+    }
+
+
 @router.get("/products-stage2/photo-pipeline/readiness")
 def product_photo_pipeline_readiness(
     principal: CurrentPrincipal = Depends(READ),

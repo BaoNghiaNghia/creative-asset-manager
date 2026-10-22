@@ -1,5 +1,5 @@
-import { useId, useState } from "react";
-import type { ColorwayJob, ProductsStage2PhotoReadiness } from "./api";
+import { useEffect, useId, useState } from "react";
+import { getEcommerceInputReadiness, type EcommerceInputReadiness, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
@@ -56,6 +56,7 @@ export type ColorwaySkillOption = {
 
 type Props = {
   sourceName: string;
+  sourcePlanId?: string;
   designSrc?: string;
   readiness: ProductsStage2PhotoReadiness | null;
   colors?: ColorwayJob[];
@@ -74,12 +75,23 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, designSrc = "", readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, sourcePlanId = "", designSrc = "", readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const [inputs, setInputs] = useState<EcommerceInputReadiness | null>(null);
+  useEffect(() => {
+    if (!sourcePlanId) return;
+    const abort = new AbortController();
+    setInputs(null);
+    void getEcommerceInputReadiness(sourcePlanId, abort.signal)
+      .then(value => { if (!abort.signal.aborted) setInputs(value); })
+      .catch(() => { if (!abort.signal.aborted) setInputs(null); });
+    return () => abort.abort();
+  }, [sourcePlanId]);
+
   const colorSkillSelectId = useId();
   const byColor = new Map(colors.map(job => [job.color_key, job]));
   const complete = colors.filter(job => job.status === "completed").length;
@@ -100,6 +112,8 @@ export function ProductsPhotoWorkflow({
         const configured = configuredSkillNames[step.key];
         const skillName = configured || step.skillName;
         const isEcommerce = index < 4;
+        const slotInputs = inputs?.slots.find(item => item.stage === step.key);
+
         // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
         const status = !configured ? "Needs skill" : isEcommerce ? "Worker pending" :
           state?.ready ? "Ready" : "Worker pending";
@@ -120,7 +134,7 @@ export function ProductsPhotoWorkflow({
           <div className="rrugc-products-photo-stage-controls">
             <span className={"rrugc-products-photo-state " + (status === "Ready" ? "is-done" : "is-unavailable")}
               title={isEcommerce
-                ? "One Skill per Ecommerce image. No per-image execution worker has been enabled."
+                ? (slotInputs ? "Missing persisted inputs: " + slotInputs.missing_roles.join(", ") : "Waiting for input readiness from server")
                 : state?.required_inputs || "Photo generation worker is not enabled"}>{status}</span>
             <button type="button" className="rrugc-products-photo-run-button"
               aria-label={"Run " + step.title}
@@ -134,6 +148,12 @@ export function ProductsPhotoWorkflow({
           {opened && <div className="rrugc-products-photo-stage-detail">
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
               <strong>Input references · {step.inputs?.length}</strong>
+              <small>{slotInputs
+                ? slotInputs.missing_roles.length
+                  ? "Missing saved inputs: " + slotInputs.missing_roles.join(", ")
+                  : "Saved inputs detected; worker and assigned skill must still be verified"
+                : "Checking durable inputs on the server…"}
+              </small>
               <div className="rrugc-products-photo-input-grid">
                 {step.inputs?.map(input => {
                   const src = input.kind === "design" ? designSrc :

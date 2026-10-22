@@ -682,6 +682,19 @@ export type ProductsStage2PhotoStep = {
   missing_assets: string[];
   required_inputs: string;
 };
+export type EcommerceSlotInputReadiness = {
+  stage: string; view: string; required_roles: string[]; missing_roles: string[];
+  ready: boolean; status: "missing_inputs" | "missing_skill" | "worker_pending" | "ready";
+};
+export type EcommerceInputReadiness = {
+  source_plan_id: string; source_revision: string; slots: EcommerceSlotInputReadiness[];
+};
+export const getEcommerceInputReadiness = (sourcePlanId: string, signal?: AbortSignal) =>
+  request<EcommerceInputReadiness>(
+    "/api/v1/realistic-review-ugc/products-stage2/ecommerce/input-readiness?source_plan_id=" +
+    encodeURIComponent(sourcePlanId), { signal },
+  );
+
 export type ProductsStage2PhotoReadiness = {
   workflow: string;
   sequential: boolean;
