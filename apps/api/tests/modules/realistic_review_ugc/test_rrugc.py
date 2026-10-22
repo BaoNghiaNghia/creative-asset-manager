@@ -2922,7 +2922,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
     assert csv_record["author"] == "Synthetic Tester 1"
     assert csv_record["body"].startswith(PREFIX)
     assert csv_record["email"] == stage5_sample_email(retained_id, "Synthetic Tester 1")
-    assert csv_record["created_at"] == now.date().isoformat()
+    assert csv_record["created_at"] == now.strftime("%Y-%m-%d %H:%M:%S")
     assert csv_record["photo_url"].startswith(
         "https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/"
     )
@@ -2988,7 +2988,7 @@ def test_stage5_review_hide_and_full_loox_export(api, database, monkeypatch):
         assert record[2] == "Synthetic Tester 1"
         assert record[3] == stage5_sample_email(retained_id, "Synthetic Tester 1")
         assert record[4] == "Mock review for sample 1"
-        assert record[5] == now.date().isoformat()
+        assert len(record[5]) == 19 and record[5][4] == "-" and record[5][10] == " " and record[5][16] == ":"
         assert record[6].startswith("https://creative-assets.ddns.net/api/v1/realistic-review-ugc/stage5/public-photo/")
         assert record[6].endswith(".png")
         assert record[7] == ""

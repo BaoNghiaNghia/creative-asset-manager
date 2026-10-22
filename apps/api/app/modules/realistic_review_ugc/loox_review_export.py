@@ -67,6 +67,31 @@ def stage5_sample_email(stage2_job_id: str, reviewer_name: str | None = None) ->
     return f"{safe_name}{digits:010d}@example.invalid"
 
 
+def format_stage5_created_at(value: datetime | str | None) -> str:
+    """Fixed-width YYYY-MM-DD HH:MM:SS, filling unavailable components with zeros.
+
+    Keep known calendar components. Do not infer a fictional date for absent
+    source timestamps; use zeros, and never turn missing time into local now.
+    """
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if value is None or not str(value).strip():
+        return "0000-00-00 00:00:00"
+    raw = str(value).strip()
+    match = re.fullmatch(
+        r"(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?"
+        r"(?:[T ](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2})(?:\.\d+)?)?"
+        r"(?:Z|[+-]\d{2}:?\d{2})?)?", raw
+    )
+    if not match:
+        return "0000-00-00 00:00:00"
+    parts = [int(part) if part is not None else 0 for part in match.groups()]
+    year, month, day, hour, minute, second = parts
+    if not (0 <= month <= 12 and 0 <= day <= 31 and hour <= 23 and minute <= 59 and second <= 59):
+        return "0000-00-00 00:00:00"
+    return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+
 def stage5_sample_review_date(stage2_job_id: str, generated_at: datetime | None = None) -> str:
     """Stable fictitious date for internal synthetic-review fixture previews.
 
@@ -83,7 +108,7 @@ def stage5_sample_review_date(stage2_job_id: str, generated_at: datetime | None 
     end = end.astimezone(timezone.utc)
     seconds = int.from_bytes(hashlib.sha256((stable_id + ':fixture-date').encode()).digest()[:8], 'big') % (730 * 24 * 3600)
     date = end - timedelta(seconds=seconds)
-    return f"{date.month}/{date.day}/{date.year} {date.hour}:{date.minute:02d}"
+    return format_stage5_created_at(date)
 
 
 def clean_concept_copy(value: str | None, *, author: bool = False) -> str:

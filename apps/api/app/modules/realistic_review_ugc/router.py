@@ -6617,7 +6617,7 @@ def export_stage5_loox_review_concepts(
     from app.modules.realistic_review_ugc.loox_review_export import (
         PREFIX, build_loox_xlsx, build_loox_csv, build_internal_concept_csv,
         clean_concept_copy, loox_original_photo_url, shopify_handle_from_folder, loox_public_photo_url,
-        stage5_sample_email, stage5_sample_review_date,
+        stage5_sample_email, stage5_sample_review_date, format_stage5_created_at,
     )
     joined = session.execute(
         select(RrugcStage3AnalysisModel, RrugcStage2JobModel, RrugcSourcePlanModel)
@@ -6660,7 +6660,7 @@ def export_stage5_loox_review_concepts(
             clean_concept_copy(review.reviewer_name, author=True),
             stage5_sample_email(image.id, review.reviewer_name),  # Name-based, non-deliverable test email.
             clean_concept_copy(review.review_text),
-            (created.strftime("%Y-%m-%d") if created else "") if format == "csv"
+            format_stage5_created_at(created) if format in ("csv", "internal_csv")
             else stage5_sample_review_date(image.id, created),
             photo_url,
             "",  # No verified order information exists for synthetic concepts.
