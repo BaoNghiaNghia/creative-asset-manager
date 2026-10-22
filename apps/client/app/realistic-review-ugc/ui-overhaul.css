@@ -2422,3 +2422,24 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-workflow-skill-slot select:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
 @media(max-width:900px){.rrugc-stage-default-grid.is-workflow-scoped{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.rrugc-stage-default-grid.is-workflow-scoped{grid-template-columns:1fr}}
+
+/* Skill upload: distinct transfer and installation states. */
+.rrugc-skill-upload.is-enhanced{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:18px 22px;background:#f8faff;border:1px solid #dbe5f4;border-radius:13px;margin:12px 20px}
+.rrugc-skill-upload-heading{display:flex!important;align-items:center;gap:11px}
+.rrugc-skill-upload-heading>div{display:flex;flex-direction:column;gap:4px}
+.rrugc-skill-upload-heading strong{font-size:12px;color:#253b60}
+.rrugc-skill-upload-heading small{font-size:10px;color:#677b99}
+.rrugc-skill-upload-symbol{display:grid;place-items:center;width:38px;height:38px;flex-shrink:0;background:#eaf0ff;color:#516bd1;border-radius:11px}
+.rrugc-skill-upload-actions{display:flex;align-items:stretch;gap:12px}
+.rrugc-skill-file.is-enhanced{flex:1;min-height:48px;gap:10px;padding:12px 15px;border:1.5px dashed #a9bde0;border-radius:10px;font-size:11px;font-weight:650}
+.rrugc-skill-file.is-enhanced:hover,.rrugc-skill-file.is-enhanced.has-file{border-color:#7894e7;background:#f4f7ff;color:#3457a2}
+.rrugc-skill-file.is-enhanced:focus-within{outline:2px solid #496add;outline-offset:2px}
+.rrugc-skill-upload-actions>.rrugc-primary{min-height:46px;padding:8px 20px;white-space:nowrap}
+.rrugc-skill-upload-file-meta{display:flex!important;gap:10px;color:#64738b;font-size:10px}
+.rrugc-skill-upload-progress{display:flex;flex-direction:column;gap:7px;border-top:1px solid #dde6f4;padding-top:12px}
+.rrugc-skill-upload-progress-label{display:flex!important;justify-content:space-between;align-items:center;gap:8px}
+.rrugc-skill-upload-progress-label strong{font-size:11px}
+.rrugc-skill-upload-progress-label span{font-size:10px;font-variant-numeric:tabular-nums;color:#5269a0}
+.rrugc-skill-upload-progress progress{display:block;width:100%;height:8px;border:0;border-radius:99px;overflow:hidden;accent-color:#5677dc}
+.rrugc-skill-upload-progress small{font-size:10px;line-height:1.5}
+@media(max-width:650px){.rrugc-skill-upload.is-enhanced{margin:8px 10px;padding:14px}.rrugc-skill-upload-actions{flex-direction:column}.rrugc-skill-upload-actions>.rrugc-primary{width:100%}}

@@ -88,6 +88,8 @@ export function SkillManagerModal({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [createFile, setCreateFile] = useState<File | null>(null);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [uploadPhase, setUploadPhase] = useState<"idle" | "sending" | "installing" | "success" | "failed">("idle");
   const [versionFiles, setVersionFiles] = useState<Record<string, File | null>>({});
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
@@ -183,12 +185,17 @@ export function SkillManagerModal({
     }
     if (busyKey) return;
     setBusyKey("create");
+    setUploadPercent(0);
+    setUploadPhase("sending");
     setError("");
     setMessage("");
     try {
       let replaced = false;
       try {
-        await createStage2Skill(createFile);
+        await createStage2Skill(createFile, false, percent => {
+          setUploadPercent(percent);
+          if (percent === 100) setUploadPhase("installing");
+        });
       } catch (reason) {
         if (!(reason instanceof RrugcApiError) || reason.code !== "stage2_skill_already_exists") {
           throw reason;
@@ -196,7 +203,12 @@ export function SkillManagerModal({
         if (!window.confirm("A local Skill with this name is already installed. Replace its runtime ZIP? The Skill ID, notes, stage defaults and saved outputs will be retained. Active jobs must finish first.")) {
           return;
         }
-        await createStage2Skill(createFile, true);
+        setUploadPercent(0);
+        setUploadPhase("sending");
+        await createStage2Skill(createFile, true, percent => {
+          setUploadPercent(percent);
+          if (percent === 100) setUploadPhase("installing");
+        });
         replaced = true;
       }
       await reload(true);
@@ -204,8 +216,10 @@ export function SkillManagerModal({
       setMessage(replaced
         ? "Existing Skill replaced. Stage defaults, notes and saved outputs were preserved."
         : "Skill uploaded, installed and added to the image-generation registry.");
+      setUploadPhase("success");
       setCreateFile(null);
     } catch (reason) {
+      setUploadPhase("failed");
       setError(reason instanceof Error ? reason.message : "Skill upload failed.");
     } finally {
       setBusyKey("");
@@ -400,16 +414,44 @@ export function SkillManagerModal({
         </button>}
       </div>
 
-      {registry.can_manage && showUpload && <div className="rrugc-skill-upload">
-        <div><strong><SkillIcon name="upload" size={16} /> Upload Skill ZIP</strong><small>One SKILL.md per ZIP. Validated before installation.</small></div>
-        <label className="rrugc-skill-file">
-          <SkillIcon name="upload" size={15} /><span>{createFile?.name || "Choose ZIP file"}</span>
-          <input type="file" accept=".zip,application/zip" disabled={Boolean(busyKey)} onChange={event => setCreateFile(event.target.files?.[0] || null)} />
-        </label>
-        <button type="button" className="rrugc-primary" disabled={!createFile || Boolean(busyKey)} onClick={() => void addSkill()}>
-          {busyKey === "create" ? "Uploading…" : "Upload & install"}
-        </button>
-      </div>}
+      {registry.can_manage && showUpload && <section className="rrugc-skill-upload is-enhanced" aria-label="Upload Skill ZIP">
+        <div className="rrugc-skill-upload-heading">
+          <span className="rrugc-skill-upload-symbol"><SkillIcon name="upload" size={19} /></span>
+          <div><strong>Upload a new Skill</strong><small>ZIP containing one SKILL.md · Verified before installation</small></div>
+        </div>
+        <div className="rrugc-skill-upload-actions">
+          <label className={"rrugc-skill-file is-enhanced" + (createFile ? " has-file" : "")}>
+            <SkillIcon name="upload" size={17} />
+            <span>{createFile?.name || "Select a ZIP package"}</span>
+            <input type="file" accept=".zip,application/zip" disabled={Boolean(busyKey)} aria-label="Choose Skill ZIP"
+              onChange={event => {
+                const file = event.target.files?.[0] || null;
+                setCreateFile(file);
+                setUploadPercent(null);
+                setUploadPhase("idle");
+                setError("");
+              }} />
+          </label>
+          <button type="button" className="rrugc-primary" disabled={!createFile || Boolean(busyKey)} onClick={() => void addSkill()}>
+            {busyKey === "create" ? "Working…" : "Upload & install"}
+          </button>
+        </div>
+        {createFile && <div className="rrugc-skill-upload-file-meta" aria-live="polite">
+          <span>{(createFile.size / 1024 / 1024).toFixed(2)} MB</span>
+          <span>ZIP selected</span>
+        </div>}
+        {uploadPhase !== "idle" && <div className="rrugc-skill-upload-progress" role="status" aria-live="polite">
+          <div className="rrugc-skill-upload-progress-label">
+            <strong>{uploadPhase === "sending" ? "Uploading package" : uploadPhase === "installing" ? "Validating and installing Skill" :
+              uploadPhase === "success" ? "Skill installed successfully" : "Upload or installation failed"}</strong>
+            {(uploadPhase === "sending" || uploadPhase === "installing") && <span>{uploadPhase === "sending" ? uploadPercent ?? 0 : 100}% transferred</span>}
+          </div>
+          {(uploadPhase === "sending" || uploadPhase === "installing") && <progress max={100} value={uploadPercent ?? 0}
+            aria-label="ZIP upload transfer progress" />}
+          {uploadPhase === "installing" && <small>The upload is complete. Server validation and installation are still running.</small>}
+          {uploadPhase === "failed" && <small>The file was not confirmed installed. Review the error and retry if appropriate.</small>}
+        </div>}
+      </section>}
 
       <ActionMessageToast message={message} />
       {error && <p className="rrugc-source-error" role="alert">{error}</p>}

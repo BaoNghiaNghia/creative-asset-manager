@@ -253,8 +253,8 @@ describe("Duplicate local Skill ZIP upload", () => {
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     await act(async () => { host.querySelector<HTMLButtonElement>(".rrugc-skill-upload .rrugc-primary")!.click(); });
     expect(confirm).toHaveBeenCalledOnce();
-    expect(createStage2Skill).toHaveBeenNthCalledWith(1, file);
-    expect(createStage2Skill).toHaveBeenNthCalledWith(2, file, true);
+    expect(createStage2Skill).toHaveBeenNthCalledWith(1, file, false, expect.any(Function));
+    expect(createStage2Skill).toHaveBeenNthCalledWith(2, file, true, expect.any(Function));
     expect(host.querySelector(".cam-action-toast--success")?.textContent).toContain("Existing Skill replaced");
     confirm.mockRestore();
     await act(async () => root.unmount());

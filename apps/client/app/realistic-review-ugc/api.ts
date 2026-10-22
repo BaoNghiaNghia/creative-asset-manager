@@ -812,13 +812,43 @@ export type SkillJobLog = { stage: string; job_id: string; status: string;
 export const getSkillJobLog = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<SkillJobLog>("/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/logs", { signal });
 
-export const createStage2Skill = (file: File, replaceExisting = false) => {
+/** XHR is used only for uploads requiring real byte progress; credentials and
+ * error contract match request(). 100% transfer is not installation success. */
+function uploadSkillWithProgress<T>(url: string, body: FormData, onProgress: (percent: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    xhr.responseType = "json";
+    xhr.upload.addEventListener("progress", event => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.min(100, Math.floor(event.loaded / event.total * 100)));
+      }
+    });
+    xhr.addEventListener("error", () => reject(new Error("Upload connection failed. Check your network and retry.")));
+    xhr.addEventListener("abort", () => reject(new Error("Skill upload was interrupted.")));
+    xhr.addEventListener("load", () => {
+      const payload = xhr.response;
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const detail = payload?.detail;
+        reject(new RrugcApiError(xhr.status, String(detail?.message || detail || "Skill installation failed."),
+          typeof detail?.code === "string" ? detail.code : undefined));
+      } else {
+        onProgress(100);
+        resolve(payload as T);
+      }
+    });
+    xhr.send(body);
+  });
+}
+
+export const createStage2Skill = (file: File, replaceExisting = false, onProgress?: (percent: number) => void) => {
   const body = new FormData();
   body.set("file", file);
-  return request<Stage2SkillRegistryItem>(
-    "/api/v1/realistic-review-ugc/stage2-skills/registry?replace_existing=" + String(replaceExisting),
-    { method: "POST", body },
-  );
+  const url = "/api/v1/realistic-review-ugc/stage2-skills/registry?replace_existing=" + String(replaceExisting);
+  return onProgress
+    ? uploadSkillWithProgress<Stage2SkillRegistryItem>(url, body, onProgress)
+    : request<Stage2SkillRegistryItem>(url, { method: "POST", body });
 };
 
 export const uploadLocalKeywordSkillForStage1 = (registryId: string, file: File) => {
