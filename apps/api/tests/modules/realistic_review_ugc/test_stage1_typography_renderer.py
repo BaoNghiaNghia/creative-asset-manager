@@ -45,6 +45,36 @@ def test_rejects_invalid_or_too_long_quote(tmp_path):
             render_six(invalid, FONTS_ROOT, tmp_path / "bad")
 
 
+
+def test_extra_verified_google_fonts_manifest_entries_do_not_block_renderer(tmp_path):
+    import json
+    import shutil
+    from app.modules.realistic_review_ugc.stage1_typography_renderer import _verify_fonts
+    destination = tmp_path / "typography"
+    shutil.copytree(FONTS_ROOT.parent, destination)
+    manifest = destination / "font_sources.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    extra = dict(data["fonts"][0])
+    extra["file"] = "Additional-Official-Font.ttf"
+    data["fonts"].append(extra)
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    _verify_fonts(destination / "fonts")
+
+
+def test_missing_required_google_font_still_fails(tmp_path):
+    import json
+    import shutil
+    from app.modules.realistic_review_ugc.stage1_typography_renderer import _verify_fonts
+    destination = tmp_path / "typography"
+    shutil.copytree(FONTS_ROOT.parent, destination)
+    manifest = destination / "font_sources.json"
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["fonts"] = [item for item in data["fonts"] if item["file"] != FONTS[0]]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="required entries are missing"):
+        _verify_fonts(destination / "fonts")
+
+
 def test_fails_closed_when_fonts_missing(tmp_path):
     (tmp_path / "fonts").mkdir()
     with pytest.raises(ValueError, match="font"):

@@ -41,10 +41,23 @@ def _verify_fonts(directory: Path) -> None:
         raise ValueError("Stage 1 official font provenance manifest is missing")
     data = json.loads(manifest.read_text(encoding="utf-8"))
     entries = data.get("fonts", [])
-    indexed = {entry["file"]: entry for entry in entries
-               if isinstance(entry, dict) and isinstance(entry.get("file"), str)}
-    if set(indexed) != set(FONTS) or data.get("source_repository") != "https://github.com/google/fonts":
-        raise ValueError("Stage 1 official font allowlist changed unexpectedly")
+    if not isinstance(entries, list) or data.get("source_repository") != "https://github.com/google/fonts":
+        raise ValueError("Stage 1 official Google Fonts provenance manifest is invalid")
+    indexed = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("file"), str):
+            raise ValueError("Stage 1 official font provenance entry is invalid")
+        name = entry["file"]
+        if name in indexed:
+            raise ValueError("Stage 1 official font provenance contains duplicate entries")
+        indexed[name] = entry
+    # A user-installed Skill may include more OFL fonts than the renderer uses.
+    # Require and verify the exact files used for these six compositions; do
+    # not reject a superseding, valid Google Fonts manifest merely because it
+    # also catalogs other typefaces.
+    missing = set(FONTS) - set(indexed)
+    if missing:
+        raise ValueError("Stage 1 official Google Fonts required entries are missing: " + ", ".join(sorted(missing)))
     for name in FONTS:
         font = directory / name
         entry = indexed[name]
