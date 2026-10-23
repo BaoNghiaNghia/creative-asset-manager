@@ -119,6 +119,35 @@ For a full *on-demand* attribution report, use the existing
 `scripts/cam-disk-growth-audit.sh --save` from an authorized VPS terminal.
 Its full-root scan is deliberately **not** run every 15 minutes.
 
+## P0 source sync job-production backoff — 2026-10-23
+
+Read-only production SQL on 2026-10-23 showed 28,452 `source_sync`
+processing jobs created in the previous seven days for only three sources.
+Of these, 28,186 were scheduler jobs and 246 were pagination continuations.
+The production scheduler polls at 60 seconds and generates a fresh job for
+an incrementally synchronized source as soon as the last job completes;
+continuously empty polls produce permanent job/index growth.
+
+`SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS` now defaults to **180** (3 minutes).
+When an automatic incremental scan has a bootstrapped cursor and its latest
+source sync job **completed successfully** less than 180 seconds ago, the
+scheduler returns a `completed_poll_backoff` skip without creating a new
+`processing_jobs` row. The scheduler still wakes on the existing 60-second
+cycle, so completion age is measured against actual wall-clock time rather
+than a persisted counter. This uses the existing source/job index and stores
+no additional sensitive metadata.
+
+The cooldown never delays manual forced/full scans, the first source
+reconciliation, the first incremental cursor-bootstrap after a full scan,
+daily full reconciliation, failed jobs, pending/running jobs, and pagination
+continuation jobs created directly by the worker. Set the value to 0 to
+restore the previous behavior without a migration, or raise it gradually
+if measured source-change latency allows. The expected steady-state
+scheduler-job count reduction is up to about two-thirds for fast, mostly
+unchanged sources; real impact depends on provider latency and actual job
+completion times. Monitor Source Sync latency and job creation rate after
+rollout before increasing further.
+
 ## P1 transient file guards
 
 - Codex private generated_images remains transient; final outputs/checkpoints

@@ -1,5 +1,12 @@
 # Implementation Roadmap
 
+## Job-growth prevention — Source Sync 3-minute cooldown (2026-10-23)
+
+- [x] Trace 28,186 scheduled source sync jobs over seven days to the 60-second poll loop (3 sources).
+- [x] Add an indexed, DB-read-only 180s cooldown after successful incremental syncs, with no migration.
+- [x] Exempt first synchronization, manual/full, daily full, cursor-bootstrap, failure/retry and continuation jobs.
+- [ ] Monitor steady-state source update latency and source_sync job count in production before tuning the interval.
+
 ## Disk pressure — phase 2 fail-closed production rollout (2026-10-23)
 
 - [x] Keep legacy job identities/idempotency intact; inspect live FK/index dependencies.

@@ -129,6 +129,31 @@ class SourceSyncScheduler:
             .limit(1)
         )
 
+    def _recent_completed_job(
+        self, session: Session, tenant_id: str, source_id: str, now: datetime,
+    ) -> ProcessingJobModel | None:
+        """Use the existing per-entity latest-job index; never scan entire history."""
+        cooldown = self.settings.SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS
+        if cooldown <= 0:
+            return None
+        job = session.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.job_type == "source_sync",
+                ProcessingJobModel.entity_type == "external_source",
+                ProcessingJobModel.entity_id == source_id)
+            .order_by(ProcessingJobModel.created_at.desc(), ProcessingJobModel.id.desc())
+            .limit(1)
+        )
+        if job is None or job.status != "completed" or job.completed_at is None:
+            return None
+        completed = job.completed_at
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=timezone.utc)
+        age = (now - completed).total_seconds()
+        return job if 0 <= age < cooldown else None
+
     def enqueue_source(
         self,
         tenant_id: str,
@@ -188,6 +213,17 @@ class SourceSyncScheduler:
                 if daily_full or full or (not cursor and not reconciled)
                 else "incremental"
             )
+            # Only automatic incremental polling after cursor bootstrap is
+            # throttled. Manual/full reconciliation and first incremental
+            # cursor acquisition remain immediate; failed jobs retry promptly.
+            if mode == "incremental" and cursor and not full and not daily_full:
+                recent = self._recent_completed_job(session, tenant_id, source_id, current)
+                if recent is not None:
+                    session.rollback()
+                    return SourceSyncScheduleResult(
+                        tenant_id, source_id, mode, recent.id, False,
+                        "completed_poll_backoff",
+                    )
             bucket = int(current.timestamp()) // max(1, self.settings.SOURCE_SYNC_POLL_INTERVAL_SECONDS)
             key = daily_key if daily_full else f"source-sync-scheduler:{source_id}:{mode}:{bucket}"
             if dry_run:

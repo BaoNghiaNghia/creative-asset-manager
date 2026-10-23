@@ -481,6 +481,9 @@ class Settings(BaseSettings):
     RETENTION_TEMP_EXPORT_DAYS: int = 7
     RETENTION_SOURCE_SYNC_RUN_DAYS: int = 30
     SOURCE_SYNC_POLL_INTERVAL_SECONDS: int = 60
+    # Suppress redundant scheduled provider polls after a successful completed
+    # incremental sync; never delays manual/full/bootstrap/continuation work.
+    SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS: int = 180
     SOURCE_SYNC_MAX_SOURCES_PER_TICK: int = 100
     SOURCE_SYNC_JOB_STALE_SECONDS: int = 900
     # Yield large provider traversals back to the durable queue instead of
@@ -564,6 +567,13 @@ class Settings(BaseSettings):
             if normalized == "false":
                 return False
         raise ValueError("feature flags must be either 'true' or 'false'")
+
+    @field_validator("SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS")
+    @classmethod
+    def validate_source_sync_completed_backoff(cls, value: int) -> int:
+        if value < 0 or value > 86400:
+            raise ValueError("SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS must be between 0 and 86400")
+        return value
 
     @field_validator(
         "SOURCE_SYNC_POLL_INTERVAL_SECONDS",

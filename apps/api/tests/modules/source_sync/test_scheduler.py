@@ -91,6 +91,113 @@ class SourceSyncSchedulerTest(unittest.TestCase):
             .payload_json["reconciliation"]
         )
 
+    def test_successful_incremental_sync_reduces_redundant_poll_jobs(self):
+        self.session.add(SourceSyncCursorModel(
+            tenant_id="tenant-a", external_source_id=self.source.id,
+            cursor_key="changes", cursor_value="cursor-ready",
+        ))
+        self.session.commit()
+        now = datetime(2026, 10, 23, 4, 0, tzinfo=timezone.utc)
+        first = self.scheduler.enqueue_source("tenant-a", self.source.id, now=now)
+        self.assertTrue(first.created)
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, first.job_id)
+            job.status = "completed"
+            job.completed_at = now + timedelta(seconds=5)
+            session.commit()
+
+        repeated = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=60)
+        )
+        self.assertFalse(repeated.created)
+        self.assertEqual(repeated.skipped_reason, "completed_poll_backoff")
+        self.assertEqual(repeated.job_id, first.job_id)
+        with self.factory() as session:
+            self.assertEqual(session.query(ProcessingJobModel).count(), 1)
+
+        later = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=186)
+        )
+        self.assertTrue(later.created)
+        self.assertEqual(later.mode, "incremental")
+        self.assertNotEqual(later.job_id, first.job_id)
+
+    def test_completed_backoff_does_not_block_forced_or_daily_full_scans(self):
+        self.session.add(SourceSyncCursorModel(
+            tenant_id="tenant-a", external_source_id=self.source.id,
+            cursor_key="changes", cursor_value="cursor-ready",
+        ))
+        self.session.commit()
+        now = datetime(2026, 10, 23, 4, 0, tzinfo=timezone.utc)
+        first = self.scheduler.enqueue_source("tenant-a", self.source.id, now=now)
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, first.job_id)
+            job.status = "completed"
+            job.completed_at = now + timedelta(seconds=5)
+            session.commit()
+        manual_full = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=60), full=True
+        )
+        self.assertTrue(manual_full.created)
+        self.assertEqual(manual_full.mode, "full")
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, manual_full.job_id)
+            job.status = "completed"
+            job.completed_at = now + timedelta(seconds=65)
+            session.commit()
+        daily = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=90),
+            daily_full_scan_date="2026-10-23",
+        )
+        self.assertTrue(daily.created)
+        self.assertEqual(daily.mode, "full")
+        self.assertNotEqual(daily.job_id, manual_full.job_id)
+
+    def test_completed_reconciliation_without_cursor_bootstraps_immediately(self):
+        now = datetime(2026, 10, 23, 4, 0, tzinfo=timezone.utc)
+        first = self.scheduler.enqueue_source("tenant-a", self.source.id, now=now)
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, first.job_id)
+            job.status = "completed"
+            job.completed_at = now + timedelta(seconds=5)
+            session.add(SourceSyncRunModel(
+                tenant_id="tenant-a", external_source_id=self.source.id,
+                mode="full", generation=1, status="completed",
+            ))
+            session.commit()
+        first_incremental = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=20)
+        )
+        self.assertTrue(first_incremental.created)
+        self.assertEqual(first_incremental.mode, "incremental")
+
+    def test_failed_sync_is_not_backed_off(self):
+        self.session.add(SourceSyncCursorModel(
+            tenant_id="tenant-a", external_source_id=self.source.id,
+            cursor_key="changes", cursor_value="cursor-ready",
+        ))
+        self.session.commit()
+        now = datetime(2026, 10, 23, 4, 0, tzinfo=timezone.utc)
+        first = self.scheduler.enqueue_source("tenant-a", self.source.id, now=now)
+        with self.factory() as session:
+            job = session.get(ProcessingJobModel, first.job_id)
+            job.status = "failed"
+            job.completed_at = now + timedelta(seconds=5)
+            session.commit()
+        retry = self.scheduler.enqueue_source(
+            "tenant-a", self.source.id, now=now + timedelta(seconds=65)
+        )
+        self.assertTrue(retry.created)
+
+    def test_completed_backoff_is_configurable_or_can_be_disabled(self):
+        self.assertEqual(self.settings.SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS, 180)
+        self.assertEqual(
+            Settings(SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS=0)
+            .SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS, 0,
+        )
+        with self.assertRaises(ValueError):
+            Settings(SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS=-1)
+
     def test_active_job_prevents_duplicate(self):
         first = self.scheduler.tick()[0]
         second = self.scheduler.tick()[0]

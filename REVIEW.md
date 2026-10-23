@@ -1,3 +1,11 @@
+## Source Sync excessive scheduled job prevention — 2026-10-23
+
+- Evidence: last seven days had 28,452 source_sync jobs for three sources, including 28,186 scheduler-origin jobs; production job producer polls every 60 seconds. Visual indexing created only 503 jobs in the same period.
+- Candidate uses an existing per-source latest-job index and 180-second cooldown after a successful incremental sync, without adding persistent state, database indexes, migrations, or cleaning active jobs.
+- Daily full, manual/full, initial cursor bootstrap, failed/active and continuation processing remain exempt. Set `SOURCE_SYNC_COMPLETED_BACKOFF_SECONDS=0` to roll back scheduling cadence without changing the source data or database.
+- Source Sync freshness may increase from ~1 minute to ~3 minutes for background incremental scans of previously healthy sources. Monitor for user-impacting latency before raising the interval.
+- Existing UI, auth, source credentials and ingestion contracts unchanged.
+
 ## Disk pressure follow-up — 2026-10-23 (phase 2)
 
 - Source starts at deployed backend `de8de794`; no schema/data migration.
