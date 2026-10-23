@@ -205,7 +205,8 @@ def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypa
         ugc_name = "gatorhats-8869-ugc-v3"
         color_name = "scale-image-8869-13-mau"
         names = (*ecommerce_names, multi_name, ugc_name, color_name,
-                 "reviews-colors", "gatorhats-8869-ecommerce-v2-4")
+                 "reviews-colors", "gatorhats-8869-ecommerce-v2-4",
+                 "gatorhats-8869-front-to-back", "ugc-gatorhats", "text-only-skill")
         monkeypatch.setattr(
             stage_skill_settings, "list_stage2_skill_catalog",
             lambda refresh=False: SimpleNamespace(items=[
@@ -214,7 +215,9 @@ def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypa
         )
         monkeypatch.setattr(
             stage_skill_settings, "load_codex_skill_manifest",
-            lambda *_args: SimpleNamespace(workflows=("image_studio", "keyword_six_designs")),
+            lambda _home, name: SimpleNamespace(
+                workflows=("text_studio",) if name == "text-only-skill"
+                else ("image_studio", "keyword_six_designs")),
         )
         with Session(engine) as session:
             skills = {name: _skill("tenant-a", name) for name in names}
@@ -250,13 +253,26 @@ def test_product_stage2_seven_independent_defaults_and_review_isolation(monkeypa
                     registry_id=skills["gatorhats-8869-ecommerce-v2-4"].id,
                 )
             assert bulk.value.code == "stage_skill_requires_single_image"
+            # Real uploaded Skills need not have the historical fixed slugs.
+            stage_skill_settings.set_stage_skill_default(
+                session, tenant_id="tenant-a", actor_id="admin",
+                stage="prod_s2_mh", registry_id=skills["gatorhats-8869-front-to-back"].id,
+            )
+            stage_skill_settings.set_stage_skill_default(
+                session, tenant_id="tenant-a", actor_id="admin",
+                stage="prod_s2_ugc", registry_id=skills["ugc-gatorhats"].id,
+            )
+            installed_defaults = stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a")
+            assert installed_defaults["prod_s2_mh"] == "local:gatorhats-8869-front-to-back"
+            assert installed_defaults["prod_s2_ugc"] == "local:ugc-gatorhats"
+            assert installed_defaults["rev_s2"] == defaults["rev_s2"]
             with pytest.raises(stage2_skills.Stage2SkillRegistryError) as mismatch:
                 stage_skill_settings.set_stage_skill_default(
                     session, tenant_id="tenant-a", actor_id="admin",
-                    stage="prod_s2_mh", registry_id=skills["reviews-colors"].id,
+                    stage="prod_s2_mh", registry_id=skills["text-only-skill"].id,
                 )
             assert mismatch.value.code == "stage_skill_workflow_incompatible"
-            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == defaults
+            assert stage_skill_settings.stage_skill_defaults(session, tenant_id="tenant-a") == installed_defaults
             stage_skill_settings.set_stage_skill_default(
                 session, tenant_id="tenant-a", actor_id="admin", stage="rev_s2", registry_id=None,
             )

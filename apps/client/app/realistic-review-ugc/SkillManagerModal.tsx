@@ -266,16 +266,14 @@ export function SkillManagerModal({
         setSlotUploadPercent(0);
         created = await createStage2Skill(file, true, progress);
       }
-      if (created.skill_name !== slot.expectedSkill) {
-        setSlotInstallStatus(current => ({ ...current, [slot.key]: "Not assigned: ZIP contains " + created.skill_name }));
+      if (!created.enabled || created.validation_status !== "valid"
+          || created.workflow !== "image_studio") {
         await reload(true);
         await onChanged();
-        setError("This ZIP installed as " + created.skill_name + ", but " + slot.title
-          + " requires " + slot.expectedSkill + ". Upload the matching original Skill ZIP.");
+        setSlotInstallStatus(current => ({ ...current, [slot.key]: "Uploaded, but not assigned." }));
+        setError("The ZIP was installed, but " + slot.title
+          + " requires an enabled image_studio Skill. Choose a compatible Skill from Installed Skills.");
         return;
-      }
-      if (!created.enabled || created.validation_status !== "valid") {
-        throw new Error("Skill was uploaded but is not enabled or valid. Check its status in Installed Skills.");
       }
       await updateStageSkillDefault(slot.key, created.id);
       await reload(true);
@@ -416,7 +414,9 @@ export function SkillManagerModal({
               const singleImage = slot.key.startsWith("prod_s2_ec");
               const candidates = registry.items.filter(item =>
                 item.enabled && item.validation_status === "valid" &&
-                (!slot.expectedSkill || item.skill_name === slot.expectedSkill) &&
+                // All ready, installed image Skills may be *assigned* to slots
+                // 5/6. The worker still enforces its separate output contract.
+                (!slot.expectedSkill || item.workflow === "image_studio") &&
                 (!singleImage || (
                   item.workflow === "image_studio" &&
                   !["gatorhats-8869-ecommerce-v2-4", "gatorhats-8869-multihat-v2-4",
@@ -439,18 +439,19 @@ export function SkillManagerModal({
                     () => updateStageSkillDefault(slot.key, event.target.value || null),
                     "Product Stage 2 " + slot.title + " saved.")}
                 >
-                  <option value="">{slot.expectedSkill && !matching ? "Needs skill · Upload exact ZIP" :
-                    slot.key.startsWith("prod_s2_ec") ? "Needs skill · One-image ZIP" : "Not assigned"}</option>
+                  <option value="">{slot.expectedSkill && !matching
+                    ? (candidates.length ? "Select installed Skill" : "No ready image Skill · Upload ZIP")
+                    : slot.key.startsWith("prod_s2_ec") ? "Needs skill · One-image ZIP" : "Not assigned"}</option>
                   {candidates.map(item => <option key={item.id} value={item.id}
                     disabled={alreadyAssigned(item) && item.id !== matching?.id}>
                     {item.display_name}{alreadyAssigned(item) && item.id !== matching?.id ? " · already assigned" : ""}
                   </option>)}
                 </select>
-                <small className="rrugc-skill-slot-note">{slot.detail}{slot.expectedSkill ? " · " + slot.expectedSkill : ""}</small>
+                <small className="rrugc-skill-slot-note">{slot.detail}{slot.expectedSkill ? " · Choose a ready installed Skill or upload a new ZIP" : ""}</small>
                 {slot.expectedSkill && registry.can_manage && !matching && <div className="rrugc-skill-slot-install" role="group" aria-label={slot.title + " Skill ZIP installation"}>
                   <label className="rrugc-skill-slot-file">
                     <SkillIcon name="upload" size={14}/>
-                    <span title={slotFiles[slot.key]?.name || slot.expectedSkill + ".zip"}>{slotFiles[slot.key]?.name || "Select Skill ZIP"}</span>
+                    <span title={slotFiles[slot.key]?.name || "Upload a new image_studio Skill ZIP"}>{slotFiles[slot.key]?.name || "Select Skill ZIP"}</span>
                     <input type="file" accept=".zip,application/zip"
                       aria-label={"Choose " + slot.title + " Skill ZIP"}
                       disabled={Boolean(busyKey) || loading}

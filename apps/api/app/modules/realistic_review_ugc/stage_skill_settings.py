@@ -129,11 +129,17 @@ def set_stage_skill_default(
                     status_code=422,
                 )
         elif stage in PRODUCT_STAGE2_PHOTO_SKILLS:
-            # Multi-hat and UGC still require their exact approved bundles.
-            if selected.skill_name != PRODUCT_STAGE2_PHOTO_SKILLS[stage]:
+            # Slot 5/6 are Skill *assignments*, not active three-image workers.
+            # Uploads have distinct names (e.g. ugc-gatorhats) and must remain
+            # selectable after they pass runtime image_studio validation.
+            # Never infer that assigning a generic Skill enables generation.
+            manifest = load_codex_skill_manifest(
+                get_settings().CODEX_IMAGE_HOME, selected.skill_name
+            )
+            if manifest is None or "image_studio" not in manifest.workflows:
                 raise Stage2SkillRegistryError(
                     "stage_skill_workflow_incompatible",
-                    "This photo output row requires its exact approved GatorHats Skill package.",
+                    "Multi-hat/UGC assignment requires an installed image_studio Skill.",
                     status_code=422,
                 )
         elif stage in ECOMMERCE_SHOT_SLOTS:

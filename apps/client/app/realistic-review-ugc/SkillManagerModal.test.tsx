@@ -286,13 +286,64 @@ describe("Duplicate local Skill ZIP upload", () => {
   });
 });
 
+describe("Product Stage 2 reused installed Skill assignments", () => {
+  it("offers existing Ready image_studio Skills with their real registry IDs in slots 5/6", async () => {
+    const previousRegistryImplementation = vi.mocked(listStage2SkillRegistry).getMockImplementation()!;
+    const aliases = [
+      { id:"multi-existing", name:"gatorhats-8869-front-to-back" },
+      { id:"ugc-existing", name:"ugc-gatorhats" },
+      { id:"keyword-existing", name:"only-text-stage1" },
+    ];
+    vi.mocked(listStage2SkillRegistry).mockResolvedValue({
+      can_manage:true,stage_defaults:{},
+      items:aliases.map((entry, index)=>({
+        id:entry.id,source:"local",skill_id:null,skill_name:entry.name,
+        display_name:entry.name,description:"Already installed",
+        note:"",workflow:index===2?"text_only":"image_studio",
+        enabled:true,validation_status:"valid",sync_state:"ready",
+        default_version:null,latest_version:null,synced_version:null,
+        bundle_sha256:null,last_error:null,versions:[],created_at:"",updated_at:"",
+      })),
+    } as never);
+    vi.mocked(updateStageSkillDefault).mockReset().mockResolvedValue({
+      stage_defaults: {prod_s2_mh:"local:gatorhats-8869-front-to-back",
+        prod_s2_ugc:"local:ugc-gatorhats"},
+    } as never);
+    const host=document.createElement("div");document.body.append(host);
+    const root=createRoot(host);
+    await act(async()=>root.render(<SkillManagerModal workflow="products" open
+      onClose={()=>undefined} onChanged={()=>undefined}/>));
+    await act(async()=>{await Promise.resolve();await Promise.resolve();});
+    for (const [slot,id] of [["prod_s2_mh","multi-existing"],["prod_s2_ugc","ugc-existing"]] as const) {
+      const select=host.querySelector<HTMLSelectElement>(
+        '[data-stage2-slot="'+slot+'"] select')!;
+      expect(select).not.toBeNull();
+      expect(select.disabled).toBe(false);
+      expect([...select.options].map(o=>o.value)).toContain(id);
+      expect([...select.options].map(o=>o.value)).toContain(
+        slot==="prod_s2_mh"?"ugc-existing":"multi-existing");
+      expect([...select.options].map(o=>o.value)).not.toContain("keyword-existing");
+      expect(select.options[0].textContent).toContain("Select installed Skill");
+      await act(async()=>{
+        select.value=id;
+        select.dispatchEvent(new Event("change",{bubbles:true}));
+        await Promise.resolve();await Promise.resolve();
+      });
+      expect(updateStageSkillDefault).toHaveBeenCalledWith(slot,id);
+    }
+    await act(async()=>root.unmount());
+    vi.mocked(listStage2SkillRegistry).mockImplementation(previousRegistryImplementation);
+  });
+});
+
 describe("Product Stage 2 slot 5/6 direct ZIP installation", () => {
   it.each([
     ["prod_s2_mh", "Skill 5", "gatorhats-8869-multihat-v2-4"],
     ["prod_s2_ugc", "Skill 6", "gatorhats-8869-ugc-v3"],
-  ] as const)("installs exact original bundle and assigns %s without changing the other workflow", async (key, label, name) => {
+  ] as const)("installs a compatible image ZIP and assigns %s without changing the other workflow", async (key, label, name) => {
     vi.mocked(createStage2Skill).mockReset().mockResolvedValueOnce({
       id: "installed-" + key, skill_name: name, enabled: true, validation_status: "valid",
+      workflow: "image_studio",
     } as never);
     vi.mocked(updateStageSkillDefault).mockClear().mockResolvedValueOnce({
       stage_defaults: { [key]: "local:" + name },
@@ -327,9 +378,10 @@ describe("Product Stage 2 slot 5/6 direct ZIP installation", () => {
     await act(async () => root.unmount());
   });
 
-  it("does not assign an uploaded ZIP with an incorrect Skill identity", async () => {
+  it("does not assign an uploaded ZIP whose workflow is not image_studio", async () => {
     vi.mocked(createStage2Skill).mockReset().mockResolvedValueOnce({
       id: "wrong", skill_name: "unrelated-skill", enabled: true, validation_status: "valid",
+      workflow: "text_only",
     } as never);
     vi.mocked(updateStageSkillDefault).mockClear();
     const host = document.createElement("div");
@@ -346,7 +398,7 @@ describe("Product Stage 2 slot 5/6 direct ZIP installation", () => {
       await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     });
     expect(updateStageSkillDefault).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("requires gatorhats-8869-multihat-v2-4");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("requires an enabled image_studio Skill");
     await act(async () => root.unmount());
   });
 
