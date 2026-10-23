@@ -5642,7 +5642,13 @@ def ugc_scout_gallery(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, source_plan_id)
+    try:
+        plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, source_plan_id)
+    except HTTPException as exc:
+        if isinstance(exc.detail, dict) and exc.detail.get("code") == "ugc_scout_campaign_missing":
+            return {"source_plan_id": source_plan_id, "campaign_id": None,
+                    "status": "needs_scout", "target": 20, "count": 0, "items": []}
+        raise
     items = list(session.scalars(select(RrugcCandidateModel).where(
         RrugcCandidateModel.tenant_id == principal.active_tenant_id,
         RrugcCandidateModel.campaign_id == campaign.id,

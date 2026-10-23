@@ -1269,6 +1269,11 @@ class RrugcRepository:
                     ),
                 )
                 .order_by(
+                    case((exists(select(RrugcSourcePlanModel.id).where(
+                        RrugcSourcePlanModel.tenant_id == tenant_id,
+                        RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+                        RrugcSourcePlanModel.status != "missing",
+                    )), 0), else_=1).asc(),
                     pipeline_count.asc(),
                     progress_count.asc(),
                     RrugcCampaignModel.scan_last_started_at.asc().nullsfirst(),
