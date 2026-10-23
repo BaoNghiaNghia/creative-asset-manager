@@ -105,6 +105,8 @@ def source_plan_fairness_turn(now: datetime, *, urgent: bool = False) -> bool:
 # visible Pinterest candidates in "analysis pending" for a long time. Keep
 # source plans background-only; source downloads already have their own explicit
 # fairness path in the worker runtime.
+VIDEO_PROVIDER_POLICY = aliased(TenantProviderPolicyModel, name="video_provider_policy")
+
 STARVATION_PREVENTION_EXCLUDED_JOB_TYPES = (
     "source_asset_download",
     "rrugc_source_plan_analyze",
@@ -178,9 +180,10 @@ class TenantAwareJobClaimer:
             )
             candidate = self._next_candidate(
                 eligibility, now=now, preferred_job_types=preferred_job_types,
+                worker_role=worker_role,
             )
             if candidate is None and preferred_job_types:
-                candidate = self._next_candidate(eligibility, now=now)
+                candidate = self._next_candidate(eligibility, now=now, worker_role=worker_role)
             if candidate is None:
                 return None
 
@@ -264,6 +267,7 @@ class TenantAwareJobClaimer:
     def _next_candidate(
         self, eligibility, *, now: datetime,
         preferred_job_types: tuple[str, ...] = (),
+        worker_role: str = "all",
     ) -> ProcessingJobModel | None:
         conditions = [eligibility]
         if preferred_job_types:
@@ -378,6 +382,15 @@ class TenantAwareJobClaimer:
             )
             .limit(1)
         )
+        if worker_role.strip().casefold() in {"image", "video"}:
+            statement = statement.outerjoin(
+                VIDEO_PROVIDER_POLICY,
+                and_(
+                    VIDEO_PROVIDER_POLICY.tenant_id == ProcessingJobModel.tenant_id,
+                    VIDEO_PROVIDER_POLICY.provider_key == "gemini",
+                    VIDEO_PROVIDER_POLICY.provider_scope == "video",
+                ),
+            )
         if self.session.get_bind().dialect.name == "postgresql":
             statement = statement.with_for_update(skip_locked=True, of=ProcessingJobModel)
         candidate_id = self.session.scalar(statement)
@@ -690,19 +703,15 @@ class TenantAwareJobClaimer:
             return true()
         # Tenant policy is already inner-joined by the candidate SELECT.
         image_enabled = TenantProcessingPolicyModel.ai_analysis_enabled.is_(True)
-        video_paused = exists(
-            select(TenantProviderPolicyModel.id)
-            .where(
-                TenantProviderPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
-                TenantProviderPolicyModel.provider_key == "gemini",
-                TenantProviderPolicyModel.provider_scope == "video",
-                or_(
-                    TenantProviderPolicyModel.processing_enabled.is_(False),
-                    TenantProviderPolicyModel.processing_paused.is_(True),
-                    TenantProviderPolicyModel.emergency_stop.is_(True),
-                ),
-            )
-            .correlate_except(TenantProviderPolicyModel)
+        # Reuse one joined video policy row instead of repeating a per-job
+        # correlated provider policy scan during candidate selection.
+        video_paused = and_(
+            VIDEO_PROVIDER_POLICY.id.is_not(None),
+            or_(
+                VIDEO_PROVIDER_POLICY.processing_enabled.is_(False),
+                VIDEO_PROVIDER_POLICY.processing_paused.is_(True),
+                VIDEO_PROVIDER_POLICY.emergency_stop.is_(True),
+            ),
         )
         if role == "image":
             return or_(

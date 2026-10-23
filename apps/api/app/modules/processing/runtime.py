@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import inspect
 import logging
+import zlib
 import threading
 import time
 from dataclasses import dataclass
@@ -191,6 +192,9 @@ class WorkerRuntime:
     def run_forever(self) -> None:
         self.start()
         idle_streak = 0
+        # Stable per-worker skew avoids all workers waking on the same second
+        # and concurrently repeating an expensive empty policy claim scan.
+        idle_skew = (zlib.crc32(self.config.worker_id.encode("utf-8")) % 1200) / 1000.0
         try:
             while not self.shutdown_requested.is_set():
                 active = self._get_active()
@@ -205,15 +209,17 @@ class WorkerRuntime:
                 if self._claim_and_start():
                     idle_streak = 0
                 else:
-                    # Repeated empty queue scans are expensive under PostgreSQL
-                    # policy/fairness ordering. Bound idle backoff to 8 seconds;
-                    # reset immediately whenever a worker actually claims work.
-                    idle_streak = min(idle_streak + 1, 3)
+                    # Back off empty or policy-blocked queues. Keep the image
+                    # lane under the 15-second fairness window so RRUGC/source
+                    # opportunities are not starved, but allow dedicated lanes
+                    # to scan less often when they have nothing claimable.
+                    idle_streak = min(idle_streak + 1, 5)
+                    max_idle = 8.0 if self.config.worker_role in {"image", "video", "all"} else 20.0
                     delay = min(
                         self.config.idle_poll_seconds * (2 ** (idle_streak - 1)),
-                        max(8.0, self.config.idle_poll_seconds),
+                        max(max_idle, self.config.idle_poll_seconds),
                     )
-                    self.shutdown_requested.wait(delay)
+                    self.shutdown_requested.wait(delay + idle_skew)
             self._drain()
         finally:
             self.close()
