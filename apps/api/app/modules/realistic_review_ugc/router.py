@@ -5600,6 +5600,98 @@ def run_three_photo_skill(
                             detail={"code": exc.code, "message": exc.message}) from exc
 
 
+# Slot 6 reuses the existing Review Scout campaign, ingestion and candidate QA.
+# Never rewrite a campaign shared by independent embroidery source plans.
+class UgcScoutRequest(BaseModel):
+    source_plan_id: str = Field(min_length=1, max_length=36)
+
+
+def _ugc_scout_campaign(session: Session, tenant_id: str, plan_id: str):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import _source_plan, EcommerceError
+    try:
+        plan = _source_plan(session, tenant_id, plan_id)
+    except EcommerceError as exc:
+        raise HTTPException(exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
+    if not plan.campaign_id:
+        raise HTTPException(409, detail={"code": "ugc_scout_campaign_missing",
+            "message": "This embroidery design has no Review Scout campaign yet."})
+    related = list(session.scalars(select(RrugcSourcePlanModel).where(
+        RrugcSourcePlanModel.tenant_id == tenant_id,
+        RrugcSourcePlanModel.campaign_id == plan.campaign_id,
+        RrugcSourcePlanModel.status != "missing",
+    )))
+    if len(related) > 1 and (not plan.embroidery_signature or any(
+        other.embroidery_signature != plan.embroidery_signature
+        for other in related if other.id != plan.id
+    )):
+        raise HTTPException(409, detail={"code": "ugc_scout_campaign_shared",
+            "message": "Review Scout campaign contains other embroidery designs; cannot use its results for Slot 6."})
+    campaign = session.scalar(select(RrugcCampaignModel).where(
+        RrugcCampaignModel.tenant_id == tenant_id,
+        RrugcCampaignModel.id == plan.campaign_id,
+    ))
+    if campaign is None:
+        raise HTTPException(409, detail={"code": "ugc_scout_campaign_missing",
+            "message": "Assigned Review Scout campaign is not available."})
+    return plan, campaign
+
+
+@router.get("/products-stage2/ugc-scout/{source_plan_id}")
+def ugc_scout_gallery(
+    source_plan_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, source_plan_id)
+    items = list(session.scalars(select(RrugcCandidateModel).where(
+        RrugcCandidateModel.tenant_id == principal.active_tenant_id,
+        RrugcCandidateModel.campaign_id == campaign.id,
+        RrugcCandidateModel.status.in_(ANALYSIS_APPROVED_STATUSES),
+        RrugcCandidateModel.image_url.is_not(None),
+    ).order_by(RrugcCandidateModel.final_score.desc().nullslast(),
+               RrugcCandidateModel.created_at.desc()).limit(150)))
+    unique = []
+    seen = set()
+    for item in items:
+        signal = item.ai_signal_json if isinstance(item.ai_signal_json, dict) else {}
+        if signal.get("reference_manual_label") in ("bad", "ai"):
+            continue
+        if item.head_visible is False or item.people_count == 0:
+            continue
+        if item.mobile_ugc_score is not None and item.mobile_ugc_score < 0.55:
+            continue
+        identity = item.content_hash or item.image_url.strip().casefold()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append({"id": item.id, "image_url": item.image_url,
+                       "pin_url": item.pin_url, "score": item.final_score,
+                       "status": item.status})
+        if len(unique) == 20:
+            break
+    return {"source_plan_id": plan.id, "campaign_id": campaign.id,
+            "status": campaign.scout_status, "target": 20,
+            "count": len(unique), "items": unique}
+
+
+@router.post("/products-stage2/ugc-scout/start", status_code=202)
+def ugc_scout_start(
+    body: UgcScoutRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, body.source_plan_id)
+    if campaign.status != "running":
+        raise HTTPException(409, detail={"code": "ugc_scout_campaign_not_running",
+            "message": "Review Scout campaign must be running before Slot 6 can scout."})
+    if campaign.scan_lease_run_id and campaign.scan_lease_expires_at and campaign.scan_lease_expires_at > datetime.now(timezone.utc):
+        return {"source_plan_id": plan.id, "status": "running", "campaign_id": campaign.id}
+    campaign.auto_scout = True
+    campaign.scan_next_at = datetime.now(timezone.utc)
+    session.commit()
+    return {"source_plan_id": plan.id, "status": "queued", "campaign_id": campaign.id}
+
+
 class EcommerceRunAllRequest(BaseModel):
     source_plan_id: str = Field(min_length=1, max_length=36)
 

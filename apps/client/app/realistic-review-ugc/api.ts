@@ -681,6 +681,15 @@ export type EcommerceOutputVersion = {
   version: number; created_at: string; output_url: string;
   width: number | null; height: number | null;
 };
+export type UgcScoutItem = { id: string; image_url: string; pin_url: string; score: number | null; status: string };
+export type UgcScoutGallery = { source_plan_id: string; campaign_id: string; status: string; target: number; count: number; items: UgcScoutItem[] };
+export const getUgcScoutGallery = (sourcePlanId: string, signal?: AbortSignal) =>
+  request<UgcScoutGallery>("/api/v1/realistic-review-ugc/products-stage2/ugc-scout/" + encodeURIComponent(sourcePlanId), { signal });
+export const startUgcScout = (sourcePlanId: string) =>
+  request<{ status: string; campaign_id: string }>("/api/v1/realistic-review-ugc/products-stage2/ugc-scout/start", {
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId }),
+  });
+
 const ECOMMERCE_PATH = "/api/v1/realistic-review-ugc/products-stage2/ecommerce";
 export const listEcommerceJobs = (sourcePlanIds: string[], signal?: AbortSignal) => {
   const params = new URLSearchParams();

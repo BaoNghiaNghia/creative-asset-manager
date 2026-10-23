@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
-import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
+import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
@@ -109,6 +109,9 @@ export function ProductsPhotoWorkflow({
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
+  const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
+  const [ugcScoutError, setUgcScoutError] = useState("");
+  const [ugcScoutBusy, setUgcScoutBusy] = useState(false);
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
   const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[] } | null>(null);
   const [allOutputOpen, setAllOutputOpen] = useState(false);
@@ -135,6 +138,29 @@ export function ProductsPhotoWorkflow({
     const ticker = window.setInterval(refresh, 8000);
     return () => { controller.abort(); window.clearInterval(ticker); };
   }, [sourcePlanId, expandedStep]);
+
+  useEffect(() => {
+    if (!sourcePlanId || expandedStep !== "prod_s2_ugc") return;
+    const controller = new AbortController();
+    const refresh = () => void getUgcScoutGallery(sourcePlanId, controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setUgcScout(result); setUgcScoutError(""); } })
+      .catch(error => { if (!controller.signal.aborted) setUgcScoutError(error instanceof Error ? error.message : "Scout results unavailable"); });
+    refresh();
+    const timer = window.setInterval(refresh, 12000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [sourcePlanId, expandedStep]);
+
+  async function scoutLifestyle() {
+    if (!sourcePlanId || ugcScoutBusy) return;
+    setUgcScoutBusy(true);
+    setUgcScoutError("");
+    try {
+      await startUgcScout(sourcePlanId);
+      setUgcScout(await getUgcScoutGallery(sourcePlanId));
+    } catch (error) {
+      setUgcScoutError(error instanceof Error ? error.message : "Unable to schedule Review Scout");
+    } finally { setUgcScoutBusy(false); }
+  }
 
   async function invokeEcommerce(stage: string, job?: EcommerceJob, regenerate = false) {
     if (!sourcePlanId || busyStage) return;
@@ -386,6 +412,25 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>Actual inputs are checked by the server. Stock references are pinned to the released file hashes; generated Front references must complete before Skills 2–3 can run.</small>
             </div>}
+            {step.key === "prod_s2_ugc" && <section aria-label="Lifestyle Review Scout" className="rrugc-products-photo-ugc-scout">
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <strong>Review Scout · Lifestyle references</strong>
+                <span>{ugcScout ? ugcScout.count + " / 20 images" : "Checking Scout campaign…"}</span>
+                <button type="button" disabled={ugcScoutBusy || !sourcePlanId} onClick={() => void scoutLifestyle()}>
+                  {ugcScoutBusy ? "Scheduling…" : "Scout lifestyle"}
+                </button>
+                {ugcScout && <small>Scout: {ugcScout.status}</small>}
+              </div>
+              {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
+              {ugcScout && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8 }}>
+                {ugcScout.items.map(item => <a key={item.id} href={item.pin_url} target="_blank" rel="noopener noreferrer"
+                  title={"Lifestyle reference · " + (item.score ?? "unrated")}>
+                  <img src={item.image_url} loading="lazy" alt="Scouted lifestyle reference"
+                    style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 8 }} />
+                </a>)}
+              </div>}
+              <small>Uses the existing Review Scout campaign and approved candidate images. These are scene references, not proof of the exact embroidered logo.</small>
+            </section>}
             <div className="rrugc-products-photo-detail-info">
               {isEcommerce ? <><strong>{skillName}</strong>
                 <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
