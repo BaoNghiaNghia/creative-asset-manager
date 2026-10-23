@@ -25,20 +25,29 @@ def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
     cut = flat.crop(box)
     mask = cut.getchannel("A")
     width, height = cut.size
-    # Base satin fill: close-pitched pairs of angled highlights and dark
-    # needle valleys. Per-concept orientation prevents a stamped uniform look.
-    # 4px pitch at the 2048px master scale reads as thread, not a printed fill.
+    # Two scales of angled satin thread: broader stitched bundles must
+    # survive UI downsampling, while individual needle ridges are visible
+    # at the full 2048px size. Both fields stay strictly inside glyph alpha.
     directions = (0.27, -0.32, 0.38, -0.26, 0.31, -0.38)
     slope = directions[(concept - 1) % 6]
-    lighting = Image.new("L", cut.size, 228)
-    pen = ImageDraw.Draw(lighting)
-    spread = int(abs(slope) * height) + 12
+    spread = int(abs(slope) * height) + 24
+    bundles = Image.new("L", cut.size, 230)
+    broad = ImageDraw.Draw(bundles)
+    for start in range(-spread, width + spread, 19):
+        broad.line([(start, 0), (round(start + slope * height), height)],
+                   fill=255, width=5)
+        broad.line([(start + 9, 0),
+                    (round(start + 9 + slope * height), height)],
+                   fill=186, width=6)
+    fibers = Image.new("L", cut.size, 244)
+    fine = ImageDraw.Draw(fibers)
     for start in range(-spread, width + spread, 4):
-        pen.line([(start, 0), (round(start + slope * height), height)],
-                 fill=252, width=1)
-        pen.line([(start + 2, 0),
-                  (round(start + 2 + slope * height), height)],
-                 fill=158, width=1)
+        fine.line([(start, 0), (round(start + slope * height), height)],
+                  fill=255, width=1)
+        fine.line([(start + 2, 0),
+                   (round(start + 2 + slope * height), height)],
+                  fill=218, width=1)
+    lighting = ImageChops.multiply(bundles, fibers)
     # Multiply the two-color originals by the same light field. Reds stay red;
     # royal blue keeps its hue, rather than being flattened to grayscale.
     source_rgb = cut.convert("RGB")

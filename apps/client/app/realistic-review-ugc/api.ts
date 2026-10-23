@@ -292,26 +292,6 @@ export const getQueryIntelligence = (signal?: AbortSignal) =>
   );
 
 
-export type DaFontPoolResponse = {
-  source: "DaFont";
-  approved_fonts: number;
-  fonts_per_job: number;
-  avoid_recent_jobs: number;
-  lookback_jobs: number;
-  brown_only: boolean;
-  require_embroidery_safe: boolean;
-  fonts: {
-    name: string;
-    category: string;
-    group: string;
-    url: string;
-    license: string;
-    enabled: boolean;
-    times_used_recently: number;
-  }[];
-};
-export const getStage1DaFontPool = (signal?: AbortSignal) =>
-  request<DaFontPoolResponse>("/api/v1/realistic-review-ugc/keyword-images/dafont-pool", { signal });
 
 export const listKeywordImages = (
   filters: { page?: number; pageSize?: number; query?: string; status?: string; sortBy?: "keyword" | "search_volume" | "duration" | "finished_at"; sortDirection?: "asc" | "desc" } = {},

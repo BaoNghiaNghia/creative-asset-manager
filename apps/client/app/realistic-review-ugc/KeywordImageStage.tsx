@@ -9,7 +9,6 @@ import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
-import { DaFontPoolDialog } from "./DaFontPoolDialog";
 import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
@@ -238,7 +237,6 @@ export function KeywordImageStage({
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
-  const [fontPoolOpen, setFontPoolOpen] = useState(false);
   const [manualKeyword, setManualKeyword] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualResult, setManualResult] = useState<KeywordImageRow | null>(null);
@@ -441,10 +439,6 @@ export function KeywordImageStage({
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search used keywords…" />
         </label>
-        <button type="button" className="rrugc-keyword-gen-font-pool" onClick={() => setFontPoolOpen(true)} title="Approved DaFont font pool and anti-repeat strategy" aria-label="Open DaFont font pool">
-          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAMAAABF0y+mAAAAbFBMVEXMAADLAADPDg7QHBzXSEj109P439/fcXHJAAD1y8v////+9/fVNjbKAADRFRXXPj7UMTHQISHqoaHbVFTwv7/cXl799PTyxcXtrKzeaWn32trjgYHxu7vli4vvtLTnlpb65ubVSUnlkZHZV1c1b8cdAAAAy0lEQVR4AZXQBXaFQAwFUEY+BHd32P8em1dvA5WHc89I4vwjSht1a/bhendKfhAE5g5Dxuh6aJwEnFSiikllPtAqYXnhQjilwLgK3lJ/R2Ua/t12wF6g5X26Dg2MXvwdU8ZBEyYfBWYNjzQ0Mc4Cc2BOC+MqMGHcMsKOCtkEYEQFY3eJTUrA5RotrYyVI7IFQbjTgVYIU8CSZkZfYIy2nzTy/SFxQMsZ0ajvSC3G1BjvGjESYxA5EuleLTyVRLUf6zp7VkuDxoiguzwB9ewNjgtodkEAAAAASUVORK5CYII=" alt="" width="21" height="21" />
-          DaFont
-        </button>
         {bulkRunning
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
@@ -488,7 +482,6 @@ export function KeywordImageStage({
       </button>)}
     </div>
 
-    {fontPoolOpen && <DaFontPoolDialog onClose={() => setFontPoolOpen(false)} />}
     <ActionMessageToast message={error} tone="error" />
     <ActionMessageToast message={message} />
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}

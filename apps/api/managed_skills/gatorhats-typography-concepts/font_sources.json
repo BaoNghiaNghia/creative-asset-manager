@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "source_repository": "https://github.com/google/fonts",
+  "source_license_area": "ofl",
+  "fonts": [
+    {
+      "family": "anton",
+      "file": "Anton-Regular.ttf",
+      "sha256": "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+      "size_bytes": 170812,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/anton-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/anton/Anton-Regular.ttf"
+    },
+    {
+      "family": "bebasneue",
+      "file": "BebasNeue-Regular.ttf",
+      "sha256": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+      "size_bytes": 61400,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/bebasneue-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bebasneue/BebasNeue-Regular.ttf"
+    },
+    {
+      "family": "pacifico",
+      "file": "Pacifico-Regular.ttf",
+      "sha256": "5b6c0d5334a7bf77dea52b975c5a0c408878c0f7115ed5b6fb151f634b7bf701",
+      "size_bytes": 329380,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/pacifico-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/pacifico/Pacifico-Regular.ttf"
+    },
+    {
+      "family": "lobster",
+      "file": "Lobster-Regular.ttf",
+      "sha256": "d6568e697fd50cedc0be04d8aae4127fe95add607e7bff954ca88604be80c205",
+      "size_bytes": 406076,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/lobster-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/lobster/Lobster-Regular.ttf"
+    },
+    {
+      "family": "righteous",
+      "file": "Righteous-Regular.ttf",
+      "sha256": "2ffb3fe5c27d7e6571210b800448c4e234e651b46c6b4426c1bb567e5341348a",
+      "size_bytes": 43104,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/righteous-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/righteous/Righteous-Regular.ttf"
+    },
+    {
+      "family": "dmserifdisplay",
+      "file": "DMSerifDisplay-Regular.ttf",
+      "sha256": "8cc3643535edf039aa5d95440a8542735e9197e4f4b8d9303e980fefbf5ab616",
+      "size_bytes": 76580,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/dmserifdisplay-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/dmserifdisplay/DMSerifDisplay-Regular.ttf"
+    },
+    {
+      "family": "alfaslabone",
+      "file": "AlfaSlabOne-Regular.ttf",
+      "sha256": "28664afa698a3393bd5a29eec750230a0645c5301d62200e5f2d3a027fb2299d",
+      "size_bytes": 97376,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/alfaslabone-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/alfaslabone/AlfaSlabOne-Regular.ttf"
+    },
+    {
+      "family": "breeserif",
+      "file": "BreeSerif-Regular.ttf",
+      "sha256": "fd080582d70112ef479ba4ddd72407f9a4fcbcec4caa7d29de259b13eeb5f431",
+      "size_bytes": 46572,
+      "license": "SIL OFL 1.1",
+      "license_file": "licenses/breeserif-OFL.txt",
+      "source": "google/fonts official OFL repository",
+      "source_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/breeserif/BreeSerif-Regular.ttf"
+    }
+  ]
+}

@@ -1,20 +1,30 @@
 ---
 name: gatorhats-typography-concepts
-description: GatorHats Products Stage 1: create six transparent typography-only PNG embroidery design concepts from a keyword or quote. Use the deterministic CAM six-concept renderer with verified license-cleared font assets; never ask for preview uploads or user concept selection during a background Stage 1 job.
+description: Create six independent realistic satin-embroidered lettering concepts from a quote for GatorHats Products Stage 1. Use bundled officially licensed fonts, faithful royal-blue and red script compositions, and the CAM deterministic renderer for automatic 2048×1024 transparent PNG delivery.
 ---
 
-# GatorHats Typography Concepts · CAM Stage 1
+# GatorHats Typography Concepts · Stage 1 (Reference Collection)
 
-Stage 1 must publish **exactly six** independent, nonempty transparent RGBA PNG files named `output/final/design_01.png` ... `design_06.png`, 2048×1024, with an `output/manifest.json` containing hashes and names.
+Input: the **literal quote** (up to 55 printable characters). No mockups, design upload, external fonts, image generation service or human approval step is required.
 
-## Contract
+## Final output contract
 
-- Input is one literal slogan/keyword, max 55 characters for legible embroidery. No images are required.
-- Preserve reference concept hierarchy and lettering composition: C1 Varsity Stack, C2 Block Stack, C3 red script headline above oversized blue block support, C4 serif arch with a script line nested underneath, C5 prominent blue script with compact upright caps, C6 Groovy Wavy Stack. Treat connective phrases (e.g. `State / of Mind`) as a unit, never enlarge an isolated preposition.
-- Render with approved bundled fonts and application-owned `stage1_typography_renderer`, then apply the Pillow-only `stage1_stitch_texture` shader: short angled satin stitch rows, needle valleys, same-hue thread sheen and subtle raised edge relief. Preserve the exact transparent text mask. Never return flat printed-looking lettering.
-- Use royal blue #3558B5 as main thread and red #AC211C only as C3 accent, matching the original user typography concept palette.
-- Do not produce hats, product photos, extra symbols, previews, or image collages as final deliverables.
-- Render all six locally; do not invoke Codex/imagegen or require manual A/B uploads. The CAM worker uploads only verified final files. Missing fonts, overflow, empty or duplicate images must fail rather than falsely succeeding.
-- Completed historical jobs/Drive assets remain intact; new outputs are persisted through the existing transactional Stage 1 upload and version ledger.
+- Publish **six independent 2048 × 1024 PNGs with RGBA transparency** at `output/final/design_01.png` to `design_06.png` plus `output/manifest.json`.
+- Preserve all words, punctuation and case-independent reading order. No illustrations, pictograms, outlines of caps, patches or decorative imagery.
+- Use royal-blue (#2852AA) thread with subtle near-navy valleys. Only concept 03 may add a red (#B72B20) script accent.
+- Work from the Google Fonts **official OFL source binaries bundled under `fonts/`**, verified against `font_sources.json` and accompanied by `licenses/`. Do not use legacy external font registries or random font selection.
+- Finish **inside the exact letter alpha mask** with diagonal satin rows, highlights, dark needle valleys and subtle stitched edge relief. Never leave glyphs as a smooth flat print.
+- Do **not** create or persist preview drafts as final outputs; generate only the six independent PNG masters.
+- The CAM-owned `stage1_typography_renderer.py` creates the six layouts and `stage1_stitch_texture.py` applies the embroidery texture deterministically. Fail closed on invalid font hashes, missing licenses or incomplete output.
+- Keep existing completed Drive assets and version history. Regenerate a keyword only when requested.
 
-Original uploaded GatorHats Typography Concepts had an interactive approval workflow and sometimes skipped C3/C5. CAM enforces six fixed output slots and uses fallback recipe arrangements for short quotes, without pretending an incomplete batch succeeded.
+## Composition recipes from Concept output(3).zip
+
+1. **Royal Blue Block Stack:** two stacked lines of bold blue capitals; short first line, wide heavier second (CHAOS / COORDINATOR).
+2. **Contrasting Condensed Stack:** tall condensed upper line and oversized solid-blue lower line (STATE / OF MIND).
+3. **Red Script Over Blue Block:** red cursive headline above, slightly overlapping large slanted blue capital support (State of / MIND; Hamburger / HELP ME).
+4. **Serif Arch With Script:** clearly curved wide blue uppercase headline above centered handwritten blue subtitle (STATE / of Mind; CHAOS / Coordinator).
+5. **Blue Script Plus Small Caps:** large flowing blue script in upper half with compact block capitals below (State / OF MIND).
+6. **Groovy Letter Stack:** chunky blue retro serif letters on two or three staggered lines, expressive arrangement but correct character order (Y'ALL / NEED / JESUS).
+
+See `references/STYLE_REFERENCE.md` for example-driven line splitting, visual balance and QA checks. Every final must be legible at a cap-front embroidery size. A white backdrop is only for preview and must not be baked into the transparent PNG.

@@ -29,7 +29,6 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
-from app.modules.realistic_review_ugc.stage1_font_library import font_info_for_number, font_brief, ensure_job_font_plan
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -62,16 +61,14 @@ STAGE1_SIX_DESIGNS_MIN_TIMEOUT_SECONDS = 1800
 
 
 def codex_stage1_timeout_seconds(skill_name: str, configured: int) -> int:
-    minimum = (7200 if skill_name == "hanh-redesign-8869-ver-4"
-               else STAGE1_SIX_DESIGNS_MIN_TIMEOUT_SECONDS
-               if skill_name == "gatorhats-stage1-six-designs" else 0)
+    minimum = 7200 if skill_name == "hanh-redesign-8869-ver-4" else 0
     return max(minimum, configured)
 
 STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
     "managed_storage_temporarily_unavailable", "managed_storage_network_error",
     "keyword_image_storage_invalid",
 })
-DEFAULT_SKILL = "gatorhats-stage1-six-designs"
+DEFAULT_SKILL = "gatorhats-typography-concepts"
 LOCAL_TYPOGRAPHY_SKILL = "gatorhats-typography-concepts"
 
 
@@ -130,46 +127,6 @@ def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str |
                 "C1–C6 layout recipes. Use only the approved application-owned renderer. "
                 "Never call Codex, imagegen or require manual previews. "
                 + ((custom or "").strip() if custom else "")).strip()
-    if skill_name == "gatorhats-stage1-six-designs":
-        return (
-            "Create exactly SIX independent TYPOGRAPHY-ONLY embroidery designs for "
-            "the exact literal quote " + repr(keyword) + ". Use "
-            "$gatorhats-stage1-six-designs and the embroidered-satin-natural preset. "
-            "HARD RULE: EVERY image must show only the quote as embroidered lettering; "
-            "NO pictorial illustrations, no birds, flowers, hands, globes, animals, "
-            "hearts, icons, logos, ribbons, symbols, backgrounds or added decorations. "
-            "Vary strictly the font style, kerning, weight, line breaks, arch and text "
-            "hierarchy to create six genuinely distinct layouts: bold block, condensed "
-            "stacked, script, Western serif, varsity, distressed bold. "
-            "HARD RULE: exactly ONE SOLID THREAD COLOR PER DESIGN. All letters and "
-            "stitches within each individual PNG use BROWN (#6B3F28) thread only; no accent "
-            "colors, gradients or secondary pigments. ALL SIX images must use the SAME "
-            "brown thread color. Preserve every character, punctuation and text order. "
-            "Depict real thin low-relief embroidery, fine satin stitch on narrow "
-            "lettering, Tatami fill on wider areas and visible directional thread "
-            "ridges, subtle same-hue reflections, clean counters, no printed fills, "
-            "foam puff, thick borders, plastic shine, patches or decals. "
-            "Output six independent straight-on transparent RGBA masters, only "
-            "output/final/design_01.png through design_06.png. No hats, mockups, "
-            "contact sheets, 13 colorways, additional files or preview drafts. "
-            "Do not generate, save, upload or retain any preview/draft images, "
-            "including working/previews/. "
-            "The one-color typography-only restriction OVERRIDES all conflicting "
-            "creative guidance, including any appended custom text. "
-            + ((custom or "").strip() if custom else "")
-            + " FONT LIBRARY (bundled, original font assets, licensed OFL): "
-            + font_brief()
-            + " The pipeline has already rendered EXACT glyph outlines in "
-            "working/font-guides/design_01.png ... design_06.png from these bundled "
-            "font files. Use the corresponding numbered guide as a mandatory layout "
-            "reference for each design; preserve real letters, spacing and composition, "
-            "adding only realistic embroidery stitch texture in the same brown hue. "
-            "Do not redraw text using a guessed font; "
-            "make the lettering visually compact and balanced. Do NOT substitute guessed "
-            "fonts. Report each actual source font name in the final completion text. "
-            "FINAL RULE: six independent BROWN-ONLY typography masters; no drawings, "
-            "no badges, no secondary color, no background."
-        ).strip()
     if skill_name == "hanh-redesign-8869-ver-4":
         return (
             "Generate the COMPLETE Hanh Redesign v4 independent-concepts workflow for "
@@ -425,7 +382,7 @@ class KeywordImageService:
         job.skill_bundle_sha256 = installed_stage2_skill_sha256(job.skill_name, settings=self.settings)
         job.status = "queued"
         job.retry_count = 0
-        job.font_plan_json = None  # Explicit regenerate rerolls; deferred retry retains the saved plan.
+        job.font_plan_json = None  # Clear deprecated plan for new runs.
         job.started_at = None
         job.completed_at = None
         job.provider_request_id = None
@@ -925,8 +882,6 @@ class KeywordImageGenerateHandler:
                     return JobHandlerResult.non_retryable(
                         "stage1_legacy_skill_not_supported", job.last_error_message,
                     )
-            font_plan = (ensure_job_font_plan(session, job, expected_count=output_count)
-                         if job.skill_name == "gatorhats-stage1-six-designs" else None)
             job.status = "running"
             job.started_at = job.started_at or datetime.now(timezone.utc)
             job.last_error_code = None
@@ -945,9 +900,8 @@ class KeywordImageGenerateHandler:
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
             output_contract="stage1_six_final_designs",
             expected_output_count=output_count,
-            expected_quote=keyword_text if skill_name in ("hanh-redesign-8869-ver-4", "gatorhats-stage1-six-designs") else None,
+            expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
             execution_log_id=context.job.id,
-            font_plan=tuple(font_plan) if font_plan else None,
         ))
         preserve_finals = False
         upload_only = bool(context.job.payload.get("upload_only"))
@@ -1033,8 +987,7 @@ class KeywordImageGenerateHandler:
                         })
                         generated = await runner.generate_from_references(
                             attempt_id=context.job.entity_id, person=None, references=[],
-                            prompt=(prompt + " APPROVED RANDOM FONT PLAN: " + font_brief(font_plan)
-                                    if font_plan else prompt),
+                            prompt=prompt,
                             resume_missing_numbers=resume_missing,
                         )
             original_attempt = (
@@ -1208,15 +1161,9 @@ class KeywordImageGenerateHandler:
                     return JobHandlerResult.non_retryable(
                         "keyword_image_job_not_active", "Generation is no longer active."
                     )
-                # A font is recorded only for outputs pinned to this installed
-                # font-enabled Skill release; older output history stays unknown.
+                # Older version records preserve their historical font details.
+                # The active renderer has no per-job font plan.
                 font_info = None
-                if (job.skill_name == "gatorhats-stage1-six-designs"
-                        and job.skill_bundle_sha256 == installed_stage2_skill_sha256(
-                            job.skill_name, settings=self.settings or get_settings()
-                        )):
-                    font_info = (font_info_for_number(index + 1, font_plan=job.font_plan_json)
-                                 if job.font_plan_json else None)
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,

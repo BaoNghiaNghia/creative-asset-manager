@@ -259,50 +259,16 @@ def test_stage1_prompt_uses_selected_six_design_skill_instead_of_hardcoded_name(
     assert "Use $approved-stage1-six-designs and $imagegen." in prompt
     assert "Use $gatorhats-stage1-six-designs" not in prompt
 
-def test_managed_stage1_natural_stitch_skill_bundle_preserves_strict_six_final_contract():
-    from app.operations.install_stage1_six_skill import skill_bundle
-    bundle = skill_bundle()
-    files = {name: content for name, content, _content_type in bundle.files}
-    skill = files["SKILL.md"].decode("utf-8")
-    manifest = files["manifest.json"].decode("utf-8")
-    assert "version: 16_28_14_10_26" in skill
-    assert "typography-only" in skill.lower()
-    assert "one single solid thread hue" in skill.lower()
-    assert "NO illustrations" in skill
-    assert "Do NOT add" in skill
-    assert "birds, flowers" in skill.lower()
-    assert "at least three illustration-led" not in skill.lower()
-    assert "2–4-color" not in skill.lower()
-    assert "Do not generate a collage" in skill
-    assert "embroidered-satin-natural" in skill
-    assert "NOT a flat screen print" in skill
-    assert "one final per image-generation call" in skill
-    assert "NO hat" in skill
-    for index in range(1, 7):
-        assert f"output/final/design_{index:02}.png" in skill
-    assert "keyword_six_designs" in manifest
-    assert "brown-thread embroidery designs" in manifest
-    assert "200-family approved DaFont font pool" in manifest
-    assert "font_registry.json" in files
-    from pathlib import Path
-    deployed = Path(__file__).resolve().parents[5] / "deploy/codex/skills/gatorhats-stage1-six-designs/SKILL.md"
-    assert deployed.read_bytes() == files["SKILL.md"]
+def test_active_stage1_skill_uses_verified_reference_design_recipe():
+    from app.operations.install_stage1_typography_skill import build_bundle
+    bundle = build_bundle()
+    files = {name: content for name, content, _mime in bundle.files}
+    assert bundle.skill_name == "gatorhats-typography-concepts"
+    assert b"reference" in files["SKILL.md"].lower()
+    assert "fonts/Anton-Regular.ttf" in files
+    assert all("dafont" not in name.lower() for name in files)
 
 
-def test_stage1_keyword_prompt_requires_creative_distinct_stitches_and_thread_pigment():
-    from app.modules.realistic_review_ugc.keyword_images import keyword_prompt
-    value = keyword_prompt("WELL READ", skill_name="gatorhats-stage1-six-designs")
-    assert "embroidered-satin-natural" in value
-    assert "TYPOGRAPHY-ONLY" in value
-    assert "exactly ONE SOLID THREAD COLOR PER DESIGN" in value
-    assert "NO pictorial illustrations" in value
-    assert "Vary strictly the font style" in value
-    assert "at least THREE must be ILLUSTRATION-LED" not in value
-    assert "2–4 THREAD COLOR" not in value
-    assert "Tatami fill" in value
-    assert "output/final/design_01.png through design_06.png" in value
-    assert "WELL READ" in value
-    assert "Do not generate, save, upload or" in value
 @pytest.mark.parametrize("expected_count", [4, 8])
 def test_variable_final_count_checkpoint_and_publish_contract(tmp_path, expected_count):
     final = tmp_path / "output" / "final"

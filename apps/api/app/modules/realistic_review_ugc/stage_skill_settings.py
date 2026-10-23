@@ -53,6 +53,9 @@ def keyword_skill_compatible(skill_name: str, *, settings: Settings | None = Non
     Stage 1 sends keyword text without source images. A Skill may use bundled
     assets or generate from text even when its manifest lists reference roles.
     """
+    # The retired Stage 1 pool cannot be reselected or run again.
+    if skill_name == "gatorhats-stage1-six-designs":
+        return False
     settings = settings or get_settings()
     try:
         manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, skill_name)

@@ -7,15 +7,16 @@ The approved OFL font subset is assembled from the existing verified library.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import io
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
 from sqlalchemy import func, select
 
 from app.core.database import SessionLocal
+from app.core.config import get_settings
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordImageJobModel, RrugcStage2SkillRegistryModel, RrugcStageSkillDefaultModel,
 )
@@ -33,34 +34,15 @@ PROD_TENANT = "creative-assets-prod"
 
 def build_bundle():
     root = SOURCE / SKILL_NAME
-    old = SOURCE / "gatorhats-stage1-six-designs"
-    registry = json.loads((old / "font_registry.json").read_text(encoding="utf-8"))
-    by_file = {
-        item["file"]: item for item in registry["fonts"]
-        if item.get("license_status") == "approved" and item.get("embroidery_safe")
-    }
+    # A complete self-contained Skill: font files, licenses and provenance
+    # are bundled here; never look up the retired 200-font registry.
+    from app.modules.realistic_review_ugc.stage1_typography_renderer import _verify_fonts
+    _verify_fonts(root / "fonts")
     with io.BytesIO() as stream:
         with zipfile.ZipFile(stream, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
             for file in sorted(root.rglob("*")):
                 if file.is_file():
                     archive.write(file, file.relative_to(root).as_posix())
-            for name in FONTS:
-                if "dafont" in name.lower():
-                    raise RuntimeError("DaFont is not permitted in Stage 1 typography")
-                item = by_file.get(name)
-                if item is None:
-                    raise RuntimeError("Approved typography font not registered: " + name)
-                source = old / "fonts" / name
-                blob = source.read_bytes()
-                if hashlib.sha256(blob).hexdigest() != item["sha256"]:
-                    raise RuntimeError("Typography font integrity failed: " + name)
-                archive.writestr("fonts/" + name, blob)
-                license_name = item.get("license_file")
-                if license_name:
-                    path = old / "fonts" / license_name
-                    if not path.is_file():
-                        raise RuntimeError("Typography font license absent: " + name)
-                    archive.writestr("licenses/" + license_name, path.read_bytes())
         data = stream.getvalue()
     skill = inspect_uploaded_stage2_skill_bundle(data)
     if skill.skill_name != SKILL_NAME:
@@ -107,7 +89,9 @@ def main() -> None:
     if not args.apply:
         return
 
-    installed = install_local_stage2_skill_bundle(skill, replace=False)
+    # Atomically replace the previously installed local ZIP, preserving registry
+    # identity and output history; refuse if a Stage 1 job is active.
+    installed = install_local_stage2_skill_bundle(skill, replace=True)
     if not installed.ready:
         raise RuntimeError("New Typography Concepts Skill is not ready")
     with SessionLocal() as session:
@@ -135,12 +119,47 @@ def main() -> None:
                              "new_skill": SKILL_NAME,"registry_id": selected.id,
                              "reason":"automated_six_png_typography_contract"},
             ))
+        # Retire the old random-font Skill from the production library. Stored
+        # output records stay unchanged; no historical Drive file is removed.
+        retired = list(session.scalars(select(RrugcStage2SkillRegistryModel).where(
+            RrugcStage2SkillRegistryModel.tenant_id == PROD_TENANT,
+            RrugcStage2SkillRegistryModel.skill_name == "gatorhats-stage1-six-designs",
+        )))
+        for older in retired:
+            older.enabled = False
         session.commit()
         checked = {stage: session.get(RrugcStageSkillDefaultModel, (PROD_TENANT, stage)).registry_id
                    for stage in ("stage1", "prod_s1")}
         if any(value != selected.id for value in checked.values()):
             raise RuntimeError("Post-install default verification failed")
-    print("SUCCESS: Stage 1 default installed as " + SKILL_NAME + "; previous Skill and outputs preserved.")
+    # Retire the old runtime font pool only when no tenant still selects it
+    # and no queued/running legacy job could need those assets. Prior immutable
+    # backend releases and historical Drive output versions remain recoverable.
+    with SessionLocal() as session:
+        refs = session.scalar(
+            select(func.count()).select_from(RrugcStageSkillDefaultModel)
+            .join(RrugcStage2SkillRegistryModel,
+                  RrugcStageSkillDefaultModel.registry_id == RrugcStage2SkillRegistryModel.id)
+            .where(RrugcStage2SkillRegistryModel.skill_name == "gatorhats-stage1-six-designs")
+        ) or 0
+        active_legacy = session.scalar(
+            select(func.count()).select_from(RrugcKeywordImageJobModel)
+            .where(RrugcKeywordImageJobModel.skill_name == "gatorhats-stage1-six-designs",
+                   RrugcKeywordImageJobModel.status.in_(("queued", "running")))
+        ) or 0
+    if not refs and not active_legacy:
+        old_dir = (
+            Path(str(get_settings().CODEX_IMAGE_HOME)).resolve()
+            / "skills" / "gatorhats-stage1-six-designs"
+        )
+        if old_dir.is_symlink():
+            raise RuntimeError("Refusing to remove symlinked legacy Skill directory")
+        if old_dir.is_dir():
+            shutil.rmtree(old_dir)
+            print("RETIRED: unused legacy font-pool runtime files (historical output retained)")
+    else:
+        print(f"LEGACY_RUNTIME_RETAINED: {refs} assignments, {active_legacy} active jobs")
+    print("SUCCESS: Stage 1 default installed as " + SKILL_NAME + "; previous output history preserved.")
     if args.retry_failed_keyword.strip():
         from app.modules.realistic_review_ugc.keyword_images import KeywordImageService
         with SessionLocal() as session:

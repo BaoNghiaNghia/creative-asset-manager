@@ -53,23 +53,6 @@ def acquire_worker_profile(
             skill_dir = home / "skills" / skill_name
             if not (skill_dir / "SKILL.md").is_file():
                 continue
-            # Stage 1 now requires the actual licensed font assets, not
-            # merely a copy of SKILL.md, to avoid mislabeled font reports.
-            if skill_name == "gatorhats-stage1-six-designs":
-                from app.modules.realistic_review_ugc.stage1_font_library import approved_font_pool
-                # Secondary Codex homes may lag after a deployment. Never
-                # dispatch a font plan to a home missing ANY approved font.
-                if not (skill_dir / "font_registry.json").is_file():
-                    continue
-                import hashlib
-                if not all(
-                    (skill_dir / "fonts" / font["file"]).is_file()
-                    and hashlib.sha256(
-                        (skill_dir / "fonts" / font["file"]).read_bytes()
-                    ).hexdigest() == font["sha256"]
-                    for font in approved_font_pool()
-                ):
-                    continue
         lock_dir = home / "worker-locks"
         try:
             lock_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

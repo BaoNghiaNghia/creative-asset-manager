@@ -14,7 +14,7 @@ from app.operations.install_stage1_typography_skill import build_bundle
 from app.providers.ai.codex_image import CodexImageGenRunner
 
 ROOT = Path(__file__).resolve().parents[3] / "managed_skills"
-FONTS_ROOT = ROOT / "gatorhats-stage1-six-designs" / "fonts"
+FONTS_ROOT = ROOT / "gatorhats-typography-concepts" / "fonts"
 
 
 @pytest.mark.parametrize("keyword", [
@@ -144,6 +144,8 @@ def test_typography_no_dafont_assets_or_settings():
     assert all("dafont" not in name.lower() for name in FONTS)
     package = build_bundle()
     assert all("dafont" not in name.lower() for name, *_ in package.files)
+    assert "font_sources.json" in {name for name, *_ in package.files}
+    assert sum(name.startswith("licenses/") for name, *_ in package.files) == len(FONTS)
 
 
 def test_local_stage1_skill_bundle_installs_only_verified_fonts():
@@ -152,6 +154,6 @@ def test_local_stage1_skill_bundle_installs_only_verified_fonts():
     names = {item[0] for item in pkg.files}
     assert {"SKILL.md", "manifest.json"}.issubset(names)
     assert all("fonts/" + name in names for name in FONTS)
-    assert all((name.startswith("fonts/") or name.startswith("licenses/")
-                or name in {"SKILL.md", "manifest.json", "agents/openai.yaml"})
+    assert all((name.startswith("fonts/") or name.startswith("licenses/") or name.startswith("references/")
+                or name in {"SKILL.md", "manifest.json", "font_sources.json", "agents/openai.yaml"} )
                for name in names)

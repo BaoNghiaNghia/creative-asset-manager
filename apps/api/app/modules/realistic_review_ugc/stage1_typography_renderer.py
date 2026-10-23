@@ -1,16 +1,15 @@
-"""Deterministic six-PNG CAM Stage 1 typography adapter.
+"""Reference-driven, deterministic six-concept embroidered lettering for CAM.
 
-Trust boundary: this renderer is signed application code, not executable Python
-loaded from arbitrary uploaded Skills. Font names are allow-listed OFL assets
-packaged from CAM's vetted Stage 1 font registry. No image-generation provider
-or network access is needed. Each run writes into its own processing workspace.
+Stage 1 renders the literal quote in six distinct editorial compositions inspired
+by approved GatorHats examples. Font binaries and their licenses are bundled
+within the active Typography Concepts Skill from Google's official OFL archive.
+No legacy font library, random font plan, or online font API is consulted.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import math
-import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -19,198 +18,294 @@ from app.modules.realistic_review_ugc.stage1_stitch_texture import embroider_typ
 
 SKILL_NAME = "gatorhats-typography-concepts"
 CANVAS = (2048, 1024)
-MAIN = "#3558B5"
-ACCENT = "#AC211C"
-FONTS = ("BebasNeue-Regular.ttf", "SimplePrint.ttf", "Pacifico-Regular.ttf",
-         "Lobster-Regular.otf", "Signwood.ttf", "CharisSIL.ttf",
-         "AireExterior.ttf", "Gentium.ttf")
-STYLE_NAMES = ("Varsity Stack", "Block Stack", "Script Lockup 2-Color",
-               "Club Arch", "Script Overlap", "Groovy Wavy Stack")
+MAIN = "#2852AA"
+ACCENT = "#B72B20"
+FONTS = (
+    "Anton-Regular.ttf", "BebasNeue-Regular.ttf", "Pacifico-Regular.ttf",
+    "Lobster-Regular.ttf", "Righteous-Regular.ttf",
+    "DMSerifDisplay-Regular.ttf", "AlfaSlabOne-Regular.ttf",
+    "BreeSerif-Regular.ttf",
+)
+STYLE_NAMES = (
+    "Royal Blue Block Stack", "Contrasting Condensed Stack",
+    "Red Script Over Italic Blue Block", "Serif Arch With Script",
+    "Large Blue Script And Small Caps", "Retro Groovy Letter Stack",
+)
 
 
-def _font(directory: Path, number: int, size: int) -> ImageFont.FreeTypeFont:
-    path = directory / FONTS[number]
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("Stage 1 typography font missing or unsafe: " + path.name)
-    return ImageFont.truetype(str(path), max(10, size))
+def _verify_fonts(directory: Path) -> None:
+    if not directory.is_dir() or directory.is_symlink():
+        raise ValueError("Stage 1 official font directory is not available")
+    manifest = directory.parent / "font_sources.json"
+    if not manifest.is_file() or manifest.is_symlink():
+        raise ValueError("Stage 1 official font provenance manifest is missing")
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    entries = data.get("fonts", [])
+    indexed = {entry["file"]: entry for entry in entries
+               if isinstance(entry, dict) and isinstance(entry.get("file"), str)}
+    if set(indexed) != set(FONTS) or data.get("source_repository") != "https://github.com/google/fonts":
+        raise ValueError("Stage 1 official font allowlist changed unexpectedly")
+    for name in FONTS:
+        font = directory / name
+        entry = indexed[name]
+        lic = directory.parent / entry.get("license_file", "")
+        if (not font.is_file() or font.is_symlink() or not lic.is_file() or lic.is_symlink()
+                or entry.get("license") != "SIL OFL 1.1"
+                or "google/fonts" not in entry.get("source", "").lower()
+                or not entry.get("source_url", "").startswith(
+                    "https://raw.githubusercontent.com/google/fonts/main/ofl/")
+                or hashlib.sha256(font.read_bytes()).hexdigest() != entry.get("sha256")
+                or "SIL OPEN FONT LICENSE" not in lic.read_text(encoding="utf-8").upper()):
+            raise ValueError("Stage 1 verified official font or license is missing: " + name)
 
 
-def _split(phrase: str, count: int) -> list[str]:
-    words = phrase.split()
-    if len(words) <= count:
-        return words
-    # Deterministic, meaning-preserving line grouping. Never alter glyph text.
-    out = []
-    start = 0
-    for n in range(count):
-        rest = len(words) - start
-        slots = count - n
-        take = max(1, math.ceil(rest / slots))
-        out.append(" ".join(words[start:start + take]))
-        start += take
-    return out
+def _font(directory: Path, index: int, size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(directory / FONTS[index]), max(12, size))
 
 
-def _fit_font(draw: ImageDraw.ImageDraw, font_dir: Path, font_index: int,
-              text: str, width: int, max_height: int, preferred: int) -> ImageFont.FreeTypeFont:
-    for size in range(preferred, 15, -2):
-        f = _font(font_dir, font_index, size)
-        bbox = draw.textbbox((0, 0), text, font=f, stroke_width=0)
-        if bbox[2] - bbox[0] <= width and bbox[3] - bbox[1] <= max_height:
-            return f
-    raise ValueError("Quote is too long to fit an embroidery-safe typography layout.")
-
-
-def _center_text(canvas: Image.Image, font_dir: Path, font_index: int, text: str,
-                 y: int, *, color: str = MAIN, preferred: int = 265,
-                 max_width: int = 1720, max_height: int = 350,
-                 offset_x: int = 0) -> None:
-    layer = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    f = _fit_font(draw, font_dir, font_index, text, max_width, max_height, preferred)
-    left, top, right, bottom = draw.textbbox((0, 0), text, font=f)
-    x = (CANVAS[0] - (right - left)) // 2 - left + offset_x
-    draw.text((x, y - top), text, font=f, fill=color)
-    canvas.alpha_composite(layer)
-
-
-def _meaning_parts(quote: str) -> tuple[str, str]:
-    """Preserve phrase order and keep a preposition with its following word.
-
-    Examples: State / of Mind, Chaos / Coordinator, Hamburger / Help me.
-    """
-    words = quote.split()
-    if len(words) <= 1:
-        return quote, ""
-    if len(words) >= 3 and words[1].lower() in (
-        "of", "on", "in", "at", "for", "with", "by", "to",
-    ):
+def _parts(text: str, variant: int) -> tuple[str, str]:
+    """Choose hierarchy by phrase, not mechanical equal-length word splitting."""
+    words = text.split()
+    if len(words) < 2:
+        return text, ""
+    if len(words) == 2:
+        return words[0], words[1]
+    if variant == 3:
+        # The reference C3 treatment places "State of" over "MIND",
+        # while "Hamburger" sits above "HELP ME".
+        if len(words[-1]) <= 2:
+            return words[0], " ".join(words[1:])
+        return " ".join(words[:-1]), words[-1]
+    if variant == 4:
+        if len(words) >= 3 and words[0].upper().replace("'", "") in {"YALL", "WE", "I"}:
+            return " ".join(words[:-1]), words[-1]
         return words[0], " ".join(words[1:])
-    if len(words) >= 3:
-        return " ".join(words[:1]), " ".join(words[1:])
-    return words[0], words[1]
+    if variant == 5 and len(words) >= 3 and len(words[-1]) >= 5 and len(words[0]) <= 6:
+        return " ".join(words[:-1]), words[-1]
+    if len(words) == 3 and words[1].casefold() in {"of", "on", "by", "for", "to"}:
+        return words[0], " ".join(words[1:])
+    return words[0], " ".join(words[1:])
 
 
-def _arch(canvas: Image.Image, font_dir: Path, quote: str) -> None:
-    words = quote.upper()
-    draw = ImageDraw.Draw(canvas)
-    font = _fit_font(draw, font_dir, 5, words, 1470, 270, 230)
-    full_width = draw.textlength(words, font=font)
-    if full_width <= 0:
-        raise ValueError("No text to render")
-    cursor = -full_width / 2
-    for char in words:
-        advance = draw.textlength(char, font=font)
-        mid = cursor + advance / 2
-        theta = mid / max(full_width / 2, 1) * 0.53
-        glyph = Image.new("RGBA", (450, 460), (0, 0, 0, 0))
-        gd = ImageDraw.Draw(glyph)
-        box = gd.textbbox((0, 0), char, font=font)
-        gd.text((225 - (box[2] - box[0]) / 2 - box[0],
-                 230 - (box[3] - box[1]) / 2 - box[1]), char, fill=MAIN, font=font)
-        glyph = glyph.rotate(-math.degrees(theta), resample=Image.Resampling.BICUBIC,
-                             expand=False)
-        cx = CANVAS[0] / 2 + (mid / full_width) * 1470
-        cy = 570 - 330 * (1 - (mid / max(full_width / 2, 1)) ** 2)
-        canvas.alpha_composite(glyph, (round(cx - 225), round(cy - 230)))
-        cursor += advance
+def _raster_line(
+    text: str, directory: Path, font_index: int,
+    max_width: int, max_height: int, *,
+    slant: float = 0.0, tracking: int = 0, stroke: int = 0,
+) -> Image.Image:
+    """Rasterize only glyphs, then fit the full word(s) into a bounded region."""
+    font = _font(directory, font_index, 340)
+    ruler = ImageDraw.Draw(Image.new("L", (1, 1)))
+    if tracking:
+        advances = [int(math.ceil(ruler.textlength(letter, font=font))) for letter in text]
+        width = sum(advances) + max(0, len(text) - 1) * tracking
+    else:
+        width = int(math.ceil(ruler.textlength(text, font=font)))
+    bbox = ruler.textbbox((0, 0), text, font=font, stroke_width=stroke)
+    layer = Image.new("RGBA", (max(16, width + stroke * 3 + 24),
+                               max(16, bbox[3] - bbox[1] + stroke * 3 + 24)),
+                      (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    at_y = 10 - bbox[1] + stroke
+    if tracking:
+        x = 10
+        for ch, adv in zip(text, advances):
+            draw.text((x, at_y), ch, font=font, fill=MAIN, stroke_width=stroke,
+                      stroke_fill=MAIN)
+            x += adv + tracking
+    else:
+        draw.text((10, at_y), text, font=font, fill=MAIN, stroke_width=stroke,
+                  stroke_fill=MAIN)
+    tight = layer.getbbox()
+    if tight is None:
+        raise ValueError("No supported glyphs in Stage 1 quote")
+    layer = layer.crop(tight)
+    if slant:
+        shear = abs(slant)
+        extra = int(round(layer.height * shear))
+        a, b, c = 1.0, slant, -slant * layer.height
+        layer = layer.transform((layer.width + extra, layer.height),
+                                Image.Transform.AFFINE, (a, b, c, 0, 1, 0),
+                                resample=Image.Resampling.BICUBIC)
+        bounds = layer.getbbox()
+        if bounds:
+            layer = layer.crop(bounds)
+    ratio = min(max_width / layer.width, max_height / layer.height)
+    layer = layer.resize((max(1, round(layer.width * ratio)),
+                          max(1, round(layer.height * ratio))),
+                         Image.Resampling.LANCZOS)
+    return layer
 
 
-def _render_one(quote: str, font_dir: Path, slot: int) -> Image.Image:
-    image = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    headline, supporting = _meaning_parts(quote)
-    words = _split(quote, 2)
-    bottom = (words[1] if len(words) > 1 else words[0]).upper()
-    if slot == 1:  # varsity/stacked, preserving a single-word quote
-        lines = [quote.upper()] if len(quote.split()) <= 2 else _split(quote.upper(), 2)
-        for n, line in enumerate(lines):
-            _center_text(image, font_dir, 0, line, 380 + n * 235,
-                         preferred=290 if len(lines) == 1 else 210)
-    elif slot == 2:  # dense block, alternate approved face
-        lines = _split(quote.upper(), 2)
-        for n, line in enumerate(lines):
-            _center_text(image, font_dir, 1, line, 325 + n * 250,
-                         preferred=320 if len(lines) == 1 else 240)
-    elif slot == 3:  # sample C3: red script headline, large blue key line
-        if supporting:
-            _center_text(image, font_dir, 3, headline.title(), 286,
-                         color=ACCENT, preferred=258, max_width=1660)
-            _center_text(image, font_dir, 0, supporting.upper(), 535,
-                         color=MAIN, preferred=306, max_width=1710,
-                         max_height=305)
-        else:
-            _center_text(image, font_dir, 3, headline.title(), 385,
-                         color=ACCENT, preferred=290)
-    elif slot == 4:  # sample C4: arched headline with script nested below
-        _arch(image, font_dir, headline)
-        if supporting:
-            _center_text(image, font_dir, 3, supporting.title(), 585,
-                         preferred=172, max_width=1170, max_height=195)
-    elif slot == 5:  # sample C5: prominent script + compact caps underlay
-        _center_text(image, font_dir, 2, headline.title(), 305,
-                     preferred=292, max_width=1690)
-        if supporting:
-            _center_text(image, font_dir, 0, supporting.upper(), 610,
-                         preferred=160, max_width=1430, max_height=195)
-    else:  # groovy/wavy stack, no added symbols
-        lines = _split(quote.upper(), 2)
-        if len(lines) == 1:
-            _center_text(image, font_dir, 6, lines[0], 400, preferred=280)
-        else:
-            _center_text(image, font_dir, 6, lines[0], 285, preferred=235, offset_x=-40)
-            _center_text(image, font_dir, 7, lines[1], 585, preferred=235, offset_x=35)
-    if image.getbbox() is None:
-        raise ValueError("Empty typography output")
-    return image
+def _place(
+    frame: Image.Image, directory: Path, font_index: int, text: str,
+    *, center_y: int, max_width: int, max_height: int,
+    color: str = MAIN, slant: float = 0.0, tracking: int = 0,
+    stroke: int = 0, center_x: int = 1024,
+) -> None:
+    layer = _raster_line(text, directory, font_index, max_width, max_height,
+                         slant=slant, tracking=tracking, stroke=stroke)
+    # RGB is recolored without losing antialiasing: color only covers ink.
+    alpha = layer.getchannel("A")
+    color_layer = Image.new("RGBA", layer.size, color)
+    color_layer.putalpha(alpha)
+    x = center_x - layer.width // 2
+    y = center_y - layer.height // 2
+    frame.alpha_composite(color_layer, (x, y))
+
+
+def _arched_line(
+    frame: Image.Image, directory: Path, text: str, *,
+    font_index: int = 5, center_y: int = 372,
+    max_width: int = 1610, bow: int = 165,
+) -> None:
+    """Arc individual real font glyphs, keeping the top inscription legible."""
+    words = text.upper()
+    painter = ImageDraw.Draw(Image.new("RGBA", (2, 2)))
+    preferred = 245
+    font = _font(directory, font_index, preferred)
+    advance = painter.textlength(words, font=font)
+    font = _font(directory, font_index, max(76, int(preferred * min(1, max_width / max(1, advance)))))
+    widths = [painter.textlength(ch, font=font) for ch in words]
+    total = sum(widths)
+    if total <= 0:
+        raise ValueError("Arc inscription is empty")
+    ratio = min(1, max_width / total)
+    cursor = -total / 2
+    for glyph, width in zip(words, widths):
+        middle = cursor + width / 2
+        n = middle / max(1, total / 2)
+        if glyph.strip():
+            em = font.size + 150
+            tile = Image.new("RGBA", (em * 2, em * 2), (0, 0, 0, 0))
+            dr = ImageDraw.Draw(tile)
+            bb = dr.textbbox((0, 0), glyph, font=font)
+            dr.text((em - (bb[2] - bb[0]) / 2 - bb[0],
+                     em - (bb[3] - bb[1]) / 2 - bb[1]),
+                    glyph, font=font, fill=MAIN)
+            tile = tile.rotate(-18 * n, resample=Image.Resampling.BICUBIC,
+                               expand=False)
+            bb = tile.getbbox()
+            if bb:
+                tile = tile.crop(bb)
+                x = round(1024 + middle * ratio - tile.width / 2)
+                y = round(center_y + bow * (n * n) - tile.height / 2)
+                if 0 <= x and x + tile.width <= CANVAS[0] and 0 <= y and y + tile.height <= CANVAS[1]:
+                    frame.alpha_composite(tile, (x, y))
+        cursor += width
+
+
+def _wave_stack(frame: Image.Image, directory: Path, text: str) -> None:
+    words = text.upper().split()
+    if len(words) == 1:
+        lines = words
+    elif len(words) == 2:
+        lines = words
+    elif (len(words) == 3 and max(map(len, words)) <= 6
+          and words[1].casefold() not in {"of", "and", "the", "in", "on", "for"}):
+        lines = words
+    else:
+        lines = [words[0], " ".join(words[1:])]
+    height = 660 // max(1, len(lines))
+    positions = ([512] if len(lines) == 1 else
+                 [355, 670] if len(lines) == 2 else
+                 [260, 515, 760])
+    for index, (line, y) in enumerate(zip(lines, positions)):
+        font_index = 6 if index % 2 == 0 else 7
+        _place(frame, directory, font_index, line,
+               center_y=y, center_x=1024 + (34 if index % 2 else -27),
+               max_width=1740 if len(lines) != 3 else 1500,
+               max_height=height if len(lines) != 3 else 195,
+               slant=-0.08 if index % 2 == 0 else 0.06)
+
+
+def _render_one(quote: str, directory: Path, slot: int) -> Image.Image:
+    frame = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    first, rest = _parts(quote, slot)
+    if slot == 1:
+        # Samples: CHAOS / COORDINATOR, STATE / OF MIND.
+        _place(frame, directory, 0, first.upper(), center_y=327,
+               max_width=1150, max_height=195)
+        if rest:
+            _place(frame, directory, 0, rest.upper(), center_y=623,
+                   max_width=1660, max_height=265)
+    elif slot == 2:
+        # Taller first line and oversized lower line; strong contrast.
+        _place(frame, directory, 1, first.upper(), center_y=315,
+               max_width=1130, max_height=210, tracking=5)
+        if rest:
+            _place(frame, directory, 0, rest.upper(), center_y=628,
+                   max_width=1710, max_height=275, slant=0.035)
+    elif slot == 3:
+        # Reference: red "State of" over large slanted blue "MIND".
+        _place(frame, directory, 3, first.title(), center_y=344,
+               max_width=1370, max_height=230, color=ACCENT,
+               slant=0.06)
+        if rest:
+            _place(frame, directory, 0, rest.upper(), center_y=590,
+                   max_width=1710, max_height=340, slant=0.17)
+    elif slot == 4:
+        # Serif arc above contrasting cursive line.
+        _arched_line(frame, directory, first)
+        if rest:
+            _place(frame, directory, 3, rest.title(), center_y=673,
+                   max_width=1250, max_height=195)
+    elif slot == 5:
+        # Loose flowing script headline and a compact upright cap line.
+        _place(frame, directory, 2, first.title(), center_y=378,
+               max_width=1570, max_height=365, slant=0.03)
+        if rest:
+            _place(frame, directory, 1, rest.upper(), center_y=672,
+                   max_width=1220, max_height=176, tracking=3, stroke=1)
+    elif slot == 6:
+        # Wide, chunky, staggered retro serif.
+        _wave_stack(frame, directory, quote)
+    else:
+        raise ValueError("Unknown Stage 1 typography concept")
+    if frame.getbbox() is None:
+        raise ValueError("Empty typography concept output")
+    return frame
 
 
 def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
-    """Return six unique PNG files or fail before upload; never draw a hat."""
+    """Produce six unique transparent stitched masters with safe crash recovery."""
     quote = " ".join(str(quote or "").strip().split())
-    if not quote or len(quote) > 150 or any(ord(c) < 32 for c in quote):
-        raise ValueError("Stage 1 quote must contain 1-150 printable characters")
-    if len(quote) > 55:
-        raise ValueError("Typography quote exceeds 55 characters; shorten the wording.")
-    if not font_dir.is_dir() or font_dir.is_symlink():
-        raise ValueError("Typography Skill font assets are unavailable")
+    if not quote or len(quote) > 55 or any(ord(c) < 32 for c in quote):
+        raise ValueError("Stage 1 quote must contain 1–55 printable characters")
+    _verify_fonts(font_dir)
     target = workspace / "output" / "final"
     target.mkdir(parents=True, exist_ok=True)
-    # Crash recovery: permit only canonical earlier numbered finals and
-    # verify their complete RGBA pixels match this deterministic renderer.
-    # Never overwrite or regenerate a preserved good checkpoint.
-    valid_names = {f"design_{index:02}.png" for index in range(1, 7)}
-    if any(item.name not in valid_names or item.is_symlink() or not item.is_file()
-           for item in target.iterdir()):
+    names = {f"design_{number:02}.png" for number in range(1, 7)}
+    if any(p.name not in names or p.is_symlink() or not p.is_file() for p in target.iterdir()):
         raise ValueError("Stage 1 output workspace contains stale final files")
-    outputs: list[Path] = []
-    digests: set[str] = set()
-    for slot in range(1, 7):
-        # Render actual thread grooves and raised edges without altering
-        # the vector glyph outline or the transparent background.
-        image = embroider_typography(_render_one(quote, font_dir, slot), concept=slot)
-        path = target / f"design_{slot:02}.png"
+    outputs = []
+    hashes = set()
+    for concept in range(1, 7):
+        image = embroider_typography(_render_one(quote, font_dir, concept), concept=concept)
+        path = target / f"design_{concept:02}.png"
         if path.exists():
-            with Image.open(path) as checkpoint:
-                checkpoint.load()
-                if (checkpoint.mode != "RGBA" or checkpoint.size != CANVAS
-                        or checkpoint.format != "PNG" or checkpoint.getbbox() is None
-                        or checkpoint.tobytes() != image.tobytes()):
+            with Image.open(path) as previous:
+                previous.load()
+                if (previous.format != "PNG" or previous.mode != "RGBA"
+                    or previous.size != CANVAS or previous.tobytes() != image.tobytes()):
                     raise ValueError("Existing Stage 1 checkpoint changed or corrupt")
         else:
-            image.save(path, "PNG", optimize=True)
+            image.save(path, format="PNG", optimize=True)
         with Image.open(path) as verified:
             verified.load()
-            if (verified.mode != "RGBA" or verified.size != CANVAS
-                    or verified.format != "PNG" or verified.getbbox() is None):
+            if (verified.format != "PNG" or verified.mode != "RGBA"
+                or verified.size != CANVAS or verified.getbbox() is None
+                or verified.getpixel((0, 0))[3] != 0):
                 raise ValueError("Stage 1 design failed PNG validation")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest in digests:
-            raise ValueError("Two typography slots produced identical artwork")
-        digests.add(digest)
+        if digest in hashes:
+            raise ValueError("Two Stage 1 concepts produced the same design")
+        hashes.add(digest)
         outputs.append(path)
     (workspace / "output" / "manifest.json").write_text(
         json.dumps({"skill": SKILL_NAME, "quote": quote, "count": 6,
-                    "concepts": STYLE_NAMES, "finish": "directional_satin_thread_v2",
+                    "concepts": STYLE_NAMES, "finish": "reference_satin_v3",
+                    "source": "google_fonts_ofl_bundled",
                     "sha256": [hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs]}),
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     return tuple(outputs)

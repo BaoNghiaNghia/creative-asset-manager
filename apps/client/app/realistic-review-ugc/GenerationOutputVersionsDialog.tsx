@@ -126,8 +126,6 @@ export function GenerationOutputVersionsDialog({
         {stage === "stage1" && version.font_info && <div className="rrugc-version-font-report">
           <strong>Font: {version.font_info.font_name}</strong>
           <small>{version.font_info.font_style} · {version.font_info.layout_name}</small>
-          <a href={version.font_info.font_url} target="_blank" rel="noopener noreferrer"
-            title="Open original DaFont font page">DaFont ↗</a>
           <small>Font source · {version.font_info.font_license}</small>
         </div>}
       </div>
