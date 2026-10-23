@@ -5776,10 +5776,11 @@ def ecommerce_input_readiness(
 
 @router.get("/products-stage2/photo-pipeline/readiness")
 def product_photo_pipeline_readiness(
+    session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     from app.modules.realistic_review_ugc.products_photo_pipeline import readiness
-    return readiness()
+    return readiness(session=session, tenant_id=principal.active_tenant_id)
 
 
 @router.get("/products/source-plans/{source_plan_id}/outputs/archive")

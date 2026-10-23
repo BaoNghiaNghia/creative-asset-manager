@@ -57,7 +57,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       const row = host.querySelector<HTMLElement>(`[data-skill="${spec.key}"]`)!;
       const runButton = row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)!;
       expect(runButton.disabled).toBe(true);
-      expect(runButton.getAttribute("title")).toContain("exact approved Skill ZIP");
+      expect(runButton.getAttribute("title")).toContain("assigned Skill is unavailable");
       expect(row.querySelector(".rrugc-products-photo-stage-detail")).toBeNull();
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       const panel = row.querySelector<HTMLElement>(".rrugc-products-photo-stage-detail")!;
@@ -65,7 +65,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       expect(panel.classList.contains("is-bundled-skill-detail")).toBe(true);
       expect(panel.classList.contains("is-ecommerce-detail")).toBe(false);
       expect(panel.querySelector(".rrugc-products-photo-inputs")).toBeNull();
-      expect(panel.textContent).toContain("exact approved Skill ZIP is not installed");
+      expect(panel.textContent).toContain("assigned Skill is unavailable or invalid");
       expect(panel.textContent).toContain(spec.references);
       expect(panel.querySelector("details summary")?.textContent).toContain("Missing package files");
       for (const file of spec.missing) expect(panel.textContent).toContain(file);
@@ -88,7 +88,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       const row = host.querySelector<HTMLElement>(`[data-skill="${spec.key}"]`)!;
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
-      expect(panel.textContent).toContain("assets are installed");
+      expect(panel.textContent).toContain("is installed and assigned");
       expect(panel.textContent).toContain("worker is not enabled yet");
       expect(panel.querySelector("details")).toBeNull();
       expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")?.textContent).toBe("Manage skill");
@@ -96,6 +96,32 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       await act(async () => root.unmount());
     });
   }
+
+  it("recognizes uploaded ugc-gatorhats as installed, without enabling an absent worker", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const ugc = bundles[1];
+    const assigned = readiness(ugc, true);
+    assigned.steps[0].skill_name = "ugc-gatorhats";
+    await act(async () => root.render(<ProductsPhotoWorkflow
+      sourceName="Embroidery.png" readiness={assigned}
+      configuredSkillNames={{ prod_s2_ugc: "ugc-gatorhats" }}
+    />));
+    const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_ugc"]')!;
+    const run = row.querySelector<HTMLButtonElement>('[aria-label="Run UGC"]')!;
+    expect(run.disabled).toBe(true);
+    expect(run.getAttribute("title")).toContain("installed and assigned");
+    await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="UGC details"]')!.click());
+    const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
+    expect(panel.textContent).toContain("Skill ugc-gatorhats is installed and assigned");
+    expect(panel.textContent).toContain("three-image generation worker is not enabled yet");
+    expect(panel.textContent).not.toContain("exact approved Skill ZIP");
+    expect(panel.querySelector(".rrugc-products-photo-bundle-missing")).toBeNull();
+    expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")?.textContent)
+      .toBe("Manage skill");
+    await act(async () => root.unmount());
+  });
 
   it("keeps Ecommerce details separate from bundled-skill readiness", async () => {
     const host = document.createElement("div");

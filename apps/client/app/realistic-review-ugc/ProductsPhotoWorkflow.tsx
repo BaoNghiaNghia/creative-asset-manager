@@ -218,7 +218,7 @@ export function ProductsPhotoWorkflow({
         steps.push({ name, status: "blocked", reason: !skill
           ? "Skill availability is not confirmed."
           : !skill.bundle_installed
-            ? "Approved Skill ZIP or reference assets are missing."
+            ? "The assigned Skill is unavailable or invalid in the image worker."
             : "The three-image worker has not been enabled." });
       }
       if (complete === 13) {
@@ -281,9 +281,13 @@ export function ProductsPhotoWorkflow({
         const bundleMissing = !isEcommerce && Boolean(state && !state.bundle_installed);
         const setupMessage = !state
           ? "Checking Skill installation and worker availability…"
-          : bundleMissing
-            ? "The exact approved Skill ZIP is not installed. Upload it in Manage Skills."
-            : "Skill assets are installed, but the three-image generation worker is not enabled yet.";
+          : !configured
+            ? "No Skill assigned. Choose an installed image Skill in Manage Skills."
+            : state.skill_name !== configured
+              ? "Checking the latest assigned Skill. Refresh Skill management if this persists."
+              : bundleMissing
+                ? "The assigned Skill is unavailable or invalid in the image worker. Check its installation in Manage Skills."
+                : "Skill " + configured + " is installed and assigned. The three-image generation worker is not enabled yet.";
 
         // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
         const status = shotJob ? shotJob.status.replace(/^./, char => char.toUpperCase())
@@ -374,7 +378,7 @@ export function ProductsPhotoWorkflow({
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
               onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
             {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
-            {!isEcommerce && <small>Run stays disabled until the original ZIP and a verified three-image worker are available.</small>}
+            {!isEcommerce && <small>Run stays disabled until a verified three-image worker and its input/QA contract are available.</small>}
             </div>
             {jobActionError && expandedStep === step.key && <p role="alert">{jobActionError}</p>}
             {shotJob && logFor === shotJob.id && logs && <div className="rrugc-products-photo-execution-log">

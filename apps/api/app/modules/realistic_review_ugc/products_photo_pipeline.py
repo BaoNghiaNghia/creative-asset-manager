@@ -1,14 +1,24 @@
-"""Preflight for GatorHats Products Stage 2 three-skill photo pipeline.
+"""Preflight for GatorHats Products Stage 2 photo pipeline.
 
-Fail-closed until the exact user-supplied bundles, their supporting assets, and
-per-design references are available. This intentionally cannot start jobs:
-a worker may only be enabled after the sequential execution contract, persistent
-per-shot output storage, logging and retry are implemented and tested.
+Inspect the actual tenant-scoped Skill assignments before checking files.
+The legacy exact-ZIP names are only fallbacks for unassigned slots. Readiness
+never enables Multi-hat/UGC generation: those slots still require their
+dedicated three-output workers, durable storage, QA and retry contracts.
 """
 from __future__ import annotations
 
 from pathlib import Path
+
+from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
+from app.modules.realistic_review_ugc.model import (
+    RrugcStage2SkillRegistryModel, RrugcStageSkillDefaultModel,
+)
+from app.providers.ai.codex_image import (
+    CodexImageProviderError, load_codex_skill_manifest,
+)
+
+ASSIGNED_PHOTO_SLOTS = {"multihat": "prod_s2_mh", "ugc": "prod_s2_ugc"}
 
 PIPELINE_STEPS = (
     {
@@ -46,23 +56,80 @@ PIPELINE_STEPS = (
 )
 
 
-def readiness(settings: Settings | None = None) -> dict:
-    """Read skill availability without returning system paths or credentials."""
+def readiness(
+    settings: Settings | None = None,
+    *,
+    session: Session | None = None,
+    tenant_id: str | None = None,
+) -> dict:
+    """Report the selected tenant Skill, not obsolete hard-coded package names.
+
+    An enabled registry row and a valid on-disk image_studio manifest confirm
+    installation. They do NOT imply the three-photo worker is available.
+    Without an explicit tenant/session the legacy preflight remains usable.
+    """
     config = settings or get_settings()
     root = Path(str(config.CODEX_IMAGE_HOME)).resolve() / "skills"
     result = []
     for spec in PIPELINE_STEPS:
-        skill = root / spec["skill_name"]
-        missing = [rel for rel in spec["required_assets"] if not (skill / rel).is_file()]
+        skill_name = spec["skill_name"]
+        selected = None
+        if session is not None and tenant_id and spec["key"] in ASSIGNED_PHOTO_SLOTS:
+            stage = ASSIGNED_PHOTO_SLOTS[spec["key"]]
+            assignment = session.get(
+                RrugcStageSkillDefaultModel, (tenant_id, stage)
+            )
+            if assignment and assignment.registry_id:
+                row = session.get(
+                    RrugcStage2SkillRegistryModel, assignment.registry_id
+                )
+                if row and row.tenant_id == tenant_id:
+                    selected = row
+                    skill_name = row.skill_name or skill_name
+            elif assignment is not None:
+                # An explicit unassigned slot must not fall back to an old ZIP.
+                skill_name = ""
+        if selected is not None:
+            # The shared library validates an uploaded ZIP on installation.
+            # Check that the selected version remains available to the worker.
+            skill_dir = root / skill_name
+            manifest = None
+            if (
+                selected.enabled and selected.deleted_at is None
+                and selected.validation_status == "valid"
+                and selected.workflow == "image_studio"
+                and skill_name and skill_dir.is_dir()
+                and (skill_dir / "SKILL.md").is_file()
+            ):
+                try:
+                    manifest = load_codex_skill_manifest(
+                        str(config.CODEX_IMAGE_HOME), skill_name
+                    )
+                except (CodexImageProviderError, ValueError, OSError):
+                    manifest = None
+            installed = bool(
+                manifest and "image_studio" in manifest.workflows
+                and manifest.skill_name == skill_name
+            )
+            missing = [] if installed else ["Assigned Skill unavailable or invalid in runtime"]
+        elif session is not None and tenant_id and spec["key"] in ASSIGNED_PHOTO_SLOTS:
+            # With no usable assignment, do not inspect an unrelated legacy
+            # bundle and suggest that it is the user's chosen Skill.
+            installed = False
+            missing = ["Select an installed image Skill in Manage Skills"]
+        else:
+            skill = root / skill_name
+            missing = [rel for rel in spec["required_assets"] if not (skill / rel).is_file()]
+            installed = not missing
         result.append({
             "key": spec["key"],
-            "skill_name": spec["skill_name"],
+            "skill_name": skill_name,
             "title": spec["title"],
             "output_count": spec["output_count"],
             "shot_labels": spec["shot_labels"],
-            "ready": False,
-            "bundle_installed": len(missing) == 0,
-            "status": "needs_install" if missing else "needs_pipeline_worker",
+            "ready": False,  # No three-photo worker has been enabled.
+            "bundle_installed": installed,
+            "status": "needs_pipeline_worker" if installed else "needs_install",
             "missing_assets": missing,
             "required_inputs": spec["required_inputs"],
         })
