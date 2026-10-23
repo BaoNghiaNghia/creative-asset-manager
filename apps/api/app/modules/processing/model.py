@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -43,6 +43,14 @@ class ProcessingJobModel(Base):
             "created_at",
         ),
         Index("ix_processing_jobs_lease", "status", "lease_expires_at"),
+        Index(
+            "ix_processing_jobs_due_eligible",
+            "status", "next_attempt_at", "priority", "created_at",
+            postgresql_where=text(
+                "status IN ('pending','retry') AND cancellation_requested IS FALSE "
+                "AND attempt_count < max_attempts"
+            ),
+        ),
         Index("ix_processing_jobs_entity", "tenant_id", "entity_type", "entity_id"),
         # Supports Pipeline Operations when it finds the latest job for each
         # entity at one pipeline stage.
