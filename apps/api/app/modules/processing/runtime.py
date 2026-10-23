@@ -190,6 +190,7 @@ class WorkerRuntime:
 
     def run_forever(self) -> None:
         self.start()
+        idle_streak = 0
         try:
             while not self.shutdown_requested.is_set():
                 active = self._get_active()
@@ -201,8 +202,18 @@ class WorkerRuntime:
                 if not self.config.enabled:
                     self.shutdown_requested.wait(self.config.idle_poll_seconds)
                     continue
-                if not self._claim_and_start():
-                    self.shutdown_requested.wait(self.config.idle_poll_seconds)
+                if self._claim_and_start():
+                    idle_streak = 0
+                else:
+                    # Repeated empty queue scans are expensive under PostgreSQL
+                    # policy/fairness ordering. Bound idle backoff to 8 seconds;
+                    # reset immediately whenever a worker actually claims work.
+                    idle_streak = min(idle_streak + 1, 3)
+                    delay = min(
+                        self.config.idle_poll_seconds * (2 ** (idle_streak - 1)),
+                        max(8.0, self.config.idle_poll_seconds),
+                    )
+                    self.shutdown_requested.wait(delay)
             self._drain()
         finally:
             self.close()
