@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-typography-concepts",
+  "display_name": "GatorHats · Typography Concepts (Stage 1)",
+  "description": "Automated six-concept typography PNG renderer with font-backed layout and no external image-generation requests",
+  "workflows": [
+    "image_studio",
+    "keyword_artwork",
+    "keyword_six_designs"
+  ],
+  "product_types": [
+    "baseball_cap",
+    "trucker_hat"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [],
+  "max_references": 1
+}

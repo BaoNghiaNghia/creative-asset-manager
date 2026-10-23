@@ -8,7 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.modules.image_generation.providers import GeneratedImageResult
+from app.modules.image_generation.providers import GeneratedImageResult, GeneratedImageFile
 from uuid import uuid4
 
 from PIL import Image
@@ -72,6 +72,7 @@ STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
     "keyword_image_storage_invalid",
 })
 DEFAULT_SKILL = "gatorhats-stage1-six-designs"
+LOCAL_TYPOGRAPHY_SKILL = "gatorhats-typography-concepts"
 
 
 class KeywordImageError(RuntimeError):
@@ -123,6 +124,12 @@ def stage1_keyword_trend(raw_value: dict | None) -> list[dict]:
 
 def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str | None = None) -> str:
     """Generate a bounded keyword-only prompt tailored to the selected Skill."""
+    if skill_name == LOCAL_TYPOGRAPHY_SKILL:
+        return ("Deterministically render exactly six transparent typography artworks "
+                "for the literal quote " + repr(keyword) + " with the GatorHats "
+                "C1–C6 layout recipes. Use only the approved application-owned renderer. "
+                "Never call Codex, imagegen or require manual previews. "
+                + ((custom or "").strip() if custom else "")).strip()
     if skill_name == "gatorhats-stage1-six-designs":
         return (
             "Create exactly SIX independent TYPOGRAPHY-ONLY embroidery designs for "
@@ -971,6 +978,42 @@ class KeywordImageGenerateHandler:
                 generated = GeneratedImageResult(
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
+                )
+            elif skill_name == LOCAL_TYPOGRAPHY_SKILL:
+                if output_count != 6:
+                    raise CodexImageProviderError(
+                        "stage1_output_count_invalid",
+                        "Typography Concepts requires exactly six output images.",
+                        retryable=False,
+                    )
+                from app.modules.realistic_review_ugc.stage1_typography_renderer import render_six
+                font_directory = (
+                    Path(settings.CODEX_IMAGE_HOME).resolve()
+                    / "skills" / LOCAL_TYPOGRAPHY_SKILL / "fonts"
+                )
+                try:
+                    final_paths = await asyncio.to_thread(
+                        render_six, keyword_text, font_directory, workspace
+                    )
+                except (OSError, ValueError) as exc:
+                    raise CodexImageProviderError(
+                        "stage1_typography_render_failed",
+                        str(exc)[:500],
+                        retryable=False,
+                    ) from exc
+                context.logger.info(
+                    "rrugc_stage1_local_typography_rendered",
+                    extra={"job_id": context.job.entity_id, "count": len(final_paths)},
+                )
+                generated = GeneratedImageResult(
+                    provider="codex",
+                    model="gatorhats-typography-concepts-code-renderer",
+                    image_bytes=b"",
+                    mime_type="image/png",
+                    output_files=tuple(GeneratedImageFile(
+                        path=str(path), filename="output/final/" + path.name,
+                        mime_type="image/png",
+                    ) for path in final_paths),
                 )
             else:
                 with context.dependencies.session_factory() as pool_session:
