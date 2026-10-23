@@ -21,6 +21,22 @@ describe("Products Stage 2 photo workflow", () => {
     expect((html.match(/aria-disabled="true"/g) || []).length).toBe(7);
   });
 
+  it("renders completed Ecommerce photos as clickable filled tiles while leaving missing photos as placeholders", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow
+      sourceName="design.png" readiness={null}
+      ecommerceJobs={[{
+        id: "hat-01", source_plan_id: "plan-1", stage: "prod_s2_ec1",
+        status: "completed", retry_count: 0, attempt_count: 1,
+        error_code: null, output_url: "/hat-output.png", skill_name: "ecommerce-01",
+      }]} />);
+    expect(html).toContain('class="rrugc-products-photo-empty-shot is-completed"');
+    expect(html).toContain('aria-label="Open Front High Ecommerce output"');
+    expect(html).toContain('src="/hat-output.png"');
+    expect((html.match(/class="rrugc-products-photo-empty-shot is-completed"/g) ?? []).length).toBe(1);
+    expect((html.match(/class="rrugc-products-photo-empty-shot"/g) ?? []).length).toBe(9);
+    expect(html).toContain('title="Front Right 3/4 · Not generated"');
+  });
+
   it("shows seven configurable skill rows with 10 photo placeholders and 13 colors", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
     expect(html).toContain("Ecommerce · Image 01");

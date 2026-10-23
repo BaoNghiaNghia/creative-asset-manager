@@ -13,6 +13,19 @@ describe("Products Stage 2 photo workflow layout", () => {
     expect(css).not.toContain("min-width:790px");
   });
 
+  it("uses full-bleed borderless completed thumbnails without changing empty slot styling", () => {
+    const filled = css.match(/\.rrugc-products-photo-output-strip \.rrugc-products-photo-empty-shot\.is-completed\{([^}]*)\}/)?.[1] ?? "";
+    const filledImage = css.match(/\.rrugc-products-photo-output-strip \.rrugc-products-photo-empty-shot\.is-completed>img\{([^}]*)\}/)?.[1] ?? "";
+    expect(filled).toContain("padding:0");
+    expect(filled).toContain("border:0");
+    expect(filled).toContain("overflow:hidden");
+    expect(filledImage).toContain("width:100%");
+    expect(filledImage).toContain("height:100%");
+    expect(filledImage).toContain("object-fit:cover");
+    expect(css).toMatch(/\.rrugc-products-photo-empty-shot\{[^}]*border:1px dashed/);
+    expect(css).toContain(".rrugc-products-photo-empty-shot.is-completed:focus-visible");
+  });
+
   it("shows four equal embroidery gallery tiles without responsive reflow to three columns", () => {
     expect(galleryCss).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(galleryCss).not.toMatch(/repeat\(3/);

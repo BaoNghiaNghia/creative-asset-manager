@@ -398,3 +398,17 @@
  .rrugc-products-photo-stage-row .rrugc-products-photo-updated{justify-self:start;text-align:left}
  .rrugc-products-photo-stage-row .rrugc-products-photo-stage-controls .rrugc-products-photo-duration{width:95px}
 }
+
+/* Completed Ecommerce outputs fill their existing thumbnail frame. Empty
+   placeholders retain the dashed outline and centered hat glyph. */
+.rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot.is-completed{
+ display:block;box-sizing:border-box;padding:0;border:0;overflow:hidden;
+ background:transparent;cursor:zoom-in;
+}
+.rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot.is-completed>img{
+ display:block;width:100%;height:100%;max-width:none;max-height:none;
+ object-fit:cover;object-position:center;
+}
+.rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot.is-completed:focus-visible{
+ outline:2px solid #326be6;outline-offset:2px;
+}
