@@ -10,7 +10,8 @@ Stage 1 must publish **exactly six** independent, nonempty transparent RGBA PNG 
 ## Contract
 
 - Input is one literal slogan/keyword, max 55 characters for legible embroidery. No images are required.
-- Render C1 Varsity Stack, C2 Block Stack, C3 Script Lockup 2-Color, C4 Club Arch, C5 Script Overlap, C6 Groovy Wavy Stack from bundled licensed fonts using the application-owned `stage1_typography_renderer`.
+- Preserve reference concept hierarchy and lettering composition: C1 Varsity Stack, C2 Block Stack, C3 red script headline above oversized blue block support, C4 serif arch with a script line nested underneath, C5 prominent blue script with compact upright caps, C6 Groovy Wavy Stack. Treat connective phrases (e.g. `State / of Mind`) as a unit, never enlarge an isolated preposition.
+- Render with approved bundled fonts and application-owned `stage1_typography_renderer`, then apply the Pillow-only `stage1_stitch_texture` shader: short angled satin stitch rows, needle valleys, same-hue thread sheen and subtle raised edge relief. Preserve the exact transparent text mask. Never return flat printed-looking lettering.
 - Use royal blue #3558B5 as main thread and red #AC211C only as C3 accent, matching the original user typography concept palette.
 - Do not produce hats, product photos, extra symbols, previews, or image collages as final deliverables.
 - Render all six locally; do not invoke Codex/imagegen or require manual A/B uploads. The CAM worker uploads only verified final files. Missing fonts, overflow, empty or duplicate images must fail rather than falsely succeeding.

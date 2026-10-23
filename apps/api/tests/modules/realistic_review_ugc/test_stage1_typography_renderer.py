@@ -73,6 +73,73 @@ def test_rejects_tampered_or_unexpected_final_checkpoint(tmp_path):
         render_six("DUMP HIM", FONTS_ROOT, tmp_path)
 
 
+
+
+@pytest.mark.parametrize("keyword", ["STATE OF MIND", "CHAOS COORDINATOR", "HAMBURGER HELP ME"])
+def test_sample_layouts_have_real_thread_ridges_and_correct_colors(keyword, tmp_path):
+    from app.modules.realistic_review_ugc.stage1_typography_renderer import _render_one
+    from PIL import ImageStat
+    paths = render_six(keyword, FONTS_ROOT, tmp_path)
+    assert len(paths) == 6
+    for index, path in enumerate(paths, start=1):
+        flat = _render_one(keyword, FONTS_ROOT, index)
+        with Image.open(path) as output:
+            assert output.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
+            # Inside ink, a solid printed glyph has a single flat RGB value,
+            # while real satin rows must have visible high/low thread ridges.
+            alpha = output.getchannel("A")
+            interior = alpha.point([255 if value > 240 else 0 for value in range(256)])
+            variance = ImageStat.Stat(output.getchannel("B"), mask=interior).stddev[0]
+            assert variance > 3.0, (index, variance)
+            assert output.getpixel((0, 0))[3] == 0
+    # C3 red script must be above the larger blue support line (as in
+    # the reference concept photos), not under a full-blue script.
+    with Image.open(paths[2]) as c3:
+        rgb = c3.convert("RGBA")
+        reds = 0
+        upper_reds = 0
+        for y in range(180, 540, 5):
+            for x in range(180, 1870, 5):
+                r, g, b, a = rgb.getpixel((x, y))
+                if a > 150 and r > b * 1.25 and r > g * 1.2:
+                    reds += 1
+                    if y < 520:
+                        upper_reds += 1
+        assert reds > 10
+        assert upper_reds / reds > 0.9
+
+
+
+@pytest.mark.parametrize("keyword", ["STATE OF MIND", "CHAOS COORDINATOR", "HAMBURGER HELP ME"])
+def test_sample_layouts_have_thread_ridges_and_correct_colors(keyword, tmp_path):
+    from app.modules.realistic_review_ugc.stage1_typography_renderer import _render_one
+    from PIL import ImageStat
+    paths = render_six(keyword, FONTS_ROOT, tmp_path)
+    assert len(paths) == 6
+    for index, path in enumerate(paths, start=1):
+        flat = _render_one(keyword, FONTS_ROOT, index)
+        with Image.open(path) as output:
+            assert output.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
+            # Satin rows vary in brightness; printed fills are flat RGB.
+            alpha = output.getchannel("A")
+            interior = alpha.point([255 if value > 240 else 0 for value in range(256)])
+            variance = ImageStat.Stat(output.getchannel("B"), mask=interior).stddev[0]
+            assert variance > 3.0, (index, variance)
+            assert output.getpixel((0, 0))[3] == 0
+    # C3 red script must be above the blue block line, as in the samples.
+    with Image.open(paths[2]) as c3:
+        reds = 0
+        upper_reds = 0
+        for y in range(180, 540, 5):
+            for x in range(180, 1870, 5):
+                r, g, b, a = c3.getpixel((x, y))
+                if a > 150 and r > b * 1.25 and r > g * 1.2:
+                    reds += 1
+                    if y < 520:
+                        upper_reds += 1
+        assert reds > 10
+        assert upper_reds / reds > 0.9
+
 def test_local_stage1_skill_bundle_installs_only_verified_fonts():
     pkg = build_bundle()
     assert pkg.skill_name == SKILL_NAME

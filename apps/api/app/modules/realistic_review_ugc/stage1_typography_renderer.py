@@ -15,6 +15,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.modules.realistic_review_ugc.stage1_stitch_texture import embroider_typography
+
 SKILL_NAME = "gatorhats-typography-concepts"
 CANVAS = (2048, 1024)
 MAIN = "#3558B5"
@@ -72,6 +74,23 @@ def _center_text(canvas: Image.Image, font_dir: Path, font_index: int, text: str
     canvas.alpha_composite(layer)
 
 
+def _meaning_parts(quote: str) -> tuple[str, str]:
+    """Preserve phrase order and keep a preposition with its following word.
+
+    Examples: State / of Mind, Chaos / Coordinator, Hamburger / Help me.
+    """
+    words = quote.split()
+    if len(words) <= 1:
+        return quote, ""
+    if len(words) >= 3 and words[1].lower() in (
+        "of", "on", "in", "at", "for", "with", "by", "to",
+    ):
+        return words[0], " ".join(words[1:])
+    if len(words) >= 3:
+        return " ".join(words[:1]), " ".join(words[1:])
+    return words[0], words[1]
+
+
 def _arch(canvas: Image.Image, font_dir: Path, quote: str) -> None:
     words = quote.upper()
     draw = ImageDraw.Draw(canvas)
@@ -99,8 +118,8 @@ def _arch(canvas: Image.Image, font_dir: Path, quote: str) -> None:
 
 def _render_one(quote: str, font_dir: Path, slot: int) -> Image.Image:
     image = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    headline, supporting = _meaning_parts(quote)
     words = _split(quote, 2)
-    top = words[0].upper()
     bottom = (words[1] if len(words) > 1 else words[0]).upper()
     if slot == 1:  # varsity/stacked, preserving a single-word quote
         lines = [quote.upper()] if len(quote.split()) <= 2 else _split(quote.upper(), 2)
@@ -112,18 +131,27 @@ def _render_one(quote: str, font_dir: Path, slot: int) -> Image.Image:
         for n, line in enumerate(lines):
             _center_text(image, font_dir, 1, line, 325 + n * 250,
                          preferred=320 if len(lines) == 1 else 240)
-    elif slot == 3:  # quote-first script over small red support line
-        _center_text(image, font_dir, 3, quote.title(), 310,
-                     preferred=235, max_width=1730)
-        _center_text(image, font_dir, 0, quote.upper(), 605,
-                     color=ACCENT, preferred=118, max_width=1410, max_height=145)
-    elif slot == 4:
-        _arch(image, font_dir, quote)
-    elif slot == 5:  # original script-overlap treatment, small trailing support
-        _center_text(image, font_dir, 2, quote.title(), 325, preferred=270)
-        if len(quote.split()) > 1:
-            _center_text(image, font_dir, 4, bottom, 620, preferred=130,
-                         max_width=1230, max_height=160)
+    elif slot == 3:  # sample C3: red script headline, large blue key line
+        if supporting:
+            _center_text(image, font_dir, 3, headline.title(), 286,
+                         color=ACCENT, preferred=258, max_width=1660)
+            _center_text(image, font_dir, 0, supporting.upper(), 535,
+                         color=MAIN, preferred=306, max_width=1710,
+                         max_height=305)
+        else:
+            _center_text(image, font_dir, 3, headline.title(), 385,
+                         color=ACCENT, preferred=290)
+    elif slot == 4:  # sample C4: arched headline with script nested below
+        _arch(image, font_dir, headline)
+        if supporting:
+            _center_text(image, font_dir, 3, supporting.title(), 585,
+                         preferred=172, max_width=1170, max_height=195)
+    elif slot == 5:  # sample C5: prominent script + compact caps underlay
+        _center_text(image, font_dir, 2, headline.title(), 305,
+                     preferred=292, max_width=1690)
+        if supporting:
+            _center_text(image, font_dir, 0, supporting.upper(), 610,
+                         preferred=160, max_width=1430, max_height=195)
     else:  # groovy/wavy stack, no added symbols
         lines = _split(quote.upper(), 2)
         if len(lines) == 1:
@@ -157,7 +185,9 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
     outputs: list[Path] = []
     digests: set[str] = set()
     for slot in range(1, 7):
-        image = _render_one(quote, font_dir, slot)
+        # Render actual thread grooves and raised edges without altering
+        # the vector glyph outline or the transparent background.
+        image = embroider_typography(_render_one(quote, font_dir, slot), concept=slot)
         path = target / f"design_{slot:02}.png"
         if path.exists():
             with Image.open(path) as checkpoint:
@@ -180,7 +210,7 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
         outputs.append(path)
     (workspace / "output" / "manifest.json").write_text(
         json.dumps({"skill": SKILL_NAME, "quote": quote, "count": 6,
-                    "concepts": STYLE_NAMES,
+                    "concepts": STYLE_NAMES, "finish": "directional_satin_thread_v2",
                     "sha256": [hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs]}),
         encoding="utf-8")
     return tuple(outputs)
