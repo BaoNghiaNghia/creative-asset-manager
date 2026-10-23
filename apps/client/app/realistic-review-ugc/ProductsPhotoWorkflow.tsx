@@ -3,6 +3,7 @@ import { formatKeywordJobDuration } from "./KeywordImageStage";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
+import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
 type StepDefinition = {
@@ -96,6 +97,8 @@ export function ProductsPhotoWorkflow({
 }: Props) {
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
+  const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[] } | null>(null);
+  const [colorGalleryIndex, setColorGalleryIndex] = useState<number | null>(null);
   const [inputs, setInputs] = useState<EcommerceInputReadiness | null>(null);
   const [busyStage, setBusyStage] = useState<string | null>(null);
   const [jobActionError, setJobActionError] = useState("");
@@ -152,6 +155,17 @@ export function ProductsPhotoWorkflow({
 
   const colorSkillSelectId = useId();
   const byColor = new Map(colors.map(job => [job.color_key, job]));
+  // The gallery always represents all 13 fixed color slots, including the
+  // colors that have never been queued or whose jobs failed.
+  const colorGalleryItems: PhotoOutputItem[] = PHOTO_COLOR_KEYS.map(key => {
+    const job = byColor.get(key);
+    return {
+      key,
+      label: job?.color_name || key.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase()),
+      src: job?.status === "completed" ? job.output_url : null,
+      status: job?.status || "pending",
+    };
+  });
   const complete = colors.filter(job => job.status === "completed").length;
   const failed = colors.filter(job => job.status === "failed").length;
   const active = colors.filter(job => job.status === "running" || job.status === "queued").length;
@@ -200,7 +214,7 @@ export function ProductsPhotoWorkflow({
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
             {step.shots.map(shot => shotJob?.output_url && shotJob.status === "completed"
               ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
-                  onClick={() => setPreviewGallery([{ key: shotJob.id, label: shot.label + " · output", src: shotJob.output_url! }])}
+                  onClick={() => setOutputGallery({ title: shot.label + " · output", items: [{ key: shotJob.id, label: shot.label, src: shotJob.output_url!, status: "completed" }] })}
                   aria-label={"Open " + shot.label + " Ecommerce output"}>
                   <img src={shotJob.output_url} alt={shot.label} loading="lazy" />
                 </button>
@@ -319,18 +333,11 @@ export function ProductsPhotoWorkflow({
               : <HatSlotIcon />;
             const content = preview;
             const className = "rrugc-colorway-slot is-" + status;
-            if (job?.status === "completed" && job.output_url && onOpenColor) {
-              return <button type="button" key={key} className={className} onClick={() => onOpenColor(job)}
-                aria-label={"View " + colorName + " output versions"} title={colorName + " · View versions"}>{content}</button>;
-            }
-            if (job?.status === "failed" && onRetryColor) {
-              return <button type="button" key={key} className={className}
-                onClick={() => onRetryColor(job)} disabled={colorwayRunning || job.retry_count >= 3}
-                aria-label={"Retry " + colorName}
-                title={colorName + (job.retry_count >= 3 ? " · Retry limit reached" : " · Retry failed output")}>{content}</button>;
-            }
-            return <span key={key} className={className} title={colorName + " · " + (job?.status || "Not run")}
-              aria-label={colorName + " · " + (job?.status || "Not run")}>{content}</span>;
+            return <button type="button" key={key} className={className}
+              onClick={() => setColorGalleryIndex(index)}
+              aria-haspopup="dialog"
+              aria-label={"View " + colorName + " in 13 hat colors gallery"}
+              title={colorName + " · " + (job?.status || "Not generated") + " · Open all 13 outputs"}>{content}</button>;
           })}
         </div>
         <div className="rrugc-products-photo-skill" title={colorwaySkillName || "Not assigned"}>
@@ -366,7 +373,7 @@ export function ProductsPhotoWorkflow({
             </select>
           </div>
           <div><strong>{colorwaySkillName || "Select colorway skill"}</strong>
-            <p>Generate each of 13 Valucap 8869 colors. Finished versions stay available; click an image to view versions or a failed slot to retry.</p></div>
+            <p>Generate each of 13 Valucap 8869 colors. Select any thumbnail to open the full 13-color gallery, including ungenerated images. Use gallery actions to view versions or retry failed outputs.</p></div>
           <button type="button" onClick={openSkillsManager}>Manage skill</button>
           <button type="button" disabled={!colorwayReady || colorwayRunning || complete === 13}
             onClick={onQueueColors}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
@@ -385,5 +392,25 @@ export function ProductsPhotoWorkflow({
       <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP"><span className="rrugc-products-photo-download-icon" aria-hidden="true">⇩</span>Download all outputs</a>
     </div>
     {previewGallery && <EcommerceInputGalleryModal items={previewGallery} onClose={() => setPreviewGallery(null)} />}
+    {outputGallery && <OutputPhotoGalleryModal title={outputGallery.title} items={outputGallery.items}
+      onClose={() => setOutputGallery(null)} />}
+    {colorGalleryIndex !== null && <OutputPhotoGalleryModal
+      title={"13 Hat Colors · " + sourceName}
+      items={colorGalleryItems} initialIndex={colorGalleryIndex}
+      onClose={() => setColorGalleryIndex(null)}
+      onOpenVersions={item => {
+        const job = byColor.get(item.key);
+        if (!job || !onOpenColor) return;
+        setColorGalleryIndex(null);
+        onOpenColor(job);
+      }}
+      onRetry={item => {
+        const job = byColor.get(item.key);
+        if (!job || !onRetryColor || colorwayRunning || job.retry_count >= 3) return;
+        setColorGalleryIndex(null);
+        onRetryColor(job);
+      }}
+      retryDisabled={item => colorwayRunning || (byColor.get(item.key)?.retry_count || 0) >= 3}
+    />}
   </div>;
 }

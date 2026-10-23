@@ -103,7 +103,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain('title="8869 scale"');
     expect(html).toContain('<strong>8869 scale</strong>');
     expect(html).not.toContain('aria-label="13 Hat Colors skill for design.png"');
-    expect(html).toContain("Not run");
+    expect(html).toContain("Not generated · Open all 13 outputs");
   });
 
   it("renders real completed colorway previews and independent retry actions", () => {
@@ -122,8 +122,10 @@ describe("Products Stage 2 photo workflow", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null}
       colors={jobs} onOpenColor={() => undefined} onRetryColor={() => undefined} />);
     expect(html).toContain('src="/real-photo.png"');
-    expect(html).toContain("View Khaki Maroon output versions");
-    expect(html).toContain("Retry Natural Black");
+    expect(html).toContain("View Khaki Maroon in 13 hat colors gallery");
+    expect(html).toContain("View Natural Black in 13 hat colors gallery");
+    expect(html).toContain('aria-haspopup="dialog"');
     expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(11);
+    expect((html.match(/aria-haspopup="dialog"/g) || []).length).toBe(13);
   });
 });

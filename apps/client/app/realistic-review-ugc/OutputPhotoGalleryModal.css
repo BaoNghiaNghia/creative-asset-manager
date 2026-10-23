@@ -1,0 +1,148 @@
+/* Compact, accessible photo viewer for Stage 2 Ecommerce and all 13 colorways. */
+.rrugc-photo-gallery-overlay{
+ position:fixed;inset:0;z-index:11060;display:flex;align-items:center;justify-content:center;
+ padding:14px;box-sizing:border-box;background:rgba(13,25,43,.74);backdrop-filter:blur(3px);
+}
+.rrugc-photo-gallery{
+ display:flex;flex-direction:column;box-sizing:border-box;width:min(1010px,100%);
+ max-height:calc(100dvh - 28px);min-height:0;overflow:hidden;
+ background:#fff;border:1px solid #dce4ef;border-radius:17px;
+ box-shadow:0 30px 90px rgba(12,25,45,.32);color:#24364f;
+}
+.rrugc-photo-gallery.is-single{width:min(790px,100%)}
+.rrugc-photo-gallery-header{
+ display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;
+ padding:15px 19px;border-bottom:1px solid #e7ecf4;background:#fff;
+}
+.rrugc-photo-gallery-heading{min-width:0;display:grid;gap:3px}
+.rrugc-photo-gallery-eyebrow{
+ font-size:9px;font-weight:850;letter-spacing:.09em;color:#7191bd;line-height:1.25;
+}
+.rrugc-photo-gallery-heading h2{font-size:16px;font-weight:800;line-height:1.35;margin:0;color:#233c5d;overflow-wrap:anywhere}
+.rrugc-photo-gallery-heading p{margin:0;color:#7a8ba1;font-size:11px;line-height:1.35}
+.rrugc-photo-gallery-close{
+ flex:none;display:grid;place-items:center;width:35px;height:35px;
+ padding:0;border:1px solid #d7e1ed;border-radius:9px;
+ color:#55708c;background:#f8fafd;font:inherit;font-size:23px;line-height:1;cursor:pointer;
+}
+.rrugc-photo-gallery-close:hover{background:#eef4fc;color:#224d81}
+.rrugc-photo-gallery-content{
+ display:grid;grid-template-columns:minmax(0,1fr) 274px;gap:0;min-height:0;overflow:auto;
+}
+.rrugc-photo-gallery.is-single .rrugc-photo-gallery-content{grid-template-columns:minmax(0,1fr)}
+.rrugc-photo-gallery-preview{
+ display:flex;flex-direction:column;min-width:0;min-height:0;padding:16px 17px 14px;gap:10px;
+}
+.rrugc-photo-gallery-preview-top{display:flex;align-items:center;gap:9px;min-width:0;line-height:1.3}
+.rrugc-photo-gallery-preview-top strong{
+ flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ font-size:12px;font-weight:800;color:#3e5877;
+}
+.rrugc-photo-gallery-counter{
+ flex:none;font-size:11px;font-variant-numeric:tabular-nums;letter-spacing:.04em;
+ padding:5px 8px;border-radius:7px;background:#eaf1fc;color:#3b66a0;font-weight:850;
+}
+.rrugc-photo-gallery-status{
+ flex:none;padding:5px 8px;border-radius:7px;font-size:10px;font-weight:800;
+ background:#eff3f8;color:#6b7c92;white-space:nowrap;
+}
+.rrugc-photo-gallery-status.is-completed{background:#e9f8f0;color:#23835c}
+.rrugc-photo-gallery-status.is-failed{background:#fff0ed;color:#ba5144}
+.rrugc-photo-gallery-status.is-queued,.rrugc-photo-gallery-status.is-running{background:#eaf2ff;color:#366bbb}
+.rrugc-photo-gallery-stage{
+ display:grid;place-items:center;box-sizing:border-box;min-width:0;
+ height:clamp(250px,52dvh,500px);flex:0 0 auto;
+ border-radius:11px;border:1px solid #e7edf5;background:#f4f7fb;overflow:hidden;
+}
+.rrugc-photo-gallery.is-single .rrugc-photo-gallery-stage{height:clamp(270px,58dvh,540px)}
+.rrugc-photo-gallery-stage>img{
+ display:block;width:100%;height:100%;max-width:100%;max-height:100%;
+ object-fit:contain;object-position:center;background:#f8fafc;
+}
+.rrugc-photo-gallery-placeholder{
+ display:flex;flex-direction:column;align-items:center;justify-content:center;
+ width:100%;height:100%;padding:22px;box-sizing:border-box;text-align:center;gap:9px;
+ color:#99a9bc;background:repeating-linear-gradient(135deg,#f9fbfd,#f9fbfd 10px,#f5f8fc 10px,#f5f8fc 20px);
+}
+.rrugc-photo-gallery-placeholder strong{font-size:15px;color:#5d7492}
+.rrugc-photo-gallery-placeholder span{max-width:290px;font-size:11px;line-height:1.5;color:#8294aa}
+.rrugc-photo-gallery-placeholder.is-failed{color:#bd8074}
+.rrugc-photo-gallery-placeholder.is-failed strong{color:#b45447}
+.rrugc-photo-gallery-preview-footer{
+ display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;min-height:32px;
+}
+.rrugc-photo-gallery-nav,.rrugc-photo-gallery-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.rrugc-photo-gallery-preview-footer button,.rrugc-photo-gallery-secondary-action{
+ display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ min-height:32px;padding:7px 12px;border:1px solid #cbd9eb;border-radius:8px;
+ background:#fff;color:#355b85;font:inherit;font-size:11px;font-weight:800;cursor:pointer;
+ text-decoration:none;box-sizing:border-box;
+}
+.rrugc-photo-gallery-preview-footer button:hover:not(:disabled),.rrugc-photo-gallery-secondary-action:hover{
+ background:#eaf2fe;border-color:#aac6e9;
+}
+.rrugc-photo-gallery-preview-footer button:disabled{opacity:.42;cursor:default}
+.rrugc-photo-gallery-actions button{background:#eaf2ff;border-color:#b8cfee;color:#2d61aa}
+.rrugc-photo-gallery-sidebar{
+ display:flex;flex-direction:column;min-width:0;padding:16px 14px 14px;
+ background:#fafcff;border-left:1px solid #e7edf5;gap:13px;
+}
+.rrugc-photo-gallery-sidebar-heading{display:grid;gap:3px}
+.rrugc-photo-gallery-sidebar-heading strong{font-size:12px;font-weight:850;color:#3e5c80}
+.rrugc-photo-gallery-sidebar-heading small{font-size:10px;line-height:1.4;color:#8798aa}
+.rrugc-photo-gallery-thumbnails{
+ display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+ align-content:start;min-width:0;
+}
+.rrugc-photo-gallery-thumb{
+ display:grid;gap:3px;min-width:0;padding:5px;box-sizing:border-box;
+ border:1px solid #dfe7f1;border-radius:9px;background:#fff;color:#5d728d;
+ text-align:left;cursor:pointer;font:inherit;
+}
+.rrugc-photo-gallery-thumb:hover{border-color:#95b6e4;background:#f2f7ff}
+.rrugc-photo-gallery-thumb.is-selected{border-color:#5b89db;box-shadow:0 0 0 2px #cfdefb;background:#eef5ff}
+.rrugc-photo-gallery-thumb-media{
+ display:grid;place-items:center;position:relative;width:100%;height:58px;
+ overflow:hidden;border-radius:6px;background:#f4f7fb;
+}
+.rrugc-photo-gallery-thumb-media img{display:block;width:100%;height:100%;object-fit:contain}
+.rrugc-photo-gallery-thumb-media b{
+ position:absolute;top:3px;left:3px;border-radius:4px;padding:1px 4px;
+ background:#233952b8;color:#fff;font-weight:850;font-size:9px;
+}
+.rrugc-photo-gallery-thumb-empty{color:#a1b2c6;font-size:28px;line-height:1}
+.rrugc-photo-gallery-thumb-empty.is-failed{color:#c48277}
+.rrugc-photo-gallery-thumb-empty.is-running,.rrugc-photo-gallery-thumb-empty.is-queued{color:#699bd0}
+.rrugc-photo-gallery-thumb-title{
+ display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+ font-size:10px;font-weight:800;color:#4f6480;
+}
+.rrugc-photo-gallery-thumb small{
+ display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:#8c9caf;
+}
+.rrugc-photo-gallery-thumb small.is-completed{color:#27815d}
+.rrugc-photo-gallery-thumb small.is-failed{color:#b45144}
+.rrugc-photo-gallery-thumb small.is-running,.rrugc-photo-gallery-thumb small.is-queued{color:#356db2}
+.rrugc-photo-gallery button:focus-visible,.rrugc-photo-gallery a:focus-visible{
+ outline:2px solid #2f77da;outline-offset:2px;
+}
+@media(max-width:760px){
+ .rrugc-photo-gallery-overlay{padding:8px}
+ .rrugc-photo-gallery{max-height:calc(100dvh - 16px);border-radius:13px}
+ .rrugc-photo-gallery-header{padding:12px 13px}
+ .rrugc-photo-gallery-heading h2{font-size:14px}
+ .rrugc-photo-gallery-content{grid-template-columns:minmax(0,1fr)}
+ .rrugc-photo-gallery-preview{padding:11px;gap:8px}
+ .rrugc-photo-gallery-stage{height:clamp(215px,42dvh,350px)}
+ .rrugc-photo-gallery.is-single .rrugc-photo-gallery-stage{height:clamp(250px,55dvh,460px)}
+ .rrugc-photo-gallery-sidebar{border-left:0;border-top:1px solid #e6edf6;padding:12px;gap:10px}
+ .rrugc-photo-gallery-thumbnails{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+ .rrugc-photo-gallery-thumb-media{height:52px}
+ .rrugc-photo-gallery-nav button span{display:none}
+ .rrugc-photo-gallery-preview-footer{gap:8px}
+}
+@media(max-width:390px){
+ .rrugc-photo-gallery-thumbnails{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .rrugc-photo-gallery-actions{width:100%;justify-content:flex-end}
+}
+@media(prefers-reduced-motion:reduce){.rrugc-photo-gallery *{scroll-behavior:auto!important}}
