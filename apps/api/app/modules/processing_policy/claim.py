@@ -353,7 +353,7 @@ class TenantAwareJobClaimer:
             else_=0,
         )
         statement = (
-            select(ProcessingJobModel)
+            select(ProcessingJobModel.id)
             .where(*conditions)
             .order_by(
                 effective_priority.desc(),
@@ -365,7 +365,8 @@ class TenantAwareJobClaimer:
         )
         if self.session.get_bind().dialect.name == "postgresql":
             statement = statement.with_for_update(skip_locked=True)
-        return self.session.scalar(statement)
+        candidate_id = self.session.scalar(statement)
+        return self.session.get(ProcessingJobModel, candidate_id) if candidate_id is not None else None
 
     def release(self, job: ProcessingJobModel) -> None:
         if not job.concurrency_accounted:
