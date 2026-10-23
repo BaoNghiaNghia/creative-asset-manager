@@ -682,7 +682,7 @@ export type EcommerceOutputVersion = {
   width: number | null; height: number | null;
 };
 export type UgcScoutItem = { id: string; image_url: string; pin_url: string; score: number | null; status: string };
-export type UgcScoutGallery = { source_plan_id: string; campaign_id: string; status: string; target: number; count: number; items: UgcScoutItem[] };
+export type UgcScoutGallery = { source_plan_id: string; campaign_id: string; status: string; error_code?: string | null; next_attempt_at?: string | null; target: number; count: number; items: UgcScoutItem[] };
 export const getUgcScoutGallery = (sourcePlanId: string, signal?: AbortSignal) =>
   request<UgcScoutGallery>("/api/v1/realistic-review-ugc/products-stage2/ugc-scout/" + encodeURIComponent(sourcePlanId), { signal });
 export const startUgcScout = (sourcePlanId: string) =>

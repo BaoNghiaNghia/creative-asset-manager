@@ -5677,7 +5677,9 @@ def ugc_scout_gallery(
             break
     return {"source_plan_id": plan.id, "campaign_id": campaign.id,
             "status": campaign.scout_status, "target": 20,
-            "count": len(unique), "items": unique}
+            "count": len(unique), "items": unique,
+            "error_code": campaign.scan_last_error_code,
+            "next_attempt_at": campaign.scan_next_at.isoformat() if campaign.scan_next_at else None}
 
 
 @router.post("/products-stage2/ugc-scout/start", status_code=202)
@@ -5721,6 +5723,11 @@ def ugc_scout_start(
         return {"source_plan_id": plan.id, "status": "running", "campaign_id": campaign.id}
     campaign.auto_scout = True
     campaign.scan_next_at = datetime.now(timezone.utc)
+    # A failed previous attempt is historical; only an active lease denotes
+    # an in-progress run. Explicit retry must re-enable claim eligibility.
+    campaign.scan_last_error_code = None
+    campaign.scan_failure_streak = 0
+    campaign.scout_status = "ready"
     session.commit()
     return {"source_plan_id": plan.id, "status": "queued", "campaign_id": campaign.id}
 

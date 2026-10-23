@@ -419,7 +419,7 @@ export function ProductsPhotoWorkflow({
                 <button type="button" disabled={ugcScoutBusy || !sourcePlanId} onClick={() => void scoutLifestyle()}>
                   {ugcScoutBusy ? "Scheduling…" : "Scout lifestyle"}
                 </button>
-                {ugcScout && <small>Scout: {ugcScout.status}</small>}
+                {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
               {ugcScout && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8 }}>
