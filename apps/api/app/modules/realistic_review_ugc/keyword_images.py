@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -39,6 +41,49 @@ from app.providers.ai.codex_image import (
 )
 
 JOB_TYPE = "rrugc_keyword_image_generate"
+async def _run_stage1_skill_engine(
+    script: Path, quote: str, workspace: Path,
+) -> tuple[Path, ...]:
+    """Run the installed engine and validate all six designs in manifest order."""
+    output = workspace / "output"
+    output.mkdir(parents=True, exist_ok=True)
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, str(script), quote, "--out", str(output),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        cwd=str(script.parent.parent),
+    )
+    try:
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        raise ValueError("Stage 1 Skill engine timed out after 300 seconds")
+    if process.returncode:
+        raise ValueError("Stage 1 Skill engine failed: " + stderr.decode(
+            "utf-8", errors="replace")[-450:])
+    manifest_file = output / "manifest.json"
+    if not manifest_file.is_file() or manifest_file.is_symlink():
+        raise ValueError("Stage 1 Skill output manifest is missing")
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    designs = manifest.get("designs")
+    if not isinstance(designs, list) or len(designs) != 6:
+        raise ValueError("Stage 1 Skill must declare exactly six final designs")
+    result = []
+    for index, item in enumerate(designs, start=1):
+        if not isinstance(item, dict) or not isinstance(item.get("file"), str):
+            raise ValueError("Invalid Stage 1 Skill manifest entry")
+        final = (output / item["file"]).resolve()
+        if not final.is_relative_to(output.resolve()) or final.is_symlink():
+            raise ValueError("Stage 1 output escapes job workspace")
+        if final.name != f"design_{index:02}.png" or not final.is_file():
+            raise ValueError("Stage 1 design order mismatch")
+        with Image.open(final) as image:
+            if image.size != (2048, 1024) or image.format != "PNG":
+                raise ValueError("Stage 1 final must be PNG 2048x1024")
+        result.append(final)
+    return tuple(result)
+
+
 STAGE1_MAX_ATTEMPTS = 1
 # A zero-PNG, no-generation-attempt failure can be deferred without consuming
 # another ProcessingJob attempt. Retry budget lives on the Stage 1 job row so
@@ -940,15 +985,21 @@ class KeywordImageGenerateHandler:
                         "Typography Concepts requires exactly six output images.",
                         retryable=False,
                     )
-                from app.modules.realistic_review_ugc.stage1_typography_renderer import render_six
-                font_directory = (
+                skill_directory = (
                     Path(settings.CODEX_IMAGE_HOME).resolve()
-                    / "skills" / LOCAL_TYPOGRAPHY_SKILL / "fonts"
+                    / "skills" / LOCAL_TYPOGRAPHY_SKILL
                 )
+                engine_script = skill_directory / "scripts" / "stage1.py"
                 try:
-                    final_paths = await asyncio.to_thread(
-                        render_six, keyword_text, font_directory, workspace
-                    )
+                    if engine_script.is_file() and not engine_script.is_symlink():
+                        final_paths = await _run_stage1_skill_engine(
+                            engine_script, keyword_text, workspace,
+                        )
+                    else:
+                        from app.modules.realistic_review_ugc.stage1_typography_renderer import render_six
+                        final_paths = await asyncio.to_thread(
+                            render_six, keyword_text, skill_directory / "fonts", workspace,
+                        )
                 except (OSError, ValueError) as exc:
                     raise CodexImageProviderError(
                         "stage1_typography_render_failed",
