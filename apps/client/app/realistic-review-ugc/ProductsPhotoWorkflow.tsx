@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
-import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runAllEcommerceJobs, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
+import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
@@ -154,6 +154,20 @@ export function ProductsPhotoWorkflow({
     }
   }
 
+  async function invokeScene(slot: "prod_s2_mh" | "prod_s2_ugc") {
+    if (!sourcePlanId || busyStage) return;
+    setBusyStage(slot);
+    setJobActionError("");
+    try {
+      const queued = await runSceneJob(sourcePlanId, slot);
+      const blocked = queued.steps.filter(item => item.status === "blocked");
+      if (blocked.length) setJobActionError(blocked.map(item => item.reason).join("; "));
+      await onEcommerceJobChange?.();
+    } catch (reason) {
+      setJobActionError(reason instanceof Error ? reason.message : "Unable to queue three images.");
+    } finally { setBusyStage(null); }
+  }
+
   async function showEcommerceLogs(jobId: string) {
     setLogFor(jobId);
     setVersionsFor(null);
@@ -213,13 +227,21 @@ export function ProductsPhotoWorkflow({
           name, status: "blocked", reason: message,
         }));
       }
-      for (const [key, name] of [["multihat", "Multi-hat"], ["ugc", "UGC"]] as const) {
+      for (const [key, name, slot] of [["multihat", "Multi-hat", "prod_s2_mh"], ["ugc", "UGC", "prod_s2_ugc"]] as const) {
         const skill = readiness?.steps.find(step => step.key === key);
-        steps.push({ name, status: "blocked", reason: !skill
-          ? "Skill availability is not confirmed."
-          : !skill.bundle_installed
-            ? "The assigned Skill is unavailable or invalid in the image worker."
-            : "The three-image worker has not been enabled." });
+        if (skill?.ready && configuredSkillNames[slot]) {
+          try {
+            const queued = await runSceneJob(sourcePlanId, slot);
+            const blocked = queued.steps.filter(item => item.status === "blocked");
+            steps.push({ name, status: blocked.length ? "blocked" : "queued",
+              reason: blocked.map(item => item.reason).filter(Boolean).join("; ") || undefined });
+          } catch (reason) {
+            steps.push({ name, status: "blocked", reason: reason instanceof Error ? reason.message : "Could not start scene generation." });
+          }
+        } else {
+          steps.push({ name, status: "blocked", reason: !skill?.bundle_installed
+            ? "The assigned Skill is unavailable or invalid." : "Worker is not available." });
+        }
       }
       if (complete === 13) {
         steps.push({ name: "13 Hat Colors", status: "completed" });
@@ -275,7 +297,13 @@ export function ProductsPhotoWorkflow({
             : input.kind === "back" ? "/rrugc/blueprint/stock/natural-black/back.jpg"
             : "/rrugc/blueprint/stock/natural-black/side.jpg",
         })).filter(item => Boolean(item.src));
+        const sceneJobs = isEcommerce ? [] : jobs.filter(job => job.stage.startsWith(step.key + "_"));
         const shotJob = jobs.find(item => item.stage === step.key);
+        const sceneComplete = sceneJobs.length === 3 && sceneJobs.every(job => job.status === "completed");
+        const sceneRunnable = !isEcommerce && Boolean(sourcePlanId && configured && state?.ready)
+          && !busyStage && !sceneComplete
+          && sceneJobs.every(job => !["queued", "running"].includes(job.status));
+
         const runnable = isEcommerce && Boolean(configured && slotInputs?.ready && sourcePlanId)
           && !busyStage && !shotJob;
         const bundleMissing = !isEcommerce && Boolean(state && !state.bundle_installed);
@@ -287,7 +315,7 @@ export function ProductsPhotoWorkflow({
               ? "Checking the latest assigned Skill. Refresh Skill management if this persists."
               : bundleMissing
                 ? "The assigned Skill is unavailable or invalid in the image worker. Check its installation in Manage Skills."
-                : "Skill " + configured + " is installed and assigned. The three-image generation worker is not enabled yet.";
+                : state.ready ? "Skill " + configured + " is installed and ready for three-image generation." : "Skill " + configured + " is installed but the worker is unavailable.";
 
         // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
         const status = shotJob ? shotJob.status.replace(/^./, char => char.toUpperCase())
@@ -295,37 +323,39 @@ export function ProductsPhotoWorkflow({
           ? (slotInputs?.ready ? "Ready" : slotInputs?.status === "missing_inputs"
             ? "Missing input" : slotInputs?.status === "worker_pending"
               ? "Worker pending" : "Needs skill")
-          : state?.ready ? "Ready" : "Worker pending";
+          : sceneComplete ? "Completed" : sceneJobs.some(job => job.status === "queued" || job.status === "running") ? "Running" : state?.ready ? "Ready" : "Worker pending";
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
             <div><strong>{step.title}</strong><small>{step.shots.length} {step.shots.length === 1 ? "shot" : "shots"}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
-            {step.shots.map(shot => shotJob?.output_url && shotJob.status === "completed"
-              ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
-                  onClick={() => setOutputGallery({ title: shot.label + " · output", items: [{ key: shotJob.id, label: shot.label, src: shotJob.output_url!, status: "completed" }] })}
-                  aria-label={"Open " + shot.label + " Ecommerce output"}>
-                  <img src={shotJob.output_url} alt={shot.label} loading="lazy" />
-                </button>
-              : <span key={shot.number} className="rrugc-products-photo-empty-shot"
-                  title={shot.label + " · " + (shotJob?.status || "Not generated")}
-                  aria-label={shot.label + " · " + (shotJob?.status || "Not generated")}>
-                  <HatSlotIcon />
-                </span>)}
+            {step.shots.map((shot, shotIndex) => {
+              const photo = isEcommerce ? shotJob : sceneJobs.find(job => job.stage === step.key + "_" + (shotIndex + 1));
+              return photo?.output_url && photo.status === "completed"
+                ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
+                    onClick={() => setOutputGallery({ title: shot.label + " · output", items: [{ key: photo.id, label: shot.label, src: photo.output_url!, status: "completed" }] })}
+                    aria-label={"Open " + shot.label + " output"}>
+                    <img src={photo.output_url} alt={shot.label} loading="lazy" />
+                  </button>
+                : <span key={shot.number} className="rrugc-products-photo-empty-shot"
+                    title={shot.label + " · " + (photo?.status || "Not generated")}>
+                    <HatSlotIcon />
+                  </span>;
+            })}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
             <span>Skill {index + 1}</span><strong>{skillName}</strong>
           </div>
           <div className="rrugc-products-photo-stage-controls">
             <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">Duration: {shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : "—"}</span>
-            <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable ? "ready" : "unavailable")}
+            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">Duration: {shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}</span>
+            <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable || sceneRunnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
               aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
-              disabled={!isEcommerce || !!busyStage || Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))}
+              disabled={!!busyStage || (!isEcommerce ? !sceneRunnable : Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3)))}
               title={!isEcommerce ? setupMessage : runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
-              onClick={() => runnable ? void invokeEcommerce(step.key)
+              onClick={() => sceneRunnable ? void invokeScene(step.key as "prod_s2_mh" | "prod_s2_ugc") : runnable ? void invokeEcommerce(step.key)
                 : isEcommerce && shotJob?.status === "failed" ? void invokeEcommerce(step.key, shotJob)
                 : setExpandedStep(step.key)}><ActionIcon kind={busyStage === step.key || status === "Running" || status === "Queued" ? "loader" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "check" : !runnable ? "clock" : "play"} />{busyStage === step.key ? "Queueing…" : shotJob?.status === "failed" ? "Retry" : status === "Completed" ? "Done" : status === "Running" || status === "Queued" ? "Running" : "Run"}</button>
             <button type="button" className="rrugc-products-photo-detail-toggle"
@@ -378,7 +408,7 @@ export function ProductsPhotoWorkflow({
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
               onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
             {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
-            {!isEcommerce && <small>Run stays disabled until a verified three-image worker and its input/QA contract are available.</small>}
+            {!isEcommerce && <small>{state?.ready ? "Three scene outputs are generated as independent jobs." : "Worker or Skill must be ready before running."}</small>}
             </div>
             {jobActionError && expandedStep === step.key && <p role="alert">{jobActionError}</p>}
             {shotJob && logFor === shotJob.id && logs && <div className="rrugc-products-photo-execution-log">

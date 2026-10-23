@@ -8,6 +8,7 @@ dedicated three-output workers, durable storage, QA and retry contracts.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
@@ -70,6 +71,10 @@ def readiness(
     """
     config = settings or get_settings()
     root = Path(str(config.CODEX_IMAGE_HOME)).resolve() / "skills"
+    worker_ready = all(bool(getattr(config, key, False)) for key in (
+        "PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED",
+        "MANAGED_ASSET_STORAGE_ENABLED", "CODEX_IMAGE_GENERATION_ENABLED",
+    )) and bool(shutil.which(str(getattr(config, "CODEX_IMAGE_BINARY", "codex") or "codex")))
     result = []
     for spec in PIPELINE_STEPS:
         skill_name = spec["skill_name"]
@@ -127,16 +132,16 @@ def readiness(
             "title": spec["title"],
             "output_count": spec["output_count"],
             "shot_labels": spec["shot_labels"],
-            "ready": False,  # No three-photo worker has been enabled.
+            "ready": installed and worker_ready and spec["key"] != "ecommerce",
             "bundle_installed": installed,
-            "status": "needs_pipeline_worker" if installed else "needs_install",
+            "status": "ready" if installed and worker_ready and spec["key"] != "ecommerce" else ("needs_pipeline_worker" if installed else "needs_install"),
             "missing_assets": missing,
             "required_inputs": spec["required_inputs"],
         })
     return {
         "workflow": "products_stage2_photo_pipeline",
         "sequential": True,
-        "ready": False,
+        "ready": all(s["ready"] for s in result if s["key"] != "ecommerce"),
         "total_outputs_per_design": sum(spec["output_count"] for spec in PIPELINE_STEPS),
         "steps": result,
     }

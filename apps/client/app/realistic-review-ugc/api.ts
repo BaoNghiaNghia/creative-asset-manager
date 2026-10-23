@@ -659,7 +659,7 @@ export type ProductsStage2PhotoStep = {
   shot_labels: string[];
   ready: boolean;
   bundle_installed: boolean;
-  status: "needs_install" | "needs_pipeline_worker";
+  status: "needs_install" | "needs_pipeline_worker" | "ready";
   missing_assets: string[];
   required_inputs: string;
 };
@@ -708,6 +708,11 @@ export type ColorwayQueueResult = {
   retried?: number;
   error?: string;
 };
+
+export const runSceneJob = (sourcePlanId: string, slot: "prod_s2_mh" | "prod_s2_ugc") =>
+  request<EcommerceRunAllResult>(ECOMMERCE_PATH + "/run-scene", {
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, slot }),
+  });
 
 export const runEcommerceJob = (sourcePlanId: string, stage: string) =>
   request<{ job_id: string; status: string }>(ECOMMERCE_PATH + "/run", {

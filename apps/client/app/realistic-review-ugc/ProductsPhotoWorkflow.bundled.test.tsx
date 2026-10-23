@@ -70,7 +70,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       expect(panel.querySelector("details summary")?.textContent).toContain("Missing package files");
       for (const file of spec.missing) expect(panel.textContent).toContain(file);
       expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")?.textContent).toBe("Upload Skill ZIP");
-      expect(panel.textContent).toContain("Run stays disabled until");
+      expect(panel.textContent).toContain("Worker or Skill must be ready before running.");
       expect(panel.textContent).not.toContain("Logs available after the first job");
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       expect(row.querySelector(".rrugc-products-photo-stage-detail")).toBeNull();
@@ -88,8 +88,8 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       const row = host.querySelector<HTMLElement>(`[data-skill="${spec.key}"]`)!;
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
-      expect(panel.textContent).toContain("is installed and assigned");
-      expect(panel.textContent).toContain("worker is not enabled yet");
+      expect(panel.textContent).toContain("is installed but the worker is unavailable");
+      expect(panel.textContent).toContain("worker is unavailable");
       expect(panel.querySelector("details")).toBeNull();
       expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")?.textContent).toBe("Manage skill");
       expect(row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)?.disabled).toBe(true);
@@ -111,17 +111,37 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_ugc"]')!;
     const run = row.querySelector<HTMLButtonElement>('[aria-label="Run UGC"]')!;
     expect(run.disabled).toBe(true);
-    expect(run.getAttribute("title")).toContain("installed and assigned");
+    expect(run.getAttribute("title")).toContain("worker is unavailable");
     await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="UGC details"]')!.click());
     const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
-    expect(panel.textContent).toContain("Skill ugc-gatorhats is installed and assigned");
-    expect(panel.textContent).toContain("three-image generation worker is not enabled yet");
+    expect(panel.textContent).toContain("Skill ugc-gatorhats is installed but the worker is unavailable");
+    expect(panel.textContent).toContain("worker is unavailable");
     expect(panel.textContent).not.toContain("exact approved Skill ZIP");
     expect(panel.querySelector(".rrugc-products-photo-bundle-missing")).toBeNull();
     expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")?.textContent)
       .toBe("Manage skill");
     await act(async () => root.unmount());
   });
+
+  for (const spec of bundles) {
+    it(`${spec.title}: enables Run once the installed worker and Skill are ready`, async () => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      const ready = readiness(spec, true);
+      ready.steps[0].ready = true;
+      ready.steps[0].status = "ready";
+      await act(async () => root.render(<ProductsPhotoWorkflow
+        sourceName="Embroidery.png" sourcePlanId="source-plan-1"
+        readiness={ready} configuredSkillNames={{ [spec.key]: spec.name }}
+      />));
+      const button = host.querySelector<HTMLButtonElement>(
+        `[data-skill="${spec.key}"] button[aria-label="Run ${spec.title}"]`
+      );
+      expect(button?.disabled).toBe(false);
+      await act(async () => root.unmount());
+    });
+  }
 
   it("keeps Ecommerce details separate from bundled-skill readiness", async () => {
     const host = document.createElement("div");

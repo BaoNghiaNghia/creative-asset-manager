@@ -80,6 +80,38 @@ VIEW_PROMPTS = {
     ),
 }
 
+# Scene shots deliberately reuse the proven Ecommerce job persistence, retry,
+# storage/version and image-worker contract. A unique stage identifies EACH
+# output, while the tenant Skill assignment remains at the parent slot.
+SCENE_GROUPS = {
+    "prod_s2_mh": ("prod_s2_mh_1", "prod_s2_mh_2", "prod_s2_mh_3"),
+    "prod_s2_ugc": ("prod_s2_ugc_1", "prod_s2_ugc_2", "prod_s2_ugc_3"),
+}
+SCENE_STAGE_SLOTS = {
+    shot: slot for slot, shots in SCENE_GROUPS.items() for shot in shots
+}
+SCENE_SHOT_DESCRIPTIONS = {
+    "prod_s2_mh_1": "Three official Valucap 8869 caps arranged on a neutral tabletop, one hero front and two staggered companions.",
+    "prod_s2_mh_2": "Three official Valucap 8869 caps in a carefully lit lifestyle arrangement, with one front-facing hero and visible side profiles.",
+    "prod_s2_mh_3": "Three official Valucap 8869 caps in a clean editorial display showing front, three-quarter and side orientation.",
+    "prod_s2_ugc_1": "Natural handheld customer photograph of a person wearing the official five-panel cap outdoors.",
+    "prod_s2_ugc_2": "Distinct casual customer selfie of a person wearing the official five-panel cap in natural daylight.",
+    "prod_s2_ugc_3": "Distinct authentic lifestyle photograph featuring a person wearing the official five-panel cap in an everyday setting.",
+}
+for _stage in SCENE_STAGE_SLOTS:
+    STOCK_ROLES[_stage] = ("stock_front", "stock_side_90", "stock_back")
+    VIEW_PROMPTS[_stage] = (
+        SCENE_SHOT_DESCRIPTIONS[_stage] +
+        " Follow the assigned uploaded Skill's composition and quality requirements. "
+        "Use the EXACT provided embroidery design where the cap front is visible, "
+        "with physically realistic stitched thread and lettering. Keep the "
+        "Valucap 8869 five-panel single-front crown, crown seams, visor, color "
+        "and factory stock geometry authentic. No invented logos, altered words, "
+        "six-panel seam, random side embroidery, extra people or extra caps "
+        "outside the scene instructions. Produce exactly ONE complete image "
+        "for this independent shot; never a collage or contact sheet."
+    )
+
 
 class EcommerceError(RuntimeError):
     def __init__(self, code: str, message: str, status_code: int = 409):
@@ -124,7 +156,7 @@ def _source_plan(session: Session, tenant_id: str, plan_id: str,
 
 
 def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage: str):
-    assignment = session.get(RrugcStageSkillDefaultModel, (tenant_id, stage))
+    assignment = session.get(RrugcStageSkillDefaultModel, (tenant_id, SCENE_STAGE_SLOTS.get(stage, stage)))
     selected = session.get(RrugcStage2SkillRegistryModel, assignment.registry_id) if assignment and assignment.registry_id else None
     if (not selected or selected.tenant_id != tenant_id or not selected.enabled
             or selected.deleted_at is not None or selected.validation_status != "valid"):
@@ -193,7 +225,7 @@ class EcommerceService:
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
               stage: str) -> dict:
-        if stage not in SHOTS_BY_STAGE:
+        if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
         if not all((
             self.settings.PROCESSING_JOBS_ENABLED,
@@ -236,6 +268,52 @@ class EcommerceService:
         self._enqueue(row)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
+
+    def queue_scene(self, *, tenant_id: str, user_id: str,
+                    source_plan_id: str, slot: str) -> dict:
+        """Queue exactly three independent, idempotent photos for one Skill.
+
+        Missing/failed shots can be resumed without duplicating completed shots.
+        A single invalid Skill or missing official stock blocks BEFORE queueing.
+        """
+        stages = SCENE_GROUPS.get(slot)
+        if not stages:
+            raise EcommerceError("photo_slot_invalid", "Unknown three-photo Skill slot.", 422)
+        plan = _source_plan(self.session, tenant_id, source_plan_id)
+        _assigned_skill(self.session, self.settings, tenant_id, slot)
+        for stage in stages:
+            _stock_refs(self.settings, stage)
+        results = []
+        for stage in stages:
+            try:
+                existing = self.session.scalar(select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.tenant_id == tenant_id,
+                    RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+                    RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                    RrugcEcommerceJobModel.stage == stage,
+                ))
+                if existing is None:
+                    queued = self.queue(tenant_id=tenant_id, user_id=user_id,
+                                        source_plan_id=source_plan_id, stage=stage)
+                    results.append({"stage": stage, **queued})
+                    continue
+                processing = (self.session.get(ProcessingJobModel, existing.processing_job_id)
+                              if existing.processing_job_id else None)
+                status = _effective_status(existing, processing)
+                if status == "failed" and existing.retry_count < MAX_MANUAL_RETRIES:
+                    queued = self.retry(tenant_id=tenant_id, job_id=existing.id)
+                    results.append({"stage": stage, **queued})
+                elif status == "failed":
+                    results.append({"stage": stage, "job_id": existing.id,
+                                    "status": "blocked", "reason": "Retry limit reached."})
+                else:
+                    results.append({"stage": stage, "job_id": existing.id,
+                                    "status": status, "already_exists": True})
+            except EcommerceError as exc:
+                self.session.rollback()
+                results.append({"stage": stage, "status": "blocked",
+                                "reason": exc.message, "error_code": exc.code})
+        return {"source_plan_id": source_plan_id, "slot": slot, "steps": results}
 
     def queue_all(self, *, tenant_id: str, user_id: str, source_plan_id: str) -> dict:
         """Start every supported Ecommerce slot with durable Front -> angle handoff.
@@ -683,9 +761,16 @@ class EcommerceGenerateHandler:
             references.append(ReferenceImageInput(
                 image=_prepared_image(refs[1][1]), role="side_reference",
                 label="official true right-side stock geometry"))
+        if len(refs) > 2:
+            references.append(ReferenceImageInput(
+                image=_prepared_image(refs[2][1]), role="back_reference",
+                label="official Valucap 8869 back panel stock geometry"))
         prompt = (
-            "Generate ONE photorealistic commercial ecommerce product photograph "
-            "of the official Valucap 8869 natural/black five-panel twill cap. "
+            ("Generate ONE independent photorealistic scene for this uploaded "
+             "Multi-hat or UGC Skill using the official Valucap 8869 "
+             "natural/black five-panel cap. " if stage in SCENE_STAGE_SLOTS
+             else "Generate ONE photorealistic commercial ecommerce product photograph "
+                  "of the official Valucap 8869 natural/black five-panel twill cap. ")
             + VIEW_PROMPTS[stage] +
             " Keep all cap panel seams, fabric, bill curvature, dark-black/natural fabric "
             "colors and hardware strictly consistent with the official reference photos. "
