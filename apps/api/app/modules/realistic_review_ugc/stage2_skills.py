@@ -386,10 +386,17 @@ def install_local_stage2_skill_bundle(
             shutil.rmtree(target, ignore_errors=True)
             if backup.exists():
                 os.replace(backup, target)
+        logger.exception("stage2_local_skill_install_io_failure skill_name=%s errno=%s", bundle.skill_name, getattr(exc, "errno", None))
+        reason = getattr(exc, "errno", None)
+        message = (
+            "Skill runtime storage is full. Free disk space and retry installation."
+            if reason == 28 else
+            "Skill runtime cannot write its directory. Check runtime permissions."
+            if reason in (1, 13, 30) else
+            "Skill runtime I/O failed during installation. Check backend logs for stage2_local_skill_install_io_failure."
+        )
         raise Stage2SkillRegistryError(
-            "stage2_skill_install_failed",
-            "Unable to install the uploaded Stage 2 skill.",
-            status_code=500,
+            "stage2_skill_install_failed", message, status_code=500,
         ) from exc
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
