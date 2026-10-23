@@ -352,8 +352,23 @@ class TenantAwareJobClaimer:
             ),
             else_=0,
         )
+        # Join policy rows before global ordering so the planner can filter
+        # ineligible tenants/providers ahead of Sort. Both policies are unique
+        # on their join keys; no candidate job is duplicated.
         statement = (
             select(ProcessingJobModel.id)
+            .join(
+                TenantProcessingPolicyModel,
+                TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
+            )
+            .outerjoin(
+                TenantProviderPolicyModel,
+                and_(
+                    TenantProviderPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
+                    TenantProviderPolicyModel.provider_key == ProcessingJobModel.provider_key,
+                    TenantProviderPolicyModel.provider_scope == ProcessingJobModel.provider_scope,
+                ),
+            )
             .where(*conditions)
             .order_by(
                 effective_priority.desc(),
@@ -364,7 +379,7 @@ class TenantAwareJobClaimer:
             .limit(1)
         )
         if self.session.get_bind().dialect.name == "postgresql":
-            statement = statement.with_for_update(skip_locked=True)
+            statement = statement.with_for_update(skip_locked=True, of=ProcessingJobModel)
         candidate_id = self.session.scalar(statement)
         return self.session.get(ProcessingJobModel, candidate_id) if candidate_id is not None else None
 
@@ -599,7 +614,6 @@ class TenantAwareJobClaimer:
         worker_role: str = "all",
     ):
         policy_conditions = [
-            TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
             TenantProcessingPolicyModel.pipeline_enabled.is_(True),
             TenantProcessingPolicyModel.processing_paused.is_(False),
             or_(
@@ -609,11 +623,7 @@ class TenantAwareJobClaimer:
             self._stage_enabled(),
             self._category_limit_available(),
         ]
-        provider_blocked = exists(select(TenantProviderPolicyModel.id).where(
-            TenantProviderPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
-            TenantProviderPolicyModel.provider_key == ProcessingJobModel.provider_key,
-            TenantProviderPolicyModel.provider_scope == ProcessingJobModel.provider_scope,
-            or_(
+        provider_blocked = or_(
                 TenantProviderPolicyModel.processing_enabled.is_(False),
                 TenantProviderPolicyModel.processing_paused.is_(True),
                 TenantProviderPolicyModel.emergency_stop.is_(True),
@@ -625,8 +635,7 @@ class TenantAwareJobClaimer:
                     ProcessingJobModel.concurrency_accounted.is_(False),
                     TenantProviderPolicyModel.active_jobs >= TenantProviderPolicyModel.active_jobs_limit,
                 ),
-            ),
-        ))
+        )
         excluded_ai_scopes = excluded_ai_scopes or set()
         excluded_rrugc_scopes = excluded_rrugc_scopes or set()
         scope_available = and_(
@@ -668,8 +677,10 @@ class TenantAwareJobClaimer:
             self._runtime_control_available(),
             self._stage4_available(),
             self._managed_storage_capacity_available(),
-            exists(select(TenantProcessingPolicyModel.tenant_id).where(*policy_conditions)),
-            or_(ProcessingJobModel.provider_key.is_(None), ~provider_blocked),
+            *policy_conditions,
+            # A missing provider policy remains permissive, exactly as NOT
+            # EXISTS did before. Null provider keys/scopes also yield no match.
+            or_(TenantProviderPolicyModel.id.is_(None), ~provider_blocked),
         )
 
     @staticmethod
@@ -677,14 +688,8 @@ class TenantAwareJobClaimer:
         role = worker_role.strip().casefold()
         if role == "all":
             return true()
-        image_enabled = exists(
-            select(TenantProcessingPolicyModel.tenant_id)
-            .where(
-                TenantProcessingPolicyModel.tenant_id == ProcessingJobModel.tenant_id,
-                TenantProcessingPolicyModel.ai_analysis_enabled.is_(True),
-            )
-            .correlate_except(TenantProcessingPolicyModel)
-        )
+        # Tenant policy is already inner-joined by the candidate SELECT.
+        image_enabled = TenantProcessingPolicyModel.ai_analysis_enabled.is_(True)
         video_paused = exists(
             select(TenantProviderPolicyModel.id)
             .where(
