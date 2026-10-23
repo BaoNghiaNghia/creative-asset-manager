@@ -22,8 +22,8 @@ CANVAS = (2048, 1024)
 MAIN = "#3558B5"
 ACCENT = "#AC211C"
 FONTS = ("BebasNeue-Regular.ttf", "SimplePrint.ttf", "Pacifico-Regular.ttf",
-         "Lobster-Regular.otf", "Signwood.ttf", "dafont_classica_3.ttf",
-         "AireExterior.ttf", "dafont_yeseva_one.ttf")
+         "Lobster-Regular.otf", "Signwood.ttf", "CharisSIL.ttf",
+         "AireExterior.ttf", "Gentium.ttf")
 STYLE_NAMES = ("Varsity Stack", "Block Stack", "Script Lockup 2-Color",
                "Club Arch", "Script Overlap", "Groovy Wavy Stack")
 

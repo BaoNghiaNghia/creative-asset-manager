@@ -140,6 +140,12 @@ def test_sample_layouts_have_thread_ridges_and_correct_colors(keyword, tmp_path)
         assert reds > 10
         assert upper_reds / reds > 0.9
 
+def test_typography_no_dafont_assets_or_settings():
+    assert all("dafont" not in name.lower() for name in FONTS)
+    package = build_bundle()
+    assert all("dafont" not in name.lower() for name, *_ in package.files)
+
+
 def test_local_stage1_skill_bundle_installs_only_verified_fonts():
     pkg = build_bundle()
     assert pkg.skill_name == SKILL_NAME

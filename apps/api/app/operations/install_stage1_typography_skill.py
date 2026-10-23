@@ -45,6 +45,8 @@ def build_bundle():
                 if file.is_file():
                     archive.write(file, file.relative_to(root).as_posix())
             for name in FONTS:
+                if "dafont" in name.lower():
+                    raise RuntimeError("DaFont is not permitted in Stage 1 typography")
                 item = by_file.get(name)
                 if item is None:
                     raise RuntimeError("Approved typography font not registered: " + name)
