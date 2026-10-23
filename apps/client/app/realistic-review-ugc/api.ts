@@ -707,6 +707,28 @@ export const listEcommerceJobs = (sourcePlanIds: string[], signal?: AbortSignal)
   for (const id of sourcePlanIds) params.append("source_plan_id", id);
   return request<EcommerceJob[]>(ECOMMERCE_PATH + "/jobs?" + params.toString(), { signal });
 };
+export type EcommerceRunAllStep = {
+  stage: string;
+  status: "queued" | "running" | "completed" | "waiting_for_front" | "blocked" | "pending";
+  job_id?: string;
+  reason?: string;
+  error_code?: string;
+};
+export type EcommerceRunAllResult = {
+  source_plan_id: string;
+  steps: EcommerceRunAllStep[];
+};
+export const runAllEcommerceJobs = (sourcePlanId: string) =>
+  request<EcommerceRunAllResult>(ECOMMERCE_PATH + "/run-all", {
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId }),
+  });
+export type ColorwayQueueResult = {
+  queued: number;
+  existing: number;
+  retried?: number;
+  error?: string;
+};
+
 export const runEcommerceJob = (sourcePlanId: string, stage: string) =>
   request<{ job_id: string; status: string }>(ECOMMERCE_PATH + "/run", {
     method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, stage }),

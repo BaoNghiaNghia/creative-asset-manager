@@ -237,6 +237,127 @@ class EcommerceService:
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
+    def queue_all(self, *, tenant_id: str, user_id: str, source_plan_id: str) -> dict:
+        """Start every supported Ecommerce slot with durable Front -> angle handoff.
+
+        Jobs 2 and 3 cannot be queued until Front output has been saved.  The
+        intent is pinned to the Front processing payload and completed by the
+        image worker, even when the user's browser is closed.  Other slots are
+        independent and failures are isolated per slot.
+        """
+        plan = _source_plan(self.session, tenant_id, source_plan_id)
+        if not all((self.settings.PROCESSING_JOBS_ENABLED,
+                    self.settings.IMAGE_GENERATION_ENABLED,
+                    self.settings.MANAGED_ASSET_STORAGE_ENABLED,
+                    self.settings.CODEX_IMAGE_GENERATION_ENABLED)):
+            return {"source_plan_id": source_plan_id, "steps": [
+                {"stage": stage, "status": "blocked",
+                 "reason": "Image generation is disabled."}
+                for stage in ("prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")]}
+        stages: dict[str, dict] = {}
+        front = None
+
+        def enqueue(stage: str) -> dict:
+            existing = self.session.scalar(select(RrugcEcommerceJobModel).where(
+                RrugcEcommerceJobModel.tenant_id == tenant_id,
+                RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+                RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                RrugcEcommerceJobModel.stage == stage,
+            ))
+            if existing is not None:
+                processing = (self.session.get(ProcessingJobModel, existing.processing_job_id)
+                              if existing.processing_job_id else None)
+                state = _effective_status(existing, processing)
+                if state == "failed":
+                    if existing.retry_count >= MAX_MANUAL_RETRIES:
+                        raise EcommerceError("ecommerce_retry_exhausted",
+                                             "Job retry limit reached.")
+                    result = self.retry(tenant_id=tenant_id, job_id=existing.id)
+                    return {"stage": stage, "status": "queued", "job_id": result["job_id"]}
+                return {"stage": stage, "status": state, "job_id": existing.id}
+            queued = self.queue(tenant_id=tenant_id, user_id=user_id,
+                                source_plan_id=source_plan_id, stage=stage)
+            return {"stage": stage, "status": queued["status"],
+                    "job_id": queued["job_id"]}
+
+        # Front and Back never require another Ecommerce output.
+        for stage in ("prod_s2_ec1", "prod_s2_ec4"):
+            try:
+                stages[stage] = enqueue(stage)
+            except EcommerceError as exc:
+                self.session.rollback()
+                stages[stage] = {"stage": stage, "status": "blocked",
+                                 "reason": exc.message, "error_code": exc.code}
+
+        front = self.session.scalar(select(RrugcEcommerceJobModel).where(
+            RrugcEcommerceJobModel.tenant_id == tenant_id,
+            RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+            RrugcEcommerceJobModel.source_revision == plan.source_revision,
+            RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+        ))
+
+        deferred = []
+        for stage in ("prod_s2_ec2", "prod_s2_ec3"):
+            try:
+                if front and front.status == "completed" and front.output_remote_file_id:
+                    stages[stage] = enqueue(stage)
+                else:
+                    # Validate stock and assigned Skill *before* marking a
+                    # dependent task as waiting; never represent absent
+                    # dependencies as queued jobs.
+                    _stock_refs(self.settings, stage)
+                    _assigned_skill(self.session, self.settings, tenant_id, stage)
+                    if not front or front.status == "failed":
+                        raise EcommerceError("ecommerce_front_prerequisite",
+                                             "Front High must run successfully first.")
+                    deferred.append(stage)
+                    stages[stage] = {"stage": stage, "status": "waiting_for_front",
+                                     "reason": "Will queue after Ecommerce Image 01 completes."}
+            except EcommerceError as exc:
+                self.session.rollback()
+                stages[stage] = {"stage": stage, "status": "blocked",
+                                 "reason": exc.message, "error_code": exc.code}
+
+        if deferred and front and front.processing_job_id:
+            # Lock the same Front row that the completion handler updates, so
+            # a concurrent completion cannot race past the durable intent.
+            front = self.session.scalar(select(RrugcEcommerceJobModel).where(
+                RrugcEcommerceJobModel.id == front.id,
+                RrugcEcommerceJobModel.tenant_id == tenant_id,
+            ).with_for_update())
+            if front and front.status == "completed" and front.output_remote_file_id:
+                self.session.rollback()
+                for stage in deferred:
+                    try:
+                        stages[stage] = enqueue(stage)
+                    except EcommerceError as exc:
+                        self.session.rollback()
+                        stages[stage] = {"stage": stage, "status": "blocked",
+                                         "reason": exc.message, "error_code": exc.code}
+            else:
+                processing = self.session.scalar(select(ProcessingJobModel).where(
+                    ProcessingJobModel.id == front.processing_job_id,
+                    ProcessingJobModel.tenant_id == tenant_id,
+                    ProcessingJobModel.entity_id == front.id,
+                    ProcessingJobModel.job_type == JOB_TYPE,
+                ).with_for_update())
+                if processing is None:
+                    self.session.rollback()
+                    for stage in deferred:
+                        stages[stage] = {"stage": stage, "status": "blocked",
+                                         "reason": "Front processing job is unavailable."}
+                else:
+                    current = dict(processing.payload_json or {})
+                    previous = current.get("run_all_followups", [])
+                    current["run_all_followups"] = sorted(set(previous).union(deferred))
+                    current["run_all_user_id"] = user_id
+                    processing.payload_json = current
+                    self.session.commit()
+
+        return {"source_plan_id": source_plan_id,
+                "steps": [stages[key] for key in (
+                    "prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")]}
+
     def retry(self, *, tenant_id: str, job_id: str) -> dict:
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.id == job_id,
@@ -379,6 +500,57 @@ class EcommerceGenerateHandler:
                 row.last_error_code = code[:100]
                 row.last_error_message = message[:500]
                 session.commit()
+
+    def _dispatch_run_all_followups(self, context: JobHandlerContext,
+                                   job_id: str, processing_job_id: str | None) -> None:
+        """Complete the durable run-all handoff after Front output is committed.
+
+        Child enqueue errors are isolated: a safely persisted Front output
+        must never be marked failed just because a downstream Skill is missing.
+        """
+        if not processing_job_id:
+            return
+        with context.dependencies.session_factory() as session:
+            processing = session.get(ProcessingJobModel, processing_job_id)
+            if (not processing or processing.tenant_id != context.job.tenant_id
+                    or processing.entity_id != job_id):
+                return
+            payload = processing.payload_json or {}
+            stages = payload.get("run_all_followups", [])
+            user_id = payload.get("run_all_user_id")
+            if not isinstance(stages, list) or not isinstance(user_id, str) or not user_id:
+                return
+            front = session.get(RrugcEcommerceJobModel, job_id)
+            if not front or front.status != "completed" or not front.output_remote_file_id:
+                return
+            source_plan_id = front.source_plan_id
+            source_revision = front.source_revision
+        for stage in stages:
+            if stage not in ("prod_s2_ec2", "prod_s2_ec3"):
+                continue
+            with context.dependencies.session_factory() as followup_session:
+                try:
+                    service = EcommerceService(followup_session, self.settings or get_settings())
+                    existing = followup_session.scalar(select(RrugcEcommerceJobModel).where(
+                        RrugcEcommerceJobModel.tenant_id == context.job.tenant_id,
+                        RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+                        RrugcEcommerceJobModel.source_revision == source_revision,
+                        RrugcEcommerceJobModel.stage == stage))
+                    processing = (followup_session.get(ProcessingJobModel, existing.processing_job_id)
+                                  if existing and existing.processing_job_id else None)
+                    if existing and _effective_status(existing, processing) == "failed":
+                        service.retry(tenant_id=context.job.tenant_id, job_id=existing.id)
+                    else:
+                        service.queue(tenant_id=context.job.tenant_id, user_id=user_id,
+                                      source_plan_id=source_plan_id, stage=stage)
+                except EcommerceError as exc:
+                    followup_session.rollback()
+                    context.logger.warning("ecommerce_run_all_followup_blocked",
+                                           extra={"stage": stage, "error_code": exc.code})
+                except Exception:
+                    followup_session.rollback()
+                    context.logger.exception("ecommerce_run_all_followup_failed",
+                                             extra={"stage": stage})
 
     async def _open_bytes(self, storage, context, asset_id, remote_id, mime, size):
         stream = await storage.open_asset(OpenStoredAssetInput(
@@ -593,4 +765,16 @@ class EcommerceGenerateHandler:
             row.status = "completed"
             row.last_error_code = row.last_error_message = None
             session.commit()
+            completed_stage = row.stage
+            completed_job_id = row.id
+            completed_processing_id = row.processing_job_id
+        if completed_stage == "prod_s2_ec1":
+            try:
+                self._dispatch_run_all_followups(
+                    context, completed_job_id, completed_processing_id)
+            except Exception:
+                # Front is already safely saved. Never request a duplicate
+                # provider generation because follow-up scheduling failed.
+                context.logger.exception("ecommerce_run_all_followup_dispatch_failed",
+                                         extra={"job_id": completed_job_id})
         return JobHandlerResult.completed()

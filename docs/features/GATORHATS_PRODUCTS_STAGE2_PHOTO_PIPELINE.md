@@ -14,6 +14,43 @@ on that same row, with three strictly sequential steps:
 
 Total: 10 independently addressable PNGs PLUS the existing 13 colorway outputs per row.
 
+## Stage 2 footer, View all, and Run all (2026-10-23)
+
+The row footer has exactly three actions, left-to-right: **View all outputs**,
+**Run all**, and **Download all outputs**. The redundant "7 skill slots /
+23 outputs" summary text was removed.
+
+**View all outputs** opens a single gallery containing all 23 fixed positions:
+Ecommerce 1–4, Multi-hat 1–3, UGC 1–3, and the original 13 colorways,
+including ungenerated, queued, failed and completed positions. The modal uses
+the same responsive gallery implementation as individual outputs.
+
+**Run all** requests the server-backed, idempotent
+`POST /products-stage2/ecommerce/run-all` for the four individual Ecommerce
+slots. Back High (4) runs independently of Front High (1); slots 2 and 3
+are explicitly marked `waiting_for_front` when Front is not completed.
+The Front processing job stores a whitelist of delayed child slots plus the
+authorized operator, and the worker enqueues slots 2 and 3 **after** the
+verified Front is saved. The handoff is durable across page navigation.
+Backend validation requires a tenant-scoped Product Stage 1 source plan,
+verified stock and enabled registered single-image Skill; existing jobs
+are preserved, and eligible failed jobs are retried without duplication.
+A Front job failure leaves children blocked rather than fabricating outputs.
+
+The same Run all action queues **all missing** 13-colorway jobs through the
+existing authenticated batch endpoint and optionally retries failed colors
+within the existing per-job retry limit. It does not regenerate completed
+outputs or overwrite previous versions. The UI reports statuses separately
+for all seven Skills after the request; a request to queue is not a claim
+that image generation has already completed.
+
+**Multi-hat (5) and UGC (6) remain blocked until** the original approved ZIP,
+its QA references and the dedicated 3-output worker are installed and
+validated. Run all reports these as `blocked`; it must never create dummy
+jobs or mark them `completed`. No schema migration was necessary for the
+Ecommerce 1–4 dependency handoff. No image-generation requests are sent
+by automated tests, and a live production user must initiate Run all.
+
 ## Source packages inspected (2026-10-14)
 
 - `gatorhats-8869-ecommerce-v2-4.zip`: SHA-256 `c7253cf30151b0d93bff5aae2c453d865e5071fb111681a8b7f85ec4eb6dd3f9`.

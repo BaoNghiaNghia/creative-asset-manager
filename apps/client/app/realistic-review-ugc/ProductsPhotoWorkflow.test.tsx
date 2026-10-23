@@ -47,8 +47,14 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("UGC");
     expect(html).toContain("13 Hat Colors");
     expect(html).toContain("Seven-skill photo workflow for design_01.png");
-    expect(html).toContain("7 skill slots");
-    expect(html).toContain("23 outputs");
+    expect(html).not.toContain("<strong>7 skill slots");
+    expect(html).not.toContain("<small>Skills 1–4: Ecommerce Images 01–04");
+    expect(html).not.toContain("Skills 1–4: Ecommerce Images 01–04");
+    expect(html).toContain("View all outputs");
+    expect(html).toContain("Run all");
+    expect(html).toContain("Download all outputs");
+    expect(html.indexOf("View all outputs")).toBeLessThan(html.indexOf("Run all"));
+    expect(html.indexOf("Run all")).toBeLessThan(html.indexOf("Download all outputs"));
     expect((html.match(/rrugc-products-photo-stage-row/g) || []).length).toBe(7);
     expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
     for (const slot of ["prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_mh", "prod_s2_ugc", "colorway"]) {

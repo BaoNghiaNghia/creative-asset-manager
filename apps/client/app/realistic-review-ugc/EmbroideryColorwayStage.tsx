@@ -345,16 +345,41 @@ export function EmbroideryColorwayStage({
       setJobMessage(reason instanceof Error ? reason.message : "Unable to queue colorways.");
     } finally { setQueueing(false); }
   };
-  const queueOneColorway = async (planId: string) => {
-    if (!skillInput || !executionReady || !serverReadiness?.ready || queueing || queueingPlanId) return;
+  const queueOneColorway = async (planId: string, retryFailedJobs = false) => {
+    if (!skillInput || !executionReady || !serverReadiness?.ready || queueing || queueingPlanId) {
+      return { queued: 0, existing: 0, error: "13 Hat Colors is not ready or another batch is already running." };
+    }
     setQueueingPlanId(planId);
     setJobMessage("");
     try {
       const result = await queueColorwayBatch([planId], skillInput, "products");
+      let retried = 0;
+      const retryErrors: string[] = [];
+      if (retryFailedJobs) {
+        const current = await listColorwayJobs([planId]);
+        for (const job of current.filter(item => item.status === "failed")) {
+          if (job.retry_count >= 3) {
+            retryErrors.push(job.color_name + ": retry limit reached");
+            continue;
+          }
+          try {
+            await retryColorway(job.id);
+            retried += 1;
+          } catch (reason) {
+            retryErrors.push(job.color_name + ": " + (reason instanceof Error ? reason.message : "Retry failed"));
+          }
+        }
+      }
       await refreshJobs();
-      setJobMessage(result.queued ? "Hat color jobs queued for this design." : "No missing hat colors to queue.");
+      const queued = result.queued + retried;
+      setJobMessage(queued ? queued + " hat color jobs queued/retried for this design." :
+        retryErrors.length ? "Some hat colors need attention: " + retryErrors.join("; ") :
+          "No missing hat colors to queue.");
+      return { ...result, retried, error: retryErrors.length ? retryErrors.join("; ") : undefined };
     } catch (reason) {
-      setJobMessage(reason instanceof Error ? reason.message : "Unable to queue hat colors.");
+      const error = reason instanceof Error ? reason.message : "Unable to queue hat colors.";
+      setJobMessage(error);
+      return { queued: 0, existing: 0, error };
     } finally { setQueueingPlanId(null); }
   };
   const retryFailed = async (job: ColorwayJob) => {
@@ -555,7 +580,7 @@ export function EmbroideryColorwayStage({
                 onColorwaySkillChange={setSelectedSkillKey}
                 colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
                 colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
-                onQueueColors={() => void queueOneColorway(plan.id)}
+                onQueueColors={retryFailedJobs => queueOneColorway(plan.id, Boolean(retryFailedJobs))}
                 onRetryColor={job => void retryFailed(job)}
                 onOpenColor={job => setVersionsJob({ jobId: job.id, title: job.color_name + " · " + cleanDesignName(plan.source_name) })}
                 onOpenLog={job => setLogJobId(job.id)}
