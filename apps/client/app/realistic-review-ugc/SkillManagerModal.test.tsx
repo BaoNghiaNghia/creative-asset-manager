@@ -105,6 +105,11 @@ describe("SkillManagerModal compact redesign", () => {
     await openLibrary(host);
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-skill-delete-icon")).toHaveLength(2);
+    const downloadLinks = [...host.querySelectorAll<HTMLAnchorElement>('a.rrugc-skill-download')];
+    expect(downloadLinks).toHaveLength(2);
+    expect(downloadLinks[0].download).toBe("gatorhats-keyword-embroidery.zip");
+    expect(downloadLinks[0].getAttribute("href")).toContain("/stage2-skills/registry/keyword/download");
+
     expect(host.querySelector('button[aria-label="Delete skill GatorHats · Keyword Embroidery"]')).not.toBeNull();
     expect(host.querySelector(".rrugc-skill-details")).toBeNull();
     expect(host.textContent).toContain("GatorHats · Keyword Embroidery");

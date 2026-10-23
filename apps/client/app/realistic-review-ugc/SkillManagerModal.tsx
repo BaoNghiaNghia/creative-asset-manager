@@ -22,13 +22,14 @@ import type { RrugcWorkflowGroup } from "./workflowRouting";
 
 const EMPTY_REGISTRY: Stage2SkillRegistry = { can_manage: false, items: [] };
 
-type SkillIconName = "layers" | "refresh" | "upload" | "search" | "chevron" | "settings" | "check" | "power" | "trash" | "cloud" | "local" | "note" | "plus" | "close" | "sparkles" | "image" | "users" | "alert";
+type SkillIconName = "layers" | "refresh" | "upload" | "download" | "search" | "chevron" | "settings" | "check" | "power" | "trash" | "cloud" | "local" | "note" | "plus" | "close" | "sparkles" | "image" | "users" | "alert";
 
 function SkillIcon({ name, size = 16 }: { name: SkillIconName; size?: number }) {
   const paths: Record<SkillIconName, React.ReactNode> = {
     layers: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M7 9h10M7 13h7" /></>,
     refresh: <><path d="M20 8a8 8 0 0 0-13.7-2L4 8M4 4v4h4M4 16a8 8 0 0 0 13.7 2L20 16m-4 0h4v4" /></>,
     upload: <><path d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4" /></>,
+    download: <><path d="M12 4v12m-4-4 4 4 4-4M4 18v3h16v-3" /></>,
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></>,
     chevron: <path d="m6 9 6 6 6-6" />,
     settings: <><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2" fill="white" /><circle cx="15" cy="17" r="2" fill="white" /></>,
@@ -583,6 +584,11 @@ export function SkillManagerModal({
                 {item.last_error && <small className="rrugc-skill-inline-error"><SkillIcon name="alert" size={12} />{item.last_error}</small>}
               </div>
               <div className="rrugc-skill-compact-actions">
+                {registry.can_manage && item.source === "local" && <a className="rrugc-skill-download" download={item.skill_name + ".zip"}
+                  href={"/api/v1/realistic-review-ugc/stage2-skills/registry/" + encodeURIComponent(item.id) + "/download"}
+                  title={"Download editable ZIP for " + item.display_name} aria-label={"Download " + item.display_name + " ZIP"}>
+                  <SkillIcon name="download" size={15} />Download ZIP
+                </a>}
                 {registry.can_manage && <button type="button" className="rrugc-skill-delete-icon"
                   title={"Delete skill " + item.display_name} aria-label={"Delete skill " + item.display_name}
                   disabled={Boolean(busyKey)} onClick={() => void hardDelete(item)}>

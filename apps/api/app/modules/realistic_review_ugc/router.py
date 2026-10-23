@@ -317,6 +317,7 @@ from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
     list_stage2_skill_catalog,
+    export_installed_stage2_skill_bundle,
 )
 from app.modules.realistic_review_ugc.skill_registry import (
     create_skill,
@@ -5234,6 +5235,44 @@ def get_generation_job_logs(
             ),
         } for attempt in attempts],
     }
+
+
+@router.get("/stage2-skills/registry/{registry_id}/download")
+def download_installed_skill(
+    registry_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Download the current local Skill ZIP for manual editing and re-upload."""
+    _require_stage2_skill_admin(principal)
+    row = session.scalar(select(RrugcStage2SkillRegistryModel).where(
+        RrugcStage2SkillRegistryModel.id == registry_id,
+        RrugcStage2SkillRegistryModel.tenant_id == principal.active_tenant_id,
+        RrugcStage2SkillRegistryModel.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if row.source != "local":
+        raise HTTPException(
+            status_code=422,
+            detail="Only locally installed Skills can be exported",
+        )
+    try:
+        content = export_installed_stage2_skill_bundle(row.skill_name)
+    except Stage2SkillRegistryError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{row.skill_name}.zip"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post(

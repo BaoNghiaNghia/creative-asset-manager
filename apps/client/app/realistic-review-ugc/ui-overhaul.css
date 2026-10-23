@@ -1814,6 +1814,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-skill-inline-error{display:flex;align-items:center;gap:4px;color:#a34b44;font-size:9px}
 .rrugc-skill-compact-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .rrugc-skill-compact-actions button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:4px 10px;border:1px solid #d5dfeb;border-radius:7px;background:#fff;color:#4c607e;font:inherit;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap}
+.rrugc-skill-compact-actions .rrugc-skill-download{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:4px 10px;border:1px solid #b6cee9;border-radius:7px;background:#eff6ff;color:#315c95;font:inherit;font-size:9px;font-weight:800;white-space:nowrap;text-decoration:none}
+.rrugc-skill-compact-actions .rrugc-skill-download:hover{border-color:#87acdb;background:#e1efff;color:#214c86}
+.rrugc-skill-compact-actions .rrugc-skill-download:focus-visible{outline:2px solid #7796da;outline-offset:2px}
 .rrugc-skill-compact-actions button:hover:not(:disabled){border-color:#a9bddb;background:#f7faff;color:#344f8b}
 .rrugc-skill-compact-actions button:disabled{opacity:.52;cursor:wait}
 .rrugc-skill-compact-actions .rrugc-skill-toggle.is-enable{border-color:#abd6bb;color:#2a8652;background:#f1fbf5}

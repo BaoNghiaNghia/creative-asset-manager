@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import mimetypes
@@ -579,6 +580,71 @@ def download_openai_stage2_skill_version(
             "Unable to download the selected OpenAI skill version.",
             status_code=503,
         ) from exc
+
+
+def export_installed_stage2_skill_bundle(
+    skill_name: str,
+    *,
+    settings: Settings | None = None,
+) -> bytes:
+    """Export an installed local Skill as an upload-compatible ZIP.
+
+    Exclude runtime metadata and refuse symlink escapes. Bound the archive
+    to the limits supported by the existing Skill ZIP uploader.
+    """
+    if not SAFE_SKILL_RE.fullmatch(skill_name):
+        raise Stage2SkillRegistryError(
+            "stage2_skill_name_invalid", "Invalid installed Skill name.", status_code=422,
+        )
+    settings = settings or get_settings()
+    skills_root = _codex_home(settings) / "skills"
+    root = skills_root / skill_name
+    if root.is_symlink():
+        raise Stage2SkillRegistryError(
+            "stage2_skill_export_unsafe", "Skill directory is a symlink.", status_code=422,
+        )
+    if not root.is_dir() or not (root / "SKILL.md").is_file():
+        raise Stage2SkillRegistryError(
+            "stage2_skill_export_missing", "Installed Skill files are unavailable.",
+            status_code=404,
+        )
+    buffer = io.BytesIO()
+    total_bytes = 0
+    file_count = 0
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in sorted(root.rglob("*")):
+            if file.is_symlink():
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_export_unsafe",
+                    "Installed Skill contains a symlink; export was refused.",
+                    status_code=422,
+                )
+            if not file.is_file():
+                continue
+            relative = file.relative_to(root).as_posix()
+            parts = file.relative_to(root).parts
+            if (
+                ".git" in parts or "__pycache__" in parts
+                or file.name == ".openai-skill.json"
+                or file.name == ".env" or file.name.startswith(".env.")
+            ):
+                continue
+            file_count += 1
+            file_size = file.stat().st_size
+            total_bytes += file_size
+            if file_count > MAX_FILES or file_size > MAX_FILE_BYTES or total_bytes > MAX_TOTAL_BYTES:
+                raise Stage2SkillRegistryError(
+                    "stage2_skill_export_too_large",
+                    "Skill exceeds safe ZIP export limits.", status_code=413,
+                )
+            archive.write(file, arcname=relative)
+    content = buffer.getvalue()
+    if len(content) > MAX_DOWNLOAD_BYTES:
+        raise Stage2SkillRegistryError(
+            "stage2_skill_export_too_large",
+            "Skill ZIP exceeds the 50 MB upload limit.", status_code=413,
+        )
+    return content
 
 
 def installed_stage2_skill_sha256(
