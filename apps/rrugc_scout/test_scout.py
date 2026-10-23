@@ -45,6 +45,18 @@ from scout import (
 )
 
 
+def test_safe_windows_console_handles_unrepresentable_pinterest_keywords():
+    import io
+
+    sink = io.BytesIO()
+    console = io.TextIOWrapper(sink, encoding="cp1252", errors="strict")
+    scout_module.configure_safe_windows_console_encoding(console)
+    console.write("Thêu mũ Việt Nam – 東京")
+    console.flush()
+    assert b"\\u6771" in sink.getvalue()
+    assert b"\\u2013" in sink.getvalue()
+
+
 def test_windows_scout_launcher_shows_actual_version_in_both_modes():
     script = (
         Path(__file__).resolve().parents[2]

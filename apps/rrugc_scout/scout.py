@@ -26,7 +26,7 @@ from uuid import uuid4
 import httpx
 
 
-CLIENT_VERSION = "rrugc-scout-v55"
+CLIENT_VERSION = "rrugc-scout-v56"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -48,7 +48,7 @@ PIN_DETAIL_NAVIGATION_PAUSE_MS = 2_500
 PIN_ACCESS_GATE_COOLDOWN_SECONDS = 300
 PIN_RATE_LIMIT_COOLDOWN_SECONDS = 300
 PINIMG_RENDITION_SEGMENT = re.compile(r"^(?:originals|[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?)$", re.IGNORECASE)
-INITIAL_RESULTS_TIMEOUT_MS = 6_000
+INITIAL_RESULTS_TIMEOUT_MS = 12_000
 SCROLL_RESULTS_TIMEOUT_MS = 3_500
 MANUAL_GATE_POLL_MS = 1_500
 QUALITY_FIRST_RUN_CANDIDATE_CAP = 12
@@ -78,7 +78,7 @@ HAND_HELD_QUERY_MARKERS = (
     "holding hat",
 )
 HEARTBEAT_INTERVAL_SECONDS = 10
-REVIEW_BROWSER_STEP_TIMEOUT_SECONDS = 15
+REVIEW_BROWSER_STEP_TIMEOUT_SECONDS = 25
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
 SCOUT_HISTORY_MAX_PINS_PER_CAMPAIGN = 50_000
@@ -87,6 +87,23 @@ REVIEW_LOW_RESULT_STAGNANT_BATCH_LIMIT = 5
 REVIEW_LOW_RESULT_PIN_THRESHOLD = 2
 SCOUT_DEBUG_LOG_FILENAME = "pinterest-scout.jsonl"
 SCOUT_DEBUG_LOG_RETENTION_DAYS = 10
+
+
+def configure_safe_windows_console_encoding(stream: Any) -> None:
+    """Prevent non-ASCII Pinterest query text from aborting a Scout run on Windows."""
+    if stream is None:
+        return
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(errors="backslashreplace")
+        except (ValueError, OSError, TypeError):
+            pass
+
+
+if os.name == "nt":
+    configure_safe_windows_console_encoding(sys.stdout)
+    configure_safe_windows_console_encoding(sys.stderr)
 
 _SCOUT_DEBUG_LOGGER = logging.getLogger("rrugc_scout.debug")
 _SCOUT_DEBUG_LOGGER.setLevel(logging.INFO)
@@ -3978,12 +3995,22 @@ async def run_agent(args: argparse.Namespace) -> None:
                     except Exception:
                         pass
                     raise
-                except Exception:
+                except Exception as exc:
+                    scout_debug_event(
+                        "pinterest_run_failed",
+                        run_id=str(task["run"]["id"]),
+                        campaign_id=str(task["campaign_id"]),
+                        error_type=exc.__class__.__name__,
+                    )
                     try:
                         await client.complete(
                             str(task["run"]["id"]),
                             "failed",
-                            error_code="pinterest_scan_failed",
+                            error_code=(
+                                "pinterest_unicode_console_error"
+                                if isinstance(exc, UnicodeError)
+                                else "pinterest_scan_failed"
+                            ),
                         )
                     except Exception:
                         pass
