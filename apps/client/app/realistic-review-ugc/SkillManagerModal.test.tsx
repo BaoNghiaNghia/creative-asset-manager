@@ -286,6 +286,88 @@ describe("Duplicate local Skill ZIP upload", () => {
   });
 });
 
+describe("Product Stage 2 slot 5/6 direct ZIP installation", () => {
+  it.each([
+    ["prod_s2_mh", "Skill 5", "gatorhats-8869-multihat-v2-4"],
+    ["prod_s2_ugc", "Skill 6", "gatorhats-8869-ugc-v3"],
+  ] as const)("installs exact original bundle and assigns %s without changing the other workflow", async (key, label, name) => {
+    vi.mocked(createStage2Skill).mockReset().mockResolvedValueOnce({
+      id: "installed-" + key, skill_name: name, enabled: true, validation_status: "valid",
+    } as never);
+    vi.mocked(updateStageSkillDefault).mockClear().mockResolvedValueOnce({
+      stage_defaults: { [key]: "local:" + name },
+    } as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const changed = vi.fn(async () => undefined);
+    await act(async () => root.render(<SkillManagerModal workflow="products" open onClose={() => undefined} onChanged={changed} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const card = host.querySelector<HTMLElement>('[data-stage2-slot="' + key + '"]')!;
+    expect(card).not.toBeNull();
+    const upload = card.querySelector<HTMLButtonElement>('[aria-label="Install ' + label + ' Skill ZIP"]')!;
+    expect(upload).not.toBeNull();
+    expect(upload.disabled).toBe(true);
+    const file = new File(["original valid skill bytes"], name + ".zip", { type: "application/zip" });
+    const input = card.querySelector<HTMLInputElement>('[aria-label="Choose ' + label + ' Skill ZIP"]')!;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(upload.disabled).toBe(false);
+    await act(async () => {
+      upload.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(createStage2Skill).toHaveBeenCalledWith(file, false, expect.any(Function));
+    expect(updateStageSkillDefault).toHaveBeenCalledWith(key, "installed-" + key);
+    expect(changed).toHaveBeenCalled();
+    expect(host.textContent).toContain("Installed and assigned successfully");
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Install ' + label + ' Skill ZIP"]')).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("does not assign an uploaded ZIP with an incorrect Skill identity", async () => {
+    vi.mocked(createStage2Skill).mockReset().mockResolvedValueOnce({
+      id: "wrong", skill_name: "unrelated-skill", enabled: true, validation_status: "valid",
+    } as never);
+    vi.mocked(updateStageSkillDefault).mockClear();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal workflow="products" open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const card = host.querySelector<HTMLElement>('[data-stage2-slot="prod_s2_mh"]')!;
+    const input = card.querySelector<HTMLInputElement>('[aria-label="Choose Skill 5 Skill ZIP"]')!;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["other"], "wrong.zip")] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    await act(async () => {
+      card.querySelector<HTMLButtonElement>('[aria-label="Install Skill 5 Skill ZIP"]')!.click();
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    });
+    expect(updateStageSkillDefault).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("requires gatorhats-8869-multihat-v2-4");
+    await act(async () => root.unmount());
+  });
+
+  it("creates a keyboard-focusable bounded library and workflow scroll panel", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<SkillManagerModal workflow="products" open onClose={() => undefined} onChanged={() => undefined} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const products = host.querySelector<HTMLElement>("#rrugc-skill-panel-products")!;
+    expect(products.classList.contains("rrugc-skill-panel-scroll")).toBe(true);
+    expect(products.tabIndex).toBe(0);
+    await openLibrary(host);
+    const library = host.querySelector<HTMLElement>("#rrugc-skill-panel-library")!;
+    expect(library.classList.contains("is-library")).toBe(true);
+    expect(library.tabIndex).toBe(0);
+    expect(library.querySelector(".rrugc-skill-list")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+});
+
 describe("GatorHats workflow-specific Skill Manager", () => {
   it("shows seven distinct Product Stage 2 slots, without shared Review selectors", async () => {
     const host = document.createElement("div");

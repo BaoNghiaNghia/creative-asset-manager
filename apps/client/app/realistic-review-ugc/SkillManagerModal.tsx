@@ -96,6 +96,9 @@ export function SkillManagerModal({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [skillSearch, setSkillSearch] = useState("");
   const [showUpload, setShowUpload] = useState(false);
+  const [slotFiles, setSlotFiles] = useState<Record<string, File | null>>({});
+  const [slotUploadPercent, setSlotUploadPercent] = useState<number | null>(null);
+  const [slotInstallStatus, setSlotInstallStatus] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<RrugcWorkflowGroup | "library">(workflow);
 
   async function reload(refresh = false) {
@@ -226,6 +229,69 @@ export function SkillManagerModal({
     }
   }
 
+  async function installPhotoSlotSkill(
+    slot: (typeof PRODUCT_STAGE2_SKILL_SLOTS)[number],
+  ) {
+    const file = slotFiles[slot.key];
+    if (!slot.expectedSkill || !file || busyKey) return;
+    if (!/\.zip$/i.test(file.name) || file.size === 0 || file.size > 50 * 1024 * 1024) {
+      setError("Choose a non-empty ZIP package no larger than 50 MB.");
+      return;
+    }
+    setBusyKey("slot-install:" + slot.key);
+    setSlotUploadPercent(0);
+    setSlotInstallStatus(current => ({ ...current, [slot.key]: "Uploading ZIP…" }));
+    setError("");
+    setMessage("");
+    try {
+      let created: Stage2SkillRegistryItem;
+      const progress = (percent: number) => {
+        setSlotUploadPercent(percent);
+        if (percent === 100) {
+          setSlotInstallStatus(current => ({ ...current, [slot.key]: "Validating and installing…" }));
+        }
+      };
+      try {
+        created = await createStage2Skill(file, false, progress);
+      } catch (reason) {
+        if (!(reason instanceof RrugcApiError) || reason.code !== "stage2_skill_already_exists") {
+          throw reason;
+        }
+        if (!window.confirm(
+          "This Skill already exists. Replace its ZIP? The current Skill ID, assignments and saved images will be preserved. Running jobs block replacement.",
+        )) {
+          setSlotInstallStatus(current => ({ ...current, [slot.key]: "Installation cancelled." }));
+          return;
+        }
+        setSlotUploadPercent(0);
+        created = await createStage2Skill(file, true, progress);
+      }
+      if (created.skill_name !== slot.expectedSkill) {
+        setSlotInstallStatus(current => ({ ...current, [slot.key]: "Not assigned: ZIP contains " + created.skill_name }));
+        await reload(true);
+        await onChanged();
+        setError("This ZIP installed as " + created.skill_name + ", but " + slot.title
+          + " requires " + slot.expectedSkill + ". Upload the matching original Skill ZIP.");
+        return;
+      }
+      if (!created.enabled || created.validation_status !== "valid") {
+        throw new Error("Skill was uploaded but is not enabled or valid. Check its status in Installed Skills.");
+      }
+      await updateStageSkillDefault(slot.key, created.id);
+      await reload(true);
+      await onChanged();
+      setSlotFiles(current => ({ ...current, [slot.key]: null }));
+      setSlotInstallStatus(current => ({ ...current, [slot.key]: "Installed and assigned successfully." }));
+      setMessage(slot.title + " · " + slot.label + " installed and assigned. Execution remains gated until its photo worker is enabled.");
+    } catch (reason) {
+      setSlotInstallStatus(current => ({ ...current, [slot.key]: "Installation or assignment failed." }));
+      setError(reason instanceof Error ? reason.message : "Unable to install Skill ZIP.");
+    } finally {
+      setBusyKey("");
+      setSlotUploadPercent(null);
+    }
+  }
+
   async function addVersion(item: Stage2SkillRegistryItem) {
     const file = versionFiles[item.id];
     if (!file) {
@@ -302,7 +368,11 @@ export function SkillManagerModal({
           aria-selected={activeTab === id} aria-controls={"rrugc-skill-panel-" + id} tabIndex={activeTab === id ? 0 : -1}
           className={activeTab === id ? "is-active" : ""} onClick={() => setActiveTab(id)}>{name}{id === "library" ? ` (${registry.items.length})` : ""}</button>)}
       </div>
-      {activeTab !== "library" && <div role="tabpanel" id={"rrugc-skill-panel-" + activeTab} aria-labelledby={"rrugc-skill-tab-" + activeTab}>
+      {activeTab !== "library" && <>
+        <ActionMessageToast message={message} />
+        {error && <p className="rrugc-source-error rrugc-skill-manager-inline-error" role="alert">{error}</p>}
+      </>}
+      {activeTab !== "library" && <div className="rrugc-skill-panel-scroll is-workflow" role="tabpanel" id={"rrugc-skill-panel-" + activeTab} aria-labelledby={"rrugc-skill-tab-" + activeTab} tabIndex={0}>
       {registry.can_manage && <div className="rrugc-stage-defaults" aria-label={displayWorkflow + " skill defaults"}>
         <div className="rrugc-stage-default-heading">
           <div>
@@ -356,7 +426,7 @@ export function SkillManagerModal({
               const alreadyAssigned = (item: Stage2SkillRegistryItem) =>
                 PRODUCT_STAGE2_SKILL_SLOTS.some(other => other.key !== slot.key &&
                   skillDefaultForStage(registry.stage_defaults, other.key) === [item.source, item.skill_id || item.skill_name].join(":"));
-              return <label key={slot.key} className="rrugc-workflow-skill-slot" data-stage2-slot={slot.key}>
+              return <div key={slot.key} className="rrugc-workflow-skill-slot" data-stage2-slot={slot.key}>
                 <span className="rrugc-stage-default-label">
                   <span className={"rrugc-stage-default-icon is-" + slot.key}><SkillIcon name={slot.active ? "image" : "layers"} size={15} /></span>
                   <span><strong>{slot.title}</strong><small>{slot.label}</small></span>
@@ -377,8 +447,31 @@ export function SkillManagerModal({
                   </option>)}
                 </select>
                 <small className="rrugc-skill-slot-note">{slot.detail}{slot.expectedSkill ? " · " + slot.expectedSkill : ""}</small>
+                {slot.expectedSkill && registry.can_manage && !matching && <div className="rrugc-skill-slot-install" role="group" aria-label={slot.title + " Skill ZIP installation"}>
+                  <label className="rrugc-skill-slot-file">
+                    <SkillIcon name="upload" size={14}/>
+                    <span title={slotFiles[slot.key]?.name || slot.expectedSkill + ".zip"}>{slotFiles[slot.key]?.name || "Select Skill ZIP"}</span>
+                    <input type="file" accept=".zip,application/zip"
+                      aria-label={"Choose " + slot.title + " Skill ZIP"}
+                      disabled={Boolean(busyKey) || loading}
+                      onChange={event => {
+                        setSlotFiles(current => ({ ...current, [slot.key]: event.target.files?.[0] || null }));
+                        setSlotInstallStatus(current => ({ ...current, [slot.key]: "" }));
+                      }} />
+                  </label>
+                  <button type="button" className="rrugc-skill-slot-install-button"
+                    aria-label={"Install " + slot.title + " Skill ZIP"}
+                    disabled={!slotFiles[slot.key] || Boolean(busyKey) || loading}
+                    onClick={event => { event.preventDefault(); void installPhotoSlotSkill(slot); }}>
+                    <SkillIcon name="upload" size={13}/>
+                    {busyKey === "slot-install:" + slot.key ? "Installing…" : "Install & assign"}
+                  </button>
+                </div>}
+                {slot.expectedSkill && slotInstallStatus[slot.key] && <small className="rrugc-skill-slot-install-status" role="status">
+                  {slotInstallStatus[slot.key]}{busyKey === "slot-install:" + slot.key && slotUploadPercent !== null ? " " + slotUploadPercent + "%" : ""}
+                </small>}
                 {slot.key !== "prod_s2_col" && <small className="rrugc-skill-slot-warning">Assignment only · Photo worker not enabled</small>}
-              </label>;
+              </div>;
             })}
           </div>
         </>}
@@ -402,7 +495,7 @@ export function SkillManagerModal({
       </div>}
 
       </div>}
-      {activeTab === "library" && <div role="tabpanel" id="rrugc-skill-panel-library" aria-labelledby="rrugc-skill-tab-library">
+      {activeTab === "library" && <div className="rrugc-skill-panel-scroll is-library" role="tabpanel" id="rrugc-skill-panel-library" aria-labelledby="rrugc-skill-tab-library" tabIndex={0}>
       <div className="rrugc-skill-catalog-toolbar">
         <div className="rrugc-skill-catalog-title"><strong>Installed Skills · Shared Library</strong><small>{filteredSkills.length} of {registry.items.length}</small></div>
         <label className="rrugc-skill-search">
