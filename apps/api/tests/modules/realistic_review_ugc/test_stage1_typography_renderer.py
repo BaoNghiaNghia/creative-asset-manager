@@ -91,6 +91,14 @@ def test_sample_layouts_have_real_thread_ridges_and_correct_colors(keyword, tmp_
             interior = alpha.point([255 if value > 240 else 0 for value in range(256)])
             variance = ImageStat.Stat(output.getchannel("B"), mask=interior).stddev[0]
             assert variance > 3.0, (index, variance)
+            thumbnail = output.resize((205, 102), Image.Resampling.LANCZOS)
+            thumbnail_ink = thumbnail.getchannel("A").point(
+                [255 if value > 220 else 0 for value in range(256)]
+            )
+            thumbnail_ridges = ImageStat.Stat(
+                thumbnail.getchannel("B"), mask=thumbnail_ink
+            ).stddev[0]
+            assert thumbnail_ridges > 4.0, (index, thumbnail_ridges)
             assert output.getpixel((0, 0))[3] == 0
     # C3 red script must be above the larger blue support line (as in
     # the reference concept photos), not under a full-blue script.

@@ -19,7 +19,7 @@ the example's white studio background into finished artwork.
 - Reference 03 red script sits *above* blue block; reference 04 top is a visibly arched serif.
 - Reference 05 uses blue handwritten lettering over small upright blue capitals.
 - Reference 06 uses chunky offset blue decorative serif, but never random glyphs.
-- Stitch texture must show visible angled thread grooves and subdued 3D relief while
+- Stitch texture must show pronounced satin bundles and raised thread grooves at both full size and a 200px preview, while
   preserving the exact untextured glyph alpha.
 - All images are straight-on typographic masters without hats, mockups or extra icons.
 - Official font checksums and license files must pass before any image is written.

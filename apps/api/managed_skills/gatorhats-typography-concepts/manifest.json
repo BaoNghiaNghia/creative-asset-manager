@@ -2,7 +2,7 @@
   "schema_version": 1,
   "skill_name": "gatorhats-typography-concepts",
   "display_name": "GatorHats · Typography Concepts (Stage 1)",
-  "description": "Automated six-concept typography PNG renderer with font-backed layout and no external image-generation requests",
+  "description": "Six Google Fonts OFL typography concepts with high-contrast dimensional satin thread embroidery and transparent 2048x1024 PNG output",
   "workflows": [
     "image_studio",
     "keyword_artwork",

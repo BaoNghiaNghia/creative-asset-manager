@@ -303,7 +303,7 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
         outputs.append(path)
     (workspace / "output" / "manifest.json").write_text(
         json.dumps({"skill": SKILL_NAME, "quote": quote, "count": 6,
-                    "concepts": STYLE_NAMES, "finish": "reference_satin_v3",
+                    "concepts": STYLE_NAMES, "finish": "reference_satin_v4",
                     "source": "google_fonts_ofl_bundled",
                     "sha256": [hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs]}),
         encoding="utf-8",

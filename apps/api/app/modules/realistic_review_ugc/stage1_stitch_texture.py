@@ -33,20 +33,20 @@ def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
     spread = int(abs(slope) * height) + 24
     bundles = Image.new("L", cut.size, 230)
     broad = ImageDraw.Draw(bundles)
-    for start in range(-spread, width + spread, 19):
+    for start in range(-spread, width + spread, 26):
         broad.line([(start, 0), (round(start + slope * height), height)],
-                   fill=255, width=5)
-        broad.line([(start + 9, 0),
-                    (round(start + 9 + slope * height), height)],
-                   fill=186, width=6)
-    fibers = Image.new("L", cut.size, 244)
+                   fill=255, width=9)
+        broad.line([(start + 13, 0),
+                    (round(start + 13 + slope * height), height)],
+                   fill=145, width=9)
+    fibers = Image.new("L", cut.size, 230)
     fine = ImageDraw.Draw(fibers)
     for start in range(-spread, width + spread, 4):
         fine.line([(start, 0), (round(start + slope * height), height)],
                   fill=255, width=1)
         fine.line([(start + 2, 0),
                    (round(start + 2 + slope * height), height)],
-                  fill=218, width=1)
+                  fill=173, width=1)
     lighting = ImageChops.multiply(bundles, fibers)
     # Multiply the two-color originals by the same light field. Reds stay red;
     # royal blue keeps its hue, rather than being flattened to grayscale.
@@ -60,9 +60,9 @@ def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
     upper = ImageChops.subtract(mask, ImageChops.offset(mask, 2, 2))
     lower = ImageChops.subtract(mask, ImageChops.offset(mask, -2, -2))
     upper = ImageChops.multiply(upper, mask).point(
-        [min(255, round(v * 0.25)) for v in range(256)])
+        [min(255, round(v * 0.44)) for v in range(256)])
     lower = ImageChops.multiply(lower, mask).point(
-        [min(255, round(v * 0.28)) for v in range(256)])
+        [min(255, round(v * 0.43)) for v in range(256)])
     lit_rgb = Image.composite(Image.new("RGB", cut.size, (230, 233, 250)),
                               lit_rgb, upper)
     lit_rgb = Image.composite(Image.new("RGB", cut.size, (17, 23, 59)),

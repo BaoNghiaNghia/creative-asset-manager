@@ -1,6 +1,6 @@
 ---
 name: gatorhats-typography-concepts
-description: Create six independent realistic satin-embroidered lettering concepts from a quote for GatorHats Products Stage 1. Use bundled officially licensed fonts, faithful royal-blue and red script compositions, and the CAM deterministic renderer for automatic 2048×1024 transparent PNG delivery.
+description: Create six independent realistic satin-embroidered lettering concepts from a quote for GatorHats Products Stage 1. Use only Google Fonts OFL fonts with verified provenance, reference-driven layouts, and clearly visible raised satin embroidery. Generate six 2048×1024 transparent PNG designs, never flat-font artwork.
 ---
 
 # GatorHats Typography Concepts · Stage 1 (Reference Collection)
@@ -12,8 +12,8 @@ Input: the **literal quote** (up to 55 printable characters). No mockups, design
 - Publish **six independent 2048 × 1024 PNGs with RGBA transparency** at `output/final/design_01.png` to `design_06.png` plus `output/manifest.json`.
 - Preserve all words, punctuation and case-independent reading order. No illustrations, pictograms, outlines of caps, patches or decorative imagery.
 - Use royal-blue (#2852AA) thread with subtle near-navy valleys. Only concept 03 may add a red (#B72B20) script accent.
-- Work from the Google Fonts **official OFL source binaries bundled under `fonts/`**, verified against `font_sources.json` and accompanied by `licenses/`. Do not use legacy external font registries or random font selection.
-- Finish **inside the exact letter alpha mask** with diagonal satin rows, highlights, dark needle valleys and subtle stitched edge relief. Never leave glyphs as a smooth flat print.
+- **Google Fonts is the sole font catalog.** Read the verified OFL fonts shipped with this Skill; use `font_sources.json` as the authoritative provenance manifest and the accompanying `licenses/`. Do not use DaFont, retired font registries, per-user font uploads, font URL scraping, cached legacy font selections, platform-default fallbacks, or random font choice.
+- Finish **inside the exact letter alpha mask** with conspicuous raised diagonal satin stitch bundles, separate fine needle grooves, bright thread highlights, darker stitch valleys, and dimensional edge relief. Embroidery must remain visible when a 2048px master is reduced to a 180–220px UI preview. Reject smooth flat printed text and excessively small lettering.
 - Do **not** create or persist preview drafts as final outputs; generate only the six independent PNG masters.
 - The CAM-owned `stage1_typography_renderer.py` creates the six layouts and `stage1_stitch_texture.py` applies the embroidery texture deterministically. Fail closed on invalid font hashes, missing licenses or incomplete output.
 - Keep existing completed Drive assets and version history. Regenerate a keyword only when requested.
