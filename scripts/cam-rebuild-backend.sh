@@ -1913,6 +1913,15 @@ if [[ -d "$TARGET/deploy/codex/skills" ]]; then
   )
 fi
 
+# Restore write access for uploaded Skills even if an older deployment,
+# manual ZIP update, or root-run repair left existing directories root-owned.
+# Scope strictly to the persistent Skill tree, never the runtime credentials.
+info "Ensuring uploaded Skill directory is writable by the API service"
+install -d -m 0750 -o creative-assets -g creative-assets "$CODEX_RUNTIME_DIR"
+install -d -m 0750 -o creative-assets -g creative-assets "$CODEX_RUNTIME_DIR/skills"
+chown -R creative-assets:creative-assets "$CODEX_RUNTIME_DIR/skills"
+chmod -R u+rwX,g-rwX,o-rwx "$CODEX_RUNTIME_DIR/skills"
+
 if "$PYTHON" \
   "$TARGET/deploy/tools/production_env.py" \
   flag-enabled \
