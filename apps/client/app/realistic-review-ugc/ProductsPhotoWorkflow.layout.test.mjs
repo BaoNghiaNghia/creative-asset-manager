@@ -26,6 +26,18 @@ describe("Products Stage 2 photo workflow layout", () => {
     expect(css).toContain(".rrugc-products-photo-empty-shot.is-completed:focus-visible");
   });
 
+  it("places Skill 5 and 6 setup info in the first column instead of an empty Ecommerce gallery", () => {
+    const panel = css.match(/\.rrugc-products-photo-stage-row:not\(\.is-colorway\) \.rrugc-products-photo-stage-detail\.is-bundled-skill-detail\{([^}]*)\}/)?.[1] ?? "";
+    const info = css.match(/\.rrugc-products-photo-stage-row:not\(\.is-colorway\) \.rrugc-products-photo-stage-detail\.is-bundled-skill-detail > \.rrugc-products-photo-detail-info\{([^}]*)\}/)?.[1] ?? "";
+    const actions = css.match(/\.rrugc-products-photo-stage-row:not\(\.is-colorway\) \.rrugc-products-photo-stage-detail\.is-bundled-skill-detail > \.rrugc-products-photo-detail-actions\{([^}]*)\}/)?.[1] ?? "";
+    expect(panel).toContain("display:grid");
+    expect(panel).toContain("grid-template-columns:minmax(0,1fr)");
+    expect(info).toContain("grid-column:1");
+    expect(actions).toContain("grid-column:2");
+    expect(css).toContain("@media(max-width:900px)");
+    expect(css).toContain("grid-column:1;grid-row:2;align-items:flex-start");
+  });
+
   it("shows four equal embroidery gallery tiles without responsive reflow to three columns", () => {
     expect(galleryCss).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(galleryCss).not.toMatch(/repeat\(3/);

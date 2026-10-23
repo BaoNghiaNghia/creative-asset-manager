@@ -178,6 +178,12 @@ export function ProductsPhotoWorkflow({
         const shotJob = jobs.find(item => item.stage === step.key);
         const runnable = isEcommerce && Boolean(configured && slotInputs?.ready && sourcePlanId)
           && !busyStage && !shotJob;
+        const bundleMissing = !isEcommerce && Boolean(state && !state.bundle_installed);
+        const setupMessage = !state
+          ? "Checking Skill installation and worker availability…"
+          : bundleMissing
+            ? "The exact approved Skill ZIP is not installed. Upload it in Manage Skills."
+            : "Skill assets are installed, but the three-image generation worker is not enabled yet.";
 
         // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
         const status = shotJob ? shotJob.status.replace(/^./, char => char.toUpperCase())
@@ -213,16 +219,16 @@ export function ProductsPhotoWorkflow({
             <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
               aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
-              disabled={!!busyStage || Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))}
-              title={runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
+              disabled={!isEcommerce || !!busyStage || Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))}
+              title={!isEcommerce ? setupMessage : runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
               onClick={() => runnable ? void invokeEcommerce(step.key)
-                : shotJob?.status === "failed" ? void invokeEcommerce(step.key, shotJob)
+                : isEcommerce && shotJob?.status === "failed" ? void invokeEcommerce(step.key, shotJob)
                 : setExpandedStep(step.key)}><ActionIcon kind={busyStage === step.key || status === "Running" || status === "Queued" ? "loader" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "check" : !runnable ? "clock" : "play"} />{busyStage === step.key ? "Queueing…" : shotJob?.status === "failed" ? "Retry" : status === "Completed" ? "Done" : status === "Running" || status === "Queued" ? "Running" : "Run"}</button>
             <button type="button" className="rrugc-products-photo-detail-toggle"
               aria-expanded={opened} aria-label={step.title + " details"}
               onClick={() => setExpandedStep(opened ? null : step.key)}><ActionIcon kind="eye" />{opened ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
           </div>
-          {opened && <div className="rrugc-products-photo-stage-detail is-ecommerce-detail">
+          {opened && <div className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
               <strong>Input references · {step.inputs?.length}</strong>
               <small>{slotInputs
@@ -246,21 +252,29 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>Actual inputs are checked by the server. Stock references are pinned to the released file hashes; generated Front references must complete before Skills 2–3 can run.</small>
             </div>}
-            <div className="rrugc-products-photo-detail-info"><strong>{skillName}</strong>
-              <p>{isEcommerce
-                ? "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."
-                : state?.required_inputs || "Requires verified stock and reference photography. Execution has not been enabled."}</p>
-              {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).length > 0 && <small>Missing assets: {legacyMissingAssetsForStep(isEcommerce, state?.missing_assets).join(", ")}</small>}
+            <div className="rrugc-products-photo-detail-info">
+              {isEcommerce ? <><strong>{skillName}</strong>
+                <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
+              </> : <>
+                <strong>{step.title} · {skillName}</strong>
+                <p className="rrugc-products-photo-bundle-status" role="status">{setupMessage}</p>
+                <p className="rrugc-products-photo-bundle-inputs"><b>Required references:</b> {state?.required_inputs || "Verified embroidery artwork, factory stock and scene references."}</p>
+                {bundleMissing && Boolean(state?.missing_assets?.length) && <details className="rrugc-products-photo-bundle-missing">
+                  <summary>Missing package files ({state!.missing_assets.length})</summary>
+                  <ul>{state!.missing_assets.map(asset => <li key={asset}><code>{asset}</code></li>)}</ul>
+                </details>}
+              </>}
             </div>
             <div className="rrugc-products-photo-detail-actions">
-            <button type="button" onClick={openSkillsManager}>Manage skill</button>
+            <button type="button" onClick={openSkillsManager}>{!isEcommerce && bundleMissing ? "Upload Skill ZIP" : "Manage skill"}</button>
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
               onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}
             {shotJob?.output_url && <button type="button" onClick={() => void showEcommerceVersions(shotJob.id)}>Versions</button>}
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
               onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
-            {!shotJob && <small>Logs available after the first job is queued</small>}
+            {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
+            {!isEcommerce && <small>Run stays disabled until the original ZIP and a verified three-image worker are available.</small>}
             </div>
             {jobActionError && expandedStep === step.key && <p role="alert">{jobActionError}</p>}
             {shotJob && logFor === shotJob.id && logs && <div className="rrugc-products-photo-execution-log">

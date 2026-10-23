@@ -412,3 +412,60 @@
 .rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot.is-completed:focus-visible{
  outline:2px solid #326be6;outline-offset:2px;
 }
+
+/* Skills 5-6 do not have the Ecommerce-only input gallery. Keep their
+   readiness, missing-package details, and setup action in the first row
+   instead of reserving an empty two-column gallery and right-aligning text. */
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-bundled-skill-detail{
+ display:grid;grid-template-columns:minmax(0,1fr) minmax(175px,235px);
+ align-items:start;gap:12px 18px;margin-top:8px;padding:12px 14px;
+ border:1px solid #dce6f2;border-radius:9px;background:#f9fbfe;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-bundled-skill-detail > .rrugc-products-photo-detail-info{
+ grid-column:1;grid-row:1;min-width:0;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-detail-info>strong{
+ display:block;font-size:12px;line-height:1.4;color:#2a466b;
+ overflow-wrap:anywhere;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-detail-info>p{
+ max-width:760px;margin:7px 0 0;font-size:11px;line-height:1.5;
+ overflow-wrap:anywhere;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-bundle-status{
+ color:#995d18;font-weight:750;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-bundle-inputs{
+ color:#5a6d87;
+}
+.rrugc-products-photo-bundle-missing{max-width:760px;margin-top:9px;font-size:11px;color:#506582}
+.rrugc-products-photo-bundle-missing summary{cursor:pointer;font-weight:750;list-style:revert}
+.rrugc-products-photo-bundle-missing summary:focus-visible{outline:2px solid #326be6;outline-offset:3px}
+.rrugc-products-photo-bundle-missing ul{
+ display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));
+ gap:5px 12px;margin:9px 0 0;padding:0 0 0 19px;
+}
+.rrugc-products-photo-bundle-missing li{overflow-wrap:anywhere}
+.rrugc-products-photo-bundle-missing code{font-size:10px;white-space:normal;overflow-wrap:anywhere}
+.rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-bundled-skill-detail > .rrugc-products-photo-detail-actions{
+ grid-column:2;grid-row:1;display:flex;flex-direction:column;align-items:stretch;
+ align-self:start;min-width:0;gap:9px;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-detail-actions button{
+ min-height:34px;font-size:11px;font-weight:800;border-color:#aac5eb;
+ background:#eef5ff;color:#2a5d9d;
+}
+.rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-detail-actions small{
+ font-size:10px;line-height:1.5;color:#637993;
+}
+@media(max-width:900px){
+ .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-bundled-skill-detail{
+  grid-template-columns:minmax(0,1fr);gap:12px;
+ }
+ .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-detail.is-bundled-skill-detail > .rrugc-products-photo-detail-actions{
+  grid-column:1;grid-row:2;align-items:flex-start;
+ }
+ .rrugc-products-photo-stage-row:not(.is-colorway) .is-bundled-skill-detail .rrugc-products-photo-detail-actions button{
+  min-width:155px;
+ }
+}
