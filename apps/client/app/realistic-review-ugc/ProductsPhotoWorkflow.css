@@ -52,7 +52,7 @@
 .rrugc-products-photo-stage-detail button:disabled{opacity:.55;cursor:not-allowed}
 .rrugc-products-photo-stage-detail select{max-width:165px}
 .rrugc-colorway-table.is-products{min-width:1120px}
-.rrugc-colorway-table.is-products th:nth-child(1){width:230px}
+.rrugc-colorway-table.is-products th:nth-child(1){width:287.5px;min-width:287.5px}
 .rrugc-colorway-table.is-products th:nth-child(2){width:auto}
 .rrugc-colorway-table.is-products tbody td:nth-child(2){min-width:800px}
 @media(max-width:960px){.rrugc-colorway-table.is-products{min-width:1190px}.rrugc-products-photo-pipeline{min-width:0}.rrugc-products-photo-stage-row{grid-template-columns:minmax(175px,215px) minmax(0,1fr);column-gap:10px;padding:9px}.rrugc-products-photo-stage-detail>div{min-width:100%}}
@@ -537,3 +537,6 @@
   min-width:155px;
  }
 }
+
+.rrugc-colorway-table.is-products .rrugc-design-hat-color{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;font-weight:700;color:#536481}
+.rrugc-colorway-table.is-products .rrugc-design-hat-color select{max-width:210px;min-width:145px;min-height:30px;padding:4px 7px;border:1px solid #cbd8e9;border-radius:6px;background:#fff;color:#263a56}

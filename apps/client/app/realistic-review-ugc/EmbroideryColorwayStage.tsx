@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog } from "./api";
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
@@ -63,9 +63,10 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan, productLayout = false, stockViews }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>> }) {
+function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void }) {
   if (productLayout) {
     return <div className="rrugc-colorway-source is-product-card">
+      <label className="rrugc-design-hat-color">Hat color <select aria-label="Ecommerce stock color" value={color} onChange={event => onColorChange?.(event.target.value)}>{(colors || []).map(item => <option key={item} value={item}>{item.replaceAll("-", " ")}</option>)}</select></label>
       <AppliedHatPreview
         designSrc={plan.source_preview_url}
         designName={cleanDesignName(plan.source_name)}
@@ -146,7 +147,16 @@ export function EmbroideryColorwayStage({
   const [readinessMessage, setReadinessMessage] = useState("");
   const [hatSyncOpen, setHatSyncOpen] = useState(false);
   const [hatCatalog, setHatCatalog] = useState<HatStockCatalog | null>(null);
-  const stockViews = hatCatalog?.colors["white-red"]?.views || hatCatalog?.colors["natural-black"]?.views;
+  const [selectedHatColor, setSelectedHatColor] = useState("natural-black");
+  const manuallySelectedHatColor = useRef(false);
+  useEffect(() => {
+    if (manuallySelectedHatColor.current) return;
+    if (hatCatalog?.colors["white-red"]) setSelectedHatColor("white-red");
+    else if (hatCatalog?.colors && !hatCatalog.colors[selectedHatColor]) setSelectedHatColor(Object.keys(hatCatalog.colors).sort()[0] || "natural-black");
+  }, [hatCatalog, selectedHatColor]);
+  const stockViews = hatCatalog?.colors[selectedHatColor]?.views;
+  const stockColors = Object.keys(hatCatalog?.colors || {}).sort();
+  if (!stockColors.includes("natural-black")) stockColors.unshift("natural-black");
 
   useEffect(() => {
     if (!active || workflow !== "products") return;
@@ -567,7 +577,7 @@ export function EmbroideryColorwayStage({
                   onChange={() => toggleDesign(plan.id)}
                 />
               </td>}
-              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} /></td>
+              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} color={selectedHatColor} colors={stockColors} onColorChange={value => { manuallySelectedHatColor.current = true; setSelectedHatColor(value); }} /></td>
               {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
@@ -592,7 +602,7 @@ export function EmbroideryColorwayStage({
                 </div>
               </td> : <td><ProductsPhotoWorkflow
                 lastUpdated={plan.updated_at}
-                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} stockCatalog={hatCatalog?.colors} readiness={photoReadiness}
+                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} stockCatalog={hatCatalog?.colors} selectedColor={selectedHatColor} readiness={photoReadiness}
                 ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
                 onEcommerceJobChange={refreshEcommerceJobs}
                 configuredSkillNames={productStage2SkillNames}

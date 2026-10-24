@@ -85,6 +85,7 @@ type Props = {
   sourcePlanId?: string;
   designSrc?: string;
   stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  selectedColor?: string;
   stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back", string>> }>;
   ecommerceJobs?: EcommerceJob[];
   onEcommerceJobChange?: () => void | Promise<void>;
@@ -105,19 +106,11 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, selectedColor = "natural-black", ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
-  const [selectedColor, setSelectedColor] = useState("natural-black");
-  const manuallySelectedColor = useRef(false);
-  useEffect(() => {
-    if (!manuallySelectedColor.current && stockCatalog["white-red"]) setSelectedColor("white-red");
-    else if (!stockCatalog[selectedColor] && Object.keys(stockCatalog).length > 0 && !manuallySelectedColor.current) {
-      setSelectedColor(stockCatalog["natural-black"] ? "natural-black" : Object.keys(stockCatalog).sort()[0]);
-    }
-  }, [stockCatalog, selectedColor]);
   const selectedStockViews = stockCatalog[selectedColor]?.views || (selectedColor === "natural-black" ? stockViews : undefined);
   const jobs = allJobs.filter(job => (job.color_key || "natural-black") === selectedColor);
   const colorAvailable = selectedColor === "natural-black" || (!!selectedStockViews?.front && !!selectedStockViews?.side && !!selectedStockViews?.back);
@@ -321,10 +314,6 @@ export function ProductsPhotoWorkflow({
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
-    <label className="rrugc-products-photo-color-select">Hat color <select aria-label="Ecommerce stock color" value={selectedColor} onChange={event => { manuallySelectedColor.current = true; setSelectedColor(event.target.value); setInputs(null); setExpandedStep(null); }}>
-      {Object.keys(stockCatalog).sort().map(color => <option key={color} value={color}>{color.replaceAll("-", " ")}</option>)}
-      {!stockCatalog["natural-black"] && <option value="natural-black">natural black (bundled)</option>}
-    </select></label>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
     <div className="rrugc-products-photo-stage-list">
       {PHOTO_STEPS.map((step, index) => {
