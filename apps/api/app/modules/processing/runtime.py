@@ -318,10 +318,16 @@ class WorkerRuntime:
             self.health.set_database_available(True)
         except Exception as exc:
             self.health.set_database_available(False)
+            # Preserve the database SQLSTATE and primary diagnostic only.
+            # Never log SQL parameters, connection strings or job payloads.
+            origin = getattr(exc, "orig", None)
+            primary = getattr(getattr(origin, "diag", None), "message_primary", None)
             self._log(
                 logging.ERROR,
                 "worker_poll_failed",
                 error_code=type(exc).__name__,
+                db_sqlstate=getattr(origin, "sqlstate", None),
+                db_error_primary=primary[:180] if isinstance(primary, str) else None,
             )
             return False
 
