@@ -41,6 +41,8 @@ from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError
 
 JOB_TYPE = "rrugc_ecommerce_generate"
+# Reserve an interactive lane above bulk index backlog, without bypassing policies.
+ECOMMERCE_INTERACTIVE_PRIORITY = 96
 MAX_MANUAL_RETRIES = 3
 
 # EC2 is synthesized from verified front and right-side references. Never
@@ -228,6 +230,7 @@ class EcommerceService:
             payload={"ecommerce_job_id": row.id}, priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
+        processing.priority = ECOMMERCE_INTERACTIVE_PRIORITY
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
@@ -467,6 +470,14 @@ class EcommerceService:
             raise EcommerceError("ecommerce_stock_changed", "Official stock revision changed.")
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
             raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front reference is missing.")
+        if row.last_error_code == "ecommerce_skill_changed":
+            selected = _assigned_skill(self.session, self.settings, tenant_id, row.stage)
+            row.skill_source = selected.source
+            row.skill_id = selected.skill_id
+            row.skill_name = selected.skill_name
+            row.skill_version = selected.skill_version
+            row.skill_bundle_sha256 = installed_stage2_skill_sha256(
+                selected.skill_name, settings=self.settings)
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None

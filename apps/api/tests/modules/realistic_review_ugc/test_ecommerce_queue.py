@@ -65,6 +65,7 @@ def test_queue_is_idempotent_and_job_is_durable(ecommerce_db):
     jobs = list(session.scalars(select(ProcessingJobModel)))
     assert len(jobs) == 1 and jobs[0].job_type == "rrugc_ecommerce_generate"
     assert jobs[0].payload_json["ecommerce_job_id"] == first["job_id"]
+    assert jobs[0].priority == 96
 
 
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):
