@@ -10,8 +10,11 @@ SQLAlchemy==2.0.41
 psycopg[binary]==3.2.9
 alembic==1.18.5
 Pillow==12.3.0
-# Uploaded Stage 1 typography engines may require NumPy for stitch rendering.
+# Uploaded Stage 1 typography Skill engine runtime dependencies.
 numpy==2.3.3
+scipy==1.16.2
+fonttools==4.60.1
+opencv-python-headless==4.11.0.86
 pillow-heif==1.1.1
 pyvips==2.2.3
 jsonschema==4.26.0
