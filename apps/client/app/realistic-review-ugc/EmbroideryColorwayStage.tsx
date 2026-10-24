@@ -537,7 +537,7 @@ export function EmbroideryColorwayStage({
         <thead>
           <tr>
             {workflow === "reviews" && <th aria-label="Select design" />}
-            <th className={workflow === "reviews" && sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
+            <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
             <th>{workflow === "products" ? "7-skill configuration · 23 outputs" : "13-color batch"}</th>
             {workflow === "reviews" && <><th>Progress</th>
             <th>Skill</th>
