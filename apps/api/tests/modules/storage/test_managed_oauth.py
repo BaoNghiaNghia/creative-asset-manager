@@ -117,7 +117,7 @@ class ManagedStorageManualCredentialTest(unittest.IsolatedAsyncioTestCase):
                 "trashed": False,
                 "capabilities": {
                     "canAddChildren": folder_can_write,
-                    "canDeleteChildren": folder_can_write,
+                    "canDeleteChildren": None,
                 },
             }),
         ]

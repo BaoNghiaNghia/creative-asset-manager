@@ -154,7 +154,7 @@ def test_onedrive_download_failure_is_requeued_without_creating_asset_identity()
 
 
 
-def test_stale_downloading_pipeline_with_completed_job_is_requeued():
+def test_stale_downloading_pipeline_with_completed_job_is_not_requeued():
     engine, factory = sessions()
     try:
         with factory() as session:
@@ -187,18 +187,17 @@ def test_stale_downloading_pipeline_with_completed_job_is_requeued():
 
             recovery = PipelineAttentionRecovery(session, settings())
             preview = recovery.preview("tenant-a")
-            assert preview.stale_download_pipelines == 1
+            assert preview.stale_download_pipelines == 0
 
             result = recovery.apply("tenant-a")
             session.commit()
 
             repaired_pipeline = session.get(AssetPipelineModel, pipeline.id)
             repaired_job = session.get(ProcessingJobModel, job.id)
-            assert result.stale_download_pipelines == 1
-            assert repaired_pipeline.state == "download_pending"
-            assert repaired_job.status == "retry"
-            assert repaired_job.completed_at is None
-            assert repaired_job.last_error_code == "operator_recovery_requested"
+            assert result.stale_download_pipelines == 0
+            assert repaired_pipeline.state == "downloading"
+            assert repaired_job.status == "completed"
+            assert repaired_job.last_error_code is None
     finally:
         engine.dispose()
 

@@ -320,7 +320,7 @@ async def check_managed_storage_refresh_token(
             folder_response = await client.get(
                 f"https://www.googleapis.com/drive/v3/files/{root_folder_id}",
                 params={
-                    "fields": "id,mimeType,trashed,capabilities(canAddChildren,canDeleteChildren)",
+                    "fields": "id,mimeType,trashed,capabilities(canAddChildren)",
                     "supportsAllDrives": "true",
                 },
                 headers=headers,
@@ -348,7 +348,6 @@ async def check_managed_storage_refresh_token(
         or folder.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME_TYPE
         or bool(folder.get("trashed"))
         or not bool(capabilities.get("canAddChildren"))
-        or not bool(capabilities.get("canDeleteChildren"))
     ):
         raise ManagedStorageCredentialValidationError(
             "The selected Google account cannot manage files in the active storage folder."
@@ -402,7 +401,7 @@ async def persist_managed_storage_connection(
         folder_response = await client.get(
             f"https://www.googleapis.com/drive/v3/files/{root_folder_id}",
             params={
-                "fields": "id,mimeType,trashed,capabilities(canAddChildren,canDeleteChildren)",
+                "fields": "id,mimeType,trashed,capabilities(canAddChildren)",
                 "supportsAllDrives": "true",
             },
             headers=headers,
@@ -414,7 +413,6 @@ async def persist_managed_storage_connection(
         folder.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME_TYPE
         or bool(folder.get("trashed"))
         or not bool(capabilities.get("canAddChildren"))
-        or not bool(capabilities.get("canDeleteChildren"))
     ):
         raise PermissionError(
             "The selected Google account cannot manage files in the active storage folder."

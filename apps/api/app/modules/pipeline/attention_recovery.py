@@ -78,8 +78,11 @@ class PipelineAttentionRecovery:
             1
             for pipeline in stale_downloads
             if (
-                (job := self._latest_source_download_job(pipeline)) is None
-                or job.status in {"completed", "failed"}
+                not (pipeline.asset_id or pipeline.content_hash or pipeline.analysis_id)
+                and (
+                    (job := self._latest_source_download_job(pipeline)) is None
+                    or job.status == "failed"
+                )
             )
         )
         result.storage_pipelines = len(list(self.session.scalars(
@@ -154,7 +157,10 @@ class PipelineAttentionRecovery:
             ))
             for pipeline in downloading_rows:
                 job = self._latest_source_download_job(pipeline)
-                if job is not None and job.status not in {"completed", "failed"}:
+                if job is not None and job.status != "failed":
+                    # Completed work must not be requeued by recovery.
+                    continue
+                if pipeline.asset_id or pipeline.content_hash or pipeline.analysis_id:
                     continue
                 if not pipeline.source_asset_id:
                     result.skipped_missing_identity += 1
@@ -228,6 +234,9 @@ class PipelineAttentionRecovery:
                     result.skipped_missing_identity += 1
                     continue
                 analysis = self._analysis_from_job(pipeline, job)
+                if analysis is not None and analysis.status == "completed":
+                    # Preserve successful AI output even when a historical job is failed.
+                    continue
                 if analysis is not None:
                     if not pipeline.asset_id:
                         pipeline.asset_id = analysis.asset_id
