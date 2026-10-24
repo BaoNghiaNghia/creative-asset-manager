@@ -592,7 +592,7 @@ export function EmbroideryColorwayStage({
                 </div>
               </td> : <td><ProductsPhotoWorkflow
                 lastUpdated={plan.updated_at}
-                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} readiness={photoReadiness}
+                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} stockCatalog={hatCatalog?.colors} readiness={photoReadiness}
                 ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
                 onEcommerceJobChange={refreshEcommerceJobs}
                 configuredSkillNames={productStage2SkillNames}

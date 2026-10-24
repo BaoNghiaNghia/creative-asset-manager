@@ -48,3 +48,17 @@ def test_stock_is_read_only_from_canonical_bundle(tmp_path):
     path.symlink_to(tmp_path / "outside.jpg")
     with pytest.raises(FileNotFoundError):
         read_release_stock("stock_front", project_root=tmp_path)
+
+
+def test_other_color_never_falls_back_to_natural_black(tmp_path, monkeypatch):
+    from app.modules.realistic_review_ugc import hat_stock_sync
+    _stock(tmp_path, "front.jpg")
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock", lambda *_args: None)
+    with pytest.raises(FileNotFoundError):
+        read_release_stock("stock_front", project_root=tmp_path, color_key="natural-red")
+    assert not release_stock_evidence(project_root=tmp_path, color_key="natural-red")["stock_front"]["ready"]
+
+
+def test_unknown_stock_color_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="Unknown hat stock color"):
+        read_release_stock("stock_front", project_root=tmp_path, color_key="not-a-color")

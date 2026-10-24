@@ -1154,8 +1154,8 @@ class RrugcEcommerceJobModel(Base):
     __table_args__ = (
         ForeignKeyConstraint(["source_plan_id"], ["rrugc_source_plans.id"],
                              name="fk_rrugc_ecommerce_source", ondelete="RESTRICT"),
-        UniqueConstraint("tenant_id", "source_plan_id", "source_revision", "stage",
-                         name="uq_rrugc_ecommerce_source_revision_stage"),
+        UniqueConstraint("tenant_id", "source_plan_id", "source_revision", "stage", "color_key",
+                         name="uq_rrugc_ecommerce_source_revision_stage_color"),
         Index("ix_rrugc_ecommerce_tenant_stage", "tenant_id", "stage", "status"),
     )
 
@@ -1164,6 +1164,7 @@ class RrugcEcommerceJobModel(Base):
     source_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
     source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
     stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    color_key: Mapped[str] = mapped_column(String(80), nullable=False, default="natural-black")
     stock_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     front_reference_remote_file_id: Mapped[str | None] = mapped_column(String(255))
     front_reference_content_type: Mapped[str | None] = mapped_column(String(128))

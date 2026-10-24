@@ -85,6 +85,7 @@ type Props = {
   sourcePlanId?: string;
   designSrc?: string;
   stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back", string>> }>;
   ecommerceJobs?: EcommerceJob[];
   onEcommerceJobChange?: () => void | Promise<void>;
   readiness: ProductsStage2PhotoReadiness | null;
@@ -104,11 +105,15 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, ecommerceJobs: jobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
+  const [selectedColor, setSelectedColor] = useState("natural-black");
+  const selectedStockViews = stockCatalog[selectedColor]?.views || (selectedColor === "natural-black" ? stockViews : undefined);
+  const jobs = allJobs.filter(job => (job.color_key || "natural-black") === selectedColor);
+  const colorAvailable = selectedColor === "natural-black" || (!!selectedStockViews?.front && !!selectedStockViews?.side && !!selectedStockViews?.back);
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
   const [ugcScoutError, setUgcScoutError] = useState("");
@@ -131,13 +136,13 @@ export function ProductsPhotoWorkflow({
   useEffect(() => {
     if (!sourcePlanId || !expandedStep?.startsWith("prod_s2_ec")) return;
     const controller = new AbortController();
-    const refresh = () => void getEcommerceInputReadiness(sourcePlanId, controller.signal)
+    const refresh = () => void getEcommerceInputReadiness(sourcePlanId, controller.signal, selectedColor)
       .then(result => { if (!controller.signal.aborted) setInputs(result); })
       .catch(() => { if (!controller.signal.aborted) setInputs(null); });
     refresh();
     const ticker = window.setInterval(refresh, 8000);
     return () => { controller.abort(); window.clearInterval(ticker); };
-  }, [sourcePlanId, expandedStep]);
+  }, [sourcePlanId, expandedStep, selectedColor]);
 
   useEffect(() => {
     if (!sourcePlanId || expandedStep !== "prod_s2_ugc") return;
@@ -169,9 +174,9 @@ export function ProductsPhotoWorkflow({
     try {
       if (job && regenerate) await regenerateEcommerceJob(job.id);
       else if (job && job.status === "failed") await retryEcommerceJob(job.id);
-      else await runEcommerceJob(sourcePlanId, stage);
+      else await runEcommerceJob(sourcePlanId, stage, selectedColor);
       await onEcommerceJobChange?.();
-      setInputs(await getEcommerceInputReadiness(sourcePlanId));
+      setInputs(await getEcommerceInputReadiness(sourcePlanId, undefined, selectedColor));
     } catch (reason) {
       setJobActionError(reason instanceof Error ? reason.message : "Unable to run Ecommerce Skill.");
       setExpandedStep(stage);
@@ -242,7 +247,7 @@ export function ProductsPhotoWorkflow({
     let steps: BulkRunStep[] = [];
     try {
       try {
-        const queued = await runAllEcommerceJobs(sourcePlanId);
+        const queued = await runAllEcommerceJobs(sourcePlanId, selectedColor);
         steps = queued.steps.map(item => ({
           name: BULK_ECOMMERCE_NAMES[item.stage] || item.stage,
           status: item.status, reason: item.reason,
@@ -309,6 +314,11 @@ export function ProductsPhotoWorkflow({
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
+    <label className="rrugc-products-photo-color-select">Hat color <select aria-label="Ecommerce stock color" value={selectedColor} onChange={event => { setSelectedColor(event.target.value); setInputs(null); setExpandedStep(null); }}>
+      {Object.keys(stockCatalog).sort().map(color => <option key={color} value={color}>{color.replaceAll("-", " ")}</option>)}
+      {!stockCatalog["natural-black"] && <option value="natural-black">natural black (bundled)</option>}
+    </select></label>
+    {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
     <div className="rrugc-products-photo-stage-list">
       {PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.readinessKey);
@@ -322,9 +332,9 @@ export function ProductsPhotoWorkflow({
           label: input.label,
           src: input.kind === "design" ? designSrc : input.kind === "embroidered_front"
             ? (jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
-            : input.kind === "front" ? (stockViews?.front || "/rrugc/blueprint/stock/natural-black/front.jpg")
-            : input.kind === "back" ? (stockViews?.back || "/rrugc/blueprint/stock/natural-black/back.jpg")
-            : (stockViews?.side || "/rrugc/blueprint/stock/natural-black/side.jpg"),
+            : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
+            : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
+            : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
         })).filter(item => Boolean(item.src));
         const sceneJobs = isEcommerce ? [] : jobs.filter(job => job.stage.startsWith(step.key + "_"));
         const shotJob = jobs.find(item => item.stage === step.key);

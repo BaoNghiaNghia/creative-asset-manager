@@ -5566,6 +5566,7 @@ def sync_stage2_skill(
 class EcommerceRunRequest(BaseModel):
     source_plan_id: str = Field(min_length=1, max_length=36)
     stage: str = Field(pattern=r"^prod_s2_ec[1-4]$")
+    color_key: str = Field(default="natural-black", pattern=r"^[a-z0-9-]{3,80}$")
 
 
 @router.post("/products-stage2/ecommerce/run", status_code=202)
@@ -5578,7 +5579,7 @@ def run_ecommerce_skill(
     try:
         return EcommerceService(session).queue(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            source_plan_id=body.source_plan_id, stage=body.stage,
+            source_plan_id=body.source_plan_id, stage=body.stage, color_key=body.color_key,
         )
     except EcommerceError as exc:
         session.rollback()
@@ -5745,6 +5746,7 @@ def ugc_scout_start(
 
 class EcommerceRunAllRequest(BaseModel):
     source_plan_id: str = Field(min_length=1, max_length=36)
+    color_key: str = Field(default="natural-black", pattern=r"^[a-z0-9-]{3,80}$")
 
 
 @router.post("/products-stage2/ecommerce/run-all", status_code=202)
@@ -5758,7 +5760,7 @@ def run_all_ecommerce_skills(
     try:
         return EcommerceService(session).queue_all(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            source_plan_id=body.source_plan_id)
+            source_plan_id=body.source_plan_id, color_key=body.color_key)
     except EcommerceError as exc:
         session.rollback()
         raise HTTPException(status_code=exc.status_code,
@@ -5929,6 +5931,7 @@ async def ecommerce_job_output(
 @router.get("/products-stage2/ecommerce/input-readiness")
 def ecommerce_input_readiness(
     source_plan_id: str = Query(..., min_length=1, max_length=36),
+    color_key: str = Query(default="natural-black", min_length=3, max_length=80),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -5946,7 +5949,7 @@ def ecommerce_input_readiness(
         raise HTTPException(status_code=404, detail="Product source plan not found")
     from pathlib import Path
     from app.modules.realistic_review_ugc.ecommerce_stock_evidence import release_stock_evidence
-    stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[5])
+    stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[5], color_key=color_key)
     import shutil
     from app.modules.realistic_review_ugc.ecommerce_pipeline import (
         EcommerceError, _front_job,
@@ -5965,7 +5968,7 @@ def ecommerce_input_readiness(
         if evidence.get("ready") and evidence.get("sha256"):
             assets[role] = "sha256:" + evidence["sha256"]
     try:
-        front = _front_job(session, plan)
+        front = _front_job(session, plan, color_key)
         assets["embroidered_front"] = front.output_remote_file_id
     except EcommerceError:
         pass
@@ -5987,6 +5990,7 @@ def ecommerce_input_readiness(
     return {
         "source_plan_id": plan.id,
         "source_revision": plan.source_revision,
+        "color_key": color_key,
         "stock_evidence": stock,
         "slots": slots,
     }

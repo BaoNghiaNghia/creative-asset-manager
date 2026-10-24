@@ -22,6 +22,7 @@ from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountP
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS_BY_STAGE
 from app.modules.realistic_review_ugc.ecommerce_stock_evidence import read_release_stock
+from app.modules.realistic_review_ugc.hat_stock_sync import COLORS
 from app.modules.realistic_review_ugc.ecommerce_front_reference import FrontReferenceError, render_front_reference
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
@@ -58,25 +59,26 @@ VIEW_PROMPTS = {
         "frame on the original 4:5 hat photograph: left 15.2%, top 30.9%, width 69.6%, "
         "height 23.1%. Preserve the artwork aspect ratio without distortion, fitting "
         "within this full guide rectangle. Preserve exact lettering, thread colors, "
-        "stitch structure and the five-panel crown. No design outside the guide area."
+        "stitch structure and the five-panel crown. No design outside the guide area. Preserve the exact GatorHats side wordmark on the cap side if it is naturally visible."
     ),
     "prod_s2_ec2": (
         "FRONT RIGHT THREE-QUARTER high catalog photo. Rotate the exact Valucap 8869 "
         "five-panel cap from the official frontal view toward the right. Use the separate "
         "right-side stock photo ONLY as evidence of its side geometry, not as a 3/4 photo. "
         "Preserve the already embroidered front-reference design, scaling and stitch colors "
-        "with correct perspective on the FRONT crown, without invented side embroidery."
+        "with correct perspective on the FRONT crown. The approved product has small red GatorHats embroidered side branding near the lower side seam; show it naturally if visible. Do not invent other text."
     ),
     "prod_s2_ec3": (
         "TRUE RIGHT SIDE 90 degree high catalog photo. Match the supplied exact stock "
         "right-side geometry and cap colors. Use the embroidered front reference for "
         "continuity; only show portions of the front embroidery visible naturally "
-        "from this angle. Do not add any invented side writing."
+        "from this angle. Apply small authentic-looking red GatorHats embroidery on the lateral crown near the side seam, matching the reference product's side branding. No new slogans or other text."
     ),
     "prod_s2_ec4": (
         "TRUE BACK high catalog photo. Preserve the precise rear view from the official "
-        "stock cap photograph. Do not invent any rear embroidery, logo or additional text. "
-        "Show the rear crown and strap faithfully, sharp and well lit."
+        "stock cap photograph. Keep the rear panel blank and preserve only the small "
+        "GatorHats logo naturally visible at the far side edge in the approved product. "
+        "Do not place text across the rear crown. Show the rear crown and adjustable strap faithfully."
     ),
 }
 
@@ -119,7 +121,9 @@ class EcommerceError(RuntimeError):
         self.code, self.message, self.status_code = code, message, status_code
 
 
-def _stock_refs(settings: Settings, stage: str) -> tuple[list[tuple[str, bytes]], str]:
+def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black") -> tuple[list[tuple[str, bytes]], str]:
+    if color_key not in COLORS:
+        raise EcommerceError("ecommerce_color_invalid", "Unknown hat color.", 422)
     if stage not in STOCK_ROLES:
         raise EcommerceError("ecommerce_stage_invalid", "Unknown Ecommerce photo slot.", 422)
     # The checkout root is also available in the immutable production release.
@@ -127,7 +131,7 @@ def _stock_refs(settings: Settings, stage: str) -> tuple[list[tuple[str, bytes]]
     from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock
     try:
         with stock_read_lock(settings):
-            refs = [(role, read_release_stock(role, project_root=project_root)[0])
+            refs = [(role, read_release_stock(role, project_root=project_root, color_key=color_key)[0])
                     for role in STOCK_ROLES[stage]]
     except (OSError, ValueError) as exc:
         raise EcommerceError("ecommerce_stock_unavailable",
@@ -181,12 +185,13 @@ def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage:
         raise EcommerceError(exc.code, exc.message, exc.status_code) from exc
 
 
-def _front_job(session: Session, plan: RrugcSourcePlanModel) -> RrugcEcommerceJobModel:
+def _front_job(session: Session, plan: RrugcSourcePlanModel, color_key: str = "natural-black") -> RrugcEcommerceJobModel:
     front = session.scalar(select(RrugcEcommerceJobModel).where(
         RrugcEcommerceJobModel.tenant_id == plan.tenant_id,
         RrugcEcommerceJobModel.source_plan_id == plan.id,
         RrugcEcommerceJobModel.source_revision == plan.source_revision,
         RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+        RrugcEcommerceJobModel.color_key == color_key,
         RrugcEcommerceJobModel.status == "completed",
         RrugcEcommerceJobModel.output_remote_file_id.is_not(None),
     ))
@@ -226,7 +231,7 @@ class EcommerceService:
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
-              stage: str) -> dict:
+              stage: str, color_key: str = "natural-black") -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
         if not all((
@@ -237,20 +242,21 @@ class EcommerceService:
         )):
             raise EcommerceError("ecommerce_execution_disabled", "Image generation is disabled.", 503)
         plan = _source_plan(self.session, tenant_id, source_plan_id, lock=True)
-        _refs, stock_digest = _stock_refs(self.settings, stage)
+        _refs, stock_digest = _stock_refs(self.settings, stage, color_key)
         skill = _assigned_skill(self.session, self.settings, tenant_id, stage)
-        front = _front_job(self.session, plan) if stage in ("prod_s2_ec2", "prod_s2_ec3") else None
+        front = _front_job(self.session, plan, color_key) if stage in ("prod_s2_ec2", "prod_s2_ec3") else None
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.tenant_id == tenant_id,
             RrugcEcommerceJobModel.source_plan_id == source_plan_id,
             RrugcEcommerceJobModel.source_revision == plan.source_revision,
             RrugcEcommerceJobModel.stage == stage,
+            RrugcEcommerceJobModel.color_key == color_key,
         ).with_for_update())
         if row is not None:
             return {"job_id": row.id, "status": row.status, "already_exists": True}
         row = RrugcEcommerceJobModel(
             id=str(uuid4()), tenant_id=tenant_id, source_plan_id=source_plan_id,
-            source_revision=plan.source_revision, stage=stage,
+            source_revision=plan.source_revision, stage=stage, color_key=color_key,
             stock_sha256=stock_digest,
             front_reference_remote_file_id=front.output_remote_file_id if front else None,
             front_reference_content_type=front.output_content_type if front else None,
@@ -317,7 +323,8 @@ class EcommerceService:
                                 "reason": exc.message, "error_code": exc.code})
         return {"source_plan_id": source_plan_id, "slot": slot, "steps": results}
 
-    def queue_all(self, *, tenant_id: str, user_id: str, source_plan_id: str) -> dict:
+    def queue_all(self, *, tenant_id: str, user_id: str, source_plan_id: str,
+                  color_key: str = "natural-black") -> dict:
         """Start every supported Ecommerce slot with durable Front -> angle handoff.
 
         Jobs 2 and 3 cannot be queued until Front output has been saved.  The
@@ -343,6 +350,7 @@ class EcommerceService:
                 RrugcEcommerceJobModel.source_plan_id == source_plan_id,
                 RrugcEcommerceJobModel.source_revision == plan.source_revision,
                 RrugcEcommerceJobModel.stage == stage,
+                RrugcEcommerceJobModel.color_key == color_key,
             ))
             if existing is not None:
                 processing = (self.session.get(ProcessingJobModel, existing.processing_job_id)
@@ -356,7 +364,7 @@ class EcommerceService:
                     return {"stage": stage, "status": "queued", "job_id": result["job_id"]}
                 return {"stage": stage, "status": state, "job_id": existing.id}
             queued = self.queue(tenant_id=tenant_id, user_id=user_id,
-                                source_plan_id=source_plan_id, stage=stage)
+                                source_plan_id=source_plan_id, stage=stage, color_key=color_key)
             return {"stage": stage, "status": queued["status"],
                     "job_id": queued["job_id"]}
 
@@ -374,6 +382,7 @@ class EcommerceService:
             RrugcEcommerceJobModel.source_plan_id == source_plan_id,
             RrugcEcommerceJobModel.source_revision == plan.source_revision,
             RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+            RrugcEcommerceJobModel.color_key == color_key,
         ))
 
         deferred = []
@@ -385,7 +394,7 @@ class EcommerceService:
                     # Validate stock and assigned Skill *before* marking a
                     # dependent task as waiting; never represent absent
                     # dependencies as queued jobs.
-                    _stock_refs(self.settings, stage)
+                    _stock_refs(self.settings, stage, color_key)
                     _assigned_skill(self.session, self.settings, tenant_id, stage)
                     if not front or front.status == "failed":
                         raise EcommerceError("ecommerce_front_prerequisite",
@@ -431,6 +440,7 @@ class EcommerceService:
                     previous = current.get("run_all_followups", [])
                     current["run_all_followups"] = sorted(set(previous).union(deferred))
                     current["run_all_user_id"] = user_id
+                    current["run_all_color_key"] = color_key
                     processing.payload_json = current
                     self.session.commit()
 
@@ -452,7 +462,7 @@ class EcommerceService:
         plan = _source_plan(self.session, tenant_id, row.source_plan_id, lock=True)
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
-        _, current_digest = _stock_refs(self.settings, row.stage)
+        _, current_digest = _stock_refs(self.settings, row.stage, row.color_key)
         if current_digest != row.stock_sha256:
             raise EcommerceError("ecommerce_stock_changed", "Official stock revision changed.")
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
@@ -478,11 +488,11 @@ class EcommerceService:
         plan = _source_plan(self.session, tenant_id, row.source_plan_id, lock=True)
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
-        _, digest = _stock_refs(self.settings, row.stage)
+        _, digest = _stock_refs(self.settings, row.stage, row.color_key)
         if digest != row.stock_sha256:
             raise EcommerceError("ecommerce_stock_changed", "Official stock reference changed.")
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
-            front = _front_job(self.session, plan)
+            front = _front_job(self.session, plan, row.color_key)
             row.front_reference_remote_file_id = front.output_remote_file_id
             row.front_reference_content_type = front.output_content_type
             row.front_reference_size_bytes = front.output_size_bytes
@@ -520,6 +530,7 @@ class EcommerceService:
         ))
         return [{
             "id": row.id, "source_plan_id": row.source_plan_id, "stage": row.stage,
+            "color_key": row.color_key,
             "status": _effective_status(row, processing), "retry_count": row.retry_count,
             "attempt_count": processing.attempt_count if processing else 0,
             "error_code": row.last_error_code or (processing.last_error_code if processing else None),
@@ -605,6 +616,7 @@ class EcommerceGenerateHandler:
                 return
             source_plan_id = front.source_plan_id
             source_revision = front.source_revision
+            color_key = front.color_key
         for stage in stages:
             if stage not in ("prod_s2_ec2", "prod_s2_ec3"):
                 continue
@@ -615,14 +627,15 @@ class EcommerceGenerateHandler:
                         RrugcEcommerceJobModel.tenant_id == context.job.tenant_id,
                         RrugcEcommerceJobModel.source_plan_id == source_plan_id,
                         RrugcEcommerceJobModel.source_revision == source_revision,
-                        RrugcEcommerceJobModel.stage == stage))
+                        RrugcEcommerceJobModel.stage == stage,
+                        RrugcEcommerceJobModel.color_key == color_key))
                     processing = (followup_session.get(ProcessingJobModel, existing.processing_job_id)
                                   if existing and existing.processing_job_id else None)
                     if existing and _effective_status(existing, processing) == "failed":
                         service.retry(tenant_id=context.job.tenant_id, job_id=existing.id)
                     else:
                         service.queue(tenant_id=context.job.tenant_id, user_id=user_id,
-                                      source_plan_id=source_plan_id, stage=stage)
+                                      source_plan_id=source_plan_id, stage=stage, color_key=color_key)
                 except EcommerceError as exc:
                     followup_session.rollback()
                     context.logger.warning("ecommerce_run_all_followup_blocked",
@@ -678,7 +691,7 @@ class EcommerceGenerateHandler:
                                         skill_version=row.skill_version)
             if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
                 raise EcommerceError("ecommerce_skill_changed", "Selected Skill revision changed.")
-            refs, digest = _stock_refs(settings, row.stage)
+            refs, digest = _stock_refs(settings, row.stage, row.color_key)
             if digest != row.stock_sha256:
                 raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
             front_asset = None
@@ -689,7 +702,7 @@ class EcommerceGenerateHandler:
                                row.front_reference_content_type, row.front_reference_size_bytes)
             plan_id, mime, size, source_file_id = (
                 plan.id, plan.source_mime_type, plan.source_size_bytes, plan.source_file_id)
-            folder_id, stage, skill_name = plan.source_parent_folder_id, row.stage, row.skill_name
+            folder_id, stage, skill_name, color_key = plan.source_parent_folder_id, row.stage, row.skill_name, row.color_key
             preview_remote_id = row.front_preview_remote_file_id
             preview_mime = row.front_preview_content_type
             preview_size = row.front_preview_size_bytes
@@ -770,13 +783,13 @@ class EcommerceGenerateHandler:
         prompt = (
             ("Generate ONE independent photorealistic scene for this uploaded "
              "Multi-hat or UGC Skill using the official Valucap 8869 "
-             "natural/black five-panel cap. " if stage in SCENE_STAGE_SLOTS
+             "" + color_key.replace("-", "/") + " five-panel cap. " if stage in SCENE_STAGE_SLOTS
              else "Generate ONE photorealistic commercial ecommerce product photograph "
-                  "of the official Valucap 8869 natural/black five-panel twill cap. ")
+                  "of the official Valucap 8869 " + color_key.replace("-", "/") + " five-panel twill cap. ")
             + VIEW_PROMPTS[stage] +
-            " Keep all cap panel seams, fabric, bill curvature, dark-black/natural fabric "
+            " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "
-            "No extra logos, added decorations, invented text, or merged panels."
+            "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
         )
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",

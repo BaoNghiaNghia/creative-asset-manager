@@ -21,19 +21,27 @@ MAX_STOCK_BYTES = 15 * 1024 * 1024
 MAX_STOCK_PIXELS = 36_000_000
 
 
-def read_release_stock(role: str, *, project_root: Path) -> tuple[bytes, dict]:
-    """Read a bounded, image-validated canonical release stock reference."""
+def read_release_stock(role: str, *, project_root: Path,
+                       color_key: str = "natural-black") -> tuple[bytes, dict]:
+    """Read a validated stock view for exactly one imported 8869 color group."""
     filename = STOCK_FILES.get(role)
     if filename is None:
         raise ValueError("No verified stock source for requested Ecommerce role")
-    root = (project_root / "apps/client/public/rrugc/blueprint/stock/natural-black").resolve()
-    target = (root / filename).resolve()
     from app.core.config import get_settings
-    from app.modules.realistic_review_ugc.hat_stock_sync import read_managed_stock
-    imported = read_managed_stock(get_settings(), "natural-black", filename.removesuffix(".jpg"))
+    from app.modules.realistic_review_ugc.hat_stock_sync import COLORS, read_managed_stock
+    if color_key not in COLORS:
+        raise ValueError("Unknown hat stock color")
+    imported = read_managed_stock(get_settings(), color_key, filename.removesuffix(".jpg"))
     if imported is not None:
         target = imported[0]
         root = target.parent
+    elif color_key == "natural-black":
+        # Only the original Natural/Black reference has a bundled fallback.
+        root = (project_root / "apps/client/public/rrugc/blueprint/stock/natural-black").resolve()
+        target = (root / filename).resolve()
+    else:
+        # Never silently recolor a Natural/Black cap or mix views from groups.
+        raise FileNotFoundError("Selected hat color group has no verified stock view")
     if not target.is_relative_to(root) or not target.is_file():
         raise FileNotFoundError("Required official stock reference is unavailable")
     size = target.stat().st_size
@@ -56,12 +64,13 @@ def read_release_stock(role: str, *, project_root: Path) -> tuple[bytes, dict]:
                      "size_bytes": size, "width": width, "height": height}
 
 
-def release_stock_evidence(*, project_root: Path) -> dict[str, dict]:
-    """Expose only validated metadata, never absolute filesystem paths."""
+def release_stock_evidence(*, project_root: Path,
+                           color_key: str = "natural-black") -> dict[str, dict]:
+    """Expose verified per-color stock; missing selected views fail closed."""
     result = {}
     for role in STOCK_FILES:
         try:
-            _, metadata = read_release_stock(role, project_root=project_root)
+            _, metadata = read_release_stock(role, project_root=project_root, color_key=color_key)
             result[role] = {"ready": True, **metadata}
         except (OSError, ValueError):
             result[role] = {"ready": False, "role": role}

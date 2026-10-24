@@ -711,7 +711,7 @@ export type ProductsStage2PhotoStep = {
   required_inputs: string;
 };
 export type EcommerceJob = {
-  id: string; source_plan_id: string; stage: string;
+  id: string; source_plan_id: string; stage: string; color_key?: string;
   status: "queued" | "running" | "completed" | "failed";
   retry_count: number; attempt_count: number; error_code: string | null;
   output_url: string | null; skill_name: string;
@@ -754,9 +754,9 @@ export type EcommerceRunAllResult = {
   source_plan_id: string;
   steps: EcommerceRunAllStep[];
 };
-export const runAllEcommerceJobs = (sourcePlanId: string) =>
+export const runAllEcommerceJobs = (sourcePlanId: string, colorKey = "natural-black") =>
   request<EcommerceRunAllResult>(ECOMMERCE_PATH + "/run-all", {
-    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId }),
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, color_key: colorKey }),
   });
 export type ColorwayQueueResult = {
   queued: number;
@@ -770,9 +770,9 @@ export const runSceneJob = (sourcePlanId: string, slot: "prod_s2_mh" | "prod_s2_
     method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, slot }),
   });
 
-export const runEcommerceJob = (sourcePlanId: string, stage: string) =>
+export const runEcommerceJob = (sourcePlanId: string, stage: string, colorKey = "natural-black") =>
   request<{ job_id: string; status: string }>(ECOMMERCE_PATH + "/run", {
-    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, stage }),
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, stage, color_key: colorKey }),
   });
 export const retryEcommerceJob = (jobId: string) =>
   request<{ job_id: string; status: string }>(
@@ -802,10 +802,10 @@ export type EcommerceSlotInputReadiness = {
 export type EcommerceInputReadiness = {
   source_plan_id: string; source_revision: string; slots: EcommerceSlotInputReadiness[];
 };
-export const getEcommerceInputReadiness = (sourcePlanId: string, signal?: AbortSignal) =>
+export const getEcommerceInputReadiness = (sourcePlanId: string, signal?: AbortSignal, colorKey = "natural-black") =>
   request<EcommerceInputReadiness>(
     "/api/v1/realistic-review-ugc/products-stage2/ecommerce/input-readiness?source_plan_id=" +
-    encodeURIComponent(sourcePlanId), { signal },
+    encodeURIComponent(sourcePlanId) + "&color_key=" + encodeURIComponent(colorKey), { signal },
   );
 
 export type ProductsStage2PhotoReadiness = {
