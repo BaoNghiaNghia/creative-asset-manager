@@ -360,7 +360,7 @@ export function ProductsPhotoWorkflow({
               return photo?.output_url && photo.status === "completed"
                 ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
                     onClick={() => setOutputGallery({ title: shot.label + " · output", items: [{ key: photo.id, label: shot.label, src: photo.output_url!, status: "completed" }] })}
-                    aria-label={"Open " + shot.label + " output"}>
+                    aria-label={"Open " + shot.label + (isEcommerce ? " Ecommerce" : "") + " output"}>
                     <img src={photo.output_url} alt={shot.label} loading="lazy" />
                   </button>
                 : <span key={shot.number} className="rrugc-products-photo-empty-shot"
