@@ -166,8 +166,13 @@ def scan_archive(payload: bytes) -> tuple[dict[str, Any], dict[str, dict[str, tu
                     issues.append({"file": name[:180], "error": "invalid_image"})
                     continue
                 existing = groups[parsed["color"]][parsed["view"]]
-                # Duplicate paths from nested ZIP exports are harmless when bytes match.
-                if not any(data == previous for _, previous in existing):
+                # A nested copy with the same filename and bytes is harmless.
+                # Different filenames for one view remain conflicting candidates.
+                if not any(
+                    data == previous_data
+                    and path.name.lower() == PurePosixPath(previous_name).name.lower()
+                    for previous_name, previous_data in existing
+                ):
                     existing.append((name, data))
     except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         raise HatStockSyncError("Invalid or corrupt image ZIP.") from exc
