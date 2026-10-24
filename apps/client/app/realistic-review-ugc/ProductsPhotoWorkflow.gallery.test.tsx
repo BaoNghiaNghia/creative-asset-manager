@@ -109,7 +109,7 @@ describe("Products photo output gallery navigation",()=>{
     const button=host.querySelector<HTMLButtonElement>('[aria-label="Run all"]')!;
     expect(button.disabled).toBe(false);
     await act(async()=>{button.click();await Promise.resolve();});
-    expect(runAllEcommerceJobs).toHaveBeenCalledWith("design-1");
+    expect(runAllEcommerceJobs).toHaveBeenCalledWith("design-1", "natural-black");
     expect(queueColors).toHaveBeenCalledWith(true);
     expect(refresh).toHaveBeenCalledTimes(1);
     const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-report")!;
