@@ -11,9 +11,10 @@ const HAT_VIEWS = [
 
 const STOCK_ROOT = "/rrugc/blueprint/stock/natural-black";
 
-function HatImage({ designSrc, view }: {
+function HatImage({ designSrc, view, stockViews }: {
   designSrc: string;
   view: (typeof HAT_VIEWS)[number];
+  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
 }) {
   const tileRef = useRef<HTMLDivElement>(null);
   const [nearViewport, setNearViewport] = useState(() => typeof IntersectionObserver === "undefined");
@@ -32,9 +33,8 @@ function HatImage({ designSrc, view }: {
     return () => observer.disconnect();
   }, [nearViewport, front]);
 
-  const hatSrc = front
-    ? "/rrugc/blueprint/fronts/natural-black.webp"
-    : `${STOCK_ROOT}/${view.key}.jpg`;
+  // Keep all three cap angles on the same official Natural/Black stock set.
+  const hatSrc = stockViews?.[view.key] || `${STOCK_ROOT}/${view.key}.jpg`;
   const embroiderySrc = useBlueprintEmbroideryComposite(
     front && nearViewport ? designSrc : "",
     hatSrc,
@@ -58,16 +58,17 @@ function HatImage({ designSrc, view }: {
   </div>;
 }
 
-export function AppliedHatPreview({ designSrc, designName, revision }: {
+export function AppliedHatPreview({ designSrc, designName, revision, stockViews }: {
   designSrc: string;
   designName: string;
   revision: string;
+  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
 }) {
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
     <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
       <img src={designSrc} alt="" aria-hidden="true" loading="lazy" />
     </div>
-    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} />)}
+    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} />)}
   </div>;
 }

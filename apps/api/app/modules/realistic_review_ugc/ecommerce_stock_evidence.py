@@ -28,6 +28,12 @@ def read_release_stock(role: str, *, project_root: Path) -> tuple[bytes, dict]:
         raise ValueError("No verified stock source for requested Ecommerce role")
     root = (project_root / "apps/client/public/rrugc/blueprint/stock/natural-black").resolve()
     target = (root / filename).resolve()
+    from app.core.config import get_settings
+    from app.modules.realistic_review_ugc.hat_stock_sync import read_managed_stock
+    imported = read_managed_stock(get_settings(), "natural-black", filename.removesuffix(".jpg"))
+    if imported is not None:
+        target = imported[0]
+        root = target.parent
     if not target.is_relative_to(root) or not target.is_file():
         raise FileNotFoundError("Required official stock reference is unavailable")
     size = target.stat().st_size

@@ -650,6 +650,41 @@ export const analyzeStage3ReviewGroups = (
     },
   );
 
+export type HatStockGroup = {
+  color: string;
+  views: Record<string, string[]>;
+  missing: string[];
+  duplicates: string[];
+  ready: boolean;
+};
+export type HatStockPreview = {
+  sha256: string;
+  file_count: number;
+  ready_count: number;
+  groups: HatStockGroup[];
+  unmatched: Array<{ file: string; error: string }>;
+  applied?: string[];
+  applied_count?: number;
+};
+export type HatStockCatalog = {
+  can_sync: boolean;
+  colors: Record<string, { revision: string; views: Partial<Record<"front" | "side" | "back" | "three-quarter", string>> }>;
+};
+const HAT_STOCK_PATH = "/api/v1/realistic-review-ugc/products/hat-stock";
+export const getHatStockCatalog = (signal?: AbortSignal) =>
+  request<HatStockCatalog>(HAT_STOCK_PATH + "/catalog", { signal });
+export const previewHatStockZip = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return request<HatStockPreview>(HAT_STOCK_PATH + "/preview", { method: "POST", body: form });
+};
+export const applyHatStockZip = (file: File, sha256: string) => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("preview_sha256", sha256);
+  return request<HatStockPreview>(HAT_STOCK_PATH + "/apply", { method: "POST", body: form });
+};
+
 export type ColorwayJob = {
   id: string;
   source_plan_id: string;

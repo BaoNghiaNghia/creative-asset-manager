@@ -124,9 +124,11 @@ def _stock_refs(settings: Settings, stage: str) -> tuple[list[tuple[str, bytes]]
         raise EcommerceError("ecommerce_stage_invalid", "Unknown Ecommerce photo slot.", 422)
     # The checkout root is also available in the immutable production release.
     project_root = Path(__file__).resolve().parents[5]
+    from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock
     try:
-        refs = [(role, read_release_stock(role, project_root=project_root)[0])
-                for role in STOCK_ROLES[stage]]
+        with stock_read_lock(settings):
+            refs = [(role, read_release_stock(role, project_root=project_root)[0])
+                    for role in STOCK_ROLES[stage]]
     except (OSError, ValueError) as exc:
         raise EcommerceError("ecommerce_stock_unavailable",
                              "A verified GatorHats stock photo is unavailable.", 503) from exc

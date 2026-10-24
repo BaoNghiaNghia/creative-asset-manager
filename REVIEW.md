@@ -1,3 +1,11 @@
+## GatorHats photo ZIP sync — 2026-10-24
+
+- ZIP image validation and color/angle grouping, with safe previews and fail-closed duplicate/missing image handling.
+- Scoped configure permission for import, protected read endpoints, persistent versioned stock, atomic manifest swap and shared-lock Ecommerce input selection.
+- No database migration, no new credentials/packages and no automatic replay of existing jobs or output versions.
+- Tests: backend targeted 26 PASS, frontend full suite 856/856 PASS; earlier frontend build PASS; browser UI QA recorded zero interaction/network issues but 3 baseline dimension mismatches on the existing Stage 3 fixture at desktop/tablet/mobile. Baseline approval remains outstanding, so production deployment is gated.
+- Reversal: use normal frontend/backend release rollback and restore an earlier verified hat-stock manifest; never delete previous stock blobs.
+
 ## Source Sync excessive scheduled job prevention — 2026-10-23
 
 - Evidence: last seven days had 28,452 source_sync jobs for three sources, including 28,186 scheduler-origin jobs; production job producer polls every 60 seconds. Visual indexing created only 503 jobs in the same period.

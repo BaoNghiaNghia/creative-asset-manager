@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## GatorHats 8869 ZIP photo synchronization — 2026-10-24
+
+- [x] Parse official color/angle tokens from ZIP filenames and directory names, with bounded image validation.
+- [x] Preview complete, incomplete, duplicated and unmatched photo groups before import.
+- [x] Store complete stock sets in immutable versions outside the release checkout and publish manifest atomically.
+- [x] Wire versioned references into the Embroidery Design 2x2 gallery, Ecommerce image inputs and future 13-color jobs without reprocessing historical outputs.
+- [ ] Verify the user's original 8869 ZIP name matches and execute the first live image sync after importing its bytes.
+
+See [GatorHats stock sync](docs/operations/GATORHATS_HAT_STOCK_SYNC.md).
+
 ## Job-growth prevention — Source Sync 3-minute cooldown (2026-10-23)
 
 - [x] Trace 28,186 scheduled source sync jobs over seven days to the 60-second poll loop (3 sources).

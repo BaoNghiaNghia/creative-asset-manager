@@ -84,6 +84,7 @@ type Props = {
   lastUpdated?: string | null;
   sourcePlanId?: string;
   designSrc?: string;
+  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
   ecommerceJobs?: EcommerceJob[];
   onEcommerceJobChange?: () => void | Promise<void>;
   readiness: ProductsStage2PhotoReadiness | null;
@@ -103,7 +104,7 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", ecommerceJobs: jobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
+  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, ecommerceJobs: jobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
   colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
@@ -264,8 +265,11 @@ export function ProductsPhotoWorkflow({
             steps.push({ name, status: "blocked", reason: reason instanceof Error ? reason.message : "Could not start scene generation." });
           }
         } else {
-          steps.push({ name, status: "blocked", reason: !skill?.bundle_installed
-            ? "The assigned Skill is unavailable or invalid." : "Worker is not available." });
+          steps.push({ name, status: "blocked", reason: !skill
+            ? "Skill availability is not confirmed."
+            : !configuredSkillNames[slot] ? "No Skill is assigned."
+            : !skill.bundle_installed ? "The assigned Skill is unavailable or invalid."
+            : "Worker is not available." });
         }
       }
       if (complete === 13) {
@@ -318,9 +322,9 @@ export function ProductsPhotoWorkflow({
           label: input.label,
           src: input.kind === "design" ? designSrc : input.kind === "embroidered_front"
             ? (jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
-            : input.kind === "front" ? "/rrugc/blueprint/fronts/natural-black.webp"
-            : input.kind === "back" ? "/rrugc/blueprint/stock/natural-black/back.jpg"
-            : "/rrugc/blueprint/stock/natural-black/side.jpg",
+            : input.kind === "front" ? (stockViews?.front || "/rrugc/blueprint/stock/natural-black/front.jpg")
+            : input.kind === "back" ? (stockViews?.back || "/rrugc/blueprint/stock/natural-black/back.jpg")
+            : (stockViews?.side || "/rrugc/blueprint/stock/natural-black/side.jpg"),
         })).filter(item => Boolean(item.src));
         const sceneJobs = isEcommerce ? [] : jobs.filter(job => job.stage.startsWith(step.key + "_"));
         const shotJob = jobs.find(item => item.stage === step.key);

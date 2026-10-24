@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
-import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness } from "./api";
-import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness } from "./api";
+import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog } from "./api";
+import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
 import { AppliedHatPreview } from "./AppliedHatPreview";
+import { HatStockSyncModal } from "./HatStockSyncModal";
 import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 import { RrugcStageHeader } from "./RrugcStageHeader";
@@ -62,13 +63,14 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan, productLayout = false }: { plan: SourcePlan; productLayout?: boolean }) {
+function DesignSource({ plan, productLayout = false, stockViews }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>> }) {
   if (productLayout) {
     return <div className="rrugc-colorway-source is-product-card">
       <AppliedHatPreview
         designSrc={plan.source_preview_url}
         designName={cleanDesignName(plan.source_name)}
         revision={plan.source_revision}
+        stockViews={stockViews}
       />
     </div>;
   }
@@ -142,6 +144,24 @@ export function EmbroideryColorwayStage({
   const [serverReadiness, setServerReadiness] = useState<ColorwayReadiness | null>(null);
   const [photoReadiness, setPhotoReadiness] = useState<ProductsStage2PhotoReadiness | null>(null);
   const [readinessMessage, setReadinessMessage] = useState("");
+  const [hatSyncOpen, setHatSyncOpen] = useState(false);
+  const [hatCatalog, setHatCatalog] = useState<HatStockCatalog | null>(null);
+  const stockViews = hatCatalog?.colors["natural-black"]?.views;
+
+  useEffect(() => {
+    if (!active || workflow !== "products") return;
+    const controller = new AbortController();
+    void getHatStockCatalog(controller.signal).then(value => {
+      if (!controller.signal.aborted) setHatCatalog(value);
+    }).catch(() => { /* Bundled stock remains available if catalog is offline. */ });
+    return () => controller.abort();
+  }, [active, workflow]);
+
+  const handleHatStockApplied = async () => {
+    setHatCatalog(await getHatStockCatalog());
+    setJobMessage("Hat stock references synchronized. Existing outputs and completed jobs were preserved.");
+    try { setServerReadiness(await getColorwayReadiness()); } catch { /* Avoid hiding imported stock. */ }
+  };
 
   useEffect(() => {
     if (!active) return;
@@ -443,6 +463,9 @@ export function EmbroideryColorwayStage({
         ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers use independently assigned Skills and their persisted job outputs.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
+        {workflow === "products" && hatCatalog?.can_sync && <button type="button" className="rrugc-primary rrugc-icon-action" onClick={() => setHatSyncOpen(true)}>
+          <RrugcActionIcon name="scan" /> Sync Hat Images
+        </button>}
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
         <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
           <RrugcActionIcon name={syncing ? "refresh" : "scan"} />
@@ -451,6 +474,7 @@ export function EmbroideryColorwayStage({
       </div>}
     />
 
+    {workflow === "products" && hatSyncOpen && <HatStockSyncModal onClose={() => setHatSyncOpen(false)} onApplied={handleHatStockApplied} />}
     <ActionMessageToast message={message} />
     <ActionMessageToast message={jobMessage} />
     <ActionMessageToast message={catalogMessage} tone="info" />
@@ -543,7 +567,7 @@ export function EmbroideryColorwayStage({
                   onChange={() => toggleDesign(plan.id)}
                 />
               </td>}
-              <td><DesignSource plan={plan} productLayout={workflow === "products"} /></td>
+              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} /></td>
               {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
@@ -568,7 +592,7 @@ export function EmbroideryColorwayStage({
                 </div>
               </td> : <td><ProductsPhotoWorkflow
                 lastUpdated={plan.updated_at}
-                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} readiness={photoReadiness}
+                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} readiness={photoReadiness}
                 ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
                 onEcommerceJobChange={refreshEcommerceJobs}
                 configuredSkillNames={productStage2SkillNames}

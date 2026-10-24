@@ -73,7 +73,13 @@ class ColorwayError(RuntimeError):
 def _stock_path(settings: Settings, color_key: str) -> Path:
     if color_key not in dict(COLORS):
         raise ColorwayError("colorway_unknown_color", "Unknown official stock color.", 422)
-    # Only read installed, administrator-managed bundled stock. No client-provided paths/URLs.
+    # Use complete, administrator-imported official stock for future jobs only;
+    # never modify completed images or retroactively requeue their jobs.
+    from app.modules.realistic_review_ugc.hat_stock_sync import read_managed_stock
+    imported = read_managed_stock(settings, color_key, "front")
+    if imported is not None:
+        return imported[0]
+    # Fallback remains the installed verified stock if no group is imported.
     return Path(str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))).resolve() / (
         "skills/" + STOCK_SKILL + "/assets/stock/" + color_key + "/front.jpg"
     )
