@@ -272,6 +272,18 @@ def _codex_env(codex_home: Path) -> dict[str, str]:
 
 def _classify_failure(stderr: str, stdout: str) -> CodexImageProviderError:
     combined = (stderr + "\n" + stdout).casefold()
+    # Codex login can be valid while its billing workspace has zero credits.
+    # This is not a transient image tool error; check before generic limits.
+    if any(token in combined for token in (
+        "workspace is out of credits", "out of credits",
+        "insufficient credits", "credit balance exhausted",
+        "ask your workspace owner to refill",
+    )):
+        return CodexImageProviderError(
+            "codex_image_credit_exhausted",
+            "Codex workspace credits are exhausted. Refill the assigned account or use an authorized provider.",
+            defer_seconds=1800,
+        )
     if any(
         token in combined
         for token in (

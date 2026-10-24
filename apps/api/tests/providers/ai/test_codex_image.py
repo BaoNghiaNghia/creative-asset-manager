@@ -147,6 +147,18 @@ def test_codex_runner_classifies_usage_limit_as_deferred():
     assert error.retryable is False
 
 
+def test_codex_runner_detects_workspace_credit_exhaustion_from_structured_failure():
+    stdout = (
+        '{"type":"turn.failed","error":{"message":"Your workspace is out of credits. '
+        'Ask your workspace owner to refill in order to continue."}}'
+    )
+    error = _classify_failure("", stdout)
+    assert error.code == "codex_image_credit_exhausted"
+    assert error.defer_seconds == 1800
+    assert error.retryable is False
+    assert "refill" in str(error).lower()
+
+
 def test_codex_runner_requires_installed_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.providers.ai.codex_image.shutil.which",
