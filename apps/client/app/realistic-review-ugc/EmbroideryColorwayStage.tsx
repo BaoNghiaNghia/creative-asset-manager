@@ -146,7 +146,7 @@ export function EmbroideryColorwayStage({
   const [readinessMessage, setReadinessMessage] = useState("");
   const [hatSyncOpen, setHatSyncOpen] = useState(false);
   const [hatCatalog, setHatCatalog] = useState<HatStockCatalog | null>(null);
-  const stockViews = hatCatalog?.colors["natural-black"]?.views;
+  const stockViews = hatCatalog?.colors["white-red"]?.views || hatCatalog?.colors["natural-black"]?.views;
 
   useEffect(() => {
     if (!active || workflow !== "products") return;

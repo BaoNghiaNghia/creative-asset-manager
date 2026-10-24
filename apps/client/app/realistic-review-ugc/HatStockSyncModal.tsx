@@ -5,7 +5,7 @@ import {
 } from "./api";
 import "./HatStockSyncModal.css";
 
-const SIZE_LIMIT = 120 * 1024 * 1024;
+const SIZE_LIMIT = 200 * 1024 * 1024;
 
 export function HatStockSyncModal({ onClose, onApplied }: {
   onClose: () => void;
@@ -54,7 +54,7 @@ export function HatStockSyncModal({ onClose, onApplied }: {
     setResult(null);
     try {
       if (!file.name.toLowerCase().endsWith(".zip") || file.size > SIZE_LIMIT || !file.size) {
-        throw new Error("Choose an image ZIP smaller than 120 MB.");
+        throw new Error("Choose an image ZIP smaller than 200 MB.");
       }
       setPreview(await previewHatStockZip(file));
     } catch (reason) {
@@ -102,7 +102,7 @@ export function HatStockSyncModal({ onClose, onApplied }: {
               setFile(event.target.files?.[0] || null);
               setPreview(null); setResult(null); setError("");
             }} />
-          <small>Recognizes Front, Side, Back and optional 3/4 views in file or folder names. Maximum 120 MB.</small>
+          <small>Recognizes Front, Side, Back and optional 3/4 views in file or folder names. Maximum 200 MB.</small>
           <button className="rrugc-primary" type="button" disabled={!file || !!busy} onClick={() => void inspect()}>
             {busy === "preview" ? "Scanning ZIP…" : "Preview groups"}
           </button>

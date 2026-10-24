@@ -24,14 +24,14 @@ COLORS = (
     "khaki-maroon", "natural-black", "natural-brown", "natural-camo-green",
     "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon",
     "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose",
-    "natural-red", "natural-royal",
+    "natural-red", "natural-royal", "white-black", "white-navy", "white-red",
 )
 VIEWS = ("front", "side", "back", "three-quarter")
 REQUIRED_VIEWS = ("front", "side", "back")
 EXTENSIONS = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 NOISE = {"8869", "valucap", "gatorhats", "hat", "cap", "view", "views", "image", "img",
          "original", "stock", "photo", "photos", "picture", "product"}
-MAX_ZIP_BYTES = 120 * 1024 * 1024
+MAX_ZIP_BYTES = 200 * 1024 * 1024
 MAX_ITEMS = 400
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
 MAX_UNCOMPRESSED = 240 * 1024 * 1024
@@ -128,7 +128,7 @@ def _validate_image(data: bytes, suffix: str) -> None:
 
 def scan_archive(payload: bytes) -> tuple[dict[str, Any], dict[str, dict[str, tuple[str, bytes]]]]:
     if not 0 < len(payload) <= MAX_ZIP_BYTES:
-        raise HatStockSyncError("ZIP must be between 1 byte and 120 MB.")
+        raise HatStockSyncError("ZIP must be between 1 byte and 200 MB.")
     groups: dict[str, dict[str, list[tuple[str, bytes]]]] = defaultdict(lambda: defaultdict(list))
     issues: list[dict[str, str]] = []
     total = 0
@@ -165,7 +165,10 @@ def scan_archive(payload: bytes) -> tuple[dict[str, Any], dict[str, dict[str, tu
                 except (RuntimeError, OSError, zipfile.BadZipFile, HatStockSyncError) as exc:
                     issues.append({"file": name[:180], "error": "invalid_image"})
                     continue
-                groups[parsed["color"]][parsed["view"]].append((name, data))
+                existing = groups[parsed["color"]][parsed["view"]]
+                # Duplicate paths from nested ZIP exports are harmless when bytes match.
+                if not any(data == previous for _, previous in existing):
+                    existing.append((name, data))
     except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         raise HatStockSyncError("Invalid or corrupt image ZIP.") from exc
 

@@ -24,7 +24,7 @@ async def _zip_content(file: UploadFile) -> bytes:
         raise HTTPException(status_code=422, detail="Upload an image ZIP file.")
     payload = await file.read(MAX_ZIP_BYTES + 1)
     if len(payload) > MAX_ZIP_BYTES:
-        raise HTTPException(status_code=413, detail="Image ZIP is larger than 120 MB.")
+        raise HTTPException(status_code=413, detail="Image ZIP is larger than 200 MB.")
     return payload
 
 
