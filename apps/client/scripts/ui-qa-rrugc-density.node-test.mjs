@@ -4,10 +4,12 @@ import test from "node:test";
 
 const read = async file => fs.readFile(new URL("../app/realistic-review-ugc/" + file, import.meta.url), "utf8");
 
-test("RRUGC Stage 1 DaFont toolbar has four real grid tracks", async () => {
+test("RRUGC Stage 1 toolbar keeps desktop and phone grids without retired DaFont controls", async () => {
   const css = await read("KeywordImageStage.css");
   assert.match(css, /\.rrugc-keyword-gen-toolbar\s*\{[^}]*grid-template-columns:\s*minmax\(200px,\s*1\.2fr\)\s+minmax\(185px,\s*\.65fr\)\s+minmax\(94px,\s*auto\)\s+32px/s);
-  assert.match(css, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.rrugc-keyword-gen-font-pool\s*\{[^}]*grid-row:\s*3/);
+  assert.match(css, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.rrugc-keyword-gen-skill\s*\{[^}]*grid-column:\s*1;\s*grid-row:\s*2/);
+  assert.match(css, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.rrugc-keyword-gen-refresh\s*\{[^}]*grid-column:\s*2;\s*grid-row:\s*2/);
+  assert.doesNotMatch(css, /rrugc-keyword-gen-font-pool|dafont/i);
 });
 
 test("RRUGC data controls expose minimum touch targets across responsive overrides", async () => {
