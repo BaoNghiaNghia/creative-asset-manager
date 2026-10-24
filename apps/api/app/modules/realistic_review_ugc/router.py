@@ -5857,6 +5857,7 @@ def ecommerce_job_logs(
 async def ecommerce_job_output(
     job_id: str,
     version: int | None = Query(default=None, ge=1),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -5883,6 +5884,18 @@ async def ecommerce_job_output(
         remote_id, mime, size = saved.remote_file_id, saved.content_type, saved.size_bytes
     if not remote_id:
         raise HTTPException(status_code=409, detail="Ecommerce output not ready")
+    # Keep media authorization tenant-scoped before evaluating the revision.
+    # CDN/proxy deployments must not publicly cache these authenticated bytes.
+    cached, etag, cache_control = _rrugc_conditional_preview(
+        tenant_id=principal.active_tenant_id,
+        remote_file_id=remote_id,
+        size=int(size or 0),
+        revision=str(version) if version is not None else remote_id,
+        requested_version=str(version) if version is not None else None,
+        if_none_match=if_none_match,
+    )
+    if cached is not None:
+        return cached
     session.close()
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
@@ -5898,7 +5911,8 @@ async def ecommerce_job_output(
                             detail={"code": exc.code, "message": "Ecommerce output unavailable"}) from exc
     return StreamingResponse(stream.body, media_type=mime or stream.content_type,
                              background=BackgroundTask(stream.close),
-                             headers={"Cache-Control": "private, max-age=300"})
+                             headers={"Cache-Control": cache_control,
+                                      "ETag": etag, "Vary": "Cookie"})
 
 
 @router.get("/products-stage2/ecommerce/input-readiness")

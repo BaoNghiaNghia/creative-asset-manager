@@ -47,20 +47,32 @@ async def _run_stage1_skill_engine(
     """Run the installed engine and validate all six designs in manifest order."""
     output = workspace / "output"
     output.mkdir(parents=True, exist_ok=True)
-    process = await asyncio.create_subprocess_exec(
-        sys.executable, str(script), quote, "--out", str(output),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        cwd=str(script.parent.parent),
-    )
-    try:
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.communicate()
-        raise ValueError("Stage 1 Skill engine timed out after 300 seconds")
-    if process.returncode:
-        raise ValueError("Stage 1 Skill engine failed: " + stderr.decode(
-            "utf-8", errors="replace")[-450:])
+    for attempt in range(2):
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, str(script), quote, "--out", str(output),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            cwd=str(script.parent.parent),
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            raise ValueError("Stage 1 Skill engine timed out after 300 seconds")
+        if process.returncode == 0:
+            break
+        explanation = stderr.decode("utf-8", errors="replace")
+        final_dir = output / "final"
+        if (attempt == 0 and "Existing Stage 1 checkpoint changed or corrupt" in explanation
+                and final_dir.is_dir() and not final_dir.is_symlink()):
+            # Only a deterministic renderer checkpoint mismatch is recoverable:
+            # preserve every former local final, then retry the installed Skill
+            # once in the same job. Published output versions remain untouched.
+            final_dir.rename(output / (".stale-finals-" + uuid4().hex))
+            continue
+        if "No module named 'numpy'" in explanation or 'No module named "numpy"' in explanation:
+            raise ValueError("Stage 1 Skill requires NumPy in the image worker. Rebuild the worker with updated API requirements.")
+        raise ValueError("Stage 1 Skill engine failed: " + explanation[-450:])
     manifest_file = output / "manifest.json"
     if not manifest_file.is_file() or manifest_file.is_symlink():
         raise ValueError("Stage 1 Skill output manifest is missing")

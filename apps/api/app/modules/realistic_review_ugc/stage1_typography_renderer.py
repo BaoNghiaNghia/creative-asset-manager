@@ -295,13 +295,27 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
     for concept in range(1, 7):
         image = embroider_typography(_render_one(quote, font_dir, concept), concept=concept)
         path = target / f"design_{concept:02}.png"
+        if path.is_symlink():
+            raise ValueError("Stage 1 checkpoint may not be a symlink")
+        reusable = False
         if path.exists():
-            with Image.open(path) as previous:
-                previous.load()
-                if (previous.format != "PNG" or previous.mode != "RGBA"
-                    or previous.size != CANVAS or previous.tobytes() != image.tobytes()):
-                    raise ValueError("Existing Stage 1 checkpoint changed or corrupt")
-        else:
+            try:
+                with Image.open(path) as previous:
+                    previous.load()
+                    reusable = (previous.format == "PNG" and previous.mode == "RGBA"
+                                and previous.size == CANVAS
+                                and previous.tobytes() == image.tobytes())
+            except (OSError, ValueError):
+                reusable = False
+            if not reusable:
+                # Skill updates can change a deterministic renderer while a
+                # failed job still owns old local checkpoints. Preserve the
+                # stale bytes for diagnosis and atomically regenerate only the
+                # affected local final; published versions are untouched.
+                stale = workspace / "output" / ".stale-checkpoints" / hashlib.sha256(path.read_bytes()).hexdigest()
+                stale.mkdir(parents=True, exist_ok=True)
+                path.replace(stale / path.name)
+        if not reusable:
             image.save(path, format="PNG", optimize=True)
         with Image.open(path) as verified:
             verified.load()

@@ -120,16 +120,28 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    let message = "Request failed.";
+    let message = `Request failed (HTTP ${response.status}).`;
     let code: string | undefined;
     try {
       const payload = await response.json();
-      message = payload?.detail?.message || payload?.detail || message;
-      code = typeof payload?.detail?.code === "string" ? payload.detail.code : undefined;
+      const detail = payload?.detail;
+      if (typeof detail === "string" && detail.trim()) message = detail;
+      else if (detail && typeof detail === "object") {
+        if (typeof detail.message === "string" && detail.message.trim()) message = detail.message;
+        else if (Array.isArray(detail)) {
+          const issues = detail.filter(item => typeof item?.msg === "string")
+            .slice(0, 3).map(item => item.msg);
+          if (issues.length) message = "Invalid request: " + issues.join("; ");
+        }
+        if (typeof detail.code === "string") code = detail.code;
+      } else if (typeof payload?.message === "string" && payload.message.trim()) {
+        message = payload.message;
+      }
     } catch {
-      // Keep bounded fallback; no response body is required.
+      // Reverse proxies and gateway timeouts can send HTML or empty bodies.
+      // Do not leak their raw response to the UI.
     }
-    throw new RrugcApiError(response.status, String(message), code);
+    throw new RrugcApiError(response.status, message, code);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

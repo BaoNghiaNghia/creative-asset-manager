@@ -91,11 +91,14 @@ def test_resume_identical_checkpoint_without_overwrite(tmp_path):
     assert originals[1].is_file()
 
 
-def test_rejects_tampered_or_unexpected_final_checkpoint(tmp_path):
+def test_recovers_corrupt_final_without_deleting_evidence(tmp_path):
     originals = render_six("DUMP HIM", FONTS_ROOT, tmp_path)
+    expected = originals[0].read_bytes()
     originals[0].write_bytes(b"corrupt")
-    with pytest.raises((ValueError, OSError), match="checkpoint|corrupt|identify"):
-        render_six("DUMP HIM", FONTS_ROOT, tmp_path)
+    repaired = render_six("DUMP HIM", FONTS_ROOT, tmp_path)
+    assert repaired[0].read_bytes() == expected
+    archived = list((tmp_path / "output" / ".stale-checkpoints").glob("*/design_01.png"))
+    assert len(archived) == 1 and archived[0].read_bytes() == b"corrupt"
 
     originals[0].unlink()
     (tmp_path / "output" / "final" / "unknown.png").write_bytes(b"unexpected")

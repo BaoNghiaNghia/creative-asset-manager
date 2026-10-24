@@ -353,7 +353,7 @@ export function ProductsPhotoWorkflow({
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
-            <div><strong>{step.title}</strong><small>{step.shots.length} {step.shots.length === 1 ? "shot" : "shots"}</small></div>
+            <div><strong>{configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
             {step.shots.map((shot, shotIndex) => {
@@ -436,8 +436,8 @@ export function ProductsPhotoWorkflow({
                 <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
               </> : <>
                 <strong>{step.title} · {skillName}</strong>
-                <p className="rrugc-products-photo-bundle-status" role="status">{setupMessage}</p>
-                <p className="rrugc-products-photo-bundle-inputs"><b>Required references:</b> {state?.required_inputs || "Verified embroidery artwork, factory stock and scene references."}</p>
+                {(!configured || !state?.ready) && <p className="rrugc-products-photo-bundle-status" role="status">{setupMessage}</p>}
+                {(!configured || !state?.bundle_installed) && <p className="rrugc-products-photo-bundle-inputs"><b>Required references:</b> {state?.required_inputs || "Verified embroidery artwork, factory stock and scene references."}</p>}
                 {bundleMissing && Boolean(state?.missing_assets?.length) && <details className="rrugc-products-photo-bundle-missing">
                   <summary>Missing package files ({state!.missing_assets.length})</summary>
                   <ul>{state!.missing_assets.map(asset => <li key={asset}><code>{asset}</code></li>)}</ul>
@@ -453,7 +453,7 @@ export function ProductsPhotoWorkflow({
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
               onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
             {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
-            {!isEcommerce && <small>{state?.ready ? "Three scene outputs are generated as independent jobs." : "Worker or Skill must be ready before running."}</small>}
+            {!isEcommerce && !state?.ready && <small>Worker or Skill must be ready before running.</small>}
             </div>
             {jobActionError && expandedStep === step.key && <p role="alert">{jobActionError}</p>}
             {shotJob && logFor === shotJob.id && logs && <div className="rrugc-products-photo-execution-log">
