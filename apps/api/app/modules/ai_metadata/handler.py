@@ -76,6 +76,31 @@ class AssetAnalyzeJobHandler:
             asset_id=asset_id,
             source_fallback=source_fallback,
         )
+        if (
+            isinstance(storage_gate, JobHandlerResult)
+            and storage_gate.error_code in {
+                "managed_asset_storage_missing", "managed_asset_storage_failed"
+            }
+            and settings.AI_ANALYSIS_SOURCE_FALLBACK_ENABLED
+            and isinstance(pipeline_id, str)
+            and bool(pipeline_id)
+            and context.dependencies.resources.get("pipeline_content_resolver") is not None
+        ):
+            # Older analyses can be scheduled before a managed storage record
+            # exists. Only opt-in source fallback for a tenant-bound pipeline
+            # whose asset identity matches the persisted analysis. Do not
+            # loosen the gate for standalone/manual analysis jobs.
+            with context.dependencies.session_factory() as session:
+                pipeline = AssetPipelineRepository(session).get(
+                    context.job.tenant_id, pipeline_id
+                )
+                if (
+                    pipeline is not None
+                    and pipeline.asset_id == asset_id
+                    and bool(pipeline.source_asset_id)
+                ):
+                    source_fallback = True
+                    storage_gate = None
         if storage_gate is not None:
             return storage_gate
         try:

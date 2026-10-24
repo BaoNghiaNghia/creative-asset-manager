@@ -28,6 +28,7 @@ STORAGE_FALLBACK_CODES = frozenset({
 ANALYSIS_RECOVERY_CODES = frozenset({
     "managed_asset_storage_failed",
     "managed_asset_storage_missing",
+    "analysis_storage_read_failed",
     "gemini_invalid_json",
     "gemini_invalid_document",
     "gemini_empty_response",

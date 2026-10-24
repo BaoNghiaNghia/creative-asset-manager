@@ -26,6 +26,7 @@ PIPELINE_STAGES: tuple[tuple[str, str, str], ...] = (
 )
 SUPPORTED_IMAGE_MIME_TYPES = tuple(SUPPORTED_GOOGLE_DRIVE_IMAGE_MIME_TYPES)
 _DEFERRED_CODES = {"ai_model_rate_limited", "gemini_quota_deferred"}
+_RECOVERING_JOB_STATUSES = PROCESSING_JOB_QUEUED_STATUSES | {JobStatus.RETRY.value}
 _SKIPPED_CODES = {"unsupported_source_mime_type": "unsupported", "source_content_too_large": "oversized"}
 _ACTIONABLE_CODES = {"analysis_image_dimensions": "preprocessing_required", "gemini_http_error": "provider_error", "search_index_unconfigured": "configuration_error"}
 _STAGE_POSITION = {"source_asset_download": 1, "asset_store": 2, "asset_analyze": 3, "search_projection_build": 4, "asset_index": 5}
@@ -121,6 +122,7 @@ class PipelineOperationsRepository:
             logical.c.pipeline_state,
             logical.c.pipeline_error_code,
             logical.c.pipeline_error_message,
+            logical.c.pipeline_updated_at,
         )).all()
         job = ProcessingJobModel
         pending_stage = or_(*[
@@ -144,6 +146,7 @@ class PipelineOperationsRepository:
             logical.c.logical_id.label("logical_id"), job.job_type.label("job_type"),
             job.status.label("job_status"), job.next_attempt_at.label("next_attempt_at"),
             job.last_error_code.label("error_code"), job.last_error_message.label("error_message"),
+            job.updated_at.label("job_updated_at"),
             func.row_number().over(
                 partition_by=(logical.c.logical_id, job.job_type),
                 order_by=(job.created_at.desc(), job.updated_at.desc(), job.id.desc()),
@@ -154,6 +157,7 @@ class PipelineOperationsRepository:
         latest_by_stage = {
             (row.logical_id, row.job_type): (
                 row.job_status, row.next_attempt_at, row.error_code, row.error_message,
+                row.job_updated_at,
             )
             for row in self.session.execute(select(ranked).where(ranked.c.rn == 1))
         }
@@ -176,9 +180,9 @@ class PipelineOperationsRepository:
                 "eligible_now_assets", "waiting_assets", "processing_assets",
                 "needs_attention_assets", "skipped_assets", "not_started_assets",
             )}
-            for logical_id, state, pcode, pmessage in base_rows:
-                status, next_at, jcode, jmessage = latest_by_stage.get(
-                    (logical_id, key), (None, None, None, None)
+            for logical_id, state, pcode, pmessage, pipeline_updated_at in base_rows:
+                status, next_at, jcode, jmessage, job_updated_at = latest_by_stage.get(
+                    (logical_id, key), (None, None, None, None, None)
                 )
                 counts["total_logical_assets"] += 1
                 state_position = _STATE_POSITION.get(state or "discovered", 0)
@@ -188,7 +192,10 @@ class PipelineOperationsRepository:
                     effective = "completed"
                 elif status in PROCESSING_JOB_RUNNING_STATUSES:
                     effective = "processing"
-                elif status == JobStatus.FAILED.value or state_failure:
+                elif status == JobStatus.FAILED.value or (
+                    state_failure and status not in _RECOVERING_JOB_STATUSES
+                ):
+                    # A failure is historical when the job is queued for retry.
                     effective = "skipped" if self._skip_category(code, message) else "needs_attention"
                 elif status == JobStatus.RETRY.value or (
                     status in PROCESSING_JOB_QUEUED_STATUSES and (
@@ -212,6 +219,7 @@ class PipelineOperationsRepository:
                     "state": effective,
                     "error_code": code,
                     "error_message": message,
+                    "error_at": job_updated_at if jcode else pipeline_updated_at,
                     "pipeline_state": state,
                 })
             raw = attempt_counts.get(key, (0, 0, 0))
@@ -328,8 +336,10 @@ class PipelineOperationsRepository:
                     skipped[self._skip_category(row["error_code"], row["error_message"]) or "other_permanent"] += 1
                 if row["state"] == "needs_attention":
                     code = row["error_code"] or "processing_failed"; category = self._failure_category(code); key = (row["stage"], code, category)
-                    item = failures.setdefault(key, {"stage": next(label for stage, label, _ in PIPELINE_STAGES if stage == row["stage"]), "error_code": code, "category": category, "message": code.replace("_", " "), "count": 0, "latest_at": now})
+                    item = failures.setdefault(key, {"stage": next(label for stage, label, _ in PIPELINE_STAGES if stage == row["stage"]), "error_code": code, "category": category, "message": code.replace("_", " "), "count": 0, "latest_at": row["error_at"] or now})
                     item["count"] += 1
+                    if row["error_at"] and row["error_at"] > item["latest_at"]:
+                        item["latest_at"] = row["error_at"]
         eligible = max(0, supported - skipped_stage)
         return {"generated_at": now, "definitions": {"snapshot": "Current logical asset state; reporting date filters never affect this endpoint.", "attempt_diagnostics": "Raw immutable processing-job attempts; diagnostics only."}, "latest_source_sync": self._latest_source_sync(tenant_id),
             "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": eligible, "unsupported_assets": skipped["unsupported"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / eligible * 100, 1) if eligible else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},

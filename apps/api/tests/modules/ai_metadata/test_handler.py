@@ -237,6 +237,48 @@ class AssetAnalyzeJobHandlerProviderTest(unittest.TestCase):
             ).one()
             self.assertIn(projection_job.status, {"pending", "retry"})
 
+    def test_missing_storage_uses_opt_in_source_fallback_for_matching_pipeline(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        with self.sessions() as session:
+            pipeline = AssetPipelineModel(
+                tenant_id="tenant-a", correlation_id="source-fallback-test",
+                origin_type="source_asset", origin_id="source-test",
+                source_asset_id="source-test", asset_id=self.asset_id,
+                analysis_id=analysis_id, state="analysis_pending",
+            )
+            session.add(pipeline)
+            session.commit()
+            pipeline_id = pipeline.id
+
+        context = self._context(analysis_id, registry)
+        context.job.payload["pipeline_id"] = pipeline_id
+        context.dependencies.resources["pipeline_content_resolver"] = object()
+        with patch("app.modules.ai_metadata.handler.AiAnalysisService") as service_class:
+            service_class.return_value.analyze = AsyncMock(
+                return_value=AiAnalysisOutcome("retryable_failure", "test_transient", "test")
+            )
+            result = AssetAnalyzeJobHandler(Settings(
+                MANAGED_ASSET_STORAGE_ENABLED=True,
+                AI_ANALYSIS_SOURCE_FALLBACK_ENABLED=True,
+            ))(context)
+        self.assertEqual(result.outcome, JobOutcome.RETRYABLE_FAILURE)
+        self.assertTrue(service_class.call_args.kwargs["allow_unstored_source"])
+        self.assertEqual(service_class.call_args.kwargs["storage_provider"].pipeline.id, pipeline_id)
+
+    def test_missing_storage_without_fallback_keeps_non_retryable_gate(self):
+        analysis_id = self._analysis("gemini")
+        registry = AiProviderRegistry()
+        registry.register("gemini", FakeProvider("gemini"))
+        with patch("app.modules.ai_metadata.handler.AiAnalysisService") as service_class:
+            result = AssetAnalyzeJobHandler(Settings(
+                MANAGED_ASSET_STORAGE_ENABLED=True,
+                AI_ANALYSIS_SOURCE_FALLBACK_ENABLED=False,
+            ))(self._context(analysis_id, registry))
+        self.assertEqual(result.error_code, "managed_asset_storage_missing")
+        service_class.assert_not_called()
+
     def test_failed_managed_storage_is_reported_without_ai_retries(self):
         analysis_id = self._analysis("gemini")
         registry = AiProviderRegistry()
