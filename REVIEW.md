@@ -3,7 +3,8 @@
 - ZIP image validation and color/angle grouping, with safe previews and fail-closed duplicate/missing image handling.
 - Scoped configure permission for import, protected read endpoints, persistent versioned stock, atomic manifest swap and shared-lock Ecommerce input selection.
 - No database migration, no new credentials/packages and no automatic replay of existing jobs or output versions.
-- Tests: backend targeted 26 PASS, frontend full suite 856/856 PASS; earlier frontend build PASS; browser UI QA recorded zero interaction/network issues but 3 baseline dimension mismatches on the existing Stage 3 fixture at desktop/tablet/mobile. Baseline approval remains outstanding, so production deployment is gated.
+- Tests: backend targeted 26 PASS; frontend full suite 856/856 PASS; production frontend build PASS. Focused Chrome fixture Browser QA for Stage 2 Sync Hat Images: desktop 1440px, tablet 768px, mobile 390px, narrow phone 320px **all PASS / 0 recorded issues**. A real responsive regression was fixed: global `header{height:72px}` previously overlapped Stage 2 buttons/KPIs below 900px; a scoped auto-height override now keeps controls clickable.
+- Historical Stage 3 baseline snapshots (commit `68b86dd1`, 2026-10-02) show a different pre-redesign workflow and cannot correctly compare against current Stage 3; the 3 old full-page dimension mismatches were not accepted or overwritten. This feature uses a separate scoped Browser QA plan and fixture with functional assertions and no baseline overwrite. CI and release gates must still pass independently.
 - Reversal: use normal frontend/backend release rollback and restore an earlier verified hat-stock manifest; never delete previous stock blobs.
 
 ## Source Sync excessive scheduled job prevention — 2026-10-23

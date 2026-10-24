@@ -379,7 +379,13 @@ async function performStep(page, step) {
     await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
   }
   if (step.click) {
-    await page.locator(step.click).first().click();
+    const target = page.locator(step.click).first();
+    // Opt-in for long responsive pages: simulate an ordinary user scrolling
+    // the control into the center before clicking, without a forced click.
+    if (step.centerBeforeClick) {
+      await target.evaluate(node => node.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" }));
+    }
+    await target.click();
   }
   if (step.hover) {
     await page.locator(step.hover).first().hover();

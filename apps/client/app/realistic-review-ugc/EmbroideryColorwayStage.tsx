@@ -463,7 +463,7 @@ export function EmbroideryColorwayStage({
         ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers use independently assigned Skills and their persisted job outputs.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={<div className="rrugc-colorway-header-actions">
-        {workflow === "products" && hatCatalog?.can_sync && <button type="button" className="rrugc-primary rrugc-icon-action" onClick={() => setHatSyncOpen(true)}>
+        {workflow === "products" && hatCatalog?.can_sync && <button type="button" className="rrugc-primary rrugc-icon-action" data-hat-stock-sync-open onClick={() => setHatSyncOpen(true)}>
           <RrugcActionIcon name="scan" /> Sync Hat Images
         </button>}
         <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>

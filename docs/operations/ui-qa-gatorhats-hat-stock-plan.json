@@ -1,0 +1,93 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile",
+    "mobileSmall"
+  ],
+  "qualityBudgets": {
+    "desktop": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "tabletPortrait": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobile": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    },
+    "mobileSmall": {
+      "maxViewportOverflowPx": 0,
+      "maxSmallTargets": 0,
+      "maxUnnamedControls": 0,
+      "maxMissingAlt": 0
+    }
+  },
+  "steps": [
+    {
+      "name": "products-stage2-navigation",
+      "fullPage": false,
+      "goto": "/realistic-review-ugc?workflow=products&stage=stage0",
+      "waitFor": "#rrugc-tab-stage2"
+    },
+    {
+      "name": "hat-sync-stage2-visible",
+      "fullPage": false,
+      "click": "#rrugc-tab-stage2",
+      "waitFor": "[data-hat-stock-sync-open]",
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": "#rrugc-panel-stage2 [data-hat-stock-sync-open]"
+        }
+      ],
+      "requireIcons": [
+        "#rrugc-panel-stage2 [data-hat-stock-sync-open]"
+      ]
+    },
+    {
+      "name": "hat-sync-modal-open",
+      "centerBeforeClick": true,
+      "click": "#rrugc-panel-stage2 [data-hat-stock-sync-open]",
+      "waitFor": ".rrugc-hat-sync-modal",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".rrugc-hat-sync-upload"
+        },
+        {
+          "type": "attribute",
+          "selector": ".rrugc-hat-sync-modal",
+          "name": "aria-modal",
+          "value": "true"
+        },
+        {
+          "type": "text-includes",
+          "selector": ".rrugc-hat-sync-modal",
+          "value": "Preview groups"
+        }
+      ]
+    },
+    {
+      "name": "hat-sync-modal-close",
+      "click": ".rrugc-hat-sync-close",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
+      "fullPage": false,
+      "assertions": [
+        {
+          "type": "hidden",
+          "selector": ".rrugc-hat-sync-modal"
+        }
+      ]
+    }
+  ]
+}

@@ -71,6 +71,24 @@ release rollback scripts only. Never run/requeue prior AI jobs for stock sync.
 - Empty uploads, no complete color groups or disk failures fail closed.
 - Prior completed outputs are preserved; only later job input stock may change.
 
+## UI QA evidence (2026-10-24)
+
+The official fixture-backed Playwright runner was executed with
+`docs/operations/ui-qa-gatorhats-hat-stock-plan.json`. It covers the visible
+Sync button, actual modal open/close, accessible dialog, and overflow budgets
+at desktop (1440px), tablet (768px), mobile (390px), and narrow phone (320px).
+The focused run returned **0 recorded issues at all 4 viewports**; evidence is
+local under `.ui-qa/2026-10-24T10-34-19-363Z` (not committed).
+
+A genuine responsive defect was found and fixed: the global legacy stylesheet
+fixed all `header` elements at 72px, causing the Stage 2 action buttons to
+protrude into the KPI grid on smaller screens. The Stage 2 header now has
+scoped `height:auto;min-height:72px`, preserving desktop dimensions.
+
+Older, unrelated Stage 3 screenshots from the pre-redesign UI remain unmodified;
+those obsolete baselines are a separate governed review item, not evidence of a
+new Sync Hat Images regression. No baseline was refreshed without approval.
+
 ## Audit only
 
 `python scripts/hat_photo_grouping.py /path/to/8869-images.zip`

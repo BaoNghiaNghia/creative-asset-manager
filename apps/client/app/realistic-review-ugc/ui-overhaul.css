@@ -1022,6 +1022,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 /* Stage 1 · embroidery detail files -> selected skill -> 13 hat colorways. */
 .rrugc-colorway-stage{min-width:0;overflow:hidden}
 .rrugc-colorway-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+/* The global shell sets header{height:72px}; Stage 2 actions wrap on phones and
+   tablets, so the header must grow to contain them before the KPI grid. */
+.rrugc-colorway-stage > .rrugc-colorway-header{height:auto;min-height:72px}
 .rrugc-colorway-header>div:first-child{min-width:0}
 .rrugc-colorway-header small{color:#73829a;font-size:9px;font-weight:900;letter-spacing:.11em}
 .rrugc-colorway-header h2{margin:4px 0 0;color:#263a56;font-size:20px;letter-spacing:-.015em}

@@ -37,3 +37,4 @@
 .rrugc-hat-sync-footer button:disabled{cursor:not-allowed;opacity:.55}
 .rrugc-hat-sync-footer .rrugc-primary{border-color:transparent}
 @media(max-width:600px){.rrugc-hat-sync-modal{max-height:95vh}.rrugc-hat-sync-header,.rrugc-hat-sync-body,.rrugc-hat-sync-footer{padding-left:13px;padding-right:13px}.rrugc-hat-sync-views{grid-template-columns:repeat(2,1fr)}}
+.rrugc-colorway-header [data-hat-stock-sync-open]{min-height:44px;scroll-margin-block-start:180px}
