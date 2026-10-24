@@ -393,6 +393,9 @@ def build_worker_runtime(
             source_download_fairness_every=(
                 settings.WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY
             ),
+            notify_enabled=settings.WORKER_NOTIFY_ENABLED,
+            notify_interactive_max_idle_seconds=settings.WORKER_NOTIFY_INTERACTIVE_MAX_IDLE_SECONDS,
+            notify_dedicated_max_idle_seconds=settings.WORKER_NOTIFY_DEDICATED_MAX_IDLE_SECONDS,
         ),
         dependencies=dependencies,
         registry=build_handler_registry(

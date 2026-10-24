@@ -44,6 +44,9 @@ class WorkerRuntimeConfig:
     allowed_job_types: tuple[str, ...] = ()
     borrowed_job_types: tuple[str, ...] = ()
     source_download_fairness_every: int = 5
+    notify_enabled: bool = False
+    notify_interactive_max_idle_seconds: float = 13.0
+    notify_dedicated_max_idle_seconds: float = 35.0
 
     def __post_init__(self) -> None:
         if not self.worker_id:
@@ -166,6 +169,8 @@ class WorkerRuntime:
         self._closed = False
         self._claims_since_source_download = 0
         self._async_executor = WorkerAsyncExecutor()
+        self._queue_wake = threading.Event()
+        self._notify_listener: QueueWakeListener | None = None
         resources = dict(self.dependencies.resources)
         resources.setdefault("async_executor", self._async_executor)
         self.dependencies.resources = resources
@@ -186,11 +191,23 @@ class WorkerRuntime:
         if self.shutdown_requested.is_set():
             return
         self.shutdown_requested.set()
+        self._queue_wake.set()
         self.health.start_draining()
         self._log(logging.INFO, "worker_drain_started")
 
     def run_forever(self) -> None:
         self.start()
+        if self.config.notify_enabled:
+            settings = self.dependencies.settings
+            database_url = getattr(settings, 'DATABASE_URL', None) if settings else None
+            if database_url and database_url.startswith('postgresql'):
+                self._notify_listener = QueueWakeListener(
+                    database_url,
+                    accepted_job_types=tuple(dict.fromkeys(
+                        self.config.allowed_job_types + self.config.borrowed_job_types)),
+                    wake_event=self._queue_wake, logger=self.logger,
+                )
+                self._notify_listener.start()
         idle_streak = 0
         # Stable per-worker skew avoids all workers waking on the same second
         # and concurrently repeating an expensive empty policy claim scan.
@@ -219,7 +236,19 @@ class WorkerRuntime:
                         self.config.idle_poll_seconds * (2 ** (idle_streak - 1)),
                         max(max_idle, self.config.idle_poll_seconds),
                     )
-                    self.shutdown_requested.wait(delay + idle_skew)
+                    if self._notify_listener is not None and self._notify_listener.connected:
+                        max_idle = (
+                            self.config.notify_interactive_max_idle_seconds
+                            if self.config.worker_role in {'image','video','all'}
+                            else self.config.notify_dedicated_max_idle_seconds
+                        )
+                        delay = (max_idle if idle_streak >= 3 else delay)
+                        delay = min(max_idle, max(delay, self.config.idle_poll_seconds))
+                        # Coalesce bursts and avoid retry storms after a policy-blocked wake.
+                        self._queue_wake.wait(delay + idle_skew)
+                        self._queue_wake.clear()
+                    else:
+                        self.shutdown_requested.wait(delay + idle_skew)
             self._drain()
         finally:
             self.close()
@@ -241,6 +270,8 @@ class WorkerRuntime:
         if self._closed:
             return
         self._closed = True
+        if self._notify_listener is not None:
+            self._notify_listener.stop()
         self.health.stop()
         try:
             self._close_async_resources()

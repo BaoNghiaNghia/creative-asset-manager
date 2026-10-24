@@ -432,6 +432,10 @@ class Settings(BaseSettings):
     WORKER_LEASE_SECONDS: int = 60
     WORKER_HEARTBEAT_SECONDS: float = 15.0
     WORKER_IDLE_POLL_SECONDS: float = 2.0
+    # Stage-1 PostgreSQL wakeups; safe to disable without changing claim SQL.
+    WORKER_NOTIFY_ENABLED: bool = False
+    WORKER_NOTIFY_INTERACTIVE_MAX_IDLE_SECONDS: float = 13.0
+    WORKER_NOTIFY_DEDICATED_MAX_IDLE_SECONDS: float = 35.0
     WORKER_DRAIN_TIMEOUT_SECONDS: float = 30.0
     WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY: int = 2
     # Production may run several workers for throughput, but recurring
@@ -1410,6 +1414,10 @@ class Settings(BaseSettings):
             )
         if self.WORKER_IDLE_POLL_SECONDS <= 0:
             raise ValueError("WORKER_IDLE_POLL_SECONDS must be positive")
+        if not 0 < self.WORKER_NOTIFY_INTERACTIVE_MAX_IDLE_SECONDS <= 14:
+            raise ValueError("WORKER_NOTIFY_INTERACTIVE_MAX_IDLE_SECONDS must be in (0, 14]")
+        if not 0 < self.WORKER_NOTIFY_DEDICATED_MAX_IDLE_SECONDS <= 60:
+            raise ValueError("WORKER_NOTIFY_DEDICATED_MAX_IDLE_SECONDS must be in (0, 60]")
         if self.WORKER_DRAIN_TIMEOUT_SECONDS < 0:
             raise ValueError("WORKER_DRAIN_TIMEOUT_SECONDS cannot be negative")
         if self.WORKER_SOURCE_DOWNLOAD_FAIRNESS_EVERY < 1:
