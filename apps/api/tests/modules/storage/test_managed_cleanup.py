@@ -297,6 +297,35 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.skipped_active, 1)
         self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
 
+    async def test_completed_pipeline_allows_cleanup_when_analysis_precedes_upload(self) -> None:
+        row = self._record(age_hours=1)
+        self._analysis(completed_age_hours=7)
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="historical-late-upload",
+            origin_type="source_asset", origin_id="late-upload",
+            asset_id=self.asset.id, state="completed",
+        ))
+        self.session.commit()
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(provider.deleted, ["managed-only-id"])
+
+    async def test_incomplete_pipeline_blocks_cleanup_when_analysis_precedes_upload(self) -> None:
+        row = self._record(age_hours=1)
+        self._analysis(completed_age_hours=7)
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="late-upload-not-indexed",
+            origin_type="source_asset", origin_id="late-upload-pending",
+            asset_id=self.asset.id, state="search_pending",
+        ))
+        self.session.commit()
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.deleted, 0)
+        self.assertEqual(provider.deleted, [])
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
     async def test_critical_capacity_pressure_bypasses_completed_retention(self) -> None:
         self.asset.size_bytes = 95
         self.session.commit()

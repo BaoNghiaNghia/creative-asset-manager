@@ -212,10 +212,25 @@ class ManagedStorageCleanupService:
             return "skipped_active"
         if record.stored_at is None:
             return "skipped_not_ready"
-        # A completion from before this physical staging upload cannot qualify it.
+        # Later idempotent staging uploads may follow a completed AI analysis.
+        # Only a fully completed pipeline permits reclaiming that binary.
+        complete = session.scalar(select(AssetPipelineModel.id).where(
+            AssetPipelineModel.tenant_id == record.tenant_id,
+            AssetPipelineModel.asset_id == record.asset_id,
+            AssetPipelineModel.state == PipelineState.COMPLETED.value,
+        ).limit(1)) is not None
+        incomplete = session.scalar(select(AssetPipelineModel.id).where(
+            AssetPipelineModel.tenant_id == record.tenant_id,
+            AssetPipelineModel.asset_id == record.asset_id,
+            AssetPipelineModel.state != PipelineState.COMPLETED.value,
+        ).limit(1)) is not None
+        prior_completion_safe = complete and not incomplete
         relevant = tuple(
             analysis for analysis in analyses
-            if analysis.completed_at is not None and _utc(analysis.completed_at) >= _utc(record.stored_at)
+            if analysis.completed_at is not None and (
+                _utc(analysis.completed_at) >= _utc(record.stored_at)
+                or prior_completion_safe
+            )
         )
         completed = tuple(analysis for analysis in relevant if analysis.status == "completed")
         if completed and (
