@@ -108,6 +108,12 @@ class VisualIndexSyncJobHandler:
             return JobHandlerResult.retryable("visual_index_unconfigured", "Visual index is unavailable.")
         try:
             if context.job.payload.get("operation") == "reconcile_retired_source":
+                # A source retirement is not an asset retirement. During
+                # OneDrive reconciliation, provider drive-ID casing changes
+                # created new source links to identical assets. Never delete
+                # an existing vector while another live source still owns it.
+                if self._has_active_source(context):
+                    return JobHandlerResult.completed()
                 stage_started = time.monotonic()
                 try:
                     self._run(context, provider.delete_asset(tenant_id=context.job.tenant_id, asset_id=context.job.entity_id))
@@ -184,6 +190,26 @@ class VisualIndexSyncJobHandler:
             return JobHandlerResult.retryable("visual_index_elasticsearch_unavailable", str(exc))
         except Exception as exc:
             return JobHandlerResult.retryable("visual_index_failed", str(exc))
+
+    @staticmethod
+    def _has_active_source(context: JobHandlerContext) -> bool:
+        with context.dependencies.session_factory() as session:
+            return session.scalar(
+                select(AssetSourceLinkModel.id)
+                .join(SourceAssetModel,
+                      (SourceAssetModel.tenant_id == AssetSourceLinkModel.tenant_id)
+                      & (SourceAssetModel.id == AssetSourceLinkModel.source_asset_id))
+                .join(ExternalSourceModel,
+                      (ExternalSourceModel.tenant_id == SourceAssetModel.tenant_id)
+                      & (ExternalSourceModel.id == SourceAssetModel.external_source_id))
+                .where(
+                    AssetSourceLinkModel.tenant_id == context.job.tenant_id,
+                    AssetSourceLinkModel.asset_id == context.job.entity_id,
+                    SourceAssetModel.deleted_at.is_(None),
+                    ExternalSourceModel.status == "active",
+                )
+                .limit(1)
+            ) is not None
 
     @staticmethod
     def _run(context: JobHandlerContext, operation) -> None:

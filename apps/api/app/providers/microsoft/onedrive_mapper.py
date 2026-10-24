@@ -1,5 +1,6 @@
 from __future__ import annotations
 import base64
+import re
 from app.modules.explorer.schema import AssetNode
 ONEDRIVE_ROOT_ID="onedrive-root"
 FOLDER_MIME="application/vnd.microsoft.folder"
@@ -12,7 +13,12 @@ def _decode(value:str)->str:
     return result
 def make_item_id(drive_id:str,item_id:str)->str:
     if not drive_id or not item_id:raise ValueError("OneDrive drive and item IDs are required")
-    return f"od:item:{_encode(drive_id)}:{_encode(item_id)}"
+    # OneDrive Personal Graph returns the same 16-hex-character drive ID in
+    # uppercase or lowercase across full traversals. Treating casing as part
+    # of source identity re-imported ~68k existing files and retired their
+    # previous Search/Visual documents. Never change opaque business b! IDs.
+    canonical_drive_id = drive_id.lower() if re.fullmatch(r"[0-9a-fA-F]{16}", drive_id) else drive_id
+    return f"od:item:{_encode(canonical_drive_id)}:{_encode(item_id)}"
 def parse_item_id(value:str)->tuple[str,str]:
     parts=value.split(":")
     if len(parts)!=4 or parts[:2]!=["od","item"]:raise ValueError("Invalid OneDrive item id")

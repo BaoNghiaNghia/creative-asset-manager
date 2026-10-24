@@ -157,6 +157,15 @@ class SourceSyncRepository:
             )
         ))
 
+    @staticmethod
+    def mass_retirement_is_unsafe(*, active_count: int, missing_count: int) -> bool:
+        """Protect the index when provider IDs change or full scans truncate.
+
+        A legitimate large deletion requires explicit operational review.
+        """
+        return (active_count >= 1000 and missing_count >= 1000
+                and missing_count * 100 >= active_count * 20)
+
     def complete_full_run(self, run: SourceSyncRunModel) -> int:
         owned = self.session.scalar(
             select(SourceSyncRunModel)
@@ -166,6 +175,24 @@ class SourceSyncRepository:
         )
         if owned is None or owned.status != "running":
             raise RuntimeError("only the owning running reconciliation can complete")
+        active_query = select(func.count(SourceAssetModel.id)).where(
+            SourceAssetModel.tenant_id == owned.tenant_id,
+            SourceAssetModel.external_source_id == owned.external_source_id,
+            SourceAssetModel.deleted_at.is_(None),
+        )
+        missing_query = active_query.where(or_(
+            SourceAssetModel.last_seen_generation.is_(None),
+            SourceAssetModel.last_seen_generation != owned.generation,
+        ))
+        active_count = int(self.session.scalar(active_query) or 0)
+        missing_count = int(self.session.scalar(missing_query) or 0)
+        if self.mass_retirement_is_unsafe(
+            active_count=active_count, missing_count=missing_count
+        ):
+            raise RuntimeError(
+                "source_full_reconciliation_mass_retire_blocked: "
+                f"{missing_count}/{active_count} active source items would be retired"
+            )
         now = datetime.now(timezone.utc)
         result = self.session.execute(update(SourceAssetModel).where(
             SourceAssetModel.tenant_id == owned.tenant_id,

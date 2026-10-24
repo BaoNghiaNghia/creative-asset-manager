@@ -8,6 +8,15 @@ from app.providers.microsoft.onedrive import OneDriveClient,OneDriveDownloadErro
 from app.providers.microsoft.onedrive_mapper import ONEDRIVE_ROOT_ID,make_item_id,map_item,parse_item_id,root_node
 from app.providers.microsoft.onedrive_delta import _candidate
 
+def test_personal_hex_drive_id_casing_never_creates_new_source_identity():
+    upper = make_item_id("5AE27C7BF2983C8A", "graph-item")
+    lower = make_item_id("5ae27c7bf2983c8a", "graph-item")
+    assert upper == lower
+    assert parse_item_id(upper) == ("5ae27c7bf2983c8a", "graph-item")
+    # Business drive IDs are opaque and their case may be meaningful.
+    assert make_item_id("b!Aaaa", "item") != make_item_id("b!aaaa", "item")
+
+
 def test_item_id_round_trip_and_sharepoint_rejected():
     value=make_item_id("drive:alpha","item/with+chars")
     assert parse_item_id(value)==("drive:alpha","item/with+chars")
