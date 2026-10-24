@@ -2920,6 +2920,14 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - Verification: Manager manifest/lockfile preflight passed for 0.1.44; `git diff --check` and the staging gate passed against ef1e85b9 (Python compileall passed, API pytest skipped because the isolated checkout has no API virtualenv; unchanged web frontend skipped). Independent source review found no blocker. Native Rust and Windows PowerShell execution are unavailable on the editing VPS, so those runtime/parser tests remain Windows CI gates. No installation or deployment success is asserted here.
 - Rollback: Quit and stop, restore the retained verified prior Portable release and launch normally; preserve all pairing, profiles and completed results. Startup failure may leave unfinished work to retry through normal lease rules.
 
+## 2026-10-22 — Free CAM shop-aware Auto Discover (implementation only)
+
+- Existing authenticated tenant-scoped `GET /branding-dna/scout-agents/{id}/shops` is reused with the already paired VPS Research Scout identity. Only eligible active/draft canonical US Etsy/Amazon shop handles become public web *search terms*, never direct marketplace page visits or claims of shop ownership/brand affiliation.
+- Feature flag `CAM_RESEARCH_SHOP_QUERIES_ENABLED` defaults off. When enabled it operates only for Tavily Keyless; one shop query replaces one generic query within the existing 2/hour and 20/day bounded quota. Attempts and long-term fair selection persist in two additive local SQLite tables; 429/cooldown, outbox sync/ACK, tenant authorization, platform URL allowlist and ordinary fixed queries survive.
+- No new API route, token, provider dependency, permissions, PostgreSQL migration, CAM UI, Chrome/extension or marketplace crawling. Product page snippets remain unverified; neither sales/rights nor direct shop attribution is asserted.
+- Offline unit checks include catalog response validation, revoked/missing credential, domain spoofing, paused shops, duplicate ID and excessive response, fairness, shared rate budget, keyless-only provider selection, provider errors and cooldown. CI runs the suite explicitly in API shard 0.
+- Changes confined to `integrations/agent-reach/auto_discover.py`, tests, CI and documentation. Source change alone does **not** authorize production activation. Rollback with the default-OFF flag, or restore prior reviewed script leaving outbox and local SQLite metadata intact; full plan: `docs/operations/CAM_SHOP_AWARE_AUTO_DISCOVER.md`.
+
 ## 2026-10-22 — Browser Agent CAM public shops: shared marketplace policy (worker 0.2.13)
 
 - User-directed change removes the separate local per-shop owner/operator permission document for a public CAM storefront; draft/competitor labels never authorize or deny observations, while paused shops remain blocked.
