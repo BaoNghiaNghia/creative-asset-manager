@@ -111,7 +111,6 @@ export function ProductsPhotoWorkflow({
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
   const [ugcScoutError, setUgcScoutError] = useState("");
-  const [ugcScoutBusy, setUgcScoutBusy] = useState(false);
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
   const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[] } | null>(null);
   const [allOutputOpen, setAllOutputOpen] = useState(false);
@@ -150,17 +149,17 @@ export function ProductsPhotoWorkflow({
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [sourcePlanId, expandedStep]);
 
-  async function scoutLifestyle() {
-    if (!sourcePlanId || ugcScoutBusy) return;
-    setUgcScoutBusy(true);
-    setUgcScoutError("");
-    try {
-      await startUgcScout(sourcePlanId);
-      setUgcScout(await getUgcScoutGallery(sourcePlanId));
-    } catch (error) {
-      setUgcScoutError(error instanceof Error ? error.message : "Unable to schedule Review Scout");
-    } finally { setUgcScoutBusy(false); }
-  }
+  // Bootstrap legacy Stage 2 selections automatically, even when the UGC
+  // details accordion is closed. The server owns idempotency and backoff.
+  useEffect(() => {
+    if (!sourcePlanId) return;
+    let cancelled = false;
+    void startUgcScout(sourcePlanId)
+      .then(() => getUgcScoutGallery(sourcePlanId))
+      .then(gallery => { if (!cancelled) { setUgcScout(gallery); setUgcScoutError(""); } })
+      .catch(error => { if (!cancelled) setUgcScoutError(error instanceof Error ? error.message : "Automatic Review Scout could not start"); });
+    return () => { cancelled = true; };
+  }, [sourcePlanId]);
 
   async function invokeEcommerce(stage: string, job?: EcommerceJob, regenerate = false) {
     if (!sourcePlanId || busyStage) return;
@@ -416,9 +415,7 @@ export function ProductsPhotoWorkflow({
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <strong>Review Scout · Lifestyle references</strong>
                 <span>{ugcScout ? ugcScout.count + " / 20 images" : "Checking Scout campaign…"}</span>
-                <button type="button" disabled={ugcScoutBusy || !sourcePlanId} onClick={() => void scoutLifestyle()}>
-                  {ugcScoutBusy ? "Scheduling…" : "Scout lifestyle"}
-                </button>
+                <span role="status">Automatic Scout enabled</span>
                 {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}

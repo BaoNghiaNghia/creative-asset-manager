@@ -4986,7 +4986,13 @@ def select_stage1_design_for_products_stage2(
         session.add(plan)
     elif plan is not None:
         plan.status = "ready" if selected else "missing"
-    session.commit()
+    if selected and plan is not None:
+        # Selecting a design is the durable backend trigger for Slot 6.
+        # A subsequent GET of the UI must never be required to start Scout.
+        session.flush()
+        ugc_scout_start(UgcScoutRequest(source_plan_id=plan.id), session=session, principal=principal)
+    else:
+        session.commit()
     return {"selected": bool(selected), "source_plan_id": plan.id if plan else None}
 
 
@@ -5716,20 +5722,23 @@ def ugc_scout_start(
         session.flush()
     else:
         plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, body.source_plan_id)
+    if campaign.status == "completed":
+        session.commit()
+        return {"source_plan_id": plan.id, "status": "completed", "campaign_id": campaign.id}
     if campaign.status != "running":
         raise HTTPException(409, detail={"code": "ugc_scout_campaign_not_running",
             "message": "Review Scout campaign must be running before Slot 6 can scout."})
     if campaign.scan_lease_run_id and campaign.scan_lease_expires_at and campaign.scan_lease_expires_at > datetime.now(timezone.utc):
         return {"source_plan_id": plan.id, "status": "running", "campaign_id": campaign.id}
-    campaign.auto_scout = True
-    campaign.scan_next_at = datetime.now(timezone.utc)
-    # A failed previous attempt is historical; only an active lease denotes
-    # an in-progress run. Explicit retry must re-enable claim eligibility.
-    campaign.scan_last_error_code = None
-    campaign.scan_failure_streak = 0
-    campaign.scout_status = "ready"
+    # Automatic bootstrapping must never reset an existing Scout backoff,
+    # claim lease or login failure simply because a page has been reopened.
+    if not campaign.auto_scout:
+        campaign.auto_scout = True
+    if campaign.scan_next_at is None and campaign.scout_status not in {"needs_login", "error"}:
+        campaign.scan_next_at = datetime.now(timezone.utc)
     session.commit()
-    return {"source_plan_id": plan.id, "status": "queued", "campaign_id": campaign.id}
+    return {"source_plan_id": plan.id, "status": campaign.scout_status,
+            "campaign_id": campaign.id}
 
 
 class EcommerceRunAllRequest(BaseModel):
