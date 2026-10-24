@@ -1,0 +1,10 @@
+{
+  "review_scope": "marketplace_policy",
+  "platform": "amazon",
+  "platform_terms_reviewed": false,
+  "robots_policy_reviewed": false,
+  "amazon_agent_policy_reviewed": false,
+  "amazon_reviewed_hosts": [],
+  "approved_by": "",
+  "approved_at": ""
+}

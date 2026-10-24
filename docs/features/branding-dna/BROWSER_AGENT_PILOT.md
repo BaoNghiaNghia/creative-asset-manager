@@ -1,5 +1,31 @@
 # Branding DNA — Amazon/Etsy Browser Agent Pilot
 
+## 2026-10-22 — Marketplace-level policy review, no shop-owner permission v0.2.13
+
+The user-approved change removes the requirement for a separate local
+`approval.json` per CAM shop or a declaration from that shop's owner
+before a finite, visible public-storefront pilot. A single private,
+dated `marketplace-access/{amazon,etsy}.json` review can cover multiple
+shops. CAM remains authoritative for the shop UUID and URL; deliberate
+`paused` status still blocks. Older exact-shop approval documents are
+still accepted for compatibility when there is no marketplace-level review.
+
+This change does **not** assert that public listings grant permission from
+the marketplace or rights to reuse seller images. Amazon still requires
+Agent Policy and robots/terms review for exact listed marketplace hosts,
+with declared Agent identity; Etsy
+still requires actual written authorization issued by Etsy and the review
+must enumerate the exact canonical shop URLs covered by that authorization.
+An invalid shared review fails closed (never fall back to older approvals).
+All profile locks, URL allowlists, request pacing, CAPTCHA/403/429 stops,
+partial/unverified reports, and no evidence upload remain unchanged.
+A new review does not trigger a scan; only an explicit manual pilot
+can run. Production dispatch, task leases and CAM imports remain disabled.
+
+The worker is 0.2.13; Scout Manager release version advances to 0.1.45
+only to create an immutable Windows release. No database migration,
+dependency, tenant permission or CAM API contract is changed.
+
 ## 2026-10-21 — Recovery and release provenance v0.2.12
 
 Only successfully parsed product details count toward observed products.

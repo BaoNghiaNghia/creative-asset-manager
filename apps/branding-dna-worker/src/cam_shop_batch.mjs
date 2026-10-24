@@ -13,6 +13,8 @@ const UUID=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const SAFE_ERRORS=new Set([
  "approval_file_not_present_or_untrusted","approval_json_invalid",
  "shop_browser_pilot_not_approved","browser_approval_expired",
+ "marketplace_policy_scope_invalid","etsy_permission_scope_not_verified",
+ "amazon_marketplace_host_review_required",
  "etsy_written_authorization_required","amazon_agent_policy_review_required",
  "cam_shop_paused",
  "cam_shop_not_found_or_ambiguous","cam_shop_url_not_canonical",
@@ -31,6 +33,18 @@ export function localShopPaths(baseDir,id){
  return {approvalFile:join(dir,"approval.json"),
          profileDir:join(dir,"chromium-profile"),reportDir:join(dir,"reports")};
 }
+/** One marketplace review file replaces repeated per-shop permission files.
+ * The old exact-shop path is read only as a backwards-compatible fallback.
+ */
+export function marketplacePolicyFile(baseDir,platform){
+ if(typeof baseDir!=="string"||!isAbsolute(baseDir)||
+    !["amazon","etsy"].includes(platform))throw Error("invalid_marketplace_policy_path");
+ return join(resolve(baseDir),"marketplace-access",platform+".json");
+}
+function approvalPath(baseDir,shop){
+ const policy=marketplacePolicyFile(baseDir,shop.platform);
+ return existsSync(policy)?policy:localShopPaths(baseDir,shop.id).approvalFile;
+}
 export function checkShopEligibility(shop,baseDir){
  const id=shop?.id;
  if(!UUID.test(id)||!["amazon","etsy"].includes(shop.platform))
@@ -40,12 +54,15 @@ export function checkShopEligibility(shop,baseDir){
  // Registry ownership labels and draft state never confer or revoke
  // external browser permission. Only an explicit pause stops this shop.
  if(shop.status==="paused")return {...row,state:"blocked",reason:"shop_paused"};
+ if(!["active","draft"].includes(shop.status))
+  return {...row,state:"blocked",reason:"shop_status_not_eligible"};
  const p=localShopPaths(baseDir,id);
- if(!existsSync(p.approvalFile))return {...row,state:"blocked",reason:"per_shop_approval_missing"};
+ const reviewFile=approvalPath(baseDir,shop);
+ if(!existsSync(reviewFile))return {...row,state:"blocked",reason:"marketplace_policy_or_legacy_approval_missing"};
  try {
   validateConfiguredApproval({
    platform:shop.platform,shop_url:shop.storefront_url,
-   approval_file:p.approvalFile,profile_dir:p.profileDir,report_dir:p.reportDir,
+   approval_file:reviewFile,profile_dir:p.profileDir,report_dir:p.reportDir,
    max_products:3,minimum_delay_ms:10000,maximum_delay_ms:18000,
    headless:false,interaction_mode:"visible_click",
   });
@@ -55,7 +72,7 @@ export function checkShopEligibility(shop,baseDir){
 
 /** Never auto-enables scans; each call is a finite user-initiated batch,
  * max five sequential shops, max three visible product pages per shop.
- * Operator-reported approvals must be independently substantiated.
+ * Marketplace permission must still be documented independently of CAM.
  */
 export async function runCamShopBatch(config,{mode="inspect",shopId=null,maxShops=1,
  baseDir,request=fetch,pilot,stopping=()=>false}={}){
@@ -65,18 +82,21 @@ export async function runCamShopBatch(config,{mode="inspect",shopId=null,maxShop
  const shops=await fetchCamShopLibrary(config,request);
  const selected=shopId?shops.filter(s=>s.id===shopId):shops;
  if(shopId&&selected.length!==1)throw Error("cam_shop_not_found_or_ambiguous");
+ if(new Set(selected.map(s=>s.id)).size!==selected.length)
+  throw Error("cam_shop_library_contract_untrusted");
  const rows=selected.map(s=>checkShopEligibility(s,baseDir));
  const summary={mode,shops:selected.length,eligible:rows.filter(r=>r.state==="locally_approved").length,
   blocked:rows.filter(r=>r.state==="blocked").length,items:rows,run_count:0,
   needs_operator:0,scan_enabled:false,evidence_committed:false};
  if(mode==="inspect")return summary;
  if(process.platform!=="win32" && !pilot)throw Error("windows_browser_runtime_only");
- for(const row of rows){
+ for(const [index,row] of rows.entries()){
   if(row.state!=="locally_approved"||summary.run_count>=maxShops||stopping())continue;
   const p=localShopPaths(baseDir,row.shop_id);
   try{
+   const shop=selected[index];
    const result=await runCamShopPilotWithProgress(config,{
-    shopId:row.shop_id,...p,maxProducts:3,
+    shopId:row.shop_id,...p,approvalFile:approvalPath(baseDir,shop),maxProducts:3,
     minimumDelayMs:10000,maximumDelayMs:18000,
     headless:false,interactionMode:"visible_click",
    },{request,pilot});

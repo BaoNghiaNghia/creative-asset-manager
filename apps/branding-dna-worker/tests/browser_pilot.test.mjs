@@ -78,6 +78,40 @@ test("written Etsy authorization and Amazon agent policy are distinct gates",()=
  assert.throws(()=>validateBrowserPermission(amazon,null),/shop_browser_pilot_not_approved/);
 });
 
+test("platform review needs no shop ownership but keeps marketplace limits",()=>{
+ const policy={review_scope:"marketplace_policy",platform:"amazon",
+  approved_by:"Fixture marketplace reviewer",approved_at:new Date().toISOString(),
+  platform_terms_reviewed:true,robots_policy_reviewed:true,
+  amazon_agent_policy_reviewed:true,amazon_reviewed_hosts:["www.amazon.com"]};
+ const competitor=assertShopUrl("https://www.amazon.com/stores/CompetitorCaps","amazon");
+ assert.equal(validateBrowserPermission(competitor,policy),true);
+ assert.throws(()=>validateBrowserPermission(competitor,{...policy,browser_access_approved:true}),
+  /marketplace_policy_scope_invalid/);
+ assert.throws(()=>validateBrowserPermission(competitor,{...policy,amazon_agent_policy_reviewed:false}),
+  /amazon_agent_policy_review_required/);
+ assert.throws(()=>validateBrowserPermission(competitor,{...policy,amazon_reviewed_hosts:[]}),
+  /amazon_marketplace_host_review_required/);
+ assert.throws(()=>validateBrowserPermission(competitor,{...policy,amazon_reviewed_hosts:["www.amazon.co.uk"]}),
+  /amazon_marketplace_host_review_required/);
+ assert.throws(()=>validateBrowserPermission(competitor,{...policy,approved_at:"2022-01-01"}),
+  /browser_approval_expired/);
+ const etsy=assertShopUrl(ETSY,"etsy");
+ const written={review_scope:"marketplace_policy",platform:"etsy",
+  approved_by:"Fixture marketplace reviewer",approved_at:new Date().toISOString(),
+  platform_terms_reviewed:true,robots_policy_reviewed:true,
+  etsy_written_authorization:true,etsy_authorization_reference:"Fixture Etsy permission letter",
+  etsy_authorized_shop_urls:[etsy.url]};
+ assert.equal(validateBrowserPermission(etsy,written),true);
+ const other=assertShopUrl("https://www.etsy.com/shop/AnotherCaps","etsy");
+ assert.throws(()=>validateBrowserPermission(other,written),/etsy_permission_scope_not_verified/);
+ assert.throws(()=>validateBrowserPermission(etsy,{...written,etsy_authorized_shop_urls:["https://www.etsy.com.evil.test/shop/AcmeCaps"]}),
+  /etsy_permission_scope_not_verified/);
+ assert.throws(()=>validateBrowserPermission(etsy,{...written,etsy_written_authorization:false}),
+  /etsy_written_authorization_required/);
+ assert.throws(()=>validateBrowserPermission(etsy,{...written,platform_terms_reviewed:false}),
+  /shop_browser_pilot_not_approved/);
+});
+
 test("resource allowlist forbids external services and suspicious protocols",()=>{
  const etsy=assertShopUrl(ETSY,"etsy"), amazon=assertShopUrl(AMAZON,"amazon");
  assert.ok(resourceAllowed(ETSY_LINK,etsy));

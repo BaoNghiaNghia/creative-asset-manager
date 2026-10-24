@@ -15,7 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKER = ROOT / "apps" / "branding-dna-worker"
-VERSION = "0.2.12"
+VERSION = "0.2.13"
 BASENAME = f"BrandingDNA-BrowserAgent-v{VERSION}-win-x64"
 STAMP = (2026, 10, 21, 0, 0, 0)
 
@@ -33,6 +33,8 @@ PACKAGE_FILES = (
     "RUN_CAM_APPROVED_SHOPS.cmd",
     "config/pilot.example.json",
     "config/approval.example.json",
+    "config/marketplace-policy.amazon.example.json",
+    "config/marketplace-policy.etsy.example.json",
     "src/browser_pilot.mjs",
     "src/version.mjs",
     "src/run_configured_pilot.mjs",

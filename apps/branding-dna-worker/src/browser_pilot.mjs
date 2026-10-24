@@ -72,19 +72,57 @@ export function assertProductLink(raw, shop) {
 }
 
 export function validateBrowserPermission(shop, config){
-  if(!config || config.platform!==shop.platform || config.shop_url!==shop.url ||
-     config.browser_access_approved!==true || config.source_rights_reviewed!==true ||
+  // CAM storefronts do not require a declaration from each shop owner.
+  // A single reviewed marketplace policy may cover multiple public shops.
+  // Legacy exact-shop operator approvals remain valid for older installations.
+  if(!config || config.platform!==shop.platform ||
      config.platform_terms_reviewed!==true || config.robots_policy_reviewed!==true ||
      typeof config.approved_by!=="string" || config.approved_by.trim().length<3 ||
      typeof config.approved_at!=="string" || !Number.isFinite(Date.parse(config.approved_at)))
     throw new Error("shop_browser_pilot_not_approved");
+  const platformPolicy=config.review_scope==="marketplace_policy";
+  if(platformPolicy){
+    // The platform-policy form must not silently be treated as an assertion
+    // of shop ownership or permission to reuse somebody else's artwork.
+    if(Object.hasOwn(config,"shop_url") ||
+       Object.hasOwn(config,"browser_access_approved") ||
+       Object.hasOwn(config,"source_rights_reviewed"))
+      throw new Error("marketplace_policy_scope_invalid");
+  }else if(config.review_scope!==undefined || config.shop_url!==shop.url ||
+           config.browser_access_approved!==true || config.source_rights_reviewed!==true){
+    throw new Error("shop_browser_pilot_not_approved");
+  }
   const age=Date.now()-Date.parse(config.approved_at);
   if(age<0 || age>30*24*60*60*1000)throw new Error("browser_approval_expired");
-  if(shop.platform==="etsy" && (config.etsy_written_authorization!==true ||
-      typeof config.etsy_authorization_reference!=="string" || config.etsy_authorization_reference.trim().length<5))
-    throw new Error("etsy_written_authorization_required");
-  if(shop.platform==="amazon" && config.amazon_agent_policy_reviewed!==true)
-    throw new Error("amazon_agent_policy_review_required");
+  if(shop.platform==="etsy"){
+    if(config.etsy_written_authorization!==true ||
+       typeof config.etsy_authorization_reference!=="string" ||
+       config.etsy_authorization_reference.trim().length<5)
+      throw new Error("etsy_written_authorization_required");
+    if(platformPolicy){
+      // Written marketplace authorization is only valid for the storefronts
+      // explicitly covered by the documented permission scope.
+      const allowed=config.etsy_authorized_shop_urls;
+      const valid=Array.isArray(allowed) && allowed.length>0 && allowed.length<=50 &&
+        allowed.every(url=>{
+          if(typeof url!=="string")return false;
+          try{return assertShopUrl(url,"etsy").url===url}catch{return false}
+        }) && allowed.includes(shop.url);
+      if(!valid)throw new Error("etsy_permission_scope_not_verified");
+    }
+  }
+  if(shop.platform==="amazon"){
+    if(config.amazon_agent_policy_reviewed!==true)
+      throw new Error("amazon_agent_policy_review_required");
+    if(platformPolicy){
+      const hosts=config.amazon_reviewed_hosts;
+      if(!Array.isArray(hosts) || hosts.length===0 || hosts.length>AMAZON_DOMAINS.size ||
+         new Set(hosts).size!==hosts.length ||
+         hosts.some(host=>typeof host!=="string" || !AMAZON_DOMAINS.has(host)) ||
+         !hosts.includes(shop.host))
+        throw new Error("amazon_marketplace_host_review_required");
+    }
+  }
   return true;
 }
 
