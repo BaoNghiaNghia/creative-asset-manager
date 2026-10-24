@@ -46,7 +46,11 @@ def test_independent_persistence_uses_source_revision_and_skill_hash():
 
 
 def test_view_reference_sources_and_anti_invention_prompts():
-    assert list(STOCK_ROLES) == [f"prod_s2_ec{i}" for i in range(1, 5)]
+    assert list(STOCK_ROLES) == (
+        [f"prod_s2_ec{i}" for i in range(1, 5)]
+        + [f"prod_s2_mh_{i}" for i in range(1, 4)]
+        + [f"prod_s2_ugc_{i}" for i in range(1, 4)]
+    )
     assert STOCK_ROLES["prod_s2_ec2"] == ("stock_front", "stock_side_90")
     assert "THREE-QUARTER" in VIEW_PROMPTS["prod_s2_ec2"]
     assert "not as a 3/4" in VIEW_PROMPTS["prod_s2_ec2"]
