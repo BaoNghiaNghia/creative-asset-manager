@@ -27,7 +27,7 @@ Date: 2026-10-25 (Asia/Ho_Chi_Minh). Source branch: `main`. Database: `creative_
 | Phase | Work | State |
 |---|---|---|
 | P0 | Read-only database/table/index/lock/vacuum inventory | DONE baseline and 5-sample claim observation; repeat before A/B |
-| P1 | Check backup receipt, isolated restore, disk/WAL | BLOCKED pending evidence |
+| P1 | Check backup receipt, isolated restore, disk/WAL | PARTIAL: recent private verified-remote receipt PASS; independent remote re-download and isolated restore NOT VERIFIED; same-volume capacity BLOCKED |
 | P2 | Autovacuum hygiene: derive per-table dead tuple threshold; consider narrow reloptions; VACUUM (ANALYZE) only when safe | BLOCKED by G1/G2 |
 | P3 | Diagnose real SQLAlchemy claim query, rejection groups, blocked group backoff and eligible tenant/job_type pairs | READ-ONLY plan captured for image, visual, video-heavy; exact runtime A/B pending G1 |
 | P4 | A/B with EXPLAIN (ANALYZE, BUFFERS) on safe replica/rollback transaction, two-session concurrency, same selected job | PENDING |
@@ -53,6 +53,48 @@ SELECT state,wait_event_type,wait_event,count(*) FROM pg_stat_activity WHERE dat
 SELECT relname,indexrelname,idx_scan,pg_size_pretty(pg_relation_size(indexrelid)) FROM pg_stat_user_indexes WHERE relname='processing_jobs' ORDER BY pg_relation_size(indexrelid) DESC;
 SELECT pid,relid::regclass,phase,heap_blks_total,heap_blks_scanned FROM pg_stat_progress_vacuum;
 ```
+
+### P1 evidence, capacity and isolated restore handoff (2026-10-25)
+
+The read-only command (authorized CodeLocal/VPS root; it **never restores** and does not print any digest or credential) is:
+
+```bash
+PYTHONPATH=apps/api apps/api/.venv/bin/python scripts/cam_pg_g1_preflight_readonly.py
+PYTHONPATH=apps/api:. apps/api/.venv/bin/python -m unittest scripts.test_cam_pg_g1_preflight_readonly -v
+```
+
+Recorded live output: production database 4,036,271,127 bytes; root free 9,660,039,168 bytes. Local owner-private receipt built by the official backup service passed `has_recent_verified_receipt` (private metadata with SHA-256, independent Drive MD5 match and recent completion timestamp; full evidence remains private); **this does not mean a new download or restore passed**. Only PG16 cluster main port 5432 present. Same-volume estimate: another 7,128,148,515 bytes for restored data/WAL buffer plus retaining 8 GiB free after completion. Same-volume rehearsal is **BLOCKED** at current space. Use a separately provisioned PostgreSQL 16 host/volume with enough capacity; no `pg_createcluster` or restore on production volume.
+
+Backup software tests: 50/50 backup/Drive/download/CLI PASS; 13/13 isolated restore guard tests PASS; 5/5 G1 preflight tests PASS. Unit tests prove guards, **not** a real restore.
+
+CodeLocal read of the production environment file is a hard policy block even with full workspace access. Do **not** work around this through alternate paths/aliases or read credentials into workspace. The authorized root SSH operator must run the existing redacted production-env wrapper for a read-only managed-backup list and download, then restore only to a separately verified isolated target. The operator steps in `DATABASE_BACKUP.md` and `CATINAT_BACKUP_RESTORE_OPERATOR.md` apply, but use the *latest* verified managed backup, not the older Oct 20 fixed file.
+
+Root SSH operator verification, outside CodeLocal workspace policy:
+```bash
+cd /opt/creative-asset-manager/current/apps/api
+python3 /opt/creative-asset-manager/current/deploy/tools/production_env.py run-redacted \
+  --env-file /etc/creative-asset-manager/production.env --expected-owner-uid 0 -- \
+  /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  -m app.operations.database_backup_cli verify-config
+python3 /opt/creative-asset-manager/current/deploy/tools/production_env.py run-redacted \
+  --env-file /etc/creative-asset-manager/production.env --expected-owner-uid 0 -- \
+  /opt/creative-asset-manager/current/apps/api/.venv/bin/python \
+  -m app.operations.database_backup_cli list
+```
+
+The source `main` additionally provides `app.operations.cam_pg_g1_remote_metadata`, a read-only metadata matcher that prints **no** backup ID or checksum. It compares a valid recent local receipt against a uniquely matching Google Drive backup by content-derived MD5, SHA-256 appProperty, size, managed kind, and parent folder. The operator can run it via the same approved redacted production-env wrapper from a root SSH session, after entering the `main` checkout's `apps/api` directory:
+
+```bash
+cd /srv/creative-asset-manager-source/.cam-gatorhats-fix-20261024/apps/api
+python3 /opt/creative-asset-manager/current/deploy/tools/production_env.py run-redacted \
+  --env-file /etc/creative-asset-manager/production.env --expected-owner-uid 0 -- \
+  /srv/creative-asset-manager-source/.cam-gatorhats-fix-20261024/apps/api/.venv/bin/python \
+  -m app.operations.cam_pg_g1_remote_metadata
+```
+
+Expected `G1_DRIVE_CONTENT_MD5_METADATA_MATCH=PASS` and `G1_DRIVE_SIZE_AND_SHA_PROPERTY_MATCH=PASS` are **remote metadata matches, not an actual independent download or restore**. The operation is deliberately unavailable to the CodeLocal workspace because production.env access is hard-blocked. If any required metadata is missing, if no unique backup matches, or if the remote provider cannot be accessed, it fails closed. No production API/worker deployment is required for this operator-only tool.
+
+Keep the resulting remote file IDs and hashes in the private operator evidence directory, not commits or public QA. Once a dedicated target is ready, use `backup_restore_download.py` with the specific managed ID and private mode-0700 output directory, then `cam_db_restore_rehearsal.py` using the downloaded SHA-256 and MD5, a dedicated non-superuser role and separate listener (not 5432). Record `DOWNLOAD_VERIFIED=PASS`, `RESTORE_REHEARSAL=PASS`, restored Alembic revision and representative exact counts. Validate RPO/RTO and recovery path before setting G1=PASS. Until that happens, maintain the G1 BLOCKED gate.
 
 ### P0/P3 repeatable read-only claim evidence
 Run `bash scripts/cam-pg-claim-baseline-readonly.sh 5 3` as the authorized VPS root operator. The script uses PostgreSQL peer authentication with read-only sessions, 7s statement timeout, and emits aggregate statistics only (no payloads, tenant IDs or query body). Treat `pg_stat_database` and `pg_stat_user_indexes` counters as cumulative: calculate deltas across timestamps. The claim-active count is a SQL-prefix heuristic, not a precise application trace; retain observations and corroborate with worker role source.
@@ -91,4 +133,5 @@ Only promote after an A/B evidence record (same actual SQLAlchemy SQL, tenant/jo
 - 2026-10-25 12:09–12:12 +07 (execution pass 5): P0/P3 read-only five-sample, 12-second claim probe completed using `scripts/cam-pg-claim-baseline-readonly.sh`; active claim-prefix query counts 3/2/1/2/1, longest observed active claim age 1.92 seconds. Lock waits observed in 2/5 samples (one waiter each); 0 idle-in-transaction. `ix_processing_jobs_policy_claim.idx_tup_read` rose from 99,515,594,537 to 99,520,872,530 (delta 5,277,993 index tuple reads in 12 seconds); `pg_stat_database.blks_read` rose 666,095 blocks in the same window. Neither temp_files nor temp_bytes nor deadlocks rose in this sample. All are systemwide cumulative deltas, not per-query causal attribution or physical disk bytes. Read-only job census: 58,910 `search_index_sync` and 58,116 `visual_index_sync` pending (117,026 total) all have `next_attempt_at=2099-01-01+07`. Join against `cam_incident_20261024_job_hold` confirmed all 117,026 incident IDs still exist and remain held, zero missing: **PROTECT, DO NOT RELEASE**. Other due jobs: 6,057 `video_analyze` all blocked by disabled video provider policy; 3,352 due `asset_store` with no provider policy match and no active tenant cap denial (separate Managed Storage staging backpressure may apply). Tenant policy active, 1 of 2 provider policies globally blocked (scope video). This is candidate filtering evidence, not permission to override policy. `tenant_provider_policies` cumulative seq_scan ~899.9M but no meaningful change in a separate 4s sample; do not claim it is current hot loop from cumulative figure. Autovacuum default threshold for `processing_jobs` ~175,231 dead tuples vs observed ~66,731, explaining why vacuum may not trigger yet; this is not proof of an autovacuum fault. No query rewrites or DB mutation occurred.
 - Decision: P0 timed sampling **DONE** for this pass; P3 root-cause shortlist **IN PROGRESS**. Prioritize measuring real claimant SQL and early policy rejection for video provider and due status, while preserving fairness, allowed job types, temporary 2099 holds and SKIP LOCKED; avoid indiscriminate index creation or claiming temp spills. G1 still BLOCKED because verified remote checksum and isolated restore PASS are missing. G2 has ~9.1 GB free at last check, not a substitute for restore headroom. Do not run P2/P4/P5/P6 mutations before hard gates.
 - 2026-10-25 12:14-12:17+07 (execution pass 6): 3-sample read-only claim probe 12:14:57/12:14:59/12:15:01 had claim counts 2/1/3, max active claim age 1.71s, one lock waiter and one idle-in-transaction at first snapshot; later samples zero; cumulative temp files rose from prior 40,924 to 40,928, temp bytes from 299,844,002,324 to 299,861,508,628 (not attributable to a single query). Using source `TenantAwareJobClaimer._next_candidate` captured read-only SELECT with SKIP LOCKED and compiled three synthetic-role EXPLAIN plans, without ANALYZE/job claims; results in P3 section above. Diagnostic safety unit tests 2/2 PASS; existing `apps/api/tests/modules/processing_policy/test_policy_and_claim.py` suite 47/47 PASS. Exact runtime SQL and CPU/BUFFERS A/B remain unmeasured. Backup receipt/isolated restore still not confirmed G1 BLOCKED; no production DB writes, no policy changes.
-- Next action: authorized managed-backup checksum + isolated restore on separate adequate-capacity environment; then A/B actual SQLAlchemy query (p50/p95, BUFFERS, CPU, selected job equality, two-session locking) before any production activation. Never infer restore PASS from timer/service success.
+- 2026-10-25 (execution pass 7, P1): official nonsecret receipt validator returned `BACKUP_REMOTE_RECEIPT_RECENT=True` for `/var/lib/creative-asset-manager/database-backup`. A new read-only `scripts/cam_pg_g1_preflight_readonly.py` returned `backup_local_recent_receipt=PASS`, database 4,036,271,127 bytes, root free 9,660,039,168 bytes, estimated additional same-volume restore need 7,128,148,515 bytes plus an 8-GiB free-space floor. Only PG16 main/5432 exists: **same-volume restore BLOCKED**; do not create a clone there. Production protected env access is CodeLocal hard-blocked, so no new Drive list/download/checksum was performed and no actual restore was performed. Added operator-only, read-only `app.operations.cam_pg_g1_remote_metadata` to independently compare receipt with current managed Drive metadata in an authorized root SSH session without displaying IDs/digests; it was **unit-tested only, not executed against live Drive**. Tests: 50 backup/CLI/download, 3 new remote metadata, 13 restore guard, and 5 preflight = 71 PASS. P1 remains PARTIAL/BLOCKED until remote check plus separate-volume/host restore and row/revision verification.
+- Next action: run authorized operator-only current remote metadata verification; download independently and restore on a **separate adequately provisioned PG16 host or mount**, document RPO/RTO and row/revision integrity, and only then unlock G1 and P2/P4 mutation gates. Never infer restore PASS from receipt, timer or service success.
