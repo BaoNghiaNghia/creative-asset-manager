@@ -236,9 +236,10 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const loadedCount = useMemo(() => data.items.length, [data.items]);
   return <div className="rrugc-cap-stack-stage">
     <RrugcStageHeader
-      kicker="GATORHATS REVIEWS · STAGE 1"
+      className="rrugc-cap-stack-heading rrugc-card"
+      kicker="REVIEWS · STAGE 1 · PINTEREST SCOUT"
       title="Cap Stack Scout"
-      description="Shared Pinterest library for stacks of 2–6 caps. Gemini counts visible caps and flags out-of-range photos; human feedback remains authoritative."
+      description="Pinterest stacks of 2–6 caps · Gemini-assisted image review with human feedback priority."
       actions={<div className="rrugc-cap-stack-top">
         <span className={"rrugc-cap-stack-state " + (data.scout.enabled ? "enabled" : "")}>
           <span aria-hidden="true">●</span> {data.scout.running ? "Scanning" : data.scout.enabled ? "Enabled · waiting" : "Paused"}
@@ -252,48 +253,66 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       </div>}
     />
 
-    <div className="rrugc-cap-stack-summary" aria-label="Cap Stack Library metrics">
-      {[
-        ["Discovered", data.stats.discovered], ["Approved", data.stats.approved],
-        ["Rejected", data.stats.rejected], ["AI", data.stats.ai], ["Pending", data.stats.pending],
-      ].map(([name, value]) => <div key={name}><small>{name}</small><strong>{value}</strong></div>)}
-      <div className="rrugc-cap-stack-learning">
-        <small>Feedback learning</small><strong>Live query ranking</strong>
-        <span>✓ / × / AI influence the next Scout searches.</span>
+    <div className="rrugc-cap-stack-controls" aria-label="Cap Stack library controls">
+      <div className="rrugc-cap-stack-overview" aria-label="Cap Stack library summary">
+        <div className="rrugc-cap-stack-summary" aria-label="Cap Stack Library metrics">
+          {[
+            ["Discovered", data.stats.discovered], ["Approved", data.stats.approved],
+            ["Rejected", data.stats.rejected], ["AI", data.stats.ai], ["Pending", data.stats.pending],
+          ].map(([name, value]) => <span className={"rrugc-cap-stack-metric metric-" + String(name).toLowerCase()}
+            key={name}><small>{name}</small><strong>{value}</strong></span>)}
+        </div>
+        <details className="rrugc-cap-stack-vision" aria-label="Shared Gemini pool analysis status">
+          <summary aria-label="Show Gemini analysis details">
+            <strong>Gemini</strong>
+            <span>Ready <b>{data.vision?.ready ?? 0}</b></span>
+            <span>Waiting <b>{(data.vision?.pending ?? 0) + (data.vision?.analyzing ?? 0)}</b></span>
+          </summary>
+          <div className="rrugc-cap-stack-vision-details">
+            <span>Count ready: {data.vision?.ready ?? 0}</span>
+            <span>Waiting: {(data.vision?.pending ?? 0) + (data.vision?.analyzing ?? 0)}</span>
+            <span>Review count: {data.vision?.needs_review ?? 0}</span>
+            <span>Not Cap Stack: {data.vision?.not_cap_stack ?? 0}</span>
+            <span>Over 6 caps: {data.vision?.out_of_range ?? 0}</span>
+            <span>Suspected AI: {data.vision?.ai_suspected ?? 0}</span>
+            <span>Errors: {data.vision?.error ?? 0}</span>
+          </div>
+        </details>
       </div>
-    </div>
 
-    <div className="rrugc-cap-stack-vision" aria-label="Shared Gemini pool analysis status">
-      <strong>Gemini pool · Image Analysis</strong>
-      <span>Count ready: {data.vision?.ready ?? 0}</span>
-      <span>Waiting: {(data.vision?.pending ?? 0) + (data.vision?.analyzing ?? 0)}</span>
-      <span>Review count: {data.vision?.needs_review ?? 0}</span>
-      <span>Not Cap Stack: {data.vision?.not_cap_stack ?? 0}</span>
-      <span>Over 6 caps: {data.vision?.out_of_range ?? 0}</span>
-      <span>Suspected AI: {data.vision?.ai_suspected ?? 0}</span>
-      <span>Errors: {data.vision?.error ?? 0}</span>
-    </div>
-
-    <div className="rrugc-cap-stack-toolbar">
-      <div className="rrugc-cap-stack-search">
-        <RrugcActionIcon name="scan"/>
-        <input aria-label="Search Cap Stack library" value={query}
-          placeholder="Search images or sources…" onChange={event => { setQuery(event.target.value); setPage(1); }}/>
+      <div className="rrugc-cap-stack-toolbar">
+        <div className="rrugc-cap-stack-search">
+          <RrugcActionIcon name="scan"/>
+          <input aria-label="Search Cap Stack library" value={query}
+            placeholder="Search images or sources…" onChange={event => { setQuery(event.target.value); setPage(1); }}/>
+        </div>
+        <label><span className="rrugc-cap-stack-sr-only">Status</span>
+          <select aria-label="Filter by review status" value={label}
+            onChange={event => { setLabel(event.target.value); setPage(1); }}>
+            {LABELS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <label><span className="rrugc-cap-stack-sr-only">Gemini status</span>
+          <select aria-label="Filter by Gemini status" value={visionStatus}
+            onChange={event => { setVisionStatus(event.target.value); setPage(1); }}>
+            {VISION_STATUS_OPTIONS.map(([key, name]) => <option value={key} key={key}>{name}</option>)}
+          </select>
+        </label>
+        <label><span className="rrugc-cap-stack-sr-only">Caps detected</span>
+          <select aria-label="Filter by cap count" value={count ?? ""}
+            onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
+            <option value="">Any number</option>
+            {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
+          </select>
+        </label>
+        <label><span className="rrugc-cap-stack-sr-only">View</span>
+          <select aria-label="Gallery view" value={view}
+            onChange={event => setView(event.target.value as "masonry" | "list")}>
+            <option value="masonry">Masonry</option><option value="list">List</option>
+          </select>
+        </label>
+        <span className="rrugc-cap-stack-results">{data.total} results · {loadedCount} loaded</span>
       </div>
-      <label>Status<select value={label} onChange={event => { setLabel(event.target.value); setPage(1); }}>
-        {LABELS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label>
-      <label>Gemini status<select value={visionStatus} onChange={event => { setVisionStatus(event.target.value); setPage(1); }}>
-        {VISION_STATUS_OPTIONS.map(([key, label]) => <option value={key} key={key}>{label}</option>)}
-      </select></label>
-      <label>Caps detected<select value={count ?? ""} onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
-        <option value="">Any number</option>
-        {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
-      </select></label>
-      <label>View<select value={view} onChange={event => setView(event.target.value as "masonry" | "list")}>
-        <option value="masonry">Masonry</option><option value="list">List</option>
-      </select></label>
-      <span>{data.total} results · {loadedCount} loaded</span>
     </div>
 
     {error && <p className="rrugc-cap-stack-error" role="alert">{error}</p>}

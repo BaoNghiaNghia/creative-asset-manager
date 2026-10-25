@@ -18,6 +18,18 @@ test("Cap Stack feedback stays hidden on fine-pointer desktop until card hover o
     "the hidden state must not apply to touch-only devices");
 });
 
+
+test("Cap Stack controls occupy two compact visual rows and the header matches shared stage cards", () => {
+  assert.match(css, /\.rrugc-cap-stack-heading\.rrugc-card\{[^}]*border:1px solid/);
+  assert.match(css, /\.rrugc-cap-stack-controls\{[^}]*grid-template-rows:auto auto/);
+  assert.match(css, /\.rrugc-cap-stack-overview\{[^}]*display:flex/);
+  assert.match(css, /\.rrugc-cap-stack-toolbar\{[^}]*flex-wrap:nowrap/);
+  assert.match(css, /\.rrugc-cap-stack-metric\{[^}]*display:inline-flex/);
+  assert.match(css, /\.rrugc-cap-stack-vision-details\{[^}]*position:absolute/);
+  assert.match(css, /\.rrugc-cap-stack-toolbar\{[^}]*overflow-x:auto/);
+  assert.doesNotMatch(css, /rrugc-cap-stack-learning/);
+});
+
 test("masonry images show a reserved skeleton until the real lazy image is decoded", () => {
   assert.match(css, /\.rrugc-cap-stack-gallery\.view-masonry\{display:grid/);
   assert.match(css, /\.rrugc-cap-stack-gallery\.view-masonry \.rrugc-stable-masonry-column\{display:flex;flex-direction:column/);

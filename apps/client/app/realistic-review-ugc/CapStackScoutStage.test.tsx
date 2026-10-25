@@ -230,6 +230,50 @@ describe("Cap Stack Scout Stage 1", () => {
     await act(async () => root.unmount());
   });
 
+  it("uses the shared Stage header and exactly two compact control rows", async () => {
+    const page: api.CapStackPage = {
+      ...sample, total: 2354,
+      stats: { discovered: 2354, approved: 7, rejected: 30, ai: 2, pending: 2315 },
+      scout: { ...sample.scout, enabled: true },
+      vision: { ready: 270, analyzing: 14, pending: 1034, needs_review: 0,
+        not_cap_stack: 945, out_of_range: 91, ai_suspected: 81, error: 0 },
+    };
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(page);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+
+    const header = host.querySelector(".rrugc-cap-stack-heading.rrugc-stage-header.rrugc-card")!;
+    expect(header).not.toBeNull();
+    expect(header.querySelector("h2")?.textContent).toBe("Cap Stack Scout");
+    expect(header.querySelector(".rrugc-cap-stack-pause")).not.toBeNull();
+    const controls = host.querySelector(".rrugc-cap-stack-controls")!;
+    expect(controls.children).toHaveLength(2);
+    expect(controls.children[0].classList.contains("rrugc-cap-stack-overview")).toBe(true);
+    expect(controls.children[1].classList.contains("rrugc-cap-stack-toolbar")).toBe(true);
+    const metrics = controls.querySelectorAll(".rrugc-cap-stack-metric");
+    expect(metrics).toHaveLength(5);
+    expect([...metrics].map(metric => metric.textContent)).toEqual([
+      "Discovered2354", "Approved7", "Rejected30", "AI2", "Pending2315",
+    ]);
+    expect(host.querySelector(".rrugc-cap-stack-learning")).toBeNull();
+    expect(controls.querySelector(".rrugc-cap-stack-vision")).not.toBeNull();
+    const details = controls.querySelector<HTMLDetailsElement>(".rrugc-cap-stack-vision")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toContain("270");
+    expect(details.querySelector("summary")?.textContent).toContain("1048");
+    await act(async () => { details.querySelector("summary")!.click(); });
+    expect(details.open).toBe(true);
+    expect(details.textContent).toContain("Suspected AI: 81");
+    expect(details.textContent).toContain("Over 6 caps: 91");
+    expect(controls.querySelectorAll(".rrugc-cap-stack-toolbar select")).toHaveLength(4);
+    expect(controls.querySelector<HTMLInputElement>(".rrugc-cap-stack-search input")?.getAttribute("aria-label"))
+      .toBe("Search Cap Stack library");
+    expect(controls.querySelector(".rrugc-cap-stack-results")?.textContent).toContain("2354 results");
+    await act(async () => root.unmount());
+  });
+
   it("does not poll while the panel is inactive", async () => {
     const loader = vi.spyOn(api, "listCapStackImages");
     const host = document.createElement("div");
