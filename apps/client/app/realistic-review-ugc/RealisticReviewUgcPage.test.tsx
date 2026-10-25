@@ -1417,8 +1417,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain("Active (2)");
     expect(markup).toContain("Rejected (1)");
-    expect(markup).not.toContain("https://img.example/1.jpg");
-    expect(markup).toContain("https://img.example/0.jpg");
+    expect(markup).not.toContain("https://pinterest.example/pin/1");
+    expect(markup).toContain("https://pinterest.example/pin/0");
   });
 
   it("keeps the rejected review entry accessible when there are no active references", () => {
