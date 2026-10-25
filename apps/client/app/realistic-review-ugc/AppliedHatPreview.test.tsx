@@ -7,6 +7,14 @@ vi.mock("./embroidery/useBlueprintEmbroideryComposite", () => ({
   useBlueprintEmbroideryComposite: (src: string) => src,
 }));
 
+// The real DeferredImage intentionally withholds src until observed in the
+// viewport. Keep this component test focused on the stock URLs supplied to it.
+vi.mock("./DeferredImage", () => ({
+  DeferredImage: ({ src, className = "" }: { src: string; className?: string }) => (
+    <img src={src} className={className} alt="" />
+  ),
+}));
+
 describe("Product embroidery design gallery", () => {
   it("applies embroidery ONLY to the front image while retaining the 2x2 image-only layout", () => {
     const html = renderToStaticMarkup(<AppliedHatPreview
