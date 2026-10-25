@@ -15,6 +15,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
@@ -7071,27 +7072,43 @@ async def public_stage5_original_photo(
         raise HTTPException(status_code=404, detail="Photo unavailable.")
     if extension not in {"jpg", "png"}:
         raise HTTPException(status_code=404, detail="Photo unavailable.")
-    record = session.execute(
-        select(RrugcStage2JobModel, RrugcStage3AnalysisModel)
-        .join(
-            RrugcStage3AnalysisModel,
-            (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
-            & (RrugcStage3AnalysisModel.tenant_id == RrugcStage2JobModel.tenant_id),
-        )
-        .where(
-            RrugcStage2JobModel.id == job_id,
-            RrugcStage2JobModel.status == "completed",
-            RrugcStage2JobModel.output_remote_file_id.is_not(None),
-            RrugcStage3AnalysisModel.status == "ready",
-        )
-    ).first()
-    if record is None:
-        raise HTTPException(status_code=404, detail="Photo unavailable.")
-    job, review = record
-    original_type = str(job.output_content_type or "image/png").lower()
-    expected_extension = "jpg" if original_type in {"image/jpeg", "image/jpg"} else "png"
-    if extension != expected_extension:
-        raise HTTPException(status_code=404, detail="Photo unavailable.")
+    def load_photo_metadata() -> tuple[str, str, str | None, int | None, str]:
+        # This is a synchronous SQLAlchemy Session; never block the ASGI event
+        # loop waiting for a QueuePool checkout under concurrent photo traffic.
+        # Return immutable scalar values and ALWAYS release the DB transaction,
+        # including HEAD/404 paths, before remote OAuth/open/stream I/O begins.
+        try:
+            record = session.execute(
+                select(RrugcStage2JobModel, RrugcStage3AnalysisModel)
+                .join(
+                    RrugcStage3AnalysisModel,
+                    (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
+                    & (RrugcStage3AnalysisModel.tenant_id == RrugcStage2JobModel.tenant_id),
+                )
+                .where(
+                    RrugcStage2JobModel.id == job_id,
+                    RrugcStage2JobModel.status == "completed",
+                    RrugcStage2JobModel.output_remote_file_id.is_not(None),
+                    RrugcStage3AnalysisModel.status == "ready",
+                )
+            ).first()
+            if record is None:
+                raise HTTPException(status_code=404, detail="Photo unavailable.")
+            job, _review = record
+            original_type = str(job.output_content_type or "image/png").lower()
+            expected_extension = "jpg" if original_type in {"image/jpeg", "image/jpg"} else "png"
+            if extension != expected_extension:
+                raise HTTPException(status_code=404, detail="Photo unavailable.")
+            return (
+                str(job.tenant_id), str(job.output_remote_file_id),
+                job.output_content_type, job.output_size_bytes, original_type,
+            )
+        finally:
+            session.close()
+
+    tenant_id, remote_file_id, content_type, size_bytes, original_type = (
+        await run_in_threadpool(load_photo_metadata)
+    )
 
     if request.method == "HEAD":
         return Response(status_code=200, media_type="image/jpeg" if extension == "jpg" else "image/png",
@@ -7103,11 +7120,11 @@ async def public_stage5_original_photo(
     try:
         stored = await build_managed_storage_provider(get_settings()).open_asset(
             OpenStoredAssetInput(
-                tenant_id=job.tenant_id,
-                asset_id=f"rrugc-stage2:{job.id}",
-                remote_file_id=job.output_remote_file_id,
-                content_type=job.output_content_type,
-                size_bytes=job.output_size_bytes,
+                tenant_id=tenant_id,
+                asset_id=f"rrugc-stage2:{job_id}",
+                remote_file_id=remote_file_id,
+                content_type=content_type,
+                size_bytes=size_bytes,
             )
         )
     except (StorageProviderError, RuntimeError):

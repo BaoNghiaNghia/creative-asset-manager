@@ -285,11 +285,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(inventory_router)
 
     @api.get("/live")
-    def live():
+    async def live():
         return {"status": "ok"}
 
     @api.get("/health")
-    def health():
+    async def health():
         return {"status": "ok"}
 
     @api.get("/ready")
@@ -301,7 +301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @api.get("/version")
-    def version():
+    async def version():
         return {
             "version": settings.APP_VERSION,
             "commit": runtime_build_commit,
