@@ -173,7 +173,7 @@
     {
       "name": "stage2-sort-controls",
       "waitFor": "#rrugc-panel-stage2 .rrugc-stage-sort select",
-      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage2 .rrugc-stage-sort select","value":"Last updated"}]
+      "assertions": [{"type":"attribute","selector":"#rrugc-panel-stage2 .rrugc-stage-sort select option[value='updated']","name":"value","value":"updated"}]
     },
     {
       "name": "stage2-sort-column-highlight",
@@ -224,7 +224,7 @@
     {
       "name": "stage4-sort-controls",
       "waitFor": "#rrugc-panel-stage4 .rrugc-stage-sort select",
-      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage4 .rrugc-stage-sort select","value":"Active jobs"}]
+      "assertions": [{"type":"attribute","selector":"#rrugc-panel-stage4 .rrugc-stage-sort select option[value='active_jobs']","name":"value","value":"active_jobs"}]
     },
     {
       "name": "stage4-regenerate-preview",
@@ -268,7 +268,7 @@
     {
       "name": "stage5-sort-controls",
       "waitFor": "#rrugc-panel-stage5 .rrugc-stage5-sort-label select",
-      "assertions": [{"type":"text-includes","selector":"#rrugc-panel-stage5 .rrugc-stage5-sort-label select","value":"Highest UGC score"}]
+      "assertions": [{"type":"attribute","selector":"#rrugc-panel-stage5 .rrugc-stage5-sort-label select option[value='score']","name":"value","value":"score"}]
     },
     {
       "name": "stage5-source-tree",
