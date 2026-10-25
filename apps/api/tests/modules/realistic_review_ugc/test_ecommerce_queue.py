@@ -209,8 +209,18 @@ def test_run_all_front_completion_queues_angles_even_without_browser(ecommerce_d
 
 
 
-def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecommerce_db):
-    """A design gets its own sample; idempotent Run and retry never repick it."""
+def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecommerce_db, monkeypatch):
+    """Scene and color palettes are pinned per design; retry never randomizes."""
+    from io import BytesIO
+    from PIL import Image
+    from app.modules.realistic_review_ugc import multihat_colorways
+
+    image = Image.new("RGB", (700, 540), "#ece9d8")
+    buffer = BytesIO()
+    image.save(buffer, "JPEG")
+    approved_stock = buffer.getvalue()
+    monkeypatch.setattr(multihat_colorways, "_stock_bytes",
+                        lambda _settings, _color: approved_stock)
     session, settings = ecommerce_db
     for cap_count in (3, 4):
         for i in range(30):
@@ -245,6 +255,12 @@ def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecomme
     assert samples[0] == samples[1] == samples[2]
     assert sum(ref["caps_count"] == 3 for ref in samples[0]) == 10
     assert sum(ref["caps_count"] == 4 for ref in samples[0]) == 10
+    palettes = [attempt.payload_json["multihat_colorways"] for attempt in attempts]
+    assert list(map(len, palettes)) == [4, 4, 3]
+    assert all(len(set(colors)) == len(colors) for colors in palettes)
+    assert len(set(color for colors in palettes for color in colors)) >= 9
+    assert all(set(attempt.payload_json["multihat_colorway_hashes"]) == set(colors)
+               for attempt, colors in zip(attempts, palettes))
 
     replay = service.queue_scene(
         tenant_id="tenant-001", user_id="operator",
@@ -263,6 +279,8 @@ def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecomme
     retried = session.get(ProcessingJobModel, jobs[1].processing_job_id)
     assert retried.id != attempts[1].id
     assert retried.payload_json["multihat_references"] == samples[0]
+    assert retried.payload_json["multihat_colorways"] == palettes[1]
+    assert retried.payload_json["multihat_colorway_hashes"] == attempts[1].payload_json["multihat_colorway_hashes"]
 
     # Another embroidery design gets a new independent random 20-photo set.
     second = service.queue_scene(
@@ -277,6 +295,21 @@ def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecomme
     pinned = next(row for row in listed if row["stage"] == "prod_s2_mh_1"
                   and row["source_plan_id"] == "plan-001")
     assert len(pinned["scene_references"]) == 20
+    assert len(pinned["scene_colorways"]) == 4
+    assert [item["key"] for item in pinned["scene_colorways"]] == palettes[0]
+
+    # Explicit regeneration preserves the old output but draws new per-cap colors.
+    jobs[0].status = "completed"
+    jobs[0].output_remote_file_id = "old-output-kept"
+    session.commit()
+    old_attempt_id = jobs[0].processing_job_id
+    regen = service.regenerate(tenant_id="tenant-001", job_id=jobs[0].id)
+    assert regen["status"] == "queued"
+    assert jobs[0].output_remote_file_id == "old-output-kept"
+    assert jobs[0].processing_job_id != old_attempt_id
+    new_attempt = session.get(ProcessingJobModel, jobs[0].processing_job_id)
+    assert len(new_attempt.payload_json["multihat_colorways"]) == 4
+    assert new_attempt.payload_json["multihat_colorways"] != palettes[0]
 
 def test_run_all_with_completed_front_starts_all_four(ecommerce_db):
     session, settings = ecommerce_db

@@ -110,6 +110,12 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
         id: "multi-job-1", source_plan_id: "design-one", stage: "prod_s2_mh_1",
         status: "queued", retry_count: 0, attempt_count: 0, error_code: null,
         output_url: null, skill_name: bundles[0].name,
+        scene_colorways: [
+          { key: "natural-red", label: "Natural/Red" },
+          { key: "natural-royal", label: "Natural/Royal" },
+          { key: "natural-brown", label: "Natural/Brown" },
+          { key: "natural-black", label: "Natural/Black" },
+        ],
         scene_references: [
           { image_id: "scene-3", image_url: "https://i.pinimg.com/736x/3.jpg",
             pin_url: "https://www.pinterest.com/pin/123/", caps_count: 3 },
@@ -125,6 +131,35 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     expect(preview.textContent).toContain("3 hats");
     expect(preview.textContent).toContain("4 hats");
     expect(row.textContent).toContain("2/20 references");
+    const palette = row.querySelector<HTMLElement>('[aria-label="Approved Multi-hat colors by output"]')!;
+    expect(palette.textContent).toContain("05_MultiHat");
+    expect(palette.textContent).toContain("4 hats");
+    expect(palette.querySelectorAll(".rrugc-multihat-color-chip").length).toBe(4);
+    expect(palette.textContent).toContain("Natural/Red");
+    expect(palette.textContent).toContain("Natural/Royal");
+    expect(palette.querySelectorAll("button").length).toBe(0);
+    await act(async () => root.unmount());
+  });
+
+  it("offers per-output regeneration for a previously completed single-color Multi-hat shot", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<ProductsPhotoWorkflow
+      sourceName="design.png" sourcePlanId="design-1"
+      readiness={readiness(bundles[0], true)}
+      configuredSkillNames={{ prod_s2_mh: bundles[0].name }}
+      ecommerceJobs={[{
+        id: "old-mh", source_plan_id: "design-1", stage: "prod_s2_mh_1",
+        status: "completed", retry_count: 0, attempt_count: 1, error_code: null,
+        output_url: "/api/v1/test-output", skill_name: bundles[0].name,
+        scene_colorways: [],
+      }]}
+    />));
+    const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_mh"]')!;
+    await act(async () => row.querySelector<HTMLButtonElement>('button[aria-label="Multi-hat details"]')!.click());
+    expect(row.textContent).toContain("previous output");
+    expect(row.querySelector<HTMLButtonElement>('[aria-label="Regenerate prod_s2_mh_1"]')).not.toBeNull();
     await act(async () => root.unmount());
   });
 

@@ -39,6 +39,12 @@ from app.modules.realistic_review_ugc.multihat_scene_references import (
     MultiHatReferencesUnavailable, build_multihat_reference_sheets,
     select_multihat_references, validate_pinned_multihat_references,
 )
+from app.modules.realistic_review_ugc.multihat_colorways import (
+    MultiHatColorwayError, STAGE_CAP_COUNTS, COLOR_NAMES,
+    available_stock_colors, choose_palettes, validated_palette,
+    pinned_stock_hashes, checked_palette_stock, make_palette_board,
+    multihat_color_prompt, different_regeneration_palette,
+)
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill,
     verify_stage2_skill_runtime, installed_stage2_skill_sha256,
@@ -101,9 +107,9 @@ SCENE_STAGE_SLOTS = {
     shot: slot for slot, shots in SCENE_GROUPS.items() for shot in shots
 }
 SCENE_SHOT_DESCRIPTIONS = {
-    "prod_s2_mh_1": "Three official Valucap 8869 caps arranged on a neutral tabletop, one hero front and two staggered companions.",
+    "prod_s2_mh_1": "Four official Valucap 8869 caps arranged on a neutral tabletop, one hero front and three staggered companions.",
     "prod_s2_mh_2": "Four official Valucap 8869 caps in a carefully lit lifestyle arrangement, with one front-facing hero and visible side profiles.",
-    "prod_s2_mh_3": "Three or four official Valucap 8869 caps in a clean editorial display showing front, three-quarter and side orientation.",
+    "prod_s2_mh_3": "Three official Valucap 8869 caps in a clean editorial display showing front, three-quarter and side orientation.",
     "prod_s2_ugc_1": "Natural handheld customer photograph of a person wearing the official five-panel cap outdoors.",
     "prod_s2_ugc_2": "Distinct casual customer selfie of a person wearing the official five-panel cap in natural daylight.",
     "prod_s2_ugc_3": "Distinct authentic lifestyle photograph featuring a person wearing the official five-panel cap in an everyday setting.",
@@ -224,7 +230,50 @@ class EcommerceService:
         self.session = session
         self.settings = settings or get_settings()
 
-    def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None, multihat_references=None) -> None:
+    def _saved_multihat_palettes(self, *, tenant_id: str, plan: RrugcSourcePlanModel,
+                                color_key: str) -> dict[str, list[str]]:
+        """Read already pinned stage palettes; never change completed/active jobs."""
+        rows = self.session.scalars(select(RrugcEcommerceJobModel).where(
+            RrugcEcommerceJobModel.tenant_id == tenant_id,
+            RrugcEcommerceJobModel.source_plan_id == plan.id,
+            RrugcEcommerceJobModel.source_revision == plan.source_revision,
+            RrugcEcommerceJobModel.stage.in_(SCENE_GROUPS["prod_s2_mh"]),
+            RrugcEcommerceJobModel.color_key == color_key,
+        ))
+        result: dict[str, list[str]] = {}
+        for existing in rows:
+            processing = self.session.get(ProcessingJobModel, existing.processing_job_id) if existing.processing_job_id else None
+            value = (processing.payload_json or {}).get("multihat_colorways") if processing else None
+            selected = validated_palette(existing.stage, value)
+            if selected:
+                result[existing.stage] = selected
+        return result
+
+    def _choose_multihat_palettes(self, *, tenant_id: str, plan: RrugcSourcePlanModel,
+                                  color_key: str) -> dict[str, list[str]]:
+        try:
+            return choose_palettes(
+                tenant_id=tenant_id, source_plan_id=plan.id,
+                source_revision=plan.source_revision,
+                available=available_stock_colors(self.settings),
+                pinned=self._saved_multihat_palettes(
+                    tenant_id=tenant_id, plan=plan, color_key=color_key),
+            )
+        except MultiHatColorwayError as exc:
+            raise EcommerceError("multihat_colorways_unavailable", str(exc), 409) from exc
+
+    def _multihat_stock_snapshot(self, stage: str, palette: object) -> tuple[list[str], dict[str, str]]:
+        selected = validated_palette(stage, palette)
+        if not selected:
+            raise EcommerceError("multihat_colorways_invalid",
+                                 "Choose distinct official hat colors for each cap.", 409)
+        try:
+            return selected, pinned_stock_hashes(self.settings, stage, selected)
+        except MultiHatColorwayError as exc:
+            raise EcommerceError("multihat_stock_unavailable", str(exc), 503) from exc
+
+    def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None, multihat_references=None,
+                 multihat_colorways=None, multihat_colorway_hashes=None) -> None:
         count = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
@@ -237,6 +286,9 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"scout_reference": scout_reference} if scout_reference else {}),
                 **({"multihat_references": multihat_references} if multihat_references else {}),
+                **({"multihat_colorways": multihat_colorways,
+                    "multihat_colorway_hashes": multihat_colorway_hashes}
+                   if multihat_colorways else {}),
             }, priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
@@ -244,7 +296,8 @@ class EcommerceService:
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
-              stage: str, color_key: str = "natural-black", scout_reference=None, multihat_references=None) -> dict:
+              stage: str, color_key: str = "natural-black", scout_reference=None, multihat_references=None,
+              multihat_colorways=None, multihat_colorway_hashes=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
         if not all((
@@ -292,6 +345,15 @@ class EcommerceService:
                     )
                 except MultiHatReferencesUnavailable as exc:
                     raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
+        if stage in SCENE_GROUPS["prod_s2_mh"]:
+            if multihat_colorways is None:
+                multihat_colorways = self._choose_multihat_palettes(
+                    tenant_id=tenant_id, plan=plan, color_key=color_key)[stage]
+            selected, verified_hashes = self._multihat_stock_snapshot(stage, multihat_colorways)
+            if multihat_colorway_hashes is not None and verified_hashes != multihat_colorway_hashes:
+                raise EcommerceError("multihat_stock_changed",
+                                     "Official Multi-hat stock changed before queueing.")
+            multihat_colorways, multihat_colorway_hashes = selected, verified_hashes
         row = RrugcEcommerceJobModel(
             id=str(uuid4()), tenant_id=tenant_id, source_plan_id=source_plan_id,
             source_revision=plan.source_revision, stage=stage, color_key=color_key,
@@ -311,7 +373,9 @@ class EcommerceService:
         )
         self.session.add(row)
         self.session.flush()
-        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references)
+        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references,
+                      multihat_colorways=multihat_colorways,
+                      multihat_colorway_hashes=multihat_colorway_hashes)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
@@ -332,6 +396,7 @@ class EcommerceService:
             _stock_refs(self.settings, stage, color_key)
         scout_refs = {}
         multihat_refs: list[dict] = []
+        multihat_palettes: dict[str, list[str]] = {}
         if slot == "prod_s2_mh":
             existing_rows = list(self.session.scalars(
                 select(RrugcEcommerceJobModel).where(
@@ -342,6 +407,7 @@ class EcommerceService:
                     RrugcEcommerceJobModel.color_key == color_key,
                 )))
             unpinned = False
+            unpinned_colors = False
             for existing in existing_rows:
                 processing = self.session.get(ProcessingJobModel, existing.processing_job_id) if existing.processing_job_id else None
                 pinned = validate_pinned_multihat_references(
@@ -351,6 +417,11 @@ class EcommerceService:
                 if (processing and processing.status == "pending"
                         and processing.attempt_count == 0 and not pinned):
                     unpinned = True
+                if (processing and processing.status == "pending"
+                        and processing.attempt_count == 0
+                        and not validated_palette(existing.stage, (
+                            processing.payload_json or {}).get("multihat_colorways"))):
+                    unpinned_colors = True
             if (len(existing_rows) < len(stages)
                     or any(_effective_status(row, (
                         self.session.get(ProcessingJobModel, row.processing_job_id)
@@ -364,6 +435,13 @@ class EcommerceService:
                         )
                     except MultiHatReferencesUnavailable as exc:
                         raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
+            if (len(existing_rows) < len(stages)
+                    or any(_effective_status(row, (
+                        self.session.get(ProcessingJobModel, row.processing_job_id)
+                        if row.processing_job_id else None
+                    )) == "failed" for row in existing_rows) or unpinned_colors):
+                multihat_palettes = self._choose_multihat_palettes(
+                    tenant_id=tenant_id, plan=plan, color_key=color_key)
         if slot == "prod_s2_ugc":
             if not plan.campaign_id:
                 raise EcommerceError("ugc_scout_campaign_missing", "No assigned Scout campaign.", 409)
@@ -420,6 +498,7 @@ class EcommerceService:
                                         source_plan_id=source_plan_id, stage=stage,
                                         scout_reference=scout_refs.get(stage),
                                         multihat_references=multihat_refs,
+                                        multihat_colorways=multihat_palettes.get(stage),
                                         color_key=color_key)
                     results.append({"stage": stage, **queued})
                     continue
@@ -427,6 +506,17 @@ class EcommerceService:
                               if existing.processing_job_id else None)
                 status = _effective_status(existing, processing)
                 reference = scout_refs.get(stage)
+                if (multihat_palettes.get(stage) and processing and processing.status == "pending"
+                        and processing.attempt_count == 0
+                        and not validated_palette(stage, (processing.payload_json or {}).get("multihat_colorways"))):
+                    chosen, digests = self._multihat_stock_snapshot(
+                        stage, multihat_palettes[stage])
+                    processing.payload_json = {
+                        **(processing.payload_json or {}),
+                        "multihat_colorways": chosen,
+                        "multihat_colorway_hashes": digests,
+                    }
+                    self.session.commit()
                 if (multihat_refs and processing and processing.status == "pending"
                         and processing.attempt_count == 0
                         and not validate_pinned_multihat_references(
@@ -443,7 +533,8 @@ class EcommerceService:
                     self.session.commit()
                 if status == "failed" and existing.retry_count < MAX_MANUAL_RETRIES:
                     queued = self.retry(tenant_id=tenant_id, job_id=existing.id,
-                                        scout_reference=reference, multihat_references=multihat_refs)
+                                        scout_reference=reference, multihat_references=multihat_refs,
+                                        multihat_colorways=multihat_palettes.get(stage))
                     results.append({"stage": stage, **queued})
                 elif status == "failed":
                     results.append({"stage": stage, "job_id": existing.id,
@@ -582,7 +673,8 @@ class EcommerceService:
                 "steps": [stages[key] for key in (
                     "prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")]}
 
-    def retry(self, *, tenant_id: str, job_id: str, scout_reference=None, multihat_references=None) -> dict:
+    def retry(self, *, tenant_id: str, job_id: str, scout_reference=None,
+              multihat_references=None, multihat_colorways=None) -> dict:
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.id == job_id,
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -630,7 +722,27 @@ class EcommerceService:
                     )
                 except MultiHatReferencesUnavailable as exc:
                     raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
-        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references)
+            # Automatic/manual retry MUST retain both color order and hashes.
+            previous_payload = previous.payload_json or {} if previous else {}
+            old_colors = validated_palette(row.stage, previous_payload.get("multihat_colorways"))
+            if old_colors:
+                old_hashes = previous_payload.get("multihat_colorway_hashes")
+                try:
+                    checked_palette_stock(self.settings, row.stage, old_colors, old_hashes)
+                except MultiHatColorwayError as exc:
+                    raise EcommerceError("multihat_stock_changed", str(exc), 409) from exc
+                multihat_colorways, multihat_colorway_hashes = old_colors, old_hashes
+            else:
+                if multihat_colorways is None:
+                    multihat_colorways = self._choose_multihat_palettes(
+                        tenant_id=tenant_id, plan=plan, color_key=row.color_key)[row.stage]
+                multihat_colorways, multihat_colorway_hashes = self._multihat_stock_snapshot(
+                    row.stage, multihat_colorways)
+        else:
+            multihat_colorway_hashes = None
+        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references,
+                      multihat_colorways=multihat_colorways,
+                      multihat_colorway_hashes=multihat_colorway_hashes)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "retry_count": row.retry_count}
 
@@ -680,7 +792,30 @@ class EcommerceService:
                     )
                 except MultiHatReferencesUnavailable as exc:
                     raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
-        self._enqueue(row, multihat_references=multihat_references)
+        multihat_colorways, multihat_colorway_hashes = None, None
+        if row.stage in SCENE_GROUPS["prod_s2_mh"]:
+            # Explicit Regenerate is a NEW generation; keep old output history
+            # but randomize fresh colors. Exclude colors pinned on other shots.
+            previous_palettes = self._saved_multihat_palettes(
+                tenant_id=tenant_id, plan=plan, color_key=row.color_key)
+            previous_colors = previous_palettes.pop(row.stage, [])
+            available_colors = available_stock_colors(self.settings)
+            try:
+                fresh = choose_palettes(
+                    tenant_id=tenant_id, source_plan_id=plan.id,
+                    source_revision=plan.source_revision,
+                    available=available_colors,
+                    pinned=previous_palettes,
+                )
+            except MultiHatColorwayError as exc:
+                raise EcommerceError("multihat_colorways_unavailable", str(exc), 409) from exc
+            regenerated = different_regeneration_palette(
+                row.stage, fresh[row.stage], previous_colors, available_colors)
+            multihat_colorways, multihat_colorway_hashes = self._multihat_stock_snapshot(
+                row.stage, regenerated)
+        self._enqueue(row, multihat_references=multihat_references,
+                      multihat_colorways=multihat_colorways,
+                      multihat_colorway_hashes=multihat_colorway_hashes)
         self.session.commit()
         return {"job_id": row.id, "status": row.status}
 
@@ -715,6 +850,11 @@ class EcommerceService:
             "scene_references": validate_pinned_multihat_references(
                 (processing.payload_json or {}).get("multihat_references")
             ) if processing and row.stage in SCENE_GROUPS["prod_s2_mh"] else [],
+            "scene_colorways": [
+                {"key": key, "label": COLOR_NAMES[key]}
+                for key in validated_palette(
+                    row.stage, (processing.payload_json or {}).get("multihat_colorways"))
+            ] if processing and row.stage in SCENE_GROUPS["prod_s2_mh"] else [],
             "started_at": row.started_at.isoformat() if row.started_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
         } for row, processing in rows]
@@ -872,6 +1012,18 @@ class EcommerceGenerateHandler:
             refs, digest = _stock_refs(settings, row.stage, row.color_key)
             if digest != row.stock_sha256:
                 raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
+            multihat_colors: list[str] = []
+            multi_color_stock: list[tuple[str, bytes]] = []
+            if row.stage in SCENE_GROUPS["prod_s2_mh"]:
+                pinned_palette = context.job.payload.get("multihat_colorways")
+                if pinned_palette is not None:
+                    try:
+                        multi_color_stock = checked_palette_stock(
+                            settings, row.stage, pinned_palette,
+                            context.job.payload.get("multihat_colorway_hashes"))
+                    except MultiHatColorwayError as exc:
+                        raise EcommerceError("multihat_stock_changed", str(exc), 409) from exc
+                    multihat_colors = [key for key, _ in multi_color_stock]
             front_asset = None
             if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
                 if not row.front_reference_remote_file_id:
@@ -958,6 +1110,10 @@ class EcommerceGenerateHandler:
                 raise RrugcGenerationHandlerError(
                     "multihat_reference_download_failed", str(exc), retryable=True) from exc
             references.extend(scene_sheets)
+            if multi_color_stock:
+                # Authentic per-color stock photos override monochrome base
+                # only for color; the base still defines factory geometry.
+                references.append(make_palette_board(stage, multi_color_stock))
         if stage in SCENE_GROUPS["prod_s2_ugc"]:
             scout = context.job.payload.get("scout_reference")
             if not isinstance(scout, dict) or not allowed_scout_image_url(str(scout.get("image_url", ""))):
@@ -997,11 +1153,19 @@ class EcommerceGenerateHandler:
              "provided embroidery design and verified official stock over any "
              "different branding or hat construction in the Pinterest scene photos. "
              if stage in SCENE_GROUPS["prod_s2_mh"] else "")
-            + ("Generate ONE independent photorealistic scene for this uploaded "
-             "Multi-hat or UGC Skill using the official Valucap 8869 "
-             "" + color_key.replace("-", "/") + " five-panel cap. " if stage in SCENE_STAGE_SLOTS
-             else "Generate ONE photorealistic commercial ecommerce product photograph "
-                  "of the official Valucap 8869 " + color_key.replace("-", "/") + " five-panel twill cap. ")
+            + (multihat_color_prompt(stage, multihat_colors) if multihat_colors else "")
+            + ("Generate ONE photorealistic original scene with multiple DIFFERENT "
+               "color Valucap 8869 five-panel caps. The supplied single-hat BASE stock "
+               "only defines construction and crown geometry: do not reproduce "
+               "its color on all caps. "
+               if multihat_colors
+               else ("Generate ONE independent photorealistic scene for this uploaded "
+                     "Multi-hat or UGC Skill using the official Valucap 8869 "
+                     + color_key.replace("-", "/") + " five-panel cap. "
+                     if stage in SCENE_STAGE_SLOTS
+                     else "Generate ONE photorealistic commercial ecommerce product photograph "
+                          "of the official Valucap 8869 "
+                          + color_key.replace("-", "/") + " five-panel twill cap. "))
             + VIEW_PROMPTS[stage] +
             " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "
@@ -1078,6 +1242,10 @@ class EcommerceGenerateHandler:
                                             context.job.payload.get("multihat_references"))
                                     ] if stage in SCENE_GROUPS["prod_s2_mh"] else [],
                                     "multihat_loaded": multihat_loaded,
+                                    "multihat_colorways": multihat_colors,
+                                    "multihat_colorway_hashes": (
+                                        context.job.payload.get("multihat_colorway_hashes")
+                                        if multihat_colors else None),
                                 }})
             row.output_remote_file_id = stored.remote_file_id
             row.output_content_type = generated.mime_type

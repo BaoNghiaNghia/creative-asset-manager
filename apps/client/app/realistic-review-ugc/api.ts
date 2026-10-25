@@ -717,6 +717,7 @@ export type EcommerceJob = {
   output_url: string | null; skill_name: string;
   scene_reference?: { candidate_id: string; image_url: string } | null;
   scene_references?: Array<{ image_id: string; image_url: string; pin_url: string; caps_count: 3 | 4 }>;
+  scene_colorways?: Array<{ key: string; label: string }>;
   started_at?: string | null; completed_at?: string | null;
 };
 export type EcommerceJobLogs = {
