@@ -76,10 +76,21 @@ def _stock_path(settings: Settings, color_key: str) -> Path:
     # Use complete, administrator-imported official stock for future jobs only;
     # never modify completed images or retroactively requeue their jobs.
     from app.modules.realistic_review_ugc.hat_stock_sync import read_managed_stock
+    from app.modules.realistic_review_ugc.slot7_front_stock import (
+        configured_slot7_front, read_slot7_front,
+    )
     imported = read_managed_stock(settings, color_key, "front")
     if imported is not None:
         return imported[0]
-    # Fallback remains the installed verified stock if no group is imported.
+    # Only Slot 7 may use individually verified manufacturer front photos.
+    # The shared stock catalog's 3-angle coverage is never misrepresented.
+    supplier_front = read_slot7_front(settings, color_key)
+    if supplier_front is not None:
+        return supplier_front[0]
+    if configured_slot7_front(settings, color_key):
+        raise ColorwayError("colorway_stock_invalid",
+                            "The pinned Slot 7 stock photo is missing or corrupt.", 503)
+    # Fallback remains the installed verified stock if no verified front exists.
     return Path(str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))).resolve() / (
         "skills/" + STOCK_SKILL + "/assets/stock/" + color_key + "/front.jpg"
     )
@@ -257,6 +268,18 @@ class ColorwayService:
             raise ColorwayError("colorway_not_found", "Colorway job not found.", 404)
         if row.status != "completed" or not row.output_remote_file_id:
             raise ColorwayError("colorway_regenerate_unavailable", "Regenerate only completed colorway jobs.")
+        plan = self.session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.id == row.source_plan_id,
+        ))
+        if (plan is None or plan.status == "missing"
+                or plan.source_revision != row.source_revision):
+            raise ColorwayError("colorway_source_changed",
+                                "Source design changed; cannot regenerate stale output.")
+        # Regenerate is the explicit opt-in moment for a new stock revision.
+        # Retry, in contrast, must keep the original SHA pinned.
+        current_stock_sha = hashlib.sha256(_stock_bytes(self.settings, row.color_key)).hexdigest()
+        row.stock_sha256 = current_stock_sha
         row.retry_count = 0
         row.status = "queued"
         row.last_error_code = row.last_error_message = None

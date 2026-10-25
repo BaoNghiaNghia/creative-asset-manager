@@ -172,6 +172,80 @@ def test_retry_one_color_does_not_touch_other_outputs(db):
     assert db.query(ProcessingJobModel).count() == 14
 
 
+def test_regenerate_re_pins_changed_stock_but_preserves_original_output(db, monkeypatch):
+    source = plan(db)
+    svc = ColorwayService(db)
+    svc.queue(tenant_id=source.tenant_id, user_id="actor", source_plan_ids=[source.id])
+    jobs = db.query(RrugcColorwayJobModel).order_by(RrugcColorwayJobModel.color_key).all()
+    changed, untouched = jobs[0], jobs[1]
+    changed.status = "completed"
+    changed.output_remote_file_id = "original-remote-id"
+    changed.output_content_type = "image/png"
+    changed.output_size_bytes = 1234
+    changed.output_width = changed.output_height = 1024
+    old_hash = changed.stock_sha256
+    unchanged_hash = untouched.stock_sha256
+    db.commit()
+
+    monkeypatch.setattr(colorways, "_stock_bytes",
+                        lambda settings, key: (key + ":new-front").encode())
+    queued = svc.regenerate(tenant_id=source.tenant_id, job_id=changed.id)
+    assert queued.status == "queued"
+    assert queued.stock_sha256 != old_hash
+    assert queued.stock_sha256 == __import__("hashlib").sha256(
+        (changed.color_key + ":new-front").encode()).hexdigest()
+    assert queued.output_remote_file_id == "original-remote-id"
+    assert queued.processing_job_id is not None
+    assert db.get(RrugcColorwayJobModel, untouched.id).stock_sha256 == unchanged_hash
+    assert db.query(ProcessingJobModel).count() == 14
+
+    # The next successful output preserves the former file as version 1.
+    from app.modules.realistic_review_ugc.output_versions import save_output_version
+    revision = save_output_version(
+        db, tenant_id=source.tenant_id, stage="stage2", job=queued,
+        remote_file_id="new-output-file", content_type="image/png",
+        size_bytes=2048, width=1254, height=1254, processing_job_id=queued.processing_job_id,
+    )
+    assert revision == 2
+    history = db.query(RrugcImageOutputVersionModel).filter_by(
+        tenant_id=source.tenant_id, job_id=queued.id, stage="stage2",
+    ).order_by(RrugcImageOutputVersionModel.version).all()
+    assert [v.remote_file_id for v in history] == ["original-remote-id", "new-output-file"]
+
+
+def test_reconcile_census_only_flags_stale_completed_products_jobs(db, monkeypatch):
+    from scripts import cam_slot7_stock_reconcile as cli
+
+    source = plan(db)
+    source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
+    db.commit()
+    svc = ColorwayService(db)
+    svc.queue(tenant_id=source.tenant_id, user_id="actor",
+              source_plan_ids=[source.id], workflow="products")
+    all_jobs = db.query(RrugcColorwayJobModel).order_by(RrugcColorwayJobModel.color_key).all()
+    for row in all_jobs:
+        row.status = "completed"
+        row.output_remote_file_id = "preserve:" + row.color_key
+    all_jobs[0].status = "running"
+    image = BytesIO()
+    Image.new("RGB", (1200, 1200), "#dddddd").save(image, "JPEG")
+    data = image.getvalue()
+    monkeypatch.setattr(cli, "_stock_bytes", lambda settings, color: data)
+    monkeypatch.setattr(cli, "read_managed_stock", lambda settings, color, view: (Path("trusted.jpg"), "abc"))
+    all_jobs[1].stock_sha256 = __import__("hashlib").sha256(data).hexdigest()
+    db.commit()
+
+    report, stale = cli.inspect(db, svc.settings)
+    assert report["color_count"] == 13
+    assert report["products_colorway_jobs"] == 13
+    assert report["existing_output_files"] == 13
+    assert report["stale_completed_jobs"] == 11
+    assert report["matching_jobs"] == 1
+    assert all(row.status == "completed" and row.output_remote_file_id for row in stale)
+    assert all(row.id not in {all_jobs[0].id, all_jobs[1].id} for row in stale)
+    assert db.query(ProcessingJobModel).count() == 13
+
+
 def test_new_source_revision_keeps_old_output_and_queues_new_colors(db):
     source = plan(db)
     svc = ColorwayService(db)
