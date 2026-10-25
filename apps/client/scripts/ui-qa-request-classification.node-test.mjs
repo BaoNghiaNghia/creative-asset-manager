@@ -19,6 +19,18 @@ test("read-only source-plan sorting request cancelled by workflow navigation is 
     error:"net::ERR_ABORTED"}, "normal", "http://127.0.0.1:49000/realistic-review-ugc"), false);
 });
 
+test("read-only keyword intelligence GET cancelled by Stage 2 navigation is benign", () => {
+  const site = "http://127.0.0.1:49000/realistic-review-ugc";
+  const url = "http://127.0.0.1:49000/api/v1/realistic-review-ugc/keyword-analysis/search-intelligence";
+  assert.equal(isExpectedQaRequestAbort({ method: "GET", url, error: "net::ERR_ABORTED" }, "normal", site), true);
+  for (const req of [
+    { method: "POST", url, error: "net::ERR_ABORTED" },
+    { method: "GET", url, error: "net::ERR_CONNECTION_REFUSED" },
+    { method: "GET", url: url.replace("search-intelligence", "signals"), error: "net::ERR_ABORTED" },
+    { method: "GET", url: url.replace("127.0.0.1", "another-host.test"), error: "net::ERR_ABORTED" },
+  ]) assert.equal(isExpectedQaRequestAbort(req, "normal", site), false);
+});
+
 test("inventory incident QA ignores only fixture identity GET cancellations", () => {
   const site = "http://127.0.0.1:49000/inventory/pipeline";
   const same = "http://127.0.0.1:49000/api/v1/auth/identity";

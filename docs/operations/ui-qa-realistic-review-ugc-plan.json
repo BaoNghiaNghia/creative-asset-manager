@@ -164,16 +164,27 @@
     {
       "name": "stage2-actions",
       "click": "#rrugc-tab-stage2",
-      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-stage.is-products-compact",
       "requireIcons": [
-        "#rrugc-panel-stage2 .rrugc-colorway-header-actions button",
-        "#rrugc-panel-stage2 .rrugc-colorway-toolbar > button"
+        "#rrugc-panel-stage2 .rrugc-colorway-header-actions button"
+      ],
+      "assertions": [
+        {"type":"visible","selector":"#rrugc-panel-stage2 .rrugc-colorway-search"},
+        {"type":"visible","selector":"#rrugc-panel-stage2 .rrugc-colorway-kpis"},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-kpis article","value":3},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-stage-sort","value":0},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-select","value":0},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-run","value":0},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-scan-badge","value":0}
       ]
     },
     {
       "name": "stage2-sort-controls",
-      "waitFor": "#rrugc-panel-stage2 .rrugc-stage-sort select",
-      "assertions": [{"type":"attribute","selector":"#rrugc-panel-stage2 .rrugc-stage-sort select option[value='updated']","name":"value","value":"updated"}]
+      "click": "#rrugc-panel-stage2 .rrugc-colorway-design-sort",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-table[data-sort-direction='desc'] th[aria-sort='descending']",
+      "assertions": [
+        {"type":"attribute","selector":"#rrugc-panel-stage2 .rrugc-colorway-table th[aria-sort='descending']","name":"aria-sort","value":"descending"}
+      ]
     },
     {
       "name": "stage2-sort-column-highlight",
