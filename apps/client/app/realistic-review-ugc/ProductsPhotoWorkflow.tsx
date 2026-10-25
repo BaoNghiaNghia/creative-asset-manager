@@ -118,7 +118,7 @@ export function ProductsPhotoWorkflow({
   const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
   const [ugcScoutError, setUgcScoutError] = useState("");
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
-  const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[] } | null>(null);
+  const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[]; initialIndex: number } | null>(null);
   const [allOutputOpen, setAllOutputOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkReport, setBulkReport] = useState<BulkRunStep[] | null>(null);
@@ -230,7 +230,7 @@ export function ProductsPhotoWorkflow({
   });
   const allOutputItems: PhotoOutputItem[] = [
     ...PHOTO_STEPS.flatMap(step => step.shots.map(shot => {
-      const job = jobs.find(item => item.stage === step.key);
+      const job = jobs.find(item => item.stage === (step.shots.length === 1 ? step.key : step.key + "_" + (shot.number - step.shots[0].number + 1)));
       const status: PhotoOutputItem["status"] = job?.status || "pending";
       return { key: step.key, label: step.title + " · " + shot.label,
         status, src: job?.status === "completed" ? job.output_url : null };
@@ -369,7 +369,7 @@ export function ProductsPhotoWorkflow({
               const photo = isEcommerce ? shotJob : sceneJobs.find(job => job.stage === step.key + "_" + (shotIndex + 1));
               return photo?.output_url && photo.status === "completed"
                 ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
-                    onClick={() => setOutputGallery({ title: shot.label + " · output", items: [{ key: photo.id, label: shot.label, src: photo.output_url!, status: "completed" }] })}
+                    onClick={() => setOutputGallery({ title: "All outputs · " + sourceName, items: allOutputItems, initialIndex: allOutputItems.findIndex(item => item.key === step.key + ":" + shotIndex) })}
                     aria-label={"Open " + shot.label + (isEcommerce ? " Ecommerce" : "") + " output"}>
                     <img src={photo.output_url} alt={shot.label} loading="lazy" />
                   </button>
@@ -581,7 +581,7 @@ export function ProductsPhotoWorkflow({
       </div>}
     </div>
     {previewGallery && <EcommerceInputGalleryModal items={previewGallery} onClose={() => setPreviewGallery(null)} />}
-    {outputGallery && <OutputPhotoGalleryModal title={outputGallery.title} items={outputGallery.items}
+    {outputGallery && <OutputPhotoGalleryModal title={outputGallery.title} items={outputGallery.items} initialIndex={outputGallery.initialIndex}
       onClose={() => setOutputGallery(null)} />}
     {allOutputOpen && <OutputPhotoGalleryModal title={"All outputs · " + sourceName} items={allOutputItems}
       onClose={() => setAllOutputOpen(false)}
