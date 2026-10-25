@@ -888,8 +888,6 @@ class RrugcRepository:
             .where(
                 RrugcCandidateModel.tenant_id == tenant_id,
                 RrugcCandidateModel.id.in_(wanted_ids),
-                RrugcCandidateModel.remote_file_id.is_not(None),
-                RrugcCandidateModel.content_hash.is_not(None),
             )
             .order_by(
                 RrugcCandidateModel.updated_at.desc(),

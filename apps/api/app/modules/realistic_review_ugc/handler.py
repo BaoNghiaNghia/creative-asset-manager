@@ -370,9 +370,10 @@ class RrugcCandidateAnalyzeJobHandler:
                     continue
                 if seed_counts[learned_label] >= SEED_VISUAL_MAX_PER_LABEL:
                     continue
-                content_hash = str(learned_candidate.content_hash or "").strip()
+                content_hash = str(learned_candidate.content_hash or learned_candidate.source_key or "").strip()
                 remote_file_id = str(learned_candidate.remote_file_id or "").strip()
-                if not content_hash or not remote_file_id or content_hash in seed_hashes:
+                image_url = str(learned_candidate.image_url or "").strip()
+                if not content_hash or (not remote_file_id and not image_url) or content_hash in seed_hashes:
                     continue
                 seed_visual_assets.append(
                     SeedVisualAsset(
@@ -380,6 +381,7 @@ class RrugcCandidateAnalyzeJobHandler:
                         label=learned_label,
                         content_hash=content_hash,
                         remote_file_id=remote_file_id,
+                        image_url=image_url if not remote_file_id else None,
                         content_type=_image_mime(
                             learned_candidate.image_format or ""
                         ),

@@ -412,6 +412,7 @@ class SourcePlanReferencePreviewResponse(BaseModel):
     status: str
     picked: bool = False
     rejected: bool = False
+    manual_label: str | None = None
     source_query: str | None = None
     width: int | None = None
     height: int | None = None

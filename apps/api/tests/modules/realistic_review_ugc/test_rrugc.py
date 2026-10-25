@@ -4664,6 +4664,42 @@ def test_visual_learning_seed_candidates_prioritize_stage2_and_feedback(database
         assert all(candidate_id != cleared.id for candidate_id, _ in negatives)
 
 
+
+def test_unimported_rejected_image_is_available_as_visual_learning_seed(database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a",
+            name="manual negatives", query="casual photos wearing hats",
+            target_count=10, max_scroll_batches=2, auto_import=False,
+        )
+        rows, created, _ = service.ingest_candidates(
+            campaign=campaign,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/unimported-negative/",
+                image_url="https://i.pinimg.com/736x/unimported-negative.jpg",
+            )],
+            source_query=campaign.query,
+        )
+        assert created == 1
+        candidate = rows[0]
+        assert candidate.remote_file_id is None
+        service.mark_candidate_reference_label(
+            candidate, label="ai", note="Synthetic image", user_id="user-a",
+        )
+        intent = campaign_learning_intent(
+            campaign_id=campaign.id, name=campaign.name,
+            queries=list(campaign.search_queries_json or [campaign.query]),
+            product_snapshot=campaign.product_snapshot_json,
+        )
+        learned = RrugcRepository(session).visual_learning_seed_candidates(
+            "tenant-a", campaign.id, intent=intent,
+        )
+        assert ("negative", candidate.id, "ref_bad") in [
+            (label, row.id, source) for label, row, source in learned
+        ]
+
+
 def test_auto_scout_agent_api_pairing_claim_and_campaign_controls(api, database):
     created = api.post(
         "/api/v1/realistic-review-ugc/scout-agents",

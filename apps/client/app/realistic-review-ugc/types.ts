@@ -150,6 +150,7 @@ export type SourcePlanReferencePreview = {
   status: CandidateStatus;
   picked: boolean;
   rejected: boolean;
+  manual_label?: "good" | "bad" | "ai" | null;
   source_query: string | null;
   width: number | null;
   height: number | null;

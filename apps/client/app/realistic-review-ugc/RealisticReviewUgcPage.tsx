@@ -708,7 +708,8 @@ export function RealisticReviewUgcPage() {
     if (!plan.campaign_id || reviewingReferenceIds.has(reference.id)) return;
     const nextLabel = (
       (requestedLabel === "good" && reference.picked)
-      || (requestedLabel === "bad" && reference.rejected)
+      || (requestedLabel === "bad" && (reference.manual_label === "bad" || (!reference.manual_label && reference.rejected)))
+      || (requestedLabel === "ai" && reference.manual_label === "ai")
     ) ? "clear" : requestedLabel;
     const nextPicked = nextLabel === "good";
     const nextRejected = nextLabel === "bad" || nextLabel === "ai";
@@ -721,7 +722,7 @@ export function RealisticReviewUgcPage() {
         ...item,
         reference_previews: item.reference_previews.map(row => (
           row.id === reference.id
-            ? { ...row, picked: nextPicked, rejected: nextRejected }
+            ? { ...row, picked: nextPicked, rejected: nextRejected, manual_label: nextLabel === "clear" ? null : nextLabel }
             : row
         )),
       }),

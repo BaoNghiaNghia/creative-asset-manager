@@ -3004,6 +3004,7 @@ SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES = frozenset(
         *SOURCE_PLAN_PENDING_AI_STATUSES,
         "analysis_failed",
         "rejected_context",
+        "rejected_ai_risk",
     }
 )
 SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT = 100
@@ -3019,6 +3020,11 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
         status=row.status,
         picked=signal.get("reference_manual_label") == "good",
         rejected=signal.get("reference_manual_label") in {"bad", "ai"},
+        manual_label=(
+            signal.get("reference_manual_label")
+            if signal.get("reference_manual_label") in {"good", "bad", "ai"}
+            else None
+        ),
         source_query=source_query,
         width=row.width,
         height=row.height,
@@ -3600,7 +3606,7 @@ def get_source_plans(
         tuple[RrugcSourcePlanModel, list[RrugcSourcePlanModel]]
     ] = []
     overview_ref_statuses = (
-        SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES - {"rejected_context"}
+        SOURCE_PLAN_REFERENCE_PREVIEW_STATUSES - {"rejected_context", "rejected_ai_risk"}
     )
     for representative, members in overview_groups:
         campaign_id = str(representative.campaign_id or "")
@@ -3746,7 +3752,7 @@ def get_source_plans(
                 if len(rejected_rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:
                     rejected_rows.append(candidate)
                 continue
-            if candidate.status == "rejected_context":
+            if candidate.status in {"rejected_context", "rejected_ai_risk"}:
                 continue
             rows = previews_by_campaign.setdefault(candidate.campaign_id, [])
             if len(rows) < SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT:
@@ -3764,7 +3770,7 @@ def get_source_plans(
             previews=(
                 previews_by_campaign.get(row.campaign_id or "", [])
                 + rejected_previews_by_campaign.get(row.campaign_id or "", [])
-            )[:SOURCE_PLAN_REFERENCE_PREVIEW_LIMIT],
+            ),
             embroidery_group_size=len(group_members_by_plan_id.get(row.id, [row])),
             source_group_images=group_members_by_plan_id.get(row.id, [row]),
         )

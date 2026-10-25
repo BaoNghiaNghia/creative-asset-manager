@@ -276,6 +276,14 @@ export function ReferenceReviewModal({
     };
   }, [onClose]);
 
+  const [reviewFilter, setReviewFilter] = useState<"active" | "rejected">(
+    plan.reference_previews.every(reference => reference.rejected) ? "rejected" : "active",
+  );
+  const rejectedCount = plan.reference_previews.filter(reference => reference.rejected).length;
+  const shownReferences = plan.reference_previews.filter(reference => (
+    reviewFilter === "rejected" ? reference.rejected : !reference.rejected
+  ));
+
   return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-source-review-title-" + plan.id}>
       <header className="rrugc-source-review-header">
@@ -283,10 +291,20 @@ export function ReferenceReviewModal({
           <small>REFERENCE REVIEW</small>
           <h2 id={"rrugc-source-review-title-" + plan.id}>{plan.source_name}</h2>
           <p>{plan.reference_previews.length} images · {plan.approved_count} analyzed · {plan.pending_ai_count} pending AI</p>
+          <nav className="rrugc-source-review-filters" aria-label="Filter reviewed references">
+            <button type="button" className={reviewFilter === "active" ? "is-active" : ""}
+              aria-pressed={reviewFilter === "active"} onClick={() => setReviewFilter("active")}>
+              Active ({plan.reference_previews.length - rejectedCount})
+            </button>
+            <button type="button" className={reviewFilter === "rejected" ? "is-active" : ""}
+              aria-pressed={reviewFilter === "rejected"} onClick={() => setReviewFilter("rejected")}>
+              Rejected ({rejectedCount})
+            </button>
+          </nav>
         </div>
         <button type="button" className="rrugc-source-review-close" aria-label="Close reference review" onClick={onClose}>×</button>
       </header>
-      <StableMasonryGrid className="rrugc-source-review-masonry" items={plan.reference_previews}
+      <StableMasonryGrid className="rrugc-source-review-masonry" items={shownReferences}
         getKey={reference => reference.id}
         getRatio={reference => stableMasonryRatio(reference.width, reference.height)}
         renderItem={(reference, index) => {
@@ -324,16 +342,16 @@ export function ReferenceReviewModal({
                 <button
                   type="button"
                   className="rrugc-source-review-vote is-bad"
-                  aria-label={(reference.rejected ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
-                  aria-pressed={reference.rejected}
+                  aria-label={(reference.manual_label === "bad" ? "Clear unsuitable mark for " : "Mark unsuitable ") + "reference " + (index + 1)}
+                  aria-pressed={reference.manual_label === "bad" || (!reference.manual_label && reference.rejected)}
                   disabled={!plan.campaign_id || reviewing}
                   onClick={() => onSetReferenceFeedback(plan, reference, "bad")}
                 >{reviewing ? "…" : "×"}</button>
                 <button
                   type="button"
                   className="rrugc-source-review-vote is-ai"
-                  aria-label={"Mark AI-generated reference " + (index + 1)}
-                  aria-pressed={false}
+                  aria-label={(reference.manual_label === "ai" ? "Clear AI-generated mark for " : "Mark AI-generated ") + "reference " + (index + 1)}
+                  aria-pressed={reference.manual_label === "ai"}
                   disabled={!plan.campaign_id || reviewing}
                   title="AI-generated · reject from real refs · train AI + negative"
                   onClick={() => onSetReferenceFeedback(plan, reference, "ai")}
@@ -354,7 +372,7 @@ export function ReferenceReviewModal({
               </button>}
             </div>
             <footer>
-              <span>{pending ? "Pending analysis" : reference.status.replaceAll("_", " ")}</span>
+              <span>{reference.rejected ? (reference.manual_label === "ai" ? "AI rejected" : "Rejected") : pending ? "Pending analysis" : reference.status.replaceAll("_", " ")}</span>
               <a href={reference.pin_url} target="_blank" rel="noreferrer">Pinterest ↗</a>
             </footer>
           </article>;

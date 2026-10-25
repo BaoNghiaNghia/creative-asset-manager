@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from math import sqrt
 from typing import Any
 
+from app.infrastructure.downloader.secure_image import SecureDownloadError
 from app.domain.providers.contracts import (
     AssetStorageProvider,
     OpenStoredAssetInput,
@@ -44,6 +45,7 @@ class SeedVisualAsset:
     remote_file_id: str
     content_type: str | None
     size_bytes: int | None
+    image_url: str | None = None
 
 
 class SeedEmbeddingCache:
@@ -209,10 +211,18 @@ def seed_visual_ranking_signal(
 
 async def _read_seed_bytes(
     *,
-    storage: AssetStorageProvider,
+    storage: AssetStorageProvider | None,
     tenant_id: str,
     seed: SeedVisualAsset,
 ) -> bytes:
+    if not seed.remote_file_id and seed.image_url:
+        # Rejected references may not have been imported; fetch their Pinterest
+        # CDN rendition through the existing allowlisted, size-limited downloader.
+        from app.modules.realistic_review_ugc.service import download_reference_image
+        async with download_reference_image(seed.image_url) as image:
+            return image.path.read_bytes()
+    if storage is None or not seed.remote_file_id:
+        raise ValueError("no available seed image")
     if seed.size_bytes is not None and seed.size_bytes > SEED_VISUAL_MAX_BYTES:
         raise ValueError("seed reference exceeds the visual byte limit")
     stream = await storage.open_asset(
@@ -253,7 +263,7 @@ async def compute_seed_visual_signal(
             negative_similarities=[],
             profile_key=profile_key,
         )
-    if storage is None or encoder_client is None:
+    if encoder_client is None or (storage is None and not any(seed.image_url for seed in seeds)):
         return {
             **build_seed_visual_signal(
                 positive_similarities=[],
@@ -306,6 +316,8 @@ async def compute_seed_visual_signal(
                 cache.put(seed.content_hash, embedding)
             except (
                 StorageProviderError,
+                SecureDownloadError,
+                OSError,
                 VisualImagePreparationError,
                 VisualEncoderUnavailableError,
                 ValueError,
