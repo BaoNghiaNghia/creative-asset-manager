@@ -23,6 +23,7 @@ import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage
 
 const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
 const COLOR_SLOT_COUNT = COLOR_KEYS.length;
+const DEFAULT_PRODUCT_HAT_COLOR = "natural-charcoal";
 async function listEcommercePageJobs(ids: string[], signal?: AbortSignal): Promise<EcommerceJob[]> {
   const batches: string[][] = [];
   for (let index = 0; index < ids.length; index += 50) {
@@ -150,16 +151,25 @@ export function EmbroideryColorwayStage({
   const [readinessMessage, setReadinessMessage] = useState("");
   const [hatSyncOpen, setHatSyncOpen] = useState(false);
   const [hatCatalog, setHatCatalog] = useState<HatStockCatalog | null>(null);
-  const [selectedHatColor, setSelectedHatColor] = useState("natural-black");
+  const [selectedHatColor, setSelectedHatColor] = useState(DEFAULT_PRODUCT_HAT_COLOR);
   const manuallySelectedHatColor = useRef(false);
   useEffect(() => {
-    if (manuallySelectedHatColor.current) return;
-    if (hatCatalog?.colors["white-red"]) setSelectedHatColor("white-red");
-    else if (hatCatalog?.colors && !hatCatalog.colors[selectedHatColor]) setSelectedHatColor(Object.keys(hatCatalog.colors).sort()[0] || "natural-black");
+    if (manuallySelectedHatColor.current || !hatCatalog?.colors) return;
+    // Catalog refreshes must not revert a manually selected color or prefer
+    // another stock color over the requested default.
+    if (hatCatalog.colors[DEFAULT_PRODUCT_HAT_COLOR]) {
+      if (selectedHatColor !== DEFAULT_PRODUCT_HAT_COLOR) setSelectedHatColor(DEFAULT_PRODUCT_HAT_COLOR);
+    } else if (!hatCatalog.colors[selectedHatColor]) {
+      setSelectedHatColor(hatCatalog.colors["natural-black"]
+        ? "natural-black" : Object.keys(hatCatalog.colors).sort()[0] || "natural-black");
+    }
   }, [hatCatalog, selectedHatColor]);
   const stockViews = hatCatalog?.colors[selectedHatColor]?.views;
-  const stockColors = Object.keys(hatCatalog?.colors || {}).sort();
-  if (!stockColors.includes("natural-black")) stockColors.unshift("natural-black");
+  const stockColors = Object.keys(hatCatalog?.colors || {});
+  // Keep the initial selection visible while the remote stock catalog loads.
+  if (!hatCatalog) stockColors.push(DEFAULT_PRODUCT_HAT_COLOR);
+  if (!stockColors.includes("natural-black")) stockColors.push("natural-black");
+  stockColors.sort();
 
   useEffect(() => {
     if (!active || workflow !== "products") return;
