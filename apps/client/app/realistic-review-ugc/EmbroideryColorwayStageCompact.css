@@ -1,0 +1,89 @@
+/* GatorHats Products Stage 2: a compact heading and search-only toolbar.
+   Reviews Stage 2 retains its separate Drive scan, bulk selection and batch actions. */
+.rrugc-colorway-stage.is-products-compact{
+  padding:12px 14px;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-header{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:0;height:auto;padding:0 0 8px;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-stage-header-copy{
+  flex:1 1 auto;min-width:0;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-stage-header-copy > small{
+  font-size:8px;line-height:1.25;letter-spacing:.075em;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-stage-header-copy h2{
+  margin:2px 0 0;font-size:16px;line-height:1.23;letter-spacing:-.015em;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-stage-header-copy p{
+  margin:3px 0 0;max-width:none;font-size:10px;line-height:1.35;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-stage-header-actions{
+  align-items:center;flex:0 0 auto;min-width:0;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions{
+  gap:6px;justify-content:flex-end;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions .rrugc-primary{
+  min-height:32px;padding:6px 10px;border-radius:7px;font-size:11px;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis{
+  display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article{
+  display:inline-flex;align-items:center;flex:0 0 auto;gap:7px;
+  min-height:0;padding:5px 9px;border:1px solid #dfe6ef;border-radius:7px;
+  background:#f8fafc;box-shadow:none;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article span{
+  color:#64748b;font-size:9px;letter-spacing:.015em;white-space:nowrap;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article strong{
+  font-size:14px;line-height:1.15;color:#304764;font-variant-numeric:tabular-nums;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article small{
+  display:none;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-toolbar{
+  display:block!important;min-width:0;margin-top:8px;padding:0;
+  border:0;background:transparent;border-radius:0;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-search{
+  width:100%;min-width:0;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-search input{
+  min-height:34px;font-size:11px;
+}
+.rrugc-colorway-stage.is-products-compact > .rrugc-colorway-table-wrap{
+  margin-top:8px;
+}
+@media(max-width:900px){
+  .rrugc-colorway-stage.is-products-compact > .rrugc-colorway-header{
+    flex-direction:column;align-items:stretch;gap:7px;
+  }
+  .rrugc-colorway-stage.is-products-compact .rrugc-stage-header-actions{
+    width:auto;justify-content:flex-start;
+  }
+  .rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions{
+    justify-content:flex-start;
+  }
+}
+@media(max-width:600px){
+  .rrugc-colorway-stage.is-products-compact{padding:10px 11px;}
+  .rrugc-colorway-stage.is-products-compact .rrugc-stage-header-copy h2{
+    font-size:15px;
+  }
+  .rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis{
+    gap:5px;
+  }
+  .rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article{
+    padding:4px 7px;gap:5px;
+  }
+  .rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article span{
+    font-size:8px;
+  }
+  .rrugc-colorway-stage.is-products-compact > .rrugc-colorway-kpis article strong{
+    font-size:13px;
+  }
+}

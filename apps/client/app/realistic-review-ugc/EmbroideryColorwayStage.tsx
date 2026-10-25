@@ -17,6 +17,7 @@ import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { StageSortControls } from "./StageSortControls";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
+import "./EmbroideryColorwayStageCompact.css";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 
@@ -466,24 +467,27 @@ export function EmbroideryColorwayStage({
     });
   }
 
-  return <section className="rrugc-card rrugc-colorway-stage">
+  return <section className={"rrugc-card rrugc-colorway-stage" + (workflow === "products" ? " is-products-compact" : "")}>
     <RrugcStageHeader
       className="rrugc-colorway-header"
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
       title={workflow === "products" ? "Embroidery design → 7-skill Product Stage 2" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>Seven Skill assignments across 23 existing outputs: Skills 1–4 control Ecommerce Images 01–04 individually, Skill 5 controls Multi-hat (3), Skill 6 controls UGC (3), and Skill 7 controls 13 Hat Colors (13). Photo workers use independently assigned Skills and their persisted job outputs.</>
+        ? <>23 outputs per design · Ecommerce 01–04 · Multi-hat (3) · UGC (3) · Hat Colors (13). Run each Skill independently.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
-      actions={<div className="rrugc-colorway-header-actions">
-        {workflow === "products" && hatCatalog?.can_sync && <button type="button" className="rrugc-primary rrugc-icon-action" data-hat-stock-sync-open onClick={() => setHatSyncOpen(true)}>
-          <RrugcActionIcon name="scan" /> Sync Hat Images
-        </button>}
-        <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />{workflow === "products" ? "Selected Stage 1 PNGs" : "Drive · embroidery_ JPG/PNG"}</span>
-        <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
-          <RrugcActionIcon name={syncing ? "refresh" : "scan"} />
-          {syncing ? "Refreshing…" : workflow === "products" ? "Refresh selections" : "Scan source"}
-        </button>
-      </div>}
+      actions={workflow === "products"
+        ? (hatCatalog?.can_sync ? <div className="rrugc-colorway-header-actions">
+          <button type="button" className="rrugc-primary rrugc-icon-action" data-hat-stock-sync-open onClick={() => setHatSyncOpen(true)}>
+            <RrugcActionIcon name="scan" /> Sync Hat Images
+          </button>
+        </div> : undefined)
+        : <div className="rrugc-colorway-header-actions">
+          <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Drive · embroidery_ JPG/PNG</span>
+          <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
+            <RrugcActionIcon name={syncing ? "refresh" : "scan"} />
+            {syncing ? "Refreshing…" : "Scan source"}
+          </button>
+        </div>}
     />
 
     {workflow === "products" && hatSyncOpen && <HatStockSyncModal onClose={() => setHatSyncOpen(false)} onApplied={handleHatStockApplied} />}
@@ -496,7 +500,7 @@ export function EmbroideryColorwayStage({
       <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>
       <article><span>Hat colors</span><strong>{COLOR_SLOT_COUNT}</strong><small>per design</small></article>
       <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>{workflow === "products" ? "design × 23 images" : "design × color"}</small></article>
-      <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * (workflow === "products" ? 23 : COLOR_SLOT_COUNT)} planned outputs</small></article>
+      {workflow === "reviews" && <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} planned outputs</small></article>}
     </div>
 
     <div className="rrugc-colorway-toolbar">
@@ -510,8 +514,8 @@ export function EmbroideryColorwayStage({
           label="Search Stage 2 embroidery designs"
         />
       </div>
-      <StageSortControls stage="Stage 2 designs" sortBy={sortBy} direction={sortDirection}
-        onChange={onSortChange} options={workflow === "products" ? ["source", "updated"] : ["source", "updated", "status"]} />
+      {workflow === "reviews" && <StageSortControls stage="Stage 2 designs" sortBy={sortBy} direction={sortDirection}
+        onChange={onSortChange} options={["source", "updated", "status"]} />}
       {workflow === "reviews" && <label className="rrugc-colorway-skill">
         <span>Generation skill</span>
         <select
@@ -527,20 +531,22 @@ export function EmbroideryColorwayStage({
           ))}
         </select>
       </label>}
-      <button type="button" className="rrugc-colorway-select rrugc-icon-action" onClick={togglePage} disabled={loading || data.items.length === 0}>
-        <RrugcActionIcon name={pageSelected ? "deselect" : "select-all"} />
-        {pageSelected ? "Clear page" : "Select page"}
-      </button>
-      <button
-        type="button"
-        className="rrugc-colorway-run rrugc-icon-action"
-        disabled={!canQueue}
-        onClick={() => void queueSelected()}
-        title={!serverReadiness?.ready ? "Stage 2 server readiness is not confirmed" : ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
-      >
-        <RrugcActionIcon name={queueing ? "refresh" : "play"} />
-        {queueing ? "Queueing…" : (workflow === "products" ? "Run selected colors · " : "Run selected · ") + (selectedIds.size * COLOR_SLOT_COUNT)}
-      </button>
+      {workflow === "reviews" && <>
+        <button type="button" className="rrugc-colorway-select rrugc-icon-action" onClick={togglePage} disabled={loading || data.items.length === 0}>
+          <RrugcActionIcon name={pageSelected ? "deselect" : "select-all"} />
+          {pageSelected ? "Clear page" : "Select page"}
+        </button>
+        <button
+          type="button"
+          className="rrugc-colorway-run rrugc-icon-action"
+          disabled={!canQueue}
+          onClick={() => void queueSelected()}
+          title={!serverReadiness?.ready ? "Stage 2 server readiness is not confirmed" : ready ? "Queue missing colors for selected designs" : "Selected skill is not ready"}
+        >
+          <RrugcActionIcon name={queueing ? "refresh" : "play"} />
+          {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
+        </button>
+      </>}
     </div>
 
     <div className="rrugc-colorway-table-wrap">
@@ -658,7 +664,9 @@ export function EmbroideryColorwayStage({
           })}
           {!loading && data.items.length === 0 && <tr>
             <td colSpan={workflow === "products" ? 2 : 7} className="rrugc-source-plan-empty">
-              No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
+              {workflow === "products"
+                ? "No Stage 1 embroidery designs selected yet. Select designs in Stage 1 to see them here."
+                : "No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source."}
             </td>
           </tr>}
         </tbody>
