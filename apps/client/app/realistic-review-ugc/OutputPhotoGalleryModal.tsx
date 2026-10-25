@@ -105,8 +105,8 @@ export function OutputPhotoGalleryModal({
             <span className={"rrugc-photo-gallery-status is-" + current.status}>{stateName[current.status]}</span>
           </div>
           <div className="rrugc-photo-gallery-stage">
-            {hasImage ? <DeferredImage key={current.key + current.src} src={stage2ThumbnailUrl(current.src!, 1024)} rootMargin="800px"
-              alt={current.label} decoding="async" /> : <OutputPlaceholder status={current.status} />}
+            {hasImage ? <DeferredImage key={current.key + current.src} src={current.src!} rootMargin="800px"
+              alt={current.label} decoding="async" loading="eager" /> : <OutputPlaceholder status={current.status} />}
           </div>
           <div className="rrugc-photo-gallery-preview-footer">
             <div className="rrugc-photo-gallery-nav">

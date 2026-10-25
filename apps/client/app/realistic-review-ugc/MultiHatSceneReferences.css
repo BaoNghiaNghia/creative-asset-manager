@@ -3,27 +3,3 @@
 .rrugc-multihat-scene-references img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid #dbe4ef;background:#eef2f8}
 .rrugc-multihat-scene-references small{font-size:10px;white-space:nowrap;text-align:center}
 .rrugc-multihat-scene-references a:focus-visible{outline:2px solid #5488cb;outline-offset:2px;border-radius:8px}
-.rrugc-multihat-output-palettes{margin-top:14px;padding-top:12px;border-top:1px solid #dce5ef;display:grid;gap:9px}
-.rrugc-multihat-output-palettes>p{margin:0;font-size:12px;color:#61748d}
-.rrugc-multihat-palette-row{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:10px 12px;border:1px solid #dbe5f0;background:#fff;border-radius:10px;min-width:0}
-.rrugc-multihat-palette-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
-.rrugc-multihat-palette-heading small{color:#5a6e83}
-.rrugc-multihat-color-chips{display:flex;flex-wrap:wrap;gap:6px}
-.rrugc-multihat-color-chip{--hat-brim:#48515a;--hat-crown:#f0eadc;display:inline-flex;align-items:center;gap:5px;border:1px solid #d6dce6;border-radius:999px;padding:4px 9px 4px 5px;color:#23364a;font-size:11px;line-height:1.3;background:#f8fafd;max-width:100%}
-.rrugc-multihat-color-chip:before{content:"";display:block;width:17px;height:17px;flex:0 0 17px;border:1px solid #bcc2cc;border-radius:50%;background:linear-gradient(to bottom,var(--hat-crown) 50%,var(--hat-brim) 50%)}
-.rrugc-multihat-color-chip.is-khaki-maroon{--hat-crown:#b9aa89;--hat-brim:#703947}
-.rrugc-multihat-color-chip.is-natural-black{--hat-brim:#25262a}
-.rrugc-multihat-color-chip.is-natural-brown{--hat-brim:#664b36}
-.rrugc-multihat-color-chip.is-natural-camo-green{--hat-brim:#69735c}
-.rrugc-multihat-color-chip.is-natural-charcoal{--hat-brim:#52565e}
-.rrugc-multihat-color-chip.is-natural-forest-green{--hat-brim:#1b5743}
-.rrugc-multihat-color-chip.is-natural-khaki{--hat-brim:#9c8f73}
-.rrugc-multihat-color-chip.is-natural-maroon{--hat-brim:#762d42}
-.rrugc-multihat-color-chip.is-natural-mossy-oak-breakup{--hat-brim:#706b4b}
-.rrugc-multihat-color-chip.is-natural-navy{--hat-brim:#20385b}
-.rrugc-multihat-color-chip.is-natural-realtree-all-purpose{--hat-brim:#606348}
-.rrugc-multihat-color-chip.is-natural-red{--hat-brim:#cf2e32}
-.rrugc-multihat-color-chip.is-natural-royal{--hat-brim:#276ac7}
-.rrugc-multihat-palette-row>button{border:1px solid #9bb8de;background:#f2f6fd;color:#244d82;border-radius:7px;padding:7px 11px;cursor:pointer;font-size:11px;font-weight:700}
-.rrugc-multihat-palette-row>button:disabled{cursor:not-allowed;opacity:.5}
-.rrugc-multihat-palette-row>button:focus-visible{outline:2px solid #4979bd;outline-offset:2px}

@@ -443,39 +443,6 @@ export function ProductsPhotoWorkflow({
                   </a>)}
                 </div>
               </>}
-              <div className="rrugc-multihat-output-palettes" aria-label="Approved Multi-hat colors by output">
-                <strong>Official 8869 cap colors · each hat a different colorway</strong>
-                <p>05: four hats · 06: four hats · 07: three hats. Colors are randomized for this embroidery design and pinned for retries.</p>
-                {sceneJobs.filter(job => job.scene_colorways?.length).map(job =>
-                  <div className="rrugc-multihat-palette-row" key={job.id}>
-                    <div className="rrugc-multihat-palette-heading">
-                      <strong>{({"prod_s2_mh_1":"05", "prod_s2_mh_2":"06", "prod_s2_mh_3":"07"} as Record<string,string>)[job.stage] || job.stage}_MultiHat · {job.scene_colorways!.length} hats</strong>
-                      <small>{job.status}</small>
-                    </div>
-                    <div className="rrugc-multihat-color-chips">
-                      {job.scene_colorways!.map(color => <span key={color.key}
-                        className={"rrugc-multihat-color-chip is-" + color.key}
-                        title={color.label}>{color.label}</span>)}
-                    </div>
-                    {job.status === "completed" && <button type="button"
-                      aria-label={"Regenerate " + job.stage}
-                      disabled={!!busyStage}
-                      onClick={() => void invokeEcommerce(step.key, job, true)}>
-                      Regenerate output · new random colors
-                    </button>}
-                  </div>)}
-                {!sceneJobs.some(job => job.scene_colorways?.length) &&
-                  <small>Color palettes will appear here when you run Slot 5. Existing completed outputs are preserved.</small>}
-                {sceneJobs.filter(job => job.status === "completed" && !job.scene_colorways?.length).map(job =>
-                  <div key={job.id} className="rrugc-multihat-palette-row">
-                    <strong>{job.stage.replace("prod_s2_mh_", "MultiHat ")} · previous output</strong>
-                    <button type="button" disabled={!!busyStage}
-                      aria-label={"Regenerate " + job.stage}
-                      onClick={() => void invokeEcommerce(step.key, job, true)}>
-                      Regenerate with different hat colors
-                    </button>
-                  </div>)}
-              </div>
             </section>}
             {step.key === "prod_s2_ugc" && <section aria-label="Lifestyle Review Scout" className="rrugc-products-photo-ugc-scout">
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>

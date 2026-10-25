@@ -131,17 +131,14 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     expect(preview.textContent).toContain("3 hats");
     expect(preview.textContent).toContain("4 hats");
     expect(row.textContent).toContain("2/20 references");
-    const palette = row.querySelector<HTMLElement>('[aria-label="Approved Multi-hat colors by output"]')!;
-    expect(palette.textContent).toContain("05_MultiHat");
-    expect(palette.textContent).toContain("4 hats");
-    expect(palette.querySelectorAll(".rrugc-multihat-color-chip").length).toBe(4);
-    expect(palette.textContent).toContain("Natural/Red");
-    expect(palette.textContent).toContain("Natural/Royal");
-    expect(palette.querySelectorAll("button").length).toBe(0);
+    expect(row.querySelector('[aria-label="Approved Multi-hat colors by output"]')).toBeNull();
+    expect(row.querySelector(".rrugc-multihat-output-palettes")).toBeNull();
+    expect(row.textContent).not.toContain("Official 8869 cap colors");
+    expect(row.textContent).not.toContain("Natural/Red");
     await act(async () => root.unmount());
   });
 
-  it("offers per-output regeneration for a previously completed single-color Multi-hat shot", async () => {
+  it("hides the previous-output regenerate panel for completed Multi-hat shots", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -158,8 +155,10 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     />));
     const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_mh"]')!;
     await act(async () => row.querySelector<HTMLButtonElement>('button[aria-label="Multi-hat details"]')!.click());
-    expect(row.textContent).toContain("previous output");
-    expect(row.querySelector<HTMLButtonElement>('[aria-label="Regenerate prod_s2_mh_1"]')).not.toBeNull();
+    expect(row.textContent).not.toContain("previous output");
+    expect(row.textContent).not.toContain("Regenerate with different hat colors");
+    expect(row.querySelector('[aria-label="Approved Multi-hat colors by output"]')).toBeNull();
+    expect(row.querySelector<HTMLButtonElement>('[aria-label="Regenerate prod_s2_mh_1"]')).toBeNull();
     await act(async () => root.unmount());
   });
 

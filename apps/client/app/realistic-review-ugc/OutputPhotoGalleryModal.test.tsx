@@ -38,6 +38,20 @@ describe("Compact photo output gallery",()=>{
     await act(async()=>root.unmount());
   });
 
+  it("loads the original full-resolution image in the main preview, not a 1024px thumbnail", async () => {
+    const original = "/api/v1/realistic-review-ugc/colorways/hat-job-1/output";
+    const { root } = await mount({
+      title: "All outputs", items: [{ key: "original", label: "Natural Red",
+        src: original, status: "completed" }],
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="single"]')!;
+    const preview = dialog.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")!;
+    expect(preview.getAttribute("src")).toBe(original);
+    expect(preview.getAttribute("loading")).toBe("eager");
+    expect(dialog.querySelector<HTMLAnchorElement>(".rrugc-photo-gallery-secondary-action")?.getAttribute("href")).toBe(original);
+    await act(async () => root.unmount());
+  });
+
   it("starts at the clicked thumbnail, navigates through missing outputs by arrows and keyboard",async()=>{
     const {root}=await mount({initialIndex:9});
     const dialog=document.querySelector<HTMLElement>('[role="dialog"]')!;
