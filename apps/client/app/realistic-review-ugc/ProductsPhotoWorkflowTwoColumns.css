@@ -1,0 +1,183 @@
+/* Stage 2 Products only: slots 1-4 form the left column; slots 5-7 the right.
+   Keep one DOM instance per job, all existing button handlers and gallery dialogs. */
+.rrugc-products-photo-stage-list.is-two-column {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  column-gap:12px;
+  row-gap:8px;
+  align-items:start;
+  min-width:0;
+}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(1){grid-area:1 / 1}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(2){grid-area:2 / 1}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(3){grid-area:3 / 1}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(4){grid-area:4 / 1}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(5){grid-area:1 / 2}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(6){grid-area:2 / 2}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(7){grid-area:3 / 2}
+
+/* Each compact card needs room for date, elapsed time, Run and Details.
+   Previews stay on the right; extended Details always spans the card width. */
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row {
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+  align-self:stretch;
+  grid-template-columns:minmax(324px,min(52%,376px)) minmax(0,1fr);
+  grid-template-areas:"title skill" "controls outputs";
+  column-gap:8px;
+  row-gap:5px;
+  padding:8px 10px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-title{
+  grid-area:title;min-width:0;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-skill{
+  grid-area:skill;min-width:0;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-controls{
+  grid-area:controls;
+  width:100%;
+  max-width:none;
+  min-width:0;
+  justify-self:stretch;
+  justify-content:stretch;
+  justify-items:stretch;
+  grid-template-columns:minmax(87px,1fr) minmax(52px,.67fr) 76px 90px;
+  grid-template-rows:minmax(31px,auto);
+  gap:4px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-updated{
+  text-align:left;
+  justify-self:start;
+  align-self:center;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-duration{
+  justify-self:center;
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-run-button,
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-detail-toggle{
+  width:100%;
+  white-space:nowrap;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-output-strip{
+  grid-area:outputs;
+  width:100%;
+  min-width:0;
+  justify-content:flex-end;
+  align-self:center;
+  flex-wrap:nowrap;
+  gap:5px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-detail{
+  grid-column:1 / -1;
+  min-width:0;
+}
+
+/* Slot 7 retains its eight-at-a-time horizontally draggable thumbnail strip.
+   On narrower two-column screens the strip gets its own full-width row. */
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  grid-template-areas:"title skill" "controls controls" "outputs outputs";
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+  width:min(100%,355px);
+  justify-self:end;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+  grid-area:outputs;
+  width:min(100%,400px);
+  max-width:400px;
+  min-width:0;
+  justify-self:end;
+  justify-content:flex-start;
+  flex-wrap:nowrap;
+  overflow-x:auto;
+  overflow-y:hidden;
+}
+@media(min-width:1700px){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+    grid-template-columns:minmax(340px,1fr) minmax(0,1fr);
+    grid-template-areas:"title skill" "controls outputs";
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+    justify-self:stretch;width:100%;
+  }
+}
+/* Tablet: fall back to one column with natural 1 -> 7 reading order. */
+@media(max-width:1150px){
+  .rrugc-products-photo-stage-list.is-two-column {
+    grid-template-columns:minmax(0,1fr);
+  }
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(n){
+    grid-area:auto;
+  }
+}
+@media(max-width:680px){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row,
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"title" "skill" "controls" "outputs";
+    row-gap:6px;
+    padding:8px;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+    width:100%;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-output-strip,
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+    width:100%;justify-self:stretch;justify-content:flex-start;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+    width:min(100%,400px);
+  }
+}
+@media(max-width:450px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-controls {
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto auto;
+    row-gap:7px;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-updated{
+    grid-column:1;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-duration{
+    grid-column:2;justify-self:end;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-run-button{
+    grid-column:1;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-detail-toggle{
+    grid-column:2;
+  }
+}
+
+/* A narrow Stage 2 table cell can occur even on a wide desktop browser.
+   Respond to the actual workflow width, not only to the viewport width. */
+.rrugc-products-photo-pipeline{container-type:inline-size}
+@container (max-width:1050px){
+  .rrugc-products-photo-stage-list.is-two-column{grid-template-columns:minmax(0,1fr)}
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(n){grid-area:auto}
+}
+@container (max-width:680px){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row,
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"title" "skill" "controls" "outputs";
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{width:100%}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-output-strip{width:100%;justify-self:stretch;justify-content:flex-start}
+}
+@container (max-width:450px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-controls{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto auto;
+    row-gap:7px;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-updated{grid-column:1}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-duration{grid-column:2;justify-self:end}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-run-button{grid-column:1}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-detail-toggle{grid-column:2}
+}

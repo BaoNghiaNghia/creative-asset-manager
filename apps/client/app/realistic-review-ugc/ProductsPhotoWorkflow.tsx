@@ -4,6 +4,7 @@ import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVers
 import "./ProductsPhotoWorkflow.css";
 import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
+import "./ProductsPhotoWorkflowTwoColumns.css";
 import { DeferredImage } from "./DeferredImage";
 import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
@@ -348,7 +349,7 @@ export function ProductsPhotoWorkflow({
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
-    <div className="rrugc-products-photo-stage-list">
+    <div className="rrugc-products-photo-stage-list is-two-column">
       {PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.readinessKey);
         const opened = expandedStep === step.key;
@@ -419,8 +420,8 @@ export function ProductsPhotoWorkflow({
             <span>Skill {index + 1}</span><strong>{skillName}</strong>
           </div>
           <div className="rrugc-products-photo-stage-controls">
-            <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">Duration: {shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}</span>
+            <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
+            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}</span>
             <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable || sceneRunnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
               aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
@@ -561,8 +562,8 @@ export function ProductsPhotoWorkflow({
           <span>Skill 7</span><strong>{colorwaySkillName || "Not assigned"}</strong>
         </div>
         <div className="rrugc-products-photo-stage-controls">
-          <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>Last updated: {lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-          <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion">Duration: {(() => {
+          <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
+          <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion">{(() => {
             const starts = colors.map(job => job.started_at).filter((date): date is string => Boolean(date));
             if (!starts.length) return "—";
             const earliest = starts.reduce((a, b) => Date.parse(a) <= Date.parse(b) ? a : b);

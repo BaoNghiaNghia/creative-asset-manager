@@ -17,7 +17,9 @@ describe("Products Stage 2 photo workflow", () => {
       expect(html).toContain(label);
     }
     expect(html).not.toContain('class="rrugc-products-photo-inputs"');
-    expect(html).toContain("Duration:");
+    expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');
+    expect(html).not.toContain(">Last updated:");
+    expect(html).not.toContain(">Duration:");
     expect((html.match(/aria-disabled="true"/g) || []).length).toBe(7);
   });
 
@@ -56,6 +58,11 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html.indexOf("View all outputs")).toBeLessThan(html.indexOf("Run all"));
     expect(html.indexOf("Run all")).toBeLessThan(html.indexOf("Download all outputs"));
     expect((html.match(/rrugc-products-photo-stage-row/g) || []).length).toBe(7);
+    expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');
+    expect((html.match(/class="rrugc-products-photo-updated"/g) || []).length).toBe(7);
+    expect((html.match(/class="rrugc-products-photo-duration"/g) || []).length).toBe(7);
+    expect(html).not.toContain(">Last updated:");
+    expect(html).not.toContain(">Duration:");
     expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
     for (const slot of ["prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_mh", "prod_s2_ugc", "colorway"]) {
       expect(html).toContain('data-skill="' + slot + '"');
@@ -105,7 +112,9 @@ describe("Products Stage 2 photo workflow", () => {
       expect(html).toContain(skill);
     }
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
-    expect(html).toContain("Duration:");
+    expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');
+    expect(html).not.toContain(">Last updated:");
+    expect(html).not.toContain(">Duration:");
     expect(html).toContain('title="8869 scale"');
     expect(html).toContain('<strong>8869 scale</strong>');
     expect(html).not.toContain('aria-label="13 Hat Colors skill for design.png"');
