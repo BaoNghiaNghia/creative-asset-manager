@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from math import sqrt
 from typing import Any
 
+import httpx
+
 from app.infrastructure.downloader.secure_image import SecureDownloadError
 from app.domain.providers.contracts import (
     AssetStorageProvider,
@@ -317,6 +319,7 @@ async def compute_seed_visual_signal(
             except (
                 StorageProviderError,
                 SecureDownloadError,
+                httpx.HTTPError,
                 OSError,
                 VisualImagePreparationError,
                 VisualEncoderUnavailableError,

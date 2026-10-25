@@ -671,7 +671,7 @@ class RrugcRepository:
             select(RrugcAiFeedbackModel)
             .where(
                 RrugcAiFeedbackModel.tenant_id == tenant_id,
-                RrugcAiFeedbackModel.label.in_(("real", "ai")),
+                RrugcAiFeedbackModel.label.in_(("real", "ai", "unsure")),
             )
             .order_by(
                 RrugcAiFeedbackModel.created_at.desc(),
@@ -686,6 +686,7 @@ class RrugcRepository:
         return [
             (row.label, row.ai_risk_raw_score)
             for row in latest_by_candidate.values()
+            if row.label in {"real", "ai"}
         ]
 
     def reference_feedback_training_rows(

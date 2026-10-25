@@ -1404,9 +1404,42 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain(">AI<");
   });
 
+  it("keeps negative references out of active review while exposing the Rejected filter", () => {
+    const plan = makePlan(3);
+    plan.reference_previews[1].manual_label = "bad";
+    const markup = renderToStaticMarkup(
+      <ReferenceReviewModal
+        plan={plan}
+        reviewingReferenceIds={new Set<string>()}
+        onSetReferenceFeedback={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Active (2)");
+    expect(markup).toContain("Rejected (1)");
+    expect(markup).not.toContain("https://img.example/1.jpg");
+    expect(markup).toContain("https://img.example/0.jpg");
+  });
+
+  it("keeps the rejected review entry accessible when there are no active references", () => {
+    const plan = makePlan(1);
+    plan.reference_previews[0].rejected = true;
+    const markup = renderToStaticMarkup(
+      <SourcePlanTable
+        plans={[plan]} total={1} page={1} pageSize={20} query=""
+        syncing={false} message=""
+        onSync={() => undefined} onPageChange={() => undefined}
+        onPageSizeChange={() => undefined} onQueryChange={() => undefined}
+      />,
+    );
+    expect(markup).toContain("Review rejected");
+    expect(markup).not.toContain("rrugc-source-ref-card status-drive_ready is-rejected");
+  });
+
   it("keeps rejected images restorable without placing Restore inside the vote toolbar", () => {
     const plan = makePlan(3);
-    plan.reference_previews[2].rejected = true;
+    plan.reference_previews.forEach(reference => { reference.rejected = true; });
+    plan.reference_previews[2].manual_label = "ai";
     const markup = renderToStaticMarkup(
       <ReferenceReviewModal
         plan={plan}

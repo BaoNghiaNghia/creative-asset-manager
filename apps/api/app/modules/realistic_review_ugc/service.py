@@ -957,6 +957,31 @@ class RrugcService:
             candidate.ai_manual_reviewed_by_user_id = user_id
             candidate.ai_manual_reviewed_at = now
 
+        previous_reference_label = signal.get("reference_manual_label")
+        if previous_reference_label == "ai" and label != "ai" and candidate.ai_manual_label == "ai":
+            # Clearing/changing the human AI tag must revoke its detector label
+            # as well; an old AI verdict must not survive as effective feedback.
+            self.repository.add_ai_feedback(
+                RrugcAiFeedbackModel(
+                    tenant_id=candidate.tenant_id,
+                    campaign_id=candidate.campaign_id,
+                    candidate_id=candidate.id,
+                    label="unsure",
+                    note="Cleared prior AI reference label",
+                    ai_risk_raw_score=candidate.ai_risk_raw_score,
+                    ai_risk_score=candidate.ai_risk_score,
+                    detector_confidence=candidate.ai_detector_confidence,
+                    analyzer_version=candidate.analyzer_version,
+                    signal_json={**signal, "feedback_source": "reference_review_ai_clear"},
+                    created_by_user_id=user_id,
+                    created_at=now,
+                )
+            )
+            candidate.ai_manual_label = None
+            candidate.ai_manual_note = None
+            candidate.ai_manual_reviewed_by_user_id = None
+            candidate.ai_manual_reviewed_at = None
+
         for key in (
             "reference_manual_label",
             "reference_manual_note",
@@ -1047,6 +1072,10 @@ class RrugcService:
                 or (
                     candidate.status == "rejected_context"
                     and candidate.reject_reason == "MANUAL_REFERENCE_BAD"
+                )
+                or (
+                    candidate.status == "rejected_ai_risk"
+                    and candidate.reject_reason == "MANUAL_AI_LABEL"
                 )
             ):
                 self.enqueue_analysis(candidate, increment_revision=True)

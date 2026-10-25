@@ -5180,6 +5180,55 @@ def test_ai_reference_feedback_trains_negative_and_ai_detector_and_excludes_ref(
         assert feedback_by_label["ai"].signal_json["feedback_source"] == "reference_review_ai_tag"
 
 
+def test_ai_reference_feedback_can_be_restored_and_revoke_ai_training(api, database):
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a",
+            name="AI reference recovery", query="candid hat photo",
+            target_count=2, max_scroll_batches=2, auto_import=False,
+        )
+        rows, created, _ = service.ingest_candidates(
+            campaign=campaign, submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/ai-clear-feedback/",
+                image_url="https://i.pinimg.com/736x/ai-clear-feedback.jpg",
+            )], source_query=campaign.query,
+        )
+        assert created == 1
+        campaign_id, candidate_id = campaign.id, rows[0].id
+
+    url = (
+        f"/api/v1/realistic-review-ugc/campaigns/{campaign_id}"
+        f"/candidates/{candidate_id}/reference-feedback"
+    )
+    rejected = api.post(url, json={"label": "ai"})
+    assert rejected.status_code == 200
+    assert rejected.json()["candidate"]["status"] == "rejected_ai_risk"
+    assert rejected.json()["candidate"]["ai_manual_label"] == "ai"
+
+    restored = api.post(url, json={"label": "clear"})
+    assert restored.status_code == 200
+    candidate = restored.json()["candidate"]
+    assert candidate["reference_manual_label"] is None
+    assert candidate["ai_manual_label"] is None
+    assert candidate["status"] == "analysis_queued"
+    assert restored.json()["learning"]["bad_count"] == 0
+
+    with database() as session:
+        feedback = list(session.scalars(
+            select(RrugcAiFeedbackModel)
+            .where(RrugcAiFeedbackModel.candidate_id == candidate_id)
+            .order_by(
+                RrugcAiFeedbackModel.created_at.asc(),
+                RrugcAiFeedbackModel.id.asc(),
+            )
+        ))
+        assert sorted(row.label for row in feedback) == [
+            "ai", "ref_bad", "ref_clear", "unsure",
+        ]
+        assert RrugcRepository(session).ai_feedback_training_rows("tenant-a") == []
+
+
 def test_reference_feedback_learning_is_profile_scoped(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(
