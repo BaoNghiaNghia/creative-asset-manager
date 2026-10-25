@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
-import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
+import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
@@ -8,6 +8,8 @@ import { DeferredImage } from "./DeferredImage";
 import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
+import { UgcScoutReviewGallery, type UgcScoutReviewLabel } from "./UgcScoutReviewGallery";
+import type { UgcScoutItem } from "./api";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
 
 type StepDefinition = {
@@ -121,6 +123,7 @@ export function ProductsPhotoWorkflow({
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
   const [ugcScoutError, setUgcScoutError] = useState("");
+  const [ugcLearningMessage, setUgcLearningMessage] = useState("");
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
   const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[]; initialIndex: number } | null>(null);
   const [allOutputOpen, setAllOutputOpen] = useState(false);
@@ -170,6 +173,32 @@ export function ProductsPhotoWorkflow({
       .catch(error => { if (!cancelled) setUgcScoutError(error instanceof Error ? error.message : "Automatic Review Scout could not start"); });
     return () => { cancelled = true; };
   }, [sourcePlanId]);
+
+  async function reviewUgcReference(item: UgcScoutItem, label: UgcScoutReviewLabel) {
+    if (!ugcScout?.campaign_id) throw new Error("Review Scout campaign is not available.");
+    const saved = await markCandidateReferenceFeedback(ugcScout.campaign_id, item.id, label);
+    // Apply the saved feedback immediately so a 12s polling refresh cannot
+    // make rejected/AI references appear selectable after a successful vote.
+    setUgcScout(current => {
+      if (!current) return current;
+      const items = label === "bad" || label === "ai"
+        ? current.items.filter(candidate => candidate.id !== item.id)
+        : current.items.map(candidate => candidate.id === item.id
+          ? { ...candidate, manual_label: label === "good" ? "good" as const : null }
+          : candidate);
+      return { ...current, items, count: items.length };
+    });
+    const learning = saved.learning;
+    setUgcLearningMessage(
+      (label === "good" ? "✓ Preferred" : label === "bad" ? "✕ Rejected" : label === "ai"
+        ? "AI excluded" : "Feedback cleared")
+      + " · Saved for Review Scout learning (✓ " + learning.good_count
+      + " / ✕ " + learning.bad_count + ")."
+    );
+    // Refetch canonical labels, avoiding a stale selection after a vote.
+    try { setUgcScout(await getUgcScoutGallery(sourcePlanId)); }
+    catch { /* The locally updated selection remains correct after the write. */ }
+  }
 
   async function invokeEcommerce(stage: string, job?: EcommerceJob, regenerate = false) {
     if (!sourcePlanId || busyStage) return;
@@ -452,15 +481,16 @@ export function ProductsPhotoWorkflow({
                 {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
-              {sceneJobs.some(job => job.scene_reference) && <div aria-label="Pinned UGC inputs" style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>{sceneJobs.filter(job => job.scene_reference).map(job => <figure key={job.id} style={{ margin: 0, width: 112 }}><DeferredImage src={job.scene_reference!.image_url} alt={"Pinned input for " + job.stage} rootMargin="250px" style={{ width: 108, height: 108, objectFit: "cover", borderRadius: 8 }} /><figcaption style={{ fontSize: 10 }}>{job.stage.replace("prod_s2_ugc_", "UGC ")} · {job.status}</figcaption></figure>)}</div>}
-              {ugcScout && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8 }}>
-                {ugcScout.items.map(item => <a key={item.id} href={item.pin_url} target="_blank" rel="noopener noreferrer"
-                  title={"Lifestyle reference · " + (item.score ?? "unrated")}>
-                  <DeferredImage src={item.image_url} rootMargin="250px" alt="Scouted lifestyle reference"
-                    style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 8 }} />
-                </a>)}
-              </div>}
-              <small>Uses the existing Review Scout campaign and approved candidate images. These are scene references, not proof of the exact embroidered logo.</small>
+              {ugcLearningMessage && <p role="status" className="rrugc-ugc-learning-message">{ugcLearningMessage}</p>}
+              {ugcScout && <UgcScoutReviewGallery
+                items={ugcScout.items}
+                pinned={Object.fromEntries(sceneJobs.filter(job => job.scene_reference?.candidate_id).map(job => [
+                  job.scene_reference!.candidate_id,
+                  { slot: job.stage.replace("prod_s2_ugc_", "UGC "), status: job.status },
+                ]))}
+                onReview={reviewUgcReference}
+              />}
+              <small>Selected UGC inputs are marked directly on their Scout images. Click an image to vote ✓ / ✕ / AI; feedback teaches Review Scout future preferences. Rejected and AI-tagged images are excluded from new picks. Existing generated outputs remain unchanged.</small>
             </section>}
             {isEcommerce && <div className="rrugc-products-photo-detail-info">
               <strong>{skillName}</strong>

@@ -473,8 +473,13 @@ class EcommerceService:
                     select(RrugcCandidateModel).where(
                         RrugcCandidateModel.tenant_id == tenant_id,
                         RrugcCandidateModel.campaign_id == plan.campaign_id,
-                    ).order_by(RrugcCandidateModel.final_score.desc().nullslast()).limit(150)))
-                selected = select_ugc_references(candidates)
+                    ).order_by(RrugcCandidateModel.final_score.desc().nullslast(),
+                               RrugcCandidateModel.created_at.desc()).limit(150)))
+                selected = select_ugc_references(
+                    candidates, selection_key=(
+                        f"{tenant_id}:{plan.id}:{plan.source_revision}:{color_key}"
+                    ),
+                )
                 if len(selected) != 3:
                     raise EcommerceError("ugc_scout_references_missing",
                         "Need three approved and distinct Scout images.", 409)

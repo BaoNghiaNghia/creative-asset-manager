@@ -5758,25 +5758,15 @@ def ugc_scout_gallery(
         RrugcCandidateModel.image_url.is_not(None),
     ).order_by(RrugcCandidateModel.final_score.desc().nullslast(),
                RrugcCandidateModel.created_at.desc()).limit(150)))
+    from app.modules.realistic_review_ugc.ugc_scene_selection import eligible_ugc_references
     unique = []
-    seen = set()
-    for item in items:
+    for item in eligible_ugc_references(items):
         signal = item.ai_signal_json if isinstance(item.ai_signal_json, dict) else {}
-        if signal.get("reference_manual_label") in ("bad", "ai"):
-            continue
-        if item.head_visible is False or item.people_count == 0:
-            continue
-        if item.mobile_ugc_score is not None and item.mobile_ugc_score < 0.55:
-            continue
-        identity = item.content_hash or item.image_url.strip().casefold()
-        if identity in seen:
-            continue
-        seen.add(identity)
         unique.append({"id": item.id, "image_url": item.image_url,
                        "pin_url": item.pin_url, "score": item.final_score,
-                       "status": item.status})
-        if len(unique) == 20:
-            break
+                       "status": item.status,
+                       "manual_label": signal.get("reference_manual_label")
+                           if signal.get("reference_manual_label") == "good" else None})
     return {"source_plan_id": plan.id, "campaign_id": campaign.id,
             "status": campaign.scout_status, "target": 20,
             "count": len(unique), "items": unique,

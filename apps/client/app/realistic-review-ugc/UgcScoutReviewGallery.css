@@ -1,0 +1,45 @@
+/* Selected Slot 6 inputs are overlaid on their original Scout thumbnails. */
+.rrugc-ugc-review-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,112px));gap:8px;margin:9px 0;align-items:start}
+.rrugc-ugc-review-tile{display:block;position:relative;aspect-ratio:1;overflow:hidden;width:100%;padding:0!important;border:1px solid #dbe4ef!important;border-radius:9px!important;background:#edf2f7!important;cursor:zoom-in!important;text-align:left}
+.rrugc-ugc-review-tile.is-pinned{border:2px solid #16815e!important;box-shadow:0 0 0 2px rgba(22,129,94,.13)}
+.rrugc-ugc-review-tile>img{display:block;width:100%;height:100%;object-fit:cover}
+.rrugc-ugc-review-tile:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
+.rrugc-ugc-review-picked,.rrugc-ugc-review-preferred,.rrugc-ugc-review-hover{position:absolute;left:3px;right:3px;max-width:calc(100% - 6px);width:fit-content;padding:3px 5px;border-radius:5px;font-size:9px;font-weight:800;line-height:1.15;white-space:normal}
+.rrugc-ugc-review-picked{top:3px;background:rgba(10,103,71,.94);color:#fff}
+.rrugc-ugc-review-preferred{bottom:3px;background:rgba(255,255,255,.95);color:#166534}
+.rrugc-ugc-review-hover{bottom:3px;background:rgba(16,35,59,.82);color:#fff;opacity:0;pointer-events:none}
+@media(hover:hover){.rrugc-ugc-review-tile:hover .rrugc-ugc-review-hover{opacity:1}}
+.rrugc-ugc-review-backdrop{position:fixed;inset:0;z-index:11500;display:grid;place-items:center;padding:16px;background:rgba(13,24,42,.82);box-sizing:border-box}
+.rrugc-ugc-review-dialog{display:flex;flex-direction:column;gap:11px;width:min(880px,100%);max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box;padding:16px;border:1px solid #d3dce8;border-radius:13px;background:#fff;box-shadow:0 24px 75px rgba(2,10,30,.4);color:#283b57}
+.rrugc-ugc-review-dialog>header{display:flex;align-items:start;justify-content:space-between;gap:12px;padding:0!important;border:0!important}
+.rrugc-ugc-review-dialog header>div{display:flex;align-items:flex-start;flex-direction:column;gap:3px}
+.rrugc-ugc-review-dialog header small{font-size:9px;letter-spacing:.09em;font-weight:850;color:#71819b}
+.rrugc-ugc-review-dialog header strong{font-size:16px;color:#20344d}
+.rrugc-ugc-review-modal-picked{padding:3px 7px;border-radius:5px;background:#e8f7ee;color:#18764f;font-weight:800;font-size:10px}
+.rrugc-ugc-review-dialog button{font:inherit;cursor:pointer}
+.rrugc-ugc-review-dialog button:disabled{opacity:.48;cursor:wait}
+.rrugc-ugc-review-dialog button:focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+.rrugc-ugc-review-dialog .rrugc-ugc-review-close{width:36px;height:36px;flex:0 0 36px;padding:0;border:1px solid #d5dfeb;border-radius:8px;background:#f8fafc;color:#42526b;font-size:25px}
+.rrugc-ugc-review-media{display:grid;grid-template-columns:35px minmax(0,1fr) 35px;gap:7px;align-items:center;justify-items:center;min-height:0}
+.rrugc-ugc-review-media img{display:block;width:100%;max-width:100%;max-height:min(62dvh,640px);object-fit:contain;border-radius:8px;background:#f2f5f9}
+.rrugc-ugc-review-media button{width:35px;height:46px;border:1px solid #d7e1ec;border-radius:8px;background:#f7f9fc;color:#345476;font-size:25px}
+.rrugc-ugc-review-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap}
+.rrugc-ugc-review-actions button{min-width:92px;min-height:38px;padding:8px 15px;border-radius:8px;border:1px solid #cfd8e5;font-size:12px;font-weight:850}
+.rrugc-ugc-review-actions .is-good{color:#176c47;background:#eaf9f0;border-color:#9bd8b8}
+.rrugc-ugc-review-actions .is-good.is-current{box-shadow:inset 0 0 0 2px #15815c}
+.rrugc-ugc-review-actions .is-bad{color:#a33338;background:#fff1f1;border-color:#f0adb4}
+.rrugc-ugc-review-actions .is-ai{color:#6942a2;background:#f3efff;border-color:#cfc0f7}
+.rrugc-ugc-review-actions .is-clear{background:#f4f6fa;color:#52657d}
+.rrugc-ugc-review-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:10px;color:#65758b}
+.rrugc-ugc-review-dialog footer a{color:#285f9d;white-space:nowrap}
+.rrugc-ugc-review-error{margin:0;padding:7px 10px;border-radius:6px;background:#fff0f0;color:#b52c35;font-size:11px}
+@media(max-width:640px){
+ .rrugc-ugc-review-grid{grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px}
+ .rrugc-ugc-review-backdrop{padding:5px}
+ .rrugc-ugc-review-dialog{padding:10px;gap:8px;max-height:calc(100dvh - 10px)}
+ .rrugc-ugc-review-media{grid-template-columns:28px minmax(0,1fr) 28px;gap:3px}
+ .rrugc-ugc-review-media button{width:28px;height:40px}
+ .rrugc-ugc-review-media img{max-height:56dvh}
+ .rrugc-ugc-review-actions{gap:6px}
+ .rrugc-ugc-review-actions button{min-width:76px;min-height:37px;padding:6px}
+}
