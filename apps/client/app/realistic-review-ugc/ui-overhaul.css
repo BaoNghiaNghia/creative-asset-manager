@@ -2513,3 +2513,15 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-source-review-filters button{padding:5px 10px;border:1px solid #cbd7e4;border-radius:7px;background:#fff;color:#50627a;font:inherit;font-size:11px;font-weight:800;cursor:pointer}
 .rrugc-source-review-filters button.is-active{border-color:#5078ad;background:#eaf1fb;color:#2e5387}
 .rrugc-source-review-filters button:focus-visible{outline:2px solid #427ac3;outline-offset:2px}
+
+/* Reference review keeps header visible and limits scrolling to the gallery. */
+.rrugc-source-review-modal:has(.rrugc-source-review-filters){box-sizing:border-box;height:min(92dvh,1100px);max-height:calc(100dvh - 36px);min-height:0}
+.rrugc-source-review-modal:has(.rrugc-source-review-filters)>.rrugc-source-review-header{position:relative;z-index:5;flex:0 0 auto;min-height:0}
+.rrugc-source-review-modal:has(.rrugc-source-review-filters)>.rrugc-source-review-masonry{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* Desktop actions are card-hover or keyboard focus only. */
+@media (hover:hover) and (pointer:fine){
+ .rrugc-source-review-card .rrugc-source-review-vote{opacity:0;visibility:hidden;pointer-events:none}
+ .rrugc-source-review-card:hover .rrugc-source-review-vote,.rrugc-source-review-card:focus-within .rrugc-source-review-vote{opacity:1;visibility:visible;pointer-events:auto}
+}
+@media (hover:none), (pointer:coarse){.rrugc-source-review-card .rrugc-source-review-vote{opacity:1;visibility:visible;pointer-events:auto}}
+@media (max-width:760px){.rrugc-source-review-modal:has(.rrugc-source-review-filters){height:min(96dvh,1100px);max-height:calc(100dvh - 16px)}}
