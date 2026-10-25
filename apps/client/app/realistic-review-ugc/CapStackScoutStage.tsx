@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
@@ -29,6 +29,18 @@ const DEFAULT_PAGE: CapStackPage = {
 
 function actionLabel(value: CapStackLabel): string {
   return value === "good" ? "Approved" : value === "bad" ? "Rejected" : value === "ai" ? "AI image" : "Pending";
+}
+
+function validCapCount(value: number | null | undefined): number | null {
+  return Number.isInteger(value) && value != null && value >= 2 && value <= 6 ? value : null;
+}
+
+function quickApprovalCount(item: CapStackImage): number | null {
+  // Human-verified counts take precedence. A ready, in-range Gemini estimate
+  // may also be explicitly approved with one click. Other images need review.
+  return validCapCount(item.manual_caps_count) ??
+    (item.count_status === "ready" && item.is_cap_stack !== false
+      ? validCapCount(item.caps_detected) : null);
 }
 
 function visionLabel(item: CapStackImage): string {
@@ -105,7 +117,17 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CapStackImage | null>(null);
   const [editableCount, setEditableCount] = useState("");
+  const [approvalRequestedFor, setApprovalRequestedFor] = useState<string | null>(null);
   const [view, setView] = useState<"masonry" | "list">("masonry");
+  // The polling effect must not restart on every feedback/busy/modal update.
+  // Use current refs in the interval so a stale list response does not
+  // immediately overwrite a just-committed human review.
+  const busyRef = useRef(busy);
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    busyRef.current = busy;
+    selectedRef.current = selected;
+  }, [busy, selected]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -132,10 +154,10 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     };
     void refresh();
     const timer = window.setInterval(() => {
-      if (!document.hidden && !busy && !selected) void refresh();
+      if (!document.hidden && !busyRef.current && !selectedRef.current) void refresh();
     }, 15000);
     return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, page, label, visionStatus, count, debouncedQuery, busy, selected]);
+  }, [active, page, label, visionStatus, count, debouncedQuery]);
 
   async function updateImage(image: CapStackImage, body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number }) {
     if (busy) return;
@@ -162,6 +184,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
         },
       }));
       setSelected(current => current?.id === updated.id ? updated : current);
+      if (body.label === "good") setApprovalRequestedFor(null);
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save Cap Stack feedback.");
@@ -193,9 +216,40 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     } finally { setBusy(""); }
   }
 
-  function openDetail(image: CapStackImage) {
+  function openDetail(image: CapStackImage, approve = false) {
     setSelected(image);
-    setEditableCount(String(image.manual_caps_count ?? image.caps_detected ?? ""));
+    setEditableCount(String(validCapCount(image.manual_caps_count) ??
+      validCapCount(image.caps_detected) ?? ""));
+    setApprovalRequestedFor(approve ? image.id : null);
+    setError("");
+  }
+
+  function submitFeedback(item: CapStackImage, value: "good" | "bad" | "ai", overlay: boolean) {
+    if (item.manual_label === value) {
+      void updateImage(item, { label: "clear" });
+      return;
+    }
+    if (value !== "good") {
+      void updateImage(item, { label: value });
+      return;
+    }
+    if (overlay) {
+      const count = quickApprovalCount(item);
+      if (count === null) {
+        // Never send a request known to violate the API's 2–6 cap invariant.
+        openDetail(item, true);
+        return;
+      }
+      void updateImage(item, { label: "good", caps_count: count });
+      return;
+    }
+    const count = validCapCount(editableCount.trim() === "" ? null : Number(editableCount));
+    if (count === null) {
+      setApprovalRequestedFor(item.id);
+      setError("Confirm a visible cap count from 2 to 6 before approving.");
+      return;
+    }
+    void updateImage(item, { label: "good", caps_count: count });
   }
 
   const buttons = (item: CapStackImage, overlay = false) => (
@@ -209,7 +263,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
           className={pressed ? "is-active " + value : value}
           disabled={Boolean(busy)}
           title={pressed ? "Clear " + action.toLowerCase() : action}
-          onClick={() => void updateImage(item, { label: pressed ? "clear" : value })}>
+          onClick={() => submitFeedback(item, value, overlay)}>
           {value === "good" ? "✓" : value === "bad" ? "×" : "AI"}
         </button>;
       })}
@@ -232,6 +286,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     </article>
   );
 
+  const confirmedModalCount = validCapCount(editableCount.trim() === "" ? null : Number(editableCount));
   const pageCount = Math.max(1, Math.ceil(data.total / data.page_size));
   const loadedCount = useMemo(() => data.items.length, [data.items]);
   return <div className="rrugc-cap-stack-stage">
@@ -347,19 +402,33 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     </div>}
 
     {selected && <div className="rrugc-cap-stack-modal-overlay" role="presentation"
-      onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}>
+      onMouseDown={event => { if (event.target === event.currentTarget) { setSelected(null); setApprovalRequestedFor(null); } }}>
       <div className="rrugc-cap-stack-modal" role="dialog" aria-modal="true"
         aria-label="Cap Stack image details">
         <header><div><strong>Cap Stack · Image details</strong><small>{selected.source_query || "Cap Stack"} · {actionLabel(selected.manual_label)}</small></div>
-          <button type="button" onClick={() => setSelected(null)} aria-label="Close Cap Stack details">×</button></header>
+          <button type="button" onClick={() => { setSelected(null); setApprovalRequestedFor(null); }} aria-label="Close Cap Stack details">×</button></header>
         <div className="rrugc-cap-stack-modal-content">
           <img src={selected.image_url} alt={selected.alt_text || "Cap Stack reference"} referrerPolicy="no-referrer"/>
           <div className="rrugc-cap-stack-modal-aside">
+            {approvalRequestedFor === selected.id && <p className="rrugc-cap-stack-approval-note" role="status">
+              Check the photo and confirm 2–6 visible caps to approve. Gemini may still be pending.
+            </p>}
             <label>Number of caps in this image<input type="number" value={editableCount}
-              min={2} max={6} placeholder="2–6 caps"
-              onChange={event => setEditableCount(event.target.value)} /></label>
-            <button type="button" disabled={Boolean(busy) || !Number.isInteger(Number(editableCount)) || Number(editableCount) < 2 || Number(editableCount) > 6}
-              onClick={() => void updateImage(selected, { caps_count: Number(editableCount) })}>Save cap count</button>
+              min={2} max={6} step={1} placeholder="2–6 caps"
+              autoFocus={approvalRequestedFor === selected.id}
+              onChange={event => { setEditableCount(event.target.value); setError(""); }} /></label>
+            {error && <p className="rrugc-cap-stack-modal-error" role="alert">{error}</p>}
+            <div className="rrugc-cap-stack-count-actions">
+              <button type="button" disabled={Boolean(busy) || confirmedModalCount === null}
+                onClick={() => { if (confirmedModalCount !== null) void updateImage(selected, { caps_count: confirmedModalCount }); }}>
+                Save cap count
+              </button>
+              {selected.manual_label !== "good" && <button type="button" className="is-approve"
+                disabled={Boolean(busy) || confirmedModalCount === null}
+                onClick={() => { if (confirmedModalCount !== null) void updateImage(selected, { label: "good", caps_count: confirmedModalCount }); }}>
+                Confirm count & approve
+              </button>}
+            </div>
             <div className="rrugc-cap-stack-ai-details">
               <strong>Gemini vision · {selected.count_status.replace(/_/g, " ")}</strong>
               <span>Visible caps: {selected.caps_detected ?? "Not analyzed"} · Confidence: {selected.count_confidence == null ? "—" : Math.round(selected.count_confidence * 100) + "%"}</span>

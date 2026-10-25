@@ -51,12 +51,9 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(settings).toHaveBeenCalledWith(true);
     const approve = host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-card .rrugc-cap-stack-votes button.good")!;
     await act(async () => { approve.click(); await Promise.resolve(); });
-    expect(votes).toHaveBeenCalledWith("one", { label: "good" });
-    expect(host.querySelector(".rrugc-cap-stack-card .label-good")).not.toBeNull();
-
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-preview")!.click();
-    });
+    expect(votes).not.toHaveBeenCalled();
+    expect(host.querySelector(".rrugc-cap-stack-modal")).not.toBeNull();
+    expect(host.textContent).toContain("confirm 2–6 visible caps");
     const input = host.querySelector<HTMLInputElement>(".rrugc-cap-stack-modal input[type=number]")!;
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -64,6 +61,11 @@ describe("Cap Stack Scout Stage 1", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    const confirm = host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-count-actions .is-approve")!;
+    expect(confirm.disabled).toBe(false);
+    await act(async () => { confirm.click(); await Promise.resolve(); });
+    expect(votes).toHaveBeenCalledWith("one", { label: "good", caps_count: 4 });
+    expect(host.querySelector(".rrugc-cap-stack-card .label-good")).not.toBeNull();
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
     await act(async () => root.unmount());
   });
@@ -106,10 +108,12 @@ describe("Cap Stack Scout Stage 1", () => {
   });
 
 
-  it("keeps the three quick feedback actions on top of the photo without opening details", async () => {
-    vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
+  it("keeps the three quick feedback actions on top of the photo without opening details when count is ready", async () => {
+    const ready = { ...sample.items[0], caps_detected: 3, count_status: "ready", is_cap_stack: true };
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue({ ...sample, items: [ready] });
     const feedback = vi.spyOn(api, "setCapStackImageFeedback").mockImplementation(async (_id, body) => ({
-      ...sample.items[0], manual_label: body.label === "clear" ? null : body.label ?? null,
+      ...ready, manual_label: body.label === "clear" ? null : body.label ?? null,
+      manual_caps_count: body.caps_count ?? ready.manual_caps_count,
     }));
     const host = document.createElement("div");
     document.body.append(host);
@@ -127,7 +131,7 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(action("ai").getAttribute("aria-label")).toMatch(/AI-generated/);
 
     await act(async () => { action("good").click(); await Promise.resolve(); });
-    expect(feedback).toHaveBeenLastCalledWith("one", { label: "good" });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "good", caps_count: 3 });
     expect(action("good").getAttribute("aria-pressed")).toBe("true");
     expect(host.querySelector(".rrugc-cap-stack-modal")).toBeNull();
 
@@ -146,6 +150,70 @@ describe("Cap Stack Scout Stage 1", () => {
 
     await act(async () => { imageButton.click(); });
     expect(host.querySelector(".rrugc-cap-stack-modal")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("asks for a visible count instead of posting an unprocessable approval", async () => {
+    const outOfRange: api.CapStackPage = {
+      ...sample, items: [{
+        ...sample.items[0], caps_detected: 7, count_status: "out_of_range",
+      }],
+    };
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(outOfRange);
+    const feedback = vi.spyOn(api, "setCapStackImageFeedback").mockImplementation(
+      async (_id, body) => ({
+        ...outOfRange.items[0],
+        manual_label: body.label === "clear" ? null : body.label ?? null,
+        manual_caps_count: body.caps_count ?? null,
+      }),
+    );
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-votes.is-overlay button.good")!.click(); });
+    expect(feedback).not.toHaveBeenCalled();
+    const modal = host.querySelector(".rrugc-cap-stack-modal")!;
+    expect(modal).not.toBeNull();
+    expect(modal.textContent).toContain("confirm 2–6 visible caps");
+    const input = modal.querySelector<HTMLInputElement>("input[type=number]")!;
+    expect(input.value).toBe("");
+    const confirm = () => host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-count-actions .is-approve")!;
+    expect(confirm().disabled).toBe(true);
+
+    const setInput = (value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    await act(async () => { setInput("7"); });
+    expect(confirm().disabled).toBe(true);
+    expect(feedback).not.toHaveBeenCalled();
+    await act(async () => { setInput("3"); });
+    expect(confirm().disabled).toBe(false);
+    await act(async () => { confirm().click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenCalledTimes(1);
+    expect(feedback).toHaveBeenCalledWith("one", { label: "good", caps_count: 3 });
+    expect(host.querySelector(".rrugc-cap-stack-card.label-good")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("keeps reject and AI actions available while Gemini has not counted caps", async () => {
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
+    const feedback = vi.spyOn(api, "setCapStackImageFeedback").mockImplementation(async (_id, body) => ({
+      ...sample.items[0], manual_label: body.label === "clear" ? null : body.label ?? null,
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+    const overlay = host.querySelector(".rrugc-cap-stack-votes.is-overlay")!;
+    await act(async () => { overlay.querySelector<HTMLButtonElement>("button.bad")!.click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "bad" });
+    await act(async () => { overlay.querySelector<HTMLButtonElement>("button.ai")!.click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "ai" });
+    expect(host.querySelector(".rrugc-cap-stack-modal")).toBeNull();
     await act(async () => root.unmount());
   });
 

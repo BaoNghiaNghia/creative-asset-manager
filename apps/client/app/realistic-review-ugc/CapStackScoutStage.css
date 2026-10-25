@@ -112,6 +112,11 @@
 .rrugc-cap-stack-modal-aside label{display:grid;gap:7px;font-size:11px;font-weight:750;color:#4d6482}
 .rrugc-cap-stack-modal-aside input{height:37px;padding:7px 11px;border:1px solid #cedbeb;border-radius:8px}
 .rrugc-cap-stack-modal-aside>button{height:37px;border:0;border-radius:8px;background:#254f8b;color:#fff;cursor:pointer}
+.rrugc-cap-stack-approval-note{margin:0;padding:10px 11px;border:1px solid #bdd3ef;border-radius:8px;background:#eff6ff;color:#315c8a;font-size:11px;font-weight:700;line-height:1.5}
+.rrugc-cap-stack-modal-error{margin:0;padding:9px;border:1px solid #efd0cf;border-radius:8px;background:#fff2f2;color:#9d3838;font-size:11px}
+.rrugc-cap-stack-count-actions{display:flex;flex-wrap:wrap;gap:7px}
+.rrugc-cap-stack-count-actions button{flex:1 1 95px;min-height:37px;padding:7px 9px;border:1px solid #cbd8e9;border-radius:8px;background:#f5f8fc;color:#37557c;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+.rrugc-cap-stack-count-actions button.is-approve{flex:2 1 140px;border-color:#237349;background:#237349;color:#fff}
 .rrugc-cap-stack-modal-aside small{font-size:10px;color:#8895aa;line-height:1.6}
 
 
