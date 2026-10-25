@@ -30,6 +30,18 @@ function actionLabel(value: CapStackLabel): string {
   return value === "good" ? "Approved" : value === "bad" ? "Rejected" : value === "ai" ? "AI image" : "Pending";
 }
 
+function visionLabel(item: CapStackImage): string {
+  switch (item.count_status) {
+    case "ready": return "Gemini: 2–6 caps";
+    case "needs_review": return "Gemini: low confidence";
+    case "out_of_range": return "Over 6 caps · excluded";
+    case "not_cap_stack": return "Not a Cap Stack";
+    case "error": return "Gemini error";
+    case "analyzing": return "Gemini: analyzing";
+    default: return "Gemini: queued";
+  }
+}
+
 export function CapStackScoutStage({ active }: { active: boolean }) {
   const [data, setData] = useState<CapStackPage>(DEFAULT_PAGE);
   const [query, setQuery] = useState("");
@@ -136,17 +148,21 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     setEditableCount(String(image.manual_caps_count ?? image.caps_detected ?? ""));
   }
 
-  const buttons = (item: CapStackImage) => (
-    <div className="rrugc-cap-stack-votes" role="group" aria-label={"Cap Stack feedback for " + item.id}>
-      {(["good", "bad", "ai"] as const).map(value => (
-        <button key={value} type="button" aria-pressed={item.manual_label === value}
-          className={item.manual_label === value ? "is-active " + value : value}
+  const buttons = (item: CapStackImage, overlay = false) => (
+    <div className={"rrugc-cap-stack-votes" + (overlay ? " is-overlay" : "")}
+      role="group" aria-label={"Cap Stack feedback for " + item.id} aria-busy={busy === item.id}>
+      {(["good", "bad", "ai"] as const).map(value => {
+        const action = value === "good" ? "Approve authentic Cap Stack" : value === "bad" ? "Reject unsuitable image" : "Mark AI-generated image";
+        const pressed = item.manual_label === value;
+        return <button key={value} type="button" aria-pressed={pressed}
+          aria-label={pressed ? "Clear " + action.toLowerCase() : action}
+          className={pressed ? "is-active " + value : value}
           disabled={Boolean(busy)}
-          title={value === "good" ? "Approve authentic Cap Stack" : value === "bad" ? "Reject unsuitable image" : "Reject AI-generated image"}
-          onClick={() => void updateImage(item, { label: item.manual_label === value ? "clear" : value })}>
+          title={pressed ? "Clear " + action.toLowerCase() : action}
+          onClick={() => void updateImage(item, { label: pressed ? "clear" : value })}>
           {value === "good" ? "✓" : value === "bad" ? "×" : "AI"}
-        </button>
-      ))}
+        </button>;
+      })}
     </div>
   );
 
@@ -225,24 +241,26 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       <small>Keyword: Cap Stack · Gemini runs through CAM shared pool; image processing retries when capacity is available.</small>
     </div>}
     <div className={"rrugc-cap-stack-gallery view-" + view} aria-label="Cap Stack image library">
-      {data.items.map(item => <article key={item.id} className="rrugc-cap-stack-card">
-        <button type="button" className="rrugc-cap-stack-preview" onClick={() => openDetail(item)}
-          aria-label={"View Cap Stack image " + item.id}>
-          <DeferredImage src={item.image_url} alt={item.alt_text || "Pinterest Cap Stack reference"} loading="lazy" referrerPolicy="no-referrer"/>
-          <span className="rrugc-cap-stack-count">
+      {data.items.map(item => <article key={item.id}
+        className={"rrugc-cap-stack-card label-" + (item.manual_label || "pending")}>
+        <div className="rrugc-cap-stack-media">
+          <button type="button" className="rrugc-cap-stack-preview" onClick={() => openDetail(item)}
+            aria-label={"View Cap Stack image " + item.id}>
+            <DeferredImage src={item.image_url} alt={item.alt_text || "Pinterest Cap Stack reference"}
+              loading="lazy" referrerPolicy="no-referrer"/>
+          </button>
+          <span className="rrugc-cap-stack-count" title={visionLabel(item)}>
             {item.manual_caps_count ?? item.caps_detected ?? "?"} caps
           </span>
-        </button>
-        <div className="rrugc-cap-stack-card-body">
-          <div className="rrugc-cap-stack-card-title"><strong>{item.source_query || "Cap Stack"}</strong>
-            <span className={"label-" + (item.manual_label || "pending")}>{actionLabel(item.manual_label)}</span></div>
-          <p>{item.alt_text || "Pinterest reference · pending verification"}</p>
-          <div className="rrugc-cap-stack-ai-status">
-            <span className={"status-" + item.count_status}>{item.count_status === "ready" ? "Gemini: 2–6 caps" : item.count_status === "needs_review" ? "Gemini: low confidence" : item.count_status === "out_of_range" ? "Over 6 caps · excluded" : item.count_status === "not_cap_stack" ? "Not a Cap Stack" : item.count_status === "error" ? "Gemini error" : item.count_status === "analyzing" ? "Gemini: analyzing" : "Gemini: queued"}</span>
-            {item.ai_suspected === true && <span className="suspected">AI suspected · review</span>}
-          </div>
-          <div className="rrugc-cap-stack-card-footer">{buttons(item)}
-            <a href={item.pin_url} target="_blank" rel="noreferrer noopener" aria-label="Open original Pinterest Pin">Pinterest ↗</a></div>
+          {buttons(item, true)}
+        </div>
+        <div className="rrugc-cap-stack-card-footer">
+          <strong title={item.alt_text || item.source_query || "Cap Stack"}>{item.source_query || "Cap Stack"}</strong>
+          <a href={item.pin_url} target="_blank" rel="noreferrer noopener" aria-label="Open original Pinterest Pin">Pinterest ↗</a>
+          <span className={"rrugc-cap-stack-card-state label-" + (item.manual_label || "pending")}>
+            {actionLabel(item.manual_label)} · {visionLabel(item)}
+            {item.ai_suspected === true ? " · AI suspected" : ""}
+          </span>
         </div>
       </article>)}
     </div>

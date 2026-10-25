@@ -35,6 +35,14 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(host.textContent).toContain("Cap Stack Scout");
     expect(host.textContent).toContain("? caps");
     expect(host.querySelectorAll(".rrugc-cap-stack-card")).toHaveLength(1);
+    const card = host.querySelector(".rrugc-cap-stack-card")!;
+    const overlay = card.querySelector(".rrugc-cap-stack-votes.is-overlay")!;
+    expect(overlay.parentElement?.classList.contains("rrugc-cap-stack-media")).toBe(true);
+    expect(overlay.querySelectorAll("button")).toHaveLength(3);
+    expect(card.querySelector(".rrugc-cap-stack-card-body")).toBeNull();
+    expect(card.querySelector(".rrugc-cap-stack-ai-status")).toBeNull();
+    expect(card.querySelector(".rrugc-cap-stack-card-footer strong")?.textContent).toBe("Cap Stack");
+    expect(card.querySelector(".rrugc-cap-stack-card-footer a")?.getAttribute("href")).toBe(sample.items[0].pin_url);
 
     await act(async () => {
       host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-start")!.click();
@@ -94,6 +102,70 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(retry).toHaveBeenCalledWith("one");
     expect(host.textContent).toContain("Gemini vision · pending");
     expect(host.textContent).toContain("Approved");
+    await act(async () => root.unmount());
+  });
+
+
+  it("keeps the three quick feedback actions on top of the photo without opening details", async () => {
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
+    const feedback = vi.spyOn(api, "setCapStackImageFeedback").mockImplementation(async (_id, body) => ({
+      ...sample.items[0], manual_label: body.label === "clear" ? null : body.label ?? null,
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+
+    const photo = host.querySelector(".rrugc-cap-stack-media")!;
+    const imageButton = photo.querySelector<HTMLButtonElement>(".rrugc-cap-stack-preview")!;
+    const overlay = photo.querySelector(".rrugc-cap-stack-votes.is-overlay")!;
+    expect(overlay.parentElement).toBe(photo);
+    expect(imageButton.contains(overlay)).toBe(false);
+    const action = (value: string) => overlay.querySelector<HTMLButtonElement>("button." + value)!;
+    expect(action("good").getAttribute("aria-label")).toMatch(/Approve authentic/);
+    expect(action("bad").getAttribute("aria-label")).toMatch(/Reject unsuitable/);
+    expect(action("ai").getAttribute("aria-label")).toMatch(/AI-generated/);
+
+    await act(async () => { action("good").click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "good" });
+    expect(action("good").getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector(".rrugc-cap-stack-modal")).toBeNull();
+
+    await act(async () => { action("bad").click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "bad" });
+    expect(action("good").getAttribute("aria-pressed")).toBe("false");
+    expect(action("bad").getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => { action("ai").click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "ai" });
+    expect(action("ai").getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => { action("ai").click(); await Promise.resolve(); });
+    expect(feedback).toHaveBeenLastCalledWith("one", { label: "clear" });
+    expect(action("ai").getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => { imageButton.click(); });
+    expect(host.querySelector(".rrugc-cap-stack-modal")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("keeps both the compact grid and list controls usable", async () => {
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+
+    const gallery = host.querySelector(".rrugc-cap-stack-gallery")!;
+    expect(gallery.classList.contains("view-grid")).toBe(true);
+    const switchView = host.querySelector<HTMLSelectElement>(".rrugc-cap-stack-toolbar label:last-of-type select")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(switchView, "list");
+      switchView.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(gallery.classList.contains("view-list")).toBe(true);
+    expect(gallery.querySelector(".rrugc-cap-stack-votes.is-overlay")).not.toBeNull();
     await act(async () => root.unmount());
   });
 
