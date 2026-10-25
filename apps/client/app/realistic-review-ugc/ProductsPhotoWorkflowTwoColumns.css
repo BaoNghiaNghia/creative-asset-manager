@@ -261,3 +261,101 @@
   .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-run-button{grid-column:1}
   .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-detail-toggle{grid-column:2}
 }
+
+/* Slot 7: two-row card with full-width, legible previews for all 13 colors.
+   Eight outputs fit at desktop width; horizontal drag/swipe reveals the rest. */
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  container-type:inline-size;
+  grid-template-columns:minmax(0,1fr) minmax(340px,385px);
+  grid-template-rows:auto auto auto;
+  grid-template-areas:"title controls" "skill controls" "outputs outputs";
+  min-height:0;
+  padding:11px 12px 12px;
+  column-gap:12px;
+  row-gap:8px;
+  align-items:center;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-title small{
+  display:block;
+  color:#7b8ca4;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-skill{
+  align-self:start;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+  width:100%;
+  max-width:none;
+  justify-self:stretch;
+  align-self:center;
+  grid-template-columns:minmax(76px,1fr) minmax(58px,.65fr) 76px 90px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+  --rrugc-colorway-tile:calc(12.5% - 7px);
+  grid-area:outputs;
+  display:flex;
+  flex-flow:row nowrap;
+  align-items:stretch;
+  justify-self:stretch;
+  justify-content:flex-start;
+  box-sizing:border-box;
+  width:100%;
+  max-width:none;
+  height:114px;
+  min-height:0;
+  max-height:none;
+  margin:0;
+  padding:0 0 2px;
+  gap:8px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scroll-snap-type:x proximity;
+  touch-action:pan-x pan-y;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors .rrugc-colorway-slot{
+  box-sizing:border-box;
+  flex:0 0 var(--rrugc-colorway-tile);
+  width:var(--rrugc-colorway-tile);
+  min-width:0;
+  height:112px;
+  min-height:112px;
+  max-height:112px;
+  border-radius:9px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors .rrugc-colorway-slot img{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  object-position:center;
+}
+/* The closest size container for the gallery is Slot 7, not the viewport. */
+@container (max-width:760px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+    --rrugc-colorway-tile:calc(16.666667% - 6.666667px);
+  }
+}
+@container (max-width:520px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+    --rrugc-colorway-tile:calc(25% - 6px);
+  }
+}
+@container (max-width:640px){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto;
+    grid-template-areas:"title" "skill" "controls" "outputs";
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+    width:100%;
+  }
+}
+@container (max-width:470px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-stage-controls{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:auto auto;
+    gap:7px;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-updated{grid-column:1}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-duration{grid-column:2;justify-self:end}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-run-button{grid-column:1}
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-detail-toggle{grid-column:2}
+}
