@@ -135,14 +135,16 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>root.unmount());
   });
 
-  it("shows Ecommerce Back High in a compact single-image output modal",async()=>{
+  it("opens all 23 outputs at the clicked Ecommerce Back High image",async()=>{
     const {root,host}=await renderWorkflow({ecommerceJobs:ecommerce});
     await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());
-    const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="single"]')!;
+    const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
-    expect(modal.textContent).toContain("Back High · output");
+    expect(modal.textContent).toContain("All outputs · embroidery_design.png");
+    expect(modal.textContent).toContain("04 / 23");
+    expect(modal.textContent).toContain("All 23 outputs");
     expect(modal.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe("/photos/back.png");
-    expect(modal.querySelector(".rrugc-photo-gallery-sidebar")).toBeNull();
+    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumbnails button")).toHaveLength(23);
     await act(async()=>root.unmount());
   });
 });
