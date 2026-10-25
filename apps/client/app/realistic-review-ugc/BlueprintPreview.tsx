@@ -73,7 +73,7 @@ function designName(version: GenerationOutputVersion) {
 }
 
 function thumbnailUrl(url: string, size: number) {
-  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size;
+  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size + "&artwork=stage1-matte-v1";
 }
 
 type DragAxis = "horizontal" | "vertical" | "both";
@@ -104,7 +104,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
-  const activeDesignSrc = activeDesign?.url ?? ""; // Render actual stitch detail, not a 512px downsample.
+  const activeDesignSrc = activeDesign ? activeDesign.url + "?artwork=stage1-matte-v1" : "";
+  // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.
   const tintedFrontSrc = useBlueprintEmbroideryComposite(activeDesignSrc, blueprintHatPhoto(activeColor.id), activeColor.id, threadMode);
@@ -417,7 +418,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
       <span>13 official 8869 colorways · Low-relief material composite · Thread color by hat</span>
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
-      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesign.url} compositedSrc={tintedFrontSrc}
+      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesignSrc} compositedSrc={tintedFrontSrc}
       threadMode={threadMode} colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
       guides={guides}

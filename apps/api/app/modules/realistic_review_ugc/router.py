@@ -27,6 +27,9 @@ from app.domain.providers.contracts import (
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
+from app.modules.realistic_review_ugc.output_image_sanitizer import (
+    MAX_PREVIEW_BYTES, STAGE1_BLACK_MATTE_SKILLS, stage1_artwork_preview_bytes,
+)
 from app.modules.realistic_review_ugc.image_cache_policy import (
     matches_etag,
     preview_cache_control,
@@ -2855,6 +2858,7 @@ async def _managed_drive_thumbnail_response(
     cache_version: str,
     etag: str | None = None,
     http_client: httpx.AsyncClient | None = None,
+    repair_stage1_black_matte: bool = False,
 ) -> Response | None:
     """Serve a compact managed-Drive thumbnail from the shared in-memory cache."""
     if not isinstance(storage, GoogleDriveAssetStorage):
@@ -2864,7 +2868,7 @@ async def _managed_drive_thumbnail_response(
         tenant_id,
         "rrugc-source-plan",
         remote_file_id,
-        f"{cache_version}:{size_pixels}",
+        f"{cache_version}:{size_pixels}:{'stage1-matte-v1' if repair_stage1_black_matte else 'original'}",
     )
 
     async def load_thumbnail() -> CachedThumbnail:
@@ -2889,9 +2893,17 @@ async def _managed_drive_thumbnail_response(
                 for name in ("last-modified",)
                 if (value := upstream.headers.get(name))
             )
+            image_content = bytes(content)
+            image_type = upstream.headers.get("content-type") or "image/jpeg"
+            if repair_stage1_black_matte:
+                image_content, changed = await run_in_threadpool(
+                    stage1_artwork_preview_bytes, image_content,
+                )
+                if changed:
+                    image_type = "image/png"
             return CachedThumbnail(
-                content=bytes(content),
-                content_type=upstream.headers.get("content-type") or "image/jpeg",
+                content=image_content,
+                content_type=image_type,
                 headers=headers,
             )
         finally:
@@ -5125,11 +5137,18 @@ async def get_generation_output_version(
         raise HTTPException(status_code=404, detail="Output version not found")
     remote_id, content_type, size_bytes = (
         match["remote_file_id"], match["content_type"], match["size_bytes"])
+    # Only typography/design artwork is eligible for a black-matte repair.
+    # Keep photographic/hat mockup versions and all original downloads intact.
+    stage1_artwork = (
+        stage == "stage1" and
+        getattr(job, "skill_name", None) in STAGE1_BLACK_MATTE_SKILLS
+    )
     session.close()
     if thumbnail and not download:
         not_modified, etag, cache_control = _rrugc_conditional_preview(
             tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size=size, revision=remote_id, requested_version=v,
+            size=size, revision=remote_id + (":stage1-matte-v1" if stage1_artwork else ""),
+            requested_version=v,
             if_none_match=if_none_match,
         )
         if not_modified is not None:
@@ -5141,7 +5160,8 @@ async def get_generation_output_version(
         compact = await _managed_drive_thumbnail_response(
             storage, tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
             size_pixels=size, cache_control=cache_control,
-            cache_version=job_id + ":" + str(version) + ":" + remote_id, etag=etag)
+            cache_version=job_id + ":" + str(version) + ":" + remote_id, etag=etag,
+            repair_stage1_black_matte=stage1_artwork)
         if compact is not None:
             return compact
     try:
@@ -5152,6 +5172,39 @@ async def get_generation_output_version(
     except StorageProviderError as exc:
         raise HTTPException(status_code=503 if exc.retryable else 502,
                             detail={"code": exc.code, "message": "Output version unavailable"}) from exc
+    if stage1_artwork and not download and (size_bytes is not None and 0 < size_bytes <= MAX_PREVIEW_BYTES):
+        # Repair the VIEW of already-uploaded artwork, not the immutable Drive
+        # master. Download=true still streams the exact original bytes.
+        # This also fixes Stage 1 designs consumed by downstream previews.
+        preview_content = bytearray()
+        try:
+            async for chunk in stream.body:
+                preview_content.extend(chunk)
+                if len(preview_content) > MAX_PREVIEW_BYTES:
+                    # Unexpected oversized storage object: replay already-read
+                    # bytes without losing or holding more of it in memory.
+                    async def oversized_stream():
+                        yield bytes(preview_content)
+                        async for remaining in stream.body:
+                            yield remaining
+                    return StreamingResponse(
+                        oversized_stream(), media_type=content_type or stream.content_type,
+                        background=BackgroundTask(stream.close),
+                        headers={"Cache-Control": "private, max-age=300", "Vary": "Cookie"},
+                    )
+        except Exception:
+            await stream.close()
+            raise
+        await stream.close()
+        repaired_bytes, changed = await run_in_threadpool(
+            stage1_artwork_preview_bytes, bytes(preview_content),
+        )
+        return Response(
+            content=repaired_bytes,
+            media_type="image/png" if changed else (content_type or stream.content_type),
+            headers={"Cache-Control": "private, max-age=300",
+                     "Vary": "Cookie", "X-Content-Type-Options": "nosniff"},
+        )
     return StreamingResponse(stream.body, media_type=content_type or stream.content_type,
                              background=BackgroundTask(stream.close),
                              headers={"Cache-Control": "private, no-store" if download else "private, max-age=300",

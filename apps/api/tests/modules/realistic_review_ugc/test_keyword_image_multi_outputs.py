@@ -31,9 +31,17 @@ def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
         ))
         session.commit()
     files = []
+    original_first = b""
     for index in range(6):
         path = tmp_path / f"artwork_{index:03}.png"
-        Image.new("RGB", (800, 900), (index, 30, 140)).save(path)
+        if index == 0:
+            black = Image.new("RGB", (800, 900), (0, 0, 0))
+            from PIL import ImageDraw
+            ImageDraw.Draw(black).rectangle((120, 120, 680, 780), fill=(35, 79, 175))
+            black.save(path)
+            original_first = path.read_bytes()
+        else:
+            Image.new("RGB", (800, 900), (index, 30, 140)).save(path)
         files.append(GeneratedImageFile(
             path=str(path), filename=f"output/final/design_{index + 1:02}.png",
             mime_type="image/png",
@@ -45,9 +53,11 @@ def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
     class Storage:
         def __init__(self):
             self.uploads = []
+            self.upload_bodies = []
         async def store_asset(self, payload):
             body = b"".join([chunk async for chunk in payload.body])
             assert len(body) == payload.size_bytes
+            self.upload_bodies.append(body)
             self.uploads.append(payload.filename)
             return SimpleNamespace(
                 remote_file_id=f"remote-{len(self.uploads)}",
@@ -60,10 +70,18 @@ def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
         logger=logging.getLogger(__name__),
     )
     result = asyncio.run(KeywordImageGenerateHandler()._save_skill_outputs(
-        context, storage, generated,
+        context, storage, generated, skill_name="gatorhats-typography-concepts",
     ))
     assert result.outcome.value == "completed"
     assert len(storage.uploads) == 6
+    # New Drive bytes are normalized, but resumable renderer checkpoints
+    # (and their manifest hashes) must remain unmodified.
+    assert Path(files[0].path).read_bytes() == original_first
+    assert storage.upload_bodies[0] != original_first
+    from io import BytesIO
+    with Image.open(BytesIO(storage.upload_bodies[0])) as output:
+        assert output.getpixel((0, 0))[3] == 0
+        assert output.getpixel((350, 450)) == (35, 79, 175, 255)
     with Session(engine) as session:
         rows = session.scalars(
             select(RrugcImageOutputVersionModel).order_by(RrugcImageOutputVersionModel.version)

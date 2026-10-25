@@ -115,8 +115,9 @@ export function GenerationOutputVersionsDialog({
       </div>
       <a className="rrugc-version-image-link"
         style={masonry ? { aspectRatio: stableMasonryRatio(version.width, version.height, 1) } : undefined}
-        href={version.url} target="_blank" rel="noreferrer" title={"Open version " + version.version}>
-        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400"} rootMargin="260px 0px"
+        href={version.url + (stage === "stage1" ? "?artwork=stage1-matte-v1" : "")}
+        target="_blank" rel="noreferrer" title={"Open version " + version.version}>
+        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400" + (stage === "stage1" ? "&artwork=stage1-matte-v1" : "")} rootMargin="260px 0px"
           alt={"Output version " + version.version} loading="lazy" />
       </a>
       <div className="rrugc-version-card-meta">
@@ -140,7 +141,7 @@ export function GenerationOutputVersionsDialog({
 
   return <div className="rrugc-skill-modal-backdrop" role="presentation"
     onMouseDown={event => event.target === event.currentTarget && onClose()}>
-    <section className="rrugc-job-log-dialog rrugc-output-version-dialog" role="dialog" aria-modal="true"
+    <section className={"rrugc-job-log-dialog rrugc-output-version-dialog" + (stage === "stage1" ? " is-stage1-artwork" : "")} role="dialog" aria-modal="true"
       aria-labelledby="rrugc-output-version-title">
       <header className="rrugc-version-dialog-heading">
         <div>

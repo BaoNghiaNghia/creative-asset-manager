@@ -2160,6 +2160,7 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   display:block;flex:none;aspect-ratio:auto;width:100%;height:248px;overflow:hidden;border-radius:7px;background:#f4f5f8
 }
 .rrugc-output-version-dialog .rrugc-version-grid img{display:block;width:100%;height:100%;object-fit:contain}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-image-link{background:#fff}
 .rrugc-output-version-dialog .rrugc-version-card-meta{display:flex;align-items:start;justify-content:space-between;gap:6px}
 .rrugc-output-version-dialog .rrugc-version-card-meta small{font-size:8.5px;color:#7889a0}
 .rrugc-output-version-dialog .rrugc-version-full-link{font-size:9px;font-weight:800;color:#496baf;text-decoration:none}
