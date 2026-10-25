@@ -439,21 +439,12 @@ export function ProductsPhotoWorkflow({
               </div>}
               <small>Uses the existing Review Scout campaign and approved candidate images. These are scene references, not proof of the exact embroidered logo.</small>
             </section>}
-            <div className="rrugc-products-photo-detail-info">
-              {isEcommerce ? <><strong>{skillName}</strong>
-                <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
-              </> : <>
-                <strong>{step.title} · {skillName}</strong>
-                {(!configured || !state?.ready) && <p className="rrugc-products-photo-bundle-status" role="status">{setupMessage}</p>}
-                {(!configured || !state?.bundle_installed) && <p className="rrugc-products-photo-bundle-inputs"><b>Required references:</b> {state?.required_inputs || "Verified embroidery artwork, factory stock and scene references."}</p>}
-                {bundleMissing && Boolean(state?.missing_assets?.length) && <details className="rrugc-products-photo-bundle-missing">
-                  <summary>Missing package files ({state!.missing_assets.length})</summary>
-                  <ul>{state!.missing_assets.map(asset => <li key={asset}><code>{asset}</code></li>)}</ul>
-                </details>}
-              </>}
-            </div>
+            {isEcommerce && <div className="rrugc-products-photo-detail-info">
+              <strong>{skillName}</strong>
+              <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
+            </div>}
             <div className="rrugc-products-photo-detail-actions">
-            <button type="button" onClick={openSkillsManager}>{!isEcommerce && bundleMissing ? "Upload Skill ZIP" : "Manage skill"}</button>
+            {isEcommerce && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
               onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}
