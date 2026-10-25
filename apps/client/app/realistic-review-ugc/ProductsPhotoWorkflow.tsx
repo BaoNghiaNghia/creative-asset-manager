@@ -141,16 +141,42 @@ export function ProductsPhotoWorkflow({
   const [versions, setVersions] = useState<EcommerceOutputVersion[]>([]);
   const drag = useRef<{ startX: number; scrollLeft: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
+  // Every Ecommerce card needs server-backed preflight BEFORE the user opens
+  // Details. Previously the fetch only ran inside the expanded accordion, so
+  // all four Run buttons appeared unavailable even with complete inputs.
+  const ecommerceSkillSignature = PHOTO_STEPS.slice(0, 4)
+    .map(step => configuredSkillNames[step.key] || "").join("|");
+  const frontJobStatus = jobs.find(job => job.stage === "prod_s2_ec1")?.status || "";
   useEffect(() => {
-    if (!sourcePlanId || !expandedStep?.startsWith("prod_s2_ec")) return;
+    setInputs(null);
+    if (!sourcePlanId) return;
     const controller = new AbortController();
-    const refresh = () => void getEcommerceInputReadiness(sourcePlanId, controller.signal, selectedColor)
-      .then(result => { if (!controller.signal.aborted) setInputs(result); })
-      .catch(() => { if (!controller.signal.aborted) setInputs(null); });
-    refresh();
-    const ticker = window.setInterval(refresh, 8000);
-    return () => { controller.abort(); window.clearInterval(ticker); };
-  }, [sourcePlanId, expandedStep, selectedColor]);
+    let inFlight = false;
+    const refresh = async () => {
+      if (controller.signal.aborted || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await getEcommerceInputReadiness(sourcePlanId, controller.signal, selectedColor);
+        if (!controller.signal.aborted) setInputs(result);
+      } catch {
+        if (!controller.signal.aborted) setInputs(null);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    // Poll only while details are open. Front completion and Skill changes
+    // also trigger a fresh preflight, so dependent Slots 2/3 unlock promptly.
+    const ticker = expandedStep?.startsWith("prod_s2_ec")
+      ? window.setInterval(() => void refresh(), 8000) : null;
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      controller.abort();
+      if (ticker !== null) window.clearInterval(ticker);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [sourcePlanId, expandedStep, selectedColor, ecommerceSkillSignature, frontJobStatus]);
 
   useEffect(() => {
     if (!sourcePlanId || expandedStep !== "prod_s2_ugc") return;
@@ -356,7 +382,8 @@ export function ProductsPhotoWorkflow({
         const configured = configuredSkillNames[step.key];
         const skillName = configured || step.skillName;
         const isEcommerce = index < 4;
-        const slotInputs = inputs?.slots.find(item => item.stage === step.key);
+        const slotInputs = inputs?.source_plan_id === sourcePlanId && inputs?.color_key === selectedColor
+          ? inputs.slots.find(item => item.stage === step.key) : undefined;
         const previewItems: InputPreviewItem[] = (step.inputs || []).map(input => ({
           key: input.kind,
           label: input.label,
@@ -424,7 +451,7 @@ export function ProductsPhotoWorkflow({
             <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}</span>
             <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable || sceneRunnable ? "ready" : "unavailable")}
               aria-label={"Run " + step.title}
-              aria-disabled={!runnable && !(shotJob?.status === "failed" && shotJob.retry_count < 3)}
+              aria-disabled={isEcommerce ? Boolean(busyStage || (shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))) : Boolean(busyStage || !sceneRunnable)}
               disabled={!!busyStage || (!isEcommerce ? !sceneRunnable : Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3)))}
               title={!isEcommerce ? setupMessage : runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
               onClick={() => sceneRunnable ? void invokeScene(step.key as "prod_s2_mh" | "prod_s2_ugc") : runnable ? void invokeEcommerce(step.key)

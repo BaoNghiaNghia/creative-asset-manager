@@ -803,7 +803,7 @@ export type EcommerceSlotInputReadiness = {
   ready: boolean; status: "missing_inputs" | "missing_skill" | "worker_pending" | "ready";
 };
 export type EcommerceInputReadiness = {
-  source_plan_id: string; source_revision: string; slots: EcommerceSlotInputReadiness[];
+  source_plan_id: string; source_revision: string; color_key: string; slots: EcommerceSlotInputReadiness[];
 };
 export const getEcommerceInputReadiness = (sourcePlanId: string, signal?: AbortSignal, colorKey = "natural-black") =>
   request<EcommerceInputReadiness>(

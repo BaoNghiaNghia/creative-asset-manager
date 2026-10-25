@@ -20,7 +20,9 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');
     expect(html).not.toContain(">Last updated:");
     expect(html).not.toContain(">Duration:");
-    expect((html.match(/aria-disabled="true"/g) || []).length).toBe(7);
+    // Unready Ecommerce Run buttons still open Details to explain missing input;
+    // only genuinely disabled controls use aria-disabled=true.
+    expect((html.match(/aria-disabled="true"/g) || []).length).toBe(3);
   });
 
   it("renders completed Ecommerce photos as clickable filled tiles while leaving missing photos as placeholders", () => {
