@@ -190,7 +190,7 @@ export function ProductsPhotoWorkflow({
     setBusyStage(slot);
     setJobActionError("");
     try {
-      const queued = await runSceneJob(sourcePlanId, slot);
+      const queued = await runSceneJob(sourcePlanId, slot, selectedColor);
       const blocked = queued.steps.filter(item => item.status === "blocked");
       if (blocked.length) setJobActionError(blocked.map(item => item.reason).join("; "));
       await onEcommerceJobChange?.();
@@ -429,6 +429,7 @@ export function ProductsPhotoWorkflow({
                 {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
+              {sceneJobs.some(job => job.scene_reference) && <div aria-label="Pinned UGC inputs" style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>{sceneJobs.filter(job => job.scene_reference).map(job => <figure key={job.id} style={{ margin: 0, width: 112 }}><img src={job.scene_reference!.image_url} alt={"Pinned input for " + job.stage} loading="lazy" style={{ width: 108, height: 108, objectFit: "cover", borderRadius: 8 }} /><figcaption style={{ fontSize: 10 }}>{job.stage.replace("prod_s2_ugc_", "UGC ")} · {job.status}</figcaption></figure>)}</div>}
               {ugcScout && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8 }}>
                 {ugcScout.items.map(item => <a key={item.id} href={item.pin_url} target="_blank" rel="noopener noreferrer"
                   title={"Lifestyle reference · " + (item.score ?? "unrated")}>

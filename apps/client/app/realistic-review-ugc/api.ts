@@ -715,6 +715,7 @@ export type EcommerceJob = {
   status: "queued" | "running" | "completed" | "failed";
   retry_count: number; attempt_count: number; error_code: string | null;
   output_url: string | null; skill_name: string;
+  scene_reference?: { candidate_id: string; image_url: string } | null;
   started_at?: string | null; completed_at?: string | null;
 };
 export type EcommerceJobLogs = {
@@ -765,9 +766,9 @@ export type ColorwayQueueResult = {
   error?: string;
 };
 
-export const runSceneJob = (sourcePlanId: string, slot: "prod_s2_mh" | "prod_s2_ugc") =>
+export const runSceneJob = (sourcePlanId: string, slot: "prod_s2_mh" | "prod_s2_ugc", colorKey = "natural-black") =>
   request<EcommerceRunAllResult>(ECOMMERCE_PATH + "/run-scene", {
-    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, slot }),
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, slot, color_key: colorKey }),
   });
 
 export const runEcommerceJob = (sourcePlanId: string, stage: string, colorKey = "natural-black") =>

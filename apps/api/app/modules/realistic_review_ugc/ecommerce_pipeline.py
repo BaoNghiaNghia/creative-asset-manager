@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import httpx
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -30,9 +31,10 @@ from app.modules.realistic_review_ugc.generation_handler import (
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcEcommerceJobModel, RrugcSourcePlanModel, RrugcStageSkillDefaultModel,
-    RrugcStage2SkillRegistryModel,
+    RrugcStage2SkillRegistryModel, RrugcCandidateModel,
 )
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.ugc_scene_selection import select_ugc_references, allowed_scout_image_url
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill,
     verify_stage2_skill_runtime, installed_stage2_skill_sha256,
@@ -218,7 +220,7 @@ class EcommerceService:
         self.session = session
         self.settings = settings or get_settings()
 
-    def _enqueue(self, row: RrugcEcommerceJobModel) -> None:
+    def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None) -> None:
         count = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
@@ -227,14 +229,14 @@ class EcommerceService:
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
-            payload={"ecommerce_job_id": row.id}, priority=20, max_attempts=3,
+            payload={"ecommerce_job_id": row.id, **({"scout_reference": scout_reference} if scout_reference else {})}, priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
         processing.priority = ECOMMERCE_INTERACTIVE_PRIORITY
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
-              stage: str, color_key: str = "natural-black") -> dict:
+              stage: str, color_key: str = "natural-black", scout_reference=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
         if not all((
@@ -276,12 +278,13 @@ class EcommerceService:
         )
         self.session.add(row)
         self.session.flush()
-        self._enqueue(row)
+        self._enqueue(row, scout_reference=scout_reference)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
     def queue_scene(self, *, tenant_id: str, user_id: str,
-                    source_plan_id: str, slot: str) -> dict:
+                    source_plan_id: str, slot: str,
+                    color_key: str = "natural-black") -> dict:
         """Queue exactly three independent, idempotent photos for one Skill.
 
         Missing/failed shots can be resumed without duplicating completed shots.
@@ -293,7 +296,49 @@ class EcommerceService:
         plan = _source_plan(self.session, tenant_id, source_plan_id)
         _assigned_skill(self.session, self.settings, tenant_id, slot)
         for stage in stages:
-            _stock_refs(self.settings, stage)
+            _stock_refs(self.settings, stage, color_key)
+        scout_refs = {}
+        if slot == "prod_s2_ugc":
+            if not plan.campaign_id:
+                raise EcommerceError("ugc_scout_campaign_missing", "No assigned Scout campaign.", 409)
+            related = list(self.session.scalars(select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.campaign_id == plan.campaign_id,
+                RrugcSourcePlanModel.status != "missing")))
+            if len(related) > 1 and (not plan.embroidery_signature or any(
+                    other.embroidery_signature != plan.embroidery_signature
+                    for other in related if other.id != plan.id)):
+                raise EcommerceError("ugc_scout_campaign_shared",
+                    "Scout campaign includes different embroidery designs.", 409)
+            existing_rows = list(self.session.scalars(
+                select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.tenant_id == tenant_id,
+                    RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+                    RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                    RrugcEcommerceJobModel.stage.in_(stages),
+                    RrugcEcommerceJobModel.color_key == color_key)))
+            existing_stages = {item.stage for item in existing_rows}
+            unpinned = any(
+                item.status != "completed" and not (
+                    (self.session.get(ProcessingJobModel, item.processing_job_id).payload_json or {})
+                    .get("scout_reference")
+                ) for item in existing_rows if item.processing_job_id and
+                self.session.get(ProcessingJobModel, item.processing_job_id))
+            if len(existing_stages) < len(stages) or unpinned:
+                candidates = list(self.session.scalars(
+                    select(RrugcCandidateModel).where(
+                        RrugcCandidateModel.tenant_id == tenant_id,
+                        RrugcCandidateModel.campaign_id == plan.campaign_id,
+                    ).order_by(RrugcCandidateModel.final_score.desc().nullslast()).limit(150)))
+                selected = select_ugc_references(candidates)
+                if len(selected) != 3:
+                    raise EcommerceError("ugc_scout_references_missing",
+                        "Need three approved and distinct Scout images.", 409)
+                scout_refs = {
+                    stage: {"candidate_id": c.id, "campaign_id": plan.campaign_id,
+                            "image_url": c.image_url, "content_hash": c.content_hash}
+                    for stage, c in zip(stages, selected)
+                }
         results = []
         for stage in stages:
             try:
@@ -302,17 +347,27 @@ class EcommerceService:
                     RrugcEcommerceJobModel.source_plan_id == source_plan_id,
                     RrugcEcommerceJobModel.source_revision == plan.source_revision,
                     RrugcEcommerceJobModel.stage == stage,
+                    RrugcEcommerceJobModel.color_key == color_key,
                 ))
                 if existing is None:
                     queued = self.queue(tenant_id=tenant_id, user_id=user_id,
-                                        source_plan_id=source_plan_id, stage=stage)
+                                        source_plan_id=source_plan_id, stage=stage,
+                                        scout_reference=scout_refs.get(stage),
+                                        color_key=color_key)
                     results.append({"stage": stage, **queued})
                     continue
                 processing = (self.session.get(ProcessingJobModel, existing.processing_job_id)
                               if existing.processing_job_id else None)
                 status = _effective_status(existing, processing)
+                reference = scout_refs.get(stage)
+                if (reference and processing and processing.status == "pending"
+                        and processing.attempt_count == 0
+                        and not (processing.payload_json or {}).get("scout_reference")):
+                    processing.payload_json = {**(processing.payload_json or {}), "scout_reference": reference}
+                    self.session.commit()
                 if status == "failed" and existing.retry_count < MAX_MANUAL_RETRIES:
-                    queued = self.retry(tenant_id=tenant_id, job_id=existing.id)
+                    queued = self.retry(tenant_id=tenant_id, job_id=existing.id,
+                                        scout_reference=reference)
                     results.append({"stage": stage, **queued})
                 elif status == "failed":
                     results.append({"stage": stage, "job_id": existing.id,
@@ -451,7 +506,7 @@ class EcommerceService:
                 "steps": [stages[key] for key in (
                     "prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")]}
 
-    def retry(self, *, tenant_id: str, job_id: str) -> dict:
+    def retry(self, *, tenant_id: str, job_id: str, scout_reference=None) -> dict:
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.id == job_id,
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -481,7 +536,10 @@ class EcommerceService:
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
-        self._enqueue(row)
+        if row.stage in SCENE_GROUPS["prod_s2_ugc"] and scout_reference is None:
+            previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+            scout_reference = (previous.payload_json or {}).get("scout_reference") if previous else None
+        self._enqueue(row, scout_reference=scout_reference)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "retry_count": row.retry_count}
 
@@ -548,6 +606,8 @@ class EcommerceService:
             "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{row.id}/output"
                           if row.output_remote_file_id else None,
             "skill_name": row.skill_name,
+            "scene_reference": (processing.payload_json or {}).get("scout_reference")
+                if processing and row.stage in SCENE_GROUPS["prod_s2_ugc"] else None,
             "started_at": row.started_at.isoformat() if row.started_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
         } for row, processing in rows]
@@ -778,6 +838,22 @@ class EcommerceGenerateHandler:
             front_image = _prepared_image(await self._open_bytes(
                 storage, context, "rrugc-ecommerce-front:" + context.job.entity_id,
                 front_remote, front_mime, front_size))
+        if stage in SCENE_GROUPS["prod_s2_ugc"]:
+            scout = context.job.payload.get("scout_reference")
+            if not isinstance(scout, dict) or not allowed_scout_image_url(str(scout.get("image_url", ""))):
+                raise EcommerceError("ugc_scout_reference_missing", "Pinned Scout image unavailable.")
+            async with httpx.AsyncClient(timeout=20, follow_redirects=False, trust_env=False) as client:
+                response = await client.get(scout["image_url"])
+                response.raise_for_status()
+                if len(response.content) > MAX_REFERENCE_BYTES:
+                    raise EcommerceError("ugc_scout_reference_too_large", "Scout image exceeds limit.")
+                if response.headers.get("content-type", "").split(";")[0] not in (
+                    "image/jpeg", "image/png", "image/webp"):
+                    raise EcommerceError("ugc_scout_reference_type", "Scout reference is not an image.")
+                scene_image = _prepared_image(response.content)
+            references.append(ReferenceImageInput(
+                image=scene_image, role="scene_reference",
+                label="pinned approved lifestyle reference; preserve composition only"))
         # Immutable official stock is addressed by its hash, not a transient browser preview.
         base = _prepared_image(refs[0][1])
         if front_image:

@@ -5590,6 +5590,7 @@ def run_ecommerce_skill(
 class SceneRunRequest(BaseModel):
     source_plan_id: str = Field(min_length=1, max_length=36)
     slot: str = Field(pattern=r"^prod_s2_(mh|ugc)$")
+    color_key: str = Field(default="natural-black", pattern=r"^[a-z0-9-]{3,80}$")
 
 
 @router.post("/products-stage2/ecommerce/run-scene", status_code=202)
@@ -5602,7 +5603,8 @@ def run_three_photo_skill(
     try:
         return EcommerceService(session).queue_scene(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            source_plan_id=body.source_plan_id, slot=body.slot)
+            source_plan_id=body.source_plan_id, slot=body.slot,
+            color_key=body.color_key)
     except EcommerceError as exc:
         session.rollback()
         raise HTTPException(status_code=exc.status_code,
