@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
+import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import {
   listCapStackImages, setCapStackEnabled, setCapStackImageFeedback, retryCapStackVision,
@@ -42,6 +43,55 @@ function visionLabel(item: CapStackImage): string {
   }
 }
 
+// Cap Stack's API has no native image dimensions yet. Seed a deterministic
+// skeleton ratio for each Pin, then discover its actual ratio on lazy decode.
+// Keep column assignment fixed while images load or feedback changes.
+const CAP_STACK_RATIOS = [0.68, 0.8, 0.94, 1.12, 1.3, 1.48];
+const imageRatioCache = new Map<string, number>();
+
+function layoutRatio(item: CapStackImage): number {
+  let hash = 0;
+  for (let i = 0; i < item.id.length; i += 1) hash = (hash * 31 + item.id.charCodeAt(i)) | 0;
+  return CAP_STACK_RATIOS[(hash >>> 0) % CAP_STACK_RATIOS.length];
+}
+
+function CapStackCardMedia({ item, actions, onOpen }: {
+  item: CapStackImage; actions: ReactNode; onOpen: () => void;
+}) {
+  const [ratio, setRatio] = useState(() => imageRatioCache.get(item.image_url) ?? layoutRatio(item));
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRatio(imageRatioCache.get(item.image_url) ?? layoutRatio(item));
+    setLoadedUrl(null);
+  }, [item.id, item.image_url]);
+
+  return <div className={"rrugc-cap-stack-media" + (loadedUrl === item.image_url ? " is-loaded" : " is-loading")}
+    style={{ aspectRatio: ratio }} data-image-state={loadedUrl === item.image_url ? "loaded" : "loading"}>
+    <span className="rrugc-cap-stack-skeleton" aria-hidden="true"/>
+    <DeferredImage src={item.image_url} alt={item.alt_text || "Pinterest Cap Stack reference"}
+      loading="lazy" rootMargin="320px 0px" referrerPolicy="no-referrer"
+      onLoad={event => {
+        const image = event.currentTarget;
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+          const actualRatio = stableMasonryRatio(image.naturalWidth, image.naturalHeight);
+          if (!imageRatioCache.has(item.image_url) && imageRatioCache.size >= 500) {
+            imageRatioCache.delete(imageRatioCache.keys().next().value!);
+          }
+          imageRatioCache.set(item.image_url, actualRatio);
+          setRatio(actualRatio);
+        }
+        setLoadedUrl(item.image_url);
+      }}/>
+    <button type="button" className="rrugc-cap-stack-preview" onClick={onOpen}
+      aria-label={"View Cap Stack image " + item.id}/>
+    <span className="rrugc-cap-stack-count" title={visionLabel(item)}>
+      {item.manual_caps_count ?? item.caps_detected ?? "?"} caps
+    </span>
+    {actions}
+  </div>;
+}
+
 export function CapStackScoutStage({ active }: { active: boolean }) {
   const [data, setData] = useState<CapStackPage>(DEFAULT_PAGE);
   const [query, setQuery] = useState("");
@@ -55,7 +105,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CapStackImage | null>(null);
   const [editableCount, setEditableCount] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [view, setView] = useState<"masonry" | "list">("masonry");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -166,6 +216,22 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     </div>
   );
 
+  const renderCard = (item: CapStackImage) => (
+    <article key={item.id} className={"rrugc-cap-stack-card label-" + (item.manual_label || "pending")}
+      data-cap-stack-id={item.id}>
+      <CapStackCardMedia item={item} onOpen={() => openDetail(item)} actions={buttons(item, true)}/>
+      <div className="rrugc-cap-stack-card-footer">
+        <strong title={item.alt_text || item.source_query || "Cap Stack"}>{item.source_query || "Cap Stack"}</strong>
+        <a href={item.pin_url} target="_blank" rel="noreferrer noopener"
+          aria-label="Open original Pinterest Pin">Pinterest ↗</a>
+        <span className={"rrugc-cap-stack-card-state label-" + (item.manual_label || "pending")}>
+          {actionLabel(item.manual_label)} · {visionLabel(item)}
+          {item.ai_suspected === true ? " · AI suspected" : ""}
+        </span>
+      </div>
+    </article>
+  );
+
   const pageCount = Math.max(1, Math.ceil(data.total / data.page_size));
   const loadedCount = useMemo(() => data.items.length, [data.items]);
   return <div className="rrugc-cap-stack-stage">
@@ -224,14 +290,20 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
         <option value="">Any number</option>
         {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
       </select></label>
-      <label>View<select value={view} onChange={event => setView(event.target.value as "grid" | "list")}>
-        <option value="grid">Grid</option><option value="list">List</option>
+      <label>View<select value={view} onChange={event => setView(event.target.value as "masonry" | "list")}>
+        <option value="masonry">Masonry</option><option value="list">List</option>
       </select></label>
       <span>{data.total} results · {loadedCount} loaded</span>
     </div>
 
     {error && <p className="rrugc-cap-stack-error" role="alert">{error}</p>}
-    {loading && !data.items.length && <p className="rrugc-cap-stack-loading" role="status">Loading Cap Stack Library…</p>}
+    {loading && !data.items.length && <div className="rrugc-cap-stack-placeholder-gallery"
+      role="status" aria-label="Loading Cap Stack Library">
+      {Array.from({ length: 12 }, (_, index) => <div className="rrugc-cap-stack-placeholder"
+        key={index} style={{ aspectRatio: CAP_STACK_RATIOS[index % CAP_STACK_RATIOS.length] }}>
+        <span className="rrugc-cap-stack-placeholder-footer"/>
+      </div>)}
+    </div>}
     {!loading && !data.items.length && <div className="rrugc-cap-stack-empty">
       <RrugcActionIcon name="folder"/>
       <h3>{data.stats.discovered ? "No matches for the selected filters" : "Your shared Cap Stack library is ready"}</h3>
@@ -240,30 +312,14 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
         : "Enable Cap Stack Scout here, then start Cap Stack Scout in Windows Scout Manager. Images will arrive here when Pinterest discovery finds new Pins."}</p>
       <small>Keyword: Cap Stack · Gemini runs through CAM shared pool; image processing retries when capacity is available.</small>
     </div>}
-    <div className={"rrugc-cap-stack-gallery view-" + view} aria-label="Cap Stack image library">
-      {data.items.map(item => <article key={item.id}
-        className={"rrugc-cap-stack-card label-" + (item.manual_label || "pending")}>
-        <div className="rrugc-cap-stack-media">
-          <button type="button" className="rrugc-cap-stack-preview" onClick={() => openDetail(item)}
-            aria-label={"View Cap Stack image " + item.id}>
-            <DeferredImage src={item.image_url} alt={item.alt_text || "Pinterest Cap Stack reference"}
-              loading="lazy" referrerPolicy="no-referrer"/>
-          </button>
-          <span className="rrugc-cap-stack-count" title={visionLabel(item)}>
-            {item.manual_caps_count ?? item.caps_detected ?? "?"} caps
-          </span>
-          {buttons(item, true)}
-        </div>
-        <div className="rrugc-cap-stack-card-footer">
-          <strong title={item.alt_text || item.source_query || "Cap Stack"}>{item.source_query || "Cap Stack"}</strong>
-          <a href={item.pin_url} target="_blank" rel="noreferrer noopener" aria-label="Open original Pinterest Pin">Pinterest ↗</a>
-          <span className={"rrugc-cap-stack-card-state label-" + (item.manual_label || "pending")}>
-            {actionLabel(item.manual_label)} · {visionLabel(item)}
-            {item.ai_suspected === true ? " · AI suspected" : ""}
-          </span>
-        </div>
-      </article>)}
-    </div>
+    {view === "masonry"
+      ? <StableMasonryGrid className="rrugc-cap-stack-gallery view-masonry"
+          items={data.items} getKey={item => item.id} getRatio={layoutRatio}
+          renderItem={renderCard} minColumnWidth={180} maxColumns={10}
+          ariaLabel="Cap Stack image library"/>
+      : <div className="rrugc-cap-stack-gallery view-list" aria-label="Cap Stack image library">
+          {data.items.map(renderCard)}
+        </div>}
 
     {data.total > data.page_size && <div className="rrugc-cap-stack-pagination">
       <button type="button" disabled={page <= 1} onClick={() => setPage(previous => previous - 1)}>Previous</button>

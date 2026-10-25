@@ -149,7 +149,7 @@ describe("Cap Stack Scout Stage 1", () => {
     await act(async () => root.unmount());
   });
 
-  it("keeps both the compact grid and list controls usable", async () => {
+  it("keeps both masonry and list controls usable", async () => {
     vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
     const host = document.createElement("div");
     document.body.append(host);
@@ -157,15 +157,76 @@ describe("Cap Stack Scout Stage 1", () => {
     await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
 
     const gallery = host.querySelector(".rrugc-cap-stack-gallery")!;
-    expect(gallery.classList.contains("view-grid")).toBe(true);
+    expect(gallery.classList.contains("view-masonry")).toBe(true);
+    expect(gallery.classList.contains("rrugc-stable-masonry")).toBe(true);
     const switchView = host.querySelector<HTMLSelectElement>(".rrugc-cap-stack-toolbar label:last-of-type select")!;
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
       setter.call(switchView, "list");
       switchView.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(gallery.classList.contains("view-list")).toBe(true);
-    expect(gallery.querySelector(".rrugc-cap-stack-votes.is-overlay")).not.toBeNull();
+    const listGallery = host.querySelector(".rrugc-cap-stack-gallery.view-list")!;
+    expect(listGallery).not.toBeNull();
+    expect(listGallery.querySelector(".rrugc-cap-stack-votes.is-overlay")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("reserves varied masonry skeleton ratios and uses the actual aspect after lazy image decode", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1200);
+    const items = Array.from({ length: 14 }, (_, index) => ({
+      ...sample.items[0], id: "pin-" + index, image_url: "/img/pin-" + index + ".jpg",
+    }));
+    vi.spyOn(api, "listCapStackImages").mockResolvedValue({
+      ...sample, items, total: items.length,
+      stats: { ...sample.stats, discovered: items.length, pending: items.length },
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+
+    const gallery = host.querySelector(".rrugc-cap-stack-gallery.view-masonry")!;
+    const columns = [...gallery.querySelectorAll(".rrugc-stable-masonry-column")];
+    expect(columns.length).toBeGreaterThan(1);
+    expect(gallery.querySelectorAll(".rrugc-cap-stack-card")).toHaveLength(14);
+    const before = columns.map(col => [...col.querySelectorAll("[data-cap-stack-id]")]
+      .map(card => card.getAttribute("data-cap-stack-id")));
+    const ratios = [...gallery.querySelectorAll<HTMLElement>(".rrugc-cap-stack-media")]
+      .map(element => element.style.aspectRatio);
+    expect(new Set(ratios).size).toBeGreaterThan(2);
+
+    const media = gallery.querySelector<HTMLElement>(".rrugc-cap-stack-media")!;
+    const img = media.querySelector("img")!;
+    expect(media.querySelector(".rrugc-cap-stack-skeleton")).not.toBeNull();
+    expect(media.dataset.imageState).toBe("loading");
+    expect(img.getAttribute("loading")).toBe("lazy");
+    expect(img.getAttribute("decoding")).toBe("async");
+    Object.defineProperty(img, "naturalWidth", { configurable: true, value: 600 });
+    Object.defineProperty(img, "naturalHeight", { configurable: true, value: 1100 });
+    await act(async () => { img.dispatchEvent(new Event("load")); });
+    expect(media.dataset.imageState).toBe("loaded");
+    expect(media.style.aspectRatio).toBe("0.6");
+    expect(img.classList.contains("is-loaded")).toBe(true);
+    const after = [...gallery.querySelectorAll(".rrugc-stable-masonry-column")]
+      .map(col => [...col.querySelectorAll("[data-cap-stack-id]")].map(card => card.getAttribute("data-cap-stack-id")));
+    expect(after).toEqual(before);
+    await act(async () => root.unmount());
+  });
+
+  it("shows a multi-height skeleton gallery while the initial API request is pending", async () => {
+    let settle!: (value: api.CapStackPage) => void;
+    vi.spyOn(api, "listCapStackImages").mockImplementation(() =>
+      new Promise<api.CapStackPage>(resolve => { settle = resolve; }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); });
+    expect(host.querySelectorAll(".rrugc-cap-stack-placeholder")).toHaveLength(12);
+    const placeholders = [...host.querySelectorAll<HTMLElement>(".rrugc-cap-stack-placeholder")];
+    expect(new Set(placeholders.map(p => p.style.aspectRatio)).size).toBeGreaterThan(3);
+    await act(async () => { settle(sample); await Promise.resolve(); });
+    expect(host.querySelector(".rrugc-cap-stack-placeholder-gallery")).toBeNull();
+    expect(host.querySelectorAll(".rrugc-cap-stack-card")).toHaveLength(1);
     await act(async () => root.unmount());
   });
 
