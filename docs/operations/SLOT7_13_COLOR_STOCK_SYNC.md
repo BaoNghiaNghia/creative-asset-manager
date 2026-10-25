@@ -20,6 +20,23 @@ At the October 25, 2026 audit:
 - 13/13 prior colorway outputs for one embroidery design were completed
   October 23. **Do not erase or wholesale replay these outputs.**
 
+## Production orchestration (CI gated)
+
+From the authorized VPS release checkout, use the operational wrapper **after**
+the exact commit has passed CI and the backend release is healthy:
+
+```bash
+bash scripts/cam-slot7-production-sync.sh --preview 3 <40-character-deployed-commit>
+bash scripts/cam-slot7-production-sync.sh --apply 3 <40-character-deployed-commit>
+```
+
+The wrapper verifies the active immutable release SHA, uses the existing
+`deploy/tools/production_env.py run-redacted` for both operations, checks
+root-owned production environment permissions, and emits sanitized reports
+without exposing credentials. Execute bounded batches only when workers and
+quota/policy are healthy; repeat `--apply` to handle the next stale completed
+batch. Do not use a direct shell `source` of production secrets.
+
 ## Import (explicit, audited)
 
 Both utilities default to no database or stock writes. Execute from the
