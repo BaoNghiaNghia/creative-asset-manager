@@ -3,6 +3,7 @@ import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog } from "./api";
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
 import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import { DeferredImage } from "./DeferredImage";
 import { AppliedHatPreview } from "./AppliedHatPreview";
 import { HatStockSyncModal } from "./HatStockSyncModal";
 import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
@@ -78,7 +79,7 @@ function DesignSource({ plan, productLayout = false, stockViews, color, colors, 
   const groupCount = Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1);
   return <div className={"rrugc-colorway-source" + (productLayout ? " is-product-card" : "")}>
     <button type="button" className="rrugc-colorway-thumb" title={plan.source_name}>
-      <img src={plan.source_preview_url} alt={cleanDesignName(plan.source_name)} loading="lazy" />
+      <DeferredImage src={plan.source_preview_url} alt={cleanDesignName(plan.source_name)} rootMargin="350px" />
       <span className="rrugc-colorway-prefix">JPG / PNG</span>
     </button>
     <div>
@@ -557,8 +558,8 @@ export function EmbroideryColorwayStage({
         </thead>
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
-            <tr key={index} className="rrugc-colorway-skeleton-row">
-              {workflow === "reviews" && <td><span /></td>}<td><span /></td><td><span /></td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td><td><span /></td></>}
+            <tr key={index} className={"rrugc-colorway-skeleton-row" + (workflow === "products" ? " is-products" : "")}>
+              {workflow === "reviews" && <td><span /></td>}<td><span /></td><td>{workflow === "products" ? <div className="rrugc-products-stage2-skeleton-skills">{Array.from({length:7},(_,slot)=><span key={slot} />)}</div> : <span />}</td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td><td><span /></td></>}
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);

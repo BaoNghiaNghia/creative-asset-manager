@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { StableMasonryGrid } from "./StableMasonryGrid";
+import { DeferredImage } from "./DeferredImage";
+import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
 
 export type InputPreviewItem = { key: string; label: string; src: string };
 
@@ -11,7 +13,7 @@ export function EcommerceInputGalleryModal({ items, onClose }: { items: InputPre
     return () => document.removeEventListener("keydown", keydown);
   }, [onClose]);
   const cards = (item: InputPreviewItem) => <figure className="rrugc-ecommerce-lightbox-card">
-    <img src={item.src} alt={item.label} loading="lazy" />
+    <DeferredImage src={publicHatStockUrl(stage2ThumbnailUrl(item.src, 1024))} rootMargin="350px" alt={item.label} />
     <figcaption>{item.label}</figcaption>
   </figure>;
   return createPortal(<div className="rrugc-ecommerce-lightbox-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import "./AppliedHatPreview.css";
+import { DeferredImage } from "./DeferredImage";
+import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
 
 const HAT_VIEWS = [
   { key: "front", label: "front" },
@@ -34,7 +36,7 @@ function HatImage({ designSrc, view, stockViews }: {
   }, [nearViewport, front]);
 
   // Keep all three cap angles on the same official Natural/Black stock set.
-  const hatSrc = stockViews?.[view.key] || `${STOCK_ROOT}/${view.key}.jpg`;
+  const hatSrc = publicHatStockUrl(stockViews?.[view.key] || `${STOCK_ROOT}/${view.key}.jpg`);
   const embroiderySrc = useBlueprintEmbroideryComposite(
     front && nearViewport ? designSrc : "",
     hatSrc,
@@ -48,13 +50,13 @@ function HatImage({ designSrc, view, stockViews }: {
   return <div className="rrugc-applied-hat-image" ref={tileRef} role="img"
     aria-label={`Valucap 8869 ${view.label} view${front ? " with front embroidery design applied" : " without applied embroidery"}`}>
     {front ? <div className="rrugc-applied-hat-front-scene">
-      <img className="rrugc-applied-hat-stock" src={hatSrc} alt="" aria-hidden="true" loading="lazy" />
+      <DeferredImage className="rrugc-applied-hat-stock" src={hatSrc} alt="" aria-hidden="true" rootMargin="350px" />
       {nearViewport && <div className="rrugc-applied-hat-front-frame" ref={fit.frameRef}>
         <img className="rrugc-applied-hat-front-artwork"
           src={embroiderySrc} onLoad={fit.onLoad}
           style={fit.style ?? { opacity: 0 }} alt="" aria-hidden="true" />
       </div>}
-    </div> : <img src={hatSrc} alt="" aria-hidden="true" loading="lazy" />}
+    </div> : <DeferredImage src={hatSrc} alt="" aria-hidden="true" rootMargin="350px" />}
   </div>;
 }
 
@@ -67,7 +69,7 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews 
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
     <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
-      <img src={designSrc} alt="" aria-hidden="true" loading="lazy" />
+      <DeferredImage src={stage2ThumbnailUrl(designSrc, 512)} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
     {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} />)}
   </div>;

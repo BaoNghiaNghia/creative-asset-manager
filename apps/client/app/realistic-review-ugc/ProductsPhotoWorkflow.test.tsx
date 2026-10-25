@@ -31,7 +31,7 @@ describe("Products Stage 2 photo workflow", () => {
       }]} />);
     expect(html).toContain('class="rrugc-products-photo-empty-shot is-completed"');
     expect(html).toContain('aria-label="Open Front High Ecommerce output"');
-    expect(html).toContain('src="/hat-output.png"');
+    expect(html).toContain("rrugc-deferred-img");
     expect((html.match(/class="rrugc-products-photo-empty-shot is-completed"/g) ?? []).length).toBe(1);
     expect((html.match(/class="rrugc-products-photo-empty-shot"/g) ?? []).length).toBe(9);
     expect(html).toContain('title="Front Right 3/4 · Not generated"');
@@ -127,7 +127,7 @@ describe("Products Stage 2 photo workflow", () => {
     ];
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null}
       colors={jobs} onOpenColor={() => undefined} onRetryColor={() => undefined} />);
-    expect(html).toContain('src="/real-photo.png"');
+    expect(html).toContain("rrugc-deferred-img");
     expect(html).toContain("View Khaki Maroon in 13 hat colors gallery");
     expect(html).toContain("View Natural Black in 13 hat colors gallery");
     expect(html).toContain('aria-haspopup="dialog"');

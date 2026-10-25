@@ -2,6 +2,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
+import "./stage2-loading.css";
+import { DeferredImage } from "./DeferredImage";
+import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
@@ -326,8 +329,8 @@ export function ProductsPhotoWorkflow({
         const previewItems: InputPreviewItem[] = (step.inputs || []).map(input => ({
           key: input.kind,
           label: input.label,
-          src: input.kind === "design" ? designSrc : input.kind === "embroidered_front"
-            ? (jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
+          src: input.kind === "design" ? stage2ThumbnailUrl(designSrc, 512) : input.kind === "embroidered_front"
+            ? stage2ThumbnailUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "", 512)
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
             : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
@@ -371,7 +374,7 @@ export function ProductsPhotoWorkflow({
                 ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
                     onClick={() => setOutputGallery({ title: "All outputs · " + sourceName, items: allOutputItems, initialIndex: allOutputItems.findIndex(item => item.key === step.key + ":" + shotIndex) })}
                     aria-label={"Open " + shot.label + (isEcommerce ? " Ecommerce" : "") + " output"}>
-                    <img src={photo.output_url} alt={shot.label} loading="lazy" />
+                    <DeferredImage src={stage2ThumbnailUrl(photo.output_url, 128)} alt={shot.label} rootMargin="260px" />
                   </button>
                 : <span key={shot.number} className="rrugc-products-photo-empty-shot"
                     title={shot.label + " · " + (photo?.status || "Not generated")}>
@@ -411,8 +414,8 @@ export function ProductsPhotoWorkflow({
                   const item = previewItems.find(preview => preview.key === input.kind);
                   return <div className="rrugc-products-photo-input" key={input.kind}>
                     {item ? <button type="button" className="rrugc-products-photo-preview-trigger" aria-label={"Preview " + input.label} onClick={() => setPreviewGallery(previewItems)}>
-                      <img src={item.src} alt={input.label} loading="lazy" />
-                      <span className="rrugc-products-photo-hover-preview" aria-hidden="true"><img src={item.src} alt="" /></span>
+                      <DeferredImage src={publicHatStockUrl(item.src)} alt={input.label} rootMargin="320px" />
+                      <span className="rrugc-products-photo-hover-preview" aria-hidden="true"><img src={publicHatStockUrl(item.src)} alt="" loading="lazy" decoding="async" /></span>
                     </button> : <span>Missing artwork</span>}
                     <small>{input.label}</small>
                   </div>;
@@ -429,11 +432,11 @@ export function ProductsPhotoWorkflow({
                 {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
-              {sceneJobs.some(job => job.scene_reference) && <div aria-label="Pinned UGC inputs" style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>{sceneJobs.filter(job => job.scene_reference).map(job => <figure key={job.id} style={{ margin: 0, width: 112 }}><img src={job.scene_reference!.image_url} alt={"Pinned input for " + job.stage} loading="lazy" style={{ width: 108, height: 108, objectFit: "cover", borderRadius: 8 }} /><figcaption style={{ fontSize: 10 }}>{job.stage.replace("prod_s2_ugc_", "UGC ")} · {job.status}</figcaption></figure>)}</div>}
+              {sceneJobs.some(job => job.scene_reference) && <div aria-label="Pinned UGC inputs" style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>{sceneJobs.filter(job => job.scene_reference).map(job => <figure key={job.id} style={{ margin: 0, width: 112 }}><DeferredImage src={job.scene_reference!.image_url} alt={"Pinned input for " + job.stage} rootMargin="250px" style={{ width: 108, height: 108, objectFit: "cover", borderRadius: 8 }} /><figcaption style={{ fontSize: 10 }}>{job.stage.replace("prod_s2_ugc_", "UGC ")} · {job.status}</figcaption></figure>)}</div>}
               {ugcScout && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8 }}>
                 {ugcScout.items.map(item => <a key={item.id} href={item.pin_url} target="_blank" rel="noopener noreferrer"
                   title={"Lifestyle reference · " + (item.score ?? "unrated")}>
-                  <img src={item.image_url} loading="lazy" alt="Scouted lifestyle reference"
+                  <DeferredImage src={item.image_url} rootMargin="250px" alt="Scouted lifestyle reference"
                     style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", borderRadius: 8 }} />
                 </a>)}
               </div>}
@@ -493,7 +496,7 @@ export function ProductsPhotoWorkflow({
             const colorName = job?.color_name || key.replaceAll("-", " ");
             const status = job?.status || "pending";
             const preview = job?.output_url && job.status === "completed"
-              ? <img loading="lazy" src={job.output_url} alt={colorName} />
+              ? <DeferredImage src={stage2ThumbnailUrl(job.output_url, 128)} alt={colorName} rootMargin="260px" />
               : <HatSlotIcon />;
             const content = preview;
             const className = "rrugc-colorway-slot is-" + status;

@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./OutputPhotoGalleryModal.css";
+import { DeferredImage } from "./DeferredImage";
+import { stage2ThumbnailUrl } from "./stage2Media";
 
 export type PhotoOutputItem = {
   key: string;
@@ -103,7 +105,7 @@ export function OutputPhotoGalleryModal({
             <span className={"rrugc-photo-gallery-status is-" + current.status}>{stateName[current.status]}</span>
           </div>
           <div className="rrugc-photo-gallery-stage">
-            {hasImage ? <img key={current.key + current.src} src={current.src!}
+            {hasImage ? <DeferredImage key={current.key + current.src} src={stage2ThumbnailUrl(current.src!, 1024)} rootMargin="800px"
               alt={current.label} decoding="async" /> : <OutputPlaceholder status={current.status} />}
           </div>
           <div className="rrugc-photo-gallery-preview-footer">
@@ -138,7 +140,7 @@ export function OutputPhotoGalleryModal({
                 aria-pressed={position === activeIndex}
                 className={"rrugc-photo-gallery-thumb" + (position === activeIndex ? " is-selected" : "")}>
                 <span className="rrugc-photo-gallery-thumb-media">
-                  {ready ? <img src={item.src!} alt="" loading="lazy" /> : <span className={"rrugc-photo-gallery-thumb-empty is-" + item.status} aria-hidden="true">
+                  {ready ? <DeferredImage src={stage2ThumbnailUrl(item.src!, 128)} alt="" rootMargin="220px" /> : <span className={"rrugc-photo-gallery-thumb-empty is-" + item.status} aria-hidden="true">
                     <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
                       <path d="M5.2 13.1c.5-4.5 3.2-7.2 6.8-7.2s6.3 2.7 6.8 7.2" />
                       <path d="M4.1 13.1h14.7c1.4 0 2.4.5 2.8 1.4-2.4 1.7-5.6 2.5-9.6 2.5-4 0-7.2-.8-9.6-2.5.3-.9.9-1.4 1.7-1.4Z" />
