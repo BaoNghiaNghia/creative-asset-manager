@@ -359,3 +359,98 @@
   .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-run-button{grid-column:1}
   .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-detail-toggle{grid-column:2}
 }
+/* Stage 2 slots 1-6: all metadata and actions stay grouped at the LEFT.
+   Full-height image tiles remain anchored to the RIGHT of each card. */
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+  grid-template-columns:minmax(0,1fr) max-content;
+  grid-template-rows:min-content min-content minmax(34px,1fr);
+  grid-template-areas:"title outputs" "skill outputs" "controls outputs";
+  column-gap:14px;
+  row-gap:7px;
+  align-content:stretch;
+  align-items:stretch;
+  padding:10px 12px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-title,
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-skill{
+  justify-self:start;
+  align-self:start;
+  max-width:100%;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-controls{
+  display:flex;
+  flex-flow:row wrap;
+  justify-self:start;
+  align-self:start;
+  justify-content:flex-start;
+  align-items:center;
+  align-content:start;
+  width:fit-content;
+  max-width:100%;
+  min-width:0;
+  gap:7px 10px;
+  margin-top:3px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-updated,
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-duration{
+  box-sizing:border-box;
+  flex:0 0 auto;
+  width:auto;
+  min-width:0;
+  margin:0;
+  padding:0;
+  justify-self:start;
+  justify-content:flex-start;
+  text-align:left;
+  white-space:nowrap;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-run-button,
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-detail-toggle{
+  box-sizing:border-box;
+  flex:0 0 auto;
+  width:auto;
+  min-width:80px;
+  max-width:100%;
+  margin:0;
+  padding:6px 10px;
+  justify-self:start;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-detail-toggle{
+  min-width:94px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{
+  grid-area:outputs;
+  justify-self:end;
+  align-self:stretch;
+  justify-content:flex-end;
+  align-items:stretch;
+  width:max-content;
+  max-width:100%;
+  height:100%;
+  margin:0;
+  padding:0;
+}
+/* Small/narrow content areas retain left-aligned controls and place outputs
+   on their own row to avoid crowding buttons or clipping the preview images. */
+@container (max-width:680px){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto auto auto auto;
+    grid-template-areas:"title" "skill" "controls" "outputs";
+    row-gap:8px;
+  }
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{
+    justify-self:end;
+    align-self:start;
+    justify-content:flex-end;
+    width:max-content;
+    max-width:100%;
+    height:90px;
+  }
+}
+@container (max-width:380px){
+  .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-empty-shot{
+    flex-basis:72px;
+    width:72px;
+  }
+}
