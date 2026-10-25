@@ -107,7 +107,7 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     expect(document.querySelector(".rrugc-blueprint-detail-dialog")?.getAttribute("aria-modal")).toBe("true");
     const image = document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img")!;
     // Detail fetches the full output, never the 512px preview thumbnail.
-    expect(image.getAttribute("src")).toBe(versions[0].url + "?artwork=stage1-matte-v1");
+    expect(image.getAttribute("src")).toBe(versions[0].url + "?artwork=stage1-source-alpha-v2");
     expect(document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-hat-original")?.src).toContain("/rrugc/blueprint/fronts/natural-black.webp");
     await act(async () => click(document.body, "Zoom in front detail"));
     expect(document.querySelector(".rrugc-blueprint-detail-zoom-controls output")?.textContent).toBe("125%");
@@ -283,11 +283,11 @@ describe("Stage 1 Blueprint Cross Puzzle", () => {
     const root = createRoot(host);
     await act(async () => root.render(<BlueprintPreview versions={versions} />));
     const source = () => host.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")?.getAttribute("src");
-    expect(source()).toBe(versions[0].url + "?artwork=stage1-matte-v1");
+    expect(source()).toBe(versions[0].url + "?artwork=stage1-source-alpha-v2");
     await act(async () => click(host, "Select hat color Natural / Brown"));
-    expect(source()).toBe(versions[0].url + "?artwork=stage1-matte-v1");
+    expect(source()).toBe(versions[0].url + "?artwork=stage1-source-alpha-v2");
     await act(async () => click(host, "Next design columns"));
-    expect(source()).toBe(versions[1].url + "?artwork=stage1-matte-v1");
+    expect(source()).toBe(versions[1].url + "?artwork=stage1-source-alpha-v2");
     expect(host.querySelectorAll(".rrugc-blueprint-thread-source")).toHaveLength(2);
     await act(async () => root.unmount());
   });

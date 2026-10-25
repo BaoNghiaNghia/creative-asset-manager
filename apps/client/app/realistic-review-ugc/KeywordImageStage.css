@@ -391,7 +391,8 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #fff;
   pointer-events: none;
 }
 .rrugc-keyword-output-image:hover { border-color: #8daee0; box-shadow: 0 0 0 1px #cedcf1; }

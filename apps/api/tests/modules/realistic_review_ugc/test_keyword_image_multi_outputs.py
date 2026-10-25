@@ -74,14 +74,15 @@ def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
     ))
     assert result.outcome.value == "completed"
     assert len(storage.uploads) == 6
-    # New Drive bytes are normalized, but resumable renderer checkpoints
-    # (and their manifest hashes) must remain unmodified.
+    # The original artwork is authoritative. Uploads and resume checkpoints
+    # must be byte-for-byte identical; never infer transparency from black.
     assert Path(files[0].path).read_bytes() == original_first
-    assert storage.upload_bodies[0] != original_first
+    assert storage.upload_bodies[0] == original_first
     from io import BytesIO
     with Image.open(BytesIO(storage.upload_bodies[0])) as output:
-        assert output.getpixel((0, 0))[3] == 0
-        assert output.getpixel((350, 450)) == (35, 79, 175, 255)
+        assert output.mode == "RGB"
+        assert output.getpixel((0, 0)) == (0, 0, 0)
+        assert output.getpixel((350, 450)) == (35, 79, 175)
     with Session(engine) as session:
         rows = session.scalars(
             select(RrugcImageOutputVersionModel).order_by(RrugcImageOutputVersionModel.version)

@@ -31,11 +31,6 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
-from app.modules.realistic_review_ugc.output_image_sanitizer import (
-    STAGE1_BLACK_MATTE_SKILLS,
-    stage1_artwork_preview_bytes,
-    strip_black_matte_to_transparency,
-)
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -97,7 +92,6 @@ async def _run_stage1_skill_engine(
         with Image.open(final) as image:
             if image.size != (2048, 1024) or image.format != "PNG":
                 raise ValueError("Stage 1 final must be PNG 2048x1024")
-        strip_black_matte_to_transparency(final)
         result.append(final)
     return tuple(result)
 
@@ -1166,18 +1160,6 @@ class KeywordImageGenerateHandler:
                         )
                     uploaded_count += 1
                     continue
-            # Normalize new artwork BEFORE upload, but never modify even
-            # temporary renderer checkpoint files: their hashes are referenced
-            # by resumable manifests. Old Drive masters remain immutable.
-            if (mime_type == "image/png" and
-                    (skill_name in STAGE1_BLACK_MATTE_SKILLS or
-                     getattr(generated, "model", None) == "gatorhats-typography-concepts-code-renderer")):
-                if path is not None:
-                    corrected, changed = stage1_artwork_preview_bytes(path.read_bytes())
-                    if changed:
-                        body, path = corrected, None
-                elif body is not None:
-                    body, _ = stage1_artwork_preview_bytes(body)
             if path is not None:
                 with Image.open(path) as image:
                     width, height = image.size

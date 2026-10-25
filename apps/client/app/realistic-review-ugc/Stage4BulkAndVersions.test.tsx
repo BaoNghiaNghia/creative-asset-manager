@@ -138,6 +138,55 @@ describe("Version history comparison", () => {
     await act(async () => root.unmount());
   });
 
+  it("opens Stage 1 full-size artwork inside CAM and keeps original download intact", async () => {
+    vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
+      job_id: "stage1-lightbox-job", stage: "stage1",
+      versions: [7, 8, 9].map(version => ({
+        version, output_name: "design_" + version + ".png",
+        url: "/api/v1/outputs/" + version,
+        created_at: "2026-10-09T05:00:00Z", width: 2048, height: 1024,
+      })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onClose = vi.fn();
+    await act(async () => root.render(<GenerationOutputVersionsDialog
+      stage="stage1" jobId="stage1-lightbox-job" title="GO SPORTS"
+      onClose={onClose} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => host.querySelector<HTMLButtonElement>(
+      '.rrugc-version-layout-toggle button[title^="Display all"]',
+    )!.click());
+    const full = host.querySelector<HTMLAnchorElement>(".rrugc-version-full-link")!;
+    expect(full.getAttribute("target")).toBeNull();
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    await act(async () => full.dispatchEvent(click));
+    expect(click.defaultPrevented).toBe(true);
+    let viewer = host.querySelector<HTMLElement>(".rrugc-stage1-lightbox")!;
+    expect(viewer).not.toBeNull();
+    expect(viewer.getAttribute("role")).toBe("dialog");
+    const original = viewer.querySelector<HTMLImageElement>(".rrugc-stage1-lightbox-canvas img")!;
+    expect(original.getAttribute("src")).toBe("/api/v1/outputs/7?artwork=stage1-source-alpha-v2");
+    expect(original.style.width).toBe("");
+    expect(viewer.querySelector<HTMLAnchorElement>(".rrugc-stage1-lightbox-download")?.getAttribute("href"))
+      .toBe("/api/v1/outputs/7?download=true");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+    expect(viewer.querySelector<HTMLImageElement>(".rrugc-stage1-lightbox-canvas img")?.style.width).toBe("1024px");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[aria-label="Toggle checkerboard background"]')!.click());
+    expect(viewer.querySelector(".rrugc-stage1-lightbox-canvas.is-checkerboard")).not.toBeNull();
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[aria-label="Next full image"]')!.click());
+    viewer = host.querySelector<HTMLElement>(".rrugc-stage1-lightbox")!;
+    expect(viewer.querySelector<HTMLImageElement>(".rrugc-stage1-lightbox-canvas img")?.getAttribute("src"))
+      .toBe("/api/v1/outputs/8?artwork=stage1-source-alpha-v2");
+    expect(viewer.querySelector<HTMLImageElement>(".rrugc-stage1-lightbox-canvas img")?.style.width).toBe("");
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(host.querySelector(".rrugc-stage1-lightbox")).toBeNull();
+    expect(host.querySelector(".rrugc-output-version-dialog")).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
   it("displays all 37 Stage 1 Skill files with their original names", async () => {
     vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
       job_id: "stage1-job", stage: "stage1",

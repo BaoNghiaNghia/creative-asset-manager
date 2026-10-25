@@ -3,6 +3,7 @@ import { listGenerationOutputVersions, selectStage1ProductDesign, type Generatio
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { BlueprintPreview } from "./BlueprintPreview";
+import { Stage1OutputLightbox } from "./Stage1OutputLightbox";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import "./Stage1ProductDesignSelection.css";
 
@@ -32,11 +33,13 @@ export function GenerationOutputVersionsDialog({
   const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
   const [blueprintGuides, setBlueprintGuides] = useState(false);
   const [blueprintThreadMode, setBlueprintThreadMode] = useState<ThreadMode>("auto");
+  const [lightboxVersion, setLightboxVersion] = useState<number | null>(null);
 
   useEffect(() => {
     setGalleryMode(stage === "stage1" ? "blueprint" : "auto");
     setBlueprintGuides(false);
     setBlueprintThreadMode("auto");
+    setLightboxVersion(null);
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -56,7 +59,19 @@ export function GenerationOutputVersionsDialog({
   }, [stage, jobId]);
 
   useEffect(() => {
-    const handler = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (lightboxVersion !== null) setLightboxVersion(null);
+        else onClose();
+      } else if (lightboxVersion !== null && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        const current = versions.findIndex(item => item.version === lightboxVersion);
+        const next = current + (event.key === "ArrowRight" ? 1 : -1);
+        if (next >= 0 && next < versions.length) {
+          event.preventDefault();
+          setLightboxVersion(versions[next].version);
+        }
+      }
+    };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", handler);
@@ -64,7 +79,7 @@ export function GenerationOutputVersionsDialog({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handler);
     };
-  }, [onClose]);
+  }, [onClose, lightboxVersion, versions]);
 
   // Opening the dialog from a slider thumbnail keeps the complete gallery and
   // places the clicked image in view, without changing the comparison selection.
@@ -91,6 +106,7 @@ export function GenerationOutputVersionsDialog({
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
   const starredCount = versions.filter(version => version.selected_for_products_stage2).length;
+  const fullImage = lightboxVersion === null ? null : versions.find(item => item.version === lightboxVersion) ?? null;
   const blueprint = stage === "stage1" && galleryMode === "blueprint";
   const masonry = !blueprint && (galleryMode === "masonry" || (galleryMode === "auto" && compared.length > 6));
 
@@ -115,9 +131,12 @@ export function GenerationOutputVersionsDialog({
       </div>
       <a className="rrugc-version-image-link"
         style={masonry ? { aspectRatio: stableMasonryRatio(version.width, version.height, 1) } : undefined}
-        href={version.url + (stage === "stage1" ? "?artwork=stage1-matte-v1" : "")}
-        target="_blank" rel="noreferrer" title={"Open version " + version.version}>
-        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400" + (stage === "stage1" ? "&artwork=stage1-matte-v1" : "")} rootMargin="260px 0px"
+        href={version.url + (stage === "stage1" ? "?artwork=stage1-source-alpha-v2" : "")}
+        target={stage === "stage1" ? undefined : "_blank"}
+        rel={stage === "stage1" ? undefined : "noreferrer"}
+        onClick={stage === "stage1" ? event => { event.preventDefault(); setLightboxVersion(version.version); } : undefined}
+        title={"Open version " + version.version}>
+        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400" + (stage === "stage1" ? "&artwork=stage1-source-alpha-v2" : "")} rootMargin="260px 0px"
           alt={"Output version " + version.version} loading="lazy" />
       </a>
       <div className="rrugc-version-card-meta">
@@ -131,7 +150,12 @@ export function GenerationOutputVersionsDialog({
         </div>}
       </div>
       <div className="rrugc-version-download-actions">
-        <a className="rrugc-version-full-link" href={version.url} target="_blank" rel="noreferrer">View full image ↗</a>
+        <a className="rrugc-version-full-link" href={version.url}
+          target={stage === "stage1" ? undefined : "_blank"}
+          rel={stage === "stage1" ? undefined : "noreferrer"}
+          onClick={stage === "stage1" ? event => { event.preventDefault(); setLightboxVersion(version.version); } : undefined}>
+          {stage === "stage1" ? "View full image" : "View full image ↗"}
+        </a>
         <a className="rrugc-version-download" href={version.url + "?download=true"} download aria-label={"Download " + (version.output_name?.split("/").pop() || "version " + version.version)} title="Download original image">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 17v3h14v-3" /></svg>Download
         </a>
@@ -229,6 +253,9 @@ export function GenerationOutputVersionsDialog({
       )}
       {!loading && !error && versions.length === 0 && <p className="rrugc-version-empty">No completed output version is available yet.</p>}
       {!loading && !error && versions.length > 0 && compared.length === 0 && <p className="rrugc-version-empty">Select versions above to compare them side by side.</p>}
+      {stage === "stage1" && fullImage && <Stage1OutputLightbox
+        version={fullImage} versions={versions}
+        onNavigate={setLightboxVersion} onClose={() => setLightboxVersion(null)} />}
     </section>
   </div>;
 }

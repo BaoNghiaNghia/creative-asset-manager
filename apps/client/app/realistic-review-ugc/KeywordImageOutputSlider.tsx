@@ -145,7 +145,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
               draggable={false}>
               {brokenVersions.has(image.version)
                 ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
-                : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-matte-v1" + (imageRetry ? "&retry=" + imageRetry : "")}
+                : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-source-alpha-v2" + (imageRetry ? "&retry=" + imageRetry : "")}
                   alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
                   onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
             </button>)}

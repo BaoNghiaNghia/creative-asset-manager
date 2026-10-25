@@ -73,7 +73,7 @@ function designName(version: GenerationOutputVersion) {
 }
 
 function thumbnailUrl(url: string, size: number) {
-  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size + "&artwork=stage1-matte-v1";
+  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size + "&artwork=stage1-source-alpha-v2";
 }
 
 type DragAxis = "horizontal" | "vertical" | "both";
@@ -104,7 +104,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
-  const activeDesignSrc = activeDesign ? activeDesign.url + "?artwork=stage1-matte-v1" : "";
+  const activeDesignSrc = activeDesign ? activeDesign.url + "?artwork=stage1-source-alpha-v2" : "";
   // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.
