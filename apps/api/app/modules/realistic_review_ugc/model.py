@@ -1195,6 +1195,36 @@ class RrugcEcommerceJobModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RrugcProductsRunAllModel(Base):
+    """Durable seven-slot sequential run: one active position per source/color.
+
+    Only explicitly started runs appear here; individual Run actions are unaffected.
+    Completed historical image jobs are never reset by this coordinator.
+    """
+    __tablename__ = "rrugc_products_run_all"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_plan_id", "source_revision", "color_key",
+                         name="uq_rrugc_products_run_all_source_color"),
+        ForeignKeyConstraint(["source_plan_id"], ["rrugc_source_plans.id"],
+                             name="fk_rrugc_products_run_all_source", ondelete="RESTRICT"),
+        Index("ix_rrugc_products_run_all_active", "status", "updated_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_plan_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    color_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    started_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    colorway_skill_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="running")
+    current_slot: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class RrugcColorwayJobModel(Base):
     """Durable individual colorway of an embroidery source, separate from Pinterest jobs."""
     __tablename__ = "rrugc_colorway_jobs"

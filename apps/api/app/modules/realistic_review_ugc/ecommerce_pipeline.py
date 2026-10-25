@@ -1263,6 +1263,9 @@ class EcommerceGenerateHandler:
             completed_stage = row.stage
             completed_job_id = row.id
             completed_processing_id = row.processing_job_id
+            completed_source_plan_id = row.source_plan_id
+            completed_source_revision = row.source_revision
+            completed_color_key = row.color_key
         if completed_stage == "prod_s2_ec1":
             try:
                 self._dispatch_run_all_followups(
@@ -1272,4 +1275,16 @@ class EcommerceGenerateHandler:
                 # provider generation because follow-up scheduling failed.
                 context.logger.exception("ecommerce_run_all_followup_dispatch_failed",
                                          extra={"job_id": completed_job_id})
+        try:
+            from app.modules.realistic_review_ugc.products_run_all import advance_after_output
+            advance_after_output(
+                context.dependencies.session_factory,
+                tenant_id=context.job.tenant_id, source_plan_id=completed_source_plan_id,
+                source_revision=completed_source_revision, color_key=completed_color_key,
+            )
+        except Exception:
+            # Recovery scheduler retries the handoff. Already-saved output
+            # must never be regenerated to compensate for scheduling failure.
+            context.logger.exception("products_run_all_ecommerce_handoff_failed",
+                                     extra={"job_id": completed_job_id})
         return JobHandlerResult.completed()

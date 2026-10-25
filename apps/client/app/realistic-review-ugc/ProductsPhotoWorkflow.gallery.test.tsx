@@ -8,6 +8,7 @@ import { runAllEcommerceJobs, type ColorwayJob, type EcommerceJob, type Colorway
 vi.mock("./api", async (importOriginal) => ({
   ...await importOriginal<typeof import("./api")>(),
   runAllEcommerceJobs: vi.fn(),
+  getEcommerceRunAllStatus: vi.fn().mockResolvedValue(null),
 }));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -90,15 +91,14 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>root.unmount());
   });
 
-  it("Run all queues server-orchestrated Ecommerce jobs, retries colors and reports unavailable Skills",async()=>{
+  it("Run all starts one server-owned seven-slot sequence and never queues downstream slots in the browser",async()=>{
     vi.mocked(runAllEcommerceJobs).mockResolvedValueOnce({
-      source_plan_id:"design-1",
-      steps:[
-        {stage:"prod_s2_ec1",status:"queued",job_id:"e1"},
-        {stage:"prod_s2_ec2",status:"waiting_for_front",reason:"Will queue after Image 01."},
-        {stage:"prod_s2_ec3",status:"waiting_for_front",reason:"Will queue after Image 01."},
-        {stage:"prod_s2_ec4",status:"completed",job_id:"e4"},
-      ],
+      run_id:"run-1",source_plan_id:"design-1",source_revision:"rev-1",
+      color_key:"natural-black",status:"running",current_slot:1,error_code:null,error_message:null,
+      steps:["Ecommerce 1","Ecommerce 2","Ecommerce 3","Ecommerce 4","Multi-hat","UGC","13 Hat Colors"].map(
+        (name,i)=>({stage:i<4?"prod_s2_ec"+(i+1):i===6?"prod_s2_col":"prod_s2_mh_1",
+          slot:i+1,name,status:i===0?"running" as const:"pending" as const,
+          completed_outputs:0,total_outputs:i===6?13:i>=4?3:1})),
     });
     const queueColors=vi.fn(async()=>({queued:11,existing:2,retried:0}));
     const refresh=vi.fn(async()=>undefined);
@@ -107,31 +107,29 @@ describe("Products photo output gallery navigation",()=>{
       colorwayReady:true,onQueueColors:queueColors,onEcommerceJobChange:refresh,
     });
     const button=host.querySelector<HTMLButtonElement>('[aria-label="Run all"]')!;
-    expect(button.disabled).toBe(false);
     await act(async()=>{button.click();await Promise.resolve();});
-    expect(runAllEcommerceJobs).toHaveBeenCalledWith("design-1", "natural-black");
-    expect(queueColors).toHaveBeenCalledWith(true);
+    expect(runAllEcommerceJobs).toHaveBeenCalledWith("design-1", "natural-black", undefined);
+    expect(queueColors).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalledTimes(1);
     const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-report")!;
-    expect(report.textContent).toContain("2 queued");
-    expect(report.textContent).toContain("2 waiting");
-    expect(report.textContent).toContain("2 blocked");
+    expect(report.textContent).toContain("Slot 1/7");
     expect(report.querySelectorAll("li")).toHaveLength(7);
-    expect(report.textContent).toContain("Multi-hat");
-    expect(report.textContent).toContain("UGC");
-    expect(report.textContent).toContain("Skill availability is not confirmed");
-    expect(button.disabled).toBe(false);
+    expect(report.textContent).toContain("13 Hat Colors");
+    expect(button.disabled).toBe(true);
     await act(async()=>root.unmount());
   });
 
-  it("Run all gives explicit blocked states when job APIs cannot start",async()=>{
+  it("Run all reports API failures without attempting any other slot",async()=>{
     vi.mocked(runAllEcommerceJobs).mockRejectedValueOnce(new Error("Insufficient processing credits"));
-    const {root,host}=await renderWorkflow({sourcePlanId:"design-1",colorwayReady:false});
+    const queueColors=vi.fn(async()=>({queued:11,existing:2,retried:0}));
+    const {root,host}=await renderWorkflow({
+      sourcePlanId:"design-1",colorwayReady:false,onQueueColors:queueColors,
+    });
     await act(async()=>{host.querySelector<HTMLButtonElement>('[aria-label="Run all"]')!.click();await Promise.resolve();});
     const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-report")!;
-    expect(report.querySelectorAll("li")).toHaveLength(7);
-    expect(report.textContent).toContain("7 blocked");
     expect(report.textContent).toContain("Insufficient processing credits");
+    expect(queueColors).not.toHaveBeenCalled();
+    expect(report.getAttribute("role")).toBe("alert");
     await act(async()=>root.unmount());
   });
 

@@ -540,6 +540,21 @@ class ColorwayGenerateHandler:
             row.completed_at = datetime.now(timezone.utc)
             row.last_error_code = row.last_error_message = None
             session.commit()
+            finished_source_id = row.source_plan_id
+            finished_revision = row.source_revision
+        try:
+            from app.modules.realistic_review_ugc.products_run_all import advance_after_output
+            advance_after_output(
+                context.dependencies.session_factory,
+                tenant_id=context.job.tenant_id,
+                source_plan_id=finished_source_id, source_revision=finished_revision,
+                color_key=None,  # all active run-all selections for this design
+            )
+        except Exception:
+            # Image remains completed; a periodic reconciler handles missed
+            # scheduling signals without creating another provider request.
+            context.logger.exception("products_run_all_colorway_handoff_failed",
+                                     extra={"job_id": context.job.entity_id})
         context.logger.info("rrugc_colorway_completed",
                             extra={"job_id": context.job.entity_id, "color_key": color_key})
         return JobHandlerResult.completed()

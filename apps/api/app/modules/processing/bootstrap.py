@@ -68,6 +68,7 @@ from app.modules.realistic_review_ugc.stage2 import RrugcStage2GenerateJobHandle
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
 from app.modules.realistic_review_ugc.colorways import ColorwayGenerateHandler
 from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceGenerateHandler
+from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllScheduler
 from app.modules.realistic_review_ugc.stage3 import RrugcStage3AnalyzeJobHandler
 from app.modules.realistic_review_ugc.cap_stack_analysis import RrugcCapStackAnalyzeHandler
 from app.modules.realistic_review_ugc.research_vision import ResearchVisionJobHandler
@@ -464,6 +465,7 @@ def run_worker(
     managed_cleanup_scheduler: ManagedStorageCleanupSchedulerRunner | None = None
     rrugc_delivery_scheduler: RrugcDeliveryMaintenanceScheduler | None = None
     rrugc_maintenance_scheduler: RrugcMaintenanceScheduler | None = None
+    products_run_all_scheduler: ProductsRunAllScheduler | None = None
     rrugc_source_scheduler: RrugcSourcePlanSyncScheduler | None = None
     video_cache_cleanup: VideoCacheCleanupRunner | None = None
     visual_backfill_scheduler: VisualSearchBackfillScheduler | None = None
@@ -507,6 +509,10 @@ def run_worker(
                 logger=worker_logger,
             )
             rrugc_source_scheduler.start()
+            # Durable seven-slot generation must outlive browser sessions.
+            # Start only on the operational-scheduler worker to avoid busy polling.
+            products_run_all_scheduler = ProductsRunAllScheduler(session_factory, settings)
+            products_run_all_scheduler.start()
             if settings.RRUGC_MAINTENANCE_ENABLED:
                 rrugc_maintenance_scheduler = RrugcMaintenanceScheduler(
                     session_factory,
@@ -598,6 +604,8 @@ def run_worker(
             rrugc_source_scheduler.stop()
         if rrugc_maintenance_scheduler is not None:
             rrugc_maintenance_scheduler.stop()
+        if products_run_all_scheduler is not None:
+            products_run_all_scheduler.stop()
         if managed_cleanup_scheduler is not None:
             managed_cleanup_scheduler.stop()
         if rrugc_delivery_scheduler is not None:

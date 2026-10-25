@@ -637,6 +637,7 @@ export function EmbroideryColorwayStage({
                 colors={Array.from(slots?.values() || [])}
                 colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
                 colorwaySkillKey={selectedSkillKey}
+                colorwaySkillSelection={skillInput}
                 colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}
                 colorwaySkillOptions={catalog.items.map(skill => ({ value: skillKey(skill), label: skill.display_name + (skill.upload_version ? " · v" + skill.upload_version : ""), ready: skill.ready }))}
                 onColorwaySkillChange={setSelectedSkillKey}

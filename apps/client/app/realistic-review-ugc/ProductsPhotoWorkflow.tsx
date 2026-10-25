@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
-import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
+import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getEcommerceRunAllStatus, type EcommerceRunAllResult, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
@@ -12,6 +12,7 @@ import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGall
 import { UgcScoutReviewGallery, type UgcScoutReviewLabel } from "./UgcScoutReviewGallery";
 import type { UgcScoutItem } from "./api";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
+import type { Stage2SkillSelection } from "./types";
 
 type StepDefinition = {
   key: ProductStage2SkillKey;
@@ -73,19 +74,6 @@ export type ColorwaySkillOption = {
   ready: boolean;
 };
 
-type BulkRunStep = {
-  name: string;
-  status: EcommerceRunAllStep["status"];
-  reason?: string;
-};
-
-const BULK_ECOMMERCE_NAMES: Record<string, string> = {
-  prod_s2_ec1: "Ecommerce · Image 01",
-  prod_s2_ec2: "Ecommerce · Image 02",
-  prod_s2_ec3: "Ecommerce · Image 03",
-  prod_s2_ec4: "Ecommerce · Image 04",
-};
-
 type Props = {
   sourceName: string;
   lastUpdated?: string | null;
@@ -100,6 +88,7 @@ type Props = {
   colors?: ColorwayJob[];
   colorwaySkillName?: string;
   colorwaySkillKey?: string;
+  colorwaySkillSelection?: Stage2SkillSelection | null;
   colorwaySkillOptions?: ColorwaySkillOption[];
   colorwaySkillDisabled?: boolean;
   onColorwaySkillChange?: (value: string) => void;
@@ -114,7 +103,7 @@ type Props = {
 
 export function ProductsPhotoWorkflow({
   sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, selectedColor = "natural-black", ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
-  colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange,
+  colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange, colorwaySkillSelection,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
@@ -129,7 +118,8 @@ export function ProductsPhotoWorkflow({
   const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[]; initialIndex: number } | null>(null);
   const [allOutputOpen, setAllOutputOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkReport, setBulkReport] = useState<BulkRunStep[] | null>(null);
+  const [runAllState, setRunAllState] = useState<EcommerceRunAllResult | null>(null);
+  const [runAllError, setRunAllError] = useState("");
   const bulkLock = useRef(false);
   const [colorGalleryIndex, setColorGalleryIndex] = useState<number | null>(null);
   const [inputs, setInputs] = useState<EcommerceInputReadiness | null>(null);
@@ -299,74 +289,52 @@ export function ProductsPhotoWorkflow({
       label: "Hat Colors · " + item.label })),
   ];
 
+  // Server-owned durable sequence: browser disconnects do not stop the run.
+  useEffect(() => {
+    setRunAllState(null);
+    setRunAllError("");
+    if (!sourcePlanId) return;
+    const controller = new AbortController();
+    void getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal)
+      .then(status => { if (!controller.signal.aborted) setRunAllState(status); })
+      .catch(() => { /* Status is optional until the first Run all. */ });
+    return () => controller.abort();
+  }, [sourcePlanId, selectedColor]);
+
+  useEffect(() => {
+    if (runAllState?.status !== "running" || runAllState.source_plan_id !== sourcePlanId
+        || runAllState.color_key !== selectedColor) return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      if (document.hidden || controller.signal.aborted) return;
+      void getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal)
+        .then(status => { if (!controller.signal.aborted) setRunAllState(status); })
+        .catch(() => { /* Backend keeps the durable sequence running. */ });
+    }, 8000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [sourcePlanId, selectedColor, runAllState?.status]);
+
   async function runAllOutputs() {
     if (!sourcePlanId || bulkLock.current) return;
     bulkLock.current = true;
     setBulkRunning(true);
-    setBulkReport(null);
-    let steps: BulkRunStep[] = [];
+    setRunAllError("");
     try {
-      try {
-        const queued = await runAllEcommerceJobs(sourcePlanId, selectedColor);
-        steps = queued.steps.map(item => ({
-          name: BULK_ECOMMERCE_NAMES[item.stage] || item.stage,
-          status: item.status, reason: item.reason,
-        }));
-      } catch (reason) {
-        const message = reason instanceof Error ? reason.message : "Unable to queue Ecommerce images.";
-        steps = Object.values(BULK_ECOMMERCE_NAMES).map(name => ({
-          name, status: "blocked", reason: message,
-        }));
-      }
-      for (const [key, name, slot] of [["multihat", "Multi-hat", "prod_s2_mh"], ["ugc", "UGC", "prod_s2_ugc"]] as const) {
-        const skill = readiness?.steps.find(step => step.key === key);
-        if (skill?.ready && configuredSkillNames[slot]) {
-          try {
-            const queued = await runSceneJob(sourcePlanId, slot);
-            const blocked = queued.steps.filter(item => item.status === "blocked");
-            steps.push({ name, status: blocked.length ? "blocked" : "queued",
-              reason: blocked.map(item => item.reason).filter(Boolean).join("; ") || undefined });
-          } catch (reason) {
-            steps.push({ name, status: "blocked", reason: reason instanceof Error ? reason.message : "Could not start scene generation." });
-          }
-        } else {
-          steps.push({ name, status: "blocked", reason: !skill
-            ? "Skill availability is not confirmed."
-            : !configuredSkillNames[slot] ? "No Skill is assigned."
-            : !skill.bundle_installed ? "The assigned Skill is unavailable or invalid."
-            : "Worker is not available." });
-        }
-      }
-      if (complete === 13) {
-        steps.push({ name: "13 Hat Colors", status: "completed" });
-      } else if (colorwayRunning && active > 0) {
-        steps.push({ name: "13 Hat Colors", status: "running",
-          reason: "Existing colorway jobs are still running." });
-      } else if (!colorwayReady || !onQueueColors) {
-        steps.push({ name: "13 Hat Colors", status: "blocked",
-          reason: "Select a ready Skill with all 13 verified stock images." });
-      } else {
-        try {
-          const result = await onQueueColors(true);
-          const newlyQueued = result.queued + (result.retried || 0);
-          steps.push({ name: "13 Hat Colors",
-            status: newlyQueued > 0 ? "queued" : result.error ? "blocked"
-              : complete === 13 ? "completed" : "running",
-            reason: result.error ||
-              (newlyQueued > 0 ? "Queued " + newlyQueued + " image job(s)."
-                : "Existing image jobs retained; no duplicates queued.") });
-        } catch (reason) {
-          steps.push({ name: "13 Hat Colors", status: "blocked",
-            reason: reason instanceof Error ? reason.message : "Could not start Hat Colors." });
-        }
-      }
-      setBulkReport(steps);
-      try { await onEcommerceJobChange?.(); } catch { /* Preserve the server queue result. */ }
+      // Exactly one POST: the server progresses 1 -> 2 -> ... -> 7. Do not
+      // queue 5/6/7 from this browser while an upstream skill is unfinished.
+      const started = await runAllEcommerceJobs(sourcePlanId, selectedColor, colorwaySkillSelection);
+      setRunAllState(started);
+      try { await onEcommerceJobChange?.(); } catch { /* Sequence remains persisted. */ }
+    } catch (reason) {
+      setRunAllError(reason instanceof Error ? reason.message : "Unable to start sequential Run all.");
     } finally {
       bulkLock.current = false;
       setBulkRunning(false);
     }
   }
+
+  const activeRun = runAllState?.source_plan_id === sourcePlanId &&
+    runAllState?.color_key === selectedColor ? runAllState : null;
 
   const complete = colors.filter(job => job.status === "completed").length;
   const failed = colors.filter(job => job.status === "failed").length;
@@ -641,23 +609,28 @@ export function ProductsPhotoWorkflow({
           </svg>View all outputs
         </button>
         <button type="button" className="rrugc-products-photo-footer-action is-run-all"
-          onClick={() => void runAllOutputs()} disabled={!sourcePlanId || bulkRunning} aria-label="Run all"
-          title="Run all ready Skills 1–7; unavailable Skill workers are reported as blocked">
+          onClick={() => void runAllOutputs()} disabled={!sourcePlanId || bulkRunning || activeRun?.status === "running" || activeRun?.status === "completed"}
+          aria-label="Run all" title="Run Slots 1 → 7 sequentially. Each slot finishes every output before the next starts. Completed jobs are reused.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m8 5 11 7-11 7V5Z" />
-          </svg>{bulkRunning ? "Queueing…" : "Run all"}
+          </svg>{bulkRunning ? "Starting…" : activeRun?.status === "running" ? "Slot " + activeRun.current_slot + "/7"
+            : activeRun?.status === "blocked" ? "Resume all" : activeRun?.status === "completed" ? "All done" : "Run all"}
         </button>
         <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP"><span className="rrugc-products-photo-download-icon" aria-hidden="true">⇩</span>Download all outputs</a>
       </div>
-      {bulkReport && <div className="rrugc-products-photo-run-all-report" role="status" aria-live="polite">
-        <strong>Run all:</strong>
-        <span>{bulkReport.filter(step => step.status === "queued").length} queued · {bulkReport.filter(step => step.status === "waiting_for_front").length} waiting · {bulkReport.filter(step => step.status === "completed" || step.status === "running").length} existing · {bulkReport.filter(step => step.status === "blocked").length} blocked</span>
-        <details><summary>View results for all 7 Skills</summary>
-          <ul>{bulkReport.map(step => <li key={step.name}>
-            <b>{step.name}</b>
-            <span>{step.status === "waiting_for_front" ? "Waiting for Image 01" : step.status}</span>
+      {runAllError && <p role="alert" className="rrugc-products-photo-run-all-report">{runAllError}</p>}
+      {activeRun && <div className="rrugc-products-photo-run-all-report" role="status" aria-live="polite">
+        <strong>Run all · {activeRun.status === "running" ? "Slot " + activeRun.current_slot + "/7"
+          : activeRun.status === "completed" ? "Completed 7/7" : "Stopped at Slot " + activeRun.current_slot}</strong>
+        <span>{activeRun.status === "running" ? "Running in order. Next slot starts only after this slot completes."
+          : activeRun.status === "completed" ? "All outputs are ready."
+          : activeRun.error_message || "A slot needs attention before the sequence can resume."}</span>
+        <details><summary>View sequential progress</summary>
+          <ol>{activeRun.steps.map(step => <li key={step.slot}>
+            <b>{step.slot}. {step.name}</b>
+            <span>{step.status} · {step.completed_outputs}/{step.total_outputs} outputs</span>
             {step.reason && <small>{step.reason}</small>}
-          </li>)}</ul>
+          </li>)}</ol>
         </details>
       </div>}
     </div>

@@ -5827,9 +5827,17 @@ def ugc_scout_start(
             "campaign_id": campaign.id}
 
 
+class EcommerceRunAllSkill(BaseModel):
+    source: str = Field(pattern=r"^(local|openai)$")
+    skill_id: str | None = Field(default=None, max_length=255)
+    skill_name: str = Field(min_length=1, max_length=128)
+    skill_version: str | None = Field(default=None, max_length=64)
+
+
 class EcommerceRunAllRequest(BaseModel):
     source_plan_id: str = Field(min_length=1, max_length=36)
     color_key: str = Field(default="natural-black", pattern=r"^[a-z0-9-]{3,80}$")
+    colorway_skill: EcommerceRunAllSkill | None = None
 
 
 @router.post("/products-stage2/ecommerce/run-all", status_code=202)
@@ -5838,16 +5846,34 @@ def run_all_ecommerce_skills(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
-    """Idempotent four-slot enqueue; Front -> angle handoff persists in SQL."""
-    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    """One durable seven-slot sequence, not parallel enqueue of 1–7."""
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError
+    from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllService
     try:
-        return EcommerceService(session).queue_all(
+        return ProductsRunAllService(session).start(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            source_plan_id=body.source_plan_id, color_key=body.color_key)
+            source_plan_id=body.source_plan_id, color_key=body.color_key,
+            colorway_skill=body.colorway_skill.model_dump() if body.colorway_skill else None,
+        )
     except EcommerceError as exc:
         session.rollback()
         raise HTTPException(status_code=exc.status_code,
                             detail={"code": exc.code, "message": exc.message}) from exc
+
+
+@router.get("/products-stage2/ecommerce/run-all/status")
+def ecommerce_run_all_status(
+    source_plan_id: str = Query(..., min_length=1, max_length=36),
+    color_key: str = Query(default="natural-black", min_length=3, max_length=80),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Read-only persisted status, scoped to design, revision, tenant and cap color."""
+    from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllService
+    return ProductsRunAllService(session).status(
+        tenant_id=principal.active_tenant_id,
+        source_plan_id=source_plan_id, color_key=color_key,
+    )
 
 
 @router.get("/products-stage2/ecommerce/jobs")

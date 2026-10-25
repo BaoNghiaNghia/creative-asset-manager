@@ -748,19 +748,34 @@ export const listEcommerceJobs = (sourcePlanIds: string[], signal?: AbortSignal)
 };
 export type EcommerceRunAllStep = {
   stage: string;
-  status: "queued" | "running" | "completed" | "waiting_for_front" | "blocked" | "pending";
-  job_id?: string;
-  reason?: string;
-  error_code?: string;
+  slot: number;
+  name: string;
+  status: "running" | "completed" | "blocked" | "pending";
+  completed_outputs: number;
+  total_outputs: number;
+  reason?: string | null;
 };
 export type EcommerceRunAllResult = {
+  run_id: string;
   source_plan_id: string;
+  source_revision: string;
+  color_key: string;
+  current_slot: number;
+  status: "running" | "completed" | "blocked";
+  error_code: string | null;
+  error_message: string | null;
   steps: EcommerceRunAllStep[];
 };
-export const runAllEcommerceJobs = (sourcePlanId: string, colorKey = "natural-black") =>
+export const runAllEcommerceJobs = (sourcePlanId: string, colorKey = "natural-black",
+                                    colorwaySkill?: Stage2SkillSelection | null) =>
   request<EcommerceRunAllResult>(ECOMMERCE_PATH + "/run-all", {
-    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId, color_key: colorKey }),
+    method: "POST", body: JSON.stringify({
+      source_plan_id: sourcePlanId, color_key: colorKey, colorway_skill: colorwaySkill || null,
+    }),
   });
+export const getEcommerceRunAllStatus = (sourcePlanId: string, colorKey = "natural-black", signal?: AbortSignal) =>
+  request<EcommerceRunAllResult | null>(ECOMMERCE_PATH + "/run-all/status?source_plan_id=" +
+    encodeURIComponent(sourcePlanId) + "&color_key=" + encodeURIComponent(colorKey), { signal });
 export type ColorwayQueueResult = {
   queued: number;
   existing: number;
