@@ -31,6 +31,7 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.output_image_sanitizer import strip_black_matte_to_transparency
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -92,6 +93,7 @@ async def _run_stage1_skill_engine(
         with Image.open(final) as image:
             if image.size != (2048, 1024) or image.format != "PNG":
                 raise ValueError("Stage 1 final must be PNG 2048x1024")
+        strip_black_matte_to_transparency(final)
         result.append(final)
     return tuple(result)
 
