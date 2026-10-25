@@ -97,6 +97,37 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     });
   }
 
+  it("shows the per-design pinned 3-hat and 4-hat references in Slot 5 details", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<ProductsPhotoWorkflow
+      sourceName="design-one.png"
+      sourcePlanId="design-one"
+      readiness={readiness(bundles[0], true)}
+      configuredSkillNames={{ prod_s2_mh: bundles[0].name }}
+      ecommerceJobs={[{
+        id: "multi-job-1", source_plan_id: "design-one", stage: "prod_s2_mh_1",
+        status: "queued", retry_count: 0, attempt_count: 0, error_code: null,
+        output_url: null, skill_name: bundles[0].name,
+        scene_references: [
+          { image_id: "scene-3", image_url: "https://i.pinimg.com/736x/3.jpg",
+            pin_url: "https://www.pinterest.com/pin/123/", caps_count: 3 },
+          { image_id: "scene-4", image_url: "https://i.pinimg.com/736x/4.jpg",
+            pin_url: "https://www.pinterest.com/pin/124/", caps_count: 4 },
+        ],
+      }]}
+    />));
+    const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_mh"]')!;
+    await act(async () => row.querySelector<HTMLButtonElement>('button[aria-label="Multi-hat details"]')!.click());
+    const preview = row.querySelector<HTMLElement>('[aria-label="Selected Multi-hat photos"]')!;
+    expect(preview.querySelectorAll("a").length).toBe(2);
+    expect(preview.textContent).toContain("3 hats");
+    expect(preview.textContent).toContain("4 hats");
+    expect(row.textContent).toContain("2/20 references");
+    await act(async () => root.unmount());
+  });
+
   it("recognizes uploaded ugc-gatorhats as installed, without enabling an absent worker", async () => {
     const host = document.createElement("div");
     document.body.append(host);

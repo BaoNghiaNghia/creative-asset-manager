@@ -1,0 +1,5 @@
+.rrugc-multihat-scene-references{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:9px;max-height:310px;overflow-y:auto;overscroll-behavior:contain;margin-top:10px;padding:2px}
+.rrugc-multihat-scene-references a{display:flex;min-width:0;flex-direction:column;gap:4px;color:#536782;text-decoration:none}
+.rrugc-multihat-scene-references img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid #dbe4ef;background:#eef2f8}
+.rrugc-multihat-scene-references small{font-size:10px;white-space:nowrap;text-align:center}
+.rrugc-multihat-scene-references a:focus-visible{outline:2px solid #5488cb;outline-offset:2px;border-radius:8px}

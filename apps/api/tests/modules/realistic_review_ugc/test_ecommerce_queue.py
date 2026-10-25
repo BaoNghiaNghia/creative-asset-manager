@@ -7,6 +7,7 @@ from app.core.database import Base
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackImageModel
 from app.modules.realistic_review_ugc.ecommerce_pipeline import (
     EcommerceService, EcommerceError,
 )
@@ -22,6 +23,7 @@ def ecommerce_db(monkeypatch):
     Base.metadata.create_all(engine, tables=[
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
+        RrugcCapStackImageModel.__table__,
     ])
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     monkeypatch.setattr(pipeline, "_assigned_skill", lambda *args: ResolvedStage2Skill(
@@ -204,6 +206,77 @@ def test_run_all_front_completion_queues_angles_even_without_browser(ecommerce_d
     assert len(list(session.scalars(select(RrugcEcommerceJobModel)))) == 4
     assert len(list(session.scalars(select(ProcessingJobModel)))) == 4
 
+
+
+
+def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecommerce_db):
+    """A design gets its own sample; idempotent Run and retry never repick it."""
+    session, settings = ecommerce_db
+    for cap_count in (3, 4):
+        for i in range(30):
+            pin = str(cap_count * 10000 + i)
+            session.add(RrugcCapStackImageModel(
+                id=pin, tenant_id="tenant-001", pin_key=pin,
+                pin_url=f"https://www.pinterest.com/pin/{pin}/",
+                image_url=f"https://i.pinimg.com/736x/{pin}.jpg",
+                caps_detected=cap_count, count_status="ready",
+                is_cap_stack=True, ai_suspected=False,
+            ))
+    session.add(RrugcSourcePlanModel(
+        id="plan-002", tenant_id="tenant-001",
+        root_folder_id=PRODUCTS_STAGE1_SELECTED_ROOT,
+        source_file_id="remote-design-two",
+        source_relative_path="design-two.png",
+        source_name="design-two.png", source_mime_type="image/png",
+        source_revision="rev2", created_by_user_id="operator",
+    ))
+    session.commit()
+
+    service = EcommerceService(session, settings)
+    first = service.queue_scene(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", slot="prod_s2_mh")
+    assert len(first["steps"]) == 3
+    assert all(item["status"] == "queued" for item in first["steps"])
+    jobs = [session.get(RrugcEcommerceJobModel, item["job_id"]) for item in first["steps"]]
+    attempts = [session.get(ProcessingJobModel, row.processing_job_id) for row in jobs]
+    samples = [job.payload_json["multihat_references"] for job in attempts]
+    assert len(samples[0]) == 20
+    assert samples[0] == samples[1] == samples[2]
+    assert sum(ref["caps_count"] == 3 for ref in samples[0]) == 10
+    assert sum(ref["caps_count"] == 4 for ref in samples[0]) == 10
+
+    replay = service.queue_scene(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", slot="prod_s2_mh")
+    assert all(item["already_exists"] for item in replay["steps"])
+    assert [row.processing_job_id for row in jobs] == [job.id for job in attempts]
+
+    # A failure creates a new attempt, reusing the exact same 20 references.
+    jobs[1].status = "failed"
+    attempts[1].status = "failed"
+    session.commit()
+    retry = service.queue_scene(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", slot="prod_s2_mh")
+    assert retry["steps"][1]["status"] == "queued"
+    retried = session.get(ProcessingJobModel, jobs[1].processing_job_id)
+    assert retried.id != attempts[1].id
+    assert retried.payload_json["multihat_references"] == samples[0]
+
+    # Another embroidery design gets a new independent random 20-photo set.
+    second = service.queue_scene(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-002", slot="prod_s2_mh")
+    second_job = session.get(RrugcEcommerceJobModel, second["steps"][0]["job_id"])
+    second_attempt = session.get(ProcessingJobModel, second_job.processing_job_id)
+    assert {ref["image_id"] for ref in samples[0]} != {
+        ref["image_id"] for ref in second_attempt.payload_json["multihat_references"]
+    }
+    listed = service.list(tenant_id="tenant-001", source_ids=["plan-001", "plan-002"])
+    pinned = next(row for row in listed if row["stage"] == "prod_s2_mh_1"
+                  and row["source_plan_id"] == "plan-001")
+    assert len(pinned["scene_references"]) == 20
 
 def test_run_all_with_completed_front_starts_all_four(ecommerce_db):
     session, settings = ecommerce_db

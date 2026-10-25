@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getUgcScoutGallery, startUgcScout, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
+import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
 import { DeferredImage } from "./DeferredImage";
 import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
@@ -336,6 +337,9 @@ export function ProductsPhotoWorkflow({
             : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
         })).filter(item => Boolean(item.src));
         const sceneJobs = isEcommerce ? [] : jobs.filter(job => job.stage.startsWith(step.key + "_"));
+        const multiHatReferences = step.key === "prod_s2_mh"
+          ? (sceneJobs.find(job => job.scene_references?.length)?.scene_references ?? [])
+          : [];
         const shotJob = jobs.find(item => item.stage === step.key);
         const sceneComplete = sceneJobs.length === 3 && sceneJobs.every(job => job.status === "completed");
         const sceneRunnable = !isEcommerce && Boolean(sourcePlanId && configured && state?.ready)
@@ -424,6 +428,22 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>Actual inputs are checked by the server. Stock references are pinned to the released file hashes; generated Front references must complete before Skills 2–3 can run.</small>
             </div>}
+            {step.key === "prod_s2_mh" && <section aria-label="Pinned Multi-hat Cap Stack references" className="rrugc-products-photo-ugc-scout">
+              <strong>Cap Stack Scout · {multiHatReferences.length}/20 references</strong>
+              <p>Automatically samples verified 3-hat and 4-hat photos from GatorHats Reviews Stage 1 when you press Run. Each embroidery design gets an independent random set; all three outputs share its pinned selection.</p>
+              {multiHatReferences.length > 0 && <>
+                <small>{multiHatReferences.filter(ref => ref.caps_count === 3).length} scenes with 3 hats · {multiHatReferences.filter(ref => ref.caps_count === 4).length} scenes with 4 hats</small>
+                <div className="rrugc-multihat-scene-references" aria-label="Selected Multi-hat photos">
+                  {multiHatReferences.map((ref, imageIndex) => <a key={ref.image_id}
+                    href={ref.pin_url} target="_blank" rel="noopener noreferrer"
+                    title={"Reference " + (imageIndex + 1) + " · " + ref.caps_count + " hats"}>
+                    <DeferredImage src={ref.image_url} alt={"Cap Stack reference with " + ref.caps_count + " hats"}
+                      rootMargin="320px" />
+                    <small>{ref.caps_count} hats</small>
+                  </a>)}
+                </div>
+              </>}
+            </section>}
             {step.key === "prod_s2_ugc" && <section aria-label="Lifestyle Review Scout" className="rrugc-products-photo-ugc-scout">
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <strong>Review Scout · Lifestyle references</strong>

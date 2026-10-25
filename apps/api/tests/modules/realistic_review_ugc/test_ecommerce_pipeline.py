@@ -42,7 +42,7 @@ def test_independent_persistence_uses_source_revision_and_skill_hash():
                      "output_remote_file_id", "output_content_type", "retry_count"):
         assert required in columns
     constraints = {c.name for c in RrugcEcommerceJobModel.__table__.constraints}
-    assert "uq_rrugc_ecommerce_source_revision_stage" in constraints
+    assert "uq_rrugc_ecommerce_source_revision_stage_color" in constraints
 
 
 def test_view_reference_sources_and_anti_invention_prompts():
@@ -54,7 +54,7 @@ def test_view_reference_sources_and_anti_invention_prompts():
     assert STOCK_ROLES["prod_s2_ec2"] == ("stock_front", "stock_side_90")
     assert "THREE-QUARTER" in VIEW_PROMPTS["prod_s2_ec2"]
     assert "not as a 3/4" in VIEW_PROMPTS["prod_s2_ec2"]
-    assert "Do not invent any rear embroidery" in VIEW_PROMPTS["prod_s2_ec4"]
+    assert "Keep the rear panel blank" in VIEW_PROMPTS["prod_s2_ec4"]
 
 
 def test_stock_digest_is_pinned_and_source_is_not_client_controlled():

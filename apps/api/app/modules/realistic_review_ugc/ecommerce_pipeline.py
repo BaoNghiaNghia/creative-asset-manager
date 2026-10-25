@@ -35,6 +35,10 @@ from app.modules.realistic_review_ugc.model import (
 )
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.ugc_scene_selection import select_ugc_references, allowed_scout_image_url
+from app.modules.realistic_review_ugc.multihat_scene_references import (
+    MultiHatReferencesUnavailable, build_multihat_reference_sheets,
+    select_multihat_references, validate_pinned_multihat_references,
+)
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill,
     verify_stage2_skill_runtime, installed_stage2_skill_sha256,
@@ -98,8 +102,8 @@ SCENE_STAGE_SLOTS = {
 }
 SCENE_SHOT_DESCRIPTIONS = {
     "prod_s2_mh_1": "Three official Valucap 8869 caps arranged on a neutral tabletop, one hero front and two staggered companions.",
-    "prod_s2_mh_2": "Three official Valucap 8869 caps in a carefully lit lifestyle arrangement, with one front-facing hero and visible side profiles.",
-    "prod_s2_mh_3": "Three official Valucap 8869 caps in a clean editorial display showing front, three-quarter and side orientation.",
+    "prod_s2_mh_2": "Four official Valucap 8869 caps in a carefully lit lifestyle arrangement, with one front-facing hero and visible side profiles.",
+    "prod_s2_mh_3": "Three or four official Valucap 8869 caps in a clean editorial display showing front, three-quarter and side orientation.",
     "prod_s2_ugc_1": "Natural handheld customer photograph of a person wearing the official five-panel cap outdoors.",
     "prod_s2_ugc_2": "Distinct casual customer selfie of a person wearing the official five-panel cap in natural daylight.",
     "prod_s2_ugc_3": "Distinct authentic lifestyle photograph featuring a person wearing the official five-panel cap in an everyday setting.",
@@ -220,7 +224,7 @@ class EcommerceService:
         self.session = session
         self.settings = settings or get_settings()
 
-    def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None) -> None:
+    def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None, multihat_references=None) -> None:
         count = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
@@ -229,14 +233,18 @@ class EcommerceService:
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
-            payload={"ecommerce_job_id": row.id, **({"scout_reference": scout_reference} if scout_reference else {})}, priority=20, max_attempts=3,
+            payload={
+                "ecommerce_job_id": row.id,
+                **({"scout_reference": scout_reference} if scout_reference else {}),
+                **({"multihat_references": multihat_references} if multihat_references else {}),
+            }, priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
         processing.priority = ECOMMERCE_INTERACTIVE_PRIORITY
         row.processing_job_id = processing.id
 
     def queue(self, *, tenant_id: str, user_id: str, source_plan_id: str,
-              stage: str, color_key: str = "natural-black", scout_reference=None) -> dict:
+              stage: str, color_key: str = "natural-black", scout_reference=None, multihat_references=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
         if not all((
@@ -259,6 +267,31 @@ class EcommerceService:
         ).with_for_update())
         if row is not None:
             return {"job_id": row.id, "status": row.status, "already_exists": True}
+        if stage in SCENE_GROUPS["prod_s2_mh"]:
+            multihat_references = validate_pinned_multihat_references(multihat_references)
+            if not multihat_references:
+                siblings = self.session.scalars(select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.tenant_id == tenant_id,
+                    RrugcEcommerceJobModel.source_plan_id == plan.id,
+                    RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                    RrugcEcommerceJobModel.stage.in_(SCENE_GROUPS["prod_s2_mh"]),
+                    RrugcEcommerceJobModel.color_key == color_key,
+                ))
+                for sibling in siblings:
+                    previous = (self.session.get(ProcessingJobModel, sibling.processing_job_id)
+                                if sibling.processing_job_id else None)
+                    multihat_references = validate_pinned_multihat_references(
+                        (previous.payload_json or {}).get("multihat_references") if previous else None)
+                    if multihat_references:
+                        break
+            if not multihat_references:
+                try:
+                    multihat_references = select_multihat_references(
+                        self.session, tenant_id=tenant_id,
+                        source_plan_id=plan.id, source_revision=plan.source_revision,
+                    )
+                except MultiHatReferencesUnavailable as exc:
+                    raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
         row = RrugcEcommerceJobModel(
             id=str(uuid4()), tenant_id=tenant_id, source_plan_id=source_plan_id,
             source_revision=plan.source_revision, stage=stage, color_key=color_key,
@@ -278,7 +311,7 @@ class EcommerceService:
         )
         self.session.add(row)
         self.session.flush()
-        self._enqueue(row, scout_reference=scout_reference)
+        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
@@ -298,6 +331,39 @@ class EcommerceService:
         for stage in stages:
             _stock_refs(self.settings, stage, color_key)
         scout_refs = {}
+        multihat_refs: list[dict] = []
+        if slot == "prod_s2_mh":
+            existing_rows = list(self.session.scalars(
+                select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.tenant_id == tenant_id,
+                    RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+                    RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                    RrugcEcommerceJobModel.stage.in_(stages),
+                    RrugcEcommerceJobModel.color_key == color_key,
+                )))
+            unpinned = False
+            for existing in existing_rows:
+                processing = self.session.get(ProcessingJobModel, existing.processing_job_id) if existing.processing_job_id else None
+                pinned = validate_pinned_multihat_references(
+                    (processing.payload_json or {}).get("multihat_references") if processing else None)
+                if pinned and not multihat_refs:
+                    multihat_refs = pinned
+                if (processing and processing.status == "pending"
+                        and processing.attempt_count == 0 and not pinned):
+                    unpinned = True
+            if (len(existing_rows) < len(stages)
+                    or any(_effective_status(row, (
+                        self.session.get(ProcessingJobModel, row.processing_job_id)
+                        if row.processing_job_id else None
+                    )) == "failed" for row in existing_rows) or unpinned):
+                if not multihat_refs:
+                    try:
+                        multihat_refs = select_multihat_references(
+                            self.session, tenant_id=tenant_id, source_plan_id=plan.id,
+                            source_revision=plan.source_revision,
+                        )
+                    except MultiHatReferencesUnavailable as exc:
+                        raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
         if slot == "prod_s2_ugc":
             if not plan.campaign_id:
                 raise EcommerceError("ugc_scout_campaign_missing", "No assigned Scout campaign.", 409)
@@ -353,6 +419,7 @@ class EcommerceService:
                     queued = self.queue(tenant_id=tenant_id, user_id=user_id,
                                         source_plan_id=source_plan_id, stage=stage,
                                         scout_reference=scout_refs.get(stage),
+                                        multihat_references=multihat_refs,
                                         color_key=color_key)
                     results.append({"stage": stage, **queued})
                     continue
@@ -360,6 +427,15 @@ class EcommerceService:
                               if existing.processing_job_id else None)
                 status = _effective_status(existing, processing)
                 reference = scout_refs.get(stage)
+                if (multihat_refs and processing and processing.status == "pending"
+                        and processing.attempt_count == 0
+                        and not validate_pinned_multihat_references(
+                            (processing.payload_json or {}).get("multihat_references"))):
+                    processing.payload_json = {
+                        **(processing.payload_json or {}),
+                        "multihat_references": multihat_refs,
+                    }
+                    self.session.commit()
                 if (reference and processing and processing.status == "pending"
                         and processing.attempt_count == 0
                         and not (processing.payload_json or {}).get("scout_reference")):
@@ -367,7 +443,7 @@ class EcommerceService:
                     self.session.commit()
                 if status == "failed" and existing.retry_count < MAX_MANUAL_RETRIES:
                     queued = self.retry(tenant_id=tenant_id, job_id=existing.id,
-                                        scout_reference=reference)
+                                        scout_reference=reference, multihat_references=multihat_refs)
                     results.append({"stage": stage, **queued})
                 elif status == "failed":
                     results.append({"stage": stage, "job_id": existing.id,
@@ -506,7 +582,7 @@ class EcommerceService:
                 "steps": [stages[key] for key in (
                     "prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")]}
 
-    def retry(self, *, tenant_id: str, job_id: str, scout_reference=None) -> dict:
+    def retry(self, *, tenant_id: str, job_id: str, scout_reference=None, multihat_references=None) -> dict:
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.id == job_id,
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -539,7 +615,22 @@ class EcommerceService:
         if row.stage in SCENE_GROUPS["prod_s2_ugc"] and scout_reference is None:
             previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
             scout_reference = (previous.payload_json or {}).get("scout_reference") if previous else None
-        self._enqueue(row, scout_reference=scout_reference)
+        if row.stage in SCENE_GROUPS["prod_s2_mh"]:
+            previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+            multihat_references = (
+                validate_pinned_multihat_references(multihat_references)
+                or validate_pinned_multihat_references(
+                    (previous.payload_json or {}).get("multihat_references") if previous else None)
+            )
+            if not multihat_references:
+                try:
+                    multihat_references = select_multihat_references(
+                        self.session, tenant_id=tenant_id,
+                        source_plan_id=plan.id, source_revision=plan.source_revision,
+                    )
+                except MultiHatReferencesUnavailable as exc:
+                    raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
+        self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "retry_count": row.retry_count}
 
@@ -576,7 +667,20 @@ class EcommerceService:
         row.started_at = None
         row.completed_at = None
         row.last_error_code = row.last_error_message = None
-        self._enqueue(row)
+        multihat_references = None
+        if row.stage in SCENE_GROUPS["prod_s2_mh"]:
+            previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+            multihat_references = validate_pinned_multihat_references(
+                (previous.payload_json or {}).get("multihat_references") if previous else None)
+            if not multihat_references:
+                try:
+                    multihat_references = select_multihat_references(
+                        self.session, tenant_id=tenant_id,
+                        source_plan_id=plan.id, source_revision=plan.source_revision,
+                    )
+                except MultiHatReferencesUnavailable as exc:
+                    raise EcommerceError("multihat_references_missing", str(exc), 409) from exc
+        self._enqueue(row, multihat_references=multihat_references)
         self.session.commit()
         return {"job_id": row.id, "status": row.status}
 
@@ -608,6 +712,9 @@ class EcommerceService:
             "skill_name": row.skill_name,
             "scene_reference": (processing.payload_json or {}).get("scout_reference")
                 if processing and row.stage in SCENE_GROUPS["prod_s2_ugc"] else None,
+            "scene_references": validate_pinned_multihat_references(
+                (processing.payload_json or {}).get("multihat_references")
+            ) if processing and row.stage in SCENE_GROUPS["prod_s2_mh"] else [],
             "started_at": row.started_at.isoformat() if row.started_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
         } for row, processing in rows]
@@ -838,6 +945,19 @@ class EcommerceGenerateHandler:
             front_image = _prepared_image(await self._open_bytes(
                 storage, context, "rrugc-ecommerce-front:" + context.job.entity_id,
                 front_remote, front_mime, front_size))
+        multihat_loaded = 0
+        if stage in SCENE_GROUPS["prod_s2_mh"]:
+            pinned = validate_pinned_multihat_references(
+                context.job.payload.get("multihat_references"))
+            if not pinned:
+                raise EcommerceError("multihat_references_missing",
+                    "Slot 5 requires a pinned 3/4-hat Cap Stack selection.", 409)
+            try:
+                scene_sheets, multihat_loaded = await build_multihat_reference_sheets(pinned)
+            except MultiHatReferencesUnavailable as exc:
+                raise RrugcGenerationHandlerError(
+                    "multihat_reference_download_failed", str(exc), retryable=True) from exc
+            references.extend(scene_sheets)
         if stage in SCENE_GROUPS["prod_s2_ugc"]:
             scout = context.job.payload.get("scout_reference")
             if not isinstance(scout, dict) or not allowed_scout_image_url(str(scout.get("image_url", ""))):
@@ -868,7 +988,16 @@ class EcommerceGenerateHandler:
                 image=_prepared_image(refs[2][1]), role="back_reference",
                 label="official Valucap 8869 back panel stock geometry"))
         prompt = (
-            ("Generate ONE independent photorealistic scene for this uploaded "
+            ("Use the bundled Cap Stack contact sheets as composition references: "
+             f"{multihat_loaded} independently scouted real 3/4-hat photographs "
+             "from GatorHats Reviews Stage 1. Each small panel represents a separate "
+             "scene, NOT a montage to reproduce. Create ONE original complete photo "
+             "with the correct count of official 8869 caps; NEVER render a grid, "
+             "contact sheet, source website watermark or collage. Prioritize the exact "
+             "provided embroidery design and verified official stock over any "
+             "different branding or hat construction in the Pinterest scene photos. "
+             if stage in SCENE_GROUPS["prod_s2_mh"] else "")
+            + ("Generate ONE independent photorealistic scene for this uploaded "
              "Multi-hat or UGC Skill using the official Valucap 8869 "
              "" + color_key.replace("-", "/") + " five-panel cap. " if stage in SCENE_STAGE_SLOTS
              else "Generate ONE photorealistic commercial ecommerce product photograph "
@@ -943,6 +1072,12 @@ class EcommerceGenerateHandler:
                                     "front_reference_remote_file_id": row.front_reference_remote_file_id,
                                     "front_preview_remote_file_id": row.front_preview_remote_file_id,
                                     "front_preview_design_sha256": row.front_preview_design_sha256,
+                                    "multihat_source_ids": [
+                                        item["image_id"] for item in
+                                        validate_pinned_multihat_references(
+                                            context.job.payload.get("multihat_references"))
+                                    ] if stage in SCENE_GROUPS["prod_s2_mh"] else [],
+                                    "multihat_loaded": multihat_loaded,
                                 }})
             row.output_remote_file_id = stored.remote_file_id
             row.output_content_type = generated.mime_type
