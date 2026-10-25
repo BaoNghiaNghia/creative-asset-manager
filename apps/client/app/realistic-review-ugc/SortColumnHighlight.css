@@ -72,3 +72,43 @@
    --rrugc-active-col-overlay:rgba(168,85,247,.11)
  }
 }
+
+/* Stage 2 Embroidery design: same click-to-sort control as Stage 0, but
+   a single neutral visual treatment in both directions (no blue/violet ASC/DESC). */
+.rrugc-colorway-table .rrugc-colorway-design-sort{
+  display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;
+  min-height:28px;padding:4px 3px;margin:-4px -3px;
+  border:0;border-radius:5px;background:transparent;color:inherit;
+  font:inherit;font-weight:inherit;letter-spacing:inherit;text-align:left;
+  text-transform:inherit;cursor:pointer;
+}
+.rrugc-colorway-table .rrugc-colorway-design-sort:hover{
+  background:#e9edf3;color:#43546a;
+}
+.rrugc-colorway-table .rrugc-colorway-design-sort:focus-visible{
+  outline:2px solid #64748b;outline-offset:2px;
+}
+.rrugc-colorway-table .rrugc-colorway-design-sort .rrugc-sort-indicator,
+.rrugc-colorway-table .rrugc-colorway-design-sort .rrugc-sort-indicator.is-asc,
+.rrugc-colorway-table .rrugc-colorway-design-sort .rrugc-sort-indicator.is-desc{
+  color:#64748b;
+}
+.rrugc-colorway-table[data-sort-direction="asc"],
+.rrugc-colorway-table[data-sort-direction="desc"]{
+  --rrugc-active-col-overlay:rgba(100,116,139,.065);
+  --rrugc-active-col-border:#a9b5c3;
+}
+.rrugc-colorway-table.is-products[data-sort-column="source"] :is(
+  thead th:first-child,tbody td:first-child:not([colspan])
+){
+  background-image:linear-gradient(var(--rrugc-active-col-overlay),var(--rrugc-active-col-overlay));
+  background-clip:padding-box;
+}
+.rrugc-colorway-toolbar .rrugc-stage-sort:is(.is-asc,.is-desc) select{
+  border-color:#cbd6e5;background:#fff;color:#304662;
+}
+.rrugc-colorway-toolbar .rrugc-stage-sort:is(.is-asc,.is-desc) > label > span,
+.rrugc-colorway-toolbar .rrugc-stage-sort:is(.is-asc,.is-desc) button,
+.rrugc-colorway-toolbar .rrugc-stage-sort .rrugc-sort-indicator:is(.is-asc,.is-desc){
+  color:#526579;
+}

@@ -15,6 +15,7 @@ import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { RrugcSmartSearchInput } from "./RrugcSmartSearchInput";
 import { StageSortControls } from "./StageSortControls";
+import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
 import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
@@ -548,7 +549,17 @@ export function EmbroideryColorwayStage({
         <thead>
           <tr>
             {workflow === "reviews" && <th aria-label="Select design" />}
-            <th className={sortBy === "source" ? "is-sort-column" : ""}>Embroidery design</th>
+            <th className={sortBy === "source" ? "is-sort-column" : ""}
+              aria-sort={sortBy === "source" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+              <button type="button" className="rrugc-colorway-design-sort"
+                aria-label={"Sort by Embroidery design " +
+                  (sortBy === "source" && sortDirection === "asc" ? "descending" : "ascending")}
+                onClick={() => onSortChange("source",
+                  sortBy === "source" && sortDirection === "asc" ? "desc" : "asc")}>
+                <span>Embroidery design</span>
+                <SortDirectionIndicator active={sortBy === "source"} direction={sortDirection} />
+              </button>
+            </th>
             <th>{workflow === "products" ? "7-skill configuration · 23 outputs" : "13-color batch"}</th>
             {workflow === "reviews" && <><th>Progress</th>
             <th>Skill</th>
