@@ -25,7 +25,7 @@ vi.mock("./api", async (importOriginal) => {
 
 const stageNames = ["Ecommerce · Image 01", "Ecommerce · Image 02",
   "Ecommerce · Image 03", "Ecommerce · Image 04",
-  "Multi-hat", "UGC", "13 Hat Colors"];
+  "Multi-hat", "UGC", "12 Hat Colors"];
 function state(status: "running" | "blocked" | "completed", current_slot: number): EcommerceRunAllResult {
   return {
     run_id: "run-001", source_plan_id: "plan-1", source_revision: "rev-1",
@@ -36,8 +36,8 @@ function state(status: "running" | "blocked" | "completed", current_slot: number
       stage: index < 4 ? "prod_s2_ec" + (index + 1) : index === 4 ? "prod_s2_mh_1"
         : index === 5 ? "prod_s2_ugc_1" : "prod_s2_col",
       slot: index + 1, name,
-      completed_outputs: index + 1 < current_slot ? index === 6 ? 13 : index >= 4 ? 3 : 1 : 0,
-      total_outputs: index === 6 ? 13 : index >= 4 ? 3 : 1,
+      completed_outputs: index + 1 < current_slot ? index === 6 ? 12 : index >= 4 ? 3 : 1 : 0,
+      total_outputs: index === 6 ? 12 : index >= 4 ? 3 : 1,
       status: index + 1 < current_slot ? "completed"
         : index + 1 > current_slot ? "pending"
         : status === "blocked" ? "blocked" : status === "completed" ? "completed" : "running",

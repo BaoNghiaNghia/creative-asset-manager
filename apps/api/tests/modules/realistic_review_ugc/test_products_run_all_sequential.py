@@ -12,7 +12,7 @@ from app.core.database import Base
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackImageModel
-from app.modules.realistic_review_ugc.colorways import COLORS, PRODUCTS_STAGE1_SELECTED_ROOT
+from app.modules.realistic_review_ugc.colorways import PRODUCTS_COLORS, PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel, RrugcProductsRunAllModel,
     RrugcEcommerceJobModel, RrugcColorwayJobModel,
@@ -75,7 +75,7 @@ def context(monkeypatch):
     def fake_color(self, *, tenant_id, user_id, source_plan_ids, workflow,
                    skill_source, skill_id, skill_name, skill_version):
         color_calls.append({"source": skill_source, "skill_name": skill_name})
-        for key, name in COLORS:
+        for key, name in PRODUCTS_COLORS:
             found = self.session.scalar(select(RrugcColorwayJobModel).where(
                 RrugcColorwayJobModel.color_key == key,
                 RrugcColorwayJobModel.source_plan_id == source_plan_ids[0],
@@ -91,7 +91,7 @@ def context(monkeypatch):
                 created_by_user_id=user_id, status="queued",
             ))
         self.session.commit()
-        return {"queued": 13, "existing": 0}
+        return {"queued": 12, "existing": 0}
 
     monkeypatch.setattr(ep.EcommerceService, "queue_scene", fake_scene)
     monkeypatch.setattr(mod.ColorwayService, "queue", fake_color)
@@ -167,7 +167,7 @@ def test_run_all_never_fans_out_to_next_slot_before_completion(context):
 
     assert scene_calls == ["prod_s2_mh", "prod_s2_ugc"]
     assert color_calls == [{"source": "local", "skill_name": SKILL["skill_name"]}]
-    assert session.query(RrugcColorwayJobModel).count() == 13
+    assert session.query(RrugcColorwayJobModel).count() == 12
     done(session, 7)
     finished = service.advance(run_id)
     assert finished["status"] == "completed"

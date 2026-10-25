@@ -41,7 +41,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain('title="Front Right 3/4 · Not generated"');
   });
 
-  it("shows seven configurable skill rows with 10 photo placeholders and 13 colors", () => {
+  it("shows seven configurable skill rows with 10 photo placeholders and 12 colors", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
     expect(html).toContain("Ecommerce · Image 01");
     expect(html).toContain("Ecommerce · Image 02");
@@ -49,7 +49,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("Ecommerce · Image 04");
     expect(html).toContain("Multi-hat");
     expect(html).toContain("UGC");
-    expect(html).toContain("13 Hat Colors");
+    expect(html).toContain("12 Hat Colors");
     expect(html).toContain("Seven-skill photo workflow for design_01.png");
     expect(html).not.toContain("<strong>7 skill slots");
     expect(html).not.toContain("<small>Skills 1–4: Ecommerce Images 01–04");
@@ -71,7 +71,7 @@ describe("Products Stage 2 photo workflow", () => {
     }
     expect(html).toContain("Skill 7");
     expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
-    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(13);
+    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(12);
     expect(html).not.toContain("Completed · 10/10");
   });
 
@@ -119,15 +119,15 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).not.toContain(">Duration:");
     expect(html).toContain('title="8869 scale"');
     expect(html).toContain('<strong>8869 scale</strong>');
-    expect(html).not.toContain('aria-label="13 Hat Colors skill for design.png"');
-    expect(html).toContain("Not generated · Open all 13 outputs");
+    expect(html).not.toContain('aria-label="12 Hat Colors skill for design.png"');
+    expect(html).toContain("Not generated · Open all 12 outputs");
   });
 
   it("renders real completed colorway previews and independent retry actions", () => {
     const jobs: ColorwayJob[] = [
       {
-        id: "one", source_plan_id: "src", color_key: "khaki-maroon",
-        color_name: "Khaki Maroon", status: "completed", retry_count: 0,
+        id: "one", source_plan_id: "src", color_key: "natural-brown",
+        color_name: "Natural Brown", status: "completed", retry_count: 0,
         attempt_count: 1, error_code: null, output_url: "/real-photo.png",
       },
       {
@@ -139,10 +139,10 @@ describe("Products Stage 2 photo workflow", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null}
       colors={jobs} onOpenColor={() => undefined} onRetryColor={() => undefined} />);
     expect(html).toContain("rrugc-deferred-img");
-    expect(html).toContain("View Khaki Maroon in 13 hat colors gallery");
-    expect(html).toContain("View Natural Black in 13 hat colors gallery");
+    expect(html).toContain("View Natural Brown in 12 hat colors gallery");
+    expect(html).toContain("View Natural Black in 12 hat colors gallery");
     expect(html).toContain('aria-haspopup="dialog"');
-    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(11);
-    expect((html.match(/aria-haspopup="dialog"/g) || []).length).toBe(13);
+    expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(10);
+    expect((html.match(/aria-haspopup="dialog"/g) || []).length).toBe(12);
   });
 });

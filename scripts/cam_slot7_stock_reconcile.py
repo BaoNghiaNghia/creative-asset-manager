@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.modules.realistic_review_ugc.colorways import (
-    COLORS, ColorwayService, _stock_bytes, PRODUCTS_STAGE1_SELECTED_ROOT,
+    PRODUCTS_COLORS, PRODUCTS_COLOR_KEYS, ColorwayService, _stock_bytes, PRODUCTS_STAGE1_SELECTED_ROOT,
 )
 from app.modules.realistic_review_ugc.hat_stock_sync import read_managed_stock
 from app.modules.realistic_review_ugc.slot7_front_stock import read_slot7_front
@@ -30,18 +30,19 @@ def inspect(session: Session, settings, *, tenant_id: str | None = None) -> tupl
         (RrugcSourcePlanModel.id == RrugcColorwayJobModel.source_plan_id)
         & (RrugcSourcePlanModel.tenant_id == RrugcColorwayJobModel.tenant_id)
         & (RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT),
-    ).order_by(RrugcColorwayJobModel.source_plan_id, RrugcColorwayJobModel.color_key)
+    ).where(RrugcColorwayJobModel.color_key.in_(PRODUCTS_COLOR_KEYS)).order_by(
+        RrugcColorwayJobModel.source_plan_id, RrugcColorwayJobModel.color_key)
     if tenant_id:
         query = query.where(RrugcColorwayJobModel.tenant_id == tenant_id)
     rows = list(session.execute(query))
     tenants = {job.tenant_id for job, _ in rows}
     if len(tenants) > 1 and not tenant_id:
         raise RuntimeError("Multiple tenants have Products Slot 7 jobs; specify --tenant-id")
-    # Consistency gate: all 13 intended colorways must have genuine ≥1000px
+    # Consistency gate: all 12 Products Natural colorways must have genuine ≥1000px
     # Slot 7 fronts. The four supplier fronts do NOT masquerade as 3-angle stock.
     fingerprints = {}
     colors = []
-    for color, _name in COLORS:
+    for color, _name in PRODUCTS_COLORS:
         from PIL import Image
         from io import BytesIO
 
@@ -84,11 +85,11 @@ def inspect(session: Session, settings, *, tenant_id: str | None = None) -> tupl
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="Queue ONLY stale completed outputs")
-    ap.add_argument("--max-jobs", type=int, default=3, help="Bounded generation batch, 1..13")
+    ap.add_argument("--max-jobs", type=int, default=3, help="Bounded generation batch, 1..12")
     ap.add_argument("--tenant-id", default=None, help="Mandatory when multiple tenants exist")
     args = ap.parse_args()
-    if not 1 <= args.max_jobs <= 13:
-        ap.error("--max-jobs must be between 1 and 13")
+    if not 1 <= args.max_jobs <= 12:
+        ap.error("--max-jobs must be between 1 and 12")
     url = os.environ.get("DATABASE_URL", "")
     if not url.startswith("postgresql"):
         print("ERROR: Production PostgreSQL DATABASE_URL is required", file=sys.stderr)

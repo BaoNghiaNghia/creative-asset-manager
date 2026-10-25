@@ -15,6 +15,32 @@ describe("Stage 2 colorway request contract", () => {
     expect(init.method).toBeUndefined();
   });
 
+  it("uses the 12-color Products readiness scope but leaves Reviews on 13", async () => {
+    const response = { ready: true, error_code: null, stock_ready_count: 12, stock_total_count: 12 };
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 200, json: async () => response,
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    expect(await getColorwayReadiness(undefined, "products")).toEqual(response);
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      "/api/v1/realistic-review-ugc/colorways/readiness?workflow=products",
+    );
+  });
+
+  it("posts only twelve Products colorway jobs when the backend selects 12", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true, status: 202, json: async () => ({ queued: 12, existing: 0 }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await queueColorwayBatch(["product-design"], {
+      source: "local", skill_id: null, skill_name: "s7-8869-scale-12-color", skill_version: null,
+    }, "products");
+    expect(result.queued).toBe(12);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toContain("/colorways/batch");
+    expect(JSON.parse(init.body).workflow).toBe("products");
+  });
+
   it("posts the backend skill_source field, not a bare source field", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,

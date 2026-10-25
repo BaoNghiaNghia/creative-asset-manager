@@ -15,7 +15,7 @@ from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel
 from app.modules.realistic_review_ugc.colorways import (
-    COLORS, ColorwayError, ColorwayService, effective_status,
+    COLORS, PRODUCTS_COLORS, PRODUCTS_COLOR_KEYS, ColorwayError, ColorwayService, effective_status,
 )
 from app.modules.realistic_review_ugc import colorways
 from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
@@ -73,6 +73,68 @@ def test_canonical_color_names_match_shipped_stock_manifest():
                 / "assets/stock" / color_key / "front.jpg").is_file()
     assert len(COLORS) == 13
 
+
+
+def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(db):
+    source = plan(db, name="design_01.png", source_id="products-12")
+    source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
+    db.commit()
+    service = ColorwayService(db)
+    assert len(PRODUCTS_COLORS) == 12
+    assert len(PRODUCTS_COLOR_KEYS) == 12
+    assert "khaki-maroon" not in PRODUCTS_COLOR_KEYS
+    assert service.readiness("products")["stock_total_count"] == 12
+    assert service.readiness("reviews")["stock_total_count"] == 13
+    assert service.queue(tenant_id=source.tenant_id, user_id="actor",
+                         source_plan_ids=[source.id], workflow="products") == {
+        "queued": 12, "existing": 0,
+    }
+    assert len(service.list(tenant_id=source.tenant_id, source_ids=[source.id])) == 12
+    assert set(j.color_key for j in db.query(RrugcColorwayJobModel)) == PRODUCTS_COLOR_KEYS
+
+    # A pre-existing 13th output is immutable but excluded from the live UI,
+    # future queues, ZIP delivery and all subsequent Products generations.
+    old = RrugcColorwayJobModel(
+        id="legacy-khaki", tenant_id=source.tenant_id,
+        source_plan_id=source.id, source_revision=source.source_revision,
+        color_key="khaki-maroon", stock_sha256="a" * 64,
+        skill_source="local", skill_name="legacy", status="completed",
+        output_remote_file_id="keep-legacy-photo", created_by_user_id="actor",
+    )
+    db.add(old)
+    db.commit()
+    assert len(service.list(tenant_id=source.tenant_id, source_ids=[source.id])) == 12
+    assert service.queue(tenant_id=source.tenant_id, user_id="actor",
+                         source_plan_ids=[source.id], workflow="products") == {
+        "queued": 0, "existing": 12,
+    }
+    with pytest.raises(ColorwayError, match="retired"):
+        service.regenerate(tenant_id=source.tenant_id, job_id=old.id)
+    old.status = "failed"
+    db.commit()
+    with pytest.raises(ColorwayError, match="retired"):
+        service.retry(tenant_id=source.tenant_id, job_id=old.id)
+    assert db.get(RrugcColorwayJobModel, old.id).output_remote_file_id == "keep-legacy-photo"
+    assert db.query(RrugcColorwayJobModel).count() == 13
+    assert db.query(ProcessingJobModel).count() == 12
+
+
+def test_products_readiness_ignores_retired_stock_but_reviews_still_requires_it(db, monkeypatch):
+    import app.modules.realistic_review_ugc.colorways as mod
+    stock = mod._stock_bytes
+    def only_old_missing(settings, key):
+        if key == "khaki-maroon":
+            raise ColorwayError("colorway_stock_missing", "Retired", 503)
+        return stock(settings, key)
+    monkeypatch.setattr(mod, "_stock_bytes", only_old_missing)
+    svc = ColorwayService(db)
+    assert svc.readiness("products") == {
+        "ready": True, "error_code": None, "stock_ready_count": 12, "stock_total_count": 12,
+    }
+    assert svc.readiness("reviews") == {
+        "ready": False, "error_code": "colorway_stock_missing",
+        "stock_ready_count": 12, "stock_total_count": 13,
+    }
 
 def test_queue_13_colors_durable_idempotent_and_tenant_scoped(db):
     source = plan(db)
@@ -236,14 +298,14 @@ def test_reconcile_census_only_flags_stale_completed_products_jobs(db, monkeypat
     db.commit()
 
     report, stale = cli.inspect(db, svc.settings)
-    assert report["color_count"] == 13
-    assert report["products_colorway_jobs"] == 13
-    assert report["existing_output_files"] == 13
-    assert report["stale_completed_jobs"] == 11
+    assert report["color_count"] == 12
+    assert report["products_colorway_jobs"] == 12
+    assert report["existing_output_files"] == 12
+    assert report["stale_completed_jobs"] == 10
     assert report["matching_jobs"] == 1
     assert all(row.status == "completed" and row.output_remote_file_id for row in stale)
     assert all(row.id not in {all_jobs[0].id, all_jobs[1].id} for row in stale)
-    assert db.query(ProcessingJobModel).count() == 13
+    assert db.query(ProcessingJobModel).count() == 12
 
 
 def test_new_source_revision_keeps_old_output_and_queues_new_colors(db):
@@ -380,8 +442,8 @@ def test_reviews_stage2_filters_exact_embroidery_prefix_and_products_selected_na
     assert svc.queue(tenant_id="tenant-a", user_id="actor",
                      source_plan_ids=[nested.id], workflow="reviews")["queued"] == 13
     assert svc.queue(tenant_id="tenant-a", user_id="actor",
-                     source_plan_ids=[products.id], workflow="products")["queued"] == 13
-    assert db.query(RrugcColorwayJobModel).count() == 26
+                     source_plan_ids=[products.id], workflow="products")["queued"] == 12
+    assert db.query(RrugcColorwayJobModel).count() == 25
 
 
 def test_stage2_rejects_non_image_and_wrong_root(db):

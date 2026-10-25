@@ -14,7 +14,7 @@ from io import BytesIO
 from uuid import uuid4
 
 from PIL import Image
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,12 @@ COLORS = (
     ("natural-red", "Natural/Red"),
     ("natural-royal", "Natural/Royal"),
 )
+# Products Slot 7 uses the twelve updated Natural-series cap photos.
+# The legacy Khaki/Maroon remains in historical records and Reviews Stage 2,
+# but is never enqueued or shown as a current Products Slot 7 output.
+PRODUCTS_COLORS = tuple((key, label) for key, label in COLORS if key.startswith("natural-"))
+PRODUCTS_COLOR_KEYS = frozenset(key for key, _ in PRODUCTS_COLORS)
+assert len(PRODUCTS_COLORS) == 12
 MAX_MANUAL_RETRIES = 3
 
 
@@ -138,8 +144,11 @@ class ColorwayService:
         self.session = session
         self.settings = settings or get_settings()
 
-    def readiness(self) -> dict:
-        """Read-only preflight: avoid misleading users into queueing jobs that cannot run."""
+    def readiness(self, workflow: str = "reviews") -> dict:
+        """Stock preflight uses twelve Products images, thirteen Reviews images."""
+        if workflow not in ("products", "reviews"):
+            raise ColorwayError("colorway_workflow_invalid", "Unknown GatorHats workflow.", 422)
+        selected_colors = PRODUCTS_COLORS if workflow == "products" else COLORS
         configured = all((
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
@@ -147,7 +156,7 @@ class ColorwayService:
             self.settings.CODEX_IMAGE_GENERATION_ENABLED,
         ))
         available_colors = 0
-        for color_key, _ in COLORS:
+        for color_key, _ in selected_colors:
             try:
                 _stock_bytes(self.settings, color_key)
                 available_colors += 1
@@ -155,14 +164,14 @@ class ColorwayService:
                 continue
         error_code = (
             "colorway_disabled" if not configured else
-            "colorway_stock_missing" if available_colors != len(COLORS) else
+            "colorway_stock_missing" if available_colors != len(selected_colors) else
             "colorway_runtime_missing" if not _codex_runtime_available(self.settings) else None
         )
         return {
             "ready": error_code is None,
             "error_code": error_code,
             "stock_ready_count": available_colors,
-            "stock_total_count": len(COLORS),
+            "stock_total_count": len(selected_colors),
         }
 
     def _row(self, tenant_id: str, job_id: str) -> RrugcColorwayJobModel | None:
@@ -216,8 +225,10 @@ class ColorwayService:
         except Stage2SkillRegistryError as exc:
             raise ColorwayError(exc.code, exc.message, exc.status_code) from exc
 
-        # Validate all 13 stock photos *before* committing any jobs or spending provider credits.
-        stock_digests = {key: hashlib.sha256(_stock_bytes(self.settings, key)).hexdigest() for key, _ in COLORS}
+        # Products: only the twelve updated Natural photos. Reviews retain
+        # thirteen historical colors. Never validate/queue retired Products stock.
+        selected_colors = PRODUCTS_COLORS if workflow == "products" else COLORS
+        stock_digests = {key: hashlib.sha256(_stock_bytes(self.settings, key)).hexdigest() for key, _ in selected_colors}
         plans = list(self.session.scalars(select(RrugcSourcePlanModel).where(
             RrugcSourcePlanModel.tenant_id == tenant_id, RrugcSourcePlanModel.id.in_(ids),
         ).order_by(RrugcSourcePlanModel.id).with_for_update()))
@@ -243,7 +254,7 @@ class ColorwayService:
         )}
         count = 0
         for plan in plans:
-            for color_key, _ in COLORS:
+            for color_key, _ in selected_colors:
                 if (plan.id, plan.source_revision, color_key) in existing:
                     continue
                 row = RrugcColorwayJobModel(
@@ -260,7 +271,7 @@ class ColorwayService:
                 self._enqueue(row)
                 count += 1
         self.session.commit()
-        return {"queued": count, "existing": len(ids) * len(COLORS) - count}
+        return {"queued": count, "existing": len(ids) * len(selected_colors) - count}
 
     def regenerate(self, *, tenant_id: str, job_id: str) -> RrugcColorwayJobModel:
         row = self._row(tenant_id, job_id)
@@ -276,6 +287,8 @@ class ColorwayService:
                 or plan.source_revision != row.source_revision):
             raise ColorwayError("colorway_source_changed",
                                 "Source design changed; cannot regenerate stale output.")
+        if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT and row.color_key not in PRODUCTS_COLOR_KEYS:
+            raise ColorwayError("colorway_retired_product_stock", "This old cap color is retired from Products Slot 7.")
         # Regenerate is the explicit opt-in moment for a new stock revision.
         # Retry, in contrast, must keep the original SHA pinned.
         current_stock_sha = hashlib.sha256(_stock_bytes(self.settings, row.color_key)).hexdigest()
@@ -303,6 +316,8 @@ class ColorwayService:
         ))
         if plan is None or plan.status == "missing" or plan.source_revision != row.source_revision:
             raise ColorwayError("colorway_source_changed", "Source design changed; old job cannot be retried.")
+        if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT and row.color_key not in PRODUCTS_COLOR_KEYS:
+            raise ColorwayError("colorway_retired_product_stock", "This old cap color is retired from Products Slot 7.")
         if hashlib.sha256(_stock_bytes(self.settings, row.color_key)).hexdigest() != row.stock_sha256:
             raise ColorwayError("colorway_stock_changed", "Stock image changed; old job cannot be retried.")
         row.retry_count += 1
@@ -328,7 +343,9 @@ class ColorwayService:
             ProcessingJobModel, (ProcessingJobModel.id == RrugcColorwayJobModel.processing_job_id)
             & (ProcessingJobModel.tenant_id == tenant_id),
         ).where(RrugcColorwayJobModel.tenant_id == tenant_id,
-                RrugcColorwayJobModel.source_plan_id.in_(ids)))
+                RrugcColorwayJobModel.source_plan_id.in_(ids),
+                or_(RrugcSourcePlanModel.root_folder_id != PRODUCTS_STAGE1_SELECTED_ROOT,
+                    RrugcColorwayJobModel.color_key.in_(PRODUCTS_COLOR_KEYS))))
         return [
             {"id": row.id, "source_plan_id": row.source_plan_id, "color_key": row.color_key,
              "color_name": dict(COLORS)[row.color_key], "status": effective_status(row, processing),

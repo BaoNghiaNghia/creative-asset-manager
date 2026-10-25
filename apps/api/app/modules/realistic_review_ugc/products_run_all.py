@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.colorways import (
-    COLORS, ColorwayError, ColorwayService, effective_status as color_effective_status,
+    COLORS, PRODUCTS_COLORS, ColorwayError, ColorwayService, effective_status as color_effective_status,
     PRODUCTS_STAGE1_SELECTED_ROOT,
 )
 from app.modules.realistic_review_ugc.ecommerce_pipeline import (
@@ -39,12 +39,12 @@ SLOT_GROUPS: tuple[tuple[str, ...], ...] = (
     ("prod_s2_ec4",),
     SCENE_GROUPS["prod_s2_mh"],
     SCENE_GROUPS["prod_s2_ugc"],
-    tuple(color for color, _label in COLORS),
+    tuple(color for color, _label in PRODUCTS_COLORS),
 )
 SLOT_LABELS = (
     "Ecommerce · Image 01", "Ecommerce · Image 02",
     "Ecommerce · Image 03", "Ecommerce · Image 04",
-    "Multi-hat", "UGC", "13 Hat Colors",
+    "Multi-hat", "UGC", "12 Hat Colors",
 )
 
 

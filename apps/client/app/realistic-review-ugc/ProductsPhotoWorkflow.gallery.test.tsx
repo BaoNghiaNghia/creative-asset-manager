@@ -15,12 +15,15 @@ vi.mock("./api", async (importOriginal) => ({
 afterEach(() => { document.body.replaceChildren(); document.body.style.overflow=""; });
 
 const colorJobs: ColorwayJob[] = [
-  {id:"color-0",source_plan_id:"design-1",color_key:"khaki-maroon",color_name:"Khaki Maroon",
+  {id:"color-0",source_plan_id:"design-1",color_key:"natural-black",color_name:"Natural Black",
     status:"completed",retry_count:0,attempt_count:1,error_code:null,output_url:"/photos/khaki.png"},
   {id:"color-2",source_plan_id:"design-1",color_key:"natural-brown",color_name:"Natural Brown",
     status:"failed",retry_count:1,attempt_count:2,error_code:"generation_failed",output_url:null},
   {id:"color-9",source_plan_id:"design-1",color_key:"natural-navy",color_name:"Natural Navy",
     status:"completed",retry_count:0,attempt_count:1,error_code:null,output_url:"/photos/navy.png"},
+  // Retired historical result exists in the API/DB but may never appear in Slot 7.
+  {id:"legacy-khaki",source_plan_id:"design-1",color_key:"khaki-maroon",color_name:"Khaki Maroon",
+    status:"completed",retry_count:0,attempt_count:1,error_code:null,output_url:"/photos/old-hat.png"},
 ];
 const ecommerce: EcommerceJob[] = [
   {id:"back",source_plan_id:"design-1",stage:"prod_s2_ec4",status:"completed",
@@ -42,19 +45,21 @@ async function renderWorkflow(options:{
 }
 
 describe("Products photo output gallery navigation",()=>{
-  it("opens full 13-color gallery even when clicking ungenerated color #13",async()=>{
+  it("opens full 12-color gallery even when clicking ungenerated color #12",async()=>{
     const {root,host}=await renderWorkflow({colors:colorJobs});
     const slots=host.querySelectorAll<HTMLButtonElement>('[data-skill="colorway"] .rrugc-colorway-slot');
-    expect(slots).toHaveLength(13);
-    await act(async()=>slots[12].click());
+    expect(slots).toHaveLength(12);
+    await act(async()=>slots[11].click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
-    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(13);
-    expect(modal.querySelector(".rrugc-photo-gallery-counter")?.textContent).toBe("13 / 13");
-    expect(modal.textContent).toContain("2 of 13 images generated");
+    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(12);
+    expect(modal.querySelector(".rrugc-photo-gallery-counter")?.textContent).toBe("12 / 12");
+    expect(modal.textContent).toContain("2 of 12 images generated");
+    expect(modal.textContent).not.toContain("Khaki Maroon");
+    expect(modal.innerHTML).not.toContain("/photos/old-hat.png");
     expect(modal.querySelector(".rrugc-photo-gallery-placeholder")?.textContent).toContain("Not generated");
-    await act(async()=>modal.querySelector<HTMLButtonElement>('[aria-label="View output 1: Khaki Maroon · Completed"]')!.click());
-    expect(modal.querySelector(".rrugc-photo-gallery-counter")?.textContent).toBe("01 / 13");
+    await act(async()=>modal.querySelector<HTMLButtonElement>('[aria-label="View output 1: Natural Black · Completed"]')!.click());
+    expect(modal.querySelector(".rrugc-photo-gallery-counter")?.textContent).toBe("01 / 12");
     expect(modal.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe("/photos/khaki.png");
     await act(async()=>root.unmount());
   });
@@ -66,28 +71,28 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>modal.querySelector<HTMLButtonElement>(".rrugc-photo-gallery-actions button")!.click());
     expect(versions).toHaveBeenCalledWith(colorJobs[0]);
     expect(document.querySelector('[data-photo-gallery="multi"]')).toBeNull();
-    await act(async()=>host.querySelectorAll<HTMLButtonElement>('[data-skill="colorway"] .rrugc-colorway-slot')[2].click());
+    await act(async()=>host.querySelectorAll<HTMLButtonElement>('[data-skill="colorway"] .rrugc-colorway-slot')[1].click());
     modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     await act(async()=>modal.querySelector<HTMLButtonElement>(".rrugc-photo-gallery-actions button")!.click());
     expect(retry).toHaveBeenCalledWith(colorJobs[1]);
     await act(async()=>root.unmount());
   });
-  it("View all outputs opens 23 ordered positions even when no image jobs exist",async()=>{
+  it("View all outputs opens 22 ordered positions even when no image jobs exist",async()=>{
     const {root,host}=await renderWorkflow();
     const labels=[...host.querySelectorAll<HTMLButtonElement>(".rrugc-products-photo-footer-actions button")].map(button=>button.textContent?.trim());
     expect(labels).toEqual(["View all outputs","Run all"]);
     expect(host.textContent).not.toContain("7 skill slots");
-    expect(host.textContent).not.toContain("23 outputs");
+    expect(host.textContent).not.toContain("22 outputs");
     const trigger=host.querySelector<HTMLButtonElement>('[aria-label="View all outputs"]')!;
     await act(async()=>trigger.click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
-    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(23);
-    expect(modal.textContent).toContain("0 of 23 images generated");
+    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(22);
+    expect(modal.textContent).toContain("0 of 22 images generated");
     expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[0].textContent).toContain("Front High");
     expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[4].textContent).toContain("Multi-hat 1");
     expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[7].textContent).toContain("UGC 1");
-    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[10].textContent).toContain("Khaki Maroon");
+    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[10].textContent).toContain("Natural Black");
     await act(async()=>root.unmount());
   });
 
@@ -95,10 +100,10 @@ describe("Products photo output gallery navigation",()=>{
     vi.mocked(runAllEcommerceJobs).mockResolvedValueOnce({
       run_id:"run-1",source_plan_id:"design-1",source_revision:"rev-1",
       color_key:"natural-black",status:"running",current_slot:1,error_code:null,error_message:null,
-      steps:["Ecommerce 1","Ecommerce 2","Ecommerce 3","Ecommerce 4","Multi-hat","UGC","13 Hat Colors"].map(
+      steps:["Ecommerce 1","Ecommerce 2","Ecommerce 3","Ecommerce 4","Multi-hat","UGC","12 Hat Colors"].map(
         (name,i)=>({stage:i<4?"prod_s2_ec"+(i+1):i===6?"prod_s2_col":"prod_s2_mh_1",
           slot:i+1,name,status:i===0?"running" as const:"pending" as const,
-          completed_outputs:0,total_outputs:i===6?13:i>=4?3:1})),
+          completed_outputs:0,total_outputs:i===6?12:i>=4?3:1})),
     });
     const queueColors=vi.fn(async()=>({queued:11,existing:2,retried:0}));
     const refresh=vi.fn(async()=>undefined);
@@ -114,7 +119,7 @@ describe("Products photo output gallery navigation",()=>{
     const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-report")!;
     expect(report.textContent).toContain("Slot 1/7");
     expect(report.querySelectorAll("li")).toHaveLength(7);
-    expect(report.textContent).toContain("13 Hat Colors");
+    expect(report.textContent).toContain("12 Hat Colors");
     expect(button.disabled).toBe(true);
     await act(async()=>root.unmount());
   });
@@ -133,16 +138,16 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>root.unmount());
   });
 
-  it("opens all 23 outputs at the clicked Ecommerce Back High image",async()=>{
+  it("opens all 22 outputs at the clicked Ecommerce Back High image",async()=>{
     const {root,host}=await renderWorkflow({ecommerceJobs:ecommerce});
     await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
     expect(modal.textContent).toContain("All outputs · embroidery_design.png");
-    expect(modal.textContent).toContain("04 / 23");
-    expect(modal.textContent).toContain("All 23 outputs");
+    expect(modal.textContent).toContain("04 / 22");
+    expect(modal.textContent).toContain("All 22 outputs");
     expect(modal.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe("/photos/back.png");
-    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumbnails button")).toHaveLength(23);
+    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumbnails button")).toHaveLength(22);
     await act(async()=>root.unmount());
   });
 });

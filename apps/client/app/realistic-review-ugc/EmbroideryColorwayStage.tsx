@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog } from "./api";
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
-import { ProductsPhotoWorkflow } from "./ProductsPhotoWorkflow";
+import { ProductsPhotoWorkflow, PHOTO_COLOR_KEYS } from "./ProductsPhotoWorkflow";
 import { DeferredImage } from "./DeferredImage";
 import { AppliedHatPreview } from "./AppliedHatPreview";
 import { HatStockSyncModal } from "./HatStockSyncModal";
@@ -23,6 +23,7 @@ import type { SourcePlan, SourcePlanPage, Stage2Skill, Stage2SkillCatalog, Stage
 
 const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-camo-green", "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon", "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose", "natural-red", "natural-royal"] as const;
 const COLOR_SLOT_COUNT = COLOR_KEYS.length;
+const PRODUCTS_COLOR_SLOT_COUNT = PHOTO_COLOR_KEYS.length;
 const DEFAULT_PRODUCT_HAT_COLOR = "natural-charcoal";
 async function listEcommercePageJobs(ids: string[], signal?: AbortSignal): Promise<EcommerceJob[]> {
   const batches: string[][] = [];
@@ -183,7 +184,7 @@ export function EmbroideryColorwayStage({
   const handleHatStockApplied = async () => {
     setHatCatalog(await getHatStockCatalog());
     setJobMessage("Hat stock references synchronized. Existing outputs and completed jobs were preserved.");
-    try { setServerReadiness(await getColorwayReadiness()); } catch { /* Avoid hiding imported stock. */ }
+    try { setServerReadiness(await getColorwayReadiness(undefined, workflow)); } catch { /* Avoid hiding imported stock. */ }
   };
 
   useEffect(() => {
@@ -191,7 +192,7 @@ export function EmbroideryColorwayStage({
     const controller = new AbortController();
     setServerReadiness(null);
     setReadinessMessage("");
-    void getColorwayReadiness(controller.signal)
+    void getColorwayReadiness(controller.signal, workflow)
       .then(value => {
         if (!controller.signal.aborted) setServerReadiness(value);
       })
@@ -201,7 +202,7 @@ export function EmbroideryColorwayStage({
         );
       });
     return () => controller.abort();
-  }, [active, skillCatalogRevision]);
+  }, [active, skillCatalogRevision, workflow]);
 
   useEffect(() => {
     if (!active || workflow !== "products") return;
@@ -252,7 +253,7 @@ export function EmbroideryColorwayStage({
     [catalog.items, selectedSkillKey],
   );
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
-  const plannedOutputs = data.total * (workflow === "products" ? COLOR_SLOT_COUNT + 10 : COLOR_SLOT_COUNT);
+  const plannedOutputs = data.total * (workflow === "products" ? PRODUCTS_COLOR_SLOT_COUNT + 10 : COLOR_SLOT_COUNT);
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = Boolean(selectedSkill?.ready);
@@ -390,7 +391,7 @@ export function EmbroideryColorwayStage({
   };
   const queueOneColorway = async (planId: string, retryFailedJobs = false) => {
     if (!skillInput || !executionReady || !serverReadiness?.ready || queueing || queueingPlanId) {
-      return { queued: 0, existing: 0, error: "13 Hat Colors is not ready or another batch is already running." };
+      return { queued: 0, existing: 0, error: "12 Hat Colors is not ready or another batch is already running." };
     }
     setQueueingPlanId(planId);
     setJobMessage("");
@@ -483,7 +484,7 @@ export function EmbroideryColorwayStage({
       kicker={workflow === "products" ? "PRODUCTS · STAGE 2 · SELECTED STAGE 1 DESIGNS" : "REVIEWS · STAGE 2 · embroidery_ FILES"}
       title={workflow === "products" ? "Embroidery design → 7-skill Product Stage 2" : "Embroidery design → 13 colorways"}
       description={workflow === "products"
-        ? <>23 outputs per design · Ecommerce 01–04 · Multi-hat (3) · UGC (3) · Hat Colors (13). Run each Skill independently.</>
+        ? <>22 outputs per design · Ecommerce 01–04 · Multi-hat (3) · UGC (3) · 12 Hat Colors. Run each Skill independently.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={workflow === "products"
         ? (hatCatalog?.can_sync ? <div className="rrugc-colorway-header-actions">
@@ -508,8 +509,8 @@ export function EmbroideryColorwayStage({
 
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>
-      <article><span>Hat colors</span><strong>{COLOR_SLOT_COUNT}</strong><small>per design</small></article>
-      <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>{workflow === "products" ? "design × 23 images" : "design × color"}</small></article>
+      <article><span>Hat colors</span><strong>{workflow === "products" ? PRODUCTS_COLOR_SLOT_COUNT : COLOR_SLOT_COUNT}</strong><small>per design</small></article>
+      <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>{workflow === "products" ? "design × 22 images" : "design × color"}</small></article>
       {workflow === "reviews" && <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} planned outputs</small></article>}
     </div>
 
@@ -576,7 +577,7 @@ export function EmbroideryColorwayStage({
                 <SortDirectionIndicator active={sortBy === "source"} direction={sortDirection} />
               </button>
             </th>
-            <th>{workflow === "products" ? "7-skill configuration · 23 outputs" : "13-color batch"}</th>
+            <th>{workflow === "products" ? "7-skill configuration · 22 outputs" : "13-color batch"}</th>
             {workflow === "reviews" && <><th>Progress</th>
             <th>Skill</th>
             <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th></>}

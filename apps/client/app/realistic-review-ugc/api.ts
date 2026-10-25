@@ -846,8 +846,9 @@ export type ColorwayReadiness = {
   stock_total_count: number;
 };
 
-export const getColorwayReadiness = (signal?: AbortSignal) =>
-  request<ColorwayReadiness>("/api/v1/realistic-review-ugc/colorways/readiness", { signal });
+export const getColorwayReadiness = (signal?: AbortSignal, workflow: "products" | "reviews" = "reviews") =>
+  request<ColorwayReadiness>("/api/v1/realistic-review-ugc/colorways/readiness" +
+    (workflow === "products" ? "?workflow=products" : ""), { signal });
 
 export const listColorwayJobs = async (sourceIds: string[], signal?: AbortSignal): Promise<ColorwayJob[]> => {
   const ids = Array.from(new Set(sourceIds));

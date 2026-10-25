@@ -6154,10 +6154,14 @@ async def download_product_skill_outputs_archive(
             "output_name": job.stage + ".png",
             "asset_id": "rrugc-ecommerce:" + job.id + ":" + (job.processing_job_id or ""),
         })
+    # The old Khaki/Maroon row remains accessible as history, but does not
+    # belong to the 12-photo Products deliverable or its ZIP archive.
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_COLOR_KEYS
     for job in session.scalars(select(RrugcColorwayJobModel).where(
         RrugcColorwayJobModel.tenant_id == tenant_id,
         RrugcColorwayJobModel.source_plan_id == source_plan_id,
         RrugcColorwayJobModel.source_revision == plan.source_revision,
+        RrugcColorwayJobModel.color_key.in_(PRODUCTS_COLOR_KEYS),
         RrugcColorwayJobModel.status == "completed",
         RrugcColorwayJobModel.output_remote_file_id.is_not(None),
     ).order_by(RrugcColorwayJobModel.color_key)):
@@ -6222,11 +6226,12 @@ async def download_product_skill_outputs_archive(
 
 @router.get("/colorways/readiness")
 def colorway_readiness(
+    workflow: str = Query(default="reviews", pattern="^(products|reviews)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     # Authenticated and intentionally free of provider credentials and storage paths.
-    return ColorwayService(session).readiness()
+    return ColorwayService(session).readiness(workflow=workflow)
 
 
 @router.get("/colorways")

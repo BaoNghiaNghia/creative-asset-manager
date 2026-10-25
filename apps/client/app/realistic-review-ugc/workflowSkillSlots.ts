@@ -9,7 +9,7 @@ export const PRODUCT_STAGE2_SKILL_SLOTS = [
   { key: "prod_s2_ec4", title: "Skill 4", label: "Ecommerce · Image 04", detail: "Back High · 1 photo output", expectedSkill: null, active: true },
   { key: "prod_s2_mh", title: "Skill 5", label: "Multi-hat", detail: "Images 05–07 · 3 photo outputs", expectedSkill: "gatorhats-8869-multihat-v2-4", active: true },
   { key: "prod_s2_ugc", title: "Skill 6", label: "UGC", detail: "Images 08–10 · 3 photo outputs", expectedSkill: "gatorhats-8869-ugc-v3", active: true },
-  { key: "prod_s2_col", title: "Skill 7", label: "13 Hat Colors", detail: "13 colorway outputs · existing worker", expectedSkill: null, active: true },
+  { key: "prod_s2_col", title: "Skill 7", label: "12 Hat Colors", detail: "12 Natural colorway outputs · existing worker", expectedSkill: null, active: true },
 ] as const;
 
 export type ProductStage2SkillKey = typeof PRODUCT_STAGE2_SKILL_SLOTS[number]["key"];

@@ -39,11 +39,12 @@ const PHOTO_STEPS: StepDefinition[] = [
 ];
 
 export const PHOTO_COLOR_KEYS = [
-  "khaki-maroon", "natural-black", "natural-brown", "natural-camo-green",
+  "natural-black", "natural-brown", "natural-camo-green",
   "natural-charcoal", "natural-forest-green", "natural-khaki", "natural-maroon",
   "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose",
   "natural-red", "natural-royal",
 ] as const;
+const PHOTO_COLOR_COUNT = PHOTO_COLOR_KEYS.length;
 
 export function legacyMissingAssetsForStep(isEcommerce: boolean, missingAssets: string[] | undefined): string[] {
   return isEcommerce ? [] : missingAssets || [];
@@ -266,9 +267,10 @@ export function ProductsPhotoWorkflow({
   }
 
   const colorSkillSelectId = useId();
-  const byColor = new Map(colors.map(job => [job.color_key, job]));
-  // The gallery always represents all 13 fixed color slots, including the
-  // colors that have never been queued or whose jobs failed.
+  // The retired Khaki/Maroon output stays in history, not the live gallery.
+  const productColors = colors.filter(job => PHOTO_COLOR_KEYS.some(key => key === job.color_key));
+  const byColor = new Map(productColors.map(job => [job.color_key, job]));
+  // Twelve Natural-series slots, including missing/failed outputs.
   const colorGalleryItems: PhotoOutputItem[] = PHOTO_COLOR_KEYS.map(key => {
     const job = byColor.get(key);
     return {
@@ -336,10 +338,10 @@ export function ProductsPhotoWorkflow({
   const activeRun = runAllState?.source_plan_id === sourcePlanId &&
     runAllState?.color_key === selectedColor ? runAllState : null;
 
-  const complete = colors.filter(job => job.status === "completed").length;
-  const failed = colors.filter(job => job.status === "failed").length;
-  const active = colors.filter(job => job.status === "running" || job.status === "queued").length;
-  const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === 13 ? "Completed" : complete > 0 ? complete + "/13 done" : "Not run";
+  const complete = productColors.filter(job => job.status === "completed").length;
+  const failed = productColors.filter(job => job.status === "failed").length;
+  const active = productColors.filter(job => job.status === "running" || job.status === "queued").length;
+  const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === PHOTO_COLOR_COUNT ? "Completed" : complete > 0 ? complete + "/" + PHOTO_COLOR_COUNT + " done" : "Not run";
 
   return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
@@ -523,9 +525,9 @@ export function ProductsPhotoWorkflow({
       <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway">
         <div className="rrugc-products-photo-stage-title">
           <span className="rrugc-products-photo-number">7</span>
-          <div><strong>13 Hat Colors</strong><small>{complete}/13 images</small></div>
+          <div><strong>12 Hat Colors</strong><small>{complete}/{PHOTO_COLOR_COUNT} images</small></div>
         </div>
-        <div className="rrugc-products-photo-output-strip is-colors" role="group" aria-label="13 hat color output slots" onPointerDown={event => {
+        <div className="rrugc-products-photo-output-strip is-colors" role="group" aria-label="12 hat color output slots" onPointerDown={event => {
           if (event.pointerType === "touch") return;
           const el = event.currentTarget;
           drag.current = { startX: event.clientX, scrollLeft: el.scrollLeft, moved: false };
@@ -549,8 +551,8 @@ export function ProductsPhotoWorkflow({
             return <button type="button" key={key} className={className}
               onClick={() => setColorGalleryIndex(index)}
               aria-haspopup="dialog"
-              aria-label={"View " + colorName + " in 13 hat colors gallery"}
-              title={colorName + " · " + (job?.status || "Not generated") + " · Open all 13 outputs"}>{content}</button>;
+              aria-label={"View " + colorName + " in 12 hat colors gallery"}
+              title={colorName + " · " + (job?.status || "Not generated") + " · Open all 12 outputs"}>{content}</button>;
           })}
         </div>
         <div className="rrugc-products-photo-skill" title={colorwaySkillName || "Not assigned"}>
@@ -559,16 +561,16 @@ export function ProductsPhotoWorkflow({
         <div className="rrugc-products-photo-stage-controls">
           <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
           <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion">{(() => {
-            const starts = colors.map(job => job.started_at).filter((date): date is string => Boolean(date));
+            const starts = productColors.map(job => job.started_at).filter((date): date is string => Boolean(date));
             if (!starts.length) return "—";
             const earliest = starts.reduce((a, b) => Date.parse(a) <= Date.parse(b) ? a : b);
-            const ends = colors.map(job => job.completed_at).filter((date): date is string => Boolean(date));
-            const latest = complete === 13 && ends.length === 13 ? ends.reduce((a, b) => Date.parse(a) >= Date.parse(b) ? a : b) : null;
+            const ends = productColors.map(job => job.completed_at).filter((date): date is string => Boolean(date));
+            const latest = complete === PHOTO_COLOR_COUNT && ends.length === PHOTO_COLOR_COUNT ? ends.reduce((a, b) => Date.parse(a) >= Date.parse(b) ? a : b) : null;
             return formatKeywordJobDuration(earliest, latest);
           })()}</span>
-          <button type="button" className={"rrugc-products-photo-run-button is-" + (colorwayRunning || active ? "processing" : failed ? "retry" : complete === 13 ? "completed" : colorwayReady ? "ready" : "unavailable")} aria-label="Run 13 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === 13} onClick={() => { void onQueueColors?.(false); }}><ActionIcon kind={colorwayRunning || active ? "loader" : failed ? "retry" : complete === 13 ? "check" : colorwayReady ? "play" : "clock"} />{colorwayRunning ? "Queueing…" : complete === 13 ? "Done" : "Run"}</button>
+          <button type="button" className={"rrugc-products-photo-run-button is-" + (colorwayRunning || active ? "processing" : failed ? "retry" : complete === PHOTO_COLOR_COUNT ? "completed" : colorwayReady ? "ready" : "unavailable")} aria-label="Run 12 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT} onClick={() => { void onQueueColors?.(false); }}><ActionIcon kind={colorwayRunning || active ? "loader" : failed ? "retry" : complete === PHOTO_COLOR_COUNT ? "check" : colorwayReady ? "play" : "clock"} />{colorwayRunning ? "Queueing…" : complete === PHOTO_COLOR_COUNT ? "Done" : "Run"}</button>
           <button type="button" className="rrugc-products-photo-detail-toggle"
-            aria-expanded={expandedStep === "colorway"} aria-label="13 Hat Colors details"
+            aria-expanded={expandedStep === "colorway"} aria-label="12 Hat Colors details"
             onClick={() => setExpandedStep(value => value === "colorway" ? null : "colorway")}>
             <ActionIcon kind="eye" />{expandedStep === "colorway" ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{expandedStep === "colorway" ? "⌃" : "⌄"}</span>
           </button>
@@ -577,8 +579,8 @@ export function ProductsPhotoWorkflow({
           <div className="rrugc-products-photo-colorway-selector">
             <label htmlFor={colorSkillSelectId}>Skill 7 configuration</label>
             <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
-              aria-label={"13 Hat Colors skill for " + sourceName}
-              title={colorwaySkillName || "Choose 13 Hat Colors skill"}
+              aria-label={"12 Hat Colors skill for " + sourceName}
+              title={colorwaySkillName || "Choose 12 Hat Colors skill"}
               value={colorwaySkillKey} disabled={colorwaySkillDisabled || !onColorwaySkillChange}
               onChange={event => onColorwaySkillChange?.(event.target.value)}>
               {colorwaySkillOptions.length === 0 && <option value="">{colorwaySkillDisabled ? "Loading skills…" : "No skill available"}</option>}
@@ -586,14 +588,14 @@ export function ProductsPhotoWorkflow({
             </select>
           </div>
           <div><strong>{colorwaySkillName || "Select colorway skill"}</strong>
-            <p>Generate each of 13 Valucap 8869 colors. Select any thumbnail to open the full 13-color gallery, including ungenerated images. Use gallery actions to view versions or retry failed outputs.</p></div>
+            <p>Generate each of 12 Natural-series Valucap 8869 colors. Select any thumbnail to open the full 12-color gallery, including ungenerated images. Use gallery actions to view versions or retry failed outputs.</p></div>
           <button type="button" onClick={openSkillsManager}>Manage skill</button>
-          <button type="button" disabled={!colorwayReady || colorwayRunning || complete === 13}
+          <button type="button" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT}
             onClick={() => { void onQueueColors?.(false); }}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
           {!!colors.length && onOpenLog && <select aria-label={"Hat color skill logs for " + sourceName} value=""
             onChange={event => { const job = colors.find(item => item.id === event.target.value); if (job) onOpenLog(job); }}>
             <option value="">View logs…</option>
-            {colors.map(job => <option key={job.id} value={job.id}>{job.color_name} · {job.status}</option>)}
+            {productColors.map(job => <option key={job.id} value={job.id}>{job.color_name} · {job.status}</option>)}
           </select>}
         </div>}
 
@@ -602,7 +604,7 @@ export function ProductsPhotoWorkflow({
     <div className="rrugc-products-photo-pipeline-summary">
       <div className="rrugc-products-photo-footer-actions" role="group" aria-label="All output actions">
         <button type="button" className="rrugc-products-photo-footer-action is-view"
-          onClick={() => setAllOutputOpen(true)} aria-label="View all outputs" title="Browse all 23 output positions, including those not yet generated">
+          onClick={() => setAllOutputOpen(true)} aria-label="View all outputs" title="Browse all 22 output positions, including those not yet generated">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="7" height="7" rx="1.5" /><rect x="14" y="4" width="7" height="7" rx="1.5" />
             <rect x="3" y="15" width="7" height="6" rx="1.5" /><rect x="14" y="15" width="7" height="6" rx="1.5" />
@@ -671,7 +673,7 @@ export function ProductsPhotoWorkflow({
         : Boolean(busyStage || (jobs.find(value => value.stage === item.key.split(":")[0])?.retry_count || 0) >= 3)}
     />}
     {colorGalleryIndex !== null && <OutputPhotoGalleryModal
-      title={"13 Hat Colors · " + sourceName}
+      title={"12 Hat Colors · " + sourceName}
       items={colorGalleryItems} initialIndex={colorGalleryIndex}
       onClose={() => setColorGalleryIndex(null)}
       onOpenVersions={item => {

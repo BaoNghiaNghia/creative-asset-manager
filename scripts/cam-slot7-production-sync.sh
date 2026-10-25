@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Safe, explicit production operation: import 4 authenticated Valucap fronts
-# then reconcile only changed completed Products Stage 2 Slot 7 jobs.
+# then reconcile only the twelve current Natural-series Products Slot 7 outputs.
+# Retired Khaki/Maroon history remains untouched.
 set -Eeuo pipefail
 export LC_ALL=C
 if [[ "$(id -u)" != 0 ]]; then
@@ -10,11 +11,11 @@ fi
 MODE="${1:---preview}"
 MAX_JOBS="${2:-3}"
 if [[ "$MODE" != "--preview" && "$MODE" != "--apply" ]]; then
-  echo "Usage: bash scripts/cam-slot7-production-sync.sh [--preview|--apply] [max-jobs 1..13] <40-character-deployed-commit>" >&2
+  echo "Usage: bash scripts/cam-slot7-production-sync.sh [--preview|--apply] [max-jobs 1..12] <40-character-deployed-commit>" >&2
   exit 2
 fi
-if [[ ! "$MAX_JOBS" =~ ^(1[0-3]|[1-9])$ ]]; then
-  echo "ERROR: max-jobs must be between 1 and 13." >&2
+if [[ ! "$MAX_JOBS" =~ ^(1[0-2]|[1-9])$ ]]; then
+  echo "ERROR: max-jobs must be between 1 and 12." >&2
   exit 2
 fi
 RELEASE="$(readlink -f /opt/creative-asset-manager/current)"
