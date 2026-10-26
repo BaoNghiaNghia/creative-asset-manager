@@ -167,12 +167,21 @@ def sync_supplier_fronts(settings: Any, *, apply: bool = False) -> dict:
     records = fetch_verified_supplier_fronts()
     root = slot7_root(settings)
     existing = _manifest(root)
+    # Customer-approved 12-hat derived colorways must not be silently rolled
+    # back to the older supplier model by a future supplier stock sync.
+    protected = [
+        item["color"] for item in records
+        if existing["colors"].get(item["color"], {}).get("origin")
+        == "derived-approved-12-hats-v1"
+    ]
     changed = [
         item["color"] for item in records
-        if existing["colors"].get(item["color"], {}).get("sha256") != item["sha256"]
+        if item["color"] not in protected
+        and existing["colors"].get(item["color"], {}).get("sha256") != item["sha256"]
     ]
     report = {
         "verified": len(records), "changes": changed,
+        "protected_derived_colorways": protected,
         "applied": False, "preview": [
             {key: item[key] for key in ("color", "source_variant", "sha256", "bytes", "width", "height", "url")}
             for item in records
@@ -187,6 +196,8 @@ def sync_supplier_fronts(settings: Any, *, apply: bool = False) -> dict:
         manifest = _manifest(root)
         for item in records:
             digest, color = item["sha256"], item["color"]
+            if manifest["colors"].get(color, {}).get("origin") == "derived-approved-12-hats-v1":
+                continue
             folder = root / "sets" / color / digest
             folder.mkdir(parents=True, exist_ok=True)
             target = folder / "front.jpg"
