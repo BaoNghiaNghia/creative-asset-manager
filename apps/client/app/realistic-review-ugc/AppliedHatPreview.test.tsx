@@ -32,12 +32,15 @@ describe("Product embroidery design gallery", () => {
     expect(html.replace(/<[^>]*>/g, "").trim()).toBe("");
   });
 
-  it("reuses the transparent Stage 1 source for the design tile and front embroidery", () => {
+  it("shows the opaque fabric in the design tile and verified thread-only preview on the front", () => {
     const source = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&size=128&v=rev123";
     const html = renderToStaticMarkup(<AppliedHatPreview
       designSrc={source} designName="THE ORIGINAL" revision="rev123" />);
-    const expected = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&amp;size=384&amp;v=rev123&amp;artwork=stage1-source-alpha-v2";
-    expect(html.split(expected)).toHaveLength(3);
+    const original = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&amp;size=384&amp;v=rev123";
+    const threads = original + "&amp;artwork=stage1-thread-geometry-v1";
+    expect(html).toContain('src="' + original + '"');
+    expect(html).toContain('src="' + threads + '"');
+    expect(html).not.toContain("stage1-source-alpha-v2");
     expect(html).toContain('class="rrugc-applied-hat-image is-original-design"');
     expect(html).not.toContain("size=128");
     // Only the front view should receive the artwork; side/back remain unmodified stock.
