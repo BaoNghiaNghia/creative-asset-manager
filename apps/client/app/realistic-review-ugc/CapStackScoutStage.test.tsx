@@ -217,8 +217,8 @@ describe("Cap Stack Scout Stage 1", () => {
     await act(async () => root.unmount());
   });
 
-  it("keeps both masonry and list controls usable", async () => {
-    vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
+  it("uses the masonry gallery without Gemini-status or layout dropdowns", async () => {
+    const list = vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -227,15 +227,12 @@ describe("Cap Stack Scout Stage 1", () => {
     const gallery = host.querySelector(".rrugc-cap-stack-gallery")!;
     expect(gallery.classList.contains("view-masonry")).toBe(true);
     expect(gallery.classList.contains("rrugc-stable-masonry")).toBe(true);
-    const switchView = host.querySelector<HTMLSelectElement>(".rrugc-cap-stack-toolbar label:last-of-type select")!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
-      setter.call(switchView, "list");
-      switchView.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    const listGallery = host.querySelector(".rrugc-cap-stack-gallery.view-list")!;
-    expect(listGallery).not.toBeNull();
-    expect(listGallery.querySelector(".rrugc-cap-stack-votes.is-overlay")).not.toBeNull();
+    expect(gallery.querySelector(".rrugc-cap-stack-votes.is-overlay")).not.toBeNull();
+    expect(host.querySelector('[aria-label="Filter by Gemini status"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Gallery view"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Filter by review status"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Filter by cap count"]')).not.toBeNull();
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ visionStatus: "all" }));
     await act(async () => root.unmount());
   });
 
@@ -335,7 +332,7 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(details.open).toBe(true);
     expect(details.textContent).toContain("Suspected AI: 81");
     expect(details.textContent).toContain("Over 6 caps: 91");
-    expect(controls.querySelectorAll(".rrugc-cap-stack-toolbar select")).toHaveLength(4);
+    expect(controls.querySelectorAll(".rrugc-cap-stack-toolbar select")).toHaveLength(2);
     expect(controls.querySelector<HTMLInputElement>(".rrugc-cap-stack-search input")?.getAttribute("aria-label"))
       .toBe("Search Cap Stack library");
     expect(controls.querySelector(".rrugc-cap-stack-results")?.textContent).toContain("2354 results");

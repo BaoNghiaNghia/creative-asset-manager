@@ -15,12 +15,6 @@ const LABELS = [
   { id: "ai", name: "AI images" },
 ];
 
-const VISION_STATUS_OPTIONS = [
-  ["all", "Any Gemini status"], ["pending", "Gemini pending"], ["analyzing", "Gemini analyzing"],
-  ["ready", "Count ready"], ["needs_review", "Low confidence"],
-  ["not_cap_stack", "Not a Cap Stack"], ["out_of_range", "Over 6 caps"], ["error", "Gemini error"],
-] as const;
-
 const DEFAULT_PAGE: CapStackPage = {
   items: [], total: 0, page: 1, page_size: 40,
   stats: { discovered: 0, approved: 0, rejected: 0, ai: 0, pending: 0 },
@@ -109,7 +103,6 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [label, setLabel] = useState("all");
-  const [visionStatus, setVisionStatus] = useState("all");
   const [count, setCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState("");
@@ -118,7 +111,6 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [selected, setSelected] = useState<CapStackImage | null>(null);
   const [editableCount, setEditableCount] = useState("");
   const [approvalRequestedFor, setApprovalRequestedFor] = useState<string | null>(null);
-  const [view, setView] = useState<"masonry" | "list">("masonry");
   // The polling effect must not restart on every feedback/busy/modal update.
   // Use current refs in the interval so a stale list response does not
   // immediately overwrite a just-committed human review.
@@ -143,7 +135,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       inflight = true;
       setLoading(true);
       try {
-        const next = await listCapStackImages({ page, pageSize: 40, q: debouncedQuery, label, capsCount: count, visionStatus });
+        const next = await listCapStackImages({ page, pageSize: 40, q: debouncedQuery, label, capsCount: count, visionStatus: "all" });
         if (mounted) { setData(next); setError(""); }
       } catch (reason) {
         if (mounted) setError(reason instanceof Error ? reason.message : "Cap Stack Library could not load.");
@@ -157,7 +149,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       if (!document.hidden && !busyRef.current && !selectedRef.current) void refresh();
     }, 15000);
     return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, page, label, visionStatus, count, debouncedQuery]);
+  }, [active, page, label, count, debouncedQuery]);
 
   async function updateImage(image: CapStackImage, body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number }) {
     if (busy) return;
@@ -347,23 +339,11 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
             {LABELS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
-        <label><span className="rrugc-cap-stack-sr-only">Gemini status</span>
-          <select aria-label="Filter by Gemini status" value={visionStatus}
-            onChange={event => { setVisionStatus(event.target.value); setPage(1); }}>
-            {VISION_STATUS_OPTIONS.map(([key, name]) => <option value={key} key={key}>{name}</option>)}
-          </select>
-        </label>
         <label><span className="rrugc-cap-stack-sr-only">Caps detected</span>
           <select aria-label="Filter by cap count" value={count ?? ""}
             onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
             <option value="">Any number</option>
             {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
-          </select>
-        </label>
-        <label><span className="rrugc-cap-stack-sr-only">View</span>
-          <select aria-label="Gallery view" value={view}
-            onChange={event => setView(event.target.value as "masonry" | "list")}>
-            <option value="masonry">Masonry</option><option value="list">List</option>
           </select>
         </label>
         <span className="rrugc-cap-stack-results">{data.total} results · {loadedCount} loaded</span>
@@ -386,14 +366,10 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
         : "Enable Cap Stack Scout here, then start Cap Stack Scout in Windows Scout Manager. Images will arrive here when Pinterest discovery finds new Pins."}</p>
       <small>Keyword: Cap Stack · Gemini runs through CAM shared pool; image processing retries when capacity is available.</small>
     </div>}
-    {view === "masonry"
-      ? <StableMasonryGrid className="rrugc-cap-stack-gallery view-masonry"
-          items={data.items} getKey={item => item.id} getRatio={layoutRatio}
-          renderItem={renderCard} minColumnWidth={180} maxColumns={10}
-          ariaLabel="Cap Stack image library"/>
-      : <div className="rrugc-cap-stack-gallery view-list" aria-label="Cap Stack image library">
-          {data.items.map(renderCard)}
-        </div>}
+    <StableMasonryGrid className="rrugc-cap-stack-gallery view-masonry"
+      items={data.items} getKey={item => item.id} getRatio={layoutRatio}
+      renderItem={renderCard} minColumnWidth={180} maxColumns={10}
+      ariaLabel="Cap Stack image library"/>
 
     {data.total > data.page_size && <div className="rrugc-cap-stack-pagination">
       <button type="button" disabled={page <= 1} onClick={() => setPage(previous => previous - 1)}>Previous</button>
