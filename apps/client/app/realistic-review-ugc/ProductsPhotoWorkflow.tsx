@@ -6,6 +6,7 @@ import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
 import "./ProductsPhotoWorkflowTwoColumns.css";
 import { DeferredImage } from "./DeferredImage";
+import { stage2BackgroundRequests } from "./stage2RequestQueue";
 import { publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
@@ -131,6 +132,22 @@ export function ProductsPhotoWorkflow({
   const [versionsFor, setVersionsFor] = useState<string | null>(null);
   const [versions, setVersions] = useState<EcommerceOutputVersion[]>([]);
   const drag = useRef<{ startX: number; scrollLeft: number; moved: boolean } | null>(null);
+  const pipelineRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(() => typeof IntersectionObserver === "undefined");
+  const scoutBootstrappedFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    const node = pipelineRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      setNearViewport(entries.some(entry => entry.isIntersecting));
+    }, { rootMargin: "160px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [sourcePlanId]);
   const suppressClick = useRef(false);
   // Every Ecommerce card needs server-backed preflight BEFORE the user opens
   // Details. Previously the fetch only ran inside the expanded accordion, so
@@ -140,14 +157,17 @@ export function ProductsPhotoWorkflow({
   const frontJobStatus = jobs.find(job => job.stage === "prod_s2_ec1")?.status || "";
   useEffect(() => {
     setInputs(null);
-    if (!sourcePlanId) return;
+    if (!sourcePlanId || !nearViewport) return;
     const controller = new AbortController();
     let inFlight = false;
     const refresh = async () => {
-      if (controller.signal.aborted || inFlight) return;
+      if (controller.signal.aborted || inFlight || document.hidden) return;
       inFlight = true;
       try {
-        const result = await getEcommerceInputReadiness(sourcePlanId, controller.signal, selectedColor);
+        const result = await stage2BackgroundRequests.schedule(
+          () => getEcommerceInputReadiness(sourcePlanId, controller.signal, selectedColor),
+          controller.signal,
+        );
         if (!controller.signal.aborted) setInputs(result);
       } catch {
         if (!controller.signal.aborted) setInputs(null);
@@ -167,30 +187,50 @@ export function ProductsPhotoWorkflow({
       if (ticker !== null) window.clearInterval(ticker);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [sourcePlanId, expandedStep, selectedColor, ecommerceSkillSignature, frontJobStatus]);
+  }, [sourcePlanId, nearViewport, expandedStep, selectedColor, ecommerceSkillSignature, frontJobStatus]);
 
   useEffect(() => {
-    if (!sourcePlanId || expandedStep !== "prod_s2_ugc") return;
+    if (!sourcePlanId || !nearViewport || expandedStep !== "prod_s2_ugc") return;
     const controller = new AbortController();
-    const refresh = () => void getUgcScoutGallery(sourcePlanId, controller.signal)
-      .then(result => { if (!controller.signal.aborted) { setUgcScout(result); setUgcScoutError(""); } })
-      .catch(error => { if (!controller.signal.aborted) setUgcScoutError(error instanceof Error ? error.message : "Scout results unavailable"); });
+    let inFlight = false;
+    const refresh = () => {
+      if (inFlight || document.hidden || controller.signal.aborted) return;
+      inFlight = true;
+      void stage2BackgroundRequests.schedule(
+        () => getUgcScoutGallery(sourcePlanId, controller.signal), controller.signal,
+      ).then(result => { if (!controller.signal.aborted) { setUgcScout(result); setUgcScoutError(""); } })
+        .catch(error => { if (!controller.signal.aborted) setUgcScoutError(error instanceof Error ? error.message : "Scout results unavailable"); })
+        .finally(() => { inFlight = false; });
+    };
     refresh();
     const timer = window.setInterval(refresh, 12000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [sourcePlanId, expandedStep]);
+  }, [sourcePlanId, nearViewport, expandedStep]);
 
-  // Bootstrap legacy Stage 2 selections automatically, even when the UGC
-  // details accordion is closed. The server owns idempotency and backoff.
+  // Keep automatic Scout for visible designs, but do not enqueue Scout
+  // launches for offscreen rows. The backend remains the idempotency owner.
   useEffect(() => {
-    if (!sourcePlanId) return;
-    let cancelled = false;
-    void startUgcScout(sourcePlanId)
-      .then(() => getUgcScoutGallery(sourcePlanId))
-      .then(gallery => { if (!cancelled) { setUgcScout(gallery); setUgcScoutError(""); } })
-      .catch(error => { if (!cancelled) setUgcScoutError(error instanceof Error ? error.message : "Automatic Review Scout could not start"); });
-    return () => { cancelled = true; };
-  }, [sourcePlanId]);
+    if (!sourcePlanId || !nearViewport || scoutBootstrappedFor.current === sourcePlanId) return;
+    const controller = new AbortController();
+    let started = false;
+    scoutBootstrappedFor.current = sourcePlanId;
+    void stage2BackgroundRequests.schedule(async () => {
+      started = true;
+      await startUgcScout(sourcePlanId, controller.signal);
+      return getUgcScoutGallery(sourcePlanId, controller.signal);
+    }, controller.signal)
+      .then(gallery => { if (!controller.signal.aborted) { setUgcScout(gallery); setUgcScoutError(""); } })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setUgcScoutError(error instanceof Error ? error.message : "Automatic Review Scout could not start");
+          scoutBootstrappedFor.current = null;
+        }
+      });
+    return () => {
+      controller.abort();
+      if (!started && scoutBootstrappedFor.current === sourcePlanId) scoutBootstrappedFor.current = null;
+    };
+  }, [sourcePlanId, nearViewport]);
 
   async function reviewUgcReference(item: UgcScoutItem, label: UgcScoutReviewLabel) {
     if (!ugcScout?.campaign_id) throw new Error("Review Scout campaign is not available.");
@@ -295,26 +335,28 @@ export function ProductsPhotoWorkflow({
   useEffect(() => {
     setRunAllState(null);
     setRunAllError("");
-    if (!sourcePlanId) return;
+    if (!sourcePlanId || !nearViewport) return;
     const controller = new AbortController();
-    void getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal)
-      .then(status => { if (!controller.signal.aborted) setRunAllState(status); })
+    void stage2BackgroundRequests.schedule(
+      () => getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal), controller.signal,
+    ).then(status => { if (!controller.signal.aborted) setRunAllState(status); })
       .catch(() => { /* Status is optional until the first Run all. */ });
     return () => controller.abort();
-  }, [sourcePlanId, selectedColor]);
+  }, [sourcePlanId, selectedColor, nearViewport]);
 
   useEffect(() => {
-    if (runAllState?.status !== "running" || runAllState.source_plan_id !== sourcePlanId
+    if (!nearViewport || runAllState?.status !== "running" || runAllState.source_plan_id !== sourcePlanId
         || runAllState.color_key !== selectedColor) return;
     const controller = new AbortController();
     const timer = window.setInterval(() => {
       if (document.hidden || controller.signal.aborted) return;
-      void getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal)
-        .then(status => { if (!controller.signal.aborted) setRunAllState(status); })
+      void stage2BackgroundRequests.schedule(
+        () => getEcommerceRunAllStatus(sourcePlanId, selectedColor, controller.signal), controller.signal,
+      ).then(status => { if (!controller.signal.aborted) setRunAllState(status); })
         .catch(() => { /* Backend keeps the durable sequence running. */ });
     }, 8000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [sourcePlanId, selectedColor, runAllState?.status]);
+  }, [sourcePlanId, selectedColor, nearViewport, runAllState?.status]);
 
   async function runAllOutputs() {
     if (!sourcePlanId || bulkLock.current) return;
@@ -343,7 +385,7 @@ export function ProductsPhotoWorkflow({
   const active = productColors.filter(job => job.status === "running" || job.status === "queued").length;
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === PHOTO_COLOR_COUNT ? "Completed" : complete > 0 ? complete + "/" + PHOTO_COLOR_COUNT + " done" : "Not run";
 
-  return <div className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
+  return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
     <div className="rrugc-products-photo-stage-list is-two-column">
       {PHOTO_STEPS.map((step, index) => {

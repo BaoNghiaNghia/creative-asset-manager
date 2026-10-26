@@ -735,9 +735,9 @@ export type UgcScoutItem = { id: string; image_url: string; pin_url: string | nu
 export type UgcScoutGallery = { source_plan_id: string; campaign_id: string | null; status: string; error_code?: string | null; next_attempt_at?: string | null; target: number; count: number; items: UgcScoutItem[] };
 export const getUgcScoutGallery = (sourcePlanId: string, signal?: AbortSignal) =>
   request<UgcScoutGallery>("/api/v1/realistic-review-ugc/products-stage2/ugc-scout/" + encodeURIComponent(sourcePlanId), { signal });
-export const startUgcScout = (sourcePlanId: string) =>
+export const startUgcScout = (sourcePlanId: string, signal?: AbortSignal) =>
   request<{ status: string; campaign_id: string }>("/api/v1/realistic-review-ugc/products-stage2/ugc-scout/start", {
-    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId }),
+    method: "POST", body: JSON.stringify({ source_plan_id: sourcePlanId }), signal,
   });
 
 const ECOMMERCE_PATH = "/api/v1/realistic-review-ugc/products-stage2/ecommerce";

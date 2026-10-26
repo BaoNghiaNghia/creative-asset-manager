@@ -25,14 +25,22 @@ const COLOR_KEYS = ["khaki-maroon", "natural-black", "natural-brown", "natural-c
 const COLOR_SLOT_COUNT = COLOR_KEYS.length;
 const PRODUCTS_COLOR_SLOT_COUNT = PHOTO_COLOR_KEYS.length;
 const DEFAULT_PRODUCT_HAT_COLOR = "natural-charcoal";
-async function listEcommercePageJobs(ids: string[], signal?: AbortSignal): Promise<EcommerceJob[]> {
+export async function listEcommercePageJobs(ids: string[], signal?: AbortSignal): Promise<EcommerceJob[]> {
   const batches: string[][] = [];
   for (let index = 0; index < ids.length; index += 50) {
     batches.push(ids.slice(index, index + 50));
   }
-  if (!batches.length) return [];
-  const responses = await Promise.all(batches.map(batch => listEcommerceJobs(batch, signal)));
-  return responses.flat();
+  const jobs: EcommerceJob[] = [];
+  // Page size can be 500. Never launch ten expensive DB queries together.
+  // Two bounded requests keep the visible job states available progressively.
+  for (let index = 0; index < batches.length; index += 2) {
+    if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+    const responses = await Promise.all(
+      batches.slice(index, index + 2).map(batch => listEcommerceJobs(batch, signal)),
+    );
+    jobs.push(...responses.flat());
+  }
+  return jobs;
 }
 const PREFERRED_COLORWAY_SKILL = "gatorhats-8869-scale-image";
 const STAGE1_PAGE_SIZE_OPTIONS = [20, 50, 100, 500] as const;
