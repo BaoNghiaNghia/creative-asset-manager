@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from app.modules.realistic_review_ugc.stage1_fabric import extract_thread_geometry
 
 from app.modules.realistic_review_ugc.stage1_typography_renderer import (
     CANVAS, FONTS, SKILL_NAME, render_six,
@@ -21,7 +20,7 @@ FONTS_ROOT = ROOT / "gatorhats-typography-concepts" / "fonts"
 @pytest.mark.parametrize("keyword", [
     "DUMP HIM", "SUNDAY MORNING CLUB", "STATE OF MIND", "BOY MOM CLUB",
 ])
-def test_exact_six_unique_opaque_fabric_designs(keyword, tmp_path):
+def test_exact_six_unique_transparent_artworks(keyword, tmp_path):
     paths = render_six(keyword, FONTS_ROOT, tmp_path)
     assert len(paths) == 6
     assert [p.name for p in paths] == [f"design_{index:02}.png" for index in range(1, 7)]
@@ -30,10 +29,10 @@ def test_exact_six_unique_opaque_fabric_designs(keyword, tmp_path):
         with Image.open(path) as image:
             image.load()
             assert image.format == "PNG"
-            assert image.mode == "RGB"
+            assert image.mode == "RGBA"
             assert image.size == CANVAS
             assert image.getbbox() is not None
-            assert extract_thread_geometry(image).getchannel("A").getbbox() is not None
+            assert image.getpixel((0, 0))[3] == 0
     assert (tmp_path / "output" / "manifest.json").is_file()
     collected = CodexImageGenRunner._collect_six_final_designs(tmp_path, 6)
     assert [item.filename for item in collected] == [
@@ -118,15 +117,14 @@ def test_sample_layouts_have_real_thread_ridges_and_correct_colors(keyword, tmp_
     for index, path in enumerate(paths, start=1):
         flat = _render_one(keyword, FONTS_ROOT, index)
         with Image.open(path) as output:
-            geometry = extract_thread_geometry(output)
-            assert geometry.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
+            assert output.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
             # Inside ink, a solid printed glyph has a single flat RGB value,
             # while real satin rows must have visible high/low thread ridges.
-            alpha = geometry.getchannel("A")
+            alpha = output.getchannel("A")
             interior = alpha.point([255 if value > 240 else 0 for value in range(256)])
-            variance = ImageStat.Stat(geometry.getchannel("B"), mask=interior).stddev[0]
+            variance = ImageStat.Stat(output.getchannel("B"), mask=interior).stddev[0]
             assert variance > 3.0, (index, variance)
-            thumbnail = geometry.resize((205, 102), Image.Resampling.LANCZOS)
+            thumbnail = output.resize((205, 102), Image.Resampling.LANCZOS)
             thumbnail_ink = thumbnail.getchannel("A").point(
                 [255 if value > 220 else 0 for value in range(256)]
             )
@@ -134,11 +132,11 @@ def test_sample_layouts_have_real_thread_ridges_and_correct_colors(keyword, tmp_
                 thumbnail.getchannel("B"), mask=thumbnail_ink
             ).stddev[0]
             assert thumbnail_ridges > 4.0, (index, thumbnail_ridges)
-            assert output.mode == "RGB"
+            assert output.getpixel((0, 0))[3] == 0
     # C3 red script must be above the larger blue support line (as in
     # the reference concept photos), not under a full-blue script.
     with Image.open(paths[2]) as c3:
-        rgb = extract_thread_geometry(c3)
+        rgb = c3.convert("RGBA")
         reds = 0
         upper_reds = 0
         for y in range(180, 540, 5):
@@ -162,22 +160,20 @@ def test_sample_layouts_have_thread_ridges_and_correct_colors(keyword, tmp_path)
     for index, path in enumerate(paths, start=1):
         flat = _render_one(keyword, FONTS_ROOT, index)
         with Image.open(path) as output:
-            geometry = extract_thread_geometry(output)
-            assert geometry.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
+            assert output.getchannel("A").tobytes() == flat.getchannel("A").tobytes()
             # Satin rows vary in brightness; printed fills are flat RGB.
-            alpha = geometry.getchannel("A")
+            alpha = output.getchannel("A")
             interior = alpha.point([255 if value > 240 else 0 for value in range(256)])
-            variance = ImageStat.Stat(geometry.getchannel("B"), mask=interior).stddev[0]
+            variance = ImageStat.Stat(output.getchannel("B"), mask=interior).stddev[0]
             assert variance > 3.0, (index, variance)
-            assert output.mode == "RGB"
+            assert output.getpixel((0, 0))[3] == 0
     # C3 red script must be above the blue block line, as in the samples.
     with Image.open(paths[2]) as c3:
-        thread = extract_thread_geometry(c3)
         reds = 0
         upper_reds = 0
         for y in range(180, 540, 5):
             for x in range(180, 1870, 5):
-                r, g, b, a = thread.getpixel((x, y))
+                r, g, b, a = c3.getpixel((x, y))
                 if a > 150 and r > b * 1.25 and r > g * 1.2:
                     reds += 1
                     if y < 520:

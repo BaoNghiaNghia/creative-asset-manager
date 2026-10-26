@@ -1,9 +1,9 @@
-"""Fabric-first 2048x1024 embroidery output with verifiable thread geometry.
+"""Compatibility helpers for pre-existing Fabric-First PNGs.
 
-The public PNG has an opaque woven-cotton background. A small, compressed and
-hash-checked thread geometry payload remains INSIDE the same PNG for CAM's
-front placement renderer. No independent alpha asset is published or needed.
-Historical RGBA masters remain readable through the legacy path.
+Stage 1's canonical design is an alpha-preserving PNG again. Keep decoding of
+historical opaque Fabric-First photos, whose embedded source geometry is still
+used for on-cap placement. Fabric renders in this module are material-only
+previews and must NEVER become the primary design or be uploaded as a master.
 """
 from __future__ import annotations
 

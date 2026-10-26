@@ -15,9 +15,6 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from app.modules.realistic_review_ugc.stage1_stitch_texture import embroider_typography
-from app.modules.realistic_review_ugc.stage1_fabric import (
-    fabric_output_bytes, extract_thread_geometry, FABRIC_RENDER_VERSION,
-)
 
 SKILL_NAME = "gatorhats-typography-concepts"
 CANVAS = (2048, 1024)
@@ -283,7 +280,7 @@ def _render_one(quote: str, directory: Path, slot: int) -> Image.Image:
 
 
 def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
-    """Produce six unique opaque embroidered-fabric photos with safe crash recovery."""
+    """Produce six unique transparent stitched masters with safe crash recovery."""
     quote = " ".join(str(quote or "").strip().split())
     if not quote or len(quote) > 55 or any(ord(c) < 32 for c in quote):
         raise ValueError("Stage 1 quote must contain 1–55 printable characters")
@@ -296,8 +293,7 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
     outputs = []
     hashes = set()
     for concept in range(1, 7):
-        thread_geometry = embroider_typography(_render_one(quote, font_dir, concept), concept=concept)
-        final_bytes = fabric_output_bytes(thread_geometry)
+        image = embroider_typography(_render_one(quote, font_dir, concept), concept=concept)
         path = target / f"design_{concept:02}.png"
         if path.is_symlink():
             raise ValueError("Stage 1 checkpoint may not be a symlink")
@@ -306,9 +302,9 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
             try:
                 with Image.open(path) as previous:
                     previous.load()
-                    reusable = (previous.format == "PNG" and previous.mode == "RGB"
+                    reusable = (previous.format == "PNG" and previous.mode == "RGBA"
                                 and previous.size == CANVAS
-                                and path.read_bytes() == final_bytes)
+                                and previous.tobytes() == image.tobytes())
             except (OSError, ValueError):
                 reusable = False
             if not reusable:
@@ -320,14 +316,12 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
                 stale.mkdir(parents=True, exist_ok=True)
                 path.replace(stale / path.name)
         if not reusable:
-            path.write_bytes(final_bytes)
+            image.save(path, format="PNG", optimize=True)
         with Image.open(path) as verified:
             verified.load()
-            if (verified.format != "PNG" or verified.mode != "RGB"
+            if (verified.format != "PNG" or verified.mode != "RGBA"
                 or verified.size != CANVAS or verified.getbbox() is None
-                or verified.info.get("cam.fabric_first.version") != FABRIC_RENDER_VERSION
-                or extract_thread_geometry(verified).getchannel("A").tobytes()
-                   != thread_geometry.getchannel("A").tobytes()):
+                or verified.getpixel((0, 0))[3] != 0):
                 raise ValueError("Stage 1 design failed PNG validation")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest in hashes:
@@ -336,7 +330,7 @@ def render_six(quote: str, font_dir: Path, workspace: Path) -> tuple[Path, ...]:
         outputs.append(path)
     (workspace / "output" / "manifest.json").write_text(
         json.dumps({"skill": SKILL_NAME, "quote": quote, "count": 6,
-                    "concepts": STYLE_NAMES, "finish": FABRIC_RENDER_VERSION,
+                    "concepts": STYLE_NAMES, "finish": "reference_satin_v4",
                     "source": "google_fonts_ofl_bundled",
                     "sha256": [hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs]}),
         encoding="utf-8",

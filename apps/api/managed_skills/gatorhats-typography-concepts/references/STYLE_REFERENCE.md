@@ -2,8 +2,8 @@
 
 The 20 uploaded 1536×1024 RGB examples represent five slogan groups and
 approximately four-five typographic treatments per slogan. The target CAM
-masters produce opaque 2048×1024 RGB photography references on neutral cotton twill, while
-embedding validated geometry needed to stitch directly onto subsequent cap fabrics.
+masters keep a transparent RGBA background at 2048×1024, rather than baking
+the example's white studio background into finished artwork.
 
 | Exact slogan | Block | Red script + block | Serif arc + script | Script + small caps | Retro |
 | --- | --- | --- | --- | --- | --- |
@@ -21,7 +21,7 @@ embedding validated geometry needed to stitch directly onto subsequent cap fabri
 - Reference 06 uses chunky offset blue decorative serif, but never random glyphs.
 - Stitch texture must show pronounced satin bundles and raised thread grooves at both full size and a 200px preview, while
   preserving the exact untextured glyph alpha.
-- All outputs are straight-on embroidery photographs on visible woven fabric, without hats, fake patches, mockups or extra icons.
+- All images are straight-on typographic masters without hats, mockups or extra icons.
 - Official font checksums and license files must pass before any image is written.
 - Existing output versions remain immutable and can be viewed in CAM history.
 

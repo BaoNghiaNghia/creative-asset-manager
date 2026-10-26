@@ -9,7 +9,7 @@ worker's deterministic output validation remains unchanged.
 """
 from __future__ import annotations
 
-EMBROIDERY_REALISM_VERSION = "fabric-first-direct-thread-v3"
+EMBROIDERY_REALISM_VERSION = "canonical-design-direct-thread-v4"
 
 # Covers 4 independent ecommerce outputs, three Multi-hat scenes, three UGC
 # scenes and 12 official Products colorways (one policy for the colorway slot).
@@ -21,13 +21,14 @@ _SHARED_THREAD = (
     f"[{EMBROIDERY_REALISM_VERSION}]: "
     "Treat the current source artwork / design image as the exact ARTWORK identity and the official "
     "Valucap 8869 stock as the exact HAT geometry and fabric-color authority. "
-    "FABRIC-FIRST INPUT RULE: The Stage 1 reference may show embroidered text "
-    "on a NEUTRAL BEIGE woven fabric. That cloth is NOT the hat surface. "
-    "Transfer ONLY exact lettering, individual thread pigments, local stitch "
-    "direction and embroidery geometry to the official stock hat crown. "
-    "Re-light and conform fibers to the actual hat's own twill weave, curvature "
-    "and shadows. Never paste a rectangular cream fabric swatch, visible crop "
-    "border, cloth halo, stock-color mismatch or sticker-like patch. "
+    "CANONICAL DESIGN RULE: the exact source typography, font style, lettering "
+    "geometry, proportions, line hierarchy, composition and individual thread "
+    "colors are immutable. The original transparent design is the identity "
+    "authority. NEVER reinterpret or re-typeset it from a fabric photograph. "
+    "Any on-fabric embroidery photo is ONLY a material-quality reference, "
+    "not a glyph, background, palette or cloth panel to paste onto the cap. "
+    "Reconstruct stitches directly on the official stock cap's weave, lighting "
+    "and curvature while keeping the canonical design unchanged. "
     "Any pre-composited or previously generated embroidered-front reference is "
     "ONLY evidence for letter placement, scale, and perspective: do not copy its "
     "flat overlay, fake thick relief, hard outline, or artificial thread texture. "

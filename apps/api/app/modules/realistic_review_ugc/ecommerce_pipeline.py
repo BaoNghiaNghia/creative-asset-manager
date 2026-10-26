@@ -1075,7 +1075,7 @@ class EcommerceGenerateHandler:
                     "rrugc-ecommerce-design:" + plan_id, source_file_id, mime, size)
             references.append(ReferenceImageInput(
                 image=_prepared_image(design_bytes), role="design_reference",
-                label="exact design identity and reference thread texture; original beige cloth is NOT part of the design"))
+                label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
             design_sha = hashlib.sha256(design_bytes).hexdigest()
             if preview_remote_id:
                 if preview_design_sha != design_sha:

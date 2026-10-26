@@ -179,7 +179,7 @@ def stage1_keyword_trend(raw_value: dict | None) -> list[dict]:
 def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str | None = None) -> str:
     """Generate a bounded keyword-only prompt tailored to the selected Skill."""
     if skill_name == LOCAL_TYPOGRAPHY_SKILL:
-        return ("Deterministically render exactly six opaque embroidery-on-twill PNG photographs "
+        return ("Deterministically render exactly six transparent canonical embroidery designs "
                 "for the literal quote " + repr(keyword) + " with the GatorHats "
                 "C1–C6 layout recipes. Use only the approved application-owned renderer. "
                 "Never call Codex, imagegen or require manual previews. "

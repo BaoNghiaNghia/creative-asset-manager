@@ -208,5 +208,5 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         assert "FRONT high" in calls[0]["prompt"]
     else:
         assert "calibrated" in calls[0]["prompt"].lower()
-    assert "fabric-first-direct-thread-v3" in calls[0]["prompt"]
+    assert "canonical-design-direct-thread-v4" in calls[0]["prompt"]
     assert "PRE-SAVE VISUAL QUALITY CHECK" in calls[0]["prompt"]
