@@ -954,6 +954,12 @@ export const selectStage1ProductDesign = (jobId: string, version: number, select
     { method: "POST" },
   );
 
+export const publishAvailableKeywordImages = (keywordId: string) =>
+  request<{ job_id: string; status: string }>(
+    "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/publish-available",
+    { method: "POST" },
+  );
+
 export const regenerateKeywordImage = (keywordId: string, skill?: Stage2SkillSelection | null) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",

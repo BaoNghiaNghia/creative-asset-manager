@@ -6785,6 +6785,23 @@ def resume_keyword_image_upload(
     return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
 
 
+@router.post("/keyword-images/{keyword_id}/publish-available", status_code=202)
+def publish_available_keyword_images(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Explicitly publish real edited PNG checkpoints; never generate replacements."""
+    try:
+        row = KeywordImageService(session).publish_available(
+            tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+        )
+    except KeywordImageError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+    return {"job_id": row.id, "keyword_id": row.keyword_id, "status": row.status}
+
+
 @router.get("/keyword-images/jobs/{job_id}/status", response_model=KeywordImageRowResponse)
 def get_keyword_image_job_status(
     job_id: str,

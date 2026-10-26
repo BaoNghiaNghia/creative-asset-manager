@@ -743,13 +743,8 @@ class CodexImageGenRunner:
                     workspace=workspace,
                 )
             _assert_concept_short_plan(workspace)
-            skipped = _concept_short_skipped_slots(workspace)
-            if skipped:
-                raise CodexImageProviderError(
-                    "concept_short_slots_ineligible",
-                    "Concept Short cannot supply six eligible slots: "
-                    + "; ".join(skipped),
-                )
+            # The source may contain skipped concepts. Publish each actual
+            # eligible image edit; never fabricate a filler for an ineligible slot.
             if cloudflare_edit:
                 return await self._concept_short_cloudflare_edits(
                     workspace=workspace, missing=resume_missing_numbers,
@@ -915,27 +910,14 @@ class CodexImageGenRunner:
         if (self.config.skill_name == "concept-short-v1"
                 and self.config.output_contract == "stage1_six_final_designs"):
             _assert_concept_short_plan(workspace)
-            skipped = _concept_short_skipped_slots(workspace)
-            if skipped:
+            # Skipped source concepts are not grounds for discarding other
+            # valid image edits; the tool invocation count is checked below.
+            if _distinct_imagegen_calls(stdout) == 0:
                 raise CodexImageProviderError(
-                    "concept_short_slots_ineligible",
-                    "Concept Short v1 cannot supply six eligible slots for this phrase: "
-                    + "; ".join(skipped),
+                    "concept_short_image_edits_missing",
+                    "Concept Short did not invoke the actual image-edit tool; "
+                    "flat concept artwork cannot be published as finished embroidery.",
                 )
-        needed_edits = (len(resume_missing_numbers)
-                        if resume_missing_numbers is not None
-                        else self.config.expected_output_count)
-        if (self.config.skill_name == "concept-short-v1"
-                and self.config.output_contract == "stage1_six_final_designs"
-                and _distinct_imagegen_calls(stdout) < needed_edits):
-            # A successful code-only concept sheet is NOT a completed
-            # photoreal embroidery edit. On resume count only missing edits.
-            raise CodexImageProviderError(
-                "concept_short_image_edits_missing",
-                "Concept Short v1 requires six genuine image-edit calls. "
-                "No code-generated flat concept may be published as embroidered output.",
-            )
-
         files: tuple[GeneratedImageFile, ...] = ()
         if self.config.output_contract == "stage1_six_final_designs":
             # Rarely Codex finishes while image files are still being flushed
@@ -945,13 +927,27 @@ class CodexImageGenRunner:
                 if wait_seconds:
                     await asyncio.sleep(wait_seconds)
                 try:
-                    files = self._collect_six_final_designs(workspace, self.config.expected_output_count)
+                    if self.config.skill_name == "concept-short-v1":
+                        files = self._collect_stage1_partial_designs(
+                            workspace, self.config.expected_output_count,
+                        )
+                    else:
+                        files = self._collect_six_final_designs(
+                            workspace, self.config.expected_output_count,
+                        )
                     break
                 except CodexImageProviderError as exc:
                     if exc.code != "stage1_no_generated_images":
                         raise
                     if wait_seconds == 3:
                         raise _classify_stage1_no_images(stdout, stderr) from exc
+            if (self.config.skill_name == "concept-short-v1"
+                    and _distinct_imagegen_calls(stdout) < len(files)):
+                # A code-rendered image is a source, never an embroidered final.
+                raise CodexImageProviderError(
+                    "concept_short_image_edits_missing",
+                    "Concept Short did not invoke real image editing for every saved design.",
+                )
             image_bytes = Path(files[0].path).read_bytes()
             extra_images = ()
         elif self.config.output_contract == "all_generated_images":
@@ -988,6 +984,66 @@ class CodexImageGenRunner:
             additional_images=extra_images,
             output_files=files if self.config.output_contract in ("all_generated_images", "stage1_six_final_designs") else (),
         )
+
+    @staticmethod
+    def _collect_stage1_partial_designs(
+        workspace: Path, expected_count: int = 6,
+    ) -> tuple[GeneratedImageFile, ...]:
+        """Accept 1..N genuine final PNGs, preserving original slot numbers.
+
+        Never promote sources, previews, drafts, generated images or unsafe
+        paths. The caller must separately prove these are actual image edits.
+        """
+        if not 1 <= expected_count <= 24:
+            raise ValueError("Stage 1 output count must be 1..24")
+        final_dir = workspace / "output" / "final"
+        if not final_dir.is_dir() or final_dir.is_symlink():
+            raise CodexImageProviderError(
+                "stage1_no_generated_images", "No finished image edits were produced."
+            )
+        root = workspace.resolve()
+        digests: set[str] = set()
+        found: list[tuple[int, GeneratedImageFile]] = []
+        for path in sorted(final_dir.iterdir()):
+            if path.name.startswith(".") and path.suffix != ".png":
+                continue
+            if not path.is_file() or path.is_symlink():
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_invalid", "Invalid Stage 1 final image entry."
+                )
+            match = re.fullmatch(r"design_([0-9]{2})\.png", path.name)
+            if match is None or not 1 <= int(match.group(1)) <= expected_count:
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_invalid", "Unexpected Stage 1 final image filename."
+                )
+            if not path.resolve().is_relative_to(root):
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_invalid", "Stage 1 final image escapes its workspace."
+                )
+            try:
+                with Image.open(path) as image:
+                    image.verify()
+                    if image.format != "PNG" or min(image.size) < 512:
+                        raise ValueError("Invalid final PNG dimensions.")
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except (OSError, ValueError, Image.DecompressionBombError) as exc:
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_invalid", "Invalid Stage 1 final PNG."
+                ) from exc
+            if digest in digests:
+                raise CodexImageProviderError(
+                    "stage1_six_outputs_duplicate", "Duplicate Stage 1 final PNG."
+                )
+            digests.add(digest)
+            found.append((int(match.group(1)), GeneratedImageFile(
+                path=str(path.resolve()), filename="output/final/" + path.name,
+                mime_type="image/png",
+            )))
+        if not found:
+            raise CodexImageProviderError(
+                "stage1_no_generated_images", "No finished image edits were produced."
+            )
+        return tuple(item for _, item in sorted(found))
 
     @staticmethod
     def _collect_six_final_designs(workspace: Path, expected_count: int = 6) -> tuple[GeneratedImageFile, ...]:
@@ -1343,6 +1399,7 @@ class CodexImageGenRunner:
         if len(rows) != 6:
             raise CodexImageProviderError("concept_short_source_incomplete", "Six sources required.")
         selected = set(missing if missing is not None else range(1, 7))
+        unavailable: list[int] = []
         final = workspace / "output" / "final"
         final.mkdir(parents=True, exist_ok=True)
         adapter = CloudflareFluxKleinImageEditProvider(
@@ -1352,6 +1409,9 @@ class CodexImageGenRunner:
         try:
             for number, row in enumerate(rows, start=1):
                 if number not in selected:
+                    continue
+                if row.get("status") not in ("ok", "ok_with_notes"):
+                    unavailable.append(number)
                     continue
                 folder = reports[0].parent / row["concept"]
                 source_image = folder / "A_input.png"
@@ -1367,6 +1427,16 @@ class CodexImageGenRunner:
                         prompt=source_prompt.read_text(encoding="utf-8"),
                     )
                 except CloudflareFluxEditError as exc:
+                    if exc.code == "concept_short_flux_rejected":
+                        # A provider refusal is final for this slot. Do not
+                        # rephrase its prompt, weaken moderation or retry it.
+                        unavailable.append(number)
+                        continue
+                    if exc.retryable and any(final.glob("design_*.png")):
+                        # Preserve completed edits and publish the available
+                        # subset rather than losing work on a transient fault.
+                        unavailable.append(number)
+                        break
                     raise CodexImageProviderError(exc.code, str(exc), retryable=exc.retryable) from exc
                 temporary = final / f".design_{number:02}.tmp"
                 try:
@@ -1376,10 +1446,17 @@ class CodexImageGenRunner:
                     temporary.unlink(missing_ok=True)
         finally:
             await adapter.aclose()
-        validated = self._collect_six_final_designs(workspace, self.config.expected_output_count)
+        validated = self._collect_stage1_partial_designs(
+            workspace, self.config.expected_output_count,
+        )
         return GeneratedImageResult(
             provider="codex", model=FLUX_KLEIN_MODEL,
             image_bytes=b"", mime_type="image/png", output_files=validated,
+            provider_metadata={
+                "requested_output_count": str(self.config.expected_output_count),
+                "saved_output_count": str(len(validated)),
+                "skipped_slot_numbers": ",".join(map(str, sorted(unavailable))),
+            },
         )
 
     def _skill_path(self) -> Path:
@@ -1416,7 +1493,7 @@ class CodexImageGenRunner:
                 "embroidered images. Read working/concept-short/<slug>/summary.json "
                 "and each <concept>/A_prompt.txt and A_input.png. "
                 "Respect original C4->C7 / C5->C8 substitutions and colors.\n"
-                "For each eligible slot 1 through 6, edit ONLY its exact "
+                "For each available eligible slot (up to six), edit ONLY its exact "
                 "<concept>/A_input.png into one photoreal stitched artwork. Provide "
                 "that exact image as the reference for the actual image edit. "
                 "Pass its A_prompt.txt verbatim, do not shorten or overwrite it. "
@@ -1425,13 +1502,14 @@ class CodexImageGenRunner:
                 "directly only if the image-edit tool supports it. If that edit "
                 "is unsupported, stop with an explicit blocker. NEVER create "
                 "a new design from a text-only prompt in its place.\n"
-                "If any concept reports skipped/fail_size, fail clearly; do not "
-                "invent a sixth filler or overwrite the source design. Every "
+                "If any concept reports skipped/fail_size, skip that slot; do not "
+                "invent a filler or overwrite the source design. Every "
                 "accepted image must retain its exact phrase, glyphs, colors, "
                 "layout and pure white background with no hat or fabric. "
-                "Save each verified edited image as output/final/design_01.png "
-                "through output/final/design_06.png, one independent 1536x1024 "
-                "PNG per original slot. No output from make_concepts.py, SVG, "
+                "Save each verified edit as its original slot's named file: "
+                "output/final/design_01.png through design_06.png, with gaps "
+                "permitted for skipped slots; at least one edited 1536x1024 "
+                "PNG is required. No output from make_concepts.py, SVG, "
                 "preview or flat raster may be called a stitched final.\n"
                 "Preserve any previous published history. Do not use API-key "
                 "fallback or any deterministic fake-thread overlay.\n"

@@ -469,6 +469,68 @@ class KeywordImageService:
         """Explicit retry replaces prior images; do not resume prior PNG uploads."""
         return self.regenerate(tenant_id=tenant_id, keyword_id=keyword_id)
 
+    def publish_available(
+        self, *, tenant_id: str, keyword_id: str,
+    ) -> RrugcKeywordImageJobModel:
+        """Upload only real, already-edited PNGs from a failed Concept Short run.
+
+        Do not call any image provider, rerender, publish flat sources or
+        overwrite a previously published image. Requires the original failed
+        Cloudflare generation attempt and explicit authorized user action.
+        """
+        job = self._job(tenant_id, keyword_id)
+        if (job is None or job.status != "failed"
+                or job.skill_name != "concept-short-v1"
+                or job.last_error_code != "concept_short_flux_rejected"
+                or not job.processing_job_id or job.output_remote_file_id):
+            raise KeywordImageError(
+                "keyword_image_partial_unavailable",
+                "No unpublished, validated Concept Short edits are available.",
+            )
+        processing = self.session.get(ProcessingJobModel, job.processing_job_id)
+        if processing is None or processing.status != "failed":
+            raise KeywordImageError(
+                "keyword_image_partial_unavailable",
+                "The original edit attempt must have finished before publication.",
+            )
+        published = int(self.session.scalar(select(func.count()).select_from(
+            RrugcImageOutputVersionModel
+        ).where(
+            RrugcImageOutputVersionModel.tenant_id == tenant_id,
+            RrugcImageOutputVersionModel.stage == "stage1",
+            RrugcImageOutputVersionModel.job_id == job.id,
+        )) or 0)
+        if published:
+            raise KeywordImageError(
+                "keyword_image_partial_unavailable",
+                "The job already has published output history; no overwrite performed.",
+            )
+        expected_count = int((processing.payload_json or {}).get("expected_output_count", 6))
+        workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                     / "codex" / job.id)
+        try:
+            finals = CodexImageGenRunner._collect_stage1_partial_designs(
+                workspace, expected_count,
+            )
+        except (CodexImageProviderError, OSError) as exc:
+            raise KeywordImageError(
+                "keyword_image_partial_unavailable",
+                "Previously edited output files are not intact or are no longer available.",
+            ) from exc
+        if len(finals) >= expected_count:
+            raise KeywordImageError(
+                "keyword_image_partial_unavailable",
+                "The job does not have a partial output set.",
+            )
+        generation_id = job.processing_job_id
+        job.status = "queued"
+        job.last_error_code = None
+        job.last_error_message = None
+        self._enqueue(job, upload_only=True, generation_processing_id=generation_id)
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
     def resume_upload(self, *, tenant_id: str, keyword_id: str) -> RrugcKeywordImageJobModel:
         job = self._job(tenant_id, keyword_id)
         if job is None:
@@ -485,7 +547,10 @@ class KeywordImageService:
         workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                      / "codex" / job.id)
         try:
-            CodexImageGenRunner._collect_six_final_designs(workspace)
+            if job.skill_name == "concept-short-v1":
+                CodexImageGenRunner._collect_stage1_partial_designs(workspace)
+            else:
+                CodexImageGenRunner._collect_six_final_designs(workspace)
         except (CodexImageProviderError, OSError) as exc:
             raise KeywordImageError(
                 "keyword_image_saved_finals_missing",
@@ -576,7 +641,9 @@ class KeywordImageService:
             state = effective_status(job, processing) if job else "not_run"
             checkpoint_count = 0
             if (job and state in ("queued", "running", "failed")
-                    and int(job.retry_count or 0) > 0):
+                    and (int(job.retry_count or 0) > 0
+                         or (state == "failed"
+                             and job.last_error_code == "concept_short_flux_rejected"))):
                 workspace = (Path(self.settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                              / "codex" / job.id)
                 output_count = int((processing.payload_json or {}).get("expected_output_count", 6)) if processing else 6
@@ -596,6 +663,17 @@ class KeywordImageService:
                 "retry_count": job.retry_count if job else 0,
                 "auto_retry_max": len(STAGE1_AUTO_RETRY_DELAYS_SECONDS),
                 "checkpoint_count": checkpoint_count,
+                "partial_publish_available": bool(
+                    job and state == "failed"
+                    and job.skill_name == "concept-short-v1"
+                    and job.last_error_code == "concept_short_flux_rejected"
+                    and 0 < checkpoint_count < (
+                        int((processing.payload_json or {}).get("expected_output_count", 6))
+                        if processing else 6
+                    )
+                    and not job.output_remote_file_id
+                    and int(saved_counts.get(job.id, 0)) == 0
+                ),
                 "expected_output_count": int((processing.payload_json or {}).get("expected_output_count", 6)) if processing else 6,
                 "next_retry_at": (processing.next_attempt_at.isoformat()
                                   if processing and processing.status in ("pending", "retry")
@@ -997,8 +1075,13 @@ class KeywordImageGenerateHandler:
             # assets before the new six finals pass validation and upload.
             # A fresh runner clears only its disposable local workspace.
             if upload_only:
-                # No Skill call on recovery. Verify the existing six final files.
-                final_files = CodexImageGenRunner._collect_six_final_designs(workspace, output_count)
+                # Do not call an image provider or rerender sources on upload
+                # recovery; preserve each already generated genuine edit.
+                final_files = (
+                    runner._collect_stage1_partial_designs(workspace, output_count)
+                    if skill_name == "concept-short-v1"
+                    else runner._collect_six_final_designs(workspace, output_count)
+                )
                 generated = GeneratedImageResult(
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
@@ -1131,7 +1214,7 @@ class KeywordImageGenerateHandler:
         *, generation_processing_id: str | None = None,
         skill_name: str | None = None,
     ) -> JobHandlerResult:
-        """Persist the six validated final designs; intermediate drafts stay transient."""
+        """Persist validated final designs, including a genuine partial set."""
         import hashlib
         from pathlib import Path
 
@@ -1149,10 +1232,13 @@ class KeywordImageGenerateHandler:
         expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
         if not 1 <= expected_count <= 24:
             raise CodexImageProviderError("stage1_output_count_invalid", "Invalid Stage 1 expected output count.", retryable=False)
-        if len(payloads) != expected_count:
+        partial_allowed = skill_name == "concept-short-v1"
+        if (not 1 <= len(payloads) <= expected_count
+                or (not partial_allowed and len(payloads) != expected_count)):
             raise CodexImageProviderError(
                 "stage1_six_outputs_required",
-                f"Stage 1 requires exactly {expected_count} individual final design images.",
+                f"Stage 1 requires 1–{expected_count} verified image edits for Concept Short; "
+                f"other Skills still require {expected_count} finals.",
                 retryable=False,
             )
 
@@ -1307,8 +1393,15 @@ class KeywordImageGenerateHandler:
             job.provider_request_id = generated.provider_request_id
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
-            job.last_error_code = None
-            job.last_error_message = None
+            if partial_allowed and len(payloads) < expected_count:
+                job.last_error_code = "stage1_partial_output"
+                job.last_error_message = (
+                    f"Saved {len(payloads)}/{expected_count} genuine image edits. "
+                    "Unavailable concepts were not replaced with synthetic images."
+                )
+            else:
+                job.last_error_code = None
+                job.last_error_message = None
             session.commit()
         context.logger.info("rrugc_keyword_image_completed",
                             extra={"job_id": context.job.entity_id,

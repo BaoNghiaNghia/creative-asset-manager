@@ -606,6 +606,85 @@ def test_failed_stage1_retry_queues_one_replacement_run(db):
     assert db.query(ProcessingJobModel).count() == 2
 
 
+
+
+def test_publish_available_preserves_only_real_partial_edits(db, tmp_path):
+    from PIL import Image
+    from app.core.config import get_settings
+    kw = keyword(db, "las-vegas", "tenant-a", picked=True)
+    original = ProcessingJobModel(
+        id="original-flux-attempt", tenant_id="tenant-a",
+        job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="partial-flux-job",
+        idempotency_key="original-flux-attempt",
+        payload_json={"keyword_image_job_id": "partial-flux-job",
+                      "expected_output_count": 6},
+        status="failed", max_attempts=1,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="partial-flux-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local",
+        skill_name="concept-short-v1", prompt_text="prompt", status="failed",
+        created_by_user_id="actor", last_error_code="concept_short_flux_rejected",
+        processing_job_id=original.id,
+    )
+    db.add_all([original, job])
+    db.commit()
+    folder = tmp_path / "codex" / job.id / "output" / "final"
+    folder.mkdir(parents=True)
+    for number in (1, 4):
+        Image.new("RGB", (1536, 1024), (30 + number, 50, 140)).save(
+            folder / f"design_{number:02}.png"
+        )
+    settings = get_settings().model_copy(update={"IMAGE_GENERATION_STAGING_ROOT": str(tmp_path)})
+    service = KeywordImageService(db, settings)
+    with pytest.raises(KeywordImageError):
+        service.publish_available(tenant_id="wrong-tenant", keyword_id=kw.id)
+    queued = service.publish_available(tenant_id="tenant-a", keyword_id=kw.id)
+    assert queued.status == "queued"
+    assert queued.processing_job_id != original.id
+    processing = db.get(ProcessingJobModel, queued.processing_job_id)
+    assert processing.payload_json["upload_only"] is True
+    assert processing.payload_json["generation_processing_id"] == original.id
+    assert processing.payload_json.get("replace_outputs") is None
+    assert db.get(ProcessingJobModel, original.id).status == "failed"
+    assert not db.query(RrugcImageOutputVersionModel).count()
+
+
+def test_publish_available_rejects_unsafe_or_unverified_partial(db, tmp_path):
+    from PIL import Image
+    from app.core.config import get_settings
+    kw = keyword(db, "las-vegas-unsafe", "tenant-a", picked=True)
+    original = ProcessingJobModel(
+        id="original-unsafe", tenant_id="tenant-a",
+        job_type="rrugc_keyword_image_generate",
+        entity_type="rrugc_keyword_image_job", entity_id="unsafe-flux-job",
+        idempotency_key="original-unsafe",
+        payload_json={"keyword_image_job_id": "unsafe-flux-job"},
+        status="failed", max_attempts=1,
+    )
+    job = RrugcKeywordImageJobModel(
+        id="unsafe-flux-job", tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name="concept-short-v1",
+        prompt_text="prompt", status="failed", created_by_user_id="actor",
+        last_error_code="concept_short_image_edits_missing",
+        processing_job_id=original.id,
+    )
+    db.add_all([original, job])
+    db.commit()
+    folder = tmp_path / "codex" / job.id / "output" / "final"
+    folder.mkdir(parents=True)
+    Image.new("RGB", (1536, 1024), "white").save(folder / "design_01.png")
+    service = KeywordImageService(db, get_settings().model_copy(
+        update={"IMAGE_GENERATION_STAGING_ROOT": str(tmp_path),
+                }
+    ))
+    # A previous Codex code-only artifact is never treated as a real edit.
+    with pytest.raises(KeywordImageError):
+        service.publish_available(tenant_id="tenant-a", keyword_id=kw.id)
+    assert db.get(RrugcKeywordImageJobModel, job.id).status == "failed"
+
+
 def test_failed_drive_job_can_resume_upload_only_from_preserved_finals(db, tmp_path):
     from PIL import Image
 

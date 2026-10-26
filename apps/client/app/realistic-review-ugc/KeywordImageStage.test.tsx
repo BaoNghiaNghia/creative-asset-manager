@@ -82,7 +82,7 @@ describe("Stage 1 compact output and action controls", () => {
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(2);
     const button = (label: string) => host.querySelector<HTMLButtonElement>('button[aria-label="' + label + '"]')!;
     expect(host.querySelector<HTMLAnchorElement>('a[aria-label="View generated output for BEACH PLEASE"]')?.href).toBe("https://cdn.example.test/output.png");
-    expect(button("Retry BEACH PLEASE").title).toContain("Replace existing images");
+    expect(button("Retry BEACH PLEASE").title).toContain("1–6 verified designs");
     expect(button("Retry BEACH PLEASE").classList.contains("is-retry")).toBe(true);
     expect(button("View all generated images for BEACH PLEASE")).toBeNull();
     expect(button("View logs for BEACH PLEASE").title).toBe("View job logs");
@@ -149,10 +149,10 @@ describe("Stage 1 compact output and action controls", () => {
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="View all generated images for BEACH PLEASE"]')).toBeNull();
     await act(async () => render({ ...outputRow, status: "failed", output_url: null, saved_output_count: 2, upload_recovery_available: true }, true));
     const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]');
-    expect(retry?.title).toContain("Replace existing images");
+    expect(retry?.title).toContain("1–6 verified designs");
     await act(async () => retry?.click());
     expect(run).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected until the new set is fully uploaded");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected; incomplete replacement runs do not delete old files");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(2);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null, saved_output_count: 0 }, true, true));
@@ -164,6 +164,35 @@ describe("Stage 1 compact output and action controls", () => {
 });
 
 describe("Stage 1 zero-output recovery", () => {
+  it("offers publishing existing real edits without starting another generation", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const run = vi.fn(), publish = vi.fn(), logs = vi.fn();
+    const row: KeywordImageRow = {
+      ...outputRow, status: "failed", job_id: "las-vegas-flux",
+      keyword: "LAS VEGAS", output_url: null,
+      saved_output_count: 0, error_code: "concept_short_flux_rejected",
+      error_message: "Provider rejected a concept",
+      checkpoint_count: 4, expected_output_count: 6,
+      partial_publish_available: true,
+    };
+    await act(async () => root.render(
+      <KeywordImageRowControls row={row} busy={false} canGenerate
+        onRun={run} onPublishAvailable={publish} onLogs={logs} />,
+    ));
+    const action = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Publish 4 existing images for LAS VEGAS"]',
+    );
+    expect(action?.textContent).toContain("Publish 4 images");
+    await act(async () => action?.click());
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+    expect(logs).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("offers an explicit new generation confirmation for BIG BROTHER, never an automatic retry", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -182,7 +211,7 @@ describe("Stage 1 zero-output recovery", () => {
     expect(action).not.toBeNull();
     await act(async () => action?.click());
     expect(run).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected until the new set is fully uploaded");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected; incomplete replacement runs do not delete old files");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());

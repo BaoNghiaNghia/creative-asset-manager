@@ -61,7 +61,7 @@ describe("Stage 1 manual keyword generation", () => {
     await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelector(".rrugc-keyword-manual-heading")?.textContent)
-      .toContain("6 separate high-resolution final designs");
+      .toContain("Up to 6 separate high-resolution image edits");
     expect(host.querySelector(".rrugc-keyword-gen-list-title")?.textContent)
       .toContain("Configurable final image count per job");
     await act(async () => root.unmount());

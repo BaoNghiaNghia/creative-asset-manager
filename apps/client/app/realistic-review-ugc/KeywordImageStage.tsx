@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage } from "./api";
+import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
@@ -94,12 +94,13 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onLogs, showPreview = true,
+  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true,
 }: {
   row: KeywordImageRow;
   busy: boolean;
   canGenerate: boolean;
   onRun: () => void;
+  onPublishAvailable?: () => void;
   onLogs: () => void;
   showPreview?: boolean;
 }) {
@@ -113,7 +114,7 @@ export function KeywordImageRowControls({
   const runnable = regenerate || generate;
   const runLabel = regenerate ? "Retry" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Replace existing images and generate six new designs (confirmation required)" : "Redesign Qoutes";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Create a new version (1–6 verified designs; confirmation required)" : "Redesign Qoutes";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -161,6 +162,13 @@ export function KeywordImageRowControls({
         <KeywordActionGlyph kind={regenerate ? "retry" : "generate"} />
         <span className="rrugc-keyword-action-label">{runLabel}</span>
       </button>}
+      {row.partial_publish_available && onPublishAvailable && <button type="button" className="rrugc-keyword-result-action is-generate"
+        onClick={onPublishAvailable} disabled={busy}
+        title="Publish only previously edited genuine images; no new AI calls or replacement"
+        aria-label={"Publish " + row.checkpoint_count + " existing images for " + row.keyword}>
+        <KeywordActionGlyph kind="generate" />
+        <span className="rrugc-keyword-action-label">Publish {row.checkpoint_count} images</span>
+      </button>}
       {row.job_id && <button type="button" className="rrugc-keyword-result-action"
         onClick={onLogs} title="View job logs" aria-label={"View logs for " + row.keyword}>
         <KeywordActionGlyph kind="logs" />
@@ -184,9 +192,8 @@ export function KeywordImageRowControls({
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
           <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
           <p id="rrugc-regenerate-description">
-            Retry <strong>{row.keyword}</strong>? The system will generate and validate six new designs first.
-            Your previous Stage 1 images remain protected until the new set is fully uploaded.
-            Old files are cleaned up afterwards; a Drive cleanup outage will not block the new result.
+            Retry <strong>{row.keyword}</strong>? The system will attempt up to six designs and save genuine completed image edits, even if fewer than six succeed.
+            Previous Stage 1 images remain protected; incomplete replacement runs do not delete old files.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
@@ -346,6 +353,22 @@ export function KeywordImageStage({
   // Stopping a batch stops only future queue requests; durable jobs already queued continue.
   useEffect(() => () => bulkAbortRef.current?.abort(), []);
 
+  const publishAvailable = async (row: KeywordImageRow) => {
+    if (workingIds.has(row.keyword_id) || !row.partial_publish_available) return;
+    setWorkingIds(current => new Set(current).add(row.keyword_id));
+    setError("");
+    setMessage("");
+    try {
+      await publishAvailableKeywordImages(row.keyword_id);
+      setMessage("Publishing " + row.checkpoint_count + " existing edited images for " + row.keyword + ". No additional image generation.");
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not publish saved image edits.");
+    } finally {
+      setWorkingIds(current => { const next = new Set(current); next.delete(row.keyword_id); return next; });
+    }
+  };
+
   const runOne = async (row: KeywordImageRow) => {
     if (workingIds.has(row.keyword_id)) return;
     if (row.status === "not_run" && !selectedSkillInput) {
@@ -358,7 +381,7 @@ export function KeywordImageStage({
     try {
       if (row.status === "completed" || row.status === "failed") {
         await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
-        setMessage("Retry queued for " + row.keyword + ". Previous images will be deleted before six new designs are generated.");
+        setMessage("Retry queued for " + row.keyword + ". Existing images stay protected; up to six verified edits can be published.");
       } else if (row.status === "not_run" && selectedSkillInput) {
         const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
         setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
@@ -433,7 +456,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker="STAGE 1 / KEYWORD-TO-IMAGE"
       title="Generate images from used keywords"
-      description="Generate six separate final embroidery concepts per keyword, track progress, and replace all old images on confirmed Retry."
+      description="Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail."
       actions={<div className="rrugc-keyword-gen-actions">
         <label className="rrugc-keyword-gen-search">
           <span className="sr-only">Search used keywords</span>
@@ -448,7 +471,7 @@ export function KeywordImageStage({
     <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
       <div className="rrugc-keyword-manual-heading">
         <strong>Create artwork from a keyword</strong>
-        <span>{isSixDesignSkill ? "6 separate high-resolution final designs · intermediate drafts excluded" : "Stage 1 requires the Six Designs Skill"}</span>
+        <span>{isSixDesignSkill ? "Up to 6 separate high-resolution image edits · flat drafts excluded" : "Stage 1 requires the Six Designs Skill"}</span>
       </div>
       <div className="rrugc-keyword-manual-controls">
         <label htmlFor="rrugc-stage1-manual-keyword" className="sr-only">Enter keyword or saying</label>
@@ -468,6 +491,7 @@ export function KeywordImageStage({
           ? <KeywordImageRowControls row={manualResult} busy={workingIds.has(manualResult.keyword_id)}
               canGenerate={Boolean(selectedSkill)}
               onRun={() => void runOne(manualResult)}
+              onPublishAvailable={() => void publishAvailable(manualResult)}
               onLogs={() => { if (manualResult.job_id) setLogJobId(manualResult.job_id); }} />
           : <span className="rrugc-keyword-manual-pending">Waiting for job…</span>}
         {manualResult?.status === "completed" && manualResult.output_url
@@ -525,7 +549,8 @@ export function KeywordImageStage({
                   {row.status === "not_run" ? <small>Next run</small> : row.skill_version ? <small>v{row.skill_version}</small> : null}
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
-                  <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{STATUS_LABEL[row.status]}</span>
+                  <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{row.status === "completed" && row.error_code === "stage1_partial_output" ? "Partial" : STATUS_LABEL[row.status]}</span>
+                  {row.status === "completed" && row.error_code === "stage1_partial_output" && <small className="rrugc-keyword-gen-failure">{row.error_message}</small>}
                   {row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}
                   {row.retry_count > 0 && <small className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry: " + new Date(row.next_retry_at).toLocaleString() : "Durable Stage 1 recovery"}>
                     {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
@@ -546,6 +571,7 @@ export function KeywordImageStage({
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
                     onRun={() => void runOne(row)}
+                    onPublishAvailable={() => void publishAvailable(row)}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
                 </td>
               </tr>;

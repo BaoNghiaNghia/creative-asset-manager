@@ -107,6 +107,7 @@ def make_source(workspace):
 class FakeFlux:
     seen = []
     fail_at = None
+    failure_code = "concept_short_flux_rate_limited"
 
     def __init__(self, *, account_id, api_token):
         assert account_id == "acct"
@@ -116,7 +117,7 @@ class FakeFlux:
         self.seen.append(prompt)
         number = len(self.seen)
         if number == self.fail_at:
-            raise CloudflareFluxEditError("concept_short_flux_rate_limited", "quota", retryable=True)
+            raise CloudflareFluxEditError(self.failure_code, "failed edit", retryable=self.failure_code == "concept_short_flux_rate_limited")
         concept = prompt.rsplit(" ", 1)[-1]
         color_index = {"C1": 1, "C2": 2, "C3": 3, "C7": 4, "C5": 5, "C6": 6}[concept]
         return image_data(color=(color_index*29, 20, 180))
@@ -177,10 +178,11 @@ def test_concept_short_can_resume_only_missing_edits(tmp_path, monkeypatch):
     monkeypatch.setattr(cloudflare_flux_klein, "CloudflareFluxKleinImageEditProvider", FakeFlux)
     monkeypatch.setattr(codex_image.shutil, "which", lambda _: None)
     actual = runner(tmp_path)
-    with pytest.raises(CodexImageProviderError, match="quota"):
-        asyncio.run(actual.generate_from_references(
-            attempt_id="partial-job", person=None, references=[], prompt="Cowboys AND Tequila",
-        ))
+    partial = asyncio.run(actual.generate_from_references(
+        attempt_id="partial-job", person=None, references=[], prompt="Cowboys AND Tequila",
+    ))
+    assert len(partial.output_files) == 2
+    assert partial.provider_metadata["saved_output_count"] == "2"
     workspace = tmp_path / "staging" / "codex" / "partial-job"
     final = workspace / "output" / "final"
     originals = {n: hashlib.sha256((final / f"design_{n:02}.png").read_bytes()).hexdigest() for n in (1, 2)}
@@ -198,6 +200,103 @@ def test_concept_short_can_resume_only_missing_edits(tmp_path, monkeypatch):
         "Stitch edit slot C5", "Stitch edit slot C6",
     ]
     assert all(hashlib.sha256((final / f"design_{n:02}.png").read_bytes()).hexdigest() == originals[n] for n in originals)
+
+
+
+
+def test_concept_short_provider_rejection_is_skipped_but_other_slots_survive(tmp_path, monkeypatch):
+    from app.providers.ai import cloudflare_flux_klein
+    async def build(*, script, quote, workspace):
+        make_source(workspace)
+    FakeFlux.seen = []
+    FakeFlux.fail_at = 5
+    FakeFlux.failure_code = "concept_short_flux_rejected"
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", build)
+    monkeypatch.setattr(cloudflare_flux_klein, "CloudflareFluxKleinImageEditProvider", FakeFlux)
+    monkeypatch.setattr(codex_image.shutil, "which", lambda _: None)
+    result = asyncio.run(runner(tmp_path).generate_from_references(
+        attempt_id="reject-slot-5", person=None, references=[], prompt="Cowboys AND Tequila",
+    ))
+    FakeFlux.failure_code = "concept_short_flux_rate_limited"
+    assert len(result.output_files) == 5
+    assert {item.filename.rsplit("/", 1)[-1] for item in result.output_files} == {
+        "design_01.png", "design_02.png", "design_03.png",
+        "design_04.png", "design_06.png",
+    }
+    assert result.provider_metadata["skipped_slot_numbers"] == "5"
+    assert len(FakeFlux.seen) == 6
+
+
+def test_concept_short_source_with_ineligible_slot_keeps_other_designs(tmp_path, monkeypatch):
+    from app.providers.ai import cloudflare_flux_klein
+    async def build(*, script, quote, workspace):
+        folder = make_source(workspace)
+        summary = json.loads((folder / "summary.json").read_text())
+        summary[-1]["status"] = "skipped"
+        summary[-1]["reason"] = "C6 max 10 chars per line"
+        (folder / "summary.json").write_text(json.dumps(summary))
+    FakeFlux.seen = []
+    FakeFlux.fail_at = None
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", build)
+    monkeypatch.setattr(cloudflare_flux_klein, "CloudflareFluxKleinImageEditProvider", FakeFlux)
+    monkeypatch.setattr(codex_image.shutil, "which", lambda _: None)
+    result = asyncio.run(runner(tmp_path).generate_from_references(
+        attempt_id="skipped-slot-6", person=None, references=[], prompt="Cowboys AND Tequila",
+    ))
+    assert len(result.output_files) == 5
+    assert result.provider_metadata["skipped_slot_numbers"] == "6"
+    assert not any("C6" in x for x in FakeFlux.seen)
+
+
+def test_concept_short_zero_successful_edits_remains_failed(tmp_path, monkeypatch):
+    from app.providers.ai import cloudflare_flux_klein
+    async def build(*, script, quote, workspace):
+        make_source(workspace)
+    FakeFlux.seen = []
+    FakeFlux.fail_at = 1
+    FakeFlux.failure_code = "concept_short_flux_rejected"
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", build)
+    monkeypatch.setattr(cloudflare_flux_klein, "CloudflareFluxKleinImageEditProvider", FakeFlux)
+    monkeypatch.setattr(codex_image.shutil, "which", lambda _: None)
+    # Slot 1 rejected; other five still run. To check a true zero-output
+    # case, invalidate all six sources without fabricating replacement images.
+    async def skip_all(*, script, quote, workspace):
+        folder = make_source(workspace)
+        summary = json.loads((folder / "summary.json").read_text())
+        for row in summary:
+            row["status"] = "skipped"
+            row["reason"] = "ineligible"
+        (folder / "summary.json").write_text(json.dumps(summary))
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", skip_all)
+    with pytest.raises(CodexImageProviderError) as caught:
+        asyncio.run(runner(tmp_path).generate_from_references(
+            attempt_id="zero-edits", person=None, references=[], prompt="Cowboys AND Tequila",
+        ))
+    FakeFlux.failure_code = "concept_short_flux_rate_limited"
+    assert caught.value.code == "stage1_no_generated_images"
+    assert FakeFlux.seen == []
+
+
+def test_partial_image_collector_never_imports_flat_source_or_invalid_png(tmp_path):
+    workspace = tmp_path / "isolated"
+    base = make_source(workspace)
+    assert base.is_dir()
+    with pytest.raises(CodexImageProviderError) as caught:
+        CodexImageGenRunner._collect_stage1_partial_designs(workspace)
+    assert caught.value.code == "stage1_no_generated_images"
+    final = workspace / "output" / "final"
+    final.mkdir(parents=True)
+    (final / "design_03.png").write_bytes(image_data())
+    (final / "design_05.png").write_bytes(image_data(color=(43, 59, 80)))
+    files = CodexImageGenRunner._collect_stage1_partial_designs(workspace)
+    assert len(files) == 2
+    assert [x.filename for x in files] == [
+        "output/final/design_03.png", "output/final/design_05.png",
+    ]
+    (final / "preview.png").write_bytes(image_data(color=(44, 60, 80)))
+    with pytest.raises(CodexImageProviderError) as caught:
+        CodexImageGenRunner._collect_stage1_partial_designs(workspace)
+    assert caught.value.code == "stage1_six_outputs_invalid"
 
 
 def test_enabled_flux_without_credentials_fails_instead_of_falling_back(tmp_path, monkeypatch):

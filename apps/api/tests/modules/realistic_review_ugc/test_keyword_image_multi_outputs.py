@@ -96,6 +96,61 @@ def test_stage1_persists_six_individual_final_files_and_their_names(tmp_path):
         assert job.output_web_url == "https://cdn.example.test/1"
     engine.dispose()
 
+
+
+def test_concept_short_accepts_two_real_final_images_and_marks_partial(tmp_path):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    for table in (RrugcKeywordImageJobModel.__table__, RrugcImageOutputVersionModel.__table__):
+        table.create(engine)
+    with Session(engine) as session:
+        session.add(RrugcKeywordImageJobModel(
+            id="concept-job", tenant_id="tenant-a", keyword_id="kw-concept",
+            keyword_text="LAS VEGAS", skill_source="local", skill_name="concept-short-v1",
+            prompt_text="LAS VEGAS", status="running", created_by_user_id="actor",
+        ))
+        session.commit()
+
+    sources = []
+    for number in (1, 4):
+        source = tmp_path / f"design_{number:02}.png"
+        Image.new("RGB", (1536, 1024), (30 + number, 56, 190)).save(source)
+        sources.append(GeneratedImageFile(path=str(source),
+                      filename=f"output/final/design_{number:02}.png", mime_type="image/png"))
+    generated = GeneratedImageResult(
+        provider="codex", model="@cf/black-forest-labs/flux-2-klein-4b",
+        image_bytes=b"", mime_type="image/png", output_files=tuple(sources),
+    )
+    class Storage:
+        def __init__(self):
+            self.uploads = []
+        async def store_asset(self, payload):
+            self.uploads.append(payload.filename)
+            return SimpleNamespace(remote_file_id=f"remote-{len(self.uploads)}",
+                                   web_url=f"https://example.test/{len(self.uploads)}")
+    storage = Storage()
+    context = SimpleNamespace(
+        job=SimpleNamespace(tenant_id="tenant-a", entity_id="concept-job", id="attempt-1"),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(engine, autoflush=False)),
+        logger=logging.getLogger(__name__),
+    )
+    result = asyncio.run(KeywordImageGenerateHandler()._save_skill_outputs(
+        context, storage, generated, skill_name="concept-short-v1",
+    ))
+    assert result.outcome.value == "completed"
+    assert len(storage.uploads) == 2
+    with Session(engine) as session:
+        job = session.get(RrugcKeywordImageJobModel, "concept-job")
+        assert job.status == "completed"
+        assert job.last_error_code == "stage1_partial_output"
+        assert "2/6" in job.last_error_message
+        rows = list(session.scalars(select(RrugcImageOutputVersionModel).order_by(
+            RrugcImageOutputVersionModel.version)))
+        assert [row.output_name for row in rows] == [
+            "output/final/design_01.png", "output/final/design_04.png",
+        ]
+    engine.dispose()
+
+
 def test_stage1_retains_checkpointed_images_if_upload_fails_midway(tmp_path, monkeypatch):
     monkeypatch.setattr("app.modules.realistic_review_ugc.keyword_images.STAGE1_DRIVE_RETRY_DELAYS", (0, 0))
     """Six final images, third Drive upload fails: the first two survive."""
