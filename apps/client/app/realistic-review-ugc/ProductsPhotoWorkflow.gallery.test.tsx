@@ -114,6 +114,7 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>trigger.click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
+    expect(modal.getAttribute("data-gallery-layout")).toBe("all-outputs");
     expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(22);
     expect(modal.textContent).toContain("0 of 22 images generated");
     expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[0].textContent).toContain("Front High");

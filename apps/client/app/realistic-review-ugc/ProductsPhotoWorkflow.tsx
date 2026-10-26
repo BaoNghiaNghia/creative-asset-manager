@@ -707,7 +707,7 @@ export function ProductsPhotoWorkflow({
     {outputGallery && <OutputPhotoGalleryModal title={outputGallery.title} items={outputGallery.items} initialIndex={outputGallery.initialIndex}
       onClose={() => setOutputGallery(null)} />}
     {allOutputOpen && <OutputPhotoGalleryModal title={"All outputs · " + sourceName} items={allOutputItems}
-      onClose={() => setAllOutputOpen(false)}
+      layout="all-outputs" onClose={() => setAllOutputOpen(false)}
       onOpenVersions={item => {
         if (item.key.startsWith("colorway:")) {
           const job = byColor.get(item.key.slice("colorway:".length));

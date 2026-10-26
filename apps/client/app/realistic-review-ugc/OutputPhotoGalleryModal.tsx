@@ -14,6 +14,7 @@ export type PhotoOutputItem = {
 export type OutputPhotoGalleryModalProps = {
   title: string;
   items: PhotoOutputItem[];
+  layout?: "default" | "all-outputs";
   initialIndex?: number;
   onClose: () => void;
   onOpenVersions?: (item: PhotoOutputItem) => void;
@@ -44,7 +45,7 @@ function OutputPlaceholder({ status }: { status: PhotoOutputItem["status"] }) {
 }
 
 export function OutputPhotoGalleryModal({
-  title, items, initialIndex = 0, onClose, onOpenVersions, onRetry, retryDisabled,
+  title, items, layout = "default", initialIndex = 0, onClose, onOpenVersions, onRetry, retryDisabled,
 }: OutputPhotoGalleryModalProps) {
   const titleId = useId();
   const [index, setIndex] = useState(() => Math.max(0, Math.min(initialIndex, items.length - 1)));
@@ -87,7 +88,8 @@ export function OutputPhotoGalleryModal({
   return createPortal(<div className="rrugc-photo-gallery-overlay"
     onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className={"rrugc-photo-gallery" + (hasGallery ? " has-thumbnails" : " is-single")}
-      role="dialog" aria-modal="true" aria-labelledby={titleId} data-photo-gallery={hasGallery ? "multi" : "single"}>
+      role="dialog" aria-modal="true" aria-labelledby={titleId} data-photo-gallery={hasGallery ? "multi" : "single"}
+      data-gallery-layout={layout}>
       <header className="rrugc-photo-gallery-header">
         <div className="rrugc-photo-gallery-heading">
           <span className="rrugc-photo-gallery-eyebrow">OUTPUT GALLERY</span>

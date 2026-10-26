@@ -22,6 +22,23 @@ async function mount(props: Partial<ComponentProps<typeof OutputPhotoGalleryModa
 }
 
 describe("Compact photo output gallery",()=>{
+  it("applies the 75/25 variant only to aggregated output galleries", async () => {
+    const allOutputs = [...colors, ...colors.slice(0, 9).map((item, i) => ({
+      ...item, key: "additional-" + i, label: "More " + i,
+    }))];
+    const {root} = await mount({ title: "All outputs · embroidery.png", items: allOutputs, layout: "all-outputs" });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
+    expect(dialog.getAttribute("data-gallery-layout")).toBe("all-outputs");
+    expect(dialog.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(22);
+    expect(dialog.querySelector(".rrugc-photo-gallery-preview")).not.toBeNull();
+    expect(dialog.querySelector(".rrugc-photo-gallery-sidebar")).not.toBeNull();
+    await act(async()=>root.unmount());
+
+    const normal = await mount();
+    expect(document.querySelector('[role="dialog"]')?.getAttribute("data-gallery-layout")).toBe("default");
+    await act(async()=>normal.root.unmount());
+  });
+
   it("opens 13 persistent slot positions with missing, failed, queued and complete states",async()=>{
     const {root}=await mount({initialIndex:0});
     const dialog=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;

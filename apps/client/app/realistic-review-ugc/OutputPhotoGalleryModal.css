@@ -29,6 +29,10 @@
 .rrugc-photo-gallery-content{
  display:grid;grid-template-columns:minmax(0,1fr) 274px;gap:0;min-height:0;overflow:auto;align-items:start;
 }
+/* Only the aggregated 22-output viewer uses the 75% image / 25% thumbnails split. */
+.rrugc-photo-gallery[data-gallery-layout="all-outputs"] .rrugc-photo-gallery-content{
+ grid-template-columns:minmax(0,3fr) minmax(0,1fr);
+}
 .rrugc-photo-gallery.is-single .rrugc-photo-gallery-content{grid-template-columns:minmax(0,1fr)}
 .rrugc-photo-gallery-preview{
  display:flex;flex-direction:column;min-width:0;min-height:0;padding:16px 17px 14px;gap:10px;align-self:start;
@@ -131,6 +135,9 @@
  .rrugc-photo-gallery-header{padding:12px 13px}
  .rrugc-photo-gallery-heading h2{font-size:14px}
  .rrugc-photo-gallery-content{grid-template-columns:minmax(0,1fr)}
+ .rrugc-photo-gallery[data-gallery-layout="all-outputs"] .rrugc-photo-gallery-content{
+  grid-template-columns:minmax(0,1fr);
+ }
  .rrugc-photo-gallery-preview{padding:11px;gap:8px}
  .rrugc-photo-gallery-stage{height:auto}
  .rrugc-photo-gallery-sidebar{border-left:0;border-top:1px solid #e6edf6;padding:12px;gap:10px}
