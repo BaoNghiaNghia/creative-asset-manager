@@ -25,6 +25,9 @@ from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS_BY_S
 from app.modules.realistic_review_ugc.ecommerce_stock_evidence import read_release_stock
 from app.modules.realistic_review_ugc.hat_stock_sync import COLORS
 from app.modules.realistic_review_ugc.ecommerce_front_reference import FrontReferenceError, render_front_reference
+from app.modules.realistic_review_ugc.front_placement import (
+    front_placement_prompt, job_front_placement, pin_front_placement,
+)
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
@@ -71,8 +74,8 @@ VIEW_PROMPTS = {
     "prod_s2_ec1": (
         "FRONT high straight-on catalog photo. Apply exactly the original embroidery "
         "inside the cap's approved front embroidery area, matching the Blueprint reference "
-        "frame on the original 4:5 hat photograph: left 15.2%, top 30.9%, width 69.6%, "
-        "height 23.1%. Preserve the artwork aspect ratio without distortion, fitting "
+        "frame on the original 4:5 hat photograph, using the pinned calibration "
+        "coordinates in the job instructions. Preserve the artwork aspect ratio without distortion, fitting "
         "within this full guide rectangle. Preserve exact lettering, thread colors, "
         "stitch structure and the five-panel crown. No design outside the guide area. Preserve the exact GatorHats side wordmark on the cap side if it is naturally visible."
     ),
@@ -274,7 +277,8 @@ class EcommerceService:
             raise EcommerceError("multihat_stock_unavailable", str(exc), 503) from exc
 
     def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None, multihat_references=None,
-                 multihat_colorways=None, multihat_colorway_hashes=None) -> None:
+                 multihat_colorways=None, multihat_colorway_hashes=None,
+                 front_placement=None) -> None:
         count = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
@@ -285,6 +289,7 @@ class EcommerceService:
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
             payload={
                 "ecommerce_job_id": row.id,
+                **({"front_placement": front_placement} if front_placement is not None else {}),
                 **({"scout_reference": scout_reference} if scout_reference else {}),
                 **({"multihat_references": multihat_references} if multihat_references else {}),
                 **({"multihat_colorways": multihat_colorways,
@@ -376,7 +381,8 @@ class EcommerceService:
         self.session.flush()
         self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
-                      multihat_colorway_hashes=multihat_colorway_hashes)
+                      multihat_colorway_hashes=multihat_colorway_hashes,
+                      front_placement=pin_front_placement(self.session, tenant_id))
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
@@ -746,9 +752,12 @@ class EcommerceService:
                     row.stage, multihat_colorways)
         else:
             multihat_colorway_hashes = None
+        previous_processing = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+        previous_placement = (previous_processing.payload_json or {}).get("front_placement") if previous_processing else None
         self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
-                      multihat_colorway_hashes=multihat_colorway_hashes)
+                      multihat_colorway_hashes=multihat_colorway_hashes,
+                      front_placement=previous_placement)
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "retry_count": row.retry_count}
 
@@ -778,6 +787,13 @@ class EcommerceService:
             row.front_preview_content_type = front.front_preview_content_type
             row.front_preview_size_bytes = front.front_preview_size_bytes
             row.front_preview_design_sha256 = front.front_preview_design_sha256
+        if row.stage == "prod_s2_ec1":
+            # Explicit regeneration consumes the current calibration, not an
+            # outdated persisted front overlay. Saved output versions are intact.
+            row.front_preview_remote_file_id = None
+            row.front_preview_content_type = None
+            row.front_preview_size_bytes = None
+            row.front_preview_design_sha256 = None
         # Keep the version's original Skill pinned; do not silently switch to
         # another assigned Skill in a historical photo job.
         row.status = "queued"
@@ -821,7 +837,8 @@ class EcommerceService:
                 row.stage, regenerated)
         self._enqueue(row, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
-                      multihat_colorway_hashes=multihat_colorway_hashes)
+                      multihat_colorway_hashes=multihat_colorway_hashes,
+                      front_placement=pin_front_placement(self.session, tenant_id))
         self.session.commit()
         return {"job_id": row.id, "status": row.status}
 
@@ -1064,7 +1081,11 @@ class EcommerceGenerateHandler:
                     storage, context, "rrugc-ecommerce-front-preview:" + context.job.entity_id,
                     preview_remote_id, preview_mime, preview_size)
             elif stage == "prod_s2_ec1":
-                preview_bytes = render_front_reference(refs[0][1], design_bytes)
+                front_placement = job_front_placement(context.job.payload.get("front_placement"))
+                preview_bytes = render_front_reference(
+                    refs[0][1], design_bytes,
+                    guide=tuple(front_placement[key] for key in ("left", "top", "width", "height")),
+                )
                 stored_preview = await storage.store_asset(StoreAssetInput(
                     tenant_id=context.job.tenant_id,
                     content_hash=hashlib.sha256(preview_bytes).hexdigest(),
@@ -1173,6 +1194,9 @@ class EcommerceGenerateHandler:
                           "of the official Valucap 8869 "
                           + color_key.replace("-", "/") + " five-panel twill cap. "))
             + VIEW_PROMPTS[stage]
+            + (" " + front_placement_prompt(job_front_placement(
+                context.job.payload.get("front_placement")))
+               if stage != "prod_s2_ec4" else "")
             + " " + embroidery_prompt_for_product_slot(stage)
             + " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "

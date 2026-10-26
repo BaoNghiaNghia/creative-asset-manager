@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel, RrugcFrontPlacementSettingModel
 from app.modules.realistic_review_ugc.colorways import (
     COLORS, PRODUCTS_COLORS, PRODUCTS_COLOR_KEYS, ColorwayError, ColorwayService, effective_status,
 )
@@ -27,7 +27,7 @@ def db():
     for table in (
         RrugcSourcePlanModel.__table__, RrugcColorwayJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
-        RrugcImageOutputVersionModel.__table__,
+        RrugcImageOutputVersionModel.__table__, RrugcFrontPlacementSettingModel.__table__,
     ):
         table.create(engine)
     with Session(engine) as session:
@@ -79,6 +79,11 @@ def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(
     source = plan(db, name="design_01.png", source_id="products-12")
     source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
     db.commit()
+    from app.modules.realistic_review_ugc.front_placement import (
+        DEFAULT_FRONT_PLACEMENT, save_front_placement,
+    )
+    customized = {**DEFAULT_FRONT_PLACEMENT, "top": 0.27}
+    save_front_placement(db, source.tenant_id, "actor", customized, 0)
     service = ColorwayService(db)
     assert len(PRODUCTS_COLORS) == 12
     assert len(PRODUCTS_COLOR_KEYS) == 12
@@ -91,6 +96,9 @@ def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(
     }
     assert len(service.list(tenant_id=source.tenant_id, source_ids=[source.id])) == 12
     assert set(j.color_key for j in db.query(RrugcColorwayJobModel)) == PRODUCTS_COLOR_KEYS
+    for row in db.query(RrugcColorwayJobModel):
+        proc = db.get(ProcessingJobModel, row.processing_job_id)
+        assert proc.payload_json["front_placement"] == customized
 
     # A pre-existing 13th output is immutable but excluded from the live UI,
     # future queues, ZIP delivery and all subsequent Products generations.

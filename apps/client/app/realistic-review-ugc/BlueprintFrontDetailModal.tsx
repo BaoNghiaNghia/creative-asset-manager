@@ -4,6 +4,7 @@ import { BlueprintSmoothImage } from "./BlueprintSmoothImage";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
+import { DEFAULT_FRONT_PLACEMENT, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 
 import "./BlueprintFrontDetailModal.css";
 
@@ -17,12 +18,14 @@ type FrontDetailProps = {
   designLabel: string;
   designSize: number;
   guides: boolean;
+  placement?: FrontPlacement;
   onClose: () => void;
 };
 
 /** Inspect the actual cap + fitted embroidery, rather than enlarging a 512px thumbnail. */
 export function BlueprintFrontDetailModal({
-  hatSrc, designSrc, compositedSrc, threadMode = "auto", colorId, colorLabel, designLabel, designSize, guides, onClose,
+  hatSrc, designSrc, compositedSrc, threadMode = "auto", colorId, colorLabel, designLabel, designSize, guides,
+  placement = DEFAULT_FRONT_PLACEMENT, onClose,
 }: FrontDetailProps) {
   const [zoom, setZoom] = useState(100);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -115,7 +118,7 @@ export function BlueprintFrontDetailModal({
             transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom / 100})`,
           }}>
             <div className="rrugc-blueprint-detail-image">
-              <div className="rrugc-blueprint-front-scene">
+              <div className="rrugc-blueprint-front-scene" style={frontPlacementStyle(placement)}>
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={hatSrc}
                   alt={"Original Valucap 8869 hat, " + colorLabel} draggable={false}/>
                 <div ref={fit.frameRef} className="rrugc-blueprint-selected-design">

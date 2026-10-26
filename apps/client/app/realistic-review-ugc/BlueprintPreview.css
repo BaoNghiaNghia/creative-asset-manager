@@ -407,3 +407,15 @@ button.rrugc-blueprint-thread-swatch:focus-visible{
 @media(prefers-reduced-motion:reduce){.rrugc-blueprint-detail-affordance{transition:none}}
 /* Thread color comes from the master PNG; never imply automatic brim tinting. */
 .rrugc-blueprint-thread-source{display:inline-flex;align-items:center;padding:5px 8px;border:1px solid #d0e1e7;border-radius:6px;background:#f2f8fa;color:#536777;font-size:10px;font-weight:700;white-space:nowrap}
+
+/* Tenant-saved hoop calibration overrides older static guide-line presets. */
+.rrugc-blueprint-front-scene .rrugc-blueprint-height-line.is-upper{top:var(--rrugc-upper-line, 19%)}
+.rrugc-blueprint-front-scene .rrugc-blueprint-height-line.is-lower{top:var(--rrugc-lower-line, 63%)}
+.rrugc-blueprint-selected-hat .rrugc-front-placement-editor{pointer-events:none}
+.rrugc-blueprint-selected-hat .rrugc-front-placement-editor>.rrugc-front-placement-field,
+.rrugc-blueprint-selected-hat .rrugc-front-placement-editor>.rrugc-front-placement-height{pointer-events:auto}
+.rrugc-blueprint-selected-card:has(.rrugc-front-placement-editor) .rrugc-blueprint-front-open-detail{cursor:default}
+.rrugc-blueprint-selected-card:has(.rrugc-front-placement-editor) .rrugc-blueprint-detail-affordance{display:none}
+.rrugc-blueprint-selected-card:has(.rrugc-front-placement-editor) .rrugc-blueprint-panel-visual{min-height:0}
+.rrugc-blueprint-selected-card .rrugc-blueprint-panel-header:has(.rrugc-blueprint-front-placement-actions){flex-wrap:wrap;row-gap:5px}
+.rrugc-blueprint-selected-card .rrugc-blueprint-panel-header-actions:has(.rrugc-blueprint-front-placement-actions){flex-wrap:wrap;justify-content:flex-end}

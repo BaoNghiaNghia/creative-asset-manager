@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
-import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog } from "./api";
+import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog, getFrontPlacement } from "./api";
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
 import { ProductsPhotoWorkflow, PHOTO_COLOR_KEYS } from "./ProductsPhotoWorkflow";
 import { DeferredImage } from "./DeferredImage";
 import { AppliedHatPreview } from "./AppliedHatPreview";
+import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
 import { HatStockSyncModal } from "./HatStockSyncModal";
 import { PRODUCT_STAGE2_SKILL_SLOTS, skillDefaultForStage } from "./workflowSkillSlots";
 import type { ProductStage2SkillKey } from "./workflowSkillSlots";
@@ -76,7 +77,7 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void }) {
+function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange, placement }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void; placement?: FrontPlacement }) {
   if (productLayout) {
     return <div className="rrugc-colorway-source is-product-card">
       <label className="rrugc-design-hat-color">Hat color <select aria-label="Ecommerce stock color" value={color} onChange={event => onColorChange?.(event.target.value)}>{(colors || []).map(item => <option key={item} value={item}>{item.replaceAll("-", " ")}</option>)}</select></label>
@@ -85,6 +86,7 @@ function DesignSource({ plan, productLayout = false, stockViews, color, colors, 
         designName={cleanDesignName(plan.source_name)}
         revision={plan.source_revision}
         stockViews={stockViews}
+        placement={placement}
       />
     </div>;
   }
@@ -160,6 +162,15 @@ export function EmbroideryColorwayStage({
   const [readinessMessage, setReadinessMessage] = useState("");
   const [hatSyncOpen, setHatSyncOpen] = useState(false);
   const [hatCatalog, setHatCatalog] = useState<HatStockCatalog | null>(null);
+  const [frontPlacement, setFrontPlacement] = useState<FrontPlacement>(DEFAULT_FRONT_PLACEMENT);
+  useEffect(() => {
+    if (!active || workflow !== "products") return;
+    const controller = new AbortController();
+    void getFrontPlacement(controller.signal)
+      .then(value => { if (!controller.signal.aborted) setFrontPlacement(value); })
+      .catch(() => { /* Preserve factory placement when settings are unavailable. */ });
+    return () => controller.abort();
+  }, [active, workflow]);
   const [selectedHatColor, setSelectedHatColor] = useState(DEFAULT_PRODUCT_HAT_COLOR);
   const manuallySelectedHatColor = useRef(false);
   useEffect(() => {
@@ -614,7 +625,7 @@ export function EmbroideryColorwayStage({
                   onChange={() => toggleDesign(plan.id)}
                 />
               </td>}
-              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} color={selectedHatColor} colors={stockColors} onColorChange={value => { manuallySelectedHatColor.current = true; setSelectedHatColor(value); }} /></td>
+              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} placement={frontPlacement} color={selectedHatColor} colors={stockColors} onColorChange={value => { manuallySelectedHatColor.current = true; setSelectedHatColor(value); }} /></td>
               {workflow === "reviews" ? <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {

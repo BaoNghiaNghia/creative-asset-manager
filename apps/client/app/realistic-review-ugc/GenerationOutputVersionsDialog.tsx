@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { listGenerationOutputVersions, selectStage1ProductDesign, type GenerationOutputVersion } from "./api";
+import { getFrontPlacement, listGenerationOutputVersions, saveFrontPlacement, selectStage1ProductDesign, type GenerationOutputVersion } from "./api";
+import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { BlueprintPreview } from "./BlueprintPreview";
@@ -33,6 +34,8 @@ export function GenerationOutputVersionsDialog({
   const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
   const [blueprintGuides, setBlueprintGuides] = useState(false);
   const [blueprintThreadMode, setBlueprintThreadMode] = useState<ThreadMode>("auto");
+  const [frontPlacement, setFrontPlacement] = useState<FrontPlacement>(DEFAULT_FRONT_PLACEMENT);
+  const [placementReady, setPlacementReady] = useState(false);
   const [lightboxVersion, setLightboxVersion] = useState<number | null>(null);
 
   useEffect(() => {
@@ -40,7 +43,22 @@ export function GenerationOutputVersionsDialog({
     setBlueprintGuides(false);
     setBlueprintThreadMode("auto");
     setLightboxVersion(null);
+    setFrontPlacement(DEFAULT_FRONT_PLACEMENT);
+    setPlacementReady(false);
     const controller = new AbortController();
+    if (stage === "stage1") {
+      void getFrontPlacement(controller.signal)
+        .then(value => {
+          if (!controller.signal.aborted) {
+            setFrontPlacement(value);
+            setPlacementReady(true);
+          }
+        })
+        .catch(() => {
+          // Never claim edits were persisted without reading the tenant revision.
+          if (!controller.signal.aborted) setPlacementReady(false);
+        });
+    }
     setLoading(true);
     setError("");
     setSelectionError("");
@@ -102,6 +120,14 @@ export function GenerationOutputVersionsDialog({
     } finally {
       setSavingSelectionVersion(null);
     }
+  }
+
+  async function updateFrontPlacement(draft: FrontPlacement): Promise<FrontPlacement> {
+    const saved = await saveFrontPlacement(draft);
+    setFrontPlacement(saved);
+    setPlacementReady(true);
+    setBlueprintGuides(true);
+    return saved;
   }
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
@@ -239,6 +265,8 @@ export function GenerationOutputVersionsDialog({
       {!loading && !error && (blueprint
         ? <BlueprintPreview versions={compared} initialVersion={initialVersion}
             guides={blueprintGuides} threadMode={blueprintThreadMode}
+            placement={frontPlacement} placementReady={placementReady}
+            onSavePlacement={updateFrontPlacement}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry

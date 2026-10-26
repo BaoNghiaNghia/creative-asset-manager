@@ -5076,6 +5076,59 @@ def select_stage1_design_for_products_stage2(
     return {"selected": bool(selected), "source_plan_id": plan.id if plan else None}
 
 
+class FrontPlacementRequest(BaseModel):
+    """Normalized 4:5 stock coordinates; optimistic revision prevents lost saves."""
+
+    left: float = Field(ge=0, le=1)
+    top: float = Field(ge=0, le=1)
+    width: float = Field(ge=0.10, le=0.95)
+    height: float = Field(ge=0.06, le=0.65)
+    upper_line: float = Field(ge=0, le=1)
+    lower_line: float = Field(ge=0, le=1)
+    expected_revision: int = Field(ge=0)
+
+
+@router.get("/products/front-placement")
+def get_products_front_placement(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.front_placement import read_front_placement
+    return read_front_placement(session, principal.active_tenant_id)
+
+
+@router.put("/products/front-placement")
+def put_products_front_placement(
+    body: FrontPlacementRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.front_placement import (
+        FrontPlacementConflict, FrontPlacementInvalid, save_front_placement,
+    )
+    values = body.model_dump(exclude={"expected_revision"})
+    try:
+        return save_front_placement(
+            session, principal.active_tenant_id, principal.user_id,
+            values, body.expected_revision,
+        )
+    except FrontPlacementInvalid as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "front_placement_invalid", "message": str(exc),
+        }) from exc
+    except FrontPlacementConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "front_placement_conflict", "message": str(exc),
+        }) from exc
+    except IntegrityError as exc:
+        # Two tabs may race to insert the very first tenant calibration.
+        session.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": "front_placement_conflict",
+            "message": "Placement changed in another tab. Reload and try again.",
+        }) from exc
+
+
 @router.get("/generation-jobs/{stage}/{job_id}/outputs")
 def list_generation_output_versions(
     stage: str, job_id: str,

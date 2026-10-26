@@ -13,6 +13,7 @@ from app.modules.realistic_review_ugc.ecommerce_pipeline import (
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel, RrugcEcommerceJobModel,
+    RrugcFrontPlacementSettingModel,
 )
 from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
 
@@ -23,7 +24,7 @@ def ecommerce_db(monkeypatch):
     Base.metadata.create_all(engine, tables=[
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
-        RrugcCapStackImageModel.__table__,
+        RrugcCapStackImageModel.__table__, RrugcFrontPlacementSettingModel.__table__,
     ])
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     monkeypatch.setattr(pipeline, "_assigned_skill", lambda *args: ResolvedStage2Skill(
@@ -68,6 +69,34 @@ def test_queue_is_idempotent_and_job_is_durable(ecommerce_db):
     assert len(jobs) == 1 and jobs[0].job_type == "rrugc_ecommerce_generate"
     assert jobs[0].payload_json["ecommerce_job_id"] == first["job_id"]
     assert jobs[0].priority == 96
+
+
+def test_front_placement_is_pinned_for_new_job_and_regenerate_uses_updated_setting(ecommerce_db):
+    from app.modules.realistic_review_ugc.front_placement import (
+        DEFAULT_FRONT_PLACEMENT, save_front_placement,
+    )
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    saved = {**DEFAULT_FRONT_PLACEMENT, "left": 0.12, "top": 0.28}
+    save_front_placement(session, "tenant-001", "operator", saved, 0)
+    created = service.queue(tenant_id="tenant-001", user_id="operator",
+                            source_plan_id="plan-001", stage="prod_s2_ec1")
+    job = session.get(RrugcEcommerceJobModel, created["job_id"])
+    first_processing = session.get(ProcessingJobModel, job.processing_job_id)
+    assert first_processing.payload_json["front_placement"] == saved
+    newer = {**saved, "left": 0.23}
+    save_front_placement(session, "tenant-001", "operator", newer, 1)
+    # Config changes cannot alter the already queued attempt.
+    assert first_processing.payload_json["front_placement"] == saved
+    job.status = "completed"
+    job.output_remote_file_id = "old-image-stays-saved"
+    job.front_preview_remote_file_id = "old-preview"
+    session.commit()
+    service.regenerate(tenant_id="tenant-001", job_id=job.id)
+    assert job.output_remote_file_id == "old-image-stays-saved"
+    assert job.front_preview_remote_file_id is None
+    latest = session.get(ProcessingJobModel, job.processing_job_id)
+    assert latest.payload_json["front_placement"] == newer
 
 
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):

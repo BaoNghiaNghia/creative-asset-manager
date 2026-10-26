@@ -33,6 +33,9 @@ from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcS
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
+from app.modules.realistic_review_ugc.front_placement import (
+    front_placement_prompt, job_front_placement, pin_front_placement,
+)
 from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -180,7 +183,7 @@ class ColorwayService:
             RrugcColorwayJobModel.tenant_id == tenant_id, RrugcColorwayJobModel.id == job_id,
         ).with_for_update())
 
-    def _enqueue(self, row: RrugcColorwayJobModel) -> None:
+    def _enqueue(self, row: RrugcColorwayJobModel, *, front_placement=None) -> None:
         sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_colorway_job",
@@ -189,7 +192,9 @@ class ColorwayService:
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_colorway_job",
             entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
-            payload={"colorway_job_id": row.id}, priority=20, max_attempts=3,
+            payload={"colorway_job_id": row.id,
+                     **({"front_placement": front_placement} if front_placement is not None else {})},
+            priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
         )
         row.processing_job_id = processing.id
@@ -254,6 +259,7 @@ class ColorwayService:
             )
         )}
         count = 0
+        pinned_placement = pin_front_placement(self.session, tenant_id) if workflow == "products" else None
         for plan in plans:
             for color_key, _ in selected_colors:
                 if (plan.id, plan.source_revision, color_key) in existing:
@@ -269,7 +275,7 @@ class ColorwayService:
                 )
                 self.session.add(row)
                 self.session.flush()
-                self._enqueue(row)
+                self._enqueue(row, front_placement=pinned_placement)
                 count += 1
         self.session.commit()
         return {"queued": count, "existing": len(ids) * len(selected_colors) - count}
@@ -298,7 +304,9 @@ class ColorwayService:
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
         row.started_at = None
-        self._enqueue(row)
+        current_placement = (pin_front_placement(self.session, tenant_id)
+                             if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT else None)
+        self._enqueue(row, front_placement=current_placement)
         self.session.commit()
         self.session.refresh(row)
         return row
@@ -324,7 +332,9 @@ class ColorwayService:
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
-        self._enqueue(row)
+        previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
+        old_placement = (previous.payload_json or {}).get("front_placement") if previous else None
+        self._enqueue(row, front_placement=old_placement)
         self.session.commit()
         self.session.refresh(row)
         return row
@@ -479,6 +489,8 @@ class ColorwayGenerateHandler:
         # This worker also serves Reviews Stage 2. Apply the new product-only
         # direct-thread finish strictly to Products Slot 7, not Review jobs.
         if is_products_colorway:
+            pinned_placement = job_front_placement(context.job.payload.get("front_placement"))
+            prompt += " " + front_placement_prompt(pinned_placement)
             prompt += " " + embroidery_prompt_for_product_slot("prod_s2_col")
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))

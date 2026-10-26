@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
+import { DEFAULT_FRONT_PLACEMENT, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./AppliedHatPreview.css";
 import { DeferredImage } from "./DeferredImage";
 import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
@@ -13,10 +14,11 @@ const HAT_VIEWS = [
 
 const STOCK_ROOT = "/rrugc/blueprint/stock/natural-black";
 
-function HatImage({ designSrc, view, stockViews }: {
+function HatImage({ designSrc, view, stockViews, placement }: {
   designSrc: string;
   view: (typeof HAT_VIEWS)[number];
   stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  placement: FrontPlacement;
 }) {
   const tileRef = useRef<HTMLDivElement>(null);
   const [nearViewport, setNearViewport] = useState(() => typeof IntersectionObserver === "undefined");
@@ -49,7 +51,7 @@ function HatImage({ designSrc, view, stockViews }: {
 
   return <div className="rrugc-applied-hat-image" ref={tileRef} role="img"
     aria-label={`Valucap 8869 ${view.label} view${front ? " with front embroidery design applied" : " without applied embroidery"}`}>
-    {front ? <div className="rrugc-applied-hat-front-scene">
+    {front ? <div className="rrugc-applied-hat-front-scene" style={frontPlacementStyle(placement)}>
       <DeferredImage className="rrugc-applied-hat-stock" src={hatSrc} alt="" aria-hidden="true" rootMargin="350px" />
       {nearViewport && <div className="rrugc-applied-hat-front-frame" ref={fit.frameRef}>
         <img className="rrugc-applied-hat-front-artwork"
@@ -60,17 +62,18 @@ function HatImage({ designSrc, view, stockViews }: {
   </div>;
 }
 
-export function AppliedHatPreview({ designSrc, designName, revision, stockViews }: {
+export function AppliedHatPreview({ designSrc, designName, revision, stockViews, placement = DEFAULT_FRONT_PLACEMENT }: {
   designSrc: string;
   designName: string;
   revision: string;
   stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  placement?: FrontPlacement;
 }) {
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
     <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
       <DeferredImage src={stage2ThumbnailUrl(designSrc, 256)} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
-    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} />)}
+    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} placement={placement} />)}
   </div>;
 }

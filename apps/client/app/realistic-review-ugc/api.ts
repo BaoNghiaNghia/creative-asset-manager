@@ -917,6 +917,21 @@ export const updateStageSkillDefault = (stage: import("./workflowSkillSlots").Wo
     { method: "PATCH", body: JSON.stringify({ registry_id: registryId }) },
   );
 
+import type { FrontPlacement } from "./FrontPlacement";
+
+export const getFrontPlacement = (signal?: AbortSignal) =>
+  request<FrontPlacement>("/api/v1/realistic-review-ugc/products/front-placement", { signal });
+
+export const saveFrontPlacement = (value: FrontPlacement) =>
+  request<FrontPlacement>("/api/v1/realistic-review-ugc/products/front-placement", {
+    method: "PUT",
+    body: JSON.stringify({
+      left: value.left, top: value.top, width: value.width, height: value.height,
+      upper_line: value.upper_line, lower_line: value.lower_line,
+      expected_revision: value.revision,
+    }),
+  });
+
 export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; version: number; created_at: string; width: number | null;
   height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null;
   font_info?: { font_name: string; font_style: string; layout_name: string; font_source: string; font_url: string; font_license: string; font_status: string } | null };

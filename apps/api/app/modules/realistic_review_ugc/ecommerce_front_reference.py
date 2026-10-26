@@ -7,10 +7,12 @@ before invoking Codex. This is a reference, never a claim of final embroidery QA
 from __future__ import annotations
 
 from io import BytesIO
+from collections.abc import Sequence
+from app.modules.realistic_review_ugc.front_placement import DEFAULT_FRONT_PLACEMENT, validate_front_placement
 
 from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
 
-FRONT_GUIDE = (0.152, 0.309, 0.696, 0.231)
+FRONT_GUIDE = tuple(DEFAULT_FRONT_PLACEMENT[key] for key in ("left", "top", "width", "height"))
 MAX_PIXELS = 36_000_000
 
 
@@ -53,7 +55,8 @@ def _visible_artwork(art: Image.Image) -> Image.Image:
     return trimmed
 
 
-def render_front_reference(stock_bytes: bytes, artwork_bytes: bytes) -> bytes:
+def render_front_reference(stock_bytes: bytes, artwork_bytes: bytes,
+                           guide: Sequence[float] = FRONT_GUIDE) -> bytes:
     """Render PNG with all painted pixels inside the calibrated front area.
 
     The painted design preserves its native aspect ratio, occupies at most
@@ -61,7 +64,17 @@ def render_front_reference(stock_bytes: bytes, artwork_bytes: bytes) -> bytes:
     """
     stock = _validated_rgba(stock_bytes)
     artwork = _visible_artwork(_validated_rgba(artwork_bytes))
-    left, top, width, height = FRONT_GUIDE
+    if len(guide) != 4:
+        raise FrontReferenceError("Front placement requires four normalized coordinates")
+    try:
+        validated = validate_front_placement({
+            "left": guide[0], "top": guide[1], "width": guide[2], "height": guide[3],
+            "upper_line": DEFAULT_FRONT_PLACEMENT["upper_line"],
+            "lower_line": DEFAULT_FRONT_PLACEMENT["lower_line"],
+        })
+    except (ValueError, TypeError) as exc:
+        raise FrontReferenceError("Front placement is invalid") from exc
+    left, top, width, height = (validated[key] for key in ("left", "top", "width", "height"))
     guide_x = round(stock.width * left)
     guide_y = round(stock.height * top)
     guide_w = round(stock.width * width)

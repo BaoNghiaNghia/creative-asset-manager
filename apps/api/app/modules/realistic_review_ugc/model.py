@@ -25,6 +25,29 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class RrugcFrontPlacementSettingModel(Base):
+    """Tenant-scoped calibrated front embroidery bounds and hoop height markers.
+
+    Normalized coordinates describe the whole 4:5 official stock photograph.
+    A revision prevents one open browser from overwriting another editor.
+    """
+
+    __tablename__ = "rrugc_front_placement_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    guide_left: Mapped[float] = mapped_column(Float, nullable=False)
+    guide_top: Mapped[float] = mapped_column(Float, nullable=False)
+    guide_width: Mapped[float] = mapped_column(Float, nullable=False)
+    guide_height: Mapped[float] = mapped_column(Float, nullable=False)
+    upper_line: Mapped[float] = mapped_column(Float, nullable=False)
+    lower_line: Mapped[float] = mapped_column(Float, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
 class RrugcStage4QueueControlModel(Base):
     """Tenant-scoped durable pause switch for Stage 4 image generation."""
 

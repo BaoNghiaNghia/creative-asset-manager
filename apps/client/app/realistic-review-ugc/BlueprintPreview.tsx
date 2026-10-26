@@ -9,6 +9,8 @@ import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
+import { FrontPlacementEditor } from "./FrontPlacementEditor";
+import { DEFAULT_FRONT_PLACEMENT, frontPlacementChanged, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./BlueprintPreview.css";
 
 export const BLUEPRINT_HAT_COLORS = [
@@ -80,13 +82,18 @@ type DragAxis = "horizontal" | "vertical" | "both";
 type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
-export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto" }: {
+export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
+  placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement,
+}: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
   onToggleStage2Selection?: (version: GenerationOutputVersion) => void;
   savingSelectionVersion?: number | null;
   guides?: boolean;
   threadMode?: ThreadMode;
+  placement?: FrontPlacement;
+  placementReady?: boolean;
+  onSavePlacement?: (placement: FrontPlacement) => Promise<FrontPlacement>;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
@@ -94,6 +101,47 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const [frontDesignSize, setFrontDesignSize] = useState(100);
   const [sideDesignSize, setSideDesignSize] = useState(100);
   const [frontDetailOpen, setFrontDetailOpen] = useState(false);
+  const [editingPlacement, setEditingPlacement] = useState(false);
+  const [draftPlacement, setDraftPlacement] = useState<FrontPlacement>(placement);
+  const [placementSaving, setPlacementSaving] = useState(false);
+  const [placementMessage, setPlacementMessage] = useState("");
+  const [placementError, setPlacementError] = useState("");
+  const visiblePlacement = editingPlacement ? draftPlacement : placement;
+  const placementStyle = frontPlacementStyle(visiblePlacement);
+  const placementChanged = frontPlacementChanged(draftPlacement, placement);
+  useEffect(() => {
+    if (!editingPlacement) setDraftPlacement(placement);
+  }, [editingPlacement, placement]);
+
+  const beginPlacementEdit = () => {
+    setDraftPlacement(placement);
+    setPlacementMessage("");
+    setPlacementError("");
+    setEditingPlacement(true);
+    hideBlueprintLens(frontLens.current);
+  };
+  const cancelPlacementEdit = () => {
+    setDraftPlacement(placement);
+    setEditingPlacement(false);
+    setPlacementMessage("");
+    setPlacementError("");
+  };
+  const savePlacement = async () => {
+    if (!onSavePlacement || !placementChanged || placementSaving) return;
+    setPlacementSaving(true);
+    setPlacementError("");
+    setPlacementMessage("");
+    try {
+      const result = await onSavePlacement(draftPlacement);
+      setDraftPlacement(result);
+      setEditingPlacement(false);
+      setPlacementMessage("Placement saved for this workspace.");
+    } catch (cause) {
+      setPlacementError(cause instanceof Error ? cause.message : "Could not save placement.");
+    } finally {
+      setPlacementSaving(false);
+    }
+  };
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
   const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
   const dragOrigin = useRef<DragOrigin | null>(null);
@@ -306,21 +354,34 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
               <small>Hoop Red WACE · Placement preview</small>
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
+              {onSavePlacement && <div className="rrugc-blueprint-front-placement-actions" role="group" aria-label="Front placement settings">
+                {editingPlacement ? <>
+                  <button type="button" className="is-primary" disabled={placementSaving || !placementChanged} onClick={() => void savePlacement()}> {placementSaving ? "Saving…" : "Save"} </button>
+                  <button type="button" disabled={placementSaving} onClick={cancelPlacementEdit}>Cancel</button>
+                  <button type="button" disabled={placementSaving} title="Restore factory placement (save to apply)" onClick={() => setDraftPlacement({
+                    ...DEFAULT_FRONT_PLACEMENT, revision: placement.revision,
+                  })}>Reset</button>
+                </> : <button type="button" disabled={!placementReady} onClick={beginPlacementEdit}
+                  title="Move or resize the front embroidery field and blue height lines">Edit placement</button>}
+              </div>}
               <span className="rrugc-blueprint-thread-source" title="Thread material is rendered on cap with preserved stitch highlights">{threadMode === "auto" ? "Auto-match thread" : "Original threads"}</span>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
             </div>
           </header>
+          {editingPlacement && <p className="rrugc-blueprint-placement-feedback is-hint">Drag the cyan area to move · use its handles to resize · drag each blue line independently.</p>}
+          {placementError && <p className="rrugc-blueprint-placement-feedback is-error" role="alert">{placementError}</p>}
+          {placementMessage && !editingPlacement && <p className="rrugc-blueprint-placement-feedback is-saved" role="status">{placementMessage}</p>}
           <div className="rrugc-blueprint-panel-visual">
             <div className="rrugc-blueprint-selected-hat rrugc-blueprint-front-open-detail" role="button" tabIndex={0}
               aria-label={"Enlarge front embroidery: " + designName(activeDesign) + " on " + activeColor.label}
               title="Click to enlarge and inspect embroidery details"
-              onClick={() => { if (!suppressNextClick.current) { hideBlueprintLens(frontLens.current); setFrontDetailOpen(true); } }}
-              onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); setFrontDetailOpen(true); } }}
-              onPointerMove={event => moveBlueprintLens(event, frontLens.current,
+              onClick={() => { if (!editingPlacement && !suppressNextClick.current) { hideBlueprintLens(frontLens.current); setFrontDetailOpen(true); } }}
+              onKeyDown={event => { if (!editingPlacement && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); setFrontDetailOpen(true); } }}
+              onPointerMove={event => !editingPlacement && moveBlueprintLens(event, frontLens.current,
                 Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
               onPointerLeave={() => hideBlueprintLens(frontLens.current)}
               onPointerDown={() => hideBlueprintLens(frontLens.current)}>
-              <div className="rrugc-blueprint-front-scene">
+              <div className="rrugc-blueprint-front-scene" style={placementStyle}>
                 <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
                   alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
                 <div ref={frontFit.frameRef} className="rrugc-blueprint-selected-design">
@@ -329,7 +390,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                     style={frontFit.style ?? { opacity: 0 }}
                     alt={designName(activeDesign) + " fitted embroidery on " + activeColor.label} draggable={false}/>
                 </div>
-                {guides && <>
+                {editingPlacement && <FrontPlacementEditor value={draftPlacement} onChange={setDraftPlacement}/>}
+                {(guides && !editingPlacement) && <>
                   <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
                     <span>Front embroidery area</span>
                   </div>
@@ -342,7 +404,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
               <span className="rrugc-blueprint-detail-affordance" aria-hidden="true">⤢ View larger</span>
               <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                 <div className="rrugc-blueprint-magnifier-scene">
-                  <div className="rrugc-blueprint-front-scene">
+                  <div className="rrugc-blueprint-front-scene" style={placementStyle}>
                     <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
                     <div className="rrugc-blueprint-selected-design">
                       <img src={tintedFrontSrc} alt="" draggable={false}
@@ -421,7 +483,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
       hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesignSrc} compositedSrc={tintedFrontSrc}
       threadMode={threadMode} colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
-      guides={guides}
+      guides={guides} placement={placement}
       onClose={() => setFrontDetailOpen(false)}
     />}
   </section>;
