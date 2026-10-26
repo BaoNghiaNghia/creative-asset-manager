@@ -480,12 +480,12 @@ class EcommerceService:
                 ) for item in existing_rows if item.processing_job_id and
                 self.session.get(ProcessingJobModel, item.processing_job_id))
             if len(existing_stages) < len(stages) or unpinned:
-                candidates = list(self.session.scalars(
-                    select(RrugcCandidateModel).where(
-                        RrugcCandidateModel.tenant_id == tenant_id,
-                        RrugcCandidateModel.campaign_id == plan.campaign_id,
-                    ).order_by(RrugcCandidateModel.final_score.desc().nullslast(),
-                               RrugcCandidateModel.created_at.desc()).limit(150)))
+                from app.modules.realistic_review_ugc.ugc_verified_reuse import (
+                    load_products_ugc_references,
+                )
+                candidates = load_products_ugc_references(
+                    self.session, tenant_id=tenant_id, campaign_id=plan.campaign_id,
+                )
                 selected = select_ugc_references(
                     candidates, selection_key=(
                         f"{tenant_id}:{plan.id}:{plan.source_revision}:{color_key}"

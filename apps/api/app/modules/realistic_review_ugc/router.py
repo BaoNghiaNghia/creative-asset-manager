@@ -5872,20 +5872,24 @@ def ugc_scout_gallery(
             return {"source_plan_id": source_plan_id, "campaign_id": None,
                     "status": "needs_scout", "target": 20, "count": 0, "items": []}
         raise
-    items = list(session.scalars(select(RrugcCandidateModel).where(
-        RrugcCandidateModel.tenant_id == principal.active_tenant_id,
-        RrugcCandidateModel.campaign_id == campaign.id,
-        RrugcCandidateModel.status.in_(ANALYSIS_APPROVED_STATUSES),
-        RrugcCandidateModel.image_url.is_not(None),
-    ).order_by(RrugcCandidateModel.final_score.desc().nullslast(),
-               RrugcCandidateModel.created_at.desc()).limit(150)))
+    from app.modules.realistic_review_ugc.ugc_verified_reuse import (
+        load_products_ugc_references,
+    )
     from app.modules.realistic_review_ugc.ugc_scene_selection import eligible_ugc_references
+    # A duplicate Pinterest pin may already be human/AI-approved in another
+    # campaign of this tenant. Reuse only that verified source, while keeping
+    # the local per-design duplicate row and its independent feedback.
+    items = load_products_ugc_references(
+        session, tenant_id=principal.active_tenant_id,
+        campaign_id=campaign.id,
+    )
     unique = []
     for item in eligible_ugc_references(items):
         signal = item.ai_signal_json if isinstance(item.ai_signal_json, dict) else {}
         unique.append({"id": item.id, "image_url": item.image_url,
                        "pin_url": item.pin_url, "score": item.final_score,
                        "status": item.status,
+                       "reused_verified": bool(getattr(item, "reused_verified_source", False)),
                        "manual_label": signal.get("reference_manual_label")
                            if signal.get("reference_manual_label") == "good" else None})
     return {"source_plan_id": plan.id, "campaign_id": campaign.id,
