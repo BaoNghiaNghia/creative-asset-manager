@@ -1414,6 +1414,13 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('aria-modal="true"');
+    const modalHeader = markup.match(/<header class="rrugc-source-review-header rrugc-reference-review-header">([\s\S]*?)<\/header>/)?.[1] || "";
+    expect(modalHeader).toContain('class="rrugc-reference-review-heading"');
+    expect(modalHeader).toContain('title="front.png"');
+    expect(modalHeader).toContain("3 images · 2 analyzed · 1 pending AI");
+    // Tabs are a header sibling of the title/subtitle, not a child of it.
+    expect(modalHeader.indexOf('</div>')).toBeLessThan(modalHeader.indexOf('class="rrugc-source-review-filters"'));
+    expect(modalHeader.indexOf('class="rrugc-source-review-filters"')).toBeLessThan(modalHeader.indexOf('class="rrugc-source-review-close"'));
     expect(markup).toContain("rrugc-source-review-masonry");
     expect(markup).toContain("rrugc-source-review-card");
     expect(markup).toContain('width="800"');

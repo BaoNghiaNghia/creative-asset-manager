@@ -286,22 +286,22 @@ export function ReferenceReviewModal({
 
   return <div className="rrugc-source-review-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <section className="rrugc-source-review-modal" role="dialog" aria-modal="true" aria-labelledby={"rrugc-source-review-title-" + plan.id}>
-      <header className="rrugc-source-review-header">
-        <div>
+      <header className="rrugc-source-review-header rrugc-reference-review-header">
+        <div className="rrugc-reference-review-heading">
           <small>REFERENCE REVIEW</small>
-          <h2 id={"rrugc-source-review-title-" + plan.id}>{plan.source_name}</h2>
+          <h2 id={"rrugc-source-review-title-" + plan.id} title={plan.source_name}>{plan.source_name}</h2>
           <p>{plan.reference_previews.length} images · {plan.approved_count} analyzed · {plan.pending_ai_count} pending AI</p>
-          <nav className="rrugc-source-review-filters" aria-label="Filter reviewed references">
-            <button type="button" className={reviewFilter === "active" ? "is-active" : ""}
-              aria-pressed={reviewFilter === "active"} onClick={() => setReviewFilter("active")}>
-              Active ({plan.reference_previews.length - rejectedCount})
-            </button>
-            <button type="button" className={reviewFilter === "rejected" ? "is-active" : ""}
-              aria-pressed={reviewFilter === "rejected"} onClick={() => setReviewFilter("rejected")}>
-              Rejected ({rejectedCount})
-            </button>
-          </nav>
         </div>
+        <nav className="rrugc-source-review-filters" aria-label="Filter reviewed references">
+          <button type="button" className={reviewFilter === "active" ? "is-active" : ""}
+            aria-pressed={reviewFilter === "active"} onClick={() => setReviewFilter("active")}>
+            Active ({plan.reference_previews.length - rejectedCount})
+          </button>
+          <button type="button" className={reviewFilter === "rejected" ? "is-active" : ""}
+            aria-pressed={reviewFilter === "rejected"} onClick={() => setReviewFilter("rejected")}>
+            Rejected ({rejectedCount})
+          </button>
+        </nav>
         <button type="button" className="rrugc-source-review-close" aria-label="Close reference review" onClick={onClose}>×</button>
       </header>
       <StableMasonryGrid className="rrugc-source-review-masonry" items={shownReferences}

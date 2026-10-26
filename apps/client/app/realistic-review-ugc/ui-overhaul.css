@@ -2514,6 +2514,94 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-source-review-filters button.is-active{border-color:#5078ad;background:#eaf1fb;color:#2e5387}
 .rrugc-source-review-filters button:focus-visible{outline:2px solid #427ac3;outline-offset:2px}
 
+/* Stage 3 References modal: heading and metadata own the left side, while
+   Active/Rejected are right-aligned beside the close control. The two text
+   rows are sized by their content, not squeezed by the filter buttons. */
+.rrugc-source-review-modal > .rrugc-reference-review-header{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) max-content 34px;
+  grid-template-areas:"heading filters close";
+  align-items:center;
+  column-gap:14px;
+  row-gap:8px;
+  min-width:0;
+  padding:14px 16px;
+}
+.rrugc-source-review-modal .rrugc-reference-review-header > .rrugc-reference-review-heading{
+  grid-area:heading;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:4px;
+  min-width:0;
+  max-width:100%;
+}
+.rrugc-reference-review-header .rrugc-reference-review-heading small{
+  display:block;
+  font-size:9px;
+  line-height:1.35;
+}
+.rrugc-reference-review-header .rrugc-reference-review-heading h2{
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  max-width:100%;
+  margin:0;
+  overflow:hidden;
+  overflow-wrap:anywhere;
+  text-overflow:ellipsis;
+  white-space:normal;
+  font-size:16px;
+  line-height:1.35;
+}
+.rrugc-reference-review-header .rrugc-reference-review-heading p{
+  max-width:100%;
+  margin:0;
+  font-size:10.5px;
+  line-height:1.5;
+  white-space:normal;
+}
+.rrugc-source-review-modal .rrugc-reference-review-header > .rrugc-source-review-filters{
+  grid-area:filters;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  justify-self:end;
+  flex-wrap:nowrap;
+  gap:8px;
+  margin:0;
+  min-width:0;
+  white-space:nowrap;
+}
+.rrugc-reference-review-header .rrugc-source-review-filters button{
+  min-height:32px;
+  padding:6px 11px;
+}
+.rrugc-source-review-modal .rrugc-reference-review-header > .rrugc-source-review-close{
+  grid-area:close;
+  align-self:center;
+  justify-self:end;
+}
+@media(max-width:850px){
+  .rrugc-source-review-modal > .rrugc-reference-review-header{
+    grid-template-columns:minmax(0,1fr) 34px;
+    grid-template-areas:"heading close" "filters filters";
+    padding:11px 12px;
+  }
+  .rrugc-source-review-modal .rrugc-reference-review-header > .rrugc-source-review-close{
+    align-self:start;
+  }
+  .rrugc-source-review-modal .rrugc-reference-review-header > .rrugc-source-review-filters{
+    justify-self:end;
+  }
+}
+@media(max-width:450px){
+  .rrugc-reference-review-header .rrugc-reference-review-heading h2{font-size:14px;line-height:1.4}
+  .rrugc-reference-review-header .rrugc-reference-review-heading p{font-size:10px;line-height:1.5}
+  .rrugc-reference-review-header .rrugc-source-review-filters button{min-height:30px;padding:5px 9px}
+}
+
 /* Reference review keeps header visible and limits scrolling to the gallery. */
 .rrugc-source-review-modal:has(.rrugc-source-review-filters){box-sizing:border-box;height:min(92dvh,1100px);max-height:calc(100dvh - 36px);min-height:0}
 .rrugc-source-review-modal:has(.rrugc-source-review-filters)>.rrugc-source-review-header{position:relative;z-index:5;flex:0 0 auto;min-height:0}
