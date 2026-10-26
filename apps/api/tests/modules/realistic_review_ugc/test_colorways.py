@@ -325,7 +325,8 @@ def test_new_source_revision_keeps_old_output_and_queues_new_colors(db):
     assert len(svc.list(tenant_id=source.tenant_id, source_ids=[source.id])) == 13
 
 
-def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch):
+@pytest.mark.parametrize("products_mode", [False, True])
+def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, products_mode):
     """Run the real handler through its storage and worker boundaries without a provider call."""
     canvas = Image.new("RGB", (640, 640), "white")
     output = BytesIO()
@@ -334,9 +335,13 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch):
     monkeypatch.setattr(colorways, "_stock_bytes", lambda settings, key: image_bytes)
     monkeypatch.setattr(colorways, "verify_stage2_skill_runtime", lambda **kwargs: None)
 
-    source = plan(db)
+    source = plan(db, name="design_01.png" if products_mode else "embroidery_design.png")
+    if products_mode:
+        source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
+        db.commit()
     svc = ColorwayService(db)
-    svc.queue(tenant_id="tenant-a", user_id="actor", source_plan_ids=[source.id])
+    svc.queue(tenant_id="tenant-a", user_id="actor", source_plan_ids=[source.id],
+              workflow="products" if products_mode else "reviews")
     job = db.query(RrugcColorwayJobModel).first()
     generated_calls = []
     saved_assets = []
@@ -367,6 +372,10 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch):
             assert person.image_bytes
             assert len(references) == 1 and references[0].role == "design_reference"
             assert "Official cap color: " + dict(COLORS)[job.color_key] in prompt
+            assert ("low-profile-direct-thread-v2" in prompt) is products_mode
+            if products_mode:
+                assert "TWELVE STOCK COLORS" in prompt
+                assert "PRE-SAVE VISUAL QUALITY CHECK" in prompt
             return SimpleNamespace(
                 image_bytes=image_bytes, mime_type="image/png", provider_request_id="test-provider",
             )
@@ -374,6 +383,8 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch):
             pass
 
     monkeypatch.setattr(colorways, "CodexImageGenRunner", FakeRunner)
+    from app.modules.realistic_review_ugc import products_run_all
+    monkeypatch.setattr(products_run_all, "advance_after_output", lambda *args, **kwargs: None)
     from contextlib import nullcontext
     monkeypatch.setattr(
         colorways, "acquire_worker_profile",

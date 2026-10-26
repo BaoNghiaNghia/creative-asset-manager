@@ -32,6 +32,7 @@ from app.modules.image_generation.providers import ReferenceImageInput
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
 from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -440,6 +441,9 @@ class ColorwayGenerateHandler:
                 plan.source_file_id, plan.source_mime_type, plan.source_size_bytes)
             folder_id, source_id, color_key, color_name, skill_name = (
                 plan.source_parent_folder_id, plan.id, row.color_key, dict(COLORS)[row.color_key], row.skill_name)
+            # Copy mode while SQLAlchemy's plan is still attached to the session.
+            # Do not dereference the ORM row after the transaction is closed.
+            is_products_colorway = plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             session.commit()
@@ -472,6 +476,10 @@ class ColorwayGenerateHandler:
             "Generate one realistic, sharp ecommerce product photo with thin direct embroidery. "
             "The stock color and existing artwork identity are immutable."
         )
+        # This worker also serves Reviews Stage 2. Apply the new product-only
+        # direct-thread finish strictly to Products Slot 7, not Review jobs.
+        if is_products_colorway:
+            prompt += " " + embroidery_prompt_for_product_slot("prod_s2_col")
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
         try:

@@ -108,6 +108,8 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             pass
 
     monkeypatch.setattr(pipeline, "CodexImageGenRunner", FakeRunner)
+    from app.modules.realistic_review_ugc import products_run_all
+    monkeypatch.setattr(products_run_all, "advance_after_output", lambda *args, **kwargs: None)
     storage = _Storage()
     settings = SimpleNamespace(
         PROCESSING_JOBS_ENABLED=True, IMAGE_GENERATION_ENABLED=True,
@@ -126,7 +128,7 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         is_cancelled=False,
         dependencies=SimpleNamespace(session_factory=session_factory,
                                      storage_provider=storage),
-        logger=SimpleNamespace(info=lambda *args, **kwargs: None),
+        logger=SimpleNamespace(info=lambda *args, **kwargs: None, exception=lambda *args, **kwargs: None),
     )
     result = asyncio.run(EcommerceGenerateHandler(settings)._execute(context))
     with Session(engine) as session:
@@ -147,3 +149,5 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     assert len(calls) == 1 and len(calls[0]["references"]) == 2
     assert calls[0]["references"][1].role == "embroidered_front_preview"
     assert "FRONT high" in calls[0]["prompt"]
+    assert "low-profile-direct-thread-v2" in calls[0]["prompt"]
+    assert "PRE-SAVE VISUAL QUALITY CHECK" in calls[0]["prompt"]

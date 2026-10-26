@@ -25,6 +25,7 @@ from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS_BY_S
 from app.modules.realistic_review_ugc.ecommerce_stock_evidence import read_release_stock
 from app.modules.realistic_review_ugc.hat_stock_sync import COLORS
 from app.modules.realistic_review_ugc.ecommerce_front_reference import FrontReferenceError, render_front_reference
+from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -1171,8 +1172,9 @@ class EcommerceGenerateHandler:
                      else "Generate ONE photorealistic commercial ecommerce product photograph "
                           "of the official Valucap 8869 "
                           + color_key.replace("-", "/") + " five-panel twill cap. "))
-            + VIEW_PROMPTS[stage] +
-            " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
+            + VIEW_PROMPTS[stage]
+            + " " + embroidery_prompt_for_product_slot(stage)
+            + " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
         )
