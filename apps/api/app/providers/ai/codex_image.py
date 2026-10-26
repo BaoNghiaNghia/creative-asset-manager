@@ -317,6 +317,68 @@ def _classify_failure(stderr: str, stdout: str) -> CodexImageProviderError:
     )
 
 
+def _concept_short_skipped_slots(workspace: Path) -> tuple[str, ...]:
+    """Report original skill's ineligible slots without fabricating fillers."""
+    source = workspace / "working" / "concept-short"
+    if not source.is_dir() or source.is_symlink():
+        return ()
+    reports = [p for p in source.glob("*/summary.json")
+               if p.is_file() and not p.is_symlink()]
+    if len(reports) != 1 or reports[0].stat().st_size > 65536:
+        return ()
+    try:
+        entries = json.loads(reports[0].read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return ()
+    if not isinstance(entries, list):
+        return ()
+    skipped = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "")
+        if status not in ("skipped", "fail_size"):
+            continue
+        concept = re.sub(r"[^A-Z0-9]", "", str(entry.get("concept") or "").upper())[:5]
+        reason = str(entry.get("reason") or "ineligible")
+        skipped.append(f"{concept}: {reason[:120]}")
+    return tuple(skipped)
+
+
+def _distinct_imagegen_calls(stdout: str) -> int:
+    """Count imagegen invocations, not model claims or filenames on disk."""
+    ids: set[str] = set()
+    for line in stdout.splitlines():
+        try:
+            row = json.loads(line)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(row, dict) or row.get("type") not in (
+            "item.started", "item.completed",
+        ):
+            continue
+        item = row.get("item")
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "").lower()
+        tool = str(item.get("tool_name") or item.get("name") or
+                   item.get("server") or "").lower()
+        if (not any(tag in tool for tag in ("imagegen", "image_gen", "image_generation"))
+                and kind not in ("image_generation", "image_gen")):
+            continue
+        if kind not in ("tool_call", "mcp_tool_call",
+                        "dynamic_tool_call", "image_generation"):
+            continue
+        key = str(item.get("id") or item.get("call_id") or "")
+        if key:
+            ids.add(key)
+        elif row.get("type") == "item.completed":
+            # Some Codex stream variants omit tool IDs; count only completed
+            # invocations to avoid counting started/completed twice.
+            ids.add(f"completed:{len(ids)}")
+    return len(ids)
+
+
 def _classify_stage1_no_images(stdout: str, stderr: str) -> CodexImageProviderError:
     """Explain a zero-PNG Codex completion without claiming the tool succeeded.
 
@@ -690,6 +752,26 @@ class CodexImageGenRunner:
                 )
         if process.returncode != 0:
             raise _classify_failure(stderr, stdout)
+        if (self.config.skill_name == "concept-short-v1"
+                and self.config.output_contract == "stage1_six_final_designs"):
+            skipped = _concept_short_skipped_slots(workspace)
+            if skipped:
+                raise CodexImageProviderError(
+                    "concept_short_slots_ineligible",
+                    "Concept Short v1 cannot supply six eligible slots for this phrase: "
+                    + "; ".join(skipped),
+                )
+        if (self.config.skill_name == "concept-short-v1"
+                and self.config.output_contract == "stage1_six_final_designs"
+                and _distinct_imagegen_calls(stdout) < 6):
+            # A successful code-only concept sheet is NOT a completed
+            # photoreal embroidery edit. Fail closed instead of publishing
+            # six flat PNGs or rendering fake thread after the fact.
+            raise CodexImageProviderError(
+                "concept_short_image_edits_missing",
+                "Concept Short v1 requires six genuine image-edit calls. "
+                "No code-generated flat concept may be published as embroidered output.",
+            )
 
         files: tuple[GeneratedImageFile, ...] = ()
         if self.config.output_contract == "stage1_six_final_designs":
@@ -1102,6 +1184,41 @@ class CodexImageGenRunner:
         )
         extra = user_prompt.strip()
         extra_block = f"\nAdditional generation instruction:\n{extra}\n" if extra else ""
+        if (self.config.output_contract == "stage1_six_final_designs"
+                and self.config.skill_name == "concept-short-v1"):
+            if self.config.expected_output_count != 6:
+                raise ValueError("Concept Short v1 uses six numbered concept slots.")
+            return (
+                "Use $concept-short-v1 and the actual $imagegen image-EDIT tool. "
+                "Do not use a generated-text-only illustration or PIL stitching.\n"
+                "CAM AUTOMATION ADAPTER: Execute the original bundled "
+                "scripts/make_concepts.py with the user's exact quote as a literal "
+                "argument, output under ./working/concept-short. The deterministic "
+                "script alone creates FLAT typography plans, not embroidered finals. "
+                "Read summary.json and each Cx/A_prompt.txt. Apply all original "
+                "font choices, concept substitutions (C4->C7, C5->C8), colors, "
+                "and text constraints without relayout.\n"
+                "For each eligible slot 1 through 6, edit ONLY its corresponding "
+                "A_input_Cx.png into a single photoreal stitched artwork. Provide "
+                "that exact image as the reference for the actual image edit. "
+                "Pass its A_prompt.txt verbatim, do not shorten or overwrite it. "
+                "The original chat workflow required a user upload and approval; "
+                "this automation adapter may submit the same code-built reference "
+                "directly only if the image-edit tool supports it. If that edit "
+                "is unsupported, stop with an explicit blocker. NEVER create "
+                "a new design from a text-only prompt in its place.\n"
+                "If any concept reports skipped/fail_size, fail clearly; do not "
+                "invent a sixth filler or overwrite the source design. Every "
+                "accepted image must retain its exact phrase, glyphs, colors, "
+                "layout and pure white background with no hat or fabric. "
+                "Save each verified edited image as output/final/design_01.png "
+                "through output/final/design_06.png, one independent 1536x1024 "
+                "PNG per original slot. No output from make_concepts.py, SVG, "
+                "preview or flat raster may be called a stitched final.\n"
+                "Preserve any previous published history. Do not use API-key "
+                "fallback or any deterministic fake-thread overlay.\n"
+                "Exact quote request: " + extra + "\n"
+            )
         if self.config.output_contract == "stage1_six_final_designs":
             n = self.config.expected_output_count
             if not 1 <= n <= 24:

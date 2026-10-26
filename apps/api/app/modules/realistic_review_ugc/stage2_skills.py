@@ -146,6 +146,21 @@ def inspect_uploaded_stage2_skill_bundle(bundle: bytes) -> UploadedStage2SkillBu
                 "SKILL.md must declare a lowercase kebab-case name.",
                 status_code=422,
             )
+        if skill_name == "concept-short-v1":
+            # Verify required source scripts even if the ZIP supplies its own
+            # manifest. Otherwise a partial archive could impersonate Stage 1.
+            required = {
+                "scripts/make_concepts.py", "scripts/typo_engine.py",
+                "scripts/workcanvas.py", "references/concepts.json",
+                "references/fonts.json", "references/prompt_A_stitch.txt",
+            }
+            members = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+            if not required.issubset(members):
+                raise Stage2SkillRegistryError(
+                    "concept_short_bundle_incomplete",
+                    "Concept Short v1 requires its original scripts and prompt template.",
+                    status_code=422,
+                )
         description_match = re.search(r"(?m)^description:\s*([^\n#]+?)\s*$", text)
         description = (
             description_match.group(1).strip().strip('"').strip("'")
@@ -224,6 +239,24 @@ def _ensure_uploaded_local_manifest(
     path = root / "manifest.json"
     if path.is_file():
         return
+    # The original Concept Short archive is a two-step ChatGPT Skill, not a
+    # generic image_studio Skill. Preserve its identity while declaring the
+    # separate Stage 1 contract expected by CAM. Never apply this exception
+    # to arbitrary uploaded Skills.
+    is_concept_short = bundle.skill_name == "concept-short-v1"
+    if is_concept_short:
+        members = {relative for relative, _body, _mime in bundle.files}
+        required = {
+            "scripts/make_concepts.py", "scripts/typo_engine.py",
+            "scripts/workcanvas.py", "references/concepts.json",
+            "references/fonts.json", "references/prompt_A_stitch.txt",
+        }
+        if not required.issubset(members):
+            raise Stage2SkillRegistryError(
+                "concept_short_bundle_incomplete",
+                "Concept Short v1 requires its original scripts and prompt template.",
+                status_code=422,
+            )
     path.write_text(
         json.dumps(
             {
@@ -231,7 +264,7 @@ def _ensure_uploaded_local_manifest(
                 "skill_name": bundle.skill_name,
                 "display_name": bundle.display_name or bundle.skill_name,
                 "description": bundle.description or f"Stage 2 skill {bundle.skill_name}",
-                "workflows": ["image_studio"],
+                "workflows": ["image_studio", "keyword_six_designs"] if is_concept_short else ["image_studio"],
                 "product_types": [],
                 "required_reference_roles": [],
                 "optional_reference_roles": [],

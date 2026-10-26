@@ -178,6 +178,18 @@ def stage1_keyword_trend(raw_value: dict | None) -> list[dict]:
 
 def keyword_prompt(keyword: str, custom: str | None = None, *, skill_name: str | None = None) -> str:
     """Generate a bounded keyword-only prompt tailored to the selected Skill."""
+    if skill_name == "concept-short-v1":
+        return (
+            "Concept Short v1 original two-step pipeline for the exact literal quote "
+            + repr(keyword) + ". Run the bundled make_concepts.py and retain its "
+            "exact six-slot layout/font/color choices. Then use actual reference-"
+            "conditioned image editing for each eligible A_input_Cx.png, with its "
+            "unmodified A_prompt.txt. Do not replace missing or skipped concepts "
+            "with fixed-font/PIL stitch simulations, generic typography, or fabricated "
+            "images. If any slot is ineligible or image editing unavailable, fail "
+            "with a precise blocker and preserve already-completed output history. "
+            + ((custom or "").strip() if custom else "")
+        ).strip()
     if skill_name == LOCAL_TYPOGRAPHY_SKILL:
         return ("Deterministically render exactly six transparent canonical embroidery designs "
                 "for the literal quote " + repr(keyword) + " with the GatorHats "
