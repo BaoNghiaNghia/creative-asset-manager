@@ -110,6 +110,10 @@ SCENE_GROUPS = {
 SCENE_STAGE_SLOTS = {
     shot: slot for slot, shots in SCENE_GROUPS.items() for shot in shots
 }
+# The processing rows use per-shot stage identifiers (e.g. prod_s2_mh_1).
+# Parent slot names are never job.stage values; all visible-front scenes
+# require the same pinned deterministic embroidery reference as Ecommerce 1.
+FRONT_PREVIEW_STAGES = frozenset({"prod_s2_ec1", *SCENE_STAGE_SLOTS})
 SCENE_SHOT_DESCRIPTIONS = {
     "prod_s2_mh_1": "Four official Valucap 8869 caps arranged on a neutral tabletop, one hero front and three staggered companions.",
     "prod_s2_mh_2": "Four official Valucap 8869 caps in a carefully lit lifestyle arrangement, with one front-facing hero and visible side profiles.",
@@ -1080,7 +1084,7 @@ class EcommerceGenerateHandler:
                 preview_bytes = await self._open_bytes(
                     storage, context, "rrugc-ecommerce-front-preview:" + context.job.entity_id,
                     preview_remote_id, preview_mime, preview_size)
-            elif stage in {"prod_s2_ec1", "prod_s2_mh", "prod_s2_ugc"}:
+            elif stage in FRONT_PREVIEW_STAGES:
                 front_placement = job_front_placement(context.job.payload.get("front_placement"))
                 preview_bytes = render_front_reference(
                     refs[0][1], design_bytes,

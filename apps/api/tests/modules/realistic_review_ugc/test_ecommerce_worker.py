@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from PIL import Image
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -58,7 +59,28 @@ class _Storage:
         return SimpleNamespace(remote_file_id="persisted-photo-output")
 
 
-def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch):
+def test_all_multi_hat_and_ugc_shots_receive_calibrated_front_master():
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import (
+        FRONT_PREVIEW_STAGES, SCENE_GROUPS, SCENE_STAGE_SLOTS, STOCK_ROLES,
+    )
+    assert FRONT_PREVIEW_STAGES == frozenset({
+        "prod_s2_ec1",
+        "prod_s2_mh_1", "prod_s2_mh_2", "prod_s2_mh_3",
+        "prod_s2_ugc_1", "prod_s2_ugc_2", "prod_s2_ugc_3",
+    })
+    assert set(SCENE_STAGE_SLOTS) == set().union(*SCENE_GROUPS.values())
+    assert all(STOCK_ROLES[stage][0] == "stock_front"
+               for stage in FRONT_PREVIEW_STAGES)
+    assert not {"prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4"}.intersection(
+        FRONT_PREVIEW_STAGES)
+
+
+@pytest.mark.parametrize("stage", [
+    "prod_s2_ec1",
+    "prod_s2_mh_1", "prod_s2_mh_2", "prod_s2_mh_3",
+    "prod_s2_ugc_1", "prod_s2_ugc_2", "prod_s2_ugc_3",
+])
+def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch, stage):
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool,
                            connect_args={"check_same_thread": False})
@@ -76,10 +98,10 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             source_name="design.png", source_mime_type="image/png",
             source_revision="rev-1", created_by_user_id="operator",
         ))
-        stock_digest = pipeline._stock_refs(SimpleNamespace(), "prod_s2_ec1")[1]
+        stock_digest = pipeline._stock_refs(SimpleNamespace(), stage)[1]
         session.add(RrugcEcommerceJobModel(
             id=job_id, tenant_id="tenant-1", source_plan_id="source-plan",
-            source_revision="rev-1", stage="prod_s2_ec1",
+            source_revision="rev-1", stage=stage,
             stock_sha256=stock_digest, skill_source="local",
             skill_name="sample-ecommerce-image", skill_bundle_sha256="1"*64,
             created_by_user_id="operator", status="queued", processing_job_id=process_id,
@@ -88,6 +110,32 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
 
     monkeypatch.setattr(pipeline, "verify_stage2_skill_runtime", lambda **kwargs: None)
     monkeypatch.setattr(pipeline, "installed_stage2_skill_sha256", lambda *args, **kwargs: "1"*64)
+
+    if stage in pipeline.SCENE_GROUPS["prod_s2_mh"]:
+        pinned = [{"image_id": "scout-a"}]
+        monkeypatch.setattr(pipeline, "validate_pinned_multihat_references",
+                            lambda _value: pinned)
+        async def fake_reference_sheets(_refs):
+            return [], 3
+        monkeypatch.setattr(pipeline, "build_multihat_reference_sheets", fake_reference_sheets)
+
+    if stage in pipeline.SCENE_GROUPS["prod_s2_ugc"]:
+        monkeypatch.setattr(pipeline, "allowed_scout_image_url", lambda _url: True)
+        class FakeResponse:
+            content = _image()
+            headers = {"content-type": "image/png"}
+            def raise_for_status(self):
+                pass
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return False
+            async def get(self, _url):
+                return FakeResponse()
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", FakeAsyncClient)
 
     @contextmanager
     def acquire(*args, **kwargs):
@@ -123,7 +171,13 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     context = SimpleNamespace(
         job=SimpleNamespace(
             job_type=JOB_TYPE, tenant_id="tenant-1", entity_id=job_id,
-            payload={"ecommerce_job_id": job_id}, id=process_id,
+            payload={
+                "ecommerce_job_id": job_id,
+                **({"multihat_references": [{"image_id": "scout-a"}]}
+                   if stage in pipeline.SCENE_GROUPS["prod_s2_mh"] else {}),
+                **({"scout_reference": {"image_url": "https://example.test/ugc.jpg"}}
+                   if stage in pipeline.SCENE_GROUPS["prod_s2_ugc"] else {}),
+            }, id=process_id,
         ),
         is_cancelled=False,
         dependencies=SimpleNamespace(session_factory=session_factory,
@@ -146,8 +200,13 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     assert storage.opened == ["design-remote"]
     assert len(storage.saved) == 2 and all(item[1] > 0 for item in storage.saved)
     assert storage.saved[0][0].startswith("input_embroidered_front_")
-    assert len(calls) == 1 and len(calls[0]["references"]) == 2
+    assert len(calls) == 1
+    assert calls[0]["references"][0].role == "design_reference"
     assert calls[0]["references"][1].role == "embroidered_front_preview"
-    assert "FRONT high" in calls[0]["prompt"]
+    assert len(calls[0]["references"]) >= 2
+    if stage == "prod_s2_ec1":
+        assert "FRONT high" in calls[0]["prompt"]
+    else:
+        assert "calibrated" in calls[0]["prompt"].lower()
     assert "low-profile-direct-thread-v2" in calls[0]["prompt"]
     assert "PRE-SAVE VISUAL QUALITY CHECK" in calls[0]["prompt"]
