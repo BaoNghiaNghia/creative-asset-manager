@@ -74,8 +74,9 @@ def test_library_deduplicates_by_tenant_and_trains_on_human_feedback(session):
     page = r.list_cap_stack(q="", label="all", caps_count=None, page=1, page_size=20,
                             session=session, principal=user())
     assert page["stats"]["pending"] == 1
-    assert page["items"][0]["caps_detected"] is None
-    image_id = page["items"][0]["id"]
+    # "Any number" means 2–6 counted caps: pending/unknown photos are hidden.
+    assert page["total"] == 0 and page["items"] == []
+    image_id = session.query(RrugcCapStackImageModel).one().id
     checked = r.set_cap_stack_feedback(image_id, r.FeedbackRequest(label="good", caps_count=4),
                                        session, user())
     assert checked["manual_label"] == "good"
@@ -91,6 +92,113 @@ def test_library_deduplicates_by_tenant_and_trains_on_human_feedback(session):
     assert claim(session) is None
 
 
+
+
+def test_any_number_only_includes_2_through_6_counted_caps(session):
+    rows = [
+        ("unknown", None, None),
+        ("one", 1, None),
+        ("seven", 7, None),
+        ("two", 2, None),
+        ("three", 3, None),
+        ("four", 4, None),
+        ("five", 5, None),
+        ("six", 6, None),
+        # Manual correction overrides an AI estimate outside range.
+        ("manual-recovered", 9, 3),
+        # Manual correction also controls the individual count filter.
+        ("manual-recounted", 3, 5),
+    ]
+    for index, (image_id, detected, manually_counted) in enumerate(rows):
+        session.add(RrugcCapStackImageModel(
+            id=image_id, tenant_id="tenant-a", pin_key=str(200000 + index),
+            pin_url=f"https://www.pinterest.com/pin/{200000 + index}/",
+            image_url=f"https://i.pinimg.com/736x/{200000 + index}.jpg",
+            caps_detected=detected, manual_caps_count=manually_counted,
+            count_status="ready" if detected is not None else "pending",
+        ))
+    session.add(RrugcCapStackImageModel(
+        id="other-tenant", tenant_id="tenant-b", pin_key="777777",
+        pin_url="https://www.pinterest.com/pin/777777/",
+        image_url="https://i.pinimg.com/736x/777777.jpg",
+        caps_detected=4, count_status="ready",
+    ))
+    session.commit()
+    page = r.list_cap_stack(
+        q="", label="all", caps_count=None, page=1, page_size=100,
+        session=session, principal=user(),
+    )
+    assert page["total"] == 7
+    assert {image["id"] for image in page["items"]} == {
+        "two", "three", "four", "five", "six",
+        "manual-recovered", "manual-recounted",
+    }
+    assert page["stats"]["discovered"] == 10
+    assert "unknown" not in {image["id"] for image in page["items"]}
+    for count in range(2, 7):
+        filtered = r.list_cap_stack(
+            q="", label="all", caps_count=count, page=1, page_size=100,
+            session=session, principal=user(),
+        )
+        assert all(
+            (image["manual_caps_count"] if image["manual_caps_count"] is not None
+             else image["caps_detected"]) == count
+            for image in filtered["items"]
+        )
+    assert {item["id"] for item in r.list_cap_stack(
+        q="", label="all", caps_count=3, page=1, page_size=100,
+        session=session, principal=user(),
+    )["items"]} == {"three", "manual-recovered"}
+    assert {item["id"] for item in r.list_cap_stack(
+        q="", label="all", caps_count=5, page=1, page_size=100,
+        session=session, principal=user(),
+    )["items"]} == {"five", "manual-recounted"}
+    assert r.list_cap_stack(
+        q="", label="all", caps_count=None, page=1, page_size=100,
+        session=session, principal=user("tenant-b"),
+    )["total"] == 1
+
+
+def test_cap_stack_paginates_at_100_200_and_500_without_truncating(session):
+    session.add_all([
+        RrugcCapStackImageModel(
+            id=f"pin-{index:04}", tenant_id="tenant-a",
+            pin_key=str(300000 + index),
+            pin_url=f"https://www.pinterest.com/pin/{300000 + index}/",
+            image_url=f"https://i.pinimg.com/736x/{300000 + index}.jpg",
+            caps_detected=2 + index % 5, count_status="ready",
+        )
+        for index in range(513)
+    ])
+    session.add(RrugcCapStackImageModel(
+        id="unclassified", tenant_id="tenant-a", pin_key="999999",
+        pin_url="https://www.pinterest.com/pin/999999/",
+        image_url="https://i.pinimg.com/736x/999999.jpg",
+        caps_detected=None, count_status="pending",
+    ))
+    session.commit()
+    for size in (100, 200, 500):
+        first = r.list_cap_stack(
+            q="", label="all", caps_count=None, page=1, page_size=size,
+            session=session, principal=user(),
+        )
+        assert first["page_size"] == size
+        assert first["total"] == 513
+        assert len(first["items"]) == size
+        page_count = (513 + size - 1) // size
+        seen = {item["id"] for item in first["items"]}
+        for page_number in range(2, page_count + 1):
+            page = r.list_cap_stack(
+                q="", label="all", caps_count=None, page=page_number, page_size=size,
+                session=session, principal=user(),
+            )
+            assert page["page"] == page_number
+            assert page["total"] == 513
+            ids = {item["id"] for item in page["items"]}
+            assert not seen.intersection(ids)
+            seen.update(ids)
+        assert len(seen) == 513
+        assert "unclassified" not in seen
 
 
 def test_retry_gemini_after_low_confidence_keeps_manual_feedback(session):
@@ -160,8 +268,7 @@ def test_feedback_rejects_cross_tenant_and_count_outside_2_to_6(session):
     r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
     run = claim(session)["run"]["id"]
     r.submit_cap_stack("agent-one", run, candidate(), "Bearer test", session)
-    entry = r.list_cap_stack(q="", label="all", caps_count=None, page=1, page_size=20,
-                            session=session, principal=user())["items"][0]
+    entry = r.image_dict(session.query(RrugcCapStackImageModel).one())
     with pytest.raises(HTTPException) as error:
         r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good"),
                                  session, user("tenant-b"))

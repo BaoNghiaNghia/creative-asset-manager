@@ -79,7 +79,7 @@ export function listCapStackImages(params: {
   page?: number; pageSize?: number; q?: string; label?: string; capsCount?: number | null; visionStatus?: string;
 }, signal?: AbortSignal): Promise<CapStackPage> {
   const query = new URLSearchParams({
-    page: String(params.page || 1), page_size: String(params.pageSize || 40),
+    page: String(params.page || 1), page_size: String(params.pageSize || 100),
     q: params.q || "", label: params.label || "all", vision_status: params.visionStatus || "all",
   });
   if (params.capsCount) query.set("caps_count", String(params.capsCount));

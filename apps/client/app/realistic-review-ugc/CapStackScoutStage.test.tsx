@@ -16,7 +16,7 @@ const sample: api.CapStackPage = {
     caps_detected: null, count_status: "pending", count_confidence: null,
     manual_caps_count: null, manual_label: null, created_at: "2026-10-15T02:00:00Z",
   }],
-  total: 1, page: 1, page_size: 40,
+  total: 1, page: 1, page_size: 100,
   stats: { discovered: 1, approved: 0, rejected: 0, ai: 0, pending: 1 },
   scout: { enabled: false, running: false, last_result: null, next_scan_at: null },
 };
@@ -336,6 +336,52 @@ describe("Cap Stack Scout Stage 1", () => {
     expect(controls.querySelector<HTMLInputElement>(".rrugc-cap-stack-search input")?.getAttribute("aria-label"))
       .toBe("Search Cap Stack library");
     expect(controls.querySelector(".rrugc-cap-stack-results")?.textContent).toContain("2354 results");
+    await act(async () => root.unmount());
+  });
+
+  it("defaults to 100 images per page and supports 200/500 with server-side pagination", async () => {
+    const list = vi.spyOn(api, "listCapStackImages").mockImplementation(async ({ page = 1, pageSize = 100 }) => ({
+      ...sample, page, page_size: pageSize, total: 520,
+      items: [{ ...sample.items[0], id: `counted-${page}`, caps_detected: 3, count_status: "ready", is_cap_stack: true }],
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+
+    const pageSelect = host.querySelector<HTMLSelectElement>('[aria-label="Cap Stack images per page"]')!;
+    expect(pageSelect.value).toBe("100");
+    expect([...pageSelect.options].map(option => Number(option.value))).toEqual([100, 200, 500]);
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({
+      page: 1, pageSize: 100, capsCount: null, visionStatus: "all",
+    }));
+    expect(host.textContent).toContain("Page 1 of 6");
+    const nextPage = () => host.querySelectorAll<HTMLButtonElement>(".rrugc-cap-stack-page-navigation button")[1];
+    const choose = async (select: HTMLSelectElement, value: string) => {
+      await act(async () => {
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await Promise.resolve();
+      });
+    };
+    await act(async () => { nextPage().click(); await Promise.resolve(); });
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, pageSize: 100 }));
+    expect(host.textContent).toContain("Page 2 of 6");
+
+    await choose(pageSelect, "200");
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 200 }));
+    expect(host.textContent).toContain("Page 1 of 3");
+    await choose(pageSelect, "500");
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 500 }));
+    expect(host.textContent).toContain("Page 1 of 2");
+
+    const countSelect = host.querySelector<HTMLSelectElement>('[aria-label="Filter by cap count"]')!;
+    expect(countSelect.options[0].textContent).toBe("Any number");
+    await choose(countSelect, "2");
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 500, capsCount: 2 }));
+    await choose(countSelect, "");
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 500, capsCount: null }));
+
     await act(async () => root.unmount());
   });
 

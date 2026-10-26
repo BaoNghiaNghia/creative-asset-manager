@@ -132,7 +132,7 @@ def list_cap_stack(
     caps_count: int | None = Query(default=None, ge=1, le=50),
     vision_status: str = Query(default="all", pattern="^(all|pending|analyzing|ready|needs_review|not_cap_stack|out_of_range|error)$"),
     page: int = Query(default=1, ge=1, le=10000),
-    page_size: int = Query(default=40, ge=1, le=100),
+    page_size: int = Query(default=100, ge=1, le=500),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -150,11 +150,17 @@ def list_cap_stack(
         stmt = stmt.where(RrugcCapStackImageModel.manual_label == label)
     if isinstance(vision_status, str) and vision_status != "all":
         stmt = stmt.where(RrugcCapStackImageModel.count_status == vision_status)
-    if caps_count is not None:
-        stmt = stmt.where(
-            func.coalesce(RrugcCapStackImageModel.manual_caps_count,
-                          RrugcCapStackImageModel.caps_detected) == caps_count
-        )
+    # "Any number" means any VERIFIED/DETECTED count from 2 to 6, never
+    # unresolved, single-cap, or out-of-range images. Manual corrections
+    # override Gemini counts for both the range and individual filters.
+    effective_count = func.coalesce(
+        RrugcCapStackImageModel.manual_caps_count,
+        RrugcCapStackImageModel.caps_detected,
+    )
+    if caps_count is None:
+        stmt = stmt.where(effective_count.between(CAP_STACK_MIN_CAPS, CAP_STACK_MAX_CAPS))
+    else:
+        stmt = stmt.where(effective_count == caps_count)
     total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = list(session.scalars(
         stmt.order_by(RrugcCapStackImageModel.created_at.desc(), RrugcCapStackImageModel.id.desc())

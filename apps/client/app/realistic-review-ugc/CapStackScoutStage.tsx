@@ -16,7 +16,7 @@ const LABELS = [
 ];
 
 const DEFAULT_PAGE: CapStackPage = {
-  items: [], total: 0, page: 1, page_size: 40,
+  items: [], total: 0, page: 1, page_size: 100,
   stats: { discovered: 0, approved: 0, rejected: 0, ai: 0, pending: 0 },
   scout: { enabled: false, running: false, last_result: null, next_scan_at: null },
 };
@@ -105,6 +105,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   const [label, setLabel] = useState("all");
   const [count, setCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(100);
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -135,7 +136,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       inflight = true;
       setLoading(true);
       try {
-        const next = await listCapStackImages({ page, pageSize: 40, q: debouncedQuery, label, capsCount: count, visionStatus: "all" });
+        const next = await listCapStackImages({ page, pageSize, q: debouncedQuery, label, capsCount: count, visionStatus: "all" });
         if (mounted) { setData(next); setError(""); }
       } catch (reason) {
         if (mounted) setError(reason instanceof Error ? reason.message : "Cap Stack Library could not load.");
@@ -149,7 +150,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       if (!document.hidden && !busyRef.current && !selectedRef.current) void refresh();
     }, 15000);
     return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, page, label, count, debouncedQuery]);
+  }, [active, page, pageSize, label, count, debouncedQuery]);
 
   async function updateImage(image: CapStackImage, body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number }) {
     if (busy) return;
@@ -340,7 +341,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
           </select>
         </label>
         <label><span className="rrugc-cap-stack-sr-only">Caps detected</span>
-          <select aria-label="Filter by cap count" value={count ?? ""}
+          <select aria-label="Filter by cap count" title="Any number includes counted stacks of 2–6 caps only" value={count ?? ""}
             onChange={event => { setCount(event.target.value ? Number(event.target.value) : null); setPage(1); }}>
             <option value="">Any number</option>
             {Array.from({ length: 5 }, (_, index) => index + 2).map(value => <option value={value} key={value}>{value} caps</option>)}
@@ -371,11 +372,26 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       renderItem={renderCard} minColumnWidth={180} maxColumns={10}
       ariaLabel="Cap Stack image library"/>
 
-    {data.total > data.page_size && <div className="rrugc-cap-stack-pagination">
-      <button type="button" disabled={page <= 1} onClick={() => setPage(previous => previous - 1)}>Previous</button>
-      <span>Page {page} of {pageCount}</span>
-      <button type="button" disabled={page >= pageCount} onClick={() => setPage(previous => previous + 1)}>Next</button>
-    </div>}
+    <div className="rrugc-cap-stack-pagination" aria-label="Cap Stack image pagination">
+      <label className="rrugc-cap-stack-page-size">
+        Images per page
+        <select aria-label="Cap Stack images per page" value={pageSize}
+          onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>
+          {[100, 200, 500].map(size => <option key={size} value={size}>{size}</option>)}
+        </select>
+      </label>
+      <div className="rrugc-cap-stack-page-navigation">
+        <button type="button" disabled={loading || page <= 1}
+          onClick={() => setPage(previous => Math.max(1, previous - 1))}>Previous</button>
+        <span>Page {page} of {pageCount}</span>
+        <button type="button" disabled={loading || page >= pageCount}
+          onClick={() => setPage(previous => Math.min(pageCount, previous + 1))}>Next</button>
+      </div>
+      <span className="rrugc-cap-stack-page-range">
+        {data.total === 0 ? "0 images" :
+          `${(data.page - 1) * data.page_size + 1}–${Math.min(data.page * data.page_size, data.total)} of ${data.total} images`}
+      </span>
+    </div>
 
     {selected && <div className="rrugc-cap-stack-modal-overlay" role="presentation"
       onMouseDown={event => { if (event.target === event.currentTarget) { setSelected(null); setApprovalRequestedFor(null); } }}>
