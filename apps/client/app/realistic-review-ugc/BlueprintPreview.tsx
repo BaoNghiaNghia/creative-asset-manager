@@ -75,7 +75,8 @@ function designName(version: GenerationOutputVersion) {
 }
 
 function thumbnailUrl(url: string, size: number) {
-  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size + "&artwork=stage1-source-alpha-v2";
+  // Stage 1 gallery displays the opaque embroidery-on-fabric photograph.
+  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size;
 }
 
 type DragAxis = "horizontal" | "vertical" | "both";
@@ -177,7 +178,11 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
     setFrontDesignSize(savedDesignSize);
   }, [activeDesign?.version, savedDesignSize]);
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
-  const activeDesignSrc = activeDesign ? activeDesign.url + "?artwork=stage1-source-alpha-v2" : "";
+  // Only the cap canvas requests ephemeral stitch geometry. The thumbnail,
+  // original and downloaded Stage 1 design stay RGB embroidery-on-fabric.
+  const activeDesignSrc = activeDesign ? activeDesign.url
+    + (activeDesign.url.includes("?") ? "&" : "?")
+    + "artwork=stage1-thread-geometry-v1" : "";
   // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.

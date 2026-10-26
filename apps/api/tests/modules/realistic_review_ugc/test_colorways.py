@@ -390,7 +390,7 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
             if products_mode:
                 assert references[1].role == "embroidered_front_preview"
             assert "Official cap color: " + dict(COLORS)[job.color_key] in prompt
-            assert ("low-profile-direct-thread-v2" in prompt) is products_mode
+            assert ("fabric-first-direct-thread-v3" in prompt) is products_mode
             if products_mode:
                 assert "TWELVE STOCK COLORS" in prompt
                 assert "PRE-SAVE VISUAL QUALITY CHECK" in prompt

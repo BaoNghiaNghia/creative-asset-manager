@@ -54,8 +54,8 @@ class Storage:
 
 
 def run_request(monkeypatch, *, thumbnail=False, download=False, stage="stage1",
-                storage=None, remote_file_id="source-only-test-unique"):
-    source = source_png()
+                storage=None, remote_file_id="source-only-test-unique", artwork=None, source_bytes=None):
+    source = source_bytes if source_bytes is not None else source_png()
     storage = storage or Storage(source)
     session = Session()
     monkeypatch.setattr(module, "output_versions", lambda *_a, **_kw: [{
@@ -69,7 +69,7 @@ def run_request(monkeypatch, *, thumbnail=False, download=False, stage="stage1",
     async def request():
         return await module.get_generation_output_version(
             stage, "stage1-job", 7, thumbnail=thumbnail, download=download,
-            size=400, v=None, if_none_match=None, session=session,
+            size=400, v=None, artwork=artwork, if_none_match=None, session=session,
             principal=SimpleNamespace(active_tenant_id="stage1-source-tenant"),
         )
     return asyncio.run(request()), session, storage, source
@@ -124,6 +124,38 @@ def test_thumbnail_cache_reuses_original_and_separates_revisions(monkeypatch):
         )
         assert response.media_type == "image/png"
     assert storage.opened == 1 and storage.closed == 1
+
+
+def test_fabric_stage1_full_and_thumb_remain_rgb_but_cap_preview_is_rgba(monkeypatch):
+    from app.modules.realistic_review_ugc.stage1_fabric import fabric_output_bytes
+    art = Image.new("RGBA", (480, 240), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((40, 30, 420, 185), fill=(40, 82, 170, 255))
+    source = fabric_output_bytes(art)
+    remote = "fabric-routing-740"
+
+    original, _, _, _ = run_request(
+        monkeypatch, source_bytes=source, remote_file_id=remote,
+    )
+    assert drain_stream(original) == source
+
+    thumbnail, _, storage, _ = run_request(
+        monkeypatch, thumbnail=True, storage=Storage(source),
+        source_bytes=source, remote_file_id=remote,
+    )
+    assert thumbnail.media_type == "image/png"
+    with Image.open(BytesIO(thumbnail.body)) as rgb:
+        assert rgb.mode == "RGB"
+        assert rgb.size == (400, 200)
+
+    preview, _, storage, _ = run_request(
+        monkeypatch, thumbnail=True, artwork="stage1-thread-geometry-v1",
+        storage=Storage(source), source_bytes=source, remote_file_id=remote,
+    )
+    assert preview.media_type == "image/png"
+    with Image.open(BytesIO(preview.body)) as rgba:
+        assert rgba.mode == "RGBA"
+        assert rgba.getpixel((0, 0))[3] == 0
+        assert rgba.size == (400, 200)
 
 
 def test_non_stage1_still_uses_previous_thumbnail_pipeline(monkeypatch):

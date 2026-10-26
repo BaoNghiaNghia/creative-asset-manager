@@ -9,6 +9,7 @@ produces a legible embroidery appearance without Codex, NumPy or OpenCV.
 from __future__ import annotations
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from app.modules.realistic_review_ugc.stage1_photo_samples import reference_patch
 
 
 def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
@@ -25,29 +26,50 @@ def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
     cut = flat.crop(box)
     mask = cut.getchannel("A")
     width, height = cut.size
-    # Two scales of angled satin thread: broader stitched bundles must
-    # survive UI downsampling, while individual needle ridges are visible
+    # Local satin thread directions replace one repeated angled texture;
+    # individual fine needle ridges remain visible
     # at the full 2048px size. Both fields stay strictly inside glyph alpha.
-    directions = (0.27, -0.32, 0.38, -0.26, 0.31, -0.38)
-    slope = directions[(concept - 1) % 6]
-    spread = int(abs(slope) * height) + 24
-    bundles = Image.new("L", cut.size, 230)
-    broad = ImageDraw.Draw(bundles)
-    for start in range(-spread, width + spread, 26):
-        broad.line([(start, 0), (round(start + slope * height), height)],
-                   fill=255, width=9)
-        broad.line([(start + 13, 0),
-                    (round(start + 13 + slope * height), height)],
-                   fill=145, width=9)
-    fibers = Image.new("L", cut.size, 230)
-    fine = ImageDraw.Draw(fibers)
-    for start in range(-spread, width + spread, 4):
-        fine.line([(start, 0), (round(start + slope * height), height)],
-                  fill=255, width=1)
-        fine.line([(start + 2, 0),
-                   (round(start + 2 + slope * height), height)],
-                  fill=173, width=1)
-    lighting = ImageChops.multiply(bundles, fibers)
+    # Derive a local transverse stitch direction from glyph-edge geometry.
+    # Vertical strokes get horizontal thread rows; horizontal strokes get
+    # vertical thread rows. Curved serifs interpolate between both.
+    x_edges = ImageChops.add(
+        ImageChops.difference(mask, ImageChops.offset(mask, 7, 0)),
+        ImageChops.difference(mask, ImageChops.offset(mask, -7, 0)),
+        scale=1.7).filter(ImageFilter.GaussianBlur(23))
+    y_edges = ImageChops.add(
+        ImageChops.difference(mask, ImageChops.offset(mask, 0, 7)),
+        ImageChops.difference(mask, ImageChops.offset(mask, 0, -7)),
+        scale=1.7).filter(ImageFilter.GaussianBlur(23))
+    # Amplify directional evidence so wide stroke interiors do not average
+    # both textures into a crosshatch (which resembles printed graphics).
+    x_strength = ImageChops.subtract(x_edges, y_edges).point(
+        [min(255, v * 32) for v in range(256)])
+    y_strength = ImageChops.subtract(y_edges, x_edges).point(
+        [min(255, v * 32) for v in range(256)])
+    orientation = ImageChops.subtract(
+        ImageChops.add(Image.new("L", cut.size, 128), x_strength),
+        y_strength)
+    horizontal = Image.new("L", cut.size, 235)
+    vertical = Image.new("L", cut.size, 235)
+    hpen, vpen = ImageDraw.Draw(horizontal), ImageDraw.Draw(vertical)
+    for y in range(0, height + 3, 4):
+        hpen.line(((0, y), (width, y)), fill=255, width=1)
+        hpen.line(((0, y + 2), (width, y + 2)), fill=173, width=1)
+    for x in range(0, width + 3, 4):
+        vpen.line(((x, 0), (x, height)), fill=255, width=1)
+        vpen.line(((x + 2, 0), (x + 2, height)), fill=173, width=1)
+    yarn = reference_patch("thread").point(
+        [min(250, 170 + int(v * .85)) for v in range(256)])
+    photo_h = Image.new("L", cut.size)
+    photo_v = Image.new("L", cut.size)
+    yarn_v = yarn.transpose(Image.Transpose.ROTATE_90)
+    for yy in range(0, height, 64):
+        for xx in range(0, width, 64):
+            photo_h.paste(yarn, (xx, yy))
+            photo_v.paste(yarn_v, (xx, yy))
+    fine = Image.composite(horizontal, vertical, orientation)
+    photo = Image.composite(photo_h, photo_v, orientation)
+    lighting = Image.blend(fine, photo, 0.78)
     # Multiply the two-color originals by the same light field. Reds stay red;
     # royal blue keeps its hue, rather than being flattened to grayscale.
     source_rgb = cut.convert("RGB")
@@ -55,6 +77,17 @@ def embroider_typography(flat: Image.Image, *, concept: int) -> Image.Image:
         ImageChops.multiply(channel, lighting)
         for channel in source_rgb.split()
     ))
+    # Satin yarn reflects tiny colored specular glints. Multiplication alone
+    # only darkens paint and looks like a flat printed decal.
+    highlights = ImageChops.subtract(
+        photo, Image.new("L", cut.size, 216)
+    ).point([min(255, round(v * 1.2)) for v in range(256)])
+    glints = Image.merge("RGB", (
+        highlights.point([round(v * .58) for v in range(256)]),
+        highlights.point([round(v * .75) for v in range(256)]),
+        highlights,
+    ))
+    lit_rgb = ImageChops.add(lit_rgb, glints)
     # Raised satin edge: light hits top-left lips and casts a tiny shadow
     # toward bottom-right. Only pixels already inside the source alpha change.
     upper = ImageChops.subtract(mask, ImageChops.offset(mask, 2, 2))

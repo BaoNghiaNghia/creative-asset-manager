@@ -9,7 +9,7 @@ worker's deterministic output validation remains unchanged.
 """
 from __future__ import annotations
 
-EMBROIDERY_REALISM_VERSION = "low-profile-direct-thread-v2"
+EMBROIDERY_REALISM_VERSION = "fabric-first-direct-thread-v3"
 
 # Covers 4 independent ecommerce outputs, three Multi-hat scenes, three UGC
 # scenes and 12 official Products colorways (one policy for the colorway slot).
@@ -21,6 +21,13 @@ _SHARED_THREAD = (
     f"[{EMBROIDERY_REALISM_VERSION}]: "
     "Treat the current source artwork / design image as the exact ARTWORK identity and the official "
     "Valucap 8869 stock as the exact HAT geometry and fabric-color authority. "
+    "FABRIC-FIRST INPUT RULE: The Stage 1 reference may show embroidered text "
+    "on a NEUTRAL BEIGE woven fabric. That cloth is NOT the hat surface. "
+    "Transfer ONLY exact lettering, individual thread pigments, local stitch "
+    "direction and embroidery geometry to the official stock hat crown. "
+    "Re-light and conform fibers to the actual hat's own twill weave, curvature "
+    "and shadows. Never paste a rectangular cream fabric swatch, visible crop "
+    "border, cloth halo, stock-color mismatch or sticker-like patch. "
     "Any pre-composited or previously generated embroidered-front reference is "
     "ONLY evidence for letter placement, scale, and perspective: do not copy its "
     "flat overlay, fake thick relief, hard outline, or artificial thread texture. "

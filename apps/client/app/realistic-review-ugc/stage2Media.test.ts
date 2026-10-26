@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { productEmbroideryArtworkUrl, publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl, productFabricArtworkUrl, publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
 
 describe("GatorHats Stage 2 media authorization", () => {
   it("uses authenticated small previews only for supported routes", () => {
@@ -13,10 +13,11 @@ describe("GatorHats Stage 2 media authorization", () => {
     expect(stage2OriginalUrl("https://other.example.com/x.jpg?thumbnail=true&size=256")).toBe("https://other.example.com/x.jpg?thumbnail=true&size=256");
     expect(stage2ThumbnailUrl("https://other.example/stock.png", 128)).toBe("https://other.example/stock.png");
   });
-  it("requests original-alpha PNG art only for private source-plan thumbnails", () => {
+  it("requests verified thread geometry only for private source-plan cap previews", () => {
     const source = "/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=128&v=rev123";
     expect(productEmbroideryArtworkUrl(source))
-      .toBe("/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=384&v=rev123&artwork=stage1-source-alpha-v2");
+      .toBe("/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=384&v=rev123&artwork=stage1-thread-geometry-v1");
+    expect(productFabricArtworkUrl(source)).toBe("/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=384&v=rev123");
     expect(productEmbroideryArtworkUrl(productEmbroideryArtworkUrl(source)))
       .toBe(productEmbroideryArtworkUrl(source));
     expect(productEmbroideryArtworkUrl("https://evil.example.com/image.png")).toBe("https://evil.example.com/image.png");

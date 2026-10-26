@@ -31,6 +31,7 @@ from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.realistic_review_ugc.output_image_sanitizer import (
     MAX_PREVIEW_BYTES, stage1_png_thumbnail_bytes,
 )
+from app.modules.realistic_review_ugc.stage1_fabric import thread_preview_bytes
 from app.modules.realistic_review_ugc.image_cache_policy import (
     matches_etag,
     preview_cache_control,
@@ -2918,6 +2919,60 @@ async def _original_png_thumbnail_response(
     return Response(content=cached.content, media_type=cached.content_type, headers=headers)
 
 
+async def _thread_geometry_preview_response(
+    storage,
+    *,
+    tenant_id: str,
+    asset_id: str,
+    remote_file_id: str,
+    size_bytes: int | None,
+    size_pixels: int | None,
+    cache_control: str,
+    etag: str | None = None,
+) -> Response:
+    """Serve transient verified stitch geometry to CAM's cap preview widgets.
+
+    Stage 1 gallery/Drive outputs remain opaque fabric RGB. This response is
+    never a published asset and cannot be mistaken for user-provided artwork.
+    """
+    if size_bytes is not None and (size_bytes < 1 or size_bytes > MAX_PREVIEW_BYTES):
+        raise HTTPException(status_code=413, detail="Stage 1 photo exceeds preview limits")
+    cache_key = (tenant_id, "rrugc-thread-geometry-v1", remote_file_id, str(size_pixels))
+
+    async def load_thread_geometry() -> CachedThumbnail:
+        async with _STAGE1_ORIGINAL_THUMBNAIL_SLOTS:
+            stream = await storage.open_asset(OpenStoredAssetInput(
+                tenant_id=tenant_id, asset_id=asset_id,
+                remote_file_id=remote_file_id,
+                content_type="image/png", size_bytes=size_bytes,
+            ))
+            try:
+                content = bytearray()
+                async for chunk in stream.body:
+                    content.extend(chunk)
+                    if len(content) > MAX_PREVIEW_BYTES:
+                        raise ValueError("Stage 1 photo exceeds preview limits")
+                converted = await run_in_threadpool(
+                    thread_preview_bytes, bytes(content), size_pixels,
+                )
+                return CachedThumbnail(
+                    content=converted, content_type="image/png", headers=(),
+                )
+            finally:
+                await stream.close()
+
+    try:
+        cached = await thumbnail_cache.get_or_load(cache_key, load_thread_geometry)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=422,
+                            detail="Verified source thread geometry is unavailable") from exc
+    headers = {"Cache-Control": cache_control, "Vary": "Cookie",
+               "X-Content-Type-Options": "nosniff"}
+    if etag:
+        headers["ETag"] = etag
+    return Response(content=cached.content, media_type="image/png", headers=headers)
+
+
 async def _managed_drive_thumbnail_response(
     storage,
     *,
@@ -4856,11 +4911,15 @@ async def get_source_plan_image(
     # Google Drive's JPEG preview can turn transparent embroidery masters
     # into a black rectangle. Opt the Product Stage 2 gallery into the same
     # original-PNG alpha-preserving resize used by Stage 1 Output.
+    is_source_png = str(content_type or "").lower().split(";")[0] == "image/png"
+    thread_preview = artwork == "stage1-thread-geometry-v1" and is_source_png
     alpha_preview = (
-        thumbnail and artwork == "stage1-source-alpha-v2"
-        and str(content_type or "").lower().split(";")[0] == "image/png"
+        thumbnail and artwork == "stage1-source-alpha-v2" and is_source_png
     )
-    etag = f'"{source_revision}:stage1-source-alpha-v2"' if alpha_preview else f'"{source_revision}"'
+    suffix = ":stage1-thread-geometry-v1" if thread_preview else (
+        ":stage1-source-alpha-v2" if alpha_preview else ""
+    )
+    etag = f'"{source_revision}{suffix}"'
     thumbnail_cache_control = "private, max-age=31536000, immutable"
     if thumbnail and request.headers.get("if-none-match") == etag:
         return Response(
@@ -4880,6 +4939,13 @@ async def get_source_plan_image(
                 "code": "managed_storage_unavailable",
                 "message": "Managed Google Drive is unavailable.",
             },
+        )
+    if thread_preview:
+        return await _thread_geometry_preview_response(
+            storage, tenant_id=principal.active_tenant_id,
+            asset_id=asset_id, remote_file_id=remote_file_id,
+            size_bytes=size_bytes, size_pixels=size if thumbnail else None,
+            cache_control=thumbnail_cache_control, etag=etag,
         )
     if thumbnail:
         if alpha_preview:
@@ -5299,6 +5365,7 @@ async def get_generation_output_version(
     thumbnail: bool = Query(default=False),
     download: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
+    artwork: str | None = Query(default=None, max_length=64),
     v: str | None = Query(default=None, max_length=256),
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
@@ -5320,14 +5387,16 @@ async def get_generation_output_version(
         raise HTTPException(status_code=404, detail="Output version not found")
     remote_id, content_type, size_bytes = (
         match["remote_file_id"], match["content_type"], match["size_bytes"])
-    # Stage 1 PNG previews must use their exact source pixels, including the
-    # renderer's alpha. Other stages retain their existing thumbnail pipeline.
+    # Original Stage 1 previews show their source pixels (RGBA legacy or RGB
+    # fabric). Only cap-placement widgets request ephemeral thread geometry.
     stage1_png = stage == "stage1" and str(content_type or "").lower().split(";")[0] == "image/png"
+    thread_preview = stage1_png and artwork == "stage1-thread-geometry-v1" and not download
     session.close()
     if thumbnail and not download:
         not_modified, etag, cache_control = _rrugc_conditional_preview(
             tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size=size, revision=remote_id + (":stage1-source-alpha-v2" if stage1_png else ""),
+            size=size, revision=remote_id + (":stage1-thread-geometry-v1" if thread_preview else
+                                            ":stage1-source-alpha-v2" if stage1_png else ""),
             requested_version=v,
             if_none_match=if_none_match,
         )
@@ -5336,6 +5405,15 @@ async def get_generation_output_version(
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    if thread_preview:
+        return await _thread_geometry_preview_response(
+            storage, tenant_id=principal.active_tenant_id,
+            asset_id=f"rrugc-output:stage1:{job_id}:{version}",
+            remote_file_id=remote_id, size_bytes=size_bytes,
+            size_pixels=size if thumbnail else None,
+            cache_control=cache_control if thumbnail else "private, max-age=300",
+            etag=etag if thumbnail else None,
+        )
     if thumbnail and not download:
         if stage1_png:
             compact = await _original_png_thumbnail_response(

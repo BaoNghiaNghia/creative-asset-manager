@@ -14,7 +14,21 @@ export function productEmbroideryArtworkUrl(src: string, size = 384): string {
   const params = new URLSearchParams(src.includes("?") ? src.slice(path.length + 1) : "");
   params.set("thumbnail", "true");
   params.set("size", String(size));
-  params.set("artwork", "stage1-source-alpha-v2");
+  params.set("artwork", "stage1-thread-geometry-v1");
+  return path + "?" + params.toString();
+}
+
+/** Original product artwork remains a visible fabric photograph; only the
+ * hat-placement canvas uses the transient verified thread view above.
+ */
+export function productFabricArtworkUrl(src: string, size = 384): string {
+  if (!src || !src.startsWith("/") || src.startsWith("//")) return src;
+  const [path] = src.split("?");
+  if (!SOURCE_PLAN_IMAGE_PATH.test(path)) return src;
+  const params = new URLSearchParams(src.includes("?") ? src.slice(path.length + 1) : "");
+  params.set("thumbnail", "true");
+  params.set("size", String(size));
+  params.delete("artwork");
   return path + "?" + params.toString();
 }
 
