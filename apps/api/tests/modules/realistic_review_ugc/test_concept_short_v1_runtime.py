@@ -95,12 +95,23 @@ def test_flat_concepts_cannot_be_mislabeled_finished_images(tmp_path, monkeypatc
     attempt = "job-123"
 
     async def fake_exec(*_argv, **_kwargs):
-        folder = root / "codex" / attempt / "output" / "final"
+        workspace = root / "codex" / attempt
+        folder = workspace / "output" / "final"
         folder.mkdir(parents=True, exist_ok=True)
+        concepts = workspace / "working" / "concept-short" / "y-all-need-jesus"
+        concepts.mkdir(parents=True, exist_ok=True)
+        report = []
         for number in range(1, 7):
-            Image.new("RGB", (1536, 1024), "white").save(
-                folder / f"design_{number:02}.png"
-            )
+            concept = f"C{number}"
+            directory = concepts / concept
+            directory.mkdir()
+            flat = Image.new("RGB", (1536, 1024), "white")
+            flat.save(directory / "A_input.png")
+            flat.save(folder / f"design_{number:02}.png")
+            (directory / "A_prompt.txt").write_text("Edit image, preserve text.")
+            (directory / "spec.json").write_text("{}")
+            report.append({"concept": concept, "status": "ok"})
+        (concepts / "summary.json").write_text(json.dumps(report))
         return SimpleNamespace(returncode=0)
 
     async def fake_stream(*_args, **_kwargs):
@@ -152,3 +163,17 @@ def test_image_gen_underscore_telemetry_is_recognized():
         "type": "mcp_tool_call", "tool_name": "image_gen", "id": "call_123"
     }}
     assert _distinct_imagegen_calls(json.dumps(event)) == 1
+
+
+def test_missing_source_plan_is_not_accepted_as_embroidery(tmp_path):
+    from app.providers.ai.codex_image import _assert_concept_short_plan
+    with pytest.raises(CodexImageProviderError) as err:
+        _assert_concept_short_plan(tmp_path)
+    assert err.value.code == "concept_short_source_missing"
+
+
+def test_concept_short_has_time_for_six_independent_image_edits():
+    from app.modules.realistic_review_ugc.keyword_images import codex_stage1_timeout_seconds
+    assert codex_stage1_timeout_seconds("concept-short-v1", 900) == 1800
+    assert codex_stage1_timeout_seconds("concept-short-v1", 2400) == 2400
+    assert codex_stage1_timeout_seconds("gatorhats-typography-concepts", 900) == 900

@@ -118,7 +118,8 @@ STAGE1_SIX_DESIGNS_MIN_TIMEOUT_SECONDS = 1800
 
 
 def codex_stage1_timeout_seconds(skill_name: str, configured: int) -> int:
-    minimum = 7200 if skill_name == "hanh-redesign-8869-ver-4" else 0
+    minimum = (7200 if skill_name == "hanh-redesign-8869-ver-4"
+               else 1800 if skill_name == "concept-short-v1" else 0)
     return max(minimum, configured)
 
 STAGE1_RETRYABLE_STORAGE_CODES = frozenset({

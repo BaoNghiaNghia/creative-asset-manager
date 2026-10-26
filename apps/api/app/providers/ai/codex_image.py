@@ -345,6 +345,69 @@ def _concept_short_skipped_slots(workspace: Path) -> tuple[str, ...]:
     return tuple(skipped)
 
 
+def _assert_concept_short_plan(workspace: Path) -> None:
+    """Require the exact code-built source for each image edit.
+
+    An agent must not be able to fabricate six imagegen results from text and
+    claim that it used the original Concept Short layout/font selections.
+    """
+    source = workspace / "working" / "concept-short"
+    if not source.is_dir() or source.is_symlink():
+        raise CodexImageProviderError(
+            "concept_short_source_missing",
+            "Concept Short v1 did not create its original source concept plan.",
+        )
+    reports = [p for p in source.glob("*/summary.json")
+               if p.is_file() and not p.is_symlink()]
+    if len(reports) != 1 or reports[0].stat().st_size > 65536:
+        raise CodexImageProviderError(
+            "concept_short_source_missing",
+            "Concept Short v1 source summary is missing or ambiguous.",
+        )
+    try:
+        entries = json.loads(reports[0].read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise CodexImageProviderError(
+            "concept_short_source_invalid",
+            "Concept Short v1 source summary could not be validated.",
+        ) from exc
+    if not isinstance(entries, list) or len(entries) != 6:
+        raise CodexImageProviderError(
+            "concept_short_source_incomplete",
+            "Concept Short v1 must report six original concept slots.",
+        )
+    ids = []
+    for item in entries:
+        if not isinstance(item, dict):
+            raise CodexImageProviderError(
+                "concept_short_source_invalid", "Invalid Concept Short plan entry.",
+            )
+        concept = str(item.get("concept") or "")
+        if not re.fullmatch(r"C[1-8]", concept) or concept in ids:
+            raise CodexImageProviderError(
+                "concept_short_source_invalid", "Invalid Concept Short concept ID.",
+            )
+        ids.append(concept)
+        if item.get("status") not in ("ok", "ok_with_notes"):
+            # Ineligible slots are reported independently with exact reasons.
+            continue
+        folder = reports[0].parent / concept
+        for filename in ("A_input.png", "A_prompt.txt", "spec.json"):
+            file = folder / filename
+            if (not file.is_file() or file.is_symlink()
+                    or file.stat().st_size <= 0):
+                raise CodexImageProviderError(
+                    "concept_short_source_incomplete",
+                    f"Concept Short {concept} missing original {filename}.",
+                )
+    if (ids[:3] != ["C1", "C2", "C3"] or ids[3] not in ("C4", "C7")
+            or ids[4] not in ("C5", "C8") or ids[5] != "C6"):
+        raise CodexImageProviderError(
+            "concept_short_source_invalid",
+            "Concept Short original C1..C6/C7/C8 slot order changed.",
+        )
+
+
 def _distinct_imagegen_calls(stdout: str) -> int:
     """Count imagegen invocations, not model claims or filenames on disk."""
     ids: set[str] = set()
@@ -633,6 +696,19 @@ class CodexImageGenRunner:
                 f"FINAL INSTRUCTION: continue with ONLY {missing_text}. "
                 "Do not repeat all six, do not output an image sheet, and do not use an API-key fallback."
             )
+            if self.config.skill_name == "concept-short-v1":
+                instruction += (
+                    "\nCONCEPT SHORT V1 RESUME: The original source concept plans "
+                    "under working/concept-short/<slug>/ must remain untouched. "
+                    "For each missing output number, map slot 4 to C4/C7 and "
+                    "slot 5 to C5/C8 using the original summary.json. Open ONLY "
+                    "the matching <concept>/A_input.png and A_prompt.txt; perform "
+                    "one actual image-EDIT per missing final using the unmodified "
+                    "reference image and verbatim prompt. No text-only imagegen, "
+                    "no synthetic stitch filters and no fake replacement of "
+                    "the previously finished images. Refuse if the original "
+                    "source images, edit capability or any concept is missing."
+                )
         # Use a separate CODEX_HOME for every job. A shared account HOME
         # preserves authentication/skills, while imagegen cache is private.
         execution_home = _isolated_job_codex_home(codex_home, workspace)
@@ -754,6 +830,7 @@ class CodexImageGenRunner:
             raise _classify_failure(stderr, stdout)
         if (self.config.skill_name == "concept-short-v1"
                 and self.config.output_contract == "stage1_six_final_designs"):
+            _assert_concept_short_plan(workspace)
             skipped = _concept_short_skipped_slots(workspace)
             if skipped:
                 raise CodexImageProviderError(
@@ -761,12 +838,14 @@ class CodexImageGenRunner:
                     "Concept Short v1 cannot supply six eligible slots for this phrase: "
                     + "; ".join(skipped),
                 )
+        needed_edits = (len(resume_missing_numbers)
+                        if resume_missing_numbers is not None
+                        else self.config.expected_output_count)
         if (self.config.skill_name == "concept-short-v1"
                 and self.config.output_contract == "stage1_six_final_designs"
-                and _distinct_imagegen_calls(stdout) < 6):
+                and _distinct_imagegen_calls(stdout) < needed_edits):
             # A successful code-only concept sheet is NOT a completed
-            # photoreal embroidery edit. Fail closed instead of publishing
-            # six flat PNGs or rendering fake thread after the fact.
+            # photoreal embroidery edit. On resume count only missing edits.
             raise CodexImageProviderError(
                 "concept_short_image_edits_missing",
                 "Concept Short v1 requires six genuine image-edit calls. "
