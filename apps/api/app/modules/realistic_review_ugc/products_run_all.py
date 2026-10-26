@@ -12,7 +12,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,14 @@ from app.modules.realistic_review_ugc.model import (
 )
 
 logger = logging.getLogger(__name__)
+SCOUT_WAIT_CODE = "run_all_scout_waiting"
+SCOUT_WAIT_MESSAGE = (
+    "Waiting for three approved, distinct lifestyle Scout images. "
+    "Automatic Scout is retrying; Run all will continue with Slot 6 once they are ready."
+)
+# Existing historical runs blocked solely on missing Scout inputs are safe to
+# resume: no generated job is reset or requeued while its output is complete.
+LEGACY_SCOUT_BLOCK_CODE = "ugc_scout_references_missing"
 SLOT_GROUPS: tuple[tuple[str, ...], ...] = (
     ("prod_s2_ec1",),
     ("prod_s2_ec2",),
@@ -114,6 +122,9 @@ def _status(session: Session, run: RrugcProductsRunAllModel) -> dict:
             status = "completed"  # previous step already audited by the coordinator
         elif run.status == "blocked" and position == run.current_slot:
             status = "blocked"
+        elif (run.status == "running" and run.current_slot == 6
+              and run.error_code == SCOUT_WAIT_CODE and position == 6):
+            status = "waiting"
         elif position > run.current_slot:
             status = "pending"
         elif result == "running":
@@ -128,7 +139,8 @@ def _status(session: Session, run: RrugcProductsRunAllModel) -> dict:
                 if state == "completed" and job.output_remote_file_id
             ),
             "total_outputs": len(SLOT_GROUPS[position - 1]),
-            "reason": error if status == "blocked" else None,
+            "reason": (run.error_message if status == "waiting" else error)
+                if status in {"blocked", "waiting"} else None,
         })
     return {
         "source_plan_id": run.source_plan_id,
@@ -231,8 +243,13 @@ class ProductsRunAllService:
         run = self.session.scalar(select(RrugcProductsRunAllModel).where(
             RrugcProductsRunAllModel.id == run_id,
         ).with_for_update())
-        if not run or run.status != "running":
-            return _compact(run) if run else None
+        if not run:
+            return None
+        if run.status == "blocked" and run.error_code == LEGACY_SCOUT_BLOCK_CODE:
+            run.status = "running"
+            run.error_code = run.error_message = None
+        if run.status != "running":
+            return _compact(run)
         try:
             plan = self.session.get(RrugcSourcePlanModel, run.source_plan_id)
             if (not plan or plan.tenant_id != run.tenant_id
@@ -269,10 +286,34 @@ class ProductsRunAllService:
                     )
                 elif position in (5, 6):
                     slot = "prod_s2_mh" if position == 5 else "prod_s2_ugc"
-                    result = EcommerceService(self.session, self.settings).queue_scene(
-                        tenant_id=run.tenant_id, user_id=run.started_by_user_id,
-                        source_plan_id=run.source_plan_id, slot=slot, color_key=run.color_key,
-                    )
+                    if position == 6 and not plan.campaign_id:
+                        # Browser-independent bootstrap: page closure must not
+                        # prevent Scout startup after Slot 5 completes.
+                        from app.modules.realistic_review_ugc.ugc_scout_bootstrap import (
+                            bootstrap_products_ugc_campaign,
+                        )
+                        plan = self.session.scalar(select(RrugcSourcePlanModel).where(
+                            RrugcSourcePlanModel.id == run.source_plan_id,
+                            RrugcSourcePlanModel.tenant_id == run.tenant_id,
+                        ).with_for_update())
+                        bootstrap_products_ugc_campaign(
+                            self.session, plan=plan, user_id=run.started_by_user_id)
+                    try:
+                        result = EcommerceService(self.session, self.settings).queue_scene(
+                            tenant_id=run.tenant_id, user_id=run.started_by_user_id,
+                            source_plan_id=run.source_plan_id, slot=slot, color_key=run.color_key,
+                        )
+                    except EcommerceError as exc:
+                        if position == 6 and exc.code == LEGACY_SCOUT_BLOCK_CODE:
+                            # This is an external dependency, NOT a failed image
+                            # generation. Keep the durable run active; the
+                            # reconciler will resume without touching Slots 1–5.
+                            run.current_slot = 6
+                            run.error_code = SCOUT_WAIT_CODE
+                            run.error_message = SCOUT_WAIT_MESSAGE
+                            self.session.commit()
+                            return _compact(run)
+                        raise
                     errors = [step.get("reason", "Scene job blocked") for step in result["steps"]
                               if step.get("status") == "blocked"]
                     if errors:
@@ -288,6 +329,7 @@ class ProductsRunAllService:
                         skill_source=selection.get("source"), skill_id=selection.get("skill_id"),
                         skill_name=selection.get("skill_name"), skill_version=selection.get("skill_version"),
                     )
+                run.error_code = run.error_message = None
                 self.session.commit()
                 return _compact(run)
         except (EcommerceError, ColorwayError) as exc:
@@ -377,7 +419,13 @@ class ProductsRunAllScheduler:
             return 0
         with self.session_factory() as session:
             ids = list(session.scalars(select(RrugcProductsRunAllModel.id).where(
-                RrugcProductsRunAllModel.status == "running",
+                or_(
+                    RrugcProductsRunAllModel.status == "running",
+                    and_(
+                        RrugcProductsRunAllModel.status == "blocked",
+                        RrugcProductsRunAllModel.error_code == LEGACY_SCOUT_BLOCK_CODE,
+                    ),
+                ),
             ).order_by(RrugcProductsRunAllModel.updated_at).limit(50)))
         for run_id in ids:
             try:

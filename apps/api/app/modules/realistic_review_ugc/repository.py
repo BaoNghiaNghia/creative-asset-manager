@@ -18,6 +18,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
     RrugcSourcePlanModel,
+    RrugcProductsRunAllModel,
     RrugcProductModel,
     RrugcProductVariantModel,
     RrugcProductReferenceModel,
@@ -1179,6 +1180,50 @@ class RrugcRepository:
                     context_label if context_label in {"good", "wrong"} else None,
                 ))
         return outcomes
+
+    def priority_ugc_run_all_campaigns(
+        self, tenant_id: str, *, now, limit: int = 8,
+    ) -> list[RrugcCampaignModel]:
+        """Cheap, tenant-scoped priority lane for runs waiting at Slot 6.
+
+        No candidate COUNT/SORT across hundreds of campaigns. Preserve the
+        existing lease and scan backoff gates; do not preempt claimed work.
+        The regular scarcity-first lane remains available as a fallback.
+        """
+        return list(self.session.scalars(
+            select(RrugcCampaignModel)
+            .join(RrugcSourcePlanModel,
+                  (RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id)
+                  & (RrugcSourcePlanModel.tenant_id == tenant_id))
+            .join(RrugcProductsRunAllModel,
+                  (RrugcProductsRunAllModel.source_plan_id == RrugcSourcePlanModel.id)
+                  & (RrugcProductsRunAllModel.tenant_id == tenant_id)
+                  & (RrugcProductsRunAllModel.source_revision ==
+                     RrugcSourcePlanModel.source_revision))
+            .where(
+                RrugcCampaignModel.tenant_id == tenant_id,
+                RrugcCampaignModel.status == "running",
+                RrugcCampaignModel.auto_scout.is_(True),
+                RrugcSourcePlanModel.status == "ready",
+                RrugcProductsRunAllModel.status == "running",
+                RrugcProductsRunAllModel.current_slot == 6,
+                or_(
+                    RrugcCampaignModel.scan_next_at.is_(None),
+                    RrugcCampaignModel.scan_next_at <= now,
+                ),
+                or_(
+                    RrugcCampaignModel.scan_lease_expires_at.is_(None),
+                    RrugcCampaignModel.scan_lease_expires_at <= now,
+                ),
+            )
+            .order_by(
+                RrugcCampaignModel.scan_last_started_at.asc().nullsfirst(),
+                RrugcCampaignModel.scan_next_at.asc().nullsfirst(),
+                RrugcCampaignModel.id.asc(),
+            )
+            .limit(limit)
+            .with_for_update(of=RrugcCampaignModel, skip_locked=True)
+        ))
 
     def claimable_campaigns(
         self,

@@ -96,6 +96,11 @@ def context(monkeypatch):
 
     monkeypatch.setattr(ep.EcommerceService, "queue_scene", fake_scene)
     monkeypatch.setattr(mod.ColorwayService, "queue", fake_color)
+    from app.modules.realistic_review_ugc import ugc_scout_bootstrap
+    monkeypatch.setattr(
+        ugc_scout_bootstrap, "bootstrap_products_ugc_campaign",
+        lambda _session, *, plan, user_id: setattr(plan, "campaign_id", "test-campaign"),
+    )
 
     with Session(engine) as session:
         session.add(RrugcSourcePlanModel(
@@ -178,6 +183,79 @@ def test_run_all_never_fans_out_to_next_slot_before_completion(context):
     assert service.start(tenant_id=TENANT, user_id="operator", source_plan_id=DESIGN,
                          color_key=COLOR, colorway_skill=SKILL)["status"] == "completed"
     assert len(ecommerce_jobs(session, 1)) == 1
+
+
+def test_missing_scout_references_wait_then_resume_without_rerunning_completed(
+    context, monkeypatch,
+):
+    session, service, scene_calls, color_calls = context
+    import app.modules.realistic_review_ugc.ecommerce_pipeline as ep
+
+    original = ep.EcommerceService.queue_scene
+    scout_ready = {"value": False}
+
+    def scene_after_scout(self, *, tenant_id, user_id, source_plan_id, slot, color_key):
+        if slot == "prod_s2_ugc" and not scout_ready["value"]:
+            raise ep.EcommerceError(
+                "ugc_scout_references_missing", "Need three approved and distinct Scout images.", 409)
+        return original(
+            self, tenant_id=tenant_id, user_id=user_id,
+            source_plan_id=source_plan_id, slot=slot, color_key=color_key,
+        )
+
+    monkeypatch.setattr(ep.EcommerceService, "queue_scene", scene_after_scout)
+    started = service.start(
+        tenant_id=TENANT, user_id="operator",
+        source_plan_id=DESIGN, color_key=COLOR, colorway_skill=SKILL,
+    )
+    for slot in range(1, 6):
+        done(session, slot)
+        service.advance(started["run_id"])
+
+    waiting = service.status(
+        tenant_id=TENANT, source_plan_id=DESIGN, color_key=COLOR)
+    assert waiting["status"] == "running"
+    assert waiting["current_slot"] == 6
+    assert waiting["error_code"] == "run_all_scout_waiting"
+    assert waiting["steps"][5]["status"] == "waiting"
+    assert waiting["steps"][5]["reason"]
+    assert len(ecommerce_jobs(session, 5)) == 3
+    assert ecommerce_jobs(session, 6) == []
+    for _ in range(2):
+        service.advance(started["run_id"])
+    assert ecommerce_jobs(session, 6) == []
+    assert len(ecommerce_jobs(session, 5)) == 3
+
+    # Old blocked snapshots are also safely upgraded without re-running Slot 5.
+    from app.modules.realistic_review_ugc.model import RrugcProductsRunAllModel
+    run = session.get(RrugcProductsRunAllModel, started["run_id"])
+    run.status = "blocked"
+    run.current_slot = 5
+    run.error_code = "ugc_scout_references_missing"
+    session.commit()
+    engine = session.get_bind()
+    assert ProductsRunAllScheduler(lambda: Session(engine), SETTINGS).tick() == 1
+    upgraded = service.status(
+        tenant_id=TENANT, source_plan_id=DESIGN, color_key=COLOR)
+    assert upgraded["status"] == "running"
+    assert upgraded["current_slot"] == 6
+    assert upgraded["error_code"] == "run_all_scout_waiting"
+    assert len(ecommerce_jobs(session, 5)) == 3
+
+    scout_ready["value"] = True
+    resumed = service.advance(started["run_id"])
+    assert resumed["current_slot"] == 6
+    assert resumed["status"] == "running"
+    assert len(ecommerce_jobs(session, 6)) == 3
+    assert service.status(
+        tenant_id=TENANT, source_plan_id=DESIGN, color_key=COLOR,
+    )["error_code"] is None
+    done(session, 6)
+    service.advance(started["run_id"])
+    assert len(session.query(RrugcColorwayJobModel).all()) == 12
+    assert scene_calls == ["prod_s2_mh", "prod_s2_ugc"]
+    assert len(ecommerce_jobs(session, 5)) == 3
+    assert color_calls == [{"source": "local", "skill_name": SKILL["skill_name"]}]
 
 
 def test_failures_halt_sequence_until_manual_retry(context):

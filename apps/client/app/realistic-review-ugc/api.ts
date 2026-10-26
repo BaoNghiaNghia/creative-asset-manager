@@ -750,7 +750,7 @@ export type EcommerceRunAllStep = {
   stage: string;
   slot: number;
   name: string;
-  status: "running" | "completed" | "blocked" | "pending";
+  status: "running" | "completed" | "blocked" | "pending" | "waiting";
   completed_outputs: number;
   total_outputs: number;
   reason?: string | null;

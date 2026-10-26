@@ -518,7 +518,13 @@ export function ProductsPhotoWorkflow({
                 <strong>Review Scout · Lifestyle references</strong>
                 <span>{ugcScout ? ugcScout.count + " / 20 images" : "Checking Scout campaign…"}</span>
                 <span role="status">Automatic Scout enabled</span>
-                {ugcScout && <small>Scout: {ugcScout.status}{ugcScout.error_code ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}</small>}
+                {ugcScout && <small>Scout: {ugcScout.status === "error" && ugcScout.error_code === "pinterest_scan_failed"
+                  ? "Retry scheduled after Pinterest/API timeout"
+                  : ugcScout.status}
+                  {ugcScout.error_code && ugcScout.error_code !== "pinterest_scan_failed"
+                    ? " · " + ugcScout.error_code.replace(/_/g, " ") : ""}
+                  {ugcScout.next_attempt_at && ugcScout.status === "error"
+                    ? " · next scan " + new Date(ugcScout.next_attempt_at).toLocaleTimeString() : ""}</small>}
               </div>
               {ugcScoutError && <p role="alert">{ugcScoutError}</p>}
               {ugcLearningMessage && <p role="status" className="rrugc-ugc-learning-message">{ugcLearningMessage}</p>}
@@ -657,16 +663,21 @@ export function ProductsPhotoWorkflow({
           aria-label="Run all" title="Run Slots 1 → 7 sequentially. Each slot finishes every output before the next starts. Completed jobs are reused.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m8 5 11 7-11 7V5Z" />
-          </svg>{bulkRunning ? "Starting…" : activeRun?.status === "running" ? "Slot " + activeRun.current_slot + "/7"
+          </svg>{bulkRunning ? "Starting…" : activeRun?.status === "running" && activeRun.error_code === "run_all_scout_waiting"
+              ? "Waiting for Scout" : activeRun?.status === "running" ? "Slot " + activeRun.current_slot + "/7"
             : activeRun?.status === "blocked" ? "Resume all" : activeRun?.status === "completed" ? "All done" : "Run all"}
         </button>
         <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP"><span className="rrugc-products-photo-download-icon" aria-hidden="true">⇩</span>Download all outputs</a>
       </div>
       {runAllError && <p role="alert" className="rrugc-products-photo-run-all-report">{runAllError}</p>}
       {activeRun && <div className="rrugc-products-photo-run-all-report" role="status" aria-live="polite">
-        <strong>Run all · {activeRun.status === "running" ? "Slot " + activeRun.current_slot + "/7"
+        <strong>Run all · {activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
+          ? "Waiting for Scout · Slot 6/7"
+          : activeRun.status === "running" ? "Slot " + activeRun.current_slot + "/7"
           : activeRun.status === "completed" ? "Completed 7/7" : "Stopped at Slot " + activeRun.current_slot}</strong>
-        <span>{activeRun.status === "running" ? "Running in order. Next slot starts only after this slot completes."
+        <span>{activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
+            ? activeRun.error_message || "Waiting for 3 approved lifestyle references; automatic Scout is retrying."
+          : activeRun.status === "running" ? "Running in order. Next slot starts only after this slot completes."
           : activeRun.status === "completed" ? "All outputs are ready."
           : activeRun.error_message || "A slot needs attention before the sequence can resume."}</span>
         <details><summary>View sequential progress</summary>

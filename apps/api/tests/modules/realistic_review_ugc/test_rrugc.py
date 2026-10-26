@@ -100,12 +100,14 @@ from app.modules.realistic_review_ugc.model import (
     RrugcStage3AnalysisModel,
     RrugcStage2SkillRegistryModel,
     RrugcStage2SkillVersionModel,
+    RrugcStageSkillDefaultModel,
     RrugcSupervisorResultModel,
     RrugcReviewTaskModel,
     RrugcExportModel,
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
     RrugcSourcePlanModel,
+    RrugcProductsRunAllModel,
     RrugcDeliveryDestinationModel,
     RrugcDeliveryPackageModel,
     RrugcDeliveryEventModel,
@@ -200,6 +202,7 @@ def database():
     ProcessingJobModel.__table__.create(engine)
     RrugcCampaignModel.__table__.create(engine)
     RrugcSourcePlanModel.__table__.create(engine)
+    RrugcProductsRunAllModel.__table__.create(engine)
     RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcKeywordImageJobModel.__table__.create(engine)
     RrugcImageOutputVersionModel.__table__.create(engine)
@@ -221,6 +224,7 @@ def database():
     RrugcGenerationAttemptModel.__table__.create(engine)
     RrugcStage2SkillRegistryModel.__table__.create(engine)
     RrugcStage2SkillVersionModel.__table__.create(engine)
+    RrugcStageSkillDefaultModel.__table__.create(engine)
     RrugcStage2JobModel.__table__.create(engine)
     RrugcStage3AnalysisModel.__table__.create(engine)
     RrugcSupervisorResultModel.__table__.create(engine)
@@ -4366,6 +4370,77 @@ def test_auto_scout_claim_prioritizes_campaign_with_scarcer_pipeline(api, databa
     assert payload["campaign_id"] == sparse_id
     assert payload["progress"] == 0
     assert payload["pipeline_count"] == 0
+
+
+def test_active_products_run_all_slot6_gets_due_priority_without_bypassing_backoff(
+    api, database,
+):
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    agent = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Products UGC priority"},
+    ).json()
+    ids = []
+    for name in ("Background Review", "Products UGC"):
+        response = api.post("/api/v1/realistic-review-ugc/campaigns", json={
+            "name": name, "query": "embroidered cap candid",
+            "target_count": 20, "max_scroll_batches": 1,
+            "auto_import": False, "auto_scout": True,
+            "scan_interval_seconds": 180,
+        })
+        assert response.status_code == 201
+        ids.append(response.json()["id"])
+    with database.begin() as session:
+        now = datetime.now(timezone.utc) - timedelta(minutes=3)
+        for i, campaign_id in enumerate(ids):
+            session.add(RrugcSourcePlanModel(
+                id="urgency-plan-" + str(i), tenant_id="tenant-a",
+                campaign_id=campaign_id, root_folder_id=PRODUCTS_STAGE1_SELECTED_ROOT,
+                source_file_id="source-" + str(i), source_relative_path="design.png",
+                source_name="design.png", source_mime_type="image/png",
+                source_revision="rev1", status="ready", created_by_user_id="user-a",
+            ))
+            campaign = session.get(RrugcCampaignModel, campaign_id)
+            campaign.scan_next_at = now
+        session.add(RrugcProductsRunAllModel(
+            tenant_id="tenant-a", source_plan_id="urgency-plan-1",
+            source_revision="rev1", color_key="natural-charcoal",
+            status="running", current_slot=6,
+            started_by_user_id="user-a", colorway_skill_json={},
+            error_code="run_all_scout_waiting",
+        ))
+        # A background campaign with 0 candidates would ordinarily win
+        # scarcity-first. The UGC dependency has three but still needs 20.
+        for index in range(3):
+            session.add(RrugcCandidateModel(
+                tenant_id="tenant-a", campaign_id=ids[1],
+                source_key="urgent-" + str(index),
+                pin_url=f"https://www.pinterest.com/pin/urgent-{index}/",
+                image_url=f"https://i.pinimg.com/736x/urgent-{index}.jpg",
+                status="approved", analysis_revision=1,
+            ))
+
+    claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/claim",
+        headers={
+            "Authorization": "Bearer " + agent["agent_token"],
+            "X-Scout-Version": "rrugc-scout-v56",
+            "X-Scout-Machine": "stage2-priority-test",
+        },
+    )
+    assert claim.status_code == 200
+    assert claim.json()["campaign_id"] == ids[1]
+
+    # The lease and scan cooldown still exclude this campaign on the next claim.
+    next_claim = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent['id']}/claim",
+        headers={
+            "Authorization": "Bearer " + agent["agent_token"],
+            "X-Scout-Version": "rrugc-scout-v56",
+        },
+    )
+    assert next_claim.status_code == 200
+    assert next_claim.json()["campaign_id"] == ids[0]
 
 
 def test_auto_scout_claim_includes_approved_related_pin_seeds(api, database):
@@ -10875,6 +10950,7 @@ def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
 
     class FakeCodexRunner:
         def __init__(self, config):
+            self.config = config
             captured["config"] = config
 
         async def generate_from_references(
@@ -10903,6 +10979,16 @@ def test_rrugc_generation_worker_codex_completes_with_existing_output_lifecycle(
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.generation_handler.CodexImageGenRunner",
         FakeCodexRunner,
+    )
+    from contextlib import contextmanager
+
+    @contextmanager
+    def fake_worker_profile(*_args, **_kwargs):
+        yield "test-account", str(tmp_path / "codex-home")
+
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.generation_handler.acquire_worker_profile",
+        fake_worker_profile,
     )
 
     with database() as session:

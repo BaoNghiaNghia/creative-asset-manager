@@ -92,6 +92,22 @@ describe("Durable sequential Products Run all", () => {
     expect(host.textContent).toContain("Next slot starts only after this slot completes.");
   });
 
+  it("shows Scout waiting instead of stopped and does not enqueue any other slot", async () => {
+    const waiting = state("running", 6);
+    waiting.error_code = "run_all_scout_waiting";
+    waiting.error_message = "Waiting for three approved, distinct lifestyle Scout images.";
+    waiting.steps[5].status = "waiting";
+    waiting.steps[5].reason = waiting.error_message;
+    vi.mocked(api.getEcommerceRunAllStatus).mockResolvedValue(waiting);
+    await render();
+    expect(button().disabled).toBe(true);
+    expect(button().textContent).toContain("Waiting for Scout");
+    expect(host.textContent).toContain("Waiting for Scout · Slot 6/7");
+    expect(host.textContent).toContain("Waiting for three approved");
+    expect(host.textContent).not.toContain("Stopped at Slot");
+    expect(api.runSceneJob).not.toHaveBeenCalled();
+  });
+
   it("restores persisted sequence after reopening page and allows explicit resume only on block", async () => {
     vi.mocked(api.getEcommerceRunAllStatus).mockResolvedValue(state("blocked", 6));
     vi.mocked(api.runAllEcommerceJobs).mockResolvedValue(state("running", 6));

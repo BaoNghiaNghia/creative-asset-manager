@@ -1458,7 +1458,16 @@ class RrugcAutoScoutService:
             )
             return None
 
-        if review_scout_soft_throttle(
+        source_plan_only = scout_client_supports_source_plans(client_version)
+        # Products Run-all has a pending Slot 6 dependency. The urgent
+        # campaign gets the next due claim ahead of background Review work,
+        # while respecting leases, retry time and the HARD Gemini breaker.
+        priority = (
+            self.repository.priority_ugc_run_all_campaigns(
+                agent.tenant_id, now=now, limit=8,
+            ) if source_plan_only else []
+        )
+        if not priority and review_scout_soft_throttle(
             self.session, agent.tenant_id, pressure=analysis_pressure, now=now,
         ):
             self.session.commit()
@@ -1470,17 +1479,21 @@ class RrugcAutoScoutService:
             )
             return None
 
-        source_plan_only = scout_client_supports_source_plans(client_version)
-        campaigns = self.repository.claimable_campaigns(
-            agent.tenant_id,
-            now=now,
-            limit=25,
-            source_plan_only=source_plan_only,
-        )
+        def ordered_candidates():
+            yield from priority
+            yield from self.repository.claimable_campaigns(
+                agent.tenant_id, now=now, limit=25,
+                source_plan_only=source_plan_only,
+            )
+
         selected: RrugcCampaignModel | None = None
         progress = 0
         pipeline_count = 0
-        for campaign in campaigns:
+        reviewed_campaign_ids: set[str] = set()
+        for campaign in ordered_candidates():
+            if campaign.id in reviewed_campaign_ids:
+                continue
+            reviewed_campaign_ids.add(campaign.id)
             counts = self.repository.campaign_usable_counts(campaign.tenant_id, campaign.id)
             progress = (
                 counts.get("drive_ready", 0)
@@ -1512,7 +1525,7 @@ class RrugcAutoScoutService:
                     "tenant_id": agent.tenant_id,
                     "client_version": client_version,
                     "source_plan_only": source_plan_only,
-                    "eligible_campaign_rows": len(campaigns),
+                    "eligible_campaign_rows": len(reviewed_campaign_ids),
                     "duration_ms": max(
                         0,
                         round((time.monotonic() - started) * 1000),

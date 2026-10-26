@@ -5907,28 +5907,12 @@ def ugc_scout_start(
     except EcommerceError as exc:
         raise HTTPException(exc.status_code, detail={"code": exc.code, "message": exc.message}) from exc
     if not plan.campaign_id:
-        from app.modules.realistic_review_ugc.service import RrugcService
-        from app.modules.realistic_review_ugc.source_plans import _source_campaign_name
-        # This route must never link another design's existing Review Scout campaign.
-        context = plan.visual_context_json if isinstance(plan.visual_context_json, dict) else {}
-        phrase = str(context.get("quote") or context.get("text") or plan.source_name.rsplit(".", 1)[0]).strip()[:120]
-        queries = [
-            (phrase + " embroidered baseball hat lifestyle").strip()[:240],
-            "casual candid person wearing embroidered five panel baseball cap",
-            "authentic everyday lifestyle hat portrait",
-        ]
-        service = RrugcService(session)
-        campaign, _ = service.create_campaign(
-            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            name=_source_campaign_name(plan), query=queries[0],
-            search_queries=queries, target_count=20, max_scroll_batches=5,
-            auto_import=False, auto_scout=True, reject_headwear=False,
-            commit=False,
+        from app.modules.realistic_review_ugc.ugc_scout_bootstrap import (
+            bootstrap_products_ugc_campaign,
         )
-        plan.campaign_id = campaign.id
-        session.flush()
-    else:
-        plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, body.source_plan_id)
+        # Idempotent, per-design bootstrap shared with background Run-all.
+        bootstrap_products_ugc_campaign(session, plan=plan, user_id=principal.user_id)
+    plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, body.source_plan_id)
     if campaign.status == "completed":
         session.commit()
         return {"source_plan_id": plan.id, "status": "completed", "campaign_id": campaign.id}
