@@ -448,14 +448,31 @@
 .rrugc-products-photo-bundle-missing li{overflow-wrap:anywhere}
 .rrugc-products-photo-bundle-missing code{font-size:10px;white-space:normal;overflow-wrap:anywhere}
 
-/* Stage 2 footer: three meaningful actions, no redundant skill/output summary. */
+/* Stage 2 footer: one compact toolbar. State/progress left; actions right. */
 .rrugc-products-photo-pipeline-summary{
- display:grid;grid-template-columns:minmax(0,1fr);justify-items:end;row-gap:9px;
- padding:13px 2px 4px;margin:12px 0 0;min-height:0;
+ display:grid;
+ grid-template-columns:minmax(0,1fr) max-content;
+ align-items:center;
+ column-gap:14px;
+ row-gap:7px;
+ box-sizing:border-box;
+ width:100%;
+ min-height:54px;
+ margin:12px 0 0;
+ padding:8px 11px;
+ border:1px solid #d9e5f3;
+ border-radius:9px;
+ background:#f8fbff;
 }
 .rrugc-products-photo-footer-actions{
- display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;
- gap:9px;min-width:0;width:100%;
+ grid-column:2;
+ display:flex;
+ justify-content:flex-end;
+ align-items:center;
+ flex-wrap:nowrap;
+ gap:8px;
+ min-width:0;
+ width:auto;
 }
 .rrugc-products-photo-footer-action,
 .rrugc-products-photo-footer-actions .rrugc-products-photo-download-all{
@@ -484,18 +501,92 @@
  outline:2px solid #326be6;outline-offset:2px;
 }
 .rrugc-products-photo-run-all-report{
- box-sizing:border-box;width:100%;min-width:0;border-radius:9px;border:1px solid #d9e5f3;
- padding:11px 13px;background:#f8fbff;color:#4b6280;
- font-size:11px;line-height:1.55;
+ grid-column:1;
+ display:flex;
+ align-items:center;
+ flex-wrap:nowrap;
+ gap:13px;
+ min-width:0;
+ width:100%;
+ color:#4b6280;
+ font-size:11px;
+ line-height:1.55;
 }
-.rrugc-products-photo-run-all-report>strong{margin-right:6px;color:#2d4b71;font-weight:850}
-.rrugc-products-photo-run-all-report details{margin-top:6px}
+.rrugc-products-photo-run-all-copy{
+ display:flex;
+ align-items:center;
+ flex:0 1 auto;
+ gap:6px;
+ min-width:0;
+ white-space:nowrap;
+}
+.rrugc-products-photo-run-all-copy>strong{
+ flex:none;
+ color:#2d4b71;
+ font-size:11px;
+ font-weight:850;
+}
+.rrugc-products-photo-run-all-copy>span{
+ min-width:0;
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+}
+.rrugc-products-photo-run-all-report details{
+ position:relative;
+ flex:none;
+ margin:0;
+}
 .rrugc-products-photo-run-all-report summary{
- display:list-item;margin-left:14px;color:#2e67ab;font-weight:750;cursor:pointer;
+ display:inline-flex;
+ align-items:center;
+ gap:5px;
+ margin:0;
+ padding:5px 0;
+ list-style:none;
+ color:#2e67ab;
+ font-size:11px;
+ font-weight:750;
+ white-space:nowrap;
+ cursor:pointer;
 }
-.rrugc-products-photo-run-all-report ul{
- list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));
- padding:8px 0 0;margin:0;gap:7px;
+.rrugc-products-photo-run-all-report summary::-webkit-details-marker{display:none}
+.rrugc-products-photo-run-all-report summary::before{content:"\25B8";font-size:10px}
+.rrugc-products-photo-run-all-report details[open]>summary::before{content:"\25BE"}
+.rrugc-products-photo-run-all-report summary:focus-visible{
+ outline:2px solid #326be6;outline-offset:3px;border-radius:3px;
+}
+.rrugc-products-photo-run-all-report ol{
+ position:absolute;
+ z-index:50;
+ top:calc(100% + 8px);
+ left:0;
+ display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));
+ gap:7px;
+ box-sizing:border-box;
+ width:min(590px,calc(100vw - 48px));
+ max-height:min(440px,70vh);
+ margin:0;
+ padding:12px;
+ overflow:auto;
+ list-style:none;
+ border:1px solid #cbd9ed;
+ border-radius:9px;
+ background:#fff;
+ box-shadow:0 12px 28px rgba(39,66,109,.18);
+}
+.rrugc-products-photo-run-all-error{
+ grid-column:1 / -1;
+ margin:0;
+ padding:6px 8px;
+ border-radius:6px;
+ background:#fff1f1;
+ color:#9a2f2f;
+ font-size:11px;
+ font-weight:700;
+ line-height:1.5;
+ overflow-wrap:anywhere;
 }
 .rrugc-products-photo-run-all-report li{
  display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 7px;min-width:0;
@@ -509,8 +600,19 @@
  flex:1 1 100%;margin-top:1px;font-size:10px;line-height:1.45;
  color:#72849a;overflow-wrap:anywhere;
 }
+@media(max-width:950px){
+ .rrugc-products-photo-pipeline-summary{
+  grid-template-columns:minmax(0,1fr);
+  row-gap:8px;
+ }
+ .rrugc-products-photo-run-all-report{grid-column:1}
+ .rrugc-products-photo-footer-actions{grid-column:1;justify-content:flex-end}
+}
 @media(max-width:620px){
- .rrugc-products-photo-footer-actions{justify-content:stretch;gap:7px}
+ .rrugc-products-photo-run-all-report{flex-wrap:wrap;gap:2px 12px}
+ .rrugc-products-photo-run-all-copy{flex:1 1 100%;max-width:100%}
+ .rrugc-products-photo-run-all-report ol{left:0;width:min(550px,calc(100vw - 48px))}
+ .rrugc-products-photo-footer-actions{justify-content:stretch;flex-wrap:wrap;gap:7px}
  .rrugc-products-photo-footer-actions>*{flex:1 1 135px}
  .rrugc-products-photo-footer-actions .rrugc-products-photo-download-all{flex:1 1 175px}
 }

@@ -661,7 +661,27 @@ export function ProductsPhotoWorkflow({
         </>;
       })()}
     </div>
-    <div className="rrugc-products-photo-pipeline-summary">
+    <div className="rrugc-products-photo-pipeline-summary" aria-label="Execution status and output controls">
+      {activeRun && <div className="rrugc-products-photo-run-all-report" role="status" aria-live="polite">
+        <div className="rrugc-products-photo-run-all-copy">
+          <strong>Run all · {activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
+          ? "Waiting for Scout · Slot 6/7"
+          : activeRun.status === "running" ? "Slot " + activeRun.current_slot + "/7"
+          : activeRun.status === "completed" ? "Completed 7/7" : "Stopped at Slot " + activeRun.current_slot}</strong>
+        <span>{activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
+            ? activeRun.error_message || "Waiting for 3 approved lifestyle references; automatic Scout is retrying."
+          : activeRun.status === "running" ? "Running in order. Next slot starts only after this slot completes."
+          : activeRun.status === "completed" ? "All outputs are ready."
+          : activeRun.error_message || "A slot needs attention before the sequence can resume."}</span>
+        </div>
+        <details className="rrugc-products-photo-progress-details"><summary>View sequential progress</summary>
+          <ol>{activeRun.steps.map(step => <li key={step.slot}>
+            <b>{step.slot}. {step.name}</b>
+            <span>{step.status} · {step.completed_outputs}/{step.total_outputs} outputs</span>
+            {step.reason && <small>{step.reason}</small>}
+          </li>)}</ol>
+        </details>
+      </div>}
       <div className="rrugc-products-photo-footer-actions" role="group" aria-label="All output actions">
         <button type="button" className="rrugc-products-photo-footer-action is-view"
           onClick={() => setAllOutputOpen(true)} aria-label="View all outputs" title="Browse all 22 output positions, including those not yet generated">
@@ -681,25 +701,7 @@ export function ProductsPhotoWorkflow({
         </button>
         <a className="rrugc-products-photo-download-all" href={sourcePlanId ? `/api/v1/realistic-review-ugc/products/source-plans/${encodeURIComponent(sourcePlanId)}/outputs/archive` : undefined} aria-disabled={!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))} onClick={event => { if (!sourcePlanId || (!jobs.some(job => job.status === "completed" && job.output_url) && !colors.some(job => job.status === "completed" && job.output_url))) event.preventDefault(); }} title="Download all completed images from the 7 skill slots as ZIP"><span className="rrugc-products-photo-download-icon" aria-hidden="true">⇩</span>Download all outputs</a>
       </div>
-      {runAllError && <p role="alert" className="rrugc-products-photo-run-all-report">{runAllError}</p>}
-      {activeRun && <div className="rrugc-products-photo-run-all-report" role="status" aria-live="polite">
-        <strong>Run all · {activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
-          ? "Waiting for Scout · Slot 6/7"
-          : activeRun.status === "running" ? "Slot " + activeRun.current_slot + "/7"
-          : activeRun.status === "completed" ? "Completed 7/7" : "Stopped at Slot " + activeRun.current_slot}</strong>
-        <span>{activeRun.status === "running" && activeRun.error_code === "run_all_scout_waiting"
-            ? activeRun.error_message || "Waiting for 3 approved lifestyle references; automatic Scout is retrying."
-          : activeRun.status === "running" ? "Running in order. Next slot starts only after this slot completes."
-          : activeRun.status === "completed" ? "All outputs are ready."
-          : activeRun.error_message || "A slot needs attention before the sequence can resume."}</span>
-        <details><summary>View sequential progress</summary>
-          <ol>{activeRun.steps.map(step => <li key={step.slot}>
-            <b>{step.slot}. {step.name}</b>
-            <span>{step.status} · {step.completed_outputs}/{step.total_outputs} outputs</span>
-            {step.reason && <small>{step.reason}</small>}
-          </li>)}</ol>
-        </details>
-      </div>}
+      {runAllError && <p role="alert" className="rrugc-products-photo-run-all-error">{runAllError}</p>}
     </div>
     {previewGallery && <EcommerceInputGalleryModal items={previewGallery} onClose={() => setPreviewGallery(null)} />}
     {outputGallery && <OutputPhotoGalleryModal title={outputGallery.title} items={outputGallery.items} initialIndex={outputGallery.initialIndex}

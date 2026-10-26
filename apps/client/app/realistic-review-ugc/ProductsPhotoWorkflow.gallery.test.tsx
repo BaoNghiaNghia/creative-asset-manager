@@ -158,7 +158,7 @@ describe("Products photo output gallery navigation",()=>{
       sourcePlanId:"design-1",colorwayReady:false,onQueueColors:queueColors,
     });
     await act(async()=>{host.querySelector<HTMLButtonElement>('[aria-label="Run all"]')!.click();await Promise.resolve();});
-    const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-report")!;
+    const report=host.querySelector<HTMLElement>(".rrugc-products-photo-run-all-error")!;
     expect(report.textContent).toContain("Insufficient processing credits");
     expect(queueColors).not.toHaveBeenCalled();
     expect(report.getAttribute("role")).toBe("alert");

@@ -6,6 +6,20 @@ const galleryCss = readFileSync(new URL("./AppliedHatPreview.css", import.meta.u
 const twoColumnCss = readFileSync(new URL("./ProductsPhotoWorkflowTwoColumns.css", import.meta.url), "utf8");
 
 describe("Products Stage 2 photo workflow layout", () => {
+  it("keeps Run all status and three actions on a single compact desktop toolbar", () => {
+    const bar = [...css.matchAll(/\.rrugc-products-photo-pipeline-summary\s*\{([^}]*)\}/g)]
+      .map(match => match[1]).find(rule => rule.includes("grid-template-columns:minmax(0,1fr) max-content")) || "";
+    expect(bar).toContain("display:grid");
+    expect(bar).toContain("grid-template-columns:minmax(0,1fr) max-content");
+    expect(bar).toContain("align-items:center");
+    expect(css).toContain(".rrugc-products-photo-run-all-copy");
+    expect(css).toContain(".rrugc-products-photo-footer-actions");
+    expect(css).toContain(".rrugc-products-photo-run-all-report ol");
+    expect(css).toContain("position:absolute");
+    expect(css).toContain("@media(max-width:950px)");
+    expect(css).toContain("@media(max-width:620px)");
+  });
+
   it("uses independent vertical stacks with natural card heights and responsive single-column order", () => {
     expect(twoColumnCss).toMatch(/\.rrugc-products-photo-stage-list\.is-two-column\s*>\s*\.rrugc-products-photo-stage-column\s*\{[^}]*display:flex;[^}]*flex-direction:column;[^}]*align-self:start;/);
     expect(twoColumnCss).toMatch(/\.rrugc-products-photo-stage-list\.is-two-column\s*>\s*\.rrugc-products-photo-stage-column\s*>\s*\.rrugc-products-photo-stage-row\s*\{[^}]*flex:0 0 auto;[^}]*height:auto;/);

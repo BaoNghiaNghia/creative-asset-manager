@@ -77,6 +77,37 @@ function button() {
 }
 
 describe("Durable sequential Products Run all", () => {
+  it("keeps completed status, progress disclosure and three output actions in a single toolbar", async () => {
+    const completed = state("completed", 7);
+    completed.steps = completed.steps.map(step => ({
+      ...step, status: "completed", completed_outputs: step.total_outputs,
+    }));
+    vi.mocked(api.getEcommerceRunAllStatus).mockResolvedValue(completed);
+    await render();
+
+    const toolbar = host.querySelector<HTMLElement>(".rrugc-products-photo-pipeline-summary")!;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar.children).toHaveLength(2);
+    const [status, actions] = [...toolbar.children] as HTMLElement[];
+    expect(status.classList.contains("rrugc-products-photo-run-all-report")).toBe(true);
+    expect(actions.classList.contains("rrugc-products-photo-footer-actions")).toBe(true);
+    expect(status.querySelector(".rrugc-products-photo-run-all-copy")?.textContent)
+      .toContain("Run all · Completed 7/7");
+    expect(status.querySelector(".rrugc-products-photo-run-all-copy")?.textContent)
+      .toContain("All outputs are ready.");
+    expect(actions.querySelectorAll("button, a")).toHaveLength(3);
+    expect(button().disabled).toBe(true);
+
+    const progress = status.querySelector<HTMLDetailsElement>(".rrugc-products-photo-progress-details")!;
+    expect(progress).not.toBeNull();
+    expect(progress.parentElement).toBe(status);
+    expect(progress.open).toBe(false);
+    await act(async () => progress.querySelector("summary")!.click());
+    expect(progress.open).toBe(true);
+    expect(progress.querySelectorAll("ol > li")).toHaveLength(7);
+    expect(api.runAllEcommerceJobs).not.toHaveBeenCalled();
+  });
+
   it("sends only one server orchestration request, never parallel scene/colorway requests", async () => {
     vi.mocked(api.runAllEcommerceJobs).mockResolvedValue(state("running", 1));
     await render();
