@@ -3,7 +3,7 @@ import { AccessApiError, fetchAccessIdentity } from "../features/access_manageme
 
 const reloadAfterMaintenance = () => window.location.reload();
 
-export const ROUTE_IDENTITY_TIMEOUT_MS = 5_000;
+export const ROUTE_IDENTITY_TIMEOUT_MS = 10_000;
 export const ROUTE_IDENTITY_RETRY_MS = 5_000;
 export const ROUTE_IDENTITY_CONFIRM_RETRY_MS = 1_500;
 export const ROUTE_READINESS_TIMEOUT_MS = 3_000;
@@ -11,13 +11,14 @@ export type RouteAccessState =
   | { status: "checking" }
   | { status: "allowed"; permissions: readonly string[] }
   | { status: "denied" }
+  | { status: "unauthenticated" }
   | { status: "reconnecting" }
   | { status: "maintenance" };
 
 function unavailable(error: unknown): boolean {
   // Never disguise explicit authorization failures as maintenance.
   if (error instanceof AccessApiError) {
-    return error.status >= 500 || error.status === 0;
+    return error.status >= 500 || error.status === 0 || error.status === 429;
   }
   return true; // network failures, AbortError, and browser transport errors
 }
@@ -51,6 +52,7 @@ async function backendConfirmsMaintenance(): Promise<boolean> {
 export function useRouteAccessGate(
   requiredPermission: string | null,
   onRecovered: () => void = reloadAfterMaintenance,
+  retryKey = 0,
 ): RouteAccessState {
   const [state, setState] = useState<RouteAccessState>(
     requiredPermission ? { status: "checking" } : { status: "allowed", permissions: [] },
@@ -66,14 +68,15 @@ export function useRouteAccessGate(
     let hasEnteredMaintenance = false;
     let consecutiveFailures = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let requestTimeout: ReturnType<typeof setTimeout> | undefined;
     let abort: AbortController | undefined;
 
     setState({ status: "checking" });
     async function checkIdentity() {
-      abort = new AbortController();
+      const currentAbort = new AbortController();
+      abort = currentAbort;
+      let requestTimeout: ReturnType<typeof setTimeout> | undefined;
       const scopedFetch: typeof fetch = (input, init) =>
-        fetch(input, { ...init, signal: abort?.signal });
+        fetch(input, { ...init, signal: currentAbort.signal });
       try {
         // Race the request: even a non-cooperative transport can't leave the
         // application on "Checking permissions…" indefinitely.
@@ -96,7 +99,7 @@ export function useRouteAccessGate(
       } catch (error) {
         if (!active) return;
         if (!unavailable(error)) {
-          setState({ status: "denied" });
+          setState({ status: error instanceof AccessApiError && error.status === 401 ? "unauthenticated" : "denied" });
           return;
         }
         consecutiveFailures += 1;
@@ -126,10 +129,9 @@ export function useRouteAccessGate(
     return () => {
       active = false;
       abort?.abort();
-      if (requestTimeout !== undefined) clearTimeout(requestTimeout);
       if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
-  }, [requiredPermission, onRecovered]);
+  }, [requiredPermission, onRecovered, retryKey]);
 
   return state;
 }

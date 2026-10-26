@@ -1,0 +1,132 @@
+/* Match the existing CAM maintenance screen without loading its video media. */
+.cam-workspace-connection__body {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 32px 24px 72px;
+  text-align: center;
+}
+.cam-workspace-connection__illustration {
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  width: 186px;
+  height: 166px;
+  overflow: hidden;
+  border: 1px solid #d8e6fb;
+  border-radius: 30px;
+  background: linear-gradient(145deg, #edf4ff, #dceafd);
+  color: #3866ca;
+  box-shadow: 0 20px 65px rgb(49 91 172 / 12%);
+}
+.cam-workspace-connection__halo {
+  position: absolute;
+  z-index: -1;
+  width: 128px;
+  height: 128px;
+  border: 1px solid rgb(92 127 204 / 26%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 22px rgb(110 152 222 / 8%);
+}
+.cam-workspace-connection__symbol { width: 105px; height: 105px; }
+.cam-workspace-connection__dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #91afe8;
+}
+.cam-workspace-connection__dot--one { top: 29px; left: 26px; }
+.cam-workspace-connection__dot--two { right: 26px; bottom: 25px; width: 6px; height: 6px; }
+.cam-workspace-connection .cam-under-eyebrow { margin-top: 33px; }
+.cam-workspace-connection__title {
+  margin: 12px 0 13px;
+  color: #182c50;
+  font-size: clamp(31px, 5vw, 53px);
+  font-weight: 850;
+  line-height: 1.18;
+  letter-spacing: -.055em;
+}
+.cam-workspace-connection__title span { color: #416fe9; }
+.cam-workspace-connection__detail { max-width: 560px; }
+.cam-workspace-connection__status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 35px;
+  margin-top: 21px;
+  padding: 9px 14px;
+  border: 1px solid #dce7ff;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #4568a5;
+  font-size: 12px;
+  font-weight: 650;
+}
+.cam-workspace-connection__spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid #c2d4f6;
+  border-top-color: #3e69d8;
+  border-radius: 50%;
+  animation: cam-workspace-connection-spin .9s linear infinite;
+}
+.cam-workspace-connection__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+.cam-workspace-connection__actions .cam-under-button {
+  margin-top: 0;
+  min-height: 42px;
+  padding: 12px 18px;
+  font-size: 13px;
+}
+.cam-workspace-connection__secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: #4d6695;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+  transition: color .15s;
+}
+.cam-workspace-connection__secondary:hover { color: #274dab; }
+.cam-workspace-connection__secondary:focus-visible {
+  outline: 3px solid #547de7;
+  outline-offset: 3px;
+  border-radius: 5px;
+}
+.cam-workspace-connection__note {
+  margin: 17px 0 0;
+  color: #8999b3;
+  font-size: 11px;
+  line-height: 1.6;
+}
+@keyframes cam-workspace-connection-spin { to { transform: rotate(360deg); } }
+@media (max-width: 680px) {
+  .cam-workspace-connection__body { padding: 18px 18px 46px; }
+  .cam-workspace-connection__illustration { width: 152px; height: 142px; border-radius: 22px; }
+  .cam-workspace-connection__symbol { width: 90px; height: 90px; }
+  .cam-workspace-connection .cam-under-eyebrow { margin-top: 26px; }
+  .cam-workspace-connection__actions { gap: 8px; }
+  .cam-workspace-connection__secondary { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam-workspace-connection__spinner { animation: none; }
+  .cam-workspace-connection__secondary { transition: none; }
+}

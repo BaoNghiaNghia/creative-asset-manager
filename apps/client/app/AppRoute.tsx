@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useRouteAccessGate } from "./routePermissionGate";
 import { useDeploymentReadiness } from "./deploymentReadiness";
 import { UnderConstructionPage } from "./components/UnderConstructionPage";
+import { WorkspaceConnectionState } from "./components/WorkspaceConnectionState";
 import App from "./App";
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
@@ -77,7 +78,8 @@ export function AppRoute() {
       window.history.replaceState(window.history.state, "", canonical + window.location.search + window.location.hash);
     }
   }, [legacyInventoryTab, legacyBrandingPath]);
-  const access = useRouteAccessGate(requiredPermission);
+  const [accessRetryKey, setAccessRetryKey] = useState(0);
+  const access = useRouteAccessGate(requiredPermission, undefined, accessRetryKey);
   const watchBackend = route !== "public-review" && route !== "privacy"
     && route !== "terms" && route !== "under-construction"
     && (!requiredPermission || access.status === "allowed");
@@ -86,6 +88,9 @@ export function AppRoute() {
   // navigation, or stale async component renders while the API is down.
   if (access.status === "maintenance" || backendUnavailable) {
     return <UnderConstructionPage maintenance />;
+  }
+  if (access.status === "reconnecting" || access.status === "unauthenticated" || access.status === "denied") {
+    return <WorkspaceConnectionState mode={access.status} onRetry={() => setAccessRetryKey(value => value + 1)} />;
   }
 
   const workspaceRoute = workspaceRouteForApplicationRoute(route);
@@ -96,14 +101,8 @@ export function AppRoute() {
       title="Checking permissions…"
       detail="Verifying your workspace access before opening this page."
     />
-    : requiredPermission && access.status === "reconnecting"
-      ? <main className="state" role="status">
-          <h2>Connection interrupted</h2>
-          <p>Workspace access could not be verified. Retrying automatically without leaving this page.</p>
-          <button type="button" onClick={() => window.location.reload()}>Try again now</button>
-        </main>
     : !routeAllowed
-      ? <main className="state"><p>This workspace is not available for your role.</p><a href="/">Return to Asset Explorer</a></main>
+      ? <WorkspaceConnectionState mode="denied" />
       : route === "under-construction" ? <UnderConstructionPage /> : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "job-queue" ? <JobQueuePage />

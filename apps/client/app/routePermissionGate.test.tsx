@@ -8,8 +8,8 @@ import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTIT
 let currentRoot: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-function Probe({ permission = "inventory.read", recovered }: { permission?: string | null; recovered: () => void }) {
-  const access = useRouteAccessGate(permission, recovered);
+function Probe({ permission = "inventory.read", recovered, retryKey = 0 }: { permission?: string | null; recovered: () => void; retryKey?: number }) {
+  const access = useRouteAccessGate(permission, recovered, retryKey);
   return <output data-testid="gate">{access.status}</output>;
 }
 
@@ -106,9 +106,41 @@ describe("production deploy permissions gate", () => {
     ));
     vi.stubGlobal("fetch", fetcher);
     const probe = await mount();
-    expect(probe.status).toBe("denied");
+    expect(probe.status).toBe("unauthenticated");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_RETRY_MS); });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers immediately on manual retry without reloading the page", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("auth temporarily busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response("still busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response('{"status":"ready"}', { status: 200 }))
+      .mockResolvedValueOnce(identity(["realistic_review_ugc.read"]));
+    vi.stubGlobal("fetch", fetcher);
+    const recovered = vi.fn();
+    const probe = await mount(recovered, "realistic_review_ugc.read");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS); });
+    expect(probe.status).toBe("reconnecting");
+    await act(async () => {
+      currentRoot!.render(<Probe permission="realistic_review_ugc.read" recovered={recovered} retryKey={1} />);
+      await Promise.resolve();
+    });
+    expect(probe.status).toBe("allowed");
+    expect(recovered).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries temporary identity rate limits rather than showing access denied", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 429 }))
+      .mockResolvedValueOnce(identity()));
+    const probe = await mount();
+    expect(probe.status).toBe("checking");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS); });
+    expect(probe.status).toBe("allowed");
   });
 
   it("denies an authenticated account missing permission rather than showing maintenance", async () => {
