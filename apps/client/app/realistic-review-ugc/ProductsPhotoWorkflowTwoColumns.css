@@ -1,28 +1,32 @@
-/* Stage 2 Products only: slots 1-4 form the left column; slots 5-7 the right.
-   Keep one DOM instance per job, all existing button handlers and gallery dialogs. */
+/* Stage 2 Products: two independent masonry-like columns (1-4 / 5-7).
+   Each column stacks cards by its own content height; no cross-column grid
+   rows can stretch Ecommerce 3 to match the taller 12 Hat Colors card. */
 .rrugc-products-photo-stage-list.is-two-column {
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
-  column-gap:12px;
-  row-gap:8px;
+  gap:12px;
   align-items:start;
   min-width:0;
 }
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(1){grid-area:1 / 1}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(2){grid-area:2 / 1}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(3){grid-area:3 / 1}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(4){grid-area:4 / 1}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(5){grid-area:1 / 2}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(6){grid-area:2 / 2}
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(7){grid-area:3 / 2}
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column {
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  align-self:start;
+  gap:8px;
+  min-width:0;
+  width:100%;
+}
 
 /* Each compact card needs room for date, elapsed time, Run and Details.
    Previews stay on the right; extended Details always spans the card width. */
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row {
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row {
   min-width:0;
   width:100%;
   box-sizing:border-box;
   align-self:stretch;
+  flex:0 0 auto;
+  height:auto;
   grid-template-columns:minmax(324px,min(52%,376px)) minmax(0,1fr);
   grid-template-areas:"title skill" "controls outputs";
   column-gap:8px;
@@ -78,7 +82,7 @@
 
 /* Slot 7 retains its eight-at-a-time horizontally draggable thumbnail strip.
    On narrower two-column screens the strip gets its own full-width row. */
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
   grid-template-columns:minmax(0,1fr) minmax(0,1fr);
   grid-template-areas:"title skill" "controls controls" "outputs outputs";
 }
@@ -98,7 +102,7 @@
   overflow-y:hidden;
 }
 @media(min-width:1700px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
     grid-template-columns:minmax(340px,1fr) minmax(0,1fr);
     grid-template-areas:"title skill" "controls outputs";
   }
@@ -108,8 +112,8 @@
 }
 /* Full-height Stage 2 output gallery: card metadata stays left and every
    image tile stretches to the card's inner height, without cropping output. */
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row,
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row,
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
   grid-template-columns:minmax(0,1fr) minmax(0,auto);
   grid-template-rows:auto auto minmax(33px,1fr);
   grid-template-areas:"title outputs" "skill outputs" "controls outputs";
@@ -180,7 +184,7 @@
   max-height:none;
 }
 @media(max-width:1700px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
     grid-template-columns:minmax(0,1fr) minmax(0,400px);
     grid-template-rows:auto auto minmax(33px,1fr);
     grid-template-areas:"title outputs" "skill outputs" "controls outputs";
@@ -191,13 +195,10 @@
   .rrugc-products-photo-stage-list.is-two-column {
     grid-template-columns:minmax(0,1fr);
   }
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(n){
-    grid-area:auto;
-  }
 }
 @media(max-width:680px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row,
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row,
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
     grid-template-columns:minmax(0,1fr);
     grid-template-areas:"title" "skill" "controls" "outputs";
     row-gap:6px;
@@ -239,11 +240,10 @@
 .rrugc-products-photo-pipeline{container-type:inline-size}
 @container (max-width:1050px){
   .rrugc-products-photo-stage-list.is-two-column{grid-template-columns:minmax(0,1fr)}
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:nth-child(n){grid-area:auto}
 }
 @container (max-width:680px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row,
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row,
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
     grid-template-columns:minmax(0,1fr);
     grid-template-areas:"title" "skill" "controls" "outputs";
   }
@@ -264,7 +264,7 @@
 
 /* Slot 7: two-row card with full-width, legible previews for all 13 colors.
    Eight outputs fit at desktop width; horizontal drag/swipe reveals the rest. */
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
   container-type:inline-size;
   grid-template-columns:minmax(0,1fr) minmax(340px,385px);
   grid-template-rows:auto auto auto;
@@ -339,7 +339,7 @@
   }
 }
 @container (max-width:640px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row.is-colorway{
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row.is-colorway{
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto;
     grid-template-areas:"title" "skill" "controls" "outputs";
@@ -361,7 +361,7 @@
 }
 /* Stage 2 slots 1-6: all metadata and actions stay grouped at the LEFT.
    Full-height image tiles remain anchored to the RIGHT of each card. */
-.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row:not(.is-colorway){
   grid-template-columns:minmax(0,1fr) max-content;
   grid-template-rows:min-content min-content minmax(34px,1fr);
   grid-template-areas:"title outputs" "skill outputs" "controls outputs";
@@ -433,7 +433,7 @@
 /* Small/narrow content areas retain left-aligned controls and place outputs
    on their own row to avoid crowding buttons or clipping the preview images. */
 @container (max-width:680px){
-  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+  .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row:not(.is-colorway){
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto auto auto auto;
     grid-template-areas:"title" "skill" "controls" "outputs";

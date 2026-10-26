@@ -388,7 +388,10 @@ export function ProductsPhotoWorkflow({
   return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
     <div className="rrugc-products-photo-stage-list is-two-column">
-      {PHOTO_STEPS.map((step, index) => {
+      {(() => {
+        // Build each card once. Independent flex columns prevent CSS Grid
+        // rows from stretching Ecommerce Slot 3 to the height of Slot 7.
+        const photoCards = PHOTO_STEPS.map((step, index) => {
         const state = readiness?.steps.find(item => item.key === step.readinessKey);
         const opened = expandedStep === step.key;
         const configured = configuredSkillNames[step.key];
@@ -569,7 +572,13 @@ export function ProductsPhotoWorkflow({
             </div>}
           </div>}
         </div>;
-      })}
+        });
+        return <>
+          <div className="rrugc-products-photo-stage-column is-ecommerce" aria-label="Ecommerce skills 1 to 4">
+            {photoCards.slice(0, 4)}
+          </div>
+          <div className="rrugc-products-photo-stage-column is-scenes" aria-label="Multi-hat, UGC and 12 Hat Colors">
+            {photoCards.slice(4)}
       <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway">
         <div className="rrugc-products-photo-stage-title">
           <span className="rrugc-products-photo-number">7</span>
@@ -648,6 +657,9 @@ export function ProductsPhotoWorkflow({
         </div>}
 
       </div>
+          </div>
+        </>;
+      })()}
     </div>
     <div className="rrugc-products-photo-pipeline-summary">
       <div className="rrugc-products-photo-footer-actions" role="group" aria-label="All output actions">

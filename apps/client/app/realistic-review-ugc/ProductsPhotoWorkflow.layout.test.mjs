@@ -3,8 +3,17 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("./ProductsPhotoWorkflow.css", import.meta.url), "utf8");
 const galleryCss = readFileSync(new URL("./AppliedHatPreview.css", import.meta.url), "utf8");
+const twoColumnCss = readFileSync(new URL("./ProductsPhotoWorkflowTwoColumns.css", import.meta.url), "utf8");
 
 describe("Products Stage 2 photo workflow layout", () => {
+  it("uses independent vertical stacks with natural card heights and responsive single-column order", () => {
+    expect(twoColumnCss).toMatch(/\.rrugc-products-photo-stage-list\.is-two-column\s*>\s*\.rrugc-products-photo-stage-column\s*\{[^}]*display:flex;[^}]*flex-direction:column;[^}]*align-self:start;/);
+    expect(twoColumnCss).toMatch(/\.rrugc-products-photo-stage-list\.is-two-column\s*>\s*\.rrugc-products-photo-stage-column\s*>\s*\.rrugc-products-photo-stage-row\s*\{[^}]*flex:0 0 auto;[^}]*height:auto;/);
+    expect(twoColumnCss).not.toMatch(/stage-row:nth-child\(\d+\)\{grid-area:/);
+    expect(twoColumnCss).toContain("@container (max-width:1050px)");
+    expect(twoColumnCss).toContain("grid-template-columns:minmax(0,1fr)");
+  });
+
   it("reserves separate columns for readable titles and shot previews", () => {
     expect(css).toContain('grid-template-areas:"title outputs" "skill controls"');
     expect(css).toMatch(/\.rrugc-products-photo-stage-title strong\{[^}]*white-space:normal/);

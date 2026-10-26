@@ -45,6 +45,33 @@ async function renderWorkflow(options:{
 }
 
 describe("Products photo output gallery navigation",()=>{
+  it("stacks 1-4 and 5-7 in independent masonry columns without shared card rows",async()=>{
+    const {root,host}=await renderWorkflow({colors:colorJobs});
+    const layout=host.querySelector<HTMLElement>(".rrugc-products-photo-stage-list.is-two-column")!;
+    expect(layout).not.toBeNull();
+    const columns=[...layout.children] as HTMLElement[];
+    expect(columns).toHaveLength(2);
+    expect(columns[0].classList.contains("rrugc-products-photo-stage-column")).toBe(true);
+    expect(columns[0].classList.contains("is-ecommerce")).toBe(true);
+    expect(columns[1].classList.contains("is-scenes")).toBe(true);
+    expect(columns.map(col=>[...col.children].map(row=>(row as HTMLElement).dataset.skill))).toEqual([
+      ["prod_s2_ec1","prod_s2_ec2","prod_s2_ec3","prod_s2_ec4"],
+      ["prod_s2_mh","prod_s2_ugc","colorway"],
+    ]);
+    const slot3=layout.querySelector<HTMLElement>('[data-skill="prod_s2_ec3"]')!;
+    const slot7=layout.querySelector<HTMLElement>('[data-skill="colorway"]')!;
+    expect(slot3.parentElement).toBe(columns[0]);
+    expect(slot7.parentElement).toBe(columns[1]);
+    expect(slot3.parentElement).not.toBe(slot7.parentElement);
+    expect(host.querySelectorAll(".rrugc-products-photo-stage-row")).toHaveLength(7);
+    expect(host.querySelectorAll(".rrugc-colorway-slot")).toHaveLength(12);
+    // Accordion state remains card-local after separating the columns.
+    await act(async()=>slot7.querySelector<HTMLButtonElement>('[aria-label="12 Hat Colors details"]')!.click());
+    expect(slot7.querySelector(".rrugc-products-photo-stage-detail")).not.toBeNull();
+    expect(slot3.querySelector(".rrugc-products-photo-stage-detail")).toBeNull();
+    await act(async()=>root.unmount());
+  });
+
   it("opens full 12-color gallery even when clicking ungenerated color #12",async()=>{
     const {root,host}=await renderWorkflow({colors:colorJobs});
     const slots=host.querySelectorAll<HTMLButtonElement>('[data-skill="colorway"] .rrugc-colorway-slot');
