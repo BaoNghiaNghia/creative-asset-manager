@@ -9,7 +9,7 @@ import re
 import signal
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
@@ -60,6 +60,9 @@ class CodexImageRunnerConfig:
     expected_output_count: int = 6
     expected_quote: str | None = None
     execution_log_id: str | None = None
+    concept_short_cloudflare_enabled: bool = False
+    concept_short_cloudflare_account_id: str = ""
+    concept_short_cloudflare_api_token: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -662,8 +665,11 @@ class CodexImageGenRunner:
                 "codex_image_skill_invalid",
                 "Configured Codex skill name is invalid.",
             )
+        cloudflare_edit = (self.config.skill_name == "concept-short-v1"
+                           and self.config.output_contract == "stage1_six_final_designs"
+                           and self.config.concept_short_cloudflare_enabled)
         binary = shutil.which(self.config.binary)
-        if not binary:
+        if not binary and not cloudflare_edit:
             raise CodexImageProviderError(
                 "codex_image_cli_unavailable",
                 "Codex CLI is not installed on this worker.",
@@ -743,6 +749,10 @@ class CodexImageGenRunner:
                     "concept_short_slots_ineligible",
                     "Concept Short cannot supply six eligible slots: "
                     + "; ".join(skipped),
+                )
+            if cloudflare_edit:
+                return await self._concept_short_cloudflare_edits(
+                    workspace=workspace, missing=resume_missing_numbers,
                 )
 
         if resume_missing_numbers is None:
@@ -1316,6 +1326,61 @@ class CodexImageGenRunner:
             _cleanup_logger.warning(
                 "codex_job_workspace_cleanup_failed error_type=%s", type(exc).__name__,
             )
+
+    async def _concept_short_cloudflare_edits(
+        self, *, workspace: Path, missing: tuple[int, ...] | None,
+    ) -> GeneratedImageResult:
+        """Edit the exact six code-built sources; preserve validated final checkpoints."""
+        from app.providers.ai.cloudflare_flux_klein import (
+            CloudflareFluxKleinImageEditProvider, CloudflareFluxEditError,
+            FLUX_KLEIN_MODEL,
+        )
+        source = workspace / "working" / "concept-short"
+        reports = list(source.glob("*/summary.json"))
+        if len(reports) != 1:
+            raise CodexImageProviderError("concept_short_source_missing", "Missing source summary.")
+        rows = json.loads(reports[0].read_text(encoding="utf-8"))
+        if len(rows) != 6:
+            raise CodexImageProviderError("concept_short_source_incomplete", "Six sources required.")
+        selected = set(missing if missing is not None else range(1, 7))
+        final = workspace / "output" / "final"
+        final.mkdir(parents=True, exist_ok=True)
+        adapter = CloudflareFluxKleinImageEditProvider(
+            account_id=self.config.concept_short_cloudflare_account_id,
+            api_token=self.config.concept_short_cloudflare_api_token,
+        )
+        try:
+            for number, row in enumerate(rows, start=1):
+                if number not in selected:
+                    continue
+                folder = reports[0].parent / row["concept"]
+                source_image = folder / "A_input.png"
+                source_prompt = folder / "A_prompt.txt"
+                if any(not p.is_file() or p.is_symlink() for p in (source_image, source_prompt)):
+                    raise CodexImageProviderError("concept_short_source_incomplete", "Missing original edit source.")
+                target = final / f"design_{number:02}.png"
+                if target.exists():
+                    raise CodexImageProviderError("stage1_resume_checkpoint_invalid", "Output already exists; refusing overwrite.")
+                try:
+                    edited = await adapter.edit_reference(
+                        image_bytes=source_image.read_bytes(),
+                        prompt=source_prompt.read_text(encoding="utf-8"),
+                    )
+                except CloudflareFluxEditError as exc:
+                    raise CodexImageProviderError(exc.code, str(exc), retryable=exc.retryable) from exc
+                temporary = final / f".design_{number:02}.tmp"
+                try:
+                    temporary.write_bytes(edited)
+                    os.replace(temporary, target)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        finally:
+            await adapter.aclose()
+        validated = self._collect_six_final_designs(workspace, self.config.expected_output_count)
+        return GeneratedImageResult(
+            provider="codex", model=FLUX_KLEIN_MODEL,
+            image_bytes=b"", mime_type="image/png", output_files=validated,
+        )
 
     def _skill_path(self) -> Path:
         return (

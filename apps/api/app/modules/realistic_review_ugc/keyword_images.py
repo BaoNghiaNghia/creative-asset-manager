@@ -103,12 +103,14 @@ STAGE1_MAX_ATTEMPTS = 1
 STAGE1_AUTO_RETRY_DELAYS_SECONDS = (60, 300, 900)
 STAGE1_SAFE_ZERO_OUTPUT_CODES = frozenset({
     "stage1_imagegen_not_invoked", "stage1_imagegen_limited",
+    "concept_short_flux_rate_limited",
 })
 # Partial output jobs may resume only after verifying 1–5 unique valid PNG
 # checkpoints. An arbitrary provider failure with no checkpoint is terminal.
 STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
     "stage1_six_outputs_invalid", "codex_image_timeout", "codex_image_usage_limited",
     "codex_image_provider_error", "stage1_codex_turn_failed",
+    "concept_short_flux_rate_limited", "concept_short_flux_unavailable",
 })
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
@@ -974,6 +976,9 @@ class KeywordImageGenerateHandler:
                 "hanh-redesign-8869-ver-4", "concept-short-v1",
             ) else None),
             execution_log_id=context.job.id,
+            concept_short_cloudflare_enabled=(skill_name == "concept-short-v1" and settings.CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED),
+            concept_short_cloudflare_account_id=(settings.CLOUDFLARE_AI_ACCOUNT_ID if skill_name == "concept-short-v1" and settings.CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED else ""),
+            concept_short_cloudflare_api_token=(settings.CLOUDFLARE_AI_API_TOKEN if skill_name == "concept-short-v1" and settings.CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED else ""),
         ))
         preserve_finals = False
         upload_only = bool(context.job.payload.get("upload_only"))
@@ -1046,6 +1051,13 @@ class KeywordImageGenerateHandler:
                         path=str(path), filename="output/final/" + path.name,
                         mime_type="image/png",
                     ) for path in final_paths),
+                )
+            elif (skill_name == "concept-short-v1" and settings.CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED):
+                # Direct reference edits use the configured Cloudflare API. Do not
+                # occupy a Codex account or depend on its imagegen tool.
+                generated = await runner.generate_from_references(
+                    attempt_id=context.job.entity_id, person=None, references=[],
+                    prompt=prompt, resume_missing_numbers=resume_missing,
                 )
             else:
                 with context.dependencies.session_factory() as pool_session:
