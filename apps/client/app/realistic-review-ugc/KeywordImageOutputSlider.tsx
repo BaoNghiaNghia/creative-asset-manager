@@ -7,9 +7,10 @@ import { OutputActivityLoader } from "./OutputActivityLoader";
  * Stage 1 table output strip. Fetch only when this row enters the viewport;
  * keep the complete version list but show at most four thumbnails in the strip.
  */
-export function KeywordImageOutputSlider({ row, onOpenVersion }: {
+export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }: {
   row: KeywordImageRow;
   onOpenVersion: (version: number) => void;
+  pickedOverrides?: Readonly<Record<number, boolean>>;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -109,7 +110,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
     viewportRef.current?.scrollBy({ left: direction * viewportRef.current.clientWidth, behavior: "smooth" });
   };
 
-  const slides = images.length > 0
+  const slides: GenerationOutputVersion[] = images.length > 0
     ? images
     : !loading && row.output_url
       ? [{ version: 1, url: row.output_url, created_at: "", width: null, height: null }]
@@ -137,18 +138,22 @@ export function KeywordImageOutputSlider({ row, onOpenVersion }: {
                 moveByPage(event.key === "ArrowRight" ? 1 : -1);
               }
             }} tabIndex={0}>
-            {slides.map((image, index) => <button type="button" key={image.version}
-              className="rrugc-keyword-output-image"
-              onClick={() => onOpenVersion(image.version)}
-              title={image.output_name || `Image ${index + 1} · Version ${image.version}`}
-              aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}`}
-              draggable={false}>
-              {brokenVersions.has(image.version)
-                ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
-                : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-source-alpha-v2" + (imageRetry ? "&retry=" + imageRetry : "")}
-                  alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
-                  onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
-            </button>)}
+            {slides.map((image, index) => {
+              const picked = pickedOverrides?.[image.version] ?? Boolean(image.selected_for_products_stage2);
+              return <button type="button" key={image.version}
+                className={"rrugc-keyword-output-image" + (picked ? " is-stage2-picked" : "")}
+                onClick={() => onOpenVersion(image.version)}
+                title={(image.output_name || `Image ${index + 1} · Version ${image.version}`) + (picked ? " · Picked for Products Stage 2" : "")}
+                aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}${picked ? " · Picked for Products Stage 2" : ""}`}
+                draggable={false}>
+                {brokenVersions.has(image.version)
+                  ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
+                  : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-source-alpha-v2" + (imageRetry ? "&retry=" + imageRetry : "")}
+                    alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
+                    onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
+                {picked && <span className="rrugc-keyword-output-picked-mark" aria-hidden="true">✓</span>}
+              </button>;
+            })}
           </div>
           <button type="button" className="rrugc-keyword-output-arrow is-next"
             aria-label={`Next images for ${row.keyword}`} title="Next images"

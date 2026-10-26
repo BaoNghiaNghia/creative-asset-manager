@@ -118,8 +118,10 @@ describe("Version history comparison", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
+    const onProductSelectionChange = vi.fn();
     await act(async () => root.render(<GenerationOutputVersionsDialog
-      stage="stage1" jobId="stage1-star-job" title="Artwork" onClose={() => undefined} />));
+      stage="stage1" jobId="stage1-star-job" title="Artwork" onClose={() => undefined}
+      onProductSelectionChange={onProductSelectionChange} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(host.querySelector(".rrugc-stage1-products-selection")).toBeNull();
     expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(1);
@@ -130,10 +132,12 @@ describe("Version history comparison", () => {
     expect(star.getAttribute("aria-pressed")).toBe("true");
     await act(async () => star.click());
     expect(selectStage1ProductDesign).toHaveBeenCalledWith("stage1-star-job", 6, false);
+    expect(onProductSelectionChange).toHaveBeenCalledWith(6, false);
     expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(0);
     expect(host.querySelector(".rrugc-blueprint-selected-info")?.textContent).toContain("design_06.png");
     await act(async () => star.click());
     expect(selectStage1ProductDesign).toHaveBeenLastCalledWith("stage1-star-job", 6, true);
+    expect(onProductSelectionChange).toHaveBeenLastCalledWith(6, true);
     expect(host.querySelectorAll(".rrugc-blueprint-design-item.is-starred")).toHaveLength(1);
     await act(async () => root.unmount());
   });

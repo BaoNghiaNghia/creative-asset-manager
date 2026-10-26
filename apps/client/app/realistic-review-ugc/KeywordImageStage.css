@@ -396,6 +396,28 @@
   pointer-events: none;
 }
 .rrugc-keyword-output-image:hover { border-color: #8daee0; box-shadow: 0 0 0 1px #cedcf1; }
+.rrugc-keyword-output-image.is-stage2-picked,
+.rrugc-keyword-output-image.is-stage2-picked:hover {
+  border: 2px solid #e5ac17;
+  box-shadow: 0 0 0 1px rgba(229, 172, 23, .28), inset 0 0 0 1px rgba(255, 241, 190, .8);
+}
+.rrugc-keyword-output-picked-mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: #db9e10;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(112, 76, 0, .25);
+}
 .rrugc-keyword-output-placeholder {
   display: flex;
   align-items: center;

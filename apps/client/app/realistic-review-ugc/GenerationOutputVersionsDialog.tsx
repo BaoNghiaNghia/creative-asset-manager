@@ -15,7 +15,7 @@ function SelectionIcon({ mode }: { mode: "all" | "none" }) {
 }
 
 export function GenerationOutputVersionsDialog({
-  stage, jobId, title, onClose, onRegenerate, initialVersion,
+  stage, jobId, title, onClose, onRegenerate, initialVersion, onProductSelectionChange,
 }: {
   stage: "stage1" | "stage2" | "stage4";
   jobId: string;
@@ -23,6 +23,7 @@ export function GenerationOutputVersionsDialog({
   onClose: () => void;
   onRegenerate?: () => void;
   initialVersion?: number;
+  onProductSelectionChange?: (version: number, selected: boolean) => void;
 }) {
   const openedVersionRef = useRef<HTMLElement>(null);
   const [versions, setVersions] = useState<GenerationOutputVersion[]>([]);
@@ -115,6 +116,7 @@ export function GenerationOutputVersionsDialog({
       const result = await selectStage1ProductDesign(jobId, version.version, !version.selected_for_products_stage2);
       setVersions(current => current.map(item => item.version === version.version
         ? { ...item, selected_for_products_stage2: result.selected } : item));
+      onProductSelectionChange?.(version.version, result.selected);
     } catch (cause) {
       setSelectionError(cause instanceof Error ? cause.message : "Unable to save Stage 1 design selection.");
     } finally {

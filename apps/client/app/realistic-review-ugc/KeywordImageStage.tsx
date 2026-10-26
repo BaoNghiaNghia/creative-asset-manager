@@ -228,6 +228,7 @@ export function KeywordImageStage({
   const [workingIds, setWorkingIds] = useState<Set<string>>(new Set());
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
+  const [pickedDesignOverrides, setPickedDesignOverrides] = useState<Record<string, Record<number, boolean>>>({});
   const [keywordDetailTarget, setKeywordDetailTarget] = useState<{ id: string; keyword: string } | null>(null);
   const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
   const [keywordDetailLoading, setKeywordDetailLoading] = useState(false);
@@ -540,6 +541,7 @@ export function KeywordImageStage({
                   ? <time dateTime={row.finished_at} title={formatKeywordJobFinishedAtAbsolute(row.finished_at)}>{formatKeywordJobFinishedAt(row.finished_at)}</time>
                   : <span className="rrugc-keyword-gen-muted">{row.status === "running" ? "In progress" : row.status === "queued" ? "In queue" : "—"}</span>}</td>
                 <td className="rrugc-keyword-gen-output-column"><KeywordImageOutputSlider row={row}
+                  pickedOverrides={row.job_id ? pickedDesignOverrides[row.job_id] : undefined}
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
@@ -563,7 +565,11 @@ export function KeywordImageStage({
     </footer>
     {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title}
-      initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)} />}
+      initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)}
+      onProductSelectionChange={(version, selected) => setPickedDesignOverrides(current => ({
+        ...current,
+        [versionsJob.jobId]: { ...(current[versionsJob.jobId] ?? {}), [version]: selected },
+      }))} />}
     {keywordDetailTarget && (keywordDetail
       ? <KeywordDetailModal item={keywordDetail} onClose={() => setKeywordDetailTarget(null)} />
       : <div className="rrugc-stage0-detail-backdrop" onMouseDown={event => {

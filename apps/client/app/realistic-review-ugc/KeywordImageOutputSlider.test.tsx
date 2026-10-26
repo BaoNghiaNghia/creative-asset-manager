@@ -14,6 +14,7 @@ vi.mock("./api", async importOriginal => ({
     versions: Array.from({ length: 8 }, (_, i) => ({
       version: 8 - i, url: "/api/v1/image/" + (8 - i), width: 512, height: 512,
       created_at: "2026-10-10T00:00:00Z", output_name: "output_" + (8 - i) + ".png",
+      selected_for_products_stage2: i === 1,
     })),
   })),
 }));
@@ -80,6 +81,23 @@ describe("Stage 1 draggable image strip", () => {
     expect(host.querySelector(".rrugc-keyword-output-nav")).toBeNull();
   });
 
+
+  it("shows gold-picked thumbnails from saved selections and updates just the changed design", async () => {
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    const images = () => host.querySelectorAll<HTMLButtonElement>(".rrugc-keyword-output-image");
+    expect(images()[0].classList.contains("is-stage2-picked")).toBe(false);
+    expect(images()[1].classList.contains("is-stage2-picked")).toBe(true);
+    expect(images()[1].querySelector(".rrugc-keyword-output-picked-mark")?.textContent).toBe("✓");
+    expect(images()[1].getAttribute("aria-label")).toContain("Picked for Products Stage 2");
+    await act(async () => root.render(<KeywordImageOutputSlider
+      row={row} onOpenVersion={onOpenVersion} pickedOverrides={{ 7: false, 6: true }} />));
+    expect(images()[1].classList.contains("is-stage2-picked")).toBe(false);
+    expect(images()[1].querySelector(".rrugc-keyword-output-picked-mark")).toBeNull();
+    expect(images()[2].classList.contains("is-stage2-picked")).toBe(true);
+    expect(images()[2].getAttribute("title")).toContain("Picked for Products Stage 2");
+    expect(listGenerationOutputVersions).toHaveBeenCalledTimes(1);
+  });
 
   it("keeps previous and next buttons on opposite ends and updates disabled states after scrolling", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
