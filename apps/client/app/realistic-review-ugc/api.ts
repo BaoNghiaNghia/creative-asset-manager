@@ -932,7 +932,14 @@ export const saveFrontPlacement = (value: FrontPlacement) =>
     }),
   });
 
-export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; version: number; created_at: string; width: number | null;
+export const saveStage1FrontDesignSize = (jobId: string, version: number, percent: number) =>
+  request<{ front_design_size: number }>(
+    "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId)
+    + "/versions/" + version + "/front-design-size",
+    { method: "PUT", body: JSON.stringify({ front_design_size: percent }) },
+  );
+
+export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; front_design_size?: number | null; version: number; created_at: string; width: number | null;
   height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null;
   font_info?: { font_name: string; font_style: string; layout_name: string; font_source: string; font_url: string; font_license: string; font_status: string } | null };
 export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>

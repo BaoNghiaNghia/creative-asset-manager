@@ -260,7 +260,6 @@ class ColorwayService:
             )
         )}
         count = 0
-        pinned_placement = pin_front_placement(self.session, tenant_id) if workflow == "products" else None
         for plan in plans:
             for color_key, _ in selected_colors:
                 if (plan.id, plan.source_revision, color_key) in existing:
@@ -276,7 +275,9 @@ class ColorwayService:
                 )
                 self.session.add(row)
                 self.session.flush()
-                self._enqueue(row, front_placement=pinned_placement)
+                self._enqueue(row, front_placement=(
+                    pin_front_placement(self.session, tenant_id, plan.source_revision)
+                    if workflow == "products" else None))
                 count += 1
         self.session.commit()
         return {"queued": count, "existing": len(ids) * len(selected_colors) - count}
@@ -305,7 +306,7 @@ class ColorwayService:
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
         row.started_at = None
-        current_placement = (pin_front_placement(self.session, tenant_id)
+        current_placement = (pin_front_placement(self.session, tenant_id, plan.source_revision)
                              if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT else None)
         self._enqueue(row, front_placement=current_placement)
         self.session.commit()
@@ -498,6 +499,7 @@ class ColorwayGenerateHandler:
             master = render_front_reference(
                 stock_data, bytes(source_bytes),
                 guide=tuple(pinned_placement[key] for key in ("left", "top", "width", "height")),
+                design_size=pinned_placement.get("design_size", 100),
             )
             references.append(ReferenceImageInput(
                 image=_prepared_image(master), role="embroidered_front_preview",

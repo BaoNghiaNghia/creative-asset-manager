@@ -98,7 +98,7 @@ def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(
     assert set(j.color_key for j in db.query(RrugcColorwayJobModel)) == PRODUCTS_COLOR_KEYS
     for row in db.query(RrugcColorwayJobModel):
         proc = db.get(ProcessingJobModel, row.processing_job_id)
-        assert proc.payload_json["front_placement"] == customized
+        assert proc.payload_json["front_placement"] == {**customized, "design_size": 100}
 
     # A pre-existing 13th output is immutable but excluded from the live UI,
     # future queues, ZIP delivery and all subsequent Products generations.
@@ -340,6 +340,13 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     output = BytesIO()
     canvas.save(output, "PNG")
     image_bytes = output.getvalue()
+    # New Products jobs use a deterministic embroidered-front reference.
+    design_canvas = Image.new("RGBA", (240, 120), (0, 0, 0, 0))
+    from PIL import ImageDraw
+    ImageDraw.Draw(design_canvas).rectangle((30, 20, 210, 100), fill="blue")
+    design_output = BytesIO()
+    design_canvas.save(design_output, "PNG")
+    design_bytes = design_output.getvalue()
     monkeypatch.setattr(colorways, "_stock_bytes", lambda settings, key: image_bytes)
     monkeypatch.setattr(colorways, "verify_stage2_skill_runtime", lambda **kwargs: None)
 
@@ -356,7 +363,7 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
 
     class FakeStream:
         async def _body(self):
-            yield image_bytes
+            yield design_bytes if products_mode else image_bytes
         @property
         def body(self):
             return self._body()
@@ -378,7 +385,10 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
         async def generate_from_references(self, *, attempt_id, person, references, prompt):
             generated_calls.append(attempt_id)
             assert person.image_bytes
-            assert len(references) == 1 and references[0].role == "design_reference"
+            assert references[0].role == "design_reference"
+            assert len(references) == (2 if products_mode else 1)
+            if products_mode:
+                assert references[1].role == "embroidered_front_preview"
             assert "Official cap color: " + dict(COLORS)[job.color_key] in prompt
             assert ("low-profile-direct-thread-v2" in prompt) is products_mode
             if products_mode:

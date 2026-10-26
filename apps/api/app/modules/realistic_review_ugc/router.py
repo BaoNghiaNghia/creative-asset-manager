@@ -5100,6 +5100,37 @@ def select_stage1_design_for_products_stage2(
     return {"selected": bool(selected), "source_plan_id": plan.id if plan else None}
 
 
+class FrontDesignSizeRequest(BaseModel):
+    front_design_size: int = Field(ge=40, le=200)
+
+
+@router.put("/keyword-images/jobs/{job_id}/versions/{version}/front-design-size")
+def put_stage1_front_design_size(
+    job_id: str, version: int, body: FrontDesignSizeRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Save the design-specific zoom, never mutate completed image/job records."""
+    from app.modules.realistic_review_ugc.front_placement import (
+        FrontPlacementInvalid, validate_front_design_size,
+    )
+    row = session.scalar(select(RrugcImageOutputVersionModel).where(
+        RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
+        RrugcImageOutputVersionModel.stage == "stage1",
+        RrugcImageOutputVersionModel.job_id == job_id,
+        RrugcImageOutputVersionModel.version == version,
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage 1 design version not found")
+    try:
+        size = validate_front_design_size(body.front_design_size)
+    except FrontPlacementInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    row.front_design_size = size
+    session.commit()
+    return {"front_design_size": size}
+
+
 class FrontPlacementRequest(BaseModel):
     """Normalized 4:5 stock coordinates; optimistic revision prevents lost saves."""
 
@@ -5181,6 +5212,15 @@ def list_generation_output_versions(
             RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
             RrugcSourcePlanModel.status != "missing",
         )))
+    front_design_sizes: dict[int, int] = {}
+    if stage == "stage1":
+        front_design_sizes = dict(session.execute(select(
+            RrugcImageOutputVersionModel.version, RrugcImageOutputVersionModel.front_design_size,
+        ).where(
+            RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
+            RrugcImageOutputVersionModel.stage == "stage1",
+            RrugcImageOutputVersionModel.job_id == job_id,
+        )).all())
     output_roles: dict[int, str] = {}
     if stage == "stage1" and job.skill_name == "hanh-redesign-8869-ver-4":
         # Pair by the actual processing attempt so legacy single-image outputs
@@ -5204,6 +5244,7 @@ def list_generation_output_versions(
          ),
          "output_name": row.get("output_name"),
          "font_info": row.get("font_info") if stage == "stage1" else None,
+         "front_design_size": front_design_sizes.get(row["version"], 100) if stage == "stage1" else None,
          "selected_for_products_stage2": stage == "stage1" and row["remote_file_id"] in selected_products_sources,
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}
         for row in rows]}

@@ -1104,6 +1104,9 @@ class RrugcImageOutputVersionModel(Base):
     stage: Mapped[str] = mapped_column(String(16), nullable=False)
     job_id: Mapped[str] = mapped_column(String(36), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Percent of the visible artwork fitted into the calibrated front field.
+    # Stored per Stage 1 output version; older output rows default to 100%.
+    front_design_size: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     processing_job_id: Mapped[str | None] = mapped_column(String(36))
     output_name: Mapped[str | None] = mapped_column(String(255))
     font_info_json: Mapped[dict | None] = mapped_column(JSON)

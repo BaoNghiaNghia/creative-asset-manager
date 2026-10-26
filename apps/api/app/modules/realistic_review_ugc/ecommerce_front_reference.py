@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from collections.abc import Sequence
-from app.modules.realistic_review_ugc.front_placement import DEFAULT_FRONT_PLACEMENT, validate_front_placement
+from app.modules.realistic_review_ugc.front_placement import (DEFAULT_FRONT_PLACEMENT, validate_front_placement, validate_front_design_size)
 
 from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
 
@@ -56,7 +56,8 @@ def _visible_artwork(art: Image.Image) -> Image.Image:
 
 
 def render_front_reference(stock_bytes: bytes, artwork_bytes: bytes,
-                           guide: Sequence[float] = FRONT_GUIDE) -> bytes:
+                           guide: Sequence[float] = FRONT_GUIDE,
+                           *, design_size: int = 100) -> bytes:
     """Render PNG with all painted pixels inside the calibrated front area.
 
     The painted design preserves its native aspect ratio, occupies at most
@@ -79,7 +80,12 @@ def render_front_reference(stock_bytes: bytes, artwork_bytes: bytes,
     guide_y = round(stock.height * top)
     guide_w = round(stock.width * width)
     guide_h = round(stock.height * height)
-    scale = min(guide_w * .95 / artwork.width, guide_h * .92 / artwork.height)
+    base = min(guide_w * .95 / artwork.width, guide_h * .92 / artwork.height)
+    zoom = validate_front_design_size(design_size) / 100.0
+    # Exactly the same contain-fit and 98% zoom limits as BlueprintDesignFit.
+    scale = base * min(zoom,
+                       guide_w * .98 / (artwork.width * base),
+                       guide_h * .98 / (artwork.height * base))
     target_w = max(1, min(guide_w, round(artwork.width * scale)))
     target_h = max(1, min(guide_h, round(artwork.height * scale)))
     resized = artwork.resize((target_w, target_h), Image.Resampling.LANCZOS)

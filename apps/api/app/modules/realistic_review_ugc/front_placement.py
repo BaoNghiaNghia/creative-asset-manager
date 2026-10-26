@@ -7,11 +7,14 @@ continue to use the original default and are never migrated or re-queued.
 from __future__ import annotations
 
 import math
+from uuid import UUID
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.model import RrugcFrontPlacementSettingModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcFrontPlacementSettingModel, RrugcImageOutputVersionModel,
+)
 
 DEFAULT_FRONT_PLACEMENT: dict[str, float] = {
     "left": 0.152,
@@ -64,16 +67,43 @@ def read_front_placement(session: Session, tenant_id: str) -> dict:
     }
 
 
-def pin_front_placement(session: Session, tenant_id: str) -> dict[str, float]:
-    """Return immutable geometry values without revision metadata."""
+def validate_front_design_size(value: object) -> int:
+    """UI and job contract: integer zoom 40–200%, in five-percent increments."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 40 or value > 200 or value % 5:
+        raise FrontPlacementInvalid("Front design size must be 40–200% in 5% steps.")
+    return value
+
+
+def pin_front_placement(
+    session: Session, tenant_id: str, source_revision: str | None = None,
+) -> dict[str, float]:
+    """Freeze tenant geometry and optional Stage 1 output-version zoom at enqueue."""
     current = read_front_placement(session, tenant_id)
-    return {key: current[key] for key in GEOMETRY_KEYS}
+    snapshot = {key: current[key] for key in GEOMETRY_KEYS}
+    if source_revision:
+        # Only Stage 1 output-version UUIDs can carry a per-design zoom.
+        # Older synthetic revisions ("rev1", etc.) always retain the 100% default.
+        # This also avoids unnecessary lookups for legacy/non-Products sources.
+        try:
+            UUID(source_revision)
+        except (ValueError, TypeError, AttributeError):
+            snapshot["design_size"] = 100
+            return snapshot
+        output = session.get(RrugcImageOutputVersionModel, source_revision)
+        size = (output.front_design_size
+                if output is not None and output.tenant_id == tenant_id and output.stage == "stage1"
+                else 100)
+        snapshot["design_size"] = validate_front_design_size(size)
+    return snapshot
 
 
 def job_front_placement(snapshot: object) -> dict[str, float]:
-    """Old queued jobs deliberately keep the original calibration."""
+    """Old job snapshots remain unchanged; newer snapshots may pin per-design zoom."""
     if snapshot is None:
         return dict(DEFAULT_FRONT_PLACEMENT)
+    if isinstance(snapshot, dict) and set(snapshot) == {*GEOMETRY_KEYS, "design_size"}:
+        geometry = validate_front_placement({key: snapshot[key] for key in GEOMETRY_KEYS})
+        return {**geometry, "design_size": validate_front_design_size(snapshot["design_size"])}
     return validate_front_placement(snapshot)
 
 
@@ -86,6 +116,12 @@ def front_placement_prompt(snapshot: dict[str, float]) -> str:
         f"Two saved maximum-height alignment lines are at "
         f"{snapshot['upper_line'] * 100:.2f}% and {snapshot['lower_line'] * 100:.2f}% "
         "of the same photograph height; do not draw guide lines in the final image. "
+        f"Use {snapshot.get('design_size', 100):.0f}% of the contain-fit artwork size, "
+        "clamped within the calibrated field; never stretch letterforms. "
+        "Preserve the Master Reference design-to-front-crown size ratio for every "
+        "visible hat, including 3/4 perspective, distant UGC, and multiple hats. "
+        "Project onto the cap panel with real perspective foreshortening, curvature "
+        "and occlusion; never independently rescale the lettering on an angled cap. "
         "Place the front artwork entirely within the calibrated embroidery field, "
         "without distorting the original lettering. "
     )

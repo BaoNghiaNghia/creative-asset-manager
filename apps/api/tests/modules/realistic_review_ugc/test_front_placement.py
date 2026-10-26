@@ -13,8 +13,9 @@ from app.modules.realistic_review_ugc.front_placement import (
     DEFAULT_FRONT_PLACEMENT, FrontPlacementConflict, FrontPlacementInvalid,
     front_placement_prompt, job_front_placement, pin_front_placement,
     read_front_placement, save_front_placement, validate_front_placement,
+    validate_front_design_size,
 )
-from app.modules.realistic_review_ugc.model import RrugcFrontPlacementSettingModel
+from app.modules.realistic_review_ugc.model import RrugcFrontPlacementSettingModel, RrugcImageOutputVersionModel
 
 
 def _sample(**changes):
@@ -25,6 +26,7 @@ def _sample(**changes):
 def engine():
     db = create_engine("sqlite+pysqlite:///:memory:")
     RrugcFrontPlacementSettingModel.__table__.create(db)
+    RrugcImageOutputVersionModel.__table__.create(db)
     yield db
     db.dispose()
 
@@ -119,3 +121,81 @@ def test_front_reference_uses_custom_guide_for_new_jobs_without_editing_stock():
         assert result.getpixel((0, 0)) == (210, 200, 180)
         assert result.getpixel((250, 100)) == (210, 200, 180)
         assert result.getpixel((250, 220)) == (24, 35, 220)
+
+
+def test_stage1_size_endpoint_updates_only_persisted_version_setting(engine):
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.router import (
+        FrontDesignSizeRequest, put_stage1_front_design_size,
+    )
+    with Session(engine) as session:
+        session.add(RrugcImageOutputVersionModel(
+            id="00000000-0000-4000-8000-000000000003",
+            tenant_id="tenant-a", stage="stage1",
+            job_id="job-a", version=3, remote_file_id="persisted-design",
+            front_design_size=100,
+        ))
+        session.commit()
+        result = put_stage1_front_design_size(
+            "job-a", 3, FrontDesignSizeRequest(front_design_size=85),
+            session=session, principal=SimpleNamespace(active_tenant_id="tenant-a"),
+        )
+        assert result == {"front_design_size": 85}
+        row = session.get(RrugcImageOutputVersionModel, "00000000-0000-4000-8000-000000000003")
+        assert row.front_design_size == 85
+        assert row.remote_file_id == "persisted-design"
+        assert row.version == 3
+
+
+def test_design_specific_size_is_pinned_per_stage1_version_and_tenant(engine):
+    with Session(engine) as session:
+        session.add_all([
+            RrugcImageOutputVersionModel(
+                id="00000000-0000-4000-8000-000000000001", tenant_id="tenant-a", stage="stage1",
+                job_id="job-a", version=1, remote_file_id="remote-a",
+                front_design_size=65,
+            ),
+            RrugcImageOutputVersionModel(
+                id="00000000-0000-4000-8000-000000000002", tenant_id="tenant-b", stage="stage1",
+                job_id="job-b", version=1, remote_file_id="remote-b",
+                front_design_size=180,
+            ),
+        ])
+        session.commit()
+        a = pin_front_placement(session, "tenant-a", "00000000-0000-4000-8000-000000000001")
+        assert a["design_size"] == 65
+        assert "65% of the contain-fit" in front_placement_prompt(a)
+        assert job_front_placement(a) == a
+        assert pin_front_placement(session, "tenant-a", "00000000-0000-4000-8000-000000000002")["design_size"] == 100
+        assert pin_front_placement(session, "tenant-b", "00000000-0000-4000-8000-000000000002")["design_size"] == 180
+        assert "design_size" not in pin_front_placement(session, "tenant-a")
+
+
+@pytest.mark.parametrize("value", [39, 201, 66, 100.0, True, None, "85"])
+def test_invalid_zoom_values_rejected(value):
+    with pytest.raises(FrontPlacementInvalid):
+        validate_front_design_size(value)
+
+
+def test_reference_zoom_preserves_aspect_and_stays_inside_field():
+    from PIL import ImageChops
+
+    hat = Image.new("RGB", (500, 625), "white")
+    design = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    ImageDraw.Draw(design).rectangle((10, 10, 190, 90), fill="blue")
+    def encoded(image):
+        out = BytesIO()
+        image.save(out, "PNG")
+        return out.getvalue()
+    bounds = []
+    for percent in (40, 100, 200):
+        rendered = render_front_reference(encoded(hat), encoded(design), design_size=percent)
+        with Image.open(BytesIO(rendered)) as final:
+            painted = ImageChops.difference(final.convert("RGB"), hat).getbbox()
+        assert painted is not None
+        x0, y0, x1, y1 = painted
+        bounds.append((x1 - x0, y1 - y0))
+        assert 500 * .152 <= x0 < x1 <= 500 * (.152 + .696)
+        assert 625 * .309 <= y0 < y1 <= 625 * (.309 + .231)
+    assert bounds[0][0] < bounds[1][0] <= bounds[2][0]
+    assert bounds[0][1] < bounds[1][1] <= bounds[2][1]

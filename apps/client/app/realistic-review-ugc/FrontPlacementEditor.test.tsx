@@ -93,6 +93,34 @@ describe("Front placement geometry", () => {
     host.remove();
   });
 
+  it("loads a saved design-specific zoom and saves changed zoom for only that version", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onSaveDesignSize = vi.fn(async (_version: number, percent: number) => percent);
+    const version = {
+      version: 4, created_at: "2026-10-26T00:00:00Z",
+      url: "/api/v1/fake/4", width: 1024, height: 1024,
+      output_name: "design-4.png", front_design_size: 65,
+    };
+    await act(async () => root.render(<BlueprintPreview versions={[version]}
+      placementReady onSaveDesignSize={onSaveDesignSize} />));
+    const slider = host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')!;
+    expect(slider.value).toBe("65");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "80");
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      slider.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const button = Array.from(host.querySelectorAll("button"))
+      .find(item => item.textContent?.trim() === "Save size");
+    expect(button).toBeTruthy();
+    await act(async () => button!.click());
+    expect(onSaveDesignSize).toHaveBeenCalledWith(4, 80);
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("renders the editor in Stage1 Blueprint and saves without forcing navigation", async () => {
     const host = document.createElement("div");
     document.body.append(host);

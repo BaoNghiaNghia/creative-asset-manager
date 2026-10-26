@@ -382,7 +382,7 @@ class EcommerceService:
         self._enqueue(row, scout_reference=scout_reference, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
                       multihat_colorway_hashes=multihat_colorway_hashes,
-                      front_placement=pin_front_placement(self.session, tenant_id))
+                      front_placement=pin_front_placement(self.session, tenant_id, plan.source_revision))
         self.session.commit()
         return {"job_id": row.id, "status": row.status, "already_exists": False}
 
@@ -838,7 +838,7 @@ class EcommerceService:
         self._enqueue(row, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
                       multihat_colorway_hashes=multihat_colorway_hashes,
-                      front_placement=pin_front_placement(self.session, tenant_id))
+                      front_placement=pin_front_placement(self.session, tenant_id, plan.source_revision))
         self.session.commit()
         return {"job_id": row.id, "status": row.status}
 
@@ -1085,6 +1085,7 @@ class EcommerceGenerateHandler:
                 preview_bytes = render_front_reference(
                     refs[0][1], design_bytes,
                     guide=tuple(front_placement[key] for key in ("left", "top", "width", "height")),
+                    design_size=front_placement.get("design_size", 100),
                 )
                 stored_preview = await storage.store_asset(StoreAssetInput(
                     tenant_id=context.job.tenant_id,
@@ -1138,9 +1139,25 @@ class EcommerceGenerateHandler:
                     "multihat_reference_download_failed", str(exc), retryable=True) from exc
             references.extend(scene_sheets)
             if multi_color_stock:
-                # Authentic per-color stock photos override monochrome base
-                # only for color; the base still defines factory geometry.
+                # The two boards share exact HAT 1..N numbering. The first is
+                # immutable factory color authority; the second fixes each
+                # color's design-to-crown ratio without inventing cap geometry.
                 references.append(make_palette_board(stage, multi_color_stock))
+                pinned = job_front_placement(context.job.payload.get("front_placement"))
+                master_photos = [
+                    (key, render_front_reference(
+                        stock_photo, design_bytes,
+                        guide=tuple(pinned[name] for name in ("left", "top", "width", "height")),
+                        design_size=pinned.get("design_size", 100),
+                    ))
+                    for key, stock_photo in multi_color_stock
+                ]
+                numbered_master = make_palette_board(stage, master_photos)
+                references.append(ReferenceImageInput(
+                    image=numbered_master.image,
+                    role="embroidered_multicolor_scale_reference",
+                    label="HAT 1..N match the original official palette: each color has the same calibrated design-to-crown scale; reference board only, NOT final collage",
+                ))
         if stage in SCENE_GROUPS["prod_s2_ugc"]:
             scout = context.job.payload.get("scout_reference")
             if not isinstance(scout, dict) or not allowed_scout_image_url(str(scout.get("image_url", ""))):

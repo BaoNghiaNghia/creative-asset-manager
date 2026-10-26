@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getFrontPlacement, listGenerationOutputVersions, saveFrontPlacement, selectStage1ProductDesign, type GenerationOutputVersion } from "./api";
+import { getFrontPlacement, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, type GenerationOutputVersion } from "./api";
 import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
@@ -122,6 +122,13 @@ export function GenerationOutputVersionsDialog({
     } finally {
       setSavingSelectionVersion(null);
     }
+  }
+
+  async function updateFrontDesignSize(version: number, percent: number): Promise<number> {
+    const result = await saveStage1FrontDesignSize(jobId, version, percent);
+    setVersions(current => current.map(item => item.version === version
+      ? { ...item, front_design_size: result.front_design_size } : item));
+    return result.front_design_size;
   }
 
   async function updateFrontPlacement(draft: FrontPlacement): Promise<FrontPlacement> {
@@ -268,7 +275,7 @@ export function GenerationOutputVersionsDialog({
         ? <BlueprintPreview versions={compared} initialVersion={initialVersion}
             guides={blueprintGuides} threadMode={blueprintThreadMode}
             placement={frontPlacement} placementReady={placementReady}
-            onSavePlacement={updateFrontPlacement}
+            onSavePlacement={updateFrontPlacement} onSaveDesignSize={updateFrontDesignSize}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry

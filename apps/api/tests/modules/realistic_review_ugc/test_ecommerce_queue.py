@@ -83,11 +83,11 @@ def test_front_placement_is_pinned_for_new_job_and_regenerate_uses_updated_setti
                             source_plan_id="plan-001", stage="prod_s2_ec1")
     job = session.get(RrugcEcommerceJobModel, created["job_id"])
     first_processing = session.get(ProcessingJobModel, job.processing_job_id)
-    assert first_processing.payload_json["front_placement"] == saved
+    assert first_processing.payload_json["front_placement"] == {**saved, "design_size": 100}
     newer = {**saved, "left": 0.23}
     save_front_placement(session, "tenant-001", "operator", newer, 1)
     # Config changes cannot alter the already queued attempt.
-    assert first_processing.payload_json["front_placement"] == saved
+    assert first_processing.payload_json["front_placement"] == {**saved, "design_size": 100}
     job.status = "completed"
     job.output_remote_file_id = "old-image-stays-saved"
     job.front_preview_remote_file_id = "old-preview"
@@ -96,7 +96,7 @@ def test_front_placement_is_pinned_for_new_job_and_regenerate_uses_updated_setti
     assert job.output_remote_file_id == "old-image-stays-saved"
     assert job.front_preview_remote_file_id is None
     latest = session.get(ProcessingJobModel, job.processing_job_id)
-    assert latest.payload_json["front_placement"] == newer
+    assert latest.payload_json["front_placement"] == {**newer, "design_size": 100}
 
 
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):

@@ -83,7 +83,7 @@ type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
 export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
-  placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement,
+  placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize,
 }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
@@ -94,6 +94,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   placement?: FrontPlacement;
   placementReady?: boolean;
   onSavePlacement?: (placement: FrontPlacement) => Promise<FrontPlacement>;
+  onSaveDesignSize?: (version: number, percent: number) => Promise<number>;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
@@ -104,6 +105,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const [editingPlacement, setEditingPlacement] = useState(false);
   const [draftPlacement, setDraftPlacement] = useState<FrontPlacement>(placement);
   const [placementSaving, setPlacementSaving] = useState(false);
+  const [sizeSaving, setSizeSaving] = useState(false);
   const [placementMessage, setPlacementMessage] = useState("");
   const [placementError, setPlacementError] = useState("");
   const visiblePlacement = editingPlacement ? draftPlacement : placement;
@@ -122,24 +124,42 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   };
   const cancelPlacementEdit = () => {
     setDraftPlacement(placement);
+    setFrontDesignSize(versions[Math.min(designIndex, versions.length - 1)]?.front_design_size ?? 100);
     setEditingPlacement(false);
     setPlacementMessage("");
     setPlacementError("");
   };
   const savePlacement = async () => {
-    if (!onSavePlacement || !placementChanged || placementSaving) return;
+    if (!onSavePlacement || (!placementChanged && !designSizeChanged) || placementSaving) return;
     setPlacementSaving(true);
     setPlacementError("");
     setPlacementMessage("");
     try {
-      const result = await onSavePlacement(draftPlacement);
+      const result = placementChanged ? await onSavePlacement(draftPlacement) : placement;
+      if (designSizeChanged && activeDesign && onSaveDesignSize) {
+        await onSaveDesignSize(activeDesign.version, frontDesignSize);
+      }
       setDraftPlacement(result);
       setEditingPlacement(false);
-      setPlacementMessage("Placement saved for this workspace.");
+      setPlacementMessage("Front placement and design size saved.");
     } catch (cause) {
-      setPlacementError(cause instanceof Error ? cause.message : "Could not save placement.");
+      setPlacementError(cause instanceof Error ? cause.message : "Could not save front placement.");
     } finally {
       setPlacementSaving(false);
+    }
+  };
+  const saveDesignSize = async () => {
+    if (!onSaveDesignSize || !activeDesign || !designSizeChanged || sizeSaving) return;
+    setSizeSaving(true);
+    setPlacementError("");
+    setPlacementMessage("");
+    try {
+      await onSaveDesignSize(activeDesign.version, frontDesignSize);
+      setPlacementMessage("Design size saved for this Stage 1 artwork.");
+    } catch (cause) {
+      setPlacementError(cause instanceof Error ? cause.message : "Could not save design size.");
+    } finally {
+      setSizeSaving(false);
     }
   };
   const [sideAtlasReady, setSideAtlasReady] = useState(false);
@@ -151,6 +171,11 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const sideLens = useRef<HTMLDivElement>(null);
   const selectedDesign = clamp(designIndex, versions.length);
   const activeDesign = versions[selectedDesign];
+  const savedDesignSize = activeDesign?.front_design_size ?? 100;
+  const designSizeChanged = frontDesignSize !== savedDesignSize;
+  useEffect(() => {
+    setFrontDesignSize(savedDesignSize);
+  }, [activeDesign?.version, savedDesignSize]);
   const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
   const activeDesignSrc = activeDesign ? activeDesign.url + "?artwork=stage1-source-alpha-v2" : "";
   // Render actual stitch detail, not a 512px downsample.
@@ -356,7 +381,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
             <div className="rrugc-blueprint-panel-header-actions">
               {onSavePlacement && <div className="rrugc-blueprint-front-placement-actions" role="group" aria-label="Front placement settings">
                 {editingPlacement ? <>
-                  <button type="button" className="is-primary" disabled={placementSaving || !placementChanged} onClick={() => void savePlacement()}> {placementSaving ? "Saving…" : "Save"} </button>
+                  <button type="button" className="is-primary" disabled={placementSaving || (!placementChanged && !designSizeChanged)} onClick={() => void savePlacement()}> {placementSaving ? "Saving…" : "Save"} </button>
                   <button type="button" disabled={placementSaving} onClick={cancelPlacementEdit}>Cancel</button>
                   <button type="button" disabled={placementSaving} title="Restore factory placement (save to apply)" onClick={() => setDraftPlacement({
                     ...DEFAULT_FRONT_PLACEMENT, revision: placement.revision,
@@ -366,6 +391,9 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
               </div>}
               <span className="rrugc-blueprint-thread-source" title="Thread material is rendered on cap with preserved stitch highlights">{threadMode === "auto" ? "Auto-match thread" : "Original threads"}</span>
               <BlueprintViewZoom label="Front" value={frontDesignSize} onChange={setFrontDesignSize}/>
+              {!editingPlacement && onSaveDesignSize && designSizeChanged && <button type="button"
+                className="rrugc-blueprint-size-save" disabled={sizeSaving || !placementReady}
+                onClick={() => void saveDesignSize()}>{sizeSaving ? "Saving…" : "Save size"}</button>}
             </div>
           </header>
           {editingPlacement && <p className="rrugc-blueprint-placement-feedback is-hint">Drag the cyan area to move · use its handles to resize · drag each blue line independently.</p>}
