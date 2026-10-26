@@ -19,7 +19,7 @@ describe("Product embroidery design gallery", () => {
   it("applies embroidery ONLY to the front image while retaining the 2x2 image-only layout", () => {
     const html = renderToStaticMarkup(<AppliedHatPreview
       designSrc="/stage1/design-02.png" designName="THE ORIGINAL" revision="rev-02" />);
-    expect((html.match(/class="rrugc-applied-hat-image"/g) || []).length).toBe(4);
+    expect((html.match(/class="rrugc-applied-hat-image(?: is-original-design)?"/g) || []).length).toBe(4);
     for (const stock of [
       "/rrugc/blueprint/stock/natural-black/front.jpg",
       "/rrugc/blueprint/stock/natural-black/side.jpg",
@@ -30,6 +30,18 @@ describe("Product embroidery design gallery", () => {
     expect(html).not.toContain("is-back");
     expect(html).not.toMatch(/<button\b|<small\b|<strong\b/i);
     expect(html.replace(/<[^>]*>/g, "").trim()).toBe("");
+  });
+
+  it("reuses the transparent Stage 1 source for the design tile and front embroidery", () => {
+    const source = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&size=128&v=rev123";
+    const html = renderToStaticMarkup(<AppliedHatPreview
+      designSrc={source} designName="THE ORIGINAL" revision="rev123" />);
+    const expected = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&amp;size=384&amp;v=rev123&amp;artwork=stage1-source-alpha-v2";
+    expect(html.split(expected)).toHaveLength(3);
+    expect(html).toContain('class="rrugc-applied-hat-image is-original-design"');
+    expect(html).not.toContain("size=128");
+    // Only the front view should receive the artwork; side/back remain unmodified stock.
+    expect((html.match(/rrugc-applied-hat-front-artwork/g) || [])).toHaveLength(1);
   });
 
   it("uses one imported, versioned color set for all three angles", () => {

@@ -2,6 +2,8 @@
 .rrugc-applied-hat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;min-width:0}
 .rrugc-applied-hat-image{position:relative;width:100%;aspect-ratio:1/1;min-width:0;overflow:hidden;box-sizing:border-box;border:1px solid #dde6f1;border-radius:10px;background:#f7f9fd}
 .rrugc-applied-hat-image>img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.rrugc-applied-hat-image.is-original-design{background:#fff}
+.rrugc-applied-hat-image.is-original-design>img{background:transparent}
 .rrugc-applied-hat-front-scene{
   --rrugc-guide-left:15.2%;
   --rrugc-guide-top:30.9%;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl, publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
 
 describe("GatorHats Stage 2 media authorization", () => {
   it("uses authenticated small previews only for supported routes", () => {
@@ -13,6 +13,17 @@ describe("GatorHats Stage 2 media authorization", () => {
     expect(stage2OriginalUrl("https://other.example.com/x.jpg?thumbnail=true&size=256")).toBe("https://other.example.com/x.jpg?thumbnail=true&size=256");
     expect(stage2ThumbnailUrl("https://other.example/stock.png", 128)).toBe("https://other.example/stock.png");
   });
+  it("requests original-alpha PNG art only for private source-plan thumbnails", () => {
+    const source = "/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=128&v=rev123";
+    expect(productEmbroideryArtworkUrl(source))
+      .toBe("/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=384&v=rev123&artwork=stage1-source-alpha-v2");
+    expect(productEmbroideryArtworkUrl(productEmbroideryArtworkUrl(source)))
+      .toBe(productEmbroideryArtworkUrl(source));
+    expect(productEmbroideryArtworkUrl("https://evil.example.com/image.png")).toBe("https://evil.example.com/image.png");
+    expect(productEmbroideryArtworkUrl("//cdn.example.com/image.png")).toBe("//cdn.example.com/image.png");
+    expect(productEmbroideryArtworkUrl("/api/v1/realistic-review-ugc/stage2-jobs/one/output")).toBe("/api/v1/realistic-review-ugc/stage2-jobs/one/output");
+  });
+
   it("requests actual Pinterest CDN thumbnails and never rewrites other origins", () => {
     expect(stage2PinterestThumbnailUrl("https://i.pinimg.com/originals/aa/bb/cc/image.jpg")).toBe("https://i.pinimg.com/236x/aa/bb/cc/image.jpg");
     expect(stage2PinterestThumbnailUrl("https://i.pinimg.com/736x/aa/bb/cc/image.png")).toBe("https://i.pinimg.com/236x/aa/bb/cc/image.png");

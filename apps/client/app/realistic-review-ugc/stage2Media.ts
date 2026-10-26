@@ -1,6 +1,22 @@
 /** Only tenant-authorized RRUGC routes may request compact previews. */
 const PRIVATE_IMAGE_PATH = /^\/api\/v1\/realistic-review-ugc\/(?:colorways\/[^/?#]+\/output|source-plans\/[^/?#]+\/image|products-stage2\/ecommerce\/jobs\/[^/?#]+\/output|stage2-jobs\/[^/?#]+\/(?:output|reference-image))$/;
 const STOCK_IMAGE_PATH = /^\/rrugc\/blueprint\/stock\/[a-z0-9-]+\/(?:front|side|back)\.(?:jpe?g|png|webp)$/i;
+const SOURCE_PLAN_IMAGE_PATH = /^\/api\/v1\/realistic-review-ugc\/source-plans\/[^/?#]+\/image$/;
+
+/** Stage 1-selected Product artwork must use real PNG pixels, never the Drive
+ * preview that may flatten its transparent background to opaque black.
+ * Only authenticated source-plan URLs are allowed; preserve their revision.
+ */
+export function productEmbroideryArtworkUrl(src: string, size = 384): string {
+  if (!src || !src.startsWith("/") || src.startsWith("//")) return src;
+  const [path] = src.split("?");
+  if (!SOURCE_PLAN_IMAGE_PATH.test(path)) return src;
+  const params = new URLSearchParams(src.includes("?") ? src.slice(path.length + 1) : "");
+  params.set("thumbnail", "true");
+  params.set("size", String(size));
+  params.set("artwork", "stage1-source-alpha-v2");
+  return path + "?" + params.toString();
+}
 
 export function stage2ThumbnailUrl(src: string, size: 128 | 192 | 256 | 512 | 1024): string {
   if (!src || !src.startsWith("/") || src.startsWith("//")) return src;

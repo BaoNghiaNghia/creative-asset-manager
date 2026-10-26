@@ -2852,29 +2852,31 @@ def _rrugc_conditional_preview(
 _STAGE1_ORIGINAL_THUMBNAIL_SLOTS = asyncio.Semaphore(4)
 
 
-async def _stage1_original_png_thumbnail_response(
+async def _original_png_thumbnail_response(
     storage,
     *,
     tenant_id: str,
-    job_id: str,
-    version: int,
+    asset_id: str,
+    cache_namespace: str,
+    cache_revision: str,
     remote_file_id: str,
     size_bytes: int | None,
     size_pixels: int,
     cache_control: str,
     etag: str | None = None,
 ) -> Response | None:
-    """Thumbnail from the actual published PNG, never a Drive JPEG thumbnail.
+    """Resize the original source PNG without flattening its transparency.
 
-    Preserves original RGBA pixels and aspect ratio. Cached per tenant/remote
-    version and size; single-flight prevents duplicate Drive downloads. No
-    database transaction is held during network or Pillow work.
+    Shared by Stage 1 output and Products Stage 2 selected design previews.
+    Cache per tenant, source revision and size. Single-flight and a bounded
+    semaphore prevent overlapping Drive downloads from flooding the API.
+    The caller releases its DB transaction before this helper runs.
     """
     if size_bytes is not None and (size_bytes <= 0 or size_bytes > MAX_PREVIEW_BYTES):
         return None
     cache_key = (
-        tenant_id, "rrugc-stage1-original-png", remote_file_id,
-        f"source-alpha-v2:{version}:{size_pixels}",
+        tenant_id, cache_namespace, remote_file_id,
+        f"source-alpha-v2:{cache_revision}:{size_pixels}",
     )
 
     async def load_original_thumbnail() -> CachedThumbnail:
@@ -2883,7 +2885,7 @@ async def _stage1_original_png_thumbnail_response(
         async with _STAGE1_ORIGINAL_THUMBNAIL_SLOTS:
             stream = await storage.open_asset(OpenStoredAssetInput(
                 tenant_id=tenant_id,
-                asset_id=f"rrugc-output:stage1:{job_id}:{version}",
+                asset_id=asset_id,
                 remote_file_id=remote_file_id,
                 content_type="image/png",
                 size_bytes=size_bytes,
@@ -4829,6 +4831,7 @@ async def get_source_plan_image(
     request: Request,
     thumbnail: bool = Query(default=False),
     size: int = Query(default=128, ge=128, le=1024),
+    artwork: str | None = Query(default=None, max_length=64),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -4850,7 +4853,14 @@ async def get_source_plan_image(
     # the API QueuePool and block auth/bootstrap requests.
     session.close()
 
-    etag = f'"{source_revision}"'
+    # Google Drive's JPEG preview can turn transparent embroidery masters
+    # into a black rectangle. Opt the Product Stage 2 gallery into the same
+    # original-PNG alpha-preserving resize used by Stage 1 Output.
+    alpha_preview = (
+        thumbnail and artwork == "stage1-source-alpha-v2"
+        and str(content_type or "").lower().split(";")[0] == "image/png"
+    )
+    etag = f'"{source_revision}:stage1-source-alpha-v2"' if alpha_preview else f'"{source_revision}"'
     thumbnail_cache_control = "private, max-age=31536000, immutable"
     if thumbnail and request.headers.get("if-none-match") == etag:
         return Response(
@@ -4872,20 +4882,34 @@ async def get_source_plan_image(
             },
         )
     if thumbnail:
-        compact = await _managed_drive_thumbnail_response(
-            storage,
-            tenant_id=principal.active_tenant_id,
-            remote_file_id=remote_file_id,
-            size_pixels=size,
-            cache_control=thumbnail_cache_control,
-            cache_version=source_revision,
-            etag=etag,
-            http_client=getattr(
-                request.app.state,
-                "google_drive_stream_client",
-                None,
-            ),
-        )
+        if alpha_preview:
+            compact = await _original_png_thumbnail_response(
+                storage,
+                tenant_id=principal.active_tenant_id,
+                asset_id=asset_id,
+                cache_namespace="rrugc-source-plan-original-png",
+                cache_revision=source_revision,
+                remote_file_id=remote_file_id,
+                size_bytes=size_bytes,
+                size_pixels=size,
+                cache_control=thumbnail_cache_control,
+                etag=etag,
+            )
+        else:
+            compact = await _managed_drive_thumbnail_response(
+                storage,
+                tenant_id=principal.active_tenant_id,
+                remote_file_id=remote_file_id,
+                size_pixels=size,
+                cache_control=thumbnail_cache_control,
+                cache_version=source_revision,
+                etag=etag,
+                http_client=getattr(
+                    request.app.state,
+                    "google_drive_stream_client",
+                    None,
+                ),
+            )
         if compact is not None:
             return compact
     try:
@@ -5273,10 +5297,13 @@ async def get_generation_output_version(
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
     if thumbnail and not download:
         if stage1_png:
-            compact = await _stage1_original_png_thumbnail_response(
-                storage, tenant_id=principal.active_tenant_id, job_id=job_id,
-                version=version, remote_file_id=remote_id, size_bytes=size_bytes,
-                size_pixels=size, cache_control=cache_control, etag=etag,
+            compact = await _original_png_thumbnail_response(
+                storage, tenant_id=principal.active_tenant_id,
+                asset_id=f"rrugc-output:stage1:{job_id}:{version}",
+                cache_namespace="rrugc-stage1-original-png",
+                cache_revision=str(version), remote_file_id=remote_id,
+                size_bytes=size_bytes, size_pixels=size,
+                cache_control=cache_control, etag=etag,
             )
         else:
             compact = await _managed_drive_thumbnail_response(

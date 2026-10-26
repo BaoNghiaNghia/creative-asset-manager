@@ -4,7 +4,7 @@ import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { DEFAULT_FRONT_PLACEMENT, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./AppliedHatPreview.css";
 import { DeferredImage } from "./DeferredImage";
-import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl, publicHatStockUrl } from "./stage2Media";
 
 const HAT_VIEWS = [
   { key: "front", label: "front" },
@@ -69,11 +69,14 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews,
   stockViews?: Partial<Record<"front" | "side" | "back", string>>;
   placement?: FrontPlacement;
 }) {
+  // Reuse one alpha-preserving, cached source for both the original tile and
+  // the stitched front: no black Drive matte, no duplicate original download.
+  const artworkSrc = productEmbroideryArtworkUrl(designSrc);
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
-    <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
-      <DeferredImage src={stage2ThumbnailUrl(designSrc, 256)} alt="" aria-hidden="true" rootMargin="350px" />
+    <div className="rrugc-applied-hat-image is-original-design" role="img" aria-label={`Original embroidery design: ${designName}`}>
+      <DeferredImage src={artworkSrc} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
-    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} placement={placement} />)}
+    {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={artworkSrc} view={view} stockViews={stockViews} placement={placement} />)}
   </div>;
 }
