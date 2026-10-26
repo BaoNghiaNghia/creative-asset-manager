@@ -85,14 +85,18 @@ jobs:
       - name: Install locked frontend packages
         working-directory: apps/client
         run: npm ci
-      - name: Install sandboxed Playwright Chromium
-        working-directory: apps/client
-        run: npx playwright install --with-deps chromium
+      - name: Verify sandboxed Chrome channel
+        # Hosted Ubuntu runners contain Google Chrome. Use the Playwright
+        # chrome channel to avoid flaky concurrent apt/browser downloads while
+        # retaining the same strict functional fixture QA at all viewports.
+        run: |
+          command -v google-chrome
+          google-chrome --version
       - name: Check interaction QA runtime
         run: node --test apps/client/scripts/ui-qa-*.node-test.mjs apps/client/scripts/production-ui-plan-validation.node-test.mjs
       - name: Verify failure evidence is always captured
         env:
-          CAM_UI_QA_BROWSER: chromium
+          CAM_UI_QA_BROWSER: chrome
         run: node --test apps/client/scripts/ui-qa-failure.integration-test.mjs
       - name: Build browser QA target
         working-directory: apps/client
@@ -101,7 +105,7 @@ jobs:
         run: node apps/client/scripts/ui-qa-coverage.mjs --output=artifacts/ui-qa/coverage.json
       - name: Execute every workspace in responsive fixture mode
         env:
-          CAM_UI_QA_BROWSER: chromium
+          CAM_UI_QA_BROWSER: chrome
           CAM_UI_QA_BROWSER_PREINSTALLED: "1"
           CAM_UI_VISUAL_SKIP: "1"
           CAM_UI_QA_PROFILES: ${{ matrix.profiles }}
