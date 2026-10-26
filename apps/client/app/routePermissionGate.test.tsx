@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, useRouteAccessGate } from "./routePermissionGate";
+import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, ROUTE_READINESS_TIMEOUT_MS, useRouteAccessGate } from "./routePermissionGate";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let currentRoot: Root | null = null;
@@ -40,6 +40,7 @@ describe("production deploy permissions gate", () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))
       .mockResolvedValueOnce(new Response("still updating", { status: 503 }))
+      .mockResolvedValueOnce(new Response("backend not ready", { status: 503 }))
       .mockResolvedValueOnce(identity());
     vi.stubGlobal("fetch", fetcher);
     const recovered = vi.fn();
@@ -49,7 +50,26 @@ describe("production deploy permissions gate", () => {
     expect(probe.status).toBe("maintenance");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_RETRY_MS); });
     expect(recovered).toHaveBeenCalledTimes(1);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledWith("/ready", expect.objectContaining({ cache: "no-store" }));
+  });
+
+  it("keeps Products Stage 2 out of maintenance when identity fails but /ready is healthy", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response("auth busy", { status: 503 }))
+      .mockResolvedValueOnce(new Response("auth busy again", { status: 503 }))
+      .mockResolvedValueOnce(new Response('{"status":"ready"}', { status: 200 }))
+      .mockResolvedValueOnce(identity(["realistic_review_ugc.read"]));
+    vi.stubGlobal("fetch", fetcher);
+    const recovered = vi.fn();
+    const probe = await mount(recovered, "realistic_review_ugc.read");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS); });
+    expect(probe.status).toBe("reconnecting");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_RETRY_MS); });
+    expect(probe.status).toBe("allowed");
+    expect(recovered).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledWith("/ready", expect.objectContaining({ cache: "no-store" }));
   });
 
   it("never hangs on Checking permissions when backend stops responding", async () => {
@@ -60,8 +80,8 @@ describe("production deploy permissions gate", () => {
     expect(probe.status).toBe("checking");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_TIMEOUT_MS); });
     expect(probe.status).toBe("checking");
-    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS + ROUTE_IDENTITY_TIMEOUT_MS); });
-    expect(probe.status).toBe("maintenance");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_CONFIRM_RETRY_MS + ROUTE_IDENTITY_TIMEOUT_MS + ROUTE_READINESS_TIMEOUT_MS); });
+    expect(probe.status).toBe("reconnecting");
   });
 
   it("retries a transient identity 503 without showing Under Construction", async () => {

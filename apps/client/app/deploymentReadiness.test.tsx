@@ -52,7 +52,7 @@ describe("deployment watcher for already-open workspaces", () => {
     expect(fetcher).toHaveBeenCalledWith("/ready", expect.objectContaining({cache: "no-store"}));
   });
 
-  it("treats hung health requests as downtime without permanently blocking the browser", async () => {
+  it("does not hide the workspace when health requests time out in a slow browser", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn((_: string, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
@@ -67,7 +67,7 @@ describe("deployment watcher for already-open workspaces", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(BACKEND_READINESS_CONFIRM_RETRY_MS + BACKEND_READINESS_TIMEOUT_MS);
     });
-    expect(probe.status).toBe("maintenance");
+    expect(probe.status).toBe("operational");
   });
 
   it("keeps the workspace visible after a single failed health probe", async () => {

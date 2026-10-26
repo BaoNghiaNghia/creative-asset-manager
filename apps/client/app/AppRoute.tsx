@@ -96,6 +96,12 @@ export function AppRoute() {
       title="Checking permissions…"
       detail="Verifying your workspace access before opening this page."
     />
+    : requiredPermission && access.status === "reconnecting"
+      ? <main className="state" role="status">
+          <h2>Connection interrupted</h2>
+          <p>Workspace access could not be verified. Retrying automatically without leaving this page.</p>
+          <button type="button" onClick={() => window.location.reload()}>Try again now</button>
+        </main>
     : !routeAllowed
       ? <main className="state"><p>This workspace is not available for your role.</p><a href="/">Return to Asset Explorer</a></main>
       : route === "under-construction" ? <UnderConstructionPage /> : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />

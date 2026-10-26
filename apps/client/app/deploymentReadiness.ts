@@ -35,6 +35,7 @@ export function useDeploymentReadiness(
       running = true;
       controller = new AbortController();
       watchdog = setTimeout(() => controller?.abort(), BACKEND_READINESS_TIMEOUT_MS);
+      let backendReportedUnavailable = false;
       try {
         const response = await fetch("/ready", {
           method: "GET", cache: "no-store", credentials: "same-origin",
@@ -42,7 +43,10 @@ export function useDeploymentReadiness(
         });
         // Only backend failures signal deployment downtime. An unexpected
         // 4xx from an intermediary is not evidence of a server shutdown.
-        if (response.status >= 500) throw new Error("backend_not_ready");
+        if (response.status >= 500) {
+          backendReportedUnavailable = true;
+          throw new Error("backend_not_ready");
+        }
         if (!response.ok) {
           // Authorization/proxy 4xx responses are not evidence of an outage.
           consecutiveFailures = 0;
@@ -58,6 +62,12 @@ export function useDeploymentReadiness(
         setUnavailable(false);
       } catch {
         if (!alive) return;
+        if (!backendReportedUnavailable) {
+          // Network errors and request timeouts are not proof of a server
+          // outage. Keep already-open workspaces visible and try again later.
+          consecutiveFailures = 0;
+          return;
+        }
         consecutiveFailures += 1;
         // A single slow/failed probe during a deploy should not replace the
         // whole workspace with the Under Construction screen.
