@@ -94,10 +94,8 @@ def test_flat_concepts_cannot_be_mislabeled_finished_images(tmp_path, monkeypatc
     root = tmp_path / "staging"
     attempt = "job-123"
 
-    async def fake_exec(*_argv, **_kwargs):
-        workspace = root / "codex" / attempt
-        folder = workspace / "output" / "final"
-        folder.mkdir(parents=True, exist_ok=True)
+    async def fake_build(*, script, quote, workspace):
+        assert quote == "Y'ALL NEED JESUS"
         concepts = workspace / "working" / "concept-short" / "y-all-need-jesus"
         concepts.mkdir(parents=True, exist_ok=True)
         report = []
@@ -105,13 +103,19 @@ def test_flat_concepts_cannot_be_mislabeled_finished_images(tmp_path, monkeypatc
             concept = f"C{number}"
             directory = concepts / concept
             directory.mkdir()
-            flat = Image.new("RGB", (1536, 1024), "white")
-            flat.save(directory / "A_input.png")
-            flat.save(folder / f"design_{number:02}.png")
-            (directory / "A_prompt.txt").write_text("Edit image, preserve text.")
+            Image.new("RGB", (1536, 1024), "white").save(directory / "A_input.png")
+            (directory / "A_prompt.txt").write_text("Edit the attached reference only.")
             (directory / "spec.json").write_text("{}")
             report.append({"concept": concept, "status": "ok"})
         (concepts / "summary.json").write_text(json.dumps(report))
+
+    async def fake_exec(*_argv, **_kwargs):
+        folder = root / "codex" / attempt / "output" / "final"
+        folder.mkdir(parents=True, exist_ok=True)
+        for number in range(1, 7):
+            Image.new("RGB", (1536, 1024), "white").save(
+                folder / f"design_{number:02}.png"
+            )
         return SimpleNamespace(returncode=0)
 
     async def fake_stream(*_args, **_kwargs):
@@ -120,9 +124,11 @@ def test_flat_concepts_cannot_be_mislabeled_finished_images(tmp_path, monkeypatc
     monkeypatch.setattr(codex_image.shutil, "which", lambda _: "/usr/bin/codex")
     monkeypatch.setattr(codex_image.asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setattr(codex_image, "stream_codex_process", fake_stream)
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", fake_build)
     runner = CodexImageGenRunner(CodexImageRunnerConfig(
         skill_name="concept-short-v1", output_contract="stage1_six_final_designs",
         codex_home=str(tmp_path / "codex_home"), staging_root=str(root),
+        expected_quote="Y'ALL NEED JESUS",
     ))
 
     async def generate():
@@ -177,3 +183,25 @@ def test_concept_short_has_time_for_six_independent_image_edits():
     assert codex_stage1_timeout_seconds("concept-short-v1", 900) == 1800
     assert codex_stage1_timeout_seconds("concept-short-v1", 2400) == 2400
     assert codex_stage1_timeout_seconds("gatorhats-typography-concepts", 900) == 900
+
+
+def test_source_renderer_receives_literal_quote_without_shell(tmp_path):
+    from app.providers.ai.codex_image import _build_concept_short_source
+    script_dir = tmp_path / "installed" / "scripts"
+    script_dir.mkdir(parents=True)
+    script = script_dir / "make_concepts.py"
+    script.write_text(
+        "import json, pathlib, sys\n"
+        "p = pathlib.Path(sys.argv[3]); p.mkdir(parents=True, exist_ok=True)\n"
+        "(p / 'received.json').write_text(json.dumps(sys.argv[1:]))\n"
+    )
+    workspace = tmp_path / "job"
+    workspace.mkdir()
+    asyncio.run(_build_concept_short_source(
+        script=script, quote="Y'ALL NEED JESUS", workspace=workspace,
+    ))
+    args = json.loads(
+        (workspace / "working" / "concept-short" / "received.json").read_text()
+    )
+    assert args[0] == "Y'ALL NEED JESUS"
+    assert args[1] == "--out"

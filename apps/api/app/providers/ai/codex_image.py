@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -345,6 +346,57 @@ def _concept_short_skipped_slots(workspace: Path) -> tuple[str, ...]:
     return tuple(skipped)
 
 
+async def _build_concept_short_source(
+    *, script: Path, quote: str, workspace: Path,
+) -> None:
+    """Run the user's original code unmodified, never infer layouts via LLM.
+
+    Use the worker's installed Python, not a random system Python or an agent
+    shell. The flat code-generated images are inputs, NOT published finals.
+    """
+    if (not script.is_file() or script.is_symlink()
+            or not 1 <= len(quote) <= 120):
+        raise CodexImageProviderError(
+            "concept_short_source_invalid",
+            "Concept Short source script or literal quote is invalid.",
+        )
+    destination = workspace / "working" / "concept-short"
+    destination.mkdir(parents=True, exist_ok=True)
+    try:
+        task = await asyncio.create_subprocess_exec(
+            sys.executable, str(script), quote, "--out", str(destination),
+            cwd=str(script.parent.parent), stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _stdout, stderr = await asyncio.wait_for(
+                task.communicate(), timeout=300,
+            )
+        except asyncio.TimeoutError as exc:
+            task.kill()
+            await task.communicate()
+            raise CodexImageProviderError(
+                "concept_short_source_timeout",
+                "Concept Short code layout generation timed out.",
+            ) from exc
+    except (OSError, PermissionError) as exc:
+        raise CodexImageProviderError(
+            "concept_short_source_runtime_unavailable",
+            "Concept Short source renderer could not start on the image worker.",
+        ) from exc
+    if task.returncode != 0:
+        # Never hide missing Python dependencies behind a fake stitched image.
+        reason = (stderr or b"").decode("utf-8", "replace")
+        if "ModuleNotFoundError" in reason:
+            message = "Concept Short worker is missing a required Python package."
+        else:
+            message = "Concept Short layout code rejected this phrase or failed."
+        raise CodexImageProviderError(
+            "concept_short_source_render_failed", message,
+        )
+
+
 def _assert_concept_short_plan(workspace: Path) -> None:
     """Require the exact code-built source for each image edit.
 
@@ -670,6 +722,28 @@ class CodexImageGenRunner:
             (workspace / name).write_bytes(item.image.image_bytes)
             reference_names.append((item.role, name))
 
+
+        if (self.config.skill_name == "concept-short-v1"
+                and self.config.output_contract == "stage1_six_final_designs"):
+            if resume_missing_numbers is None:
+                if not self.config.expected_quote:
+                    raise CodexImageProviderError(
+                        "concept_short_quote_missing",
+                        "Concept Short requires the original literal quote.",
+                    )
+                await _build_concept_short_source(
+                    script=skill_path.parent / "scripts" / "make_concepts.py",
+                    quote=self.config.expected_quote,
+                    workspace=workspace,
+                )
+            _assert_concept_short_plan(workspace)
+            skipped = _concept_short_skipped_slots(workspace)
+            if skipped:
+                raise CodexImageProviderError(
+                    "concept_short_slots_ineligible",
+                    "Concept Short cannot supply six eligible slots: "
+                    + "; ".join(skipped),
+                )
 
         if resume_missing_numbers is None:
             instruction = self._prompt(
@@ -1270,15 +1344,15 @@ class CodexImageGenRunner:
             return (
                 "Use $concept-short-v1 and the actual $imagegen image-EDIT tool. "
                 "Do not use a generated-text-only illustration or PIL stitching.\n"
-                "CAM AUTOMATION ADAPTER: Execute the original bundled "
-                "scripts/make_concepts.py with the user's exact quote as a literal "
-                "argument, output under ./working/concept-short. The deterministic "
-                "script alone creates FLAT typography plans, not embroidered finals. "
-                "Read summary.json and each Cx/A_prompt.txt. Apply all original "
-                "font choices, concept substitutions (C4->C7, C5->C8), colors, "
-                "and text constraints without relayout.\n"
-                "For each eligible slot 1 through 6, edit ONLY its corresponding "
-                "A_input_Cx.png into a single photoreal stitched artwork. Provide "
+                "CAM AUTOMATION ADAPTER: The application worker has ALREADY "
+                "executed the original make_concepts.py with the literal phrase. "
+                "DO NOT rerun the renderer or change any of its fonts/layouts. "
+                "The code's flat outputs are source references, NOT finished "
+                "embroidered images. Read working/concept-short/<slug>/summary.json "
+                "and each <concept>/A_prompt.txt and A_input.png. "
+                "Respect original C4->C7 / C5->C8 substitutions and colors.\n"
+                "For each eligible slot 1 through 6, edit ONLY its exact "
+                "<concept>/A_input.png into one photoreal stitched artwork. Provide "
                 "that exact image as the reference for the actual image edit. "
                 "Pass its A_prompt.txt verbatim, do not shorten or overwrite it. "
                 "The original chat workflow required a user upload and approval; "

@@ -970,7 +970,9 @@ class KeywordImageGenerateHandler:
             model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
             output_contract="stage1_six_final_designs",
             expected_output_count=output_count,
-            expected_quote=keyword_text if skill_name == "hanh-redesign-8869-ver-4" else None,
+            expected_quote=(keyword_text if skill_name in (
+                "hanh-redesign-8869-ver-4", "concept-short-v1",
+            ) else None),
             execution_log_id=context.job.id,
         ))
         preserve_finals = False
