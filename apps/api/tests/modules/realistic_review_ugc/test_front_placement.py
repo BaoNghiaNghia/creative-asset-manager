@@ -29,6 +29,22 @@ def engine():
     db.dispose()
 
 
+@pytest.mark.parametrize(("method", "endpoint"), [
+    ("GET", "get_products_front_placement"),
+    ("PUT", "put_products_front_placement"),
+])
+def test_front_placement_routes_are_not_shadowed_by_product_dynamic_routes(method, endpoint):
+    from starlette.routing import Match
+    from app.modules.realistic_review_ugc.router import router
+
+    path = "/api/v1/realistic-review-ugc/blueprint/front-placement"
+    resolved = [r for r in router.routes if r.matches({
+        "type": "http", "path": path, "method": method,
+    })[0] == Match.FULL]
+    assert resolved, f"{method} {path} was not found"
+    assert resolved[0].endpoint.__name__ == endpoint
+
+
 def test_default_matches_old_blueprint_and_is_not_saved_by_read(engine):
     with Session(engine) as session:
         assert read_front_placement(session, "tenant-a") == {

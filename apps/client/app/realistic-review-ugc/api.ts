@@ -920,10 +920,10 @@ export const updateStageSkillDefault = (stage: import("./workflowSkillSlots").Wo
 import type { FrontPlacement } from "./FrontPlacement";
 
 export const getFrontPlacement = (signal?: AbortSignal) =>
-  request<FrontPlacement>("/api/v1/realistic-review-ugc/products/front-placement", { signal });
+  request<FrontPlacement>("/api/v1/realistic-review-ugc/blueprint/front-placement", { signal });
 
 export const saveFrontPlacement = (value: FrontPlacement) =>
-  request<FrontPlacement>("/api/v1/realistic-review-ugc/products/front-placement", {
+  request<FrontPlacement>("/api/v1/realistic-review-ugc/blueprint/front-placement", {
     method: "PUT",
     body: JSON.stringify({
       left: value.left, top: value.top, width: value.width, height: value.height,

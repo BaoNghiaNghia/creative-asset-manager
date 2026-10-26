@@ -5088,7 +5088,7 @@ class FrontPlacementRequest(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
-@router.get("/products/front-placement")
+@router.get("/blueprint/front-placement")
 def get_products_front_placement(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
@@ -5097,7 +5097,7 @@ def get_products_front_placement(
     return read_front_placement(session, principal.active_tenant_id)
 
 
-@router.put("/products/front-placement")
+@router.put("/blueprint/front-placement")
 def put_products_front_placement(
     body: FrontPlacementRequest,
     session: Session = Depends(get_db),
