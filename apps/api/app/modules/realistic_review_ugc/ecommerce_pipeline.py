@@ -1080,7 +1080,7 @@ class EcommerceGenerateHandler:
                 preview_bytes = await self._open_bytes(
                     storage, context, "rrugc-ecommerce-front-preview:" + context.job.entity_id,
                     preview_remote_id, preview_mime, preview_size)
-            elif stage == "prod_s2_ec1":
+            elif stage in {"prod_s2_ec1", "prod_s2_mh", "prod_s2_ugc"}:
                 front_placement = job_front_placement(context.job.payload.get("front_placement"))
                 preview_bytes = render_front_reference(
                     refs[0][1], design_bytes,

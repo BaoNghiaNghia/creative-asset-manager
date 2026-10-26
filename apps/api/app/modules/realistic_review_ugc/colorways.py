@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcS
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
+from app.modules.realistic_review_ugc.ecommerce_front_reference import render_front_reference
 from app.modules.realistic_review_ugc.front_placement import (
     front_placement_prompt, job_front_placement, pin_front_placement,
 )
@@ -492,6 +493,16 @@ class ColorwayGenerateHandler:
             pinned_placement = job_front_placement(context.job.payload.get("front_placement"))
             prompt += " " + front_placement_prompt(pinned_placement)
             prompt += " " + embroidery_prompt_for_product_slot("prod_s2_col")
+        references = [ReferenceImageInput(image=design, role="design_reference", label="embroidery")]
+        if is_products_colorway:
+            master = render_front_reference(
+                stock_data, bytes(source_bytes),
+                guide=tuple(pinned_placement[key] for key in ("left", "top", "width", "height")),
+            )
+            references.append(ReferenceImageInput(
+                image=_prepared_image(master), role="embroidered_front_preview",
+                label="deterministic front embroidery scale and placement master",
+            ))
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
         try:
@@ -515,7 +526,7 @@ class ColorwayGenerateHandler:
                     try:
                         generated = await runner.generate_from_references(
                             attempt_id=context.job.entity_id, person=stock,
-                            references=[ReferenceImageInput(image=design, role="design_reference", label="embroidery")],
+                            references=references,
                             prompt=prompt,
                         )
                     finally:
