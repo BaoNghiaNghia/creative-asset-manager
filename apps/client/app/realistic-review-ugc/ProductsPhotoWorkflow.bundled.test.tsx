@@ -130,6 +130,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
     expect(preview.querySelectorAll("a").length).toBe(2);
     expect(preview.textContent).toContain("3 hats");
     expect(preview.textContent).toContain("4 hats");
+    expect(preview.querySelector("img")?.getAttribute("src")).toBe("https://i.pinimg.com/236x/3.jpg");
     expect(row.textContent).toContain("2/20 references");
     expect(row.querySelector('[aria-label="Approved Multi-hat colors by output"]')).toBeNull();
     expect(row.querySelector(".rrugc-multihat-output-palettes")).toBeNull();

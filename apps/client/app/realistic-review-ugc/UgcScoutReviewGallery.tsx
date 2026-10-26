@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { UgcScoutItem } from "./api";
 import { DeferredImage } from "./DeferredImage";
+import { stage2PinterestThumbnailUrl } from "./stage2Media";
 import "./UgcScoutReviewGallery.css";
 
 export type UgcScoutReviewLabel = "good" | "bad" | "ai" | "clear";
@@ -72,7 +73,7 @@ export function UgcScoutReviewGallery({ items, pinned, onReview }: Props) {
         return <button type="button" className={"rrugc-ugc-review-tile" + (used ? " is-pinned" : "")}
           key={item.id} aria-label={"Review lifestyle image " + (index + 1) + (used ? " · Picked for " + used.slot : "")}
           onClick={event => { trigger.current = event.currentTarget; setSelectedId(item.id); setError(""); }}>
-          <DeferredImage src={item.image_url} rootMargin="240px" alt={"Lifestyle reference " + (index + 1)} />
+          <DeferredImage src={stage2PinterestThumbnailUrl(item.image_url)} rootMargin="240px" alt={"Lifestyle reference " + (index + 1)} />
           {used && <span className="rrugc-ugc-review-picked" title={"Pinned for " + used.slot + " · " + used.status}>
             ✓ {used.slot} · {used.status === "completed" ? "Done" : used.status}
           </span>}

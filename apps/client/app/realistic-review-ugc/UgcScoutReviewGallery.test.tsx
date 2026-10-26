@@ -29,6 +29,7 @@ describe("Slot 6 Review Scout feedback gallery", () => {
     }} onReview={onReview} />));
     const tiles = host.querySelectorAll<HTMLButtonElement>(".rrugc-ugc-review-tile");
     expect(tiles).toHaveLength(3);
+    expect(tiles[0].querySelector("img")?.getAttribute("src")).toBe("https://i.pinimg.com/236x/a.jpg");
     expect(tiles[0].querySelector(".rrugc-ugc-review-picked")).toBeNull();
     expect(tiles[1].querySelector(".rrugc-ugc-review-picked")?.textContent).toContain("UGC 2 · Done");
     expect(tiles[2].querySelector(".rrugc-ugc-review-picked")?.textContent).toContain("UGC 3 · running");

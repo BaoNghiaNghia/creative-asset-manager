@@ -138,6 +138,22 @@ describe("Products photo output gallery navigation",()=>{
     await act(async()=>root.unmount());
   });
 
+  it("loads compact Ecommerce and colorway tiles but original bytes only after opening the modal", async () => {
+    const fullEcommerce = "/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/one/output";
+    const fullColor = "/api/v1/realistic-review-ugc/colorways/one/output";
+    const {root, host} = await renderWorkflow({
+      ecommerceJobs: [{...ecommerce[0], output_url: fullEcommerce}],
+      colors: [{...colorJobs[0], output_url: fullColor}],
+    });
+    const shot = host.querySelector<HTMLImageElement>('[data-skill="prod_s2_ec4"] .rrugc-products-photo-output-strip img')!;
+    const color = host.querySelector<HTMLImageElement>('[data-skill="colorway"] .rrugc-colorway-slot img')!;
+    expect(shot.getAttribute("src")).toBe(fullEcommerce + "?thumbnail=true&size=128");
+    expect(color.getAttribute("src")).toBe(fullColor + "?thumbnail=true&size=128");
+    expect([...host.querySelectorAll("img")].some(img => img.getAttribute("src") === fullEcommerce)).toBe(false);
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());
+    expect(document.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe(fullEcommerce);
+    await act(async()=>root.unmount());
+  });
   it("opens all 22 outputs at the clicked Ecommerce Back High image",async()=>{
     const {root,host}=await renderWorkflow({ecommerceJobs:ecommerce});
     await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());

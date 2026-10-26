@@ -6,7 +6,7 @@ import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
 import "./ProductsPhotoWorkflowTwoColumns.css";
 import { DeferredImage } from "./DeferredImage";
-import { publicHatStockUrl, stage2ThumbnailUrl } from "./stage2Media";
+import { publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
 import { EcommerceInputGalleryModal, type InputPreviewItem } from "./EcommerceInputGalleryModal";
 import { OutputPhotoGalleryModal, type PhotoOutputItem } from "./OutputPhotoGalleryModal";
 import { UgcScoutReviewGallery, type UgcScoutReviewLabel } from "./UgcScoutReviewGallery";
@@ -357,8 +357,8 @@ export function ProductsPhotoWorkflow({
         const previewItems: InputPreviewItem[] = (step.inputs || []).map(input => ({
           key: input.kind,
           label: input.label,
-          src: input.kind === "design" ? stage2ThumbnailUrl(designSrc, 512) : input.kind === "embroidered_front"
-            ? stage2ThumbnailUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "", 512)
+          src: input.kind === "design" ? stage2OriginalUrl(designSrc) : input.kind === "embroidered_front"
+            ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
             : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
@@ -445,8 +445,8 @@ export function ProductsPhotoWorkflow({
                   const item = previewItems.find(preview => preview.key === input.kind);
                   return <div className="rrugc-products-photo-input" key={input.kind}>
                     {item ? <button type="button" className="rrugc-products-photo-preview-trigger" aria-label={"Preview " + input.label} onClick={() => setPreviewGallery(previewItems)}>
-                      <DeferredImage src={publicHatStockUrl(item.src)} alt={input.label} rootMargin="320px" />
-                      <span className="rrugc-products-photo-hover-preview" aria-hidden="true"><img src={publicHatStockUrl(item.src)} alt="" loading="lazy" decoding="async" /></span>
+                      <DeferredImage src={publicHatStockUrl(stage2ThumbnailUrl(item.src, 256))} alt={input.label} rootMargin="320px" />
+                      <span className="rrugc-products-photo-hover-preview" aria-hidden="true"><img src={publicHatStockUrl(stage2ThumbnailUrl(item.src, 256))} alt="" loading="lazy" decoding="async" /></span>
                     </button> : <span>Missing artwork</span>}
                     <small>{input.label}</small>
                   </div>;
@@ -464,7 +464,7 @@ export function ProductsPhotoWorkflow({
                   {multiHatReferences.map((ref, imageIndex) => <a key={ref.image_id}
                     href={ref.pin_url} target="_blank" rel="noopener noreferrer"
                     title={"Reference " + (imageIndex + 1) + " · " + ref.caps_count + " hats"}>
-                    <DeferredImage src={ref.image_url} alt={"Cap Stack reference with " + ref.caps_count + " hats"}
+                    <DeferredImage src={stage2PinterestThumbnailUrl(ref.image_url)} alt={"Cap Stack reference with " + ref.caps_count + " hats"}
                       rootMargin="320px" />
                     <small>{ref.caps_count} hats</small>
                   </a>)}

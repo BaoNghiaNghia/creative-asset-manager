@@ -5979,6 +5979,9 @@ def ecommerce_job_logs(
 async def ecommerce_job_output(
     job_id: str,
     version: int | None = Query(default=None, ge=1),
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=256, ge=128, le=1024),
+    v: str | None = Query(default=None, max_length=256),
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
@@ -5992,7 +5995,7 @@ async def ecommerce_job_output(
     ))
     if row is None:
         raise HTTPException(status_code=404, detail="Ecommerce job not found")
-    remote_id, mime, size = (
+    remote_id, mime, size_bytes = (
         row.output_remote_file_id, row.output_content_type, row.output_size_bytes)
     if version is not None:
         saved = session.scalar(select(RrugcImageOutputVersionModel).where(
@@ -6003,7 +6006,7 @@ async def ecommerce_job_output(
         ))
         if saved is None:
             raise HTTPException(status_code=404, detail="Ecommerce output version not found")
-        remote_id, mime, size = saved.remote_file_id, saved.content_type, saved.size_bytes
+        remote_id, mime, size_bytes = saved.remote_file_id, saved.content_type, saved.size_bytes
     if not remote_id:
         raise HTTPException(status_code=409, detail="Ecommerce output not ready")
     # Keep media authorization tenant-scoped before evaluating the revision.
@@ -6011,9 +6014,9 @@ async def ecommerce_job_output(
     cached, etag, cache_control = _rrugc_conditional_preview(
         tenant_id=principal.active_tenant_id,
         remote_file_id=remote_id,
-        size=int(size or 0),
-        revision=str(version) if version is not None else remote_id,
-        requested_version=str(version) if version is not None else None,
+        size=size if thumbnail else int(size_bytes or 0),
+        revision=("thumbnail:" + remote_id) if thumbnail else (str(version) if version is not None else remote_id),
+        requested_version=v if thumbnail else (str(version) if version is not None else None),
         if_none_match=if_none_match,
     )
     if cached is not None:
@@ -6022,11 +6025,24 @@ async def ecommerce_job_output(
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise HTTPException(status_code=503, detail="Managed storage unavailable")
+    if thumbnail:
+        compact = await _managed_drive_thumbnail_response(
+            storage, tenant_id=principal.active_tenant_id,
+            remote_file_id=remote_id, size_pixels=size,
+            cache_control=cache_control,
+            cache_version="ecommerce:" + job_id + ":" + remote_id, etag=etag,
+        )
+        if compact is not None:
+            return compact
+        # Never silently serve a multi-MB original on a thumbnail request.
+        raise HTTPException(status_code=503, detail={
+            "code": "thumbnail_unavailable", "message": "Compact Ecommerce preview temporarily unavailable",
+        })
     try:
         stream = await storage.open_asset(OpenStoredAssetInput(
             tenant_id=principal.active_tenant_id,
             asset_id="rrugc-ecommerce:" + job_id,
-            remote_file_id=remote_id, content_type=mime, size_bytes=size,
+            remote_file_id=remote_id, content_type=mime, size_bytes=size_bytes,
         ))
     except StorageProviderError as exc:
         raise HTTPException(status_code=503 if exc.retryable else 502,

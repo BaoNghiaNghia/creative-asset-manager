@@ -69,7 +69,7 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews 
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
     <div className="rrugc-applied-hat-image" role="img" aria-label={`Original embroidery design: ${designName}`}>
-      <DeferredImage src={stage2ThumbnailUrl(designSrc, 512)} alt="" aria-hidden="true" rootMargin="350px" />
+      <DeferredImage src={stage2ThumbnailUrl(designSrc, 256)} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
     {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={designSrc} view={view} stockViews={stockViews} />)}
   </div>;
