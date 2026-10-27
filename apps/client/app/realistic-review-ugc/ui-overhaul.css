@@ -1561,13 +1561,24 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-detail-source{min-height:200px}
 .rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:200px;border-radius:10px}
 .rrugc-stage0-detail-source>a>span{right:5px;bottom:5px;padding:3px 5px;border-radius:5px;font-size:6.5px}
-.rrugc-stage0-detail-summary{gap:6px}
-.rrugc-stage0-detail-summary>div{gap:5px;min-height:200px;box-sizing:border-box;padding:13px 15px;border-radius:10px}
+.rrugc-stage0-detail-summary{
+  /* One compact source card with three rows next to the unchanged 200px photo. */
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:repeat(3,minmax(0,1fr));
+  align-self:stretch;gap:0;min-width:0;
+  border:1px solid #e1e6ed;border-radius:10px;background:#fff;overflow:hidden;
+}
+.rrugc-stage0-detail-summary>div{
+  display:flex;flex-direction:column;justify-content:center;
+  min-width:0;min-height:0;gap:3px;box-sizing:border-box;
+  padding:8px 14px;border:0;border-radius:0;background:transparent;
+}
+.rrugc-stage0-detail-summary>div:not(:last-child){border-bottom:1px solid #edf1f6}
 .rrugc-stage0-detail-summary small,.rrugc-stage0-detail-metrics small{font-size:6.7px}
-.rrugc-stage0-detail-summary strong{font-size:9.5px}
-.rrugc-stage0-detail-summary span{font-size:7px}
-.rrugc-stage0-detail-summary a{font-size:8px}
-.rrugc-stage0-detail-metrics{gap:6px;margin-bottom:8px}
+.rrugc-stage0-detail-summary strong{font-size:10px}
+.rrugc-stage0-detail-summary span{font-size:8px}
+.rrugc-stage0-detail-summary a{font-size:8.5px}
+.rrugc-stage0-detail-metrics{grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:8px}
 .rrugc-stage0-detail-metrics article{gap:1px;padding:8px 9px;border-radius:9px}
 .rrugc-stage0-detail-metrics article>strong{min-height:17px;font-size:13px}
 .rrugc-stage0-detail-metrics article>span:last-child{font-size:6.2px}
@@ -1629,17 +1640,23 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   .rrugc-stage0-detail-body{padding:8px}
   .rrugc-stage0-detail-hero{grid-template-columns:1fr}
   .rrugc-stage0-detail-source{display:block;min-height:170px}
-  .rrugc-stage0-detail-summary{grid-template-columns:1fr 1fr}
-  .rrugc-stage0-detail-summary>div{min-height:66px;padding:7px 8px}
+  .rrugc-stage0-detail-summary{grid-template-columns:1fr;grid-template-rows:auto}
+  .rrugc-stage0-detail-summary>div{min-height:0;padding:8px 10px}
   .rrugc-stage0-detail-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
   .rrugc-stage0-detail-trend-stats{display:flex}
   .rrugc-stage0-detail-source>a,.rrugc-stage0-detail-source-empty{height:210px}
-  .rrugc-stage0-detail-summary>div{min-height:72px}
+  .rrugc-stage0-detail-summary>div{min-height:0}
   .rrugc-stage0-detail-chart svg{height:205px}
   .rrugc-stage0-detail-chart .rrugc-stage0-detail-axis-month{font-size:8px}
   .rrugc-stage0-detail-month-axis{overflow-x:auto;justify-content:flex-start}
   .rrugc-stage0-detail-month-axis span{flex:0 0 64px}
   .rrugc-stage0-detail-metadata-summary{display:none}
+}
+@media(min-width:761px) and (max-width:1120px){
+  .rrugc-stage0-detail-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+@media(max-width:540px){
+  .rrugc-stage0-detail-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 
 /* Shared Stage 1–4 smart search: scoped history, completion and recommendations. */
@@ -1676,11 +1693,16 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-tm-badge.is-possible_match>span{background:#cb812e}
 .rrugc-stage0-tm-badge.is-no_exact_match{border-color:#c6e0d0;background:#eff8f2;color:#3a7954}
 .rrugc-stage0-tm-badge.is-no_exact_match>span{background:#55a372}
-.rrugc-stage0-tm-detail{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:11px 13px;margin-bottom:12px;background:#f9fbfd;border:1px solid #e0e8f0;border-radius:10px}
+.rrugc-stage0-tm-detail{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(205px,27%);
+  align-items:start;gap:12px;padding:10px 12px;margin-bottom:8px;
+  background:#f9fbfd;border:1px solid #e0e8f0;border-radius:10px;
+}
+.rrugc-stage0-tm-detail>div{min-width:0}
 .rrugc-stage0-tm-detail strong{font-size:11px;color:#3b5270}
-.rrugc-stage0-tm-detail p{margin:5px 0 0;max-width:470px;color:#65758b;font-size:10px;line-height:1.5}
-.rrugc-stage0-tm-detail>div:last-child{display:grid;gap:5px;justify-items:start}
-.rrugc-stage0-tm-detail small{font-size:9px;color:#8b98a9}
+.rrugc-stage0-tm-detail p{margin:4px 0 0;max-width:none;color:#65758b;font-size:9px;line-height:1.4}
+.rrugc-stage0-tm-detail>div:last-child{display:grid;gap:4px;align-content:start;justify-items:start}
+.rrugc-stage0-tm-detail small{font-size:8px;color:#8b98a9;overflow-wrap:anywhere}
 .rrugc-stage0-tm-detail a{color:#3767a6;font-size:10px;font-weight:800}
 .rrugc-stage0-tm-badge.is-safe{border-color:#b8ddc7;background:#e6f6eb;color:#247344}
 .rrugc-stage0-tm-badge.is-safe>span{background:#46a36b}
@@ -1690,6 +1712,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 .rrugc-stage0-tm-badge.is-danger>span{background:#c04c59}
 .rrugc-stage0-tm-detail .rrugc-stage0-tm-badge{margin-top:3px}
 .rrugc-stage0-tm-detail p{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){
+  .rrugc-stage0-tm-detail{grid-template-columns:minmax(0,1fr);gap:9px}
+}
 
 /* Stage 0 shared Pinterest Search Intelligence */
 /* Search Intelligence is a DIRECT child of Stage 0's 12-column grid.
