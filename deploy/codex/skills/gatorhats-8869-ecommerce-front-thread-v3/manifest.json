@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-ecommerce-front-thread-v3",
+  "display_name": "8869 Front - AI Material v3",
+  "description": "Stage 2 Slot 1: real AI-edited thread material on untouched stock, original glyph silhouette and pigment preserved.",
+  "workflows": ["image_studio"],
+  "product_types": ["hat", "cap", "baseball_cap"],
+  "required_reference_roles": ["design_reference", "unaltered_stock_reference", "slot1_edit_mask"],
+  "optional_reference_roles": [],
+  "max_references": 8
+}

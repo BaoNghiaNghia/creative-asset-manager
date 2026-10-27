@@ -150,10 +150,21 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
 
         async def generate_from_references(self, *, person, references, prompt, **kwargs):
             calls.append({"references": references, "prompt": prompt, "person": person})
-            return SimpleNamespace(
-                image_bytes=person.image_bytes if stage == "prod_s2_ec1" else _image(),
-                mime_type="image/png",
-            )
+            image_data = _image()
+            if stage == "prod_s2_ec1":
+                import numpy as np
+                mask_ref = next(r for r in references if r.role == "slot1_edit_mask")
+                with Image.open(BytesIO(mask_ref.image.image_bytes)) as mask_image:
+                    selected = np.asarray(mask_image.convert("L")) > 180
+                with Image.open(BytesIO(person.image_bytes)) as original:
+                    candidate = np.asarray(original.convert("RGB"), dtype=np.int16).copy()
+                rng = np.random.default_rng(15)
+                fibers = rng.normal(0, 13, selected.shape)
+                candidate[selected] += np.rint(fibers[selected])[:, None].astype(np.int16)
+                stream = BytesIO()
+                Image.fromarray(np.uint8(np.clip(candidate, 0, 255)), "RGB").save(stream, format="PNG")
+                image_data = stream.getvalue()
+            return SimpleNamespace(image_bytes=image_data, mime_type="image/png")
 
         def cleanup_attempt(self, attempt_id):
             pass

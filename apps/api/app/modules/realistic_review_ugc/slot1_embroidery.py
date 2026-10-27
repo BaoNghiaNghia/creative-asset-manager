@@ -1,14 +1,14 @@
-"""Fabric-bound Stage 2 Products Slot 1 embroidery only.
+"""Photographic Stage 2 / Products Slot 1 image edit.
 
-One deterministic stitch-oriented material pass, one model refinement, then a
-localized final composite.  No Stage 1 writes, no shared legacy slot changes.
-This is a photographic material approximation, not a digitized machine file or
-a claim of textile manufacturing accuracy.
+Only the selected Stage 1 artwork determines glyph geometry and thread colors.
+A pigment-only guide is given to imagegen, NOT a computer-generated stitch
+simulation. The model must generate the fiber material; the worker validates
+and composites it exclusively within the pinned original artwork silhouette.
+No other Ecommerce slot or previously completed output is changed.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 from io import BytesIO
 
 import cv2
@@ -21,36 +21,47 @@ from app.modules.realistic_review_ugc.ecommerce_front_reference import (
 from app.modules.realistic_review_ugc.front_placement import (
     DEFAULT_FRONT_PLACEMENT, validate_front_design_size, validate_front_placement,
 )
-from app.modules.realistic_review_ugc.stage1_photo_samples import reference_patch
 
-_MAX_PIXELS = 8_000_000  # Bounded float planes for production worker memory.
+_MAX_PIXELS = 8_000_000
 
 
 class Slot1EmbroideryQAError(ValueError):
-    """The candidate failed a measurable quality gate; never store it."""
+    """Model output is not a verified photo-edit; do not publish it."""
+
+
+def _png(image: Image.Image) -> bytes:
+    out = BytesIO()
+    image.save(out, format="PNG", optimize=True)
+    return out.getvalue()
 
 
 @dataclass(frozen=True)
 class Slot1MaterialPass:
-    """Job-local buffers, never persisted over the Stage 1 design or stock."""
-
     stock: Image.Image
-    stitched: Image.Image
+    stitched: Image.Image  # Pigment-only, temporary input guide, not the final photo.
     thread_mask: Image.Image
     edit_mask: Image.Image
     guide_box: tuple[int, int, int, int]
+    pigment: Image.Image
 
     def stitched_png(self) -> bytes:
+        """Retain previous internal API for QA, not for publishing."""
         return _png(self.stitched)
 
+    def _square(self, image: Image.Image, background: int | tuple[int, int, int]) -> Image.Image:
+        side = max(self.stock.size)
+        pad_x = (side - self.stock.width) // 2
+        pad_y = (side - self.stock.height) // 2
+        canvas = Image.new(image.mode, (side, side), background)
+        canvas.paste(image, (pad_x, pad_y))
+        return canvas
+
+    def model_edit_target_png(self) -> bytes:
+        """Square letterbox, so square imagegen outputs need no geometric distortion."""
+        return _png(self._square(self.stitched, (255, 255, 255)))
+
     def edit_mask_png(self) -> bytes:
-        return _png(self.edit_mask)
-
-
-def _png(image: Image.Image) -> bytes:
-    destination = BytesIO()
-    image.save(destination, format="PNG", optimize=True)
-    return destination.getvalue()
+        return _png(self._square(self.edit_mask, 0))
 
 
 def _fitted_artwork(
@@ -67,7 +78,7 @@ def _fitted_artwork(
     guide_w = round(stock.width * params["width"])
     guide_h = round(stock.height * params["height"])
     if min(guide_w, guide_h) < 8:
-        raise FrontReferenceError("Front embroidery placement is too small for stitch simulation.")
+        raise FrontReferenceError("Front embroidery placement is too small.")
     base = min(guide_w * .95 / artwork.width, guide_h * .92 / artwork.height)
     scale = base * min(
         zoom / 100.0,
@@ -82,218 +93,172 @@ def _fitted_artwork(
     return resized, (x, y), (guide_x, guide_y, guide_x + guide_w, guide_y + guide_h)
 
 
+def _canonical_pigment(source: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """Collapse any broad digital bevel into the original color groups, no faux fibers."""
+    rgb = np.uint8(np.clip(np.rint(source[:, :, :3]), 0, 255))
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    core = alpha >= .90
+    pigment = rgb.astype(np.float32).copy()
+    if int(np.count_nonzero(core)) < 24:
+        return pigment
+    # Color bucketing applies only to the same hue/saturation group;
+    # independently colored letters retain independent pigment.
+    groups = hsv[:, :, 0].astype(np.int16) // 12 + 16 * (hsv[:, :, 1] >= 45)
+    for group in np.unique(groups[core]):
+        members = core & (groups == group)
+        if int(np.count_nonzero(members)) >= 12:
+            pigment[groups == group] = np.median(rgb[members], axis=0)
+    return pigment
+
+
 def build_slot1_material_pass(
     stock_bytes: bytes, artwork_bytes: bytes, placement: dict,
 ) -> Slot1MaterialPass:
-    """Produce a low-profile thread foundation using Stage 1 geometry only.
+    """Create a pigment-only edit guide and immutable protection mask.
 
-    Directional structure tensors approximate which way satin stitches cross
-    the stroke; broad fills receive restrained directional tatami variation.
-    No fixed font-dependent changes or fake solid-letter extrusion.
+    NO wave/stripe, embossed fill, synthetic thread texture, repeated sample,
+    shadow extrusion, or fabricated needle marks appear in this preprocessing.
     """
     stock = _validated_rgba(stock_bytes).convert("RGB")
     if stock.width * stock.height > _MAX_PIXELS:
-        raise FrontReferenceError("Stock photo exceeds Slot 1 material processing limit.")
+        raise FrontReferenceError("Stock photo exceeds Slot 1 memory limit.")
     artwork, (x, y), guide_box = _fitted_artwork(stock, artwork_bytes, placement)
-    w, h = artwork.size
-    if w * h > _MAX_PIXELS:
-        raise FrontReferenceError("Embroidery area exceeds pixel limit.")
-
     source = np.asarray(artwork, dtype=np.float32)
-    a = source[:, :, 3] / 255.0
-    if float(np.max(a)) < .1:
-        raise FrontReferenceError("Embroidery artwork contains no visible strokes.")
-    binary = np.uint8(a > .18)
-    thickness = cv2.distanceTransform(binary, cv2.DIST_L2, 3)
-    smoothed = cv2.GaussianBlur(a, (0, 0), 1.6)
-    gx = cv2.Sobel(smoothed, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(smoothed, cv2.CV_32F, 0, 1, ksize=3)
-    # The angle is an *axis*, not a signed vector: mix it in double-angle
-    # space to avoid discontinuities at +/-90 degrees. Thin serifs keep
-    # stroke-normal satin, broad letters receive directional fill.
-    radius = 2.8
-    jxx = cv2.GaussianBlur(gx * gx, (0, 0), radius)
-    jyy = cv2.GaussianBlur(gy * gy, (0, 0), radius)
-    jxy = cv2.GaussianBlur(gx * gy, (0, 0), radius)
-    normal_length = np.sqrt((jxx - jyy) ** 2 + (2 * jxy) ** 2) + 1e-5
-    fill_weight = np.clip((thickness - 2.0) / 5.0, 0, 1)
-    axis_cos = (1 - fill_weight) * ((jxx - jyy) / normal_length) + fill_weight * np.cos(1.24)
-    axis_sin = (1 - fill_weight) * ((2 * jxy) / normal_length) + fill_weight * np.sin(1.24)
-    angle = .5 * np.arctan2(axis_sin, axis_cos)
-    yy, xx = np.mgrid[:h, :w].astype(np.float32)
-    across = -xx * np.sin(angle) + yy * np.cos(angle)
-    along = xx * np.cos(angle) + yy * np.sin(angle)
-    # Slight variation in stitch spacing is essential: mathematically perfect
-    # stripes make lettering look digitally printed or molded. Preserve the
-    # canonical alpha; texture never defines new lettering.
-    seed = int.from_bytes(hashlib.sha256(np.uint8(np.clip(source, 0, 255)).tobytes()).digest()[:8], "big")
-    rng = np.random.default_rng(seed)
-    random_grain = rng.standard_normal((h, w)).astype(np.float32)
-    fine_grain = random_grain - cv2.GaussianBlur(random_grain, (0, 0), 1.05)
-    jitter = .20 * np.sin(xx * .059 + yy * .045) + .13 * np.cos(xx * .027 - yy * .083)
-    phase = (2 * np.pi / 2.65) * (across + jitter)
-    strand = .072 * np.cos(phase) + .027 * np.cos(2 * phase + .34)
-    needle = .014 * np.cos(2 * np.pi * along / 13.4 + .22 * np.sin(xx * .043))
-    # Reference is a tiny grayscale swatch of real stitches; transfer only
-    # high-frequency surface variation, never its words, pigment or fabric.
-    sample = np.asarray(reference_patch("thread"), dtype=np.float32)
-    mirrored = np.block([[sample, sample[:, ::-1]], [sample[::-1, :], sample[::-1, ::-1]]])
-    tiled = np.tile(mirrored, ((h + 127) // 128, (w + 127) // 128))[:h, :w]
-    photo_grain = np.clip(
-        (tiled - cv2.GaussianBlur(tiled, (0, 0), 1.1)) / 110.0, -1, 1,
-    )
-    edge = np.clip(cv2.GaussianBlur(a, (0, 0), 1.0) - a, -.5, .5)
-    light = strand + needle + .025 * photo_grain + .012 * fine_grain
-    light = np.clip(light, -.15, .15) - .012 * np.maximum(-edge, 0)
+    alpha = source[:, :, 3] / 255.0
+    if float(np.max(alpha)) < .1:
+        raise FrontReferenceError("Source contains no visible design strokes.")
+    pigment_rgb = _canonical_pigment(source, alpha)
+    w, h = artwork.size
     cap = np.asarray(stock.crop((x, y, x + w, y + h)), dtype=np.float32)
-    # Stage 1 is the glyph/color authority, NOT the lighting authority.
-    # Its RGB may already include 3D bevels or broad satin highlights.
-    # Recover a stable pigment per hue group from opaque stroke cores, then
-    # synthesize only the fine directional fibers above. Never inherit
-    # pixel-wise bevel shading from Stage 1.
-    rgb = np.uint8(np.clip(np.rint(source[:, :, :3]), 0, 255))
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    core = a >= .90
-    pigment = rgb.astype(np.float32).copy()
-    if np.count_nonzero(core) >= 24:
-        # Fine hue buckets preserve independently colored design elements,
-        # while collapsing light/dark bevel variations of the same ink.
-        hue_bin = hsv[:, :, 0].astype(np.int16) // 12
-        saturation_bin = (hsv[:, :, 1] >= 45).astype(np.int16)
-        groups = hue_bin + saturation_bin * 16
-        for group in np.unique(groups[core]):
-            members = core & (groups == group)
-            if np.count_nonzero(members) < 12:
-                continue
-            representative = np.median(rgb[members], axis=0)
-            pigment[groups == group] = representative
-    # Build a low-profile stitched material, not a second embossed shader.
-    # Subpixel filaments need an additive photographic highlight/shadow term.
-    # A pure percent-of-pigment shader barely changes dark blue/red thread and
-    # was the root cause of low-contrast, digitally printed-looking letters.
-    filament_glints = np.clip(
-        10.5 * np.cos(phase + .17) + 4.5 * np.cos(2 * phase + .34),
-        -16, 16,
-    )
-    thread = pigment * (1.0 + light[:, :, None]) + filament_glints[:, :, None]
-    thread = .94 * thread + .06 * cap
-    thread = np.clip(thread, 0, 255)
-    # Only a slight real contact depression, never broad black outlines.
-    touching = np.maximum(cv2.GaussianBlur(a, (0, 0), 1.1) - a, 0)
-    substrate = cap * (1 - .075 * touching[:, :, None])
-    blend_alpha = np.clip(a * .965, 0, 1)
-    result = thread * blend_alpha[:, :, None] + substrate * (1 - blend_alpha[:, :, None])
+    # A temporary location/color guide only. AI is responsible for every fiber.
+    guide_alpha = np.clip(alpha * .86, 0, 1)
+    composite = pigment_rgb * guide_alpha[..., None] + cap * (1 - guide_alpha[..., None])
     stitched = stock.copy()
-    stitched.paste(Image.fromarray(np.uint8(np.clip(np.rint(result), 0, 255)), "RGB"), (x, y))
-
+    stitched.paste(Image.fromarray(np.uint8(np.rint(composite)), "RGB"), (x, y))
     full_mask = Image.new("L", stock.size, 0)
-    full_mask.paste(Image.fromarray(np.uint8(np.rint(a * 255)), "L"), (x, y))
-    # A two-pixel fabric-contact allowance only, clipped to the saved field.
-    mask = np.asarray(full_mask, dtype=np.uint8)
-    dilated = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+    full_mask.paste(Image.fromarray(np.uint8(np.rint(alpha * 255)), "L"), (x, y))
+    full_pigment = stock.copy()
+    full_pigment.paste(Image.fromarray(np.uint8(np.clip(np.rint(pigment_rgb), 0, 255)), "RGB"), (x, y))
+    # Protection margin is just two pixels beyond original antialiasing.
+    raw_mask = np.asarray(full_mask, dtype=np.uint8)
+    dilated = cv2.dilate(raw_mask, np.ones((5, 5), np.uint8))
     left, top, right, bottom = guide_box
-    allowed = np.zeros(mask.shape, dtype=np.uint8)
+    allowed = np.zeros(raw_mask.shape, np.uint8)
     allowed[top:bottom, left:right] = 255
-    dilated = cv2.bitwise_and(dilated, allowed)
-    edit_mask = Image.fromarray(dilated, "L")
-    # Do not change a single stock pixel outside the exact edit allowance.
-    sealed = np.array(stitched, dtype=np.uint8, copy=True)
-    stock_pixels = np.asarray(stock)
-    sealed[dilated == 0] = stock_pixels[dilated == 0]
-    stitched = Image.fromarray(sealed, "RGB")
-    return Slot1MaterialPass(stock, stitched, full_mask, edit_mask, guide_box)
+    edit_mask = Image.fromarray(cv2.bitwise_and(dilated, allowed), "L")
+    return Slot1MaterialPass(stock, stitched, full_mask, edit_mask, guide_box, full_pigment)
 
 
-def finish_slot1_refinement(
-    material: Slot1MaterialPass, generated_bytes: bytes,
-) -> bytes:
-    """Retain only bounded micro-fiber light variation from the AI candidate.
+def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Image:
+    """Unpad square model canvases; never stretch a square into a 4:5 hat."""
+    candidate = ImageOps.exif_transpose(raw).convert("RGB")
+    stock_w, stock_h = material.stock.size
+    candidate_aspect = candidate.width / candidate.height
+    stock_aspect = stock_w / stock_h
+    if candidate.size == (stock_w, stock_h):
+        return candidate
+    if abs(candidate_aspect - 1) < .025:
+        side = max(stock_w, stock_h)
+        square = candidate.resize((side, side), Image.Resampling.LANCZOS)
+        left = (side - stock_w) // 2
+        top = (side - stock_h) // 2
+        return square.crop((left, top, left + stock_w, top + stock_h))
+    if abs(candidate_aspect - stock_aspect) < .025:
+        return candidate.resize((stock_w, stock_h), Image.Resampling.LANCZOS)
+    raise Slot1EmbroideryQAError("Image edit changed aspect ratio and cannot be aligned safely.")
 
-    Exact underlying stock pixels, text silhouette, original color and location
-    come from the deterministic first pass, not from model hallucinations.
-    Gate blank/refused generations; do not silently accept fake success.
+
+def finish_slot1_refinement(material: Slot1MaterialPass, generated_bytes: bytes) -> bytes:
+    """Use AI-created thread material, clipped to exact original Stage 1 glyph alpha.
+
+    Refuse identity/no-op edits, incorrect pigment, missing design or fake flat
+    prints. The previous pipeline discarded almost all AI pixels and always
+    published its artificial underlay; that behavior is intentionally removed.
     """
     try:
         with Image.open(BytesIO(generated_bytes)) as raw:
             if raw.format not in {"PNG", "JPEG", "WEBP"}:
-                raise Slot1EmbroideryQAError("Unsupported AI refinement format.")
+                raise Slot1EmbroideryQAError("Unsupported image edit format.")
             if min(raw.size) < 256 or raw.width * raw.height > _MAX_PIXELS:
-                raise Slot1EmbroideryQAError("AI refinement dimensions are invalid.")
+                raise Slot1EmbroideryQAError("Image edit dimensions are invalid.")
             raw.load()
-            candidate = ImageOps.exif_transpose(raw).convert("RGB")
+            candidate = np.asarray(_align_candidate(material, raw), dtype=np.float32)
     except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-        raise Slot1EmbroideryQAError("Cannot decode AI refinement.") from exc
-
-    same_frame = candidate.size == material.stock.size
-    if not same_frame:
-        # Some imagegen providers choose a square canvas even for a 4:5 edit
-        # target.  Only sample its subtle fiber frequencies.  NEVER transfer
-        # full-color geometry or its generated cap/background pixels.
-        candidate = candidate.resize(material.stock.size, Image.Resampling.LANCZOS)
+        raise Slot1EmbroideryQAError("Cannot decode AI edit.") from exc
     stock = np.asarray(material.stock, dtype=np.float32)
-    underlay = np.asarray(material.stitched, dtype=np.float32)
-    generated = np.asarray(candidate, dtype=np.float32)
+    guide = np.asarray(material.stitched, dtype=np.float32)
+    pigment = np.asarray(material.pigment, dtype=np.float32)
     alpha = np.asarray(material.thread_mask, dtype=np.float32) / 255.0
-    inside = alpha >= .72
-    if int(np.count_nonzero(inside)) < 24:
-        raise Slot1EmbroideryQAError("The designed embroidery has insufficient visible area.")
-    intended = underlay[inside] - stock[inside]
-    observed = generated[inside] - stock[inside]
-    contrast = float(np.sqrt(np.mean(intended ** 2)))
-    if contrast > 12:
-        # A blank hat, wrong-color wordmark or missing lettering has no
-        # directional agreement with the source, even with global brightness.
-        fidelity = float(np.sum(observed * intended) / (np.sum(intended ** 2) + 1e-6))
-        if fidelity < .13:
-            raise Slot1EmbroideryQAError("AI candidate lost the original design or thread pigments.")
-    # Reject an AI-created heavy dark halo when source and generated geometry
-    # align. The final compositing always excludes such oversized shadows.
-    if same_frame:
-        core = np.uint8(alpha > .50)
-        near = cv2.dilate(core, np.ones((7, 7), np.uint8)).astype(bool) & ~core.astype(bool)
-        far = cv2.dilate(core, np.ones((25, 25), np.uint8)).astype(bool) & ~cv2.dilate(
-            core, np.ones((17, 17), np.uint8)).astype(bool)
-        left, top, right, bottom = material.guide_box
-        field = np.zeros(core.shape, dtype=bool)
-        field[top:bottom, left:right] = True
-        near &= field
-        far &= field
-        if np.count_nonzero(near) > 40 and np.count_nonzero(far) > 40:
-            diff = np.mean(stock - generated, axis=2)
-            if float(np.median(diff[near]) - np.median(diff[far])) > 32:
-                raise Slot1EmbroideryQAError("AI candidate has an exaggerated dark emboss halo.")
+    core = alpha >= .82
+    if int(np.count_nonzero(core)) < 24:
+        raise Slot1EmbroideryQAError("Canonical design has insufficient visible glyph area.")
 
-    # The old .33*(generated-highpass) removed nearly all visible thread
-    # detail, leaving a smooth colored wordmark. Transfer bounded high-frequency
-    # *difference from stock* so cap weave/lighting and invented glyphs cannot
-    # be pasted from the AI result. Geometry and pigment still come from pass 1.
-    luma = cv2.cvtColor(np.uint8(generated), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    # Correlation and hue must be correct BEFORE making any pigment correction.
+    observed = candidate[core] - stock[core]
+    intended = pigment[core] - stock[core]
+    fidelity = float(
+        np.sum(observed * intended) /
+        (np.linalg.norm(observed) * np.linalg.norm(intended) + 1e-6)
+    )
+    if fidelity < .65:
+        raise Slot1EmbroideryQAError("AI edit did not preserve the canonical design/thread colors.")
+    if float(np.mean(np.abs(observed))) < 10:
+        raise Slot1EmbroideryQAError("AI edit omitted the embroidery.")
+
+    candidate_hsv = cv2.cvtColor(np.uint8(np.clip(candidate, 0, 255)), cv2.COLOR_RGB2HSV)
+    pigment_hsv = cv2.cvtColor(np.uint8(np.clip(pigment, 0, 255)), cv2.COLOR_RGB2HSV)
+    if np.count_nonzero(core) >= 50:
+        orig_s = float(np.median(pigment_hsv[:, :, 1][core]))
+        if orig_s >= 55:
+            target_hue = float(np.median(pigment_hsv[:, :, 0][core]))
+            model_hue = float(np.median(candidate_hsv[:, :, 0][core]))
+            hue_error = abs(target_hue - model_hue)
+            if min(hue_error, 180 - hue_error) > 19:
+                raise Slot1EmbroideryQAError("AI edit changed source embroidery hue.")
+
+    # The model must have produced material detail; the guide itself is not a
+    # finished asset and cannot be passed through as a successful AI edit.
+    guide_luma = cv2.cvtColor(np.uint8(guide), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    candidate_luma = cv2.cvtColor(np.uint8(candidate), cv2.COLOR_RGB2GRAY).astype(np.float32)
     stock_luma = cv2.cvtColor(np.uint8(stock), cv2.COLOR_RGB2GRAY).astype(np.float32)
-    embroidery_difference = luma - stock_luma
-    micro = embroidery_difference - cv2.GaussianBlur(embroidery_difference, (0, 0), 1.45)
-    micro = np.clip(micro, -24, 24)
-    # Confine the extra filament relief to the opaque source glyph cores:
-    # antialiased edges retain their exact alpha and no dark halo can grow.
-    core_weight = np.clip((alpha - .18) / .82, 0, 1)
-    final = underlay + (.72 * micro * core_weight)[:, :, None]
+    high = candidate_luma - cv2.GaussianBlur(candidate_luma, (0, 0), 1.2)
+    high_stock = stock_luma - cv2.GaussianBlur(stock_luma, (0, 0), 1.2)
+    model_change = candidate - guide
+    if float(np.sqrt(np.mean(model_change[core] ** 2))) < 3.0:
+        raise Slot1EmbroideryQAError("AI edit made no meaningful photographic refinement.")
+    if float(np.std(high[core])) < max(3.2, float(np.std(high_stock[core])) * 1.1):
+        raise Slot1EmbroideryQAError("AI edit still resembles flat printed lettering.")
+
+    # Reject large dark emboss halos before the masked composite removes them.
+    broad = np.uint8(alpha >= .5)
+    near = cv2.dilate(broad, np.ones((7, 7), np.uint8)).astype(bool) & ~(broad.astype(bool))
+    far = cv2.dilate(broad, np.ones((23, 23), np.uint8)).astype(bool) & ~cv2.dilate(
+        broad, np.ones((15, 15), np.uint8)).astype(bool)
+    field = np.zeros(broad.shape, bool)
+    left, top, right, bottom = material.guide_box
+    field[top:bottom, left:right] = True
+    near &= field
+    far &= field
+    if np.count_nonzero(near) > 40 and np.count_nonzero(far) > 40:
+        darkening = np.mean(stock - candidate, axis=2)
+        if float(np.median(darkening[near]) - np.median(darkening[far])) > 29:
+            raise Slot1EmbroideryQAError("AI edit has a thick embossed shadow halo.")
+
+    # Pigment correction is bounded and global. Keep AI fibers, lighting and
+    # organic thread detail, not just a tiny highpass of it.
+    color_shift = np.clip(np.median(pigment[core] - candidate[core], axis=0), -22, 22)
+    threads = np.clip(candidate + color_shift[None, None, :], 0, 255)
+    effective_alpha = np.clip(alpha * .99, 0, 1)
+    final = stock * (1 - effective_alpha[..., None]) + threads * effective_alpha[..., None]
     result = np.uint8(np.clip(np.rint(final), 0, 255))
-    # Verify non-edit pixels are truly stock-identical (including the side logo).
+    # Immutable protection: no changed stock or factory branding outside edit mask.
     editable = np.asarray(material.edit_mask, dtype=np.uint8) > 0
-    stock_bytes = np.asarray(material.stock, dtype=np.uint8)
-    result[~editable] = stock_bytes[~editable]
-    if not np.array_equal(result[~editable], stock_bytes[~editable]):
-        raise Slot1EmbroideryQAError("The cap was modified outside the pinned embroidery mask.")
-    if np.mean(np.abs(result[inside].astype(np.float32) - stock[inside])) < 5:
-        raise Slot1EmbroideryQAError("Finished image lost embroidery contrast.")
-    # When there is enough stroke width to resolve individual threads,
-    # reject an essentially untextured/printed fill. This measurable gate
-    # protects v2 from regressing to the smooth v1 look. Tiny lettering is
-    # exempt because its stitch filaments are subpixel at catalog scale.
-    core = np.uint8(alpha >= .82)
-    thick = cv2.distanceTransform(core, cv2.DIST_L2, 3) >= 3.0
-    if int(np.count_nonzero(thick)) >= 512:
-        luminance = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY).astype(np.float32)
-        high_frequency = luminance - cv2.GaussianBlur(luminance, (0, 0), 1.15)
-        if float(np.std(high_frequency[thick])) < 10.5:
-            raise Slot1EmbroideryQAError("Finished embroidery is too flat or printed-looking.")
+    original = np.asarray(material.stock, dtype=np.uint8)
+    result[~editable] = original[~editable]
+    if not np.array_equal(result[~editable], original[~editable]):
+        raise Slot1EmbroideryQAError("Image edit modified protected stock pixels.")
+    final_luma = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    final_high = final_luma - cv2.GaussianBlur(final_luma, (0, 0), 1.15)
+    if float(np.std(final_high[core])) < 3.0:
+        raise Slot1EmbroideryQAError("Final embroidery lacks photographic thread detail.")
     return _png(Image.fromarray(result, "RGB"))
