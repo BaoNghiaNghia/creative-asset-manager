@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createKeywordImage, createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
@@ -245,10 +245,6 @@ export function KeywordImageStage({
   const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
-  const [manualKeyword, setManualKeyword] = useState("");
-  const [manualSubmitting, setManualSubmitting] = useState(false);
-  const [manualResult, setManualResult] = useState<KeywordImageRow | null>(null);
-  const [manualFocus, setManualFocus] = useState<{ keywordId: string; jobId: string; keyword: string } | null>(null);
   const bulkAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -287,7 +283,6 @@ export function KeywordImageStage({
     }
   }, [readySkills, selectedSkillKey]);
   const selectedSkill = readySkills.find(item => skillKey(item) === selectedSkillKey) || null;
-  const isSixDesignSkill = selectedSkill?.skill_name === "gatorhats-stage1-six-designs";
   const selectedSkillInput: Stage2SkillSelection | null = selectedSkill ? {
     source: selectedSkill.source, skill_id: selectedSkill.skill_id,
     skill_name: selectedSkill.skill_name,
@@ -318,22 +313,6 @@ export function KeywordImageStage({
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [active, page, pageSize, debouncedQuery, status, sortBy, sortDirection]);
-
-  useEffect(() => {
-    if (!active || !manualFocus) return;
-    const controller = new AbortController();
-    const poll = () => {
-      if (controller.signal.aborted) return;
-      void getKeywordImageJobStatus(manualFocus.jobId, controller.signal)
-        .then(job => { if (!controller.signal.aborted) setManualResult(job); })
-        .catch(() => undefined);
-    };
-    poll();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) poll();
-    }, 5000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [active, manualFocus]);
 
   useEffect(() => {
     if (!keywordDetailTarget) return;
@@ -427,27 +406,6 @@ export function KeywordImageStage({
     }
   };
 
-  const submitManual = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const value = manualKeyword.trim().split(/\s+/).join(" ");
-    if (!value || !selectedSkillInput || manualSubmitting) return;
-    setManualSubmitting(true);
-    setError("");
-    setMessage("");
-    try {
-      const result = await createManualKeywordImage(value, selectedSkillInput);
-      setManualResult(null);
-      setManualFocus({ keywordId: result.keyword_id, jobId: result.job_id, keyword: value });
-      setStatus("all");
-      setQuery(value);
-      setPage(1);
-      setMessage("Generation queued for " + value + ". Follow the job status and review saved outputs when ready.");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not generate from the entered keyword.");
-    } finally {
-      setManualSubmitting(false);
-    }
-  };
   const totalUsed = Object.values(data.overview).reduce((sum, count) => sum + count, 0);
   const first = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const last = Math.min(data.total, data.page * data.page_size);
@@ -468,36 +426,6 @@ export function KeywordImageStage({
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
       </div>}
     />
-    <form className="rrugc-keyword-manual" onSubmit={event => void submitManual(event)}>
-      <div className="rrugc-keyword-manual-heading">
-        <strong>Create artwork from a keyword</strong>
-        <span>{isSixDesignSkill ? "Up to 6 separate high-resolution image edits · flat drafts excluded" : "Stage 1 requires the Six Designs Skill"}</span>
-      </div>
-      <div className="rrugc-keyword-manual-controls">
-        <label htmlFor="rrugc-stage1-manual-keyword" className="sr-only">Enter keyword or saying</label>
-        <input id="rrugc-stage1-manual-keyword" value={manualKeyword} maxLength={150}
-          onChange={event => setManualKeyword(event.target.value)}
-          placeholder="Enter keyword or quote, e.g. BEACH PLEASE" />
-        <button type="submit" className="rrugc-icon-action" disabled={!manualKeyword.trim() || !selectedSkillInput || manualSubmitting}>
-          <RrugcActionIcon name={manualSubmitting ? "refresh" : "sparkles"} />{manualSubmitting ? "Queueing…" : "Generate"}
-        </button>
-      </div>
-      {manualFocus && <div className="rrugc-keyword-manual-result" aria-live="polite">
-        <div className="rrugc-keyword-manual-result-title">
-          <strong title={manualFocus.keyword}>{manualFocus.keyword}</strong>
-          <small>{manualResult ? STATUS_LABEL[manualResult.status] : "Queued · waiting for job"}</small>
-        </div>
-        {manualResult
-          ? <KeywordImageRowControls row={manualResult} busy={workingIds.has(manualResult.keyword_id)}
-              canGenerate={Boolean(selectedSkill)}
-              onRun={() => void runOne(manualResult)}
-              onPublishAvailable={() => void publishAvailable(manualResult)}
-              onLogs={() => { if (manualResult.job_id) setLogJobId(manualResult.job_id); }} />
-          : <span className="rrugc-keyword-manual-pending">Waiting for job…</span>}
-        {manualResult?.status === "completed" && manualResult.output_url
-          && <a className="rrugc-keyword-manual-final" href={manualResult.output_url} target="_blank" rel="noreferrer">View latest output ↗</a>}
-      </div>}
-    </form>
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
       <button type="button" aria-pressed={status === "all"} className={status === "all" ? "active" : ""} onClick={() => { setStatus("all"); setPage(1); }}>
         <strong>{totalUsed.toLocaleString()}</strong><span>All used</span>

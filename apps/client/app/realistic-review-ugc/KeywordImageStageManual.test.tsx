@@ -46,131 +46,59 @@ vi.mock("./api", async importOriginal => ({
 
 afterEach(() => document.body.replaceChildren());
 
-describe("Stage 1 manual keyword generation", () => {
-  it("describes six separate final designs when the new Stage 1 Skill is selected", async () => {
+describe("Stage 1 Products without the manual keyword artwork bar", () => {
+  it("hides the entire manual keyword creator, retaining Generate all unused and the keyword jobs table", async () => {
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      page: 1, page_size: 20, total: 1,
+      overview: { not_run: 1, queued: 0, running: 0, completed: 0, failed: 0 },
+      items: [{
+        keyword_id: "key-1", keyword: "BEACH PLEASE", search_volume: 100,
+        source_image_url: null, status: "not_run", job_id: null,
+        skill_name: null, skill_version: null, retry_count: 0,
+        saved_output_count: 0, attempt_count: 0, max_attempts: 0,
+        error_code: null, error_message: null, output_url: null, updated_at: null,
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(host.querySelector(".rrugc-keyword-manual")).toBeNull();
+    expect(host.querySelector("#rrugc-stage1-manual-keyword")).toBeNull();
+    expect(host.textContent).not.toContain("Create artwork from a keyword");
+    expect(host.textContent).not.toContain("Stage 1 requires the Six Designs Skill");
+    expect(host.textContent).not.toContain("Enter keyword or quote");
+    expect(host.querySelector(".rrugc-keyword-gen-actions")?.textContent).toContain("Generate all unused");
+    expect(host.querySelector(".rrugc-keyword-gen-stats")).not.toBeNull();
+    expect(host.querySelector(".rrugc-keyword-gen-table")).not.toBeNull();
+    expect(host.textContent).toContain("BEACH PLEASE");
+    expect(createManualKeywordImage).not.toHaveBeenCalled();
+    expect(getKeywordImageJobStatus).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the main Stage 1 skill selection when Six Designs is installed", async () => {
     vi.mocked(listStage2Skills).mockResolvedValueOnce({
       stage_defaults: { stage1: "local:gatorhats-stage1-six-designs" },
       items: [{ source: "local", skill_id: null, skill_name: "gatorhats-stage1-six-designs",
         display_name: "GatorHats Stage 1 Six Designs", ready: true, keyword_artwork_ready: true,
-        default_version: null, synced_version: null, local_version: "4.0.0",
-        version_options: [], sync_state: "ready" }],
-    } as never);
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(host.querySelector(".rrugc-keyword-manual-heading")?.textContent)
-      .toContain("Up to 6 separate high-resolution image edits");
-    expect(host.querySelector(".rrugc-keyword-gen-list-title")?.textContent)
-      .toContain("Configurable final image count per job");
-    await act(async () => root.unmount());
-  });
-
-
-  it("honors an explicitly selected Stage 1 default over legacy hardcoded names", async () => {
-    vi.mocked(listStage2Skills).mockResolvedValueOnce({
-      stage_defaults: { stage1: "local:hanh-redesign-8869-ver-3" },
-      items: [
-        { source: "local", skill_id: null, skill_name: "redesign-8869-v3",
-          display_name: "Legacy redesign", ready: true, keyword_artwork_ready: true,
-          default_version: null, synced_version: null, local_version: null,
-          version_options: [], sync_state: "ready" },
-        { source: "local", skill_id: null, skill_name: "hanh-redesign-8869-ver-3",
-          display_name: "Hanh redesign", ready: true, keyword_artwork_ready: true,
-          default_version: null, synced_version: null, local_version: null,
-          version_options: [], sync_state: "ready" },
-      ],
-    } as never);
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    // Stage 1 now uses the configured default Skill without a per-job select.
-    // Verify the actual request, not the removed selector.
-    const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "BEACH PLEASE");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      host.querySelector<HTMLFormElement>("form.rrugc-keyword-manual")!.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      );
-      await Promise.resolve();
-    });
-    expect(createManualKeywordImage).toHaveBeenLastCalledWith("BEACH PLEASE", expect.objectContaining({
-      skill_name: "hanh-redesign-8869-ver-3",
-    }));
-    await act(async () => root.unmount());
-  });
-
-
-  it("displays the upload-time label but pins Stage 1 jobs to the real runtime version ID", async () => {
-    vi.mocked(listStage2Skills).mockResolvedValueOnce({
-      stage_defaults: { stage1: "local:gatorhats-stage1-six-designs" },
-      items: [{
-        source: "local", skill_id: null, skill_name: "gatorhats-stage1-six-designs",
-        display_name: "GatorHats Stage 1", ready: true, keyword_artwork_ready: true,
         default_version: "4.0.0", synced_version: "4.0.0", local_version: "4.0.0",
-        upload_version: "18_39_12_10_26",
-        version_labels: { "4.0.0": "18_39_12_10_26" },
-        version_options: ["4.0.0"], sync_state: "ready",
-      }],
+        version_options: ["4.0.0"], sync_state: "ready" }],
     } as never);
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    // The Stage 1 Skill is pinned centrally; runtime IDs are never inferred
-    // from the optional display label in the retired per-job selector.
-    expect(host.querySelector("form.rrugc-keyword-manual")).not.toBeNull();
-    const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "BEACH PLEASE");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      host.querySelector<HTMLFormElement>("form.rrugc-keyword-manual")!.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(createManualKeywordImage).toHaveBeenLastCalledWith("BEACH PLEASE", expect.objectContaining({
-      skill_name: "gatorhats-stage1-six-designs",
-      skill_version: "4.0.0",
-    }));
-    await act(async () => root.unmount());
-  });
-
-  it("queues typed keywords using Redesign V3 and shows the final saved image", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    await act(async () => root.render(<KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    const input = host.querySelector<HTMLInputElement>("#rrugc-stage1-manual-keyword")!;
-    const form = host.querySelector<HTMLFormElement>("form.rrugc-keyword-manual")!;
-    expect(input).not.toBeNull();
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-    await act(async () => {
-      setter?.call(input, "BEACH PLEASE");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(createManualKeywordImage).toHaveBeenCalledWith("BEACH PLEASE",
-      expect.objectContaining({ skill_name: "redesign-8869-v3" }));
-    expect(getKeywordImageJobStatus).toHaveBeenCalledWith("job-1", expect.anything());
-    expect(host.querySelector(".rrugc-keyword-manual-final")?.textContent).toContain("View latest output");
-    expect(host.querySelector(".rrugc-keyword-manual-result img")).not.toBeNull();
+    expect(host.querySelector(".rrugc-keyword-manual")).toBeNull();
+    expect(host.querySelector(".rrugc-keyword-gen-primary")).not.toBeNull();
+    expect(host.querySelector(".rrugc-keyword-gen-table")).not.toBeNull();
     await act(async () => root.unmount());
   });
 
