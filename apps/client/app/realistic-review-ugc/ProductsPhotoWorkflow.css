@@ -642,3 +642,25 @@
 
 .rrugc-colorway-table.is-products .rrugc-design-hat-color{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;font-weight:700;color:#536481}
 .rrugc-colorway-table.is-products .rrugc-design-hat-color select{max-width:210px;min-width:145px;min-height:30px;padding:4px 7px;border:1px solid #cbd8e9;border-radius:6px;background:#fff;color:#263a56}
+
+/* Semantic states do not masquerade as buttons. */
+.rrugc-products-photo-run-state{
+ display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ width:auto;min-height:31px;box-sizing:border-box;padding:5px 10px;
+ border:1px solid #d7e0ea;border-radius:7px;
+ background:#f5f7fa;color:#596c84;font-size:10px;font-weight:750;white-space:nowrap;
+}
+.rrugc-products-photo-run-state.is-completed{background:#eaf7ef;border-color:#bbdfca;color:#20663e}
+.rrugc-products-photo-run-state.is-running,.rrugc-products-photo-run-state.is-queued,.rrugc-products-photo-run-state.is-queueing{background:#ecf4ff;border-color:#c4d9f4;color:#225d9d}
+.rrugc-products-photo-run-state.is-failed{background:#fff0ee;border-color:#efc4bc;color:#af3e33}
+.rrugc-products-photo-run-state.is-blocked{background:#fff8ed;border-color:#efd9b9;color:#946427}
+.rrugc-products-photo-run-state.is-checking{background:#f5f7fa;border-color:#dfe5ed;color:#697b91}
+.rrugc-products-photo-run-button.is-ready{background:#2165ae;color:white;border-color:#2165ae}
+.rrugc-products-photo-run-button.is-ready:hover{background:#164c86;border-color:#164c86}
+.rrugc-products-photo-run-button.is-retry{background:#fff2e7;border-color:#e7b277;color:#a45d17}
+.rrugc-products-photo-detail-toggle{display:inline-flex;align-items:center;gap:5px}
+.rrugc-products-photo-detail-toggle[aria-expanded="true"]{background:#eaf2ff;color:#21578e}
+.rrugc-products-photo-updated .rrugc-action-icon,.rrugc-products-photo-duration .rrugc-action-icon{width:13px;height:13px;color:#8fa0b5}
+.rrugc-action-icon.is-spinning{animation:rrugc-stage2-spin 1.2s linear infinite}
+@keyframes rrugc-stage2-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.rrugc-action-icon.is-spinning{animation:none}}

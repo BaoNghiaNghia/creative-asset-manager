@@ -630,15 +630,6 @@ export function EmbroideryColorwayStage({
       />}>
       {loading ? <div className="rrugc-products-selected-empty" role="status">Loading Stage 1 designs…</div>
         : activeProductPlan ? <div className="rrugc-products-selected-detail" key={activeProductPlan.id}>
-          <header className="rrugc-products-selected-head">
-            <div>
-              <small>Selected Stage 1 design · 7-skill configuration · 22 outputs</small>
-              <strong>{stage2DesignKeyword(activeProductPlan)}</strong>
-            </div>
-            <span className="rrugc-products-selected-file" title={activeProductPlan.source_relative_path}>
-              {activeProductPlan.source_name}
-            </span>
-          </header>
           <div className="rrugc-products-selected-preview">
             <DesignSource plan={activeProductPlan} productLayout stockViews={stockViews}
               placement={frontPlacement} color={selectedHatColor} colors={stockColors}

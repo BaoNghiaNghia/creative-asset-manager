@@ -115,8 +115,7 @@ describe("Products Stage 2 thumbnail + keyword source tree", () => {
     await act(async () => second.click());
     expect(host.querySelector('[data-testid="product-workflow"]')?.getAttribute("data-plan-id"))
       .toBe("design-two");
-    expect(host.querySelector(".rrugc-products-selected-head strong")?.textContent)
-      .toBe("Y'ALL NEED JESUS");
+    expect(host.querySelector(".rrugc-products-selected-head")).toBeNull();
     expect(host.querySelectorAll('[data-testid="product-workflow"]')).toHaveLength(1);
     await act(async () => root.unmount());
   });

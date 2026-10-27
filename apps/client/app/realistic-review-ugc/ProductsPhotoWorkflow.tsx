@@ -57,9 +57,45 @@ function openSkillsManager() {
   button?.click();
 }
 
-function ActionIcon({ kind }: { kind: "play" | "retry" | "check" | "clock" | "warning" | "chevron" | "loader" | "eye" }) {
-  const symbol = { play: "▶", retry: "↻", check: "✓", clock: "◷", warning: "!", chevron: "⌄", loader: "◌", eye: "▣" }[kind];
-  return <span className="rrugc-action-icon" aria-hidden="true">{symbol}</span>;
+type SkillActionIcon = "play" | "retry" | "check" | "clock" | "warning" | "loader" | "eye" | "calendar" | "chevron-down" | "chevron-up";
+
+function ActionIcon({ kind }: { kind: SkillActionIcon }) {
+  const paths = {
+    play: <><circle cx="12" cy="12" r="9" /><path d="m10 8 6 4-6 4Z" /></>,
+    retry: <><path d="M20 11a8 8 0 1 0-2.4 6" /><path d="M20 4v7h-7" /></>,
+    check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.6 2.7 5.5-5.7" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    warning: <><path d="M10.5 4.1 2.3 18.5A1.6 1.6 0 0 0 3.7 21h16.6a1.6 1.6 0 0 0 1.4-2.5L13.5 4.1a1.7 1.7 0 0 0-3 0Z" /><path d="M12 9v5m0 3h.01" /></>,
+    loader: <><circle cx="12" cy="12" r="9" strokeDasharray="36 18" /></>,
+    eye: <><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4m10-4v4M3 10h18" /></>,
+    "chevron-down": <path d="m6 9 6 6 6-6" />,
+    "chevron-up": <path d="m6 15 6-6 6 6" />,
+  };
+  return <svg className={"rrugc-action-icon" + (kind === "loader" ? " is-spinning" : "")}
+    width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true" focusable="false">{paths[kind]}</svg>;
+}
+
+type SkillActionPhase = "ready" | "retry" | "completed" | "queueing" | "running" | "queued" | "failed" | "blocked" | "checking";
+
+function SkillRunControl({ phase, label, title, ariaLabel, disabled, onClick }: {
+  phase: SkillActionPhase; label: string; title: string; ariaLabel: string;
+  disabled?: boolean; onClick: () => void;
+}) {
+  const icon: SkillActionIcon = phase === "ready" ? "play" : phase === "retry" ? "retry"
+    : phase === "completed" ? "check" : ["running", "queued", "queueing"].includes(phase) ? "loader"
+    : phase === "checking" ? "clock" : "warning";
+  if (phase === "ready" || phase === "retry") {
+    return <button type="button" className={"rrugc-products-photo-run-button is-" + phase}
+      aria-label={ariaLabel} title={title} disabled={disabled} onClick={onClick}>
+      <ActionIcon kind={icon} />{label}
+    </button>;
+  }
+  return <span className={"rrugc-products-photo-run-state is-" + phase}
+    role={["queueing", "queued", "running"].includes(phase) ? "status" : undefined}
+    title={title}><ActionIcon kind={icon} />{label}</span>;
 }
 
 function HatSlotIcon() {
@@ -384,6 +420,15 @@ export function ProductsPhotoWorkflow({
   const failed = productColors.filter(job => job.status === "failed").length;
   const active = productColors.filter(job => job.status === "running" || job.status === "queued").length;
   const colorStatus = failed ? failed + " failed" : active ? active + " active" : complete === PHOTO_COLOR_COUNT ? "Completed" : complete > 0 ? complete + "/" + PHOTO_COLOR_COUNT + " done" : "Not run";
+  const colorPhase: SkillActionPhase = colorwayRunning ? "queueing" : active ? "running"
+    : complete === PHOTO_COLOR_COUNT ? "completed"
+    : failed ? (colorwayReady ? "retry" : "failed")
+    : colorwayReady ? "ready" : "blocked";
+  const colorActionLabel = colorPhase === "queueing" ? "Queueing…"
+    : colorPhase === "running" ? "Running"
+    : colorPhase === "completed" ? "Complete" : colorPhase === "retry" ? "Retry"
+    : colorPhase === "failed" ? "Failed" : colorPhase === "ready"
+      ? complete ? "Continue" : "Run" : !colorwaySkillName ? "Needs skill" : "Not ready";
 
   return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
@@ -431,14 +476,33 @@ export function ProductsPhotoWorkflow({
                 ? "The assigned Skill is unavailable or invalid in the image worker. Check its installation in Manage Skills."
                 : state.ready ? "Skill " + configured + " is installed and ready for three-image generation." : "Skill " + configured + " is installed but the worker is unavailable.";
 
-        // Legacy aggregate Ecommerce readiness never makes an individual shot runnable.
-        const status = shotJob ? shotJob.status.replace(/^./, char => char.toUpperCase())
-          : !configured ? "Needs skill" : isEcommerce
-          ? (slotInputs?.ready ? "Ready" : slotInputs?.status === "missing_inputs"
-            ? "Missing input" : slotInputs?.status === "worker_pending"
-              ? "Worker pending" : "Needs skill")
-          : sceneComplete ? "Completed" : sceneJobs.some(job => job.status === "queued" || job.status === "running") ? "Running" : state?.ready ? "Ready" : "Worker pending";
-        return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key}>
+        // Only runnable actions are buttons. Completed and in-flight jobs are
+        // labelled states, never disabled "Done"/"Running" buttons.
+        const sceneRunning = sceneJobs.some(job => job.status === "running");
+        const sceneQueued = sceneJobs.some(job => job.status === "queued");
+        const sceneFailed = sceneJobs.some(job => job.status === "failed");
+        const canRetry = isEcommerce
+          ? shotJob?.status === "failed" && shotJob.retry_count < 3
+          : sceneFailed && sceneRunnable;
+        const checking = Boolean(configured && (isEcommerce ? !slotInputs : !state));
+        const blockLabel = !configured ? "Needs skill" : !colorAvailable ? "No stock"
+          : isEcommerce && slotInputs?.status === "missing_inputs" ? "Missing inputs"
+          : isEcommerce && slotInputs?.status === "worker_pending" ? "Worker pending"
+          : bundleMissing ? "Skill unavailable" : "Worker pending";
+        const phase: SkillActionPhase = busyStage === step.key ? "queueing"
+          : (isEcommerce && shotJob?.status === "completed") || sceneComplete ? "completed"
+          : shotJob?.status === "running" || sceneRunning ? "running"
+          : shotJob?.status === "queued" || sceneQueued ? "queued"
+          : shotJob?.status === "failed" || sceneFailed ? (canRetry ? "retry" : "failed")
+          : runnable || sceneRunnable ? "ready"
+          : checking && colorAvailable ? "checking" : "blocked";
+        const actionLabel = phase === "completed" ? "Complete"
+          : phase === "queueing" ? "Queueing…" : phase === "running" ? "Running"
+          : phase === "queued" ? "Queued" : phase === "retry" ? "Retry"
+          : phase === "failed" ? "Failed" : phase === "ready"
+            ? sceneJobs.some(job => job.status === "completed") ? "Continue" : "Run"
+          : phase === "checking" ? "Checking…" : blockLabel;
+        return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key} data-state={phase}>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
             <div><strong>{configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
@@ -450,7 +514,7 @@ export function ProductsPhotoWorkflow({
                 ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
                     onClick={() => setOutputGallery({ title: "All outputs · " + sourceName, items: allOutputItems, initialIndex: allOutputItems.findIndex(item => item.key === step.key + ":" + shotIndex) })}
                     aria-label={"Open " + shot.label + (isEcommerce ? " Ecommerce" : "") + " output"}>
-                    <DeferredImage src={stage2ThumbnailUrl(photo.output_url, 128)} alt={shot.label} rootMargin="260px" />
+                    <DeferredImage src={stage2ThumbnailUrl(photo.output_url, 256)} alt={shot.label} rootMargin="260px" />
                   </button>
                 : <span key={shot.number} className="rrugc-products-photo-empty-shot"
                     title={shot.label + " · " + (photo?.status || "Not generated")}>
@@ -462,21 +526,32 @@ export function ProductsPhotoWorkflow({
             <span>Skill {index + 1}</span><strong>{skillName}</strong>
           </div>
           <div className="rrugc-products-photo-stage-controls">
-            <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}</span>
-            <button type="button" className={"rrugc-products-photo-run-button is-" + (busyStage === step.key || status === "Running" || status === "Queued" ? "processing" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "completed" : runnable || sceneRunnable ? "ready" : "unavailable")}
-              aria-label={"Run " + step.title}
-              aria-disabled={isEcommerce ? Boolean(busyStage || (shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3))) : Boolean(busyStage || !sceneRunnable)}
-              disabled={!!busyStage || (!isEcommerce ? !sceneRunnable : Boolean(shotJob && (shotJob.status !== "failed" || shotJob.retry_count >= 3)))}
-              title={!isEcommerce ? setupMessage : runnable ? "Queue Ecommerce image generation" : "Open details for prerequisites and job status"}
-              onClick={() => sceneRunnable ? void invokeScene(step.key as "prod_s2_mh" | "prod_s2_ugc") : runnable ? void invokeEcommerce(step.key)
-                : isEcommerce && shotJob?.status === "failed" ? void invokeEcommerce(step.key, shotJob)
-                : setExpandedStep(step.key)}><ActionIcon kind={busyStage === step.key || status === "Running" || status === "Queued" ? "loader" : shotJob?.status === "failed" ? "retry" : status === "Completed" ? "check" : !runnable ? "clock" : "play"} />{busyStage === step.key ? "Queueing…" : shotJob?.status === "failed" ? "Retry" : status === "Completed" ? "Done" : status === "Running" || status === "Queued" ? "Running" : "Run"}</button>
+            <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
+              <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
+            </time>
+            <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">
+              <ActionIcon kind="clock" />{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}
+            </span>
+            <SkillRunControl phase={phase} label={actionLabel} ariaLabel={actionLabel + " " + step.title}
+              disabled={Boolean(busyStage)}
+              title={!isEcommerce ? setupMessage : slotInputs?.missing_roles.length
+                ? "Missing inputs: " + slotInputs.missing_roles.join(", ")
+                : phase === "completed" ? "Completed. Open Details to regenerate or view logs."
+                : "Open Details to inspect prerequisites, logs and output versions"}
+              onClick={() => {
+                if (sceneRunnable) void invokeScene(step.key as "prod_s2_mh" | "prod_s2_ugc");
+                else if (runnable) void invokeEcommerce(step.key);
+                else if (canRetry && isEcommerce && shotJob) void invokeEcommerce(step.key, shotJob);
+              }} />
             <button type="button" className="rrugc-products-photo-detail-toggle"
-              aria-expanded={opened} aria-label={step.title + " details"}
-              onClick={() => setExpandedStep(opened ? null : step.key)}><ActionIcon kind="eye" />{opened ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{opened ? "⌃" : "⌄"}</span></button>
+              aria-expanded={opened} aria-controls={"rrugc-stage2-details-" + step.key}
+              aria-label={step.title + " details"}
+              onClick={() => setExpandedStep(opened ? null : step.key)}>
+              <ActionIcon kind="eye" /><span>{opened ? "Hide" : "Details"}</span>
+              <ActionIcon kind={opened ? "chevron-up" : "chevron-down"} />
+            </button>
           </div>
-          {opened && <div className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
+          {opened && <div id={"rrugc-stage2-details-" + step.key} className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
               <strong>Input references · {step.inputs?.length}</strong>
               <small>{slotInputs
@@ -579,7 +654,7 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-stage-column is-scenes" aria-label="Multi-hat, UGC and 12 Hat Colors">
             {photoCards.slice(4)}
-      <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway">
+      <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway" data-state={colorPhase}>
         <div className="rrugc-products-photo-stage-title">
           <span className="rrugc-products-photo-number">7</span>
           <div><strong>12 Hat Colors</strong><small>{complete}/{PHOTO_COLOR_COUNT} images</small></div>
@@ -616,8 +691,10 @@ export function ProductsPhotoWorkflow({
           <span>Skill 7</span><strong>{colorwaySkillName || "Not assigned"}</strong>
         </div>
         <div className="rrugc-products-photo-stage-controls">
-          <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}</time>
-          <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion">{(() => {
+          <time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
+            <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
+          </time>
+          <span className="rrugc-products-photo-duration" title="Time from the earliest color task start to the last completion"><ActionIcon kind="clock" />{(() => {
             const starts = productColors.map(job => job.started_at).filter((date): date is string => Boolean(date));
             if (!starts.length) return "—";
             const earliest = starts.reduce((a, b) => Date.parse(a) <= Date.parse(b) ? a : b);
@@ -625,14 +702,18 @@ export function ProductsPhotoWorkflow({
             const latest = complete === PHOTO_COLOR_COUNT && ends.length === PHOTO_COLOR_COUNT ? ends.reduce((a, b) => Date.parse(a) >= Date.parse(b) ? a : b) : null;
             return formatKeywordJobDuration(earliest, latest);
           })()}</span>
-          <button type="button" className={"rrugc-products-photo-run-button is-" + (colorwayRunning || active ? "processing" : failed ? "retry" : complete === PHOTO_COLOR_COUNT ? "completed" : colorwayReady ? "ready" : "unavailable")} aria-label="Run 12 Hat Colors" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT} onClick={() => { void onQueueColors?.(false); }}><ActionIcon kind={colorwayRunning || active ? "loader" : failed ? "retry" : complete === PHOTO_COLOR_COUNT ? "check" : colorwayReady ? "play" : "clock"} />{colorwayRunning ? "Queueing…" : complete === PHOTO_COLOR_COUNT ? "Done" : "Run"}</button>
+          <SkillRunControl phase={colorPhase} label={colorActionLabel}
+            title={colorPhase === "completed" ? "All color outputs completed. Open Details or the gallery to inspect versions." : "Open Details for skill readiness and colorway progress."}
+            ariaLabel={colorActionLabel + " 12 Hat Colors"}
+            onClick={() => { void onQueueColors?.(false); }} />
           <button type="button" className="rrugc-products-photo-detail-toggle"
-            aria-expanded={expandedStep === "colorway"} aria-label="12 Hat Colors details"
+            aria-expanded={expandedStep === "colorway"} aria-controls="rrugc-stage2-details-colorway" aria-label="12 Hat Colors details"
             onClick={() => setExpandedStep(value => value === "colorway" ? null : "colorway")}>
-            <ActionIcon kind="eye" />{expandedStep === "colorway" ? "Hide" : "Details"} <span className="rrugc-details-chevron" aria-hidden="true">{expandedStep === "colorway" ? "⌃" : "⌄"}</span>
+            <ActionIcon kind="eye" /><span>{expandedStep === "colorway" ? "Hide" : "Details"}</span>
+            <ActionIcon kind={expandedStep === "colorway" ? "chevron-up" : "chevron-down"} />
           </button>
         </div>
-        {expandedStep === "colorway" && <div className="rrugc-products-photo-stage-detail">
+        {expandedStep === "colorway" && <div id="rrugc-stage2-details-colorway" className="rrugc-products-photo-stage-detail">
           <div className="rrugc-products-photo-colorway-selector">
             <label htmlFor={colorSkillSelectId}>Skill 7 configuration</label>
             <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"

@@ -454,3 +454,63 @@
     width:72px;
   }
 }
+
+/* Stage 2 2026-10-27: 25% larger previews, natural image height, responsive cards. */
+.rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+  grid-template-columns:minmax(0,1fr) minmax(0,auto);
+  grid-template-rows:auto auto auto;
+  grid-template-areas:"title outputs" "skill outputs" "controls outputs";
+  min-height:0;
+  align-items:start;
+  padding:13px 14px;
+  row-gap:7px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{
+  height:auto;min-height:0;align-self:start;align-items:flex-start;
+  max-width:100%;gap:8px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-empty-shot{
+  flex:0 0 auto;
+  width:107.5px;height:auto;min-height:0;max-height:none;
+  aspect-ratio:1/1;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-output-strip .rrugc-products-photo-empty-shot.is-completed>img{
+  width:100%;height:auto;aspect-ratio:auto;object-fit:contain;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-controls{
+  display:flex;align-items:center;justify-content:flex-start;gap:9px;flex-wrap:wrap;
+  width:100%;max-width:100%;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-updated,
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-duration{
+  display:inline-flex;align-items:center;justify-content:flex-start;gap:5px;
+  width:auto;min-width:0;color:#74849a;font-size:11px;font-weight:600;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-stage-title strong{
+  font-size:13px;font-weight:800;color:#1d344f;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-skill{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-skill strong{
+  white-space:normal;overflow-wrap:anywhere;font-size:11px;line-height:1.45;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors{
+  height:auto;min-height:0;align-items:flex-start;
+}
+.rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row.is-colorway .rrugc-products-photo-output-strip.is-colors .rrugc-colorway-slot{
+  height:auto;min-height:0;max-height:none;aspect-ratio:1/1;
+}
+@container (max-width:680px){
+ .rrugc-products-photo-stage-list.is-two-column > .rrugc-products-photo-stage-column > .rrugc-products-photo-stage-row:not(.is-colorway){
+   grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "skill" "controls" "outputs";
+ }
+ .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-output-strip{
+  height:auto;justify-self:stretch;justify-content:flex-end;
+ }
+}
+@container (max-width:380px){
+ .rrugc-products-photo-stage-list.is-two-column .rrugc-products-photo-stage-row:not(.is-colorway) .rrugc-products-photo-empty-shot{
+  width:min(107.5px,32%);flex-basis:auto;
+ }
+}
