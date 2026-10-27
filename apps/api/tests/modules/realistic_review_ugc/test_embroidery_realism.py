@@ -56,6 +56,15 @@ def test_all_six_scene_variants_and_four_ecommerce_slots_are_covered():
     assert len(SCENE_GROUPS["prod_s2_ugc"]) == 3
 
 
+def test_fabric_first_refinement_is_strictly_scoped_to_slot_one():
+    front = embroidery_prompt_for_product_slot("prod_s2_ec1")
+    assert "SLOT-1-ONLY FABRIC-FIRST PHOTO EDIT" in front
+    assert "transparent Stage 1 source design" in front
+    assert "do NOT repaint the full cap" in front
+    for stage in covered_product_slot_stages() - {"prod_s2_ec1"}:
+        assert "SLOT-1-ONLY FABRIC-FIRST PHOTO EDIT" not in embroidery_prompt_for_product_slot(stage)
+
+
 def test_rear_remains_blank_not_forced_to_have_front_artwork():
     prompt = embroidery_prompt_for_product_slot("prod_s2_ec4")
     assert "UNEMBROIDERED rear crown" in prompt
