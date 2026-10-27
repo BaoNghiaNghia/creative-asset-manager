@@ -15,11 +15,14 @@
   max-height:calc(100dvh - 30px);
   border:1px solid #dce5f0;border-radius:12px;
   background:#fff;overflow:hidden;
+  /* global.css applies padding to every aside; the source card owns its spacing. */
+  padding:0;
   box-shadow:0 2px 8px rgba(39,68,109,.035);
 }
 .rrugc-products-source-tree-head{
   display:flex;align-items:center;justify-content:space-between;gap:8px;
-  min-height:61px;padding:10px 12px;
+  /* Reset the fixed height on global header elements. */
+  height:auto;min-height:61px;padding:10px 12px;
   box-sizing:border-box;
   background:linear-gradient(180deg,#fff 0%,#f9fbff 100%);
   border-bottom:1px solid #e7edf5;
@@ -66,6 +69,8 @@
 .rrugc-products-source-tree-list{
   display:flex;flex-direction:column;flex:1 1 auto;
   min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;
+  /* global nav uses space-between and center; rows must flow top-to-bottom. */
+  align-items:stretch;justify-content:flex-start;border-bottom:0;
   gap:3px;padding:7px;
   overscroll-behavior:contain;scrollbar-gutter:stable;
   scrollbar-width:thin;scrollbar-color:#b6c9e1 transparent;
