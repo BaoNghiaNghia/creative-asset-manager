@@ -631,6 +631,7 @@ class SourcePlanResponse(BaseModel):
     source_web_url: str | None = None
     source_preview_url: str
     source_revision: str
+    source_keyword: str | None = None
     analysis_revision: int
     embroidery_signature: str | None = None
     embroidery_group_size: int = 1

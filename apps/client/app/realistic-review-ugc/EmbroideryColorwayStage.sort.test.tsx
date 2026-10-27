@@ -30,7 +30,9 @@ describe.each(["products", "reviews"] as const)("Embroidery design Stage 2 sort 
       onQueryChange: () => undefined, onPageChange: () => undefined,
       onPageSizeChange: () => undefined,
     } as const;
-    const header = () => host.querySelector<HTMLElement>(".rrugc-colorway-table th[aria-sort]")!;
+    const header = () => host.querySelector<HTMLElement>(workflow === "products"
+      ? ".rrugc-products-source-tree-sort[aria-sort]"
+      : ".rrugc-colorway-table th[aria-sort]")!;
     const button = () => header().querySelector<HTMLButtonElement>(".rrugc-colorway-design-sort")!;
     const render = async (sortBy: SourcePlanSortBy, sortDirection: SourcePlanSortDirection) => {
       await act(async () => root.render(

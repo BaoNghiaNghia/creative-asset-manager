@@ -292,6 +292,7 @@ export type SourcePlan = {
   source_web_url: string | null;
   source_preview_url: string;
   source_revision: string;
+  source_keyword?: string | null;
   analysis_revision: number;
   embroidery_signature: string | null;
   embroidery_group_size: number;

@@ -3,6 +3,8 @@ import { ActionMessageToast } from "../components/ActionToast";
 import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBatch, retryColorway, regenerateColorwayJob, getColorwayReadiness, getProductsStage2PhotoReadiness, getHatStockCatalog, getFrontPlacement } from "./api";
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
 import { ProductsPhotoWorkflow, PHOTO_COLOR_KEYS } from "./ProductsPhotoWorkflow";
+import { ProductsStage2SourceTree, stage2DesignKeyword } from "./ProductsStage2SourceTree";
+import { ResizableSourceLayout } from "./ResizableSourceLayout";
 import { DeferredImage } from "./DeferredImage";
 import { AppliedHatPreview } from "./AppliedHatPreview";
 import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
@@ -149,6 +151,7 @@ export function EmbroideryColorwayStage({
   const [catalogMessage, setCatalogMessage] = useState("");
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedProductPlanId, setSelectedProductPlanId] = useState<string | null>(null);
   const [colorwayJobs, setColorwayJobs] = useState<ColorwayJob[]>([]);
   const [ecommerceJobs, setEcommerceJobs] = useState<EcommerceJob[]>([]);
   const [queueing, setQueueing] = useState(false);
@@ -286,6 +289,8 @@ export function EmbroideryColorwayStage({
     : readinessMessage;
   const pagePlanIds = data.items.map(item => item.id);
   const pagePlanKey = pagePlanIds.join(",");
+  const activeProductPlan = data.items.find(plan => plan.id === selectedProductPlanId)
+    || data.items[0] || null;
   const byPlan = new Map<string, Map<string, ColorwayJob>>();
   for (const job of colorwayJobs) {
     if (!byPlan.has(job.source_plan_id)) byPlan.set(job.source_plan_id, new Map());
@@ -473,11 +478,12 @@ export function EmbroideryColorwayStage({
     const folder = plan.source_relative_path.includes("/")
       ? plan.source_relative_path.split("/").slice(0, -1).join("/")
       : "";
+    const designLabel = workflow === "products" ? stage2DesignKeyword(plan) : cleanDesignName(plan.source_name);
     return [
-      { value: cleanDesignName(plan.source_name), meta: folder || "Embroidery design", badge: "Design" },
-      ...(folder ? [{ value: folder, meta: cleanDesignName(plan.source_name), badge: "Folder" }] : []),
+      { value: designLabel, meta: folder || "Embroidery design", badge: "Design" },
+      ...(folder ? [{ value: folder, meta: designLabel, badge: "Folder" }] : []),
     ];
-  }), [data.items]);
+  }), [data.items, workflow]);
 
   function togglePage() {
     setSelectedIds(current => {
@@ -579,12 +585,73 @@ export function EmbroideryColorwayStage({
       </>}
     </div>
 
-    <div className="rrugc-colorway-table-wrap">
-      <table className={"rrugc-colorway-table " + (workflow === "products" ? "is-products" : "is-reviews")} aria-busy={loading}
+    {workflow === "products" ? <ResizableSourceLayout stage={2}
+      tree={<ProductsStage2SourceTree
+        plans={data.items} total={data.total} loading={loading}
+        selectedPlanId={!loading ? activeProductPlan?.id || null : null}
+        onSelect={setSelectedProductPlanId}
+        sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange}
+      />}>
+      {loading ? <div className="rrugc-products-selected-empty" role="status">Loading Stage 1 designs…</div>
+        : activeProductPlan ? <div className="rrugc-products-selected-detail" key={activeProductPlan.id}>
+          <header className="rrugc-products-selected-head">
+            <div>
+              <small>Selected Stage 1 design · 7-skill configuration · 22 outputs</small>
+              <strong>{stage2DesignKeyword(activeProductPlan)}</strong>
+            </div>
+            <span className="rrugc-products-selected-file" title={activeProductPlan.source_relative_path}>
+              {activeProductPlan.source_name}
+            </span>
+          </header>
+          <div className="rrugc-products-selected-preview">
+            <DesignSource plan={activeProductPlan} productLayout stockViews={stockViews}
+              placement={frontPlacement} color={selectedHatColor} colors={stockColors}
+              onColorChange={value => { manuallySelectedHatColor.current = true; setSelectedHatColor(value); }} />
+          </div>
+          <div className="rrugc-products-selected-workflow">
+            <ProductsPhotoWorkflow key={activeProductPlan.id}
+              lastUpdated={activeProductPlan.updated_at}
+              sourceName={activeProductPlan.source_name}
+              sourcePlanId={activeProductPlan.id}
+              designSrc={activeProductPlan.source_preview_url}
+              stockViews={stockViews}
+              stockCatalog={hatCatalog?.colors}
+              selectedColor={selectedHatColor}
+              readiness={photoReadiness}
+              ecommerceJobs={ecommerceByPlan.get(activeProductPlan.id) || []}
+              onEcommerceJobChange={refreshEcommerceJobs}
+              configuredSkillNames={productStage2SkillNames}
+              colors={Array.from(byPlan.get(activeProductPlan.id)?.values() || [])}
+              colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
+              colorwaySkillKey={selectedSkillKey}
+              colorwaySkillSelection={skillInput}
+              colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}
+              colorwaySkillOptions={catalog.items.map(skill => ({
+                value: skillKey(skill),
+                label: skill.display_name + (skill.upload_version ? " · v" + skill.upload_version : ""),
+                ready: skill.ready,
+              }))}
+              onColorwaySkillChange={setSelectedSkillKey}
+              colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
+              colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
+              onQueueColors={retryFailedJobs => queueOneColorway(activeProductPlan.id, Boolean(retryFailedJobs))}
+              onRetryColor={job => void retryFailed(job)}
+              onOpenColor={job => setVersionsJob({
+                jobId: job.id, title: job.color_name + " · " + stage2DesignKeyword(activeProductPlan),
+              })}
+              onOpenLog={job => setLogJobId(job.id)}
+            />
+          </div>
+        </div>
+        : <div className="rrugc-products-selected-empty">
+          No Stage 1 embroidery designs selected yet. Select designs in Stage 1 to see them here.
+        </div>}
+    </ResizableSourceLayout> : <div className="rrugc-colorway-table-wrap">
+      <table className="rrugc-colorway-table is-reviews" aria-busy={loading}
         data-sort-column={sortBy} data-sort-direction={sortDirection}>
         <thead>
           <tr>
-            {workflow === "reviews" && <th aria-label="Select design" />}
+            <th aria-label="Select design" />
             <th className={sortBy === "source" ? "is-sort-column" : ""}
               aria-sort={sortBy === "source" ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
               <button type="button" className="rrugc-colorway-design-sort"
@@ -596,17 +663,17 @@ export function EmbroideryColorwayStage({
                 <SortDirectionIndicator active={sortBy === "source"} direction={sortDirection} />
               </button>
             </th>
-            <th>{workflow === "products" ? "7-skill configuration · 22 outputs" : "13-color batch"}</th>
-            {workflow === "reviews" && <><th>Progress</th>
+            <th>13-color batch</th>
+            <th>Progress</th>
             <th>Skill</th>
-            <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th></>}
-            {workflow === "reviews" && <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>}
+            <th className={sortBy === "status" ? "is-sort-column" : ""}>Status</th>
+            <th className={sortBy === "updated" ? "is-sort-column" : ""}>Last updated</th>
           </tr>
         </thead>
         <tbody>
           {loading ? Array.from({ length: 5 }, (_, index) => (
-            <tr key={index} className={"rrugc-colorway-skeleton-row" + (workflow === "products" ? " is-products" : "")}>
-              {workflow === "reviews" && <td><span /></td>}<td><span /></td><td>{workflow === "products" ? <div className="rrugc-products-stage2-skeleton-skills">{Array.from({length:7},(_,slot)=><span key={slot} />)}</div> : <span />}</td>{workflow === "reviews" && <><td><span /></td><td><span /></td><td><span /></td><td><span /></td></>}
+            <tr key={index} className="rrugc-colorway-skeleton-row">
+              {Array.from({ length: 7 }, (_, cell) => <td key={cell}><span /></td>)}
             </tr>
           )) : data.items.map(plan => {
             const selected = selectedIds.has(plan.id);
@@ -616,17 +683,17 @@ export function EmbroideryColorwayStage({
             const inProgress = Array.from(slots?.values() || []).filter(job => job.status === "running" || job.status === "queued").length;
             const lastUpdated = plan.updated_at && Number.isFinite(Date.parse(plan.updated_at))
               ? new Date(plan.updated_at) : null;
-            return <tr key={plan.id} className={workflow === "reviews" && selected ? "is-selected" : ""}>
-              {workflow === "reviews" && <td className="rrugc-colorway-check-cell">
+            return <tr key={plan.id} className={selected ? "is-selected" : ""}>
+              <td className="rrugc-colorway-check-cell">
                 <input
                   type="checkbox"
                   checked={selected}
                   aria-label={"Select " + cleanDesignName(plan.source_name)}
                   onChange={() => toggleDesign(plan.id)}
                 />
-              </td>}
-              <td><DesignSource plan={plan} productLayout={workflow === "products"} stockViews={stockViews} placement={frontPlacement} color={selectedHatColor} colors={stockColors} onColorChange={value => { manuallySelectedHatColor.current = true; setSelectedHatColor(value); }} /></td>
-              {workflow === "reviews" ? <td>
+              </td>
+              <td><DesignSource plan={plan} /></td>
+              <td>
                 <div className="rrugc-colorway-slots" aria-label="13 hat color output slots">
                   {Array.from({ length: COLOR_SLOT_COUNT }, (_, index) => {
                     const job = slots?.get(COLOR_KEYS[index]);
@@ -648,27 +715,8 @@ export function EmbroideryColorwayStage({
                     </span>;
                   })}
                 </div>
-              </td> : <td><ProductsPhotoWorkflow
-                lastUpdated={plan.updated_at}
-                sourceName={plan.source_name} sourcePlanId={plan.id} designSrc={plan.source_preview_url} stockViews={stockViews} stockCatalog={hatCatalog?.colors} selectedColor={selectedHatColor} readiness={photoReadiness}
-                ecommerceJobs={ecommerceByPlan.get(plan.id) || []}
-                onEcommerceJobChange={refreshEcommerceJobs}
-                configuredSkillNames={productStage2SkillNames}
-                colors={Array.from(slots?.values() || [])}
-                colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
-                colorwaySkillKey={selectedSkillKey}
-                colorwaySkillSelection={skillInput}
-                colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}
-                colorwaySkillOptions={catalog.items.map(skill => ({ value: skillKey(skill), label: skill.display_name + (skill.upload_version ? " · v" + skill.upload_version : ""), ready: skill.ready }))}
-                onColorwaySkillChange={setSelectedSkillKey}
-                colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
-                colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
-                onQueueColors={retryFailedJobs => queueOneColorway(plan.id, Boolean(retryFailedJobs))}
-                onRetryColor={job => void retryFailed(job)}
-                onOpenColor={job => setVersionsJob({ jobId: job.id, title: job.color_name + " · " + cleanDesignName(plan.source_name) })}
-                onOpenLog={job => setLogJobId(job.id)}
-              /></td>}
-              {workflow === "reviews" && <><td>
+              </td>
+              <td>
                 <div className="rrugc-colorway-progress">
                   <div><span style={{ width: Math.round(completed / COLOR_SLOT_COUNT * 100) + "%" }} /></div>
                   <strong>{completed} / {COLOR_SLOT_COUNT}</strong>
@@ -683,26 +731,24 @@ export function EmbroideryColorwayStage({
                   <small>{completed} completed · {inProgress} active · {failed} failed</small>
                 </div>
               </td>
-              <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td></>}
-              {workflow === "reviews" && <td className="rrugc-colorway-sort-meta">
+              <td><span className="rrugc-colorway-sort-status">{plan.status.replaceAll("_", " ")}</span></td>
+              <td className="rrugc-colorway-sort-meta">
                 {lastUpdated
                   ? <time dateTime={lastUpdated.toISOString()} title={lastUpdated.toLocaleString()}>
                     {lastUpdated.toLocaleDateString()}
                   </time>
                   : "—"}
-              </td>}
+              </td>
             </tr>;
           })}
           {!loading && data.items.length === 0 && <tr>
-            <td colSpan={workflow === "products" ? 2 : 7} className="rrugc-source-plan-empty">
-              {workflow === "products"
-                ? "No Stage 1 embroidery designs selected yet. Select designs in Stage 1 to see them here."
-                : "No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source."}
+<td colSpan={7} className="rrugc-source-plan-empty">
+              No JPG/PNG images have been indexed yet. Check access to the Drive folder and its subfolders, then click Scan source.
             </td>
           </tr>}
         </tbody>
       </table>
-    </div>
+    </div>}
 
     <footer className="rrugc-colorway-footer">
       <span>

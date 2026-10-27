@@ -432,8 +432,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("JPG / PNG");
     expect(markup).toContain("bad day hotdog");
     expect(markup).not.toContain("<th>13-color batch</th>");
-    expect(markup).toContain('data-sort-column="source" data-sort-direction="asc"');
-    expect(markup).toContain('class="is-sort-column" aria-sort="ascending"');
+    expect(markup).toContain('data-stage="2"');
+    expect(markup).toContain('class="rrugc-products-source-tree-sort" role="columnheader" aria-sort="ascending"');
     expect(reviewMarkup).toContain('class="is-sort-column" aria-sort="ascending"');
     expect(markup).toContain('class="rrugc-colorway-design-sort" aria-label="Sort by Embroidery design descending"');
     expect(reviewMarkup).toContain('class="rrugc-colorway-design-sort" aria-label="Sort by Embroidery design descending"');
@@ -477,6 +477,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     ] as const) {
       const sorted = renderToStaticMarkup(
         <EmbroideryColorwayStage
+          workflow="reviews"
           data={{ items: [plan], page: 1, page_size: 20, total: 1, overview: GLOBAL_OVERVIEW }}
           sortBy={sortBy} sortDirection={direction}
           loading={false} syncing={false} query=""
@@ -485,7 +486,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         />,
       );
       expect(sorted).toContain(`data-sort-column="${sortBy}" data-sort-direction="${direction}"`);
-      expect(sorted).not.toContain(`<th class="is-sort-column">${header}</th>`);
+      expect(sorted).toContain(`<th class="is-sort-column">${header}</th>`);
     }
   });
 

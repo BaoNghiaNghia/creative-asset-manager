@@ -15,6 +15,38 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe("Products Stage 2 percentage source splitter", () => {
+  it("defaults to 25%, enforces a 20% minimum, supports keyboard and persists width", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <ResizableSourceLayout stage={2} tree={<div>Designs</div>}><div>Skills</div></ResizableSourceLayout>,
+    ));
+    const splitter = host.querySelector<HTMLElement>('[role="separator"]')!;
+    const grid = host.querySelector<HTMLElement>('.rrugc-resizable-source-layout')!;
+    vi.spyOn(grid, "getBoundingClientRect").mockReturnValue({ width: 1000 } as DOMRect);
+    expect(grid.style.getPropertyValue("--rrugc-source-tree-width")).toBe("25%");
+    expect(splitter.getAttribute("aria-valuemin")).toBe("20");
+    expect(splitter.getAttribute("aria-valuemax")).toBe("45");
+    await act(async () => splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(splitter.getAttribute("aria-valuenow")).toBe("20");
+    await act(async () => splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(splitter.getAttribute("aria-valuenow")).toBe("45");
+    splitter.setPointerCapture = vi.fn();
+    splitter.hasPointerCapture = vi.fn(() => true);
+    splitter.releasePointerCapture = vi.fn();
+    await act(async () => {
+      splitter.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 900 }));
+      splitter.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 100 }));
+      splitter.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 100 }));
+    });
+    expect(splitter.getAttribute("aria-valuenow")).toBe("20");
+    expect(localStorage.getItem("rrugc:source-tree-width:2")).toBe("20");
+    await act(async () => root.unmount());
+  });
+});
+
 describe("Reviews Stage 3/4/5 source tree layout", () => {
   it("builds the full nested tree from unpaginated server folder counts", () => {
     const root = buildSourcePlanFolderTree({

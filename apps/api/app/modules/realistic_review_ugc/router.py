@@ -3251,6 +3251,7 @@ def _source_plan_response(
     previews: list[RrugcCandidateModel] | None = None,
     embroidery_group_size: int = 1,
     source_group_images: list[RrugcSourcePlanModel] | None = None,
+    source_keyword: str | None = None,
 ) -> SourcePlanResponse:
     campaign_counts = counts or Counter()
     campaign_excluded_counts = excluded_counts or Counter()
@@ -3305,6 +3306,7 @@ def _source_plan_response(
             f"?thumbnail=true&size=128&v={row.source_revision[:16]}"
         ),
         source_revision=row.source_revision,
+        source_keyword=source_keyword,
         analysis_revision=row.analysis_revision,
         embroidery_signature=row.embroidery_signature,
         embroidery_group_size=max(1, int(embroidery_group_size)),
@@ -3407,6 +3409,37 @@ def get_source_plan_folders(
     }
 
 
+def _products_stage1_source_keywords(
+    session: Session, tenant_id: str, plans: list[RrugcSourcePlanModel],
+) -> dict[str, str]:
+    """Resolve each selected Stage 1 PNG to its immutable generating keyword.
+
+    Source-plan filenames such as design_04.png are not keywords. Join using
+    the saved Stage 1 output revision, never filename/path heuristics. Bound
+    IN batches and always scope both sides of the join to the active tenant.
+    """
+    revisions = sorted({str(plan.source_revision) for plan in plans if plan.source_revision})
+    mapping: dict[str, str] = {}
+    for start in range(0, len(revisions), 300):
+        for revision, keyword in session.execute(
+            select(RrugcImageOutputVersionModel.id, RrugcKeywordImageJobModel.keyword_text)
+            .join(
+                RrugcKeywordImageJobModel,
+                (RrugcImageOutputVersionModel.job_id == RrugcKeywordImageJobModel.id)
+                & (RrugcImageOutputVersionModel.tenant_id == RrugcKeywordImageJobModel.tenant_id),
+            )
+            .where(
+                RrugcImageOutputVersionModel.tenant_id == tenant_id,
+                RrugcImageOutputVersionModel.stage == "stage1",
+                RrugcKeywordImageJobModel.tenant_id == tenant_id,
+                RrugcImageOutputVersionModel.id.in_(revisions[start:start + 300]),
+            )
+        ):
+            if str(keyword or "").strip():
+                mapping[str(revision)] = str(keyword).strip()
+    return mapping
+
+
 @router.get("/source-plans", response_model=SourcePlanPageResponse)
 def get_source_plans(
     page: int = Query(default=1, ge=1),
@@ -3480,6 +3513,10 @@ def get_source_plans(
         # Stage 1 selections are synthetic source plans and must not leak into
         # the Pinterest discovery/review pipeline.
         all_plans = [row for row in all_plans if row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID]
+    product_keywords = (
+        _products_stage1_source_keywords(session, principal.active_tenant_id, all_plans)
+        if colorway_sources and colorway_workflow == "products" else {}
+    )
     prefix = source_prefix.strip().casefold() if isinstance(source_prefix, str) else ""
     if prefix and not colorway_sources:
         all_plans = [
@@ -3503,6 +3540,7 @@ def get_source_plans(
             if any(
                 needle in member.source_name.lower()
                 or needle in member.source_relative_path.lower()
+                or needle in product_keywords.get(member.source_revision, "").casefold()
                 for member in members
             )
         ]
@@ -3830,6 +3868,7 @@ def get_source_plans(
             ),
             embroidery_group_size=len(group_members_by_plan_id.get(row.id, [row])),
             source_group_images=group_members_by_plan_id.get(row.id, [row]),
+            source_keyword=product_keywords.get(row.source_revision),
         )
         for row in plans
     ]
