@@ -141,6 +141,98 @@ def test_flat_concepts_cannot_be_mislabeled_finished_images(tmp_path, monkeypatc
     assert exc.value.code == "concept_short_image_edits_missing"
 
 
+
+
+@pytest.mark.parametrize("scenario,expected_error", [
+    ("native_match", None),
+    ("native_mismatch", "concept_short_image_edits_missing"),
+    ("no_native", "concept_short_image_edits_missing"),
+    ("stale_cache", "codex_job_home_invalid"),
+])
+def test_builtin_imagegen_uses_private_native_provenance(
+    tmp_path, monkeypatch, scenario, expected_error,
+):
+    """Codex 0.159 can generate real images without JSON tool-call events."""
+    home = tmp_path / "codex_home"
+    skill = home / "skills" / "concept-short-v1"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("name: concept-short-v1")
+    root = tmp_path / "staging"
+    image_uuid = "exec-01234567-89ab-cdef-0123-456789abcdef.png"
+    thread_uuid = "01a17936-e10b-7fb0-9d97-39045cc78b9f"
+    def png(color):
+        from io import BytesIO
+        buffer = BytesIO()
+        Image.new("RGB", (1254, 1254), color).save(buffer, format="PNG")
+        return buffer.getvalue()
+    generated = png((21, 82, 150))
+    flat = png((255, 255, 255))
+    called = []
+
+    async def fake_build(*, script, quote, workspace):
+        source = workspace / "working" / "concept-short" / "test"
+        source.mkdir(parents=True)
+        rows = []
+        for number in range(1, 7):
+            folder = source / f"C{number}"
+            folder.mkdir()
+            (folder / "A_input.png").write_bytes(flat)
+            (folder / "A_prompt.txt").write_text("Stitch edit")
+            (folder / "spec.json").write_text("{}")
+            rows.append({"concept": f"C{number}", "status": "ok"})
+        (source / "summary.json").write_text(json.dumps(rows))
+        if scenario == "stale_cache":
+            cache = workspace / ".codex-runtime" / "generated_images"
+            cache.mkdir(parents=True)
+            thread = cache / thread_uuid
+            thread.mkdir()
+            (thread / image_uuid).write_bytes(generated)
+
+    async def fake_exec(*argv, **kwargs):
+        called.append(True)
+        workspace = Path(argv[argv.index("-C") + 1])
+        cache = Path(kwargs["env"]["CODEX_HOME"]) / "generated_images"
+        if scenario != "no_native":
+            thread = cache / thread_uuid
+            thread.mkdir()
+            (thread / image_uuid).write_bytes(generated)
+        final = workspace / "output" / "final"
+        final.mkdir(parents=True)
+        (final / "design_01.png").write_bytes(
+            flat if scenario == "native_mismatch" else generated
+        )
+        return SimpleNamespace(returncode=0)
+
+    async def fake_stream(*args, **kwargs):
+        # The actual native smoke emits command_execution and messages only.
+        return '{"type":"turn.completed"}', ""
+
+    monkeypatch.setattr(codex_image.shutil, "which", lambda _: "/usr/bin/codex")
+    monkeypatch.setattr(codex_image, "_build_concept_short_source", fake_build)
+    monkeypatch.setattr(codex_image.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(codex_image, "stream_codex_process", fake_stream)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        skill_name="concept-short-v1", output_contract="stage1_six_final_designs",
+        codex_home=str(home), staging_root=str(root), expected_quote="TEST QUOTE",
+    ))
+    def generate():
+        return asyncio.run(runner.generate_from_references(
+            attempt_id="native-job", person=None, references=[], prompt="TEST QUOTE",
+        ))
+
+    if expected_error:
+        with pytest.raises(CodexImageProviderError) as exc:
+            generate()
+        assert exc.value.code == expected_error
+    else:
+        result = generate()
+        assert len(result.output_files) == 1
+        assert Path(result.output_files[0].path).read_bytes() == generated
+    assert len(called) == (0 if scenario == "stale_cache" else 1)
+    if scenario != "stale_cache":
+        assert not (root / "codex" / "native-job" / ".codex-runtime" /
+                    "generated_images").exists()
+
 def test_incomplete_uploaded_zip_with_manifest_is_rejected(tmp_path):
     from io import BytesIO
     import zipfile
