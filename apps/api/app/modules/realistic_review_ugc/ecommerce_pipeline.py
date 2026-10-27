@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput, StorageProviderError
-from app.modules.image_generation.providers import ReferenceImageInput
+from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
@@ -29,6 +29,9 @@ from app.modules.realistic_review_ugc.front_placement import (
     front_placement_prompt, job_front_placement, pin_front_placement,
 )
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
+from app.modules.realistic_review_ugc.slot1_embroidery import (
+    Slot1EmbroideryQAError, build_slot1_material_pass, finish_slot1_refinement,
+)
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -1069,6 +1072,9 @@ class EcommerceGenerateHandler:
             session.commit()
 
         # The rear view needs no design and must not accidentally decorate the back.
+        # This material pass is strictly Slot 1; all other Slots retain their
+        # current pinned photo/preview contract.
+        slot1_material = None
         references = []
         if stage != "prod_s2_ec4":
             design_bytes = await self._open_bytes(storage, context,
@@ -1119,7 +1125,27 @@ class EcommerceGenerateHandler:
                 preview_remote_id = stored_preview.remote_file_id
             else:
                 preview_bytes = None
-            if preview_bytes:
+            if stage == "prod_s2_ec1":
+                # The old flat preview remains pinned for existing downstream
+                # slots, but NEVER enters Slot 1 imagegen as a material example.
+                slot1_material = build_slot1_material_pass(
+                    refs[0][1], design_bytes,
+                    job_front_placement(context.job.payload.get("front_placement")),
+                )
+                edit_mask_bytes = slot1_material.edit_mask_png()
+                references.extend((
+                    ReferenceImageInput(
+                        image=_prepared_image(refs[0][1]), role="unaltered_stock_reference",
+                        label="exact fabric, lighting and factory logo; never repaint outside edit mask"),
+                    ReferenceImageInput(
+                        image=PreparedImage(
+                            image_bytes=edit_mask_bytes, mime_type="image/png",
+                            width=slot1_material.stock.width, height=slot1_material.stock.height,
+                        ),
+                        role="slot1_edit_mask",
+                        label="white is the tiny editable thread region; black pixels are protected stock"),
+                ))
+            elif preview_bytes:
                 references.append(ReferenceImageInput(
                     image=_prepared_image(preview_bytes), role="embroidered_front_preview",
                     label="persisted artwork fitted inside calibrated front embroidery area"))
@@ -1179,7 +1205,10 @@ class EcommerceGenerateHandler:
                 image=scene_image, role="scene_reference",
                 label="pinned approved lifestyle reference; preserve composition only"))
         # Immutable official stock is addressed by its hash, not a transient browser preview.
-        base = _prepared_image(refs[0][1])
+        base = (PreparedImage(
+            image_bytes=slot1_material.stitched_png(), mime_type="image/png",
+            width=slot1_material.stock.width, height=slot1_material.stock.height,
+        ) if slot1_material is not None else _prepared_image(refs[0][1]))
         if front_image:
             references.append(ReferenceImageInput(
                 image=front_image, role="front_reference", label="completed embroidered front photo"))
@@ -1211,14 +1240,30 @@ class EcommerceGenerateHandler:
                      "Multi-hat or UGC Skill using the official Valucap 8869 "
                      + color_key.replace("-", "/") + " five-panel cap. "
                      if stage in SCENE_STAGE_SLOTS
-                     else "Generate ONE photorealistic commercial ecommerce product photograph "
-                          "of the official Valucap 8869 "
-                          + color_key.replace("-", "/") + " five-panel twill cap. "))
+                     else ("EDIT the provided true front stock photograph only within its "
+                           "precise embroidery mask. Keep the original camera, color and "
+                           "all non-embroidery pixels unchanged. "
+                           if stage == "prod_s2_ec1"
+                           else "Generate ONE photorealistic commercial ecommerce product photograph "
+                                "of the official Valucap 8869 "
+                                + color_key.replace("-", "/") + " five-panel twill cap. ")))
             + VIEW_PROMPTS[stage]
             + (" " + front_placement_prompt(job_front_placement(
                 context.job.payload.get("front_placement")))
                if stage != "prod_s2_ec4" else "")
             + " " + embroidery_prompt_for_product_slot(stage)
+            + (" SLOT 1 ONLY: two-pass workflow is already started: the edit target "
+               "is a photographic stock image with a low-profile directional "
+               "stitch underlay built from the immutable Stage 1 geometry. "
+               "Perform only the second-pass thread material refinement. "
+               "The white of slot1_edit_mask is the only editable thread region; "
+               "black must remain identical to unaltered_stock_reference. "
+               "Do not draw guide lines, rewrite typography, change camera aspect "
+               "or reconstruct the cap. Keep stitch fibers subtle, thread pigment "
+               "accurate and avoid foam/emboss/printed/decal appearance. "
+               "The backend will restore every stock pixel outside the mask "
+               "and strictly retain the original design silhouette. "
+               if stage == "prod_s2_ec1" else "")
             + " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
@@ -1245,13 +1290,27 @@ class EcommerceGenerateHandler:
                     )
                 finally:
                     runner.cleanup_attempt(context.job.entity_id)
+        # Slot 1 output is not the AI-rendered full cap. Its micro-thread
+        # frequencies are accepted only after geometry/color gates, and then
+        # composited onto the pinned stock within the actual thread stencil.
+        # QA failure retries the image job; it never stores a fake success.
+        output_bytes = generated.image_bytes
+        output_mime = generated.mime_type
+        if slot1_material is not None:
+            try:
+                output_bytes = finish_slot1_refinement(slot1_material, generated.image_bytes)
+            except Slot1EmbroideryQAError as exc:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_slot1_material_qa_failed", str(exc), retryable=True
+                ) from exc
+            output_mime = "image/png"
         try:
-            if len(generated.image_bytes) > MAX_REFERENCE_BYTES:
+            if len(output_bytes) > MAX_REFERENCE_BYTES:
                 raise ValueError("Output too large")
-            with Image.open(BytesIO(generated.image_bytes)) as image:
+            with Image.open(BytesIO(output_bytes)) as image:
                 width, height = image.size
                 expected = {"PNG":"image/png", "JPEG":"image/jpeg", "WEBP":"image/webp"}.get(image.format)
-                if expected != generated.mime_type or width < 512 or height < 512 or width * height > MAX_REFERENCE_PIXELS:
+                if expected != output_mime or width < 512 or height < 512 or width * height > MAX_REFERENCE_PIXELS:
                     raise ValueError("Output dimensions or media type invalid")
                 image.load()
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
@@ -1259,11 +1318,11 @@ class EcommerceGenerateHandler:
                             "Generated photo did not pass basic validation.", retryable=True) from exc
         stored = await storage.store_asset(StoreAssetInput(
             tenant_id=context.job.tenant_id,
-            content_hash=hashlib.sha256(generated.image_bytes).hexdigest(),
-            body=_bytes_body(generated.image_bytes),
+            content_hash=hashlib.sha256(output_bytes).hexdigest(),
+            body=_bytes_body(output_bytes),
             asset_id="rrugc-ecommerce:" + context.job.entity_id + ":" + context.job.id,
-            content_type=generated.mime_type, size_bytes=len(generated.image_bytes),
-            filename=f"output_ecommerce_{stage}_{context.job.entity_id}_{context.job.id}{_output_extension(generated.mime_type)}",
+            content_type=output_mime, size_bytes=len(output_bytes),
+            filename=f"output_ecommerce_{stage}_{context.job.entity_id}_{context.job.id}{_output_extension(output_mime)}",
             destination_folder_id=folder_id or None,
         ))
         if not stored.remote_file_id:
@@ -1278,10 +1337,15 @@ class EcommerceGenerateHandler:
                 return JobHandlerResult.non_retryable("ecommerce_job_not_found", "Job missing.")
             save_output_version(session, tenant_id=context.job.tenant_id, stage="ecommerce",
                                 job=row, remote_file_id=stored.remote_file_id,
-                                content_type=generated.mime_type,
-                                size_bytes=len(generated.image_bytes), width=width, height=height,
+                                content_type=output_mime,
+                                size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
-                                font_info={"input_reference_snapshot": {
+                                font_info={**({"slot1_embroidery_pipeline": {
+                                    "version": "bounded-thread-material-v1",
+                                    "outside_stock_preserved": True,
+                                    "flat_preview_not_used_for_refinement": True,
+                                }} if stage == "prod_s2_ec1" else {}),
+                                "input_reference_snapshot": {
                                     "source_revision": row.source_revision,
                                     "stock_sha256": row.stock_sha256,
                                     "skill_bundle_sha256": row.skill_bundle_sha256,
@@ -1300,8 +1364,8 @@ class EcommerceGenerateHandler:
                                         if multihat_colors else None),
                                 }})
             row.output_remote_file_id = stored.remote_file_id
-            row.output_content_type = generated.mime_type
-            row.output_size_bytes = len(generated.image_bytes)
+            row.output_content_type = output_mime
+            row.output_size_bytes = len(output_bytes)
             row.output_width, row.output_height = width, height
             row.completed_at = datetime.now(timezone.utc)
             row.status = "completed"

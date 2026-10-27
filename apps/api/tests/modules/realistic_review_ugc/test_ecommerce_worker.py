@@ -150,7 +150,10 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
 
         async def generate_from_references(self, *, person, references, prompt, **kwargs):
             calls.append({"references": references, "prompt": prompt, "person": person})
-            return SimpleNamespace(image_bytes=_image(), mime_type="image/png")
+            return SimpleNamespace(
+                image_bytes=person.image_bytes if stage == "prod_s2_ec1" else _image(),
+                mime_type="image/png",
+            )
 
         def cleanup_attempt(self, attempt_id):
             pass
@@ -192,7 +195,9 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         assert row.output_remote_file_id == "persisted-photo-output"
         assert row.front_preview_remote_file_id == "persisted-photo-output"
         assert row.front_preview_design_sha256
-        assert (row.output_width, row.output_height) == (600, 650)
+        assert (row.output_width, row.output_height) == (
+            (512, 640) if stage == "prod_s2_ec1" else (600, 650)
+        )
         versions = list(session.scalars(select(RrugcImageOutputVersionModel)))
         assert len(versions) == 1
         assert versions[0].stage == "ecommerce"
@@ -202,7 +207,16 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     assert storage.saved[0][0].startswith("input_embroidered_front_")
     assert len(calls) == 1
     assert calls[0]["references"][0].role == "design_reference"
-    assert calls[0]["references"][1].role == "embroidered_front_preview"
+    assert calls[0]["references"][1].role == (
+        "unaltered_stock_reference" if stage == "prod_s2_ec1"
+        else "embroidered_front_preview"
+    )
+    if stage == "prod_s2_ec1":
+        assert calls[0]["references"][2].role == "slot1_edit_mask"
+        assert "white of slot1_edit_mask" in calls[0]["prompt"]
+        assert calls[0]["person"].mime_type == "image/png"
+        assert all(ref.role != "embroidered_front_preview"
+                   for ref in calls[0]["references"])
     assert len(calls[0]["references"]) >= 2
     if stage == "prod_s2_ec1":
         assert "FRONT high" in calls[0]["prompt"]
