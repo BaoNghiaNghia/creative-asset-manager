@@ -17,7 +17,7 @@ const browserExecutable = existsSync(chromium.executablePath())
   : existsSync("/opt/google/chrome/chrome") ? "/opt/google/chrome/chrome" : null;
 
 describe("Stage 2 row alignment in an actual browser", () => {
-  (browserExecutable ? it : it.skip)("aligns each card's title directly above Skill, groups timestamps next to its name, and anchors actions before it", async () => {
+  (browserExecutable ? it : it.skip)("shows title, skill and timestamps, then actions in separate left-aligned rows", async () => {
     const browser = await chromium.launch({ executablePath: browserExecutable, headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     try {
       const page = await browser.newPage({ viewport: { width: 1740, height: 1000 }, deviceScaleFactor: 1 });
@@ -40,7 +40,8 @@ describe("Stage 2 row alignment in an actual browser", () => {
       }));
       expect(boxes).toHaveLength(7);
       for (const row of boxes) {
-        expect(row.controls.right).toBeLessThan(row.title.left);
+        if (row.colorway) expect(row.controls.right).toBeLessThan(row.title.left);
+        else expect(row.controls.top).toBeGreaterThanOrEqual(row.skill.bottom - 2);
         expect(Math.abs(row.title.left - row.skill.left)).toBeLessThan(3);
         expect(row.date.left).toBeGreaterThan(row.name.right);
         expect(row.date.left - row.name.right).toBeLessThan(24);
