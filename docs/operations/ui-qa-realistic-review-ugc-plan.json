@@ -181,14 +181,14 @@
     {
       "name": "stage2-sort-controls",
       "click": "#rrugc-panel-stage2 .rrugc-colorway-design-sort",
-      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-table[data-sort-direction='desc'] th[aria-sort='descending']",
+      "waitFor": "#rrugc-panel-stage2 .rrugc-products-source-tree-sort[aria-sort='descending']",
       "assertions": [
-        {"type":"attribute","selector":"#rrugc-panel-stage2 .rrugc-colorway-table th[aria-sort='descending']","name":"aria-sort","value":"descending"}
+        {"type":"attribute","selector":"#rrugc-panel-stage2 .rrugc-products-source-tree-sort","name":"aria-sort","value":"descending"}
       ]
     },
     {
       "name": "stage2-sort-column-highlight",
-      "waitFor": "#rrugc-panel-stage2 .rrugc-colorway-table[data-sort-column='source'] thead th.is-sort-column"
+      "waitFor": "#rrugc-panel-stage2 .rrugc-products-source-tree-sort .rrugc-sort-indicator[data-sort-state='desc']"
     },
     {
       "name": "reviews-workflow-return",
