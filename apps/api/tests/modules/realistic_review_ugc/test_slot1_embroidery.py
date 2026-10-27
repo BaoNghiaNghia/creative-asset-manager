@@ -76,7 +76,13 @@ def test_slot1_flattens_fake_bevel_lighting_without_changing_letter_shape():
     inside = np.asarray(result.thread_mask) > 245
     colors = np.asarray(result.stitched, dtype=np.float32)[inside]
     assert len(colors) > 500
-    assert float(np.std(colors[:, 2])) < 9.0, "Stage 1 bevel survived in thread pigment"
+    # Fine stitch contrast is intentional; the original *broad* embossed
+    # brightness gradient must disappear without flattening all filament grain.
+    channel = np.asarray(result.stitched, dtype=np.float32)[:, :, 2]
+    smooth = cv2.GaussianBlur(channel, (0, 0), 5)
+    assert float(np.std(smooth[inside])) < 9.0, "Stage 1 broad bevel survived"
+    highpass = channel - cv2.GaussianBlur(channel, (0, 0), .95)
+    assert float(np.std(highpass[inside])) > 3.0, "Stitch field collapsed to a flat print"
     assert np.all(np.asarray(result.stitched)[~np.asarray(result.edit_mask).astype(bool)]
                   == np.asarray(result.stock)[~np.asarray(result.edit_mask).astype(bool)])
 
@@ -116,3 +122,48 @@ def test_halo_in_candidate_cannot_spread_outside_edit_mask(material):
     cap[near] = np.maximum(0, cap[near].astype(np.int16) - 70).astype(np.uint8)
     with pytest.raises(Slot1EmbroideryQAError, match="emboss halo"):
         finish_slot1_refinement(material, png(Image.fromarray(cap, "RGB")))
+
+
+def test_stitch_material_has_visible_nonflat_filaments_and_is_deterministic(material):
+    before = np.asarray(material.stock, dtype=np.float32)
+    stitched = np.asarray(material.stitched, dtype=np.float32)
+    core = np.asarray(material.thread_mask) > 240
+    assert core.sum() > 100
+    changed = stitched - before
+    # Real thread shows fine texture inside the stroke, not a single solid
+    # pixel color or an oversized bevel outside the source silhouette.
+    bright = cv2.cvtColor(np.uint8(stitched), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    micro = bright - cv2.GaussianBlur(bright, (0, 0), 1.15)
+    assert float(np.std(micro[core])) > 3.0
+    assert abs(float(np.mean(changed[core, 2]))) > 10
+    assert material.guide_box[0] >= 0
+
+
+def test_second_pass_retains_bounded_fiber_detail_without_painting_another_word(material):
+    before = np.asarray(material.stitched, dtype=np.uint8).copy()
+    stock = np.asarray(material.stock, dtype=np.uint8)
+    core = np.asarray(material.thread_mask) >= 230
+    yy, xx = np.indices(core.shape)
+    variant = before.astype(np.int16)
+    variant[core] += np.where(xx[core] % 4 < 2, 12, -12)[:, None]
+    variant = np.uint8(np.clip(variant, 0, 255))
+    output = finish_slot1_refinement(material, png(Image.fromarray(variant, "RGB")))
+    final = np.asarray(Image.open(BytesIO(output)))
+    editable = np.asarray(material.edit_mask) > 0
+    assert np.array_equal(final[~editable], stock[~editable])
+    assert not np.array_equal(final[core], before[core])
+    # Contrast must remain restrained; secondary pass cannot puff the letters.
+    assert np.max(np.abs(final[core].astype(np.int16) - before[core].astype(np.int16))) <= 24
+
+
+def test_second_pass_rejects_untextured_print_even_with_valid_source_shape(material):
+    from dataclasses import replace
+
+    alpha = np.asarray(material.thread_mask, dtype=np.float32) / 255.0
+    stock = np.asarray(material.stock, dtype=np.float32)
+    pigment = np.array([12, 55, 176], dtype=np.float32)
+    matte = stock * (1 - alpha[..., None]) + pigment * alpha[..., None]
+    flat = Image.fromarray(np.uint8(np.clip(matte, 0, 255)), "RGB")
+    flat_pass = replace(material, stitched=flat)
+    with pytest.raises(Slot1EmbroideryQAError, match="too flat or printed-looking"):
+        finish_slot1_refinement(flat_pass, png(flat))

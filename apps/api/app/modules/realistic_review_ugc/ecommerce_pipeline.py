@@ -210,6 +210,31 @@ def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage:
         raise EcommerceError(exc.code, exc.message, exc.status_code) from exc
 
 
+def _repin_explicit_slot1_to_thread_v2(
+    session: Session, settings: Settings, tenant_id: str, row: RrugcEcommerceJobModel,
+) -> bool:
+    """Only user-triggered Retry/Regenerate may adopt the new Slot 1 default.
+
+    Old queued/running jobs keep their pinned Skill, and old stored output
+    versions retain their original provenance. No other Ecommerce slot changes.
+    """
+    if row.stage != "prod_s2_ec1":
+        return False
+    selected = _assigned_skill(session, settings, tenant_id, row.stage)
+    if selected.skill_name != "gatorhats-8869-ecommerce-front-thread-v2":
+        return False
+    digest = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
+    if not digest:
+        raise EcommerceError("ecommerce_skill_missing",
+                             "The assigned Slot 1 True Thread v2 Skill is not installed.", 409)
+    row.skill_source = selected.source
+    row.skill_id = selected.skill_id
+    row.skill_name = selected.skill_name
+    row.skill_version = selected.skill_version
+    row.skill_bundle_sha256 = digest
+    return True
+
+
 def _front_job(session: Session, plan: RrugcSourcePlanModel, color_key: str = "natural-black") -> RrugcEcommerceJobModel:
     front = session.scalar(select(RrugcEcommerceJobModel).where(
         RrugcEcommerceJobModel.tenant_id == plan.tenant_id,
@@ -720,6 +745,8 @@ class EcommerceService:
             row.skill_version = selected.skill_version
             row.skill_bundle_sha256 = installed_stage2_skill_sha256(
                 selected.skill_name, settings=self.settings)
+        elif row.stage == "prod_s2_ec1":
+            _repin_explicit_slot1_to_thread_v2(self.session, self.settings, tenant_id, row)
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
@@ -795,14 +822,16 @@ class EcommerceService:
             row.front_preview_size_bytes = front.front_preview_size_bytes
             row.front_preview_design_sha256 = front.front_preview_design_sha256
         if row.stage == "prod_s2_ec1":
+            _repin_explicit_slot1_to_thread_v2(self.session, self.settings, tenant_id, row)
             # Explicit regeneration consumes the current calibration, not an
             # outdated persisted front overlay. Saved output versions are intact.
             row.front_preview_remote_file_id = None
             row.front_preview_content_type = None
             row.front_preview_size_bytes = None
             row.front_preview_design_sha256 = None
-        # Keep the version's original Skill pinned; do not silently switch to
-        # another assigned Skill in a historical photo job.
+        # Keep the original pinned Skill for all other slots. An explicit
+        # Slot 1 regeneration alone can intentionally adopt True Thread v2;
+        # the previous output version and its original Skill SHA remain saved.
         row.status = "queued"
         row.retry_count = 0
         row.started_at = None
@@ -1341,7 +1370,7 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": "bounded-thread-material-v1",
+                                    "version": "photographic-fibers-v2",
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
                                 }} if stage == "prod_s2_ec1" else {}),

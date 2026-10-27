@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-ecommerce-front-thread-v2",
+  "display_name": "8869 Front - True Thread v2",
+  "description": "Stage 2 Slot 1: exact Stage 1 design on an untouched stock cap with fine photographic embroidery.",
+  "workflows": ["image_studio"],
+  "product_types": ["hat", "cap", "baseball_cap"],
+  "required_reference_roles": ["design_reference", "unaltered_stock_reference", "slot1_edit_mask"],
+  "optional_reference_roles": [],
+  "max_references": 8
+}

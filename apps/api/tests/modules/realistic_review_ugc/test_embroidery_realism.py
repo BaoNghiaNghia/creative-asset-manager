@@ -65,6 +65,16 @@ def test_fabric_first_refinement_is_strictly_scoped_to_slot_one():
         assert "SLOT-1-ONLY FABRIC-FIRST PHOTO EDIT" not in embroidery_prompt_for_product_slot(stage)
 
 
+def test_slot1_uses_thread_material_reference_without_transferring_words_or_fabric():
+    front = embroidery_prompt_for_product_slot("prod_s2_ec1")
+    assert "visibly distinct, fine photographic yarns" in front
+    assert "uniformly smooth printed fill" in front
+    assert "Do not borrow reference wording, pigments" in front
+    assert "burgundy corduroy cap" not in front
+    # The other slots remain on their existing material policy.
+    assert "burgundy corduroy cap" in embroidery_prompt_for_product_slot("prod_s2_ec2")
+
+
 def test_rear_remains_blank_not_forced_to_have_front_artwork():
     prompt = embroidery_prompt_for_product_slot("prod_s2_ec4")
     assert "UNEMBROIDERED rear crown" in prompt

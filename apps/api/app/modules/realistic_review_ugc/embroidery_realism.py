@@ -150,13 +150,33 @@ for _stage in _SLOT6:
     )
 
 
+# Slot 1 quality reference has changed. In the supplied example the blue
+# lettering visibly contains independent yarns on natural twill. Treat it as
+# thread MATERIAL quality only; every design keeps its own typography/palette.
+_SLOT1_THREAD_STANDARD = _SHARED_THREAD.replace(
+    "Target the photographed REAL-THREAD appearance of subtle cream embroidery "
+    "on a burgundy corduroy cap (the user's quality benchmark): low stitch height, "
+    "gentle cloth interaction, organic filament detail and soft daylight.",
+    "SLOT 1 MATERIAL BENCHMARK: visibly distinct, fine photographic yarns like "
+    "the supplied blue serif embroidery on natural twill, with directional "
+    "filament highlights, irregular tiny thread grooves and soft needle contact; "
+    "never a uniformly smooth printed fill or a coarse computer emboss.",
+).replace(
+    "This is a MATERIAL reference only: never borrow its cream/red palette, "
+    "corduroy fabric, words, logo, hat construction or lifestyle background.",
+    "This is a MATERIAL reference only. Do not borrow reference wording, pigments "
+    "or hat construction; use each selected Stage 1 artwork and official stock.",
+)
+
+
 def embroidery_prompt_for_product_slot(stage: str) -> str:
     """Mandatory output appearance, no change to stored Skill bundles or DB rows."""
     try:
         direction = _SLOT_DIRECTIONS[stage]
     except KeyError as exc:
         raise ValueError(f"Unsupported GatorHats Products slot: {stage}") from exc
-    return " ".join((_SHARED_THREAD, direction, _FRONT_QA))
+    shared = _SLOT1_THREAD_STANDARD if stage == "prod_s2_ec1" else _SHARED_THREAD
+    return " ".join((shared, direction, _FRONT_QA))
 
 
 def covered_product_slot_stages() -> frozenset[str]:

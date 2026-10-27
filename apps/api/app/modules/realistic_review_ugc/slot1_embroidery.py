@@ -8,6 +8,7 @@ a claim of textile manufacturing accuracy.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from io import BytesIO
 
 import cv2
@@ -20,6 +21,7 @@ from app.modules.realistic_review_ugc.ecommerce_front_reference import (
 from app.modules.realistic_review_ugc.front_placement import (
     DEFAULT_FRONT_PLACEMENT, validate_front_design_size, validate_front_placement,
 )
+from app.modules.realistic_review_ugc.stage1_photo_samples import reference_patch
 
 _MAX_PIXELS = 8_000_000  # Bounded float planes for production worker memory.
 
@@ -106,23 +108,43 @@ def build_slot1_material_pass(
     smoothed = cv2.GaussianBlur(a, (0, 0), 1.6)
     gx = cv2.Sobel(smoothed, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(smoothed, cv2.CV_32F, 0, 1, ksize=3)
-    # Dominant local stroke normal; satin stitches run across narrow strokes.
+    # The angle is an *axis*, not a signed vector: mix it in double-angle
+    # space to avoid discontinuities at +/-90 degrees. Thin serifs keep
+    # stroke-normal satin, broad letters receive directional fill.
     radius = 2.8
     jxx = cv2.GaussianBlur(gx * gx, (0, 0), radius)
     jyy = cv2.GaussianBlur(gy * gy, (0, 0), radius)
     jxy = cv2.GaussianBlur(gx * gy, (0, 0), radius)
-    normal_angle = .5 * np.arctan2(2 * jxy, jxx - jyy)
+    normal_length = np.sqrt((jxx - jyy) ** 2 + (2 * jxy) ** 2) + 1e-5
     fill_weight = np.clip((thickness - 2.0) / 5.0, 0, 1)
-    angle = (1 - fill_weight) * normal_angle + fill_weight * .62
+    axis_cos = (1 - fill_weight) * ((jxx - jyy) / normal_length) + fill_weight * np.cos(1.24)
+    axis_sin = (1 - fill_weight) * ((2 * jxy) / normal_length) + fill_weight * np.sin(1.24)
+    angle = .5 * np.arctan2(axis_sin, axis_cos)
     yy, xx = np.mgrid[:h, :w].astype(np.float32)
-    # Fine separated fibers; small deterministic phase variation, not noise
-    # smeared over the cap.  Keep their amplitude well below fake cord ridges.
-    perpendicular = -xx * np.sin(angle) + yy * np.cos(angle)
-    phase = (2 * np.pi / 2.15) * perpendicular + .12 * np.sin(xx * .067 + yy * .091)
-    fiber = .030 * np.cos(phase) + .012 * np.cos(phase * 2.0)
-    needle = .008 * np.cos(2 * np.pi * (xx * np.cos(angle) + yy * np.sin(angle)) / 9.7)
+    across = -xx * np.sin(angle) + yy * np.cos(angle)
+    along = xx * np.cos(angle) + yy * np.sin(angle)
+    # Slight variation in stitch spacing is essential: mathematically perfect
+    # stripes make lettering look digitally printed or molded. Preserve the
+    # canonical alpha; texture never defines new lettering.
+    seed = int.from_bytes(hashlib.sha256(np.uint8(np.clip(source, 0, 255)).tobytes()).digest()[:8], "big")
+    rng = np.random.default_rng(seed)
+    random_grain = rng.standard_normal((h, w)).astype(np.float32)
+    fine_grain = random_grain - cv2.GaussianBlur(random_grain, (0, 0), 1.05)
+    jitter = .20 * np.sin(xx * .059 + yy * .045) + .13 * np.cos(xx * .027 - yy * .083)
+    phase = (2 * np.pi / 2.65) * (across + jitter)
+    strand = .072 * np.cos(phase) + .027 * np.cos(2 * phase + .34)
+    needle = .014 * np.cos(2 * np.pi * along / 13.4 + .22 * np.sin(xx * .043))
+    # Reference is a tiny grayscale swatch of real stitches; transfer only
+    # high-frequency surface variation, never its words, pigment or fabric.
+    sample = np.asarray(reference_patch("thread"), dtype=np.float32)
+    mirrored = np.block([[sample, sample[:, ::-1]], [sample[::-1, :], sample[::-1, ::-1]]])
+    tiled = np.tile(mirrored, ((h + 127) // 128, (w + 127) // 128))[:h, :w]
+    photo_grain = np.clip(
+        (tiled - cv2.GaussianBlur(tiled, (0, 0), 1.1)) / 110.0, -1, 1,
+    )
     edge = np.clip(cv2.GaussianBlur(a, (0, 0), 1.0) - a, -.5, .5)
-    light = fiber + needle - .015 * np.maximum(-edge, 0)
+    light = strand + needle + .025 * photo_grain + .012 * fine_grain
+    light = np.clip(light, -.15, .15) - .012 * np.maximum(-edge, 0)
     cap = np.asarray(stock.crop((x, y, x + w, y + h)), dtype=np.float32)
     # Stage 1 is the glyph/color authority, NOT the lighting authority.
     # Its RGB may already include 3D bevels or broad satin highlights.
@@ -146,8 +168,15 @@ def build_slot1_material_pass(
             representative = np.median(rgb[members], axis=0)
             pigment[groups == group] = representative
     # Build a low-profile stitched material, not a second embossed shader.
-    thread = pigment * (1.0 + light[:, :, None])
-    thread = .947 * thread + .053 * cap
+    # Subpixel filaments need an additive photographic highlight/shadow term.
+    # A pure percent-of-pigment shader barely changes dark blue/red thread and
+    # was the root cause of low-contrast, digitally printed-looking letters.
+    filament_glints = np.clip(
+        10.5 * np.cos(phase + .17) + 4.5 * np.cos(2 * phase + .34),
+        -16, 16,
+    )
+    thread = pigment * (1.0 + light[:, :, None]) + filament_glints[:, :, None]
+    thread = .94 * thread + .06 * cap
     thread = np.clip(thread, 0, 255)
     # Only a slight real contact depression, never broad black outlines.
     touching = np.maximum(cv2.GaussianBlur(a, (0, 0), 1.1) - a, 0)
@@ -234,12 +263,19 @@ def finish_slot1_refinement(
             if float(np.median(diff[near]) - np.median(diff[far])) > 32:
                 raise Slot1EmbroideryQAError("AI candidate has an exaggerated dark emboss halo.")
 
-    # Enhancement uses ONLY bounded high-frequency luminance within source
-    # stitch pixels, not model-drawn letterforms, outlines, or cap material.
+    # The old .33*(generated-highpass) removed nearly all visible thread
+    # detail, leaving a smooth colored wordmark. Transfer bounded high-frequency
+    # *difference from stock* so cap weave/lighting and invented glyphs cannot
+    # be pasted from the AI result. Geometry and pigment still come from pass 1.
     luma = cv2.cvtColor(np.uint8(generated), cv2.COLOR_RGB2GRAY).astype(np.float32)
-    baseline = cv2.GaussianBlur(luma, (0, 0), 1.45)
-    micro = np.clip(luma - baseline, -16, 16)
-    final = underlay + (.33 * micro * alpha)[:, :, None]
+    stock_luma = cv2.cvtColor(np.uint8(stock), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    embroidery_difference = luma - stock_luma
+    micro = embroidery_difference - cv2.GaussianBlur(embroidery_difference, (0, 0), 1.45)
+    micro = np.clip(micro, -24, 24)
+    # Confine the extra filament relief to the opaque source glyph cores:
+    # antialiased edges retain their exact alpha and no dark halo can grow.
+    core_weight = np.clip((alpha - .18) / .82, 0, 1)
+    final = underlay + (.72 * micro * core_weight)[:, :, None]
     result = np.uint8(np.clip(np.rint(final), 0, 255))
     # Verify non-edit pixels are truly stock-identical (including the side logo).
     editable = np.asarray(material.edit_mask, dtype=np.uint8) > 0
@@ -249,4 +285,15 @@ def finish_slot1_refinement(
         raise Slot1EmbroideryQAError("The cap was modified outside the pinned embroidery mask.")
     if np.mean(np.abs(result[inside].astype(np.float32) - stock[inside])) < 5:
         raise Slot1EmbroideryQAError("Finished image lost embroidery contrast.")
+    # When there is enough stroke width to resolve individual threads,
+    # reject an essentially untextured/printed fill. This measurable gate
+    # protects v2 from regressing to the smooth v1 look. Tiny lettering is
+    # exempt because its stitch filaments are subpixel at catalog scale.
+    core = np.uint8(alpha >= .82)
+    thick = cv2.distanceTransform(core, cv2.DIST_L2, 3) >= 3.0
+    if int(np.count_nonzero(thick)) >= 512:
+        luminance = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY).astype(np.float32)
+        high_frequency = luminance - cv2.GaussianBlur(luminance, (0, 0), 1.15)
+        if float(np.std(high_frequency[thick])) < 10.5:
+            raise Slot1EmbroideryQAError("Finished embroidery is too flat or printed-looking.")
     return _png(Image.fromarray(result, "RGB"))
