@@ -5,6 +5,25 @@ import { ProductsPhotoWorkflow, legacyMissingAssetsForStep } from "./ProductsPho
 import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
+  it("places actions first and both time values beside Skill in all seven rows", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design.png" readiness={null} />);
+    const rows = html.split(/<div class="rrugc-products-photo-stage-row(?: is-colorway)?" data-skill="/).slice(1);
+    expect(rows).toHaveLength(7);
+    for (const row of rows) {
+      const controls = row.indexOf('class="rrugc-products-photo-stage-controls"');
+      const title = row.indexOf('class="rrugc-products-photo-stage-title"');
+      const skill = row.indexOf('class="rrugc-products-photo-skill"');
+      const timing = row.indexOf('class="rrugc-products-photo-stage-times"');
+      const updated = row.indexOf('class="rrugc-products-photo-updated"', timing);
+      const duration = row.indexOf('class="rrugc-products-photo-duration"', timing);
+      expect(controls).toBeGreaterThan(-1);
+      expect(controls).toBeLessThan(title);
+      expect(skill).toBeLessThan(timing);
+      expect(updated).toBeGreaterThan(timing);
+      expect(duration).toBeGreaterThan(timing);
+      expect(updated).toBeLessThan(duration);
+    }
+  });
   it("does not apply obsolete four-image bundle requirements to independent Ecommerce slots", () => {
     const obsolete = ["SKILL.md", "references/SHOT_VISIBILITY_AND_QA.md", "scripts/release_check.py"];
     expect(legacyMissingAssetsForStep(true, obsolete)).toEqual([]);
