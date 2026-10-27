@@ -819,6 +819,7 @@ export function KeywordAnalysisTable({
 
   return <>
   <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
+    <div className="rrugc-stage0-heading-row">
     <RrugcStageHeader
       className="rrugc-stage0-heading"
       kicker="STAGE 0 · KEYWORD INTELLIGENCE"
@@ -856,6 +857,8 @@ export function KeywordAnalysisTable({
         </button>
         <span className="rrugc-stage0-live-badge"><i aria-hidden="true" />Live keyword data</span>
       </div>
+    </div>
+
     </div>
 
     <div className="rrugc-source-plan-kpis rrugc-stage0-kpis rrugc-stage0-kpis-restored" aria-label="Keyword overview filters">
