@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
 import { ProductsStage2SourceTree, stage2DesignKeyword } from "./ProductsStage2SourceTree";
 import type { SourcePlan, SourcePlanPage } from "./types";
+import type { ProductDesignProgress } from "./ProductsStage2Progress";
 
 vi.mock("./ProductsPhotoWorkflow", async importOriginal => {
   const actual = await importOriginal<typeof import("./ProductsPhotoWorkflow")>();
@@ -43,6 +44,11 @@ const plans = [
   },
 ] as SourcePlan[];
 
+const progressByPlan: Record<string, ProductDesignProgress> = {
+  "design-one": { state: "complete", completed: 22, total: 22, running: 0, failed: 0 },
+  "design-two": { state: "running", completed: 4, total: 22, running: 1, failed: 0 },
+};
+
 const page: SourcePlanPage = {
   items: plans, total: 2, page: 1, page_size: 20,
   overview: {
@@ -65,7 +71,8 @@ describe("Products Stage 2 thumbnail + keyword source tree", () => {
     const root = createRoot(host);
     const onSelect = vi.fn();
     await act(async () => root.render(
-      <ProductsStage2SourceTree plans={plans} total={46} loading={false}
+      <ProductsStage2SourceTree plans={plans} total={2} loading={false}
+        progressByPlan={progressByPlan}
         selectedPlanId="design-one" onSelect={onSelect}
         sortBy="source" sortDirection="asc" onSortChange={() => undefined} />,
     ));
@@ -74,7 +81,14 @@ describe("Products Stage 2 thumbnail + keyword source tree", () => {
     expect(items[0].getAttribute("aria-current")).toBe("true");
     expect(items[0].textContent).toContain("COLD BE MEANER");
     expect(items[1].textContent).toContain("Y'ALL NEED JESUS");
-    expect(items[1].textContent).toContain("design_04.png");
+    expect(items[1].getAttribute("title")).toContain("design_04.png");
+    expect(items[0].textContent).toContain("Complete");
+    expect(items[0].textContent).toContain("22/22");
+    expect(items[1].textContent).toContain("Running");
+    expect(items[1].textContent).toContain("4/22");
+    expect(host.textContent).toContain("All 2 designs");
+    expect(host.textContent).toContain("1 complete");
+    expect(host.querySelector(".rrugc-products-source-tree-item.is-selected")).toBe(items[0]);
     await act(async () => items[1].click());
     expect(onSelect).toHaveBeenCalledWith("design-two");
     const image = items[0].querySelector("img");

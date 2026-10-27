@@ -4,6 +4,7 @@ import { listStage2Skills, listColorwayJobs, listEcommerceJobs, queueColorwayBat
 import type { ColorwayJob, EcommerceJob, ColorwayReadiness, ProductsStage2PhotoReadiness, HatStockCatalog } from "./api";
 import { ProductsPhotoWorkflow, PHOTO_COLOR_KEYS } from "./ProductsPhotoWorkflow";
 import { ProductsStage2SourceTree, stage2DesignKeyword } from "./ProductsStage2SourceTree";
+import { productDesignProgress } from "./ProductsStage2Progress";
 import { ResizableSourceLayout } from "./ResizableSourceLayout";
 import { DeferredImage } from "./DeferredImage";
 import { AppliedHatPreview } from "./AppliedHatPreview";
@@ -154,6 +155,8 @@ export function EmbroideryColorwayStage({
   const [selectedProductPlanId, setSelectedProductPlanId] = useState<string | null>(null);
   const [colorwayJobs, setColorwayJobs] = useState<ColorwayJob[]>([]);
   const [ecommerceJobs, setEcommerceJobs] = useState<EcommerceJob[]>([]);
+  const [ecommerceSnapshot, setEcommerceSnapshot] = useState<{key: string; status: "ready" | "error"}>({ key: "", status: "error" });
+  const [colorwaySnapshot, setColorwaySnapshot] = useState<{key: string; status: "ready" | "error"}>({ key: "", status: "error" });
   const [queueing, setQueueing] = useState(false);
   const [queueingPlanId, setQueueingPlanId] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -317,10 +320,14 @@ export function EmbroideryColorwayStage({
         const result = await listEcommercePageJobs(pagePlanKey.split(","), controller.signal);
         if (!controller.signal.aborted) {
           setEcommerceJobs(result);
+          setEcommerceSnapshot({ key: pagePlanKey, status: "ready" });
           refreshDelay = result.some(job => job.status === "queued" || job.status === "running")
             ? 5000 : 30000;
         }
       } catch {
+        if (!controller.signal.aborted) setEcommerceSnapshot(previous =>
+          previous.key === pagePlanKey && previous.status === "ready"
+            ? previous : { key: pagePlanKey, status: "error" });
         refreshDelay = 30000;
       } finally {
         busy = false;
@@ -338,7 +345,10 @@ export function EmbroideryColorwayStage({
   }, [active, workflow, pagePlanKey]);
 
   const refreshEcommerceJobs = async () => {
-    if (pagePlanKey) setEcommerceJobs(await listEcommercePageJobs(pagePlanKey.split(",")));
+    if (pagePlanKey) {
+      setEcommerceJobs(await listEcommercePageJobs(pagePlanKey.split(",")));
+      setEcommerceSnapshot({ key: pagePlanKey, status: "ready" });
+    }
   };
 
   const skillInput: Stage2SkillSelection | null = ready && selectedSkill ? {
@@ -370,11 +380,17 @@ export function EmbroideryColorwayStage({
         const result = await listColorwayJobs(pagePlanKey.split(","), controller.signal);
         if (!controller.signal.aborted) {
           setColorwayJobs(result);
+          setColorwaySnapshot({ key: pagePlanKey, status: "ready" });
           // Poll quickly only while a job can change; idle pages should not hammer the API.
           refreshDelay = result.some(job => job.status === "queued" || job.status === "running") ? 5000 : 30000;
         }
       } catch (reason) {
-        if (!controller.signal.aborted) setJobMessage(reason instanceof Error ? reason.message : "Could not load colorway jobs.");
+        if (!controller.signal.aborted) {
+          setJobMessage(reason instanceof Error ? reason.message : "Could not load colorway jobs.");
+          setColorwaySnapshot(previous =>
+            previous.key === pagePlanKey && previous.status === "ready"
+              ? previous : { key: pagePlanKey, status: "error" });
+        }
         refreshDelay = 30000;
       } finally {
         busy = false;
@@ -394,7 +410,10 @@ export function EmbroideryColorwayStage({
   }, [active, pagePlanKey]);
 
   const refreshJobs = async () => {
-    if (pagePlanKey) setColorwayJobs(await listColorwayJobs(pagePlanKey.split(",")));
+    if (pagePlanKey) {
+      setColorwayJobs(await listColorwayJobs(pagePlanKey.split(",")));
+      setColorwaySnapshot({ key: pagePlanKey, status: "ready" });
+    }
   };
   const queueSelected = async () => {
     if (!skillInput || !canQueue) return;
@@ -503,6 +522,21 @@ export function EmbroideryColorwayStage({
     });
   }
 
+  const productSnapshot =
+    ecommerceSnapshot.key !== pagePlanKey || colorwaySnapshot.key !== pagePlanKey
+      ? "loading"
+      : ecommerceSnapshot.status === "error" || colorwaySnapshot.status === "error"
+        ? "unavailable" : "ready";
+  const productProgressByPlan = Object.fromEntries(data.items.map(plan => [
+    plan.id,
+    productDesignProgress(
+      ecommerceByPlan.get(plan.id) || [],
+      Array.from(byPlan.get(plan.id)?.values() || []),
+      selectedHatColor,
+      productSnapshot,
+    ),
+  ]));
+
   return <section className={"rrugc-card rrugc-colorway-stage" + (workflow === "products" ? " is-products-compact" : "")}>
     <RrugcStageHeader
       className="rrugc-colorway-header"
@@ -588,6 +622,8 @@ export function EmbroideryColorwayStage({
     {workflow === "products" ? <ResizableSourceLayout stage={2}
       tree={<ProductsStage2SourceTree
         plans={data.items} total={data.total} loading={loading}
+        progressByPlan={productProgressByPlan}
+        hatColor={selectedHatColor}
         selectedPlanId={!loading ? activeProductPlan?.id || null : null}
         onSelect={setSelectedProductPlanId}
         sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange}
@@ -750,7 +786,7 @@ export function EmbroideryColorwayStage({
       </table>
     </div>}
 
-    <footer className="rrugc-colorway-footer">
+    {workflow === "reviews" && <footer className="rrugc-colorway-footer">
       <span>
         Page {data.page} / {pageCount} · {data.total} designs · {plannedOutputs} planned outputs
       </span>
@@ -761,7 +797,7 @@ export function EmbroideryColorwayStage({
           {STAGE1_PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}
         </select></label>
       </div>
-    </footer>
+    </footer>}
     {logJobId && <SkillJobLogDialog stage="stage2" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     {versionsJob && <GenerationOutputVersionsDialog stage="stage2" jobId={versionsJob.jobId} title={versionsJob.title} onClose={() => setVersionsJob(null)} onRegenerate={() => void regenerateCompleted(versionsJob.jobId)} />}
   </section>;

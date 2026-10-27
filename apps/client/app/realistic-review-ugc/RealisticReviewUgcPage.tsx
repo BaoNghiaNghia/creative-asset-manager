@@ -40,6 +40,7 @@ import { KeywordAnalysisTable } from "./KeywordAnalysisTable";
 import { ResearchInboxPanel } from "./ResearchInboxPanel";
 import { SearchIntelligenceModal } from "./SearchIntelligencePanel";
 import { EmbroideryColorwayStage } from "./EmbroideryColorwayStage";
+import { loadAllProductStage2SourcePlans } from "./ProductsStage2SourcePlans";
 import { ProductsVideoStage } from "./ProductsVideoStage";
 import { KeywordImageStage } from "./KeywordImageStage";
 import { SourcePlanTable } from "./SourcePlanTable";
@@ -169,8 +170,6 @@ export function RealisticReviewUgcPage() {
   }, []);
   const [keywordLoading, setKeywordLoading] = useState(true);
   const [embroideryPage, setEmbroideryPage] = useState<SourcePlanPage>(EMPTY_SOURCE_PAGE);
-  const [embroideryPageNumber, setEmbroideryPageNumber] = useState(1);
-  const [embroideryPageSize, setEmbroideryPageSize] = useState(20);
   const [embroideryQuery, setEmbroideryQuery] = useState("");
   const [debouncedEmbroideryQuery, setDebouncedEmbroideryQuery] = useState("");
   const [embroiderySortBy, setEmbroiderySortBy] = useState<SourcePlanSortBy>("source");
@@ -360,17 +359,8 @@ export function RealisticReviewUgcPage() {
   }
 
   async function refreshEmbroideryDesigns(signal?: AbortSignal) {
-    const result = await listSourcePlans(
-      {
-        page: embroideryPageNumber,
-        pageSize: embroideryPageSize,
-        query: debouncedEmbroideryQuery,
-        sortBy: embroiderySortBy,
-        sortDirection: embroiderySortDirection,
-        colorwaySources: true,
-        colorwayWorkflow: "products",
-      },
-      signal,
+    const result = await loadAllProductStage2SourcePlans(
+      listSourcePlans, debouncedEmbroideryQuery, embroiderySortBy, embroiderySortDirection, signal,
     );
     const nextFingerprint = sourcePlanPageRenderFingerprint(result);
     setEmbroideryPage(current => (
@@ -797,7 +787,6 @@ export function RealisticReviewUgcPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setEmbroideryPageNumber(1);
       setDebouncedEmbroideryQuery(embroideryQuery.trim());
     }, 250);
     return () => window.clearTimeout(timer);
@@ -902,7 +891,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, embroideryPageNumber, embroideryPageSize, debouncedEmbroideryQuery, embroiderySortBy, embroiderySortDirection]);
+  }, [activeStage, debouncedEmbroideryQuery, embroiderySortBy, embroiderySortDirection]);
 
   useEffect(() => {
     if (activeStage !== "reviews-stage2") return;
@@ -1197,22 +1186,15 @@ export function RealisticReviewUgcPage() {
             data={embroideryPage}
             sortBy={embroiderySortBy}
             sortDirection={embroiderySortDirection}
-            onSortChange={(key, direction) => { setEmbroideryPageNumber(1); setEmbroideryLoading(true); setEmbroiderySortBy(key); setEmbroiderySortDirection(direction); }}
+            onSortChange={(key, direction) => { setEmbroideryLoading(true); setEmbroiderySortBy(key); setEmbroiderySortDirection(direction); }}
             loading={embroideryLoading}
             syncing={syncingSourcePlans}
             query={embroideryQuery}
             message={sourcePlanMessage}
             onSync={() => void refreshEmbroideryDesigns()}
             onQueryChange={setEmbroideryQuery}
-            onPageChange={value => {
-              setEmbroideryLoading(true);
-              setEmbroideryPageNumber(value);
-            }}
-            onPageSizeChange={value => {
-              setEmbroideryLoading(true);
-              setEmbroideryPageNumber(1);
-              setEmbroideryPageSize(value);
-            }}
+            onPageChange={() => undefined}
+            onPageSizeChange={() => undefined}
           />
         </section>
 

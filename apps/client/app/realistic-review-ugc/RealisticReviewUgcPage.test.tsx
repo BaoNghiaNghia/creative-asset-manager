@@ -406,11 +406,9 @@ describe("Realistic Review UGC source-first workspace", () => {
         onPageSizeChange={() => undefined}
       />,
     );
-    expect(markup).toContain('aria-label="Stage 2 rows per page"');
-    for (const size of [20, 50, 100, 500]) {
-      expect(markup).toContain(`<option value="${size}"`);
-    }
-    expect(markup).not.toContain('<option value="10"');
+    expect(markup).not.toContain('aria-label="Stage 2 rows per page"');
+    expect(markup).not.toContain("Previous");
+    expect(markup).toContain("All 1 designs");
     expect(markup).toContain("SELECTED STAGE 1 DESIGNS");
     const reviewMarkup = renderToStaticMarkup(
       <EmbroideryColorwayStage
@@ -422,6 +420,10 @@ describe("Realistic Review UGC source-first workspace", () => {
       />,
     );
     expect(reviewMarkup).toContain("REVIEWS · STAGE 2 · embroidery_ FILES");
+    expect(reviewMarkup).toContain('aria-label="Stage 2 rows per page"');
+    for (const size of [20, 50, 100, 500]) {
+      expect(reviewMarkup).toContain(`<option value="${size}"`);
+    }
     expect(reviewMarkup).toContain("Only JPG/PNG files");
     expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
     expect(markup).toContain('id="rrugc-stage2-search-input"');
@@ -435,7 +437,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('data-stage="2"');
     expect(markup).toContain('class="rrugc-products-source-tree-sort" role="columnheader" aria-sort="ascending"');
     expect(reviewMarkup).toContain('class="is-sort-column" aria-sort="ascending"');
-    expect(markup).toContain('class="rrugc-colorway-design-sort" aria-label="Sort by Embroidery design descending"');
+    expect(markup).toContain('aria-label="Sort by Embroidery design descending"');
     expect(reviewMarkup).toContain('class="rrugc-colorway-design-sort" aria-label="Sort by Embroidery design descending"');
     expect(markup).toContain('data-sort-state="asc"');
     expect(reviewMarkup).toContain('data-sort-state="asc"');
