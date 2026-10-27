@@ -6329,6 +6329,7 @@ async def download_product_skill_outputs_archive(
     """
     from app.modules.realistic_review_ugc.model import RrugcEcommerceJobModel
     from app.modules.realistic_review_ugc.ecommerce_input_contract import SHOTS
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
     from app.modules.realistic_review_ugc.output_downloads import MAX_ARCHIVE_FILES
 
     tenant_id = principal.active_tenant_id
