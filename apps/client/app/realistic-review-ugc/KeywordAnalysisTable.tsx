@@ -831,14 +831,7 @@ export function KeywordAnalysisTable({
     <div className="rrugc-stage0-unified-toolbar">
     <div className="rrugc-stage0-controlbar">
       <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
-      <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
-        <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
-        <button type="button" className={activeOverviewFilter === "suggested" ? "active" : ""} onClick={() => selectOverviewFilter("suggested")}>Đề xuất</button>
-        <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="heart" filled={activeOverviewFilter === "favorites"} />Favorites</button>
-        <button type="button" className={activeOverviewFilter === "short" ? "active" : ""} onClick={() => selectOverviewFilter("short")}>Short-tail</button>
-        <button type="button" className={activeOverviewFilter === "mid" ? "active" : ""} onClick={() => selectOverviewFilter("mid")}>Mid-tail</button>
-        <button type="button" className={activeOverviewFilter === "long" ? "active" : ""} onClick={() => selectOverviewFilter("long")}>Long-tail</button>
-      </div>
+
     </div>
       <div className="rrugc-stage0-header-tools">
         <button type="button" className="rrugc-stage0-intelligence-trigger rrugc-stage0-research-trigger"
@@ -855,7 +848,6 @@ export function KeywordAnalysisTable({
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5M7.5 10.5h6M10.5 7.5v6" /></svg>
           <span>Search Intelligence</span>
         </button>
-        <span className="rrugc-stage0-live-badge"><i aria-hidden="true" />Live keyword data</span>
       </div>
     </div>
 
