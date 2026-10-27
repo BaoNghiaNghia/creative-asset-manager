@@ -59,6 +59,28 @@ def test_underlay_preserves_stock_and_original_placement(material):
     assert np.all((new[core][:, 2] > new[core][:, 0]))
 
 
+def test_slot1_flattens_fake_bevel_lighting_without_changing_letter_shape():
+    stock = Image.new("RGB", (512, 640), (232, 219, 203))
+    art = Image.new("RGBA", (420, 180))
+    pixels = np.zeros((180, 420, 4), dtype=np.uint8)
+    # A simulated glossy embossed Stage 1 blue glyph: same hue, 3D light/dark
+    # RGB gradient across a single stroke. Stage 2 must not inherit it.
+    for x in range(40, 380):
+        level = 0.52 + .85 * ((x - 40) / 340)
+        pixels[32:125, x, :3] = np.uint8(np.clip(
+            np.array([27, 65, 177]) * level, 0, 255))
+        pixels[32:125, x, 3] = 255
+    art = Image.fromarray(pixels, "RGBA")
+    result = build_slot1_material_pass(
+        png(stock), png(art), {**DEFAULT_FRONT_PLACEMENT, "design_size": 100})
+    inside = np.asarray(result.thread_mask) > 245
+    colors = np.asarray(result.stitched, dtype=np.float32)[inside]
+    assert len(colors) > 500
+    assert float(np.std(colors[:, 2])) < 9.0, "Stage 1 bevel survived in thread pigment"
+    assert np.all(np.asarray(result.stitched)[~np.asarray(result.edit_mask).astype(bool)]
+                  == np.asarray(result.stock)[~np.asarray(result.edit_mask).astype(bool)])
+
+
 def test_second_pass_accepts_refinement_but_rejects_hat_drift(material):
     result = finish_slot1_refinement(material, material.stitched_png())
     with Image.open(BytesIO(result)) as image:

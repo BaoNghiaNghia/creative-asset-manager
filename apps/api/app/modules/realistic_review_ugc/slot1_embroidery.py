@@ -124,8 +124,29 @@ def build_slot1_material_pass(
     edge = np.clip(cv2.GaussianBlur(a, (0, 0), 1.0) - a, -.5, .5)
     light = fiber + needle - .015 * np.maximum(-edge, 0)
     cap = np.asarray(stock.crop((x, y, x + w, y + h)), dtype=np.float32)
-    # Preserve pigment and tiny hints of the actual underlying twill weave.
-    thread = source[:, :, :3] * (1.0 + light[:, :, None])
+    # Stage 1 is the glyph/color authority, NOT the lighting authority.
+    # Its RGB may already include 3D bevels or broad satin highlights.
+    # Recover a stable pigment per hue group from opaque stroke cores, then
+    # synthesize only the fine directional fibers above. Never inherit
+    # pixel-wise bevel shading from Stage 1.
+    rgb = np.uint8(np.clip(np.rint(source[:, :, :3]), 0, 255))
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    core = a >= .90
+    pigment = rgb.astype(np.float32).copy()
+    if np.count_nonzero(core) >= 24:
+        # Fine hue buckets preserve independently colored design elements,
+        # while collapsing light/dark bevel variations of the same ink.
+        hue_bin = hsv[:, :, 0].astype(np.int16) // 12
+        saturation_bin = (hsv[:, :, 1] >= 45).astype(np.int16)
+        groups = hue_bin + saturation_bin * 16
+        for group in np.unique(groups[core]):
+            members = core & (groups == group)
+            if np.count_nonzero(members) < 12:
+                continue
+            representative = np.median(rgb[members], axis=0)
+            pigment[groups == group] = representative
+    # Build a low-profile stitched material, not a second embossed shader.
+    thread = pigment * (1.0 + light[:, :, None])
     thread = .947 * thread + .053 * cap
     thread = np.clip(thread, 0, 255)
     # Only a slight real contact depression, never broad black outlines.
