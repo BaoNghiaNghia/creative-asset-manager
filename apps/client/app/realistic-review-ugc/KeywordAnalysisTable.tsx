@@ -819,12 +819,21 @@ export function KeywordAnalysisTable({
 
   return <>
   <section className="rrugc-card rrugc-stage0 rrugc-stage0-v2">
+    <div className="rrugc-stage0-heading-row">
     <RrugcStageHeader
       className="rrugc-stage0-heading"
       kicker="STAGE 0 · KEYWORD INTELLIGENCE"
       title="Analysis Keyword"
       description="Quote Scout discovers hat phrases and Stage 0 combines Pinterest context with Google Ads demand, CPC, competition and observed search-volume trends."
-      actions={<div className="rrugc-stage0-header-tools">
+
+    />
+
+    <div className="rrugc-stage0-unified-toolbar">
+    <div className="rrugc-stage0-controlbar">
+      <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
+
+    </div>
+      <div className="rrugc-stage0-header-tools">
         <button type="button" className="rrugc-stage0-intelligence-trigger rrugc-stage0-research-trigger"
           onClick={onOpenResearchInbox} disabled={!onOpenResearchInbox}
           aria-haspopup="dialog" aria-label="Open Research Intelligence" title="Agent-Reach · Research Intelligence">
@@ -839,9 +848,10 @@ export function KeywordAnalysisTable({
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5M7.5 10.5h6M10.5 7.5v6" /></svg>
           <span>Search Intelligence</span>
         </button>
-        <span className="rrugc-stage0-live-badge"><i aria-hidden="true" />Live keyword data</span>
-      </div>}
-    />
+      </div>
+    </div>
+
+    </div>
 
     <div className="rrugc-source-plan-kpis rrugc-stage0-kpis rrugc-stage0-kpis-restored" aria-label="Keyword overview filters">
       <button
@@ -914,18 +924,6 @@ export function KeywordAnalysisTable({
         <strong>{data.overview.favorite_keywords.toLocaleString()}</strong>
         <small>Saved opportunities</small>
       </button>
-    </div>
-
-    <div className="rrugc-stage0-controlbar">
-      <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
-      <div className="rrugc-stage0-main-filters" role="group" aria-label="Keyword filters">
-        <button type="button" className={activeOverviewFilter === "all" ? "active" : ""} onClick={onResetAll} title="Clear all Stage 0 filters and show every keyword">All</button>
-        <button type="button" className={activeOverviewFilter === "suggested" ? "active" : ""} onClick={() => selectOverviewFilter("suggested")}>Đề xuất</button>
-        <button type="button" className={activeOverviewFilter === "favorites" ? "active" : ""} onClick={() => selectOverviewFilter("favorites")}><Icon name="heart" filled={activeOverviewFilter === "favorites"} />Favorites</button>
-        <button type="button" className={activeOverviewFilter === "short" ? "active" : ""} onClick={() => selectOverviewFilter("short")}>Short-tail</button>
-        <button type="button" className={activeOverviewFilter === "mid" ? "active" : ""} onClick={() => selectOverviewFilter("mid")}>Mid-tail</button>
-        <button type="button" className={activeOverviewFilter === "long" ? "active" : ""} onClick={() => selectOverviewFilter("long")}>Long-tail</button>
-      </div>
     </div>
 
     <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>

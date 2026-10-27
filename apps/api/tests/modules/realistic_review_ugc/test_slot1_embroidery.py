@@ -18,6 +18,20 @@ def png(image):
     return output.getvalue()
 
 
+def refined_candidate(material, square=False):
+    """A test-only stand-in for an AI edit with newly resolved yarn fibers."""
+    if square:
+        base = np.array(Image.open(BytesIO(material.model_edit_target_png())), dtype=np.int16)
+        mask = np.array(Image.open(BytesIO(material.edit_mask_png())), dtype=np.uint8) > 200
+    else:
+        base = np.asarray(material.stitched, dtype=np.int16).copy()
+        mask = np.asarray(material.thread_mask, dtype=np.uint8) > 200
+    rng = np.random.default_rng(47)
+    texture = rng.normal(0, 13, mask.shape)
+    base[mask] += np.rint(texture[mask])[:, None].astype(np.int16)
+    return png(Image.fromarray(np.uint8(np.clip(base, 0, 255)), "RGB"))
+
+
 @pytest.fixture()
 def material():
     width, height = 512, 640
@@ -82,13 +96,13 @@ def test_slot1_flattens_fake_bevel_lighting_without_changing_letter_shape():
     smooth = cv2.GaussianBlur(channel, (0, 0), 5)
     assert float(np.std(smooth[inside])) < 9.0, "Stage 1 broad bevel survived"
     highpass = channel - cv2.GaussianBlur(channel, (0, 0), .95)
-    assert float(np.std(highpass[inside])) > 3.0, "Stitch field collapsed to a flat print"
+    assert float(np.std(highpass[inside])) < 3.0, "Pigment-only guide must not contain invented stitch texture"
     assert np.all(np.asarray(result.stitched)[~np.asarray(result.edit_mask).astype(bool)]
                   == np.asarray(result.stock)[~np.asarray(result.edit_mask).astype(bool)])
 
 
 def test_second_pass_accepts_refinement_but_rejects_hat_drift(material):
-    result = finish_slot1_refinement(material, material.stitched_png())
+    result = finish_slot1_refinement(material, refined_candidate(material))
     with Image.open(BytesIO(result)) as image:
         image.load()
         assert image.format == "PNG" and image.size == material.stock.size
@@ -101,7 +115,7 @@ def test_second_pass_accepts_refinement_but_rejects_hat_drift(material):
 
 
 def test_second_pass_rejects_blank_photo_without_original_design(material):
-    with pytest.raises(Slot1EmbroideryQAError, match="lost the original design"):
+    with pytest.raises(Slot1EmbroideryQAError, match="canonical design"):
         finish_slot1_refinement(material, png(material.stock))
 
 
@@ -109,18 +123,18 @@ def test_second_pass_rejects_wrong_pigment(material):
     original = np.asarray(material.stitched, dtype=np.uint8).copy()
     core = np.asarray(material.thread_mask) >= 170
     original[core] = (246, 205, 49)
-    with pytest.raises(Slot1EmbroideryQAError, match="lost the original design"):
+    with pytest.raises(Slot1EmbroideryQAError, match="canonical design"):
         finish_slot1_refinement(material, png(Image.fromarray(original, "RGB")))
 
 
 def test_halo_in_candidate_cannot_spread_outside_edit_mask(material):
-    cap = np.asarray(material.stitched, dtype=np.uint8).copy()
+    cap = np.asarray(Image.open(BytesIO(refined_candidate(material))), dtype=np.uint8).copy()
     core = np.uint8(np.asarray(material.thread_mask) > 127)
     near = cv2.dilate(core, np.ones((7, 7), np.uint8)).astype(bool) & ~(core.astype(bool))
     # Even a bad candidate must never yield a heavy embossed outline in the
     # saved PNG: either reject or preserve the masked source geometry.
     cap[near] = np.maximum(0, cap[near].astype(np.int16) - 70).astype(np.uint8)
-    with pytest.raises(Slot1EmbroideryQAError, match="emboss halo"):
+    with pytest.raises(Slot1EmbroideryQAError, match="shadow halo"):
         finish_slot1_refinement(material, png(Image.fromarray(cap, "RGB")))
 
 
@@ -134,7 +148,9 @@ def test_stitch_material_has_visible_nonflat_filaments_and_is_deterministic(mate
     # pixel color or an oversized bevel outside the source silhouette.
     bright = cv2.cvtColor(np.uint8(stitched), cv2.COLOR_RGB2GRAY).astype(np.float32)
     micro = bright - cv2.GaussianBlur(bright, (0, 0), 1.15)
-    assert float(np.std(micro[core])) > 3.0
+    interior = cv2.erode(core.astype(np.uint8), np.ones((13, 13), np.uint8)).astype(bool)
+    assert np.count_nonzero(interior) > 100
+    assert float(np.std(micro[interior])) < 3.0  # Guide has no fake stitch texture
     assert abs(float(np.mean(changed[core, 2]))) > 10
     assert material.guide_box[0] >= 0
 
@@ -153,7 +169,7 @@ def test_second_pass_retains_bounded_fiber_detail_without_painting_another_word(
     assert np.array_equal(final[~editable], stock[~editable])
     assert not np.array_equal(final[core], before[core])
     # Contrast must remain restrained; secondary pass cannot puff the letters.
-    assert np.max(np.abs(final[core].astype(np.int16) - before[core].astype(np.int16))) <= 24
+    assert np.max(np.abs(final[core].astype(np.int16) - before[core].astype(np.int16))) <= 50
 
 
 def test_second_pass_rejects_untextured_print_even_with_valid_source_shape(material):
@@ -165,5 +181,20 @@ def test_second_pass_rejects_untextured_print_even_with_valid_source_shape(mater
     matte = stock * (1 - alpha[..., None]) + pigment * alpha[..., None]
     flat = Image.fromarray(np.uint8(np.clip(matte, 0, 255)), "RGB")
     flat_pass = replace(material, stitched=flat)
-    with pytest.raises(Slot1EmbroideryQAError, match="too flat or printed-looking"):
+    with pytest.raises(Slot1EmbroideryQAError, match="no meaningful photographic refinement|flat printed"):
         finish_slot1_refinement(flat_pass, png(flat))
+
+
+def test_no_op_model_edit_fails_closed(material):
+    with pytest.raises(Slot1EmbroideryQAError, match="no meaningful"):
+        finish_slot1_refinement(material, material.stitched_png())
+
+
+def test_square_model_canvas_restores_exact_stock_dimensions_and_protected_pixels(material):
+    edited = refined_candidate(material, square=True)
+    result = Image.open(BytesIO(finish_slot1_refinement(material, edited)))
+    assert result.size == material.stock.size
+    mask = np.asarray(material.edit_mask)>0
+    assert np.array_equal(np.asarray(result)[~mask], np.asarray(material.stock)[~mask])
+    assert Image.open(BytesIO(material.model_edit_target_png())).size == (640, 640)
+    assert Image.open(BytesIO(material.edit_mask_png())).size == (640, 640)

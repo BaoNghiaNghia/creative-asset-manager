@@ -221,7 +221,7 @@ def _repin_explicit_slot1_to_thread_v2(
     if row.stage != "prod_s2_ec1":
         return False
     selected = _assigned_skill(session, settings, tenant_id, row.stage)
-    if selected.skill_name != "gatorhats-8869-ecommerce-front-thread-v2":
+    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3"):
         return False
     digest = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
     if not digest:
@@ -1169,7 +1169,7 @@ class EcommerceGenerateHandler:
                     ReferenceImageInput(
                         image=PreparedImage(
                             image_bytes=edit_mask_bytes, mime_type="image/png",
-                            width=slot1_material.stock.width, height=slot1_material.stock.height,
+                            width=max(slot1_material.stock.size), height=max(slot1_material.stock.size),
                         ),
                         role="slot1_edit_mask",
                         label="white is the tiny editable thread region; black pixels are protected stock"),
@@ -1235,8 +1235,8 @@ class EcommerceGenerateHandler:
                 label="pinned approved lifestyle reference; preserve composition only"))
         # Immutable official stock is addressed by its hash, not a transient browser preview.
         base = (PreparedImage(
-            image_bytes=slot1_material.stitched_png(), mime_type="image/png",
-            width=slot1_material.stock.width, height=slot1_material.stock.height,
+            image_bytes=slot1_material.model_edit_target_png(), mime_type="image/png",
+            width=max(slot1_material.stock.size), height=max(slot1_material.stock.size),
         ) if slot1_material is not None else _prepared_image(refs[0][1]))
         if front_image:
             references.append(ReferenceImageInput(
@@ -1281,16 +1281,16 @@ class EcommerceGenerateHandler:
                 context.job.payload.get("front_placement")))
                if stage != "prod_s2_ec4" else "")
             + " " + embroidery_prompt_for_product_slot(stage)
-            + (" SLOT 1 ONLY: two-pass workflow is already started: the edit target "
-               "is a photographic stock image with a low-profile directional "
-               "stitch underlay built from the immutable Stage 1 geometry. "
-               "Perform only the second-pass thread material refinement. "
+            + (" SLOT 1 ONLY: photographic image-edit workflow: the square-padded stock is the target; "
+               "the original design appears as a flat pigment guide, NOT a final "
+               "stitch render; the model must produce real fine yarn fibers itself. "
+               "Keep the padded stock framing fixed without moving or scaling. "
                "The white of slot1_edit_mask is the only editable thread region; "
                "black must remain identical to unaltered_stock_reference. "
                "Do not draw guide lines, rewrite typography, change camera aspect "
                "or reconstruct the cap. Keep stitch fibers subtle, thread pigment "
                "accurate and avoid foam/emboss/printed/decal appearance. "
-               "The backend will restore every stock pixel outside the mask "
+               "The backend will composite actual model-generated thread within the original silhouette, reject no-op edits, and preserve every stock pixel outside the mask "
                "and strictly retain the original design silhouette. "
                if stage == "prod_s2_ec1" else "")
             + " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
@@ -1370,7 +1370,7 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": "photographic-fibers-v2",
+                                    "version": "ai-material-localized-v3",
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
                                 }} if stage == "prod_s2_ec1" else {}),

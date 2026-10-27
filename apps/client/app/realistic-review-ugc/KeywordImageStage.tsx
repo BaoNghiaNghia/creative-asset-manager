@@ -9,6 +9,7 @@ import { RrugcActionIcon } from "./RrugcActionIcon";
 import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
+import { PickedDesignModal } from "./PickedDesignModal";
 import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
@@ -235,6 +236,7 @@ export function KeywordImageStage({
   const [workingIds, setWorkingIds] = useState<Set<string>>(new Set());
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
+  const [pickedModalOpen, setPickedModalOpen] = useState(false);
   const [pickedDesignOverrides, setPickedDesignOverrides] = useState<Record<string, Record<number, boolean>>>({});
   const [keywordDetailTarget, setKeywordDetailTarget] = useState<{ id: string; keyword: string } | null>(null);
   const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
@@ -424,6 +426,7 @@ export function KeywordImageStage({
         {bulkRunning
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
+        <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}>Picked design</button>
       </div>}
     />
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
@@ -435,6 +438,7 @@ export function KeywordImageStage({
       </button>)}
     </div>
 
+    {pickedModalOpen && <PickedDesignModal onClose={() => setPickedModalOpen(false)} onUnpick={(jobId, version) => setPickedDesignOverrides(current => ({ ...current, [jobId]: { ...current[jobId], [version]: false } }))} />}
     <ActionMessageToast message={error} tone="error" />
     <ActionMessageToast message={message} />
     {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}
