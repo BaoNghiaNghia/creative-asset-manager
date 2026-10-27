@@ -253,7 +253,17 @@ def _isolated_job_codex_home(source_home: Path, workspace: Path) -> Path:
         if source.exists():
             dest.symlink_to(source, target_is_directory=source.is_dir())
     # Imagegen PNGs must NOT land under source_home/generated_images.
-    (home / "generated_images").mkdir(mode=0o700, exist_ok=True)
+    # Reject stale artifacts rather than letting a new job claim old outputs.
+    generated = home / "generated_images"
+    if generated.is_symlink() or (generated.exists() and not generated.is_dir()):
+        raise CodexImageProviderError(
+            "codex_job_home_invalid", "Isolated image generation cache is unsafe."
+        )
+    generated.mkdir(mode=0o700, exist_ok=True)
+    if any(generated.iterdir()):
+        raise CodexImageProviderError(
+            "codex_job_home_invalid", "Isolated image generation cache is not empty."
+        )
     return home
 
 
@@ -462,6 +472,48 @@ def _assert_concept_short_plan(workspace: Path) -> None:
             "Concept Short original C1..C6/C7/C8 slot order changed.",
         )
 
+
+
+
+def _native_imagegen_digests(runtime_home: Path) -> frozenset[str]:
+    """Fingerprint native Codex images before per-job cache cleanup.
+
+    Codex CLI 0.159.x can omit image_generation events in JSONL even
+    when the built-in tool writes UUID-named PNGs to CODEX_HOME.
+    The cache is private to an attempt and must be empty at start.
+    """
+    cache = runtime_home / "generated_images"
+    if not cache.is_dir() or cache.is_symlink():
+        return frozenset()
+    result: set[str] = set()
+    checked = 0
+    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    # Native Codex uses generated_images/<thread-uuid>/exec-<image-uuid>.png.
+    # Scan only one validated directory level; never follow symlinked paths.
+    for thread_dir in cache.iterdir():
+        if (thread_dir.is_symlink() or not thread_dir.is_dir()
+                or not re.fullmatch(uuid, thread_dir.name, flags=re.IGNORECASE)):
+            continue
+        for path in thread_dir.iterdir():
+            if (path.is_symlink() or not path.is_file()
+                    or not re.fullmatch(
+                        rf"exec-{uuid}\.png", path.name, flags=re.IGNORECASE,
+                    )):
+                continue
+            checked += 1
+            if checked > 48:
+                return frozenset()
+            try:
+                if path.stat().st_size > 30 * 1024 * 1024:
+                    continue
+                with Image.open(path) as image:
+                    image.verify()
+                    if image.format != "PNG" or min(image.size) < 512:
+                        continue
+                result.add(hashlib.sha256(path.read_bytes()).hexdigest())
+            except (OSError, ValueError, Image.DecompressionBombError):
+                continue
+    return frozenset(result)
 
 def _distinct_imagegen_calls(stdout: str) -> int:
     """Count imagegen invocations, not model claims or filenames on disk."""
@@ -781,12 +833,14 @@ class CodexImageGenRunner:
                     "under working/concept-short/<slug>/ must remain untouched. "
                     "For each missing output number, map slot 4 to C4/C7 and "
                     "slot 5 to C5/C8 using the original summary.json. Open ONLY "
-                    "the matching <concept>/A_input.png and A_prompt.txt; perform "
-                    "one actual image-EDIT per missing final using the unmodified "
-                    "reference image and verbatim prompt. No text-only imagegen, "
-                    "no synthetic stitch filters and no fake replacement of "
-                    "the previously finished images. Refuse if the original "
-                    "source images, edit capability or any concept is missing."
+                    "the matching <concept>/A_input.png and A_prompt.txt. Call "
+                    "view_image on its A_input.png before each actual built-in "
+                    "image_gen EDIT; pass the verbatim A_prompt.txt. Copy the "
+                    "unmodified native PNG bytes from CODEX_HOME/generated_images "
+                    "to its exact missing final filename; never create a new "
+                    "text-only image or add synthetic stitch filters. If a "
+                    "source concept is skipped or unavailable, leave only that "
+                    "number missing. Protect all previously finished images."
                 )
         # Use a separate CODEX_HOME for every job. A shared account HOME
         # preserves authentication/skills, while imagegen cache is private.
@@ -810,6 +864,7 @@ class CodexImageGenRunner:
         if self.config.execution_log_id:
             prune_codex_execution_logs(self.config.staging_root)
         log = CodexExecutionLog(self.config.staging_root, self.config.execution_log_id)
+        native_image_digests: frozenset[str] = frozenset()
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
@@ -873,6 +928,10 @@ class CodexImageGenRunner:
                 transient = execution_home / "generated_images"
                 try:
                     if not transient.is_symlink() and transient.is_dir():
+                        # Snapshot the isolated native tool results before
+                        # removing intermediates. JSONL can omit built-in
+                        # image_gen events despite a successful invocation.
+                        native_image_digests = _native_imagegen_digests(execution_home)
                         shutil.rmtree(transient)
                 except OSError as exc:
                     _cleanup_logger.warning(
@@ -912,10 +971,10 @@ class CodexImageGenRunner:
             _assert_concept_short_plan(workspace)
             # Skipped source concepts are not grounds for discarding other
             # valid image edits; the tool invocation count is checked below.
-            if _distinct_imagegen_calls(stdout) == 0:
+            if not native_image_digests and _distinct_imagegen_calls(stdout) == 0:
                 raise CodexImageProviderError(
                     "concept_short_image_edits_missing",
-                    "Concept Short did not invoke the actual image-edit tool; "
+                    "Concept Short did not produce verifiable native image edits; "
                     "flat concept artwork cannot be published as finished embroidery.",
                 )
         files: tuple[GeneratedImageFile, ...] = ()
@@ -941,13 +1000,33 @@ class CodexImageGenRunner:
                         raise
                     if wait_seconds == 3:
                         raise _classify_stage1_no_images(stdout, stderr) from exc
-            if (self.config.skill_name == "concept-short-v1"
-                    and _distinct_imagegen_calls(stdout) < len(files)):
-                # A code-rendered image is a source, never an embroidered final.
-                raise CodexImageProviderError(
-                    "concept_short_image_edits_missing",
-                    "Concept Short did not invoke real image editing for every saved design.",
+            if self.config.skill_name == "concept-short-v1":
+                # A resumed attempt must prove only its newly generated edits;
+                # preserved finals were authenticated by checkpoint hashes.
+                new_files = (
+                    tuple(file for file in files
+                          if int(Path(file.path).stem.rsplit("_", 1)[-1])
+                          in resume_missing_numbers)
+                    if resume_missing_numbers is not None else files
                 )
+                final_digests = {
+                    hashlib.sha256(Path(file.path).read_bytes()).hexdigest()
+                    for file in new_files
+                }
+                # Native imagegen calls may not appear in --json. Accept only
+                # exact, distinct native results from THIS isolated job home.
+                # When native results exist, a code-rendered replacement is
+                # never validated merely because some imagegen event occurred.
+                if native_image_digests:
+                    confirmed = final_digests.issubset(native_image_digests)
+                else:
+                    confirmed = _distinct_imagegen_calls(stdout) >= len(files)
+                if not confirmed:
+                    raise CodexImageProviderError(
+                        "concept_short_image_edits_missing",
+                        "One or more Concept Short finals do not match verified "
+                        "native image-edit outputs from this attempt.",
+                    )
             image_bytes = Path(files[0].path).read_bytes()
             extra_images = ()
         elif self.config.output_contract == "all_generated_images":
@@ -1497,6 +1576,13 @@ class CodexImageGenRunner:
                 "<concept>/A_input.png into one photoreal stitched artwork. Provide "
                 "that exact image as the reference for the actual image edit. "
                 "Pass its A_prompt.txt verbatim, do not shorten or overwrite it. "
+                "FIRST open that local A_input.png with the Codex view_image tool "
+                "so built-in image_gen can actually see and edit the reference. "
+                "Invoke built-in image_gen in EDIT mode on the viewed source, "
+                "not a text-to-image substitute. The native tool writes new "
+                "PNG assets under $CODEX_HOME/generated_images/. Copy the exact "
+                "native PNG bytes into the corresponding final filename; do "
+                "not redraw, resize or re-encode them using Python or SVG. "
                 "The original chat workflow required a user upload and approval; "
                 "this automation adapter may submit the same code-built reference "
                 "directly only if the image-edit tool supports it. If that edit "
@@ -1508,8 +1594,10 @@ class CodexImageGenRunner:
                 "layout and pure white background with no hat or fabric. "
                 "Save each verified edit as its original slot's named file: "
                 "output/final/design_01.png through design_06.png, with gaps "
-                "permitted for skipped slots; at least one edited 1536x1024 "
-                "PNG is required. No output from make_concepts.py, SVG, "
+                "permitted for skipped slots; at least one full-resolution "
+                "native edited PNG is required. Prefer 1536x1024 when supported "
+                "by the built-in tool, but never fake that size by code. "
+                "No output from make_concepts.py, SVG, "
                 "preview or flat raster may be called a stitched final.\n"
                 "Preserve any previous published history. Do not use API-key "
                 "fallback or any deterministic fake-thread overlay.\n"
