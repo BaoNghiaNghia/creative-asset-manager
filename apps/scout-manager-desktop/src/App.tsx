@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BrandingDnaPilotCard } from "./BrandingDnaPilotCard";
-import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
+import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, MonitorDown, MonitorUp, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
 
 type ModeName = "review" | "keyword" | "cap_stack";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
@@ -33,8 +33,8 @@ type OperationsSummary = {
   auto_discover?: { state: string; total_evidence: number; pending_review: number; last_seen_at: string | null };
   fetched_at: string;
 };
-type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; modes: ModeInfo[] };
-const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, modes: [
+type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; chromeMinimized: boolean; modes: ModeInfo[] };
+const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, chromeMinimized: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "cap_stack", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
@@ -225,6 +225,7 @@ export default function App() {
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
+        <button className="button secondary slim" type="button" aria-label={state.chromeMinimized ? "Restore Scout Chrome windows" : "Minimize Scout Chrome windows"} aria-pressed={state.chromeMinimized} title={state.chromeMinimized ? "Restore Chrome windows minimized by Scout Manager" : "Minimize only Scout Chrome windows; automation keeps running"} disabled={controlBlocked} onClick={() => void act("set_chrome_minimized", { minimized: !state.chromeMinimized })}>{state.chromeMinimized ? <MonitorUp size={16}/> : <MonitorDown size={16}/>} {state.chromeMinimized ? "Restore" : "Minimize"}</button>
       </div>
     </header>
     <section className="server-discovery-strip" aria-label="Agent-Reach VPS discovery status" role="status">

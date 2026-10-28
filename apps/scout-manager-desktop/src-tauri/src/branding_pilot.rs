@@ -451,6 +451,10 @@ impl BrandPilot {
                #[cfg(windows)] job:None,
                state:"Not configured".into(),last_error:None,action:None }
     }
+    #[cfg(windows)]
+    pub(crate) fn window_process_ids(&self) -> Vec<u32> {
+        self.job.as_ref().map(winjob::Job::process_ids).unwrap_or_default()
+    }
     fn check_status(&mut self){
         let Some(child)=self.child.as_mut() else {return};
         match child.try_wait(){

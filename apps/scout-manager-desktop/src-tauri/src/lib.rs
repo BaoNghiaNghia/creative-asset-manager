@@ -4,6 +4,7 @@ mod cam_agent_supervisor;
 mod branding_pilot_review;
 mod branding_pilot_handoff;
 mod startup;
+mod chrome_windows;
 #[cfg(all(test, windows))]
 mod startup_tests;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,7 @@ struct Dashboard {
     updating: bool,
     controller_available: bool,
     automation_enabled: bool,
+    chrome_minimized: bool,
     modes: Vec<ModeInfo>,
 }
 
@@ -185,6 +187,8 @@ struct Controller {
     update_state: Mutex<String>,
     updating: AtomicBool,
     automation_enabled: AtomicBool,
+    chrome_minimized: AtomicBool,
+    chrome_windows: Mutex<chrome_windows::WindowTracker>,
     cached_commit: Mutex<String>,
     shutdown_requested: AtomicBool,
 }
@@ -361,9 +365,32 @@ impl Controller {
             update_state: Mutex::new("Idle - press Run automation".into()),
             updating: AtomicBool::new(false),
             automation_enabled: AtomicBool::new(false),
+            chrome_minimized: AtomicBool::new(false),
+            chrome_windows: Mutex::new(chrome_windows::WindowTracker::new()),
             cached_commit: Mutex::new(commit),
             shutdown_requested: AtomicBool::new(false),
         })
+    }
+    fn sync_chrome_windows(&self) {
+        if !self.owns_manager_lock() || self.shutdown_requested.load(Ordering::SeqCst) {
+            return;
+        }
+        let mut owned = std::collections::HashSet::<u32>::new();
+        #[cfg(windows)] {
+            if let Ok(modes) = self.modes.lock() {
+                for scout in modes.iter() {
+                    if let Some(job) = scout.job.as_ref() {
+                        owned.extend(job.process_ids());
+                    }
+                }
+            }
+            if let Ok(pilot) = self.branding_pilot.lock() {
+                owned.extend(pilot.window_process_ids());
+            }
+        }
+        if let Ok(mut windows) = self.chrome_windows.lock() {
+            windows.sync(self.chrome_minimized.load(Ordering::SeqCst), &owned);
+        }
     }
     fn owns_manager_lock(&self) -> bool {
         #[cfg(windows)]
@@ -679,6 +706,7 @@ impl Controller {
             updating: self.updating.load(Ordering::SeqCst),
             controller_available: self.owns_manager_lock(),
             automation_enabled: self.automation_enabled.load(Ordering::SeqCst),
+            chrome_minimized: self.chrome_minimized.load(Ordering::SeqCst),
             modes,
         }
     }
@@ -906,6 +934,38 @@ mod winjob {
     pub struct Job(HANDLE);
     unsafe impl Send for Job {}
     impl Job {
+        /// Exact membership of this manager-owned Job Object, including Chrome
+        /// descendants even if the launcher process exits.
+        pub fn process_ids(&self) -> Vec<u32> {
+            use windows_sys::Win32::System::JobObjects::{
+                QueryInformationJobObject, JobObjectBasicProcessIdList,
+                JOBOBJECT_BASIC_PROCESS_ID_LIST,
+            };
+            for capacity in [32usize, 128, 512, 2048] {
+                let bytes = size_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()
+                    + (capacity - 1) * size_of::<usize>();
+                // usize is suitably aligned for JOBOBJECT_BASIC_PROCESS_ID_LIST.
+                let mut storage = vec![0usize; bytes.div_ceil(size_of::<usize>())];
+                let result = unsafe {
+                    QueryInformationJobObject(
+                        self.0,
+                        JobObjectBasicProcessIdList,
+                        storage.as_mut_ptr().cast(),
+                        bytes as u32,
+                        std::ptr::null_mut(),
+                    )
+                };
+                if result != 0 {
+                    let info = unsafe {
+                        &*(storage.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST)
+                    };
+                    let count = (info.NumberOfProcessIdsInList as usize).min(capacity);
+                    let ids = unsafe { std::slice::from_raw_parts(info.ProcessIdList.as_ptr(), count) };
+                    return ids.iter().filter_map(|&id| u32::try_from(id).ok()).collect();
+                }
+            }
+            Vec::new()
+        }
         pub fn attach(child: &Child) -> Result<Self, String> {
             unsafe {
                 let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -1463,6 +1523,19 @@ async fn control_all(state: tauri::State<'_, Arc<Controller>>, command: String) 
         .map_err(|_| "Scout automation operation failed unexpectedly.".to_string())?
 }
 #[tauri::command]
+async fn set_chrome_minimized(state: tauri::State<'_, Arc<Controller>>, minimized: bool) -> Result<(), String> {
+    let controller = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        controller.require_manager_lock()?;
+        if controller.shutdown_requested.load(Ordering::SeqCst) {
+            return Err("Scout Manager is shutting down.".into());
+        }
+        controller.chrome_minimized.store(minimized, Ordering::SeqCst);
+        controller.sync_chrome_windows();
+        Ok(())
+    }).await.map_err(|_| "Chrome window operation failed unexpectedly.".to_string())?
+}
+#[tauri::command]
 async fn check_update(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
     let controller = state.inner().clone();
     // Git fetch can take minutes on a slow connection. Keep the UI responsive.
@@ -1583,6 +1656,7 @@ pub fn run() {
         thread::sleep(Duration::from_secs(2));
         loop {
             polling.tick();
+            polling.sync_chrome_windows();
             thread::sleep(Duration::from_secs(2));
         }
     });
@@ -1677,6 +1751,7 @@ pub fn run() {
             log_tail,
             control_scout,
             control_all,
+            set_chrome_minimized,
             check_update,
             save_pairing,
             quit_manager
