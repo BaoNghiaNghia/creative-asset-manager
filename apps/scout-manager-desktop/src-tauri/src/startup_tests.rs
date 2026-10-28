@@ -58,6 +58,8 @@ impl Fixture {
             update_state: Mutex::new("Idle fixture".into()),
             updating: AtomicBool::new(false),
             automation_enabled: AtomicBool::new(false),
+            chrome_minimized: AtomicBool::new(false),
+            chrome_windows: Mutex::new(chrome_windows::WindowTracker::new()),
             cached_commit: Mutex::new("fixture".into()),
             shutdown_requested: AtomicBool::new(false),
         };
