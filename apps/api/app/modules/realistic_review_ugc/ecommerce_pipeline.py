@@ -221,12 +221,12 @@ def _repin_explicit_slot1_to_thread_v2(
     if row.stage != "prod_s2_ec1":
         return False
     selected = _assigned_skill(session, settings, tenant_id, row.stage)
-    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3"):
+    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3", "gatorhats-8869-ecommerce-front-thread-v4"):
         return False
     digest = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
     if not digest:
         raise EcommerceError("ecommerce_skill_missing",
-                             "The assigned Slot 1 True Thread v2 Skill is not installed.", 409)
+                             "The assigned Slot 1 thread Skill is not installed.", 409)
     row.skill_source = selected.source
     row.skill_id = selected.skill_id
     row.skill_name = selected.skill_name
@@ -1160,6 +1160,7 @@ class EcommerceGenerateHandler:
                 slot1_material = build_slot1_material_pass(
                     refs[0][1], design_bytes,
                     job_front_placement(context.job.payload.get("front_placement")),
+                    contact_width_px=2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
                 references.extend((
@@ -1172,7 +1173,7 @@ class EcommerceGenerateHandler:
                             width=max(slot1_material.stock.size), height=max(slot1_material.stock.size),
                         ),
                         role="slot1_edit_mask",
-                        label="white is the tiny editable thread region; black pixels are protected stock"),
+                        label="white = the exact thread region plus a hairline stitch contact band in v4; black = protected stock"),
                 ))
             elif preview_bytes:
                 references.append(ReferenceImageInput(
@@ -1293,6 +1294,7 @@ class EcommerceGenerateHandler:
                "The backend will composite actual model-generated thread within the original silhouette, reject no-op edits, and preserve every stock pixel outside the mask "
                "and strictly retain the original design silhouette. "
                if stage == "prod_s2_ec1" else "")
+            + (" V4 THREAD CONTACT: Render minor physical twill compression directly under stitch feet and gentle crown-curve-aware highlights. Allow only a hairline fabric darkening immediately beside individual thread edges; do not draw a continuous dark outline or an embossed groove. The worker will clip this contact to a protected 2px band, keep original weave and exact lettering, and restore every other hat pixel. " if stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else "")
             + " Keep all cap panel seams, fabric, bill curvature, selected-color fabric "
             "colors and hardware strictly consistent with the official reference photos. "
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."

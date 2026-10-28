@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-ecommerce-front-thread-v4",
+  "display_name": "8869 Front - Prompt-first v4",
+  "description": "Stage 2 Slot 1: prompt-first crown-conforming real thread with subtle 2-pixel fabric contact and preserved stock and lettering.",
+  "workflows": ["image_studio"],
+  "product_types": ["hat", "cap", "baseball_cap"],
+  "required_reference_roles": ["design_reference", "unaltered_stock_reference", "slot1_edit_mask"],
+  "optional_reference_roles": [],
+  "max_references": 8
+}

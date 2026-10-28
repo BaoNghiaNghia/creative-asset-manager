@@ -198,3 +198,48 @@ def test_square_model_canvas_restores_exact_stock_dimensions_and_protected_pixel
     assert np.array_equal(np.asarray(result)[~mask], np.asarray(material.stock)[~mask])
     assert Image.open(BytesIO(material.model_edit_target_png())).size == (640, 640)
     assert Image.open(BytesIO(material.edit_mask_png())).size == (640, 640)
+
+def test_v4_contact_is_two_pixels_and_does_not_repaint_hat_or_glyph(material):
+    artwork = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(artwork).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    v4 = build_slot1_material_pass(
+        png(material.stock), png(artwork),
+        {**DEFAULT_FRONT_PLACEMENT, "design_size": 100},
+        contact_width_px=2)
+    candidate = np.array(Image.open(BytesIO(refined_candidate(v4))), dtype=np.int16)
+    glyph = np.asarray(v4.thread_mask) >= 128
+    band = cv2.dilate(np.uint8(glyph), np.ones((5, 5), np.uint8)).astype(bool) & ~glyph
+    candidate[band] -= 7
+    final = np.asarray(Image.open(BytesIO(finish_slot1_refinement(
+        v4, png(Image.fromarray(np.uint8(np.clip(candidate, 0, 255)), "RGB"))))))
+    stock = np.asarray(v4.stock)
+    permitted = np.asarray(v4.edit_mask) > 0
+    contact = band & permitted
+    assert np.any(np.any(final[contact] != stock[contact], axis=1))
+    assert np.array_equal(final[~permitted], stock[~permitted])
+    assert np.array_equal(final[350:385, 477:492], stock[350:385, 477:492])
+    depression = stock[contact].astype(np.int16) - final[contact].astype(np.int16)
+    assert np.max(depression) <= 8
+    assert np.min(depression) >= 0
+
+
+def test_v3_preserves_stock_outside_original_glyph(material):
+    final = np.asarray(Image.open(BytesIO(
+        finish_slot1_refinement(material, refined_candidate(material)))))
+    no_glyph = np.asarray(material.thread_mask) == 0
+    assert material.contact_width_px == 0
+    assert np.array_equal(final[no_glyph], np.asarray(material.stock)[no_glyph])
+
+
+def test_v4_rejects_wide_shadow_halo(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    v4 = build_slot1_material_pass(png(material.stock), png(art),
+                                   DEFAULT_FRONT_PLACEMENT, contact_width_px=2)
+    candidate = np.array(Image.open(BytesIO(refined_candidate(v4))), dtype=np.int16)
+    glyph = np.asarray(v4.thread_mask) > 127
+    near = cv2.dilate(np.uint8(glyph), np.ones((7, 7), np.uint8)).astype(bool) & ~glyph
+    candidate[near] -= 65
+    with pytest.raises(Slot1EmbroideryQAError, match="shadow halo"):
+        finish_slot1_refinement(v4, png(Image.fromarray(
+            np.uint8(np.clip(candidate, 0, 255)), "RGB")))

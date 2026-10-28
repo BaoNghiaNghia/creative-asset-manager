@@ -40,5 +40,25 @@ class Slot1PromptFirstSkillTest(unittest.TestCase):
         self.assertIsNone(re.search(r"(?m)^version:\s*4\s*$", instructions))
 
 
+class Slot1PromptFirstV4SkillTest(unittest.TestCase):
+    def test_v4_is_independently_versioned_and_manifest_consistent(self):
+        folder = ROOT / "deploy/codex/skills/gatorhats-8869-ecommerce-front-thread-v4"
+        instructions = (folder / "SKILL.md").read_text(encoding="utf-8")
+        manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+        agents = (folder / "agents/openai.yaml").read_text(encoding="utf-8")
+        self.assertIn("name: gatorhats-8869-ecommerce-front-thread-v4", instructions)
+        self.assertIn("version: 4.0.0", instructions)
+        self.assertEqual(manifest["skill_name"], "gatorhats-8869-ecommerce-front-thread-v4")
+        self.assertEqual(manifest["display_name"], "8869 Front - Prompt-first v4")
+        self.assertIn("Prompt-first v4", agents)
+        self.assertEqual(manifest["workflows"], ["image_studio"])
+        self.assertEqual(set(manifest["required_reference_roles"]),
+                         {"design_reference", "unaltered_stock_reference", "slot1_edit_mask"})
+        for token in ("output/final.png", "2-pixel", "stitch", "curvature", "unaltered_stock_reference"):
+            self.assertIn(token, instructions)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

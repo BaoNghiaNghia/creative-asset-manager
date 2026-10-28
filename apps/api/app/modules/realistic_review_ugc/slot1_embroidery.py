@@ -43,6 +43,7 @@ class Slot1MaterialPass:
     edit_mask: Image.Image
     guide_box: tuple[int, int, int, int]
     pigment: Image.Image
+    contact_width_px: int = 0
 
     def stitched_png(self) -> bytes:
         """Retain previous internal API for QA, not for publishing."""
@@ -113,12 +114,15 @@ def _canonical_pigment(source: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 
 def build_slot1_material_pass(
     stock_bytes: bytes, artwork_bytes: bytes, placement: dict,
+    *, contact_width_px: int = 0,
 ) -> Slot1MaterialPass:
     """Create a pigment-only edit guide and immutable protection mask.
 
     NO wave/stripe, embossed fill, synthetic thread texture, repeated sample,
     shadow extrusion, or fabricated needle marks appear in this preprocessing.
     """
+    if contact_width_px not in (0, 2):
+        raise ValueError("Only legacy 0px and v4 2px contact bands are supported.")
     stock = _validated_rgba(stock_bytes).convert("RGB")
     if stock.width * stock.height > _MAX_PIXELS:
         raise FrontReferenceError("Stock photo exceeds Slot 1 memory limit.")
@@ -139,14 +143,17 @@ def build_slot1_material_pass(
     full_mask.paste(Image.fromarray(np.uint8(np.rint(alpha * 255)), "L"), (x, y))
     full_pigment = stock.copy()
     full_pigment.paste(Image.fromarray(np.uint8(np.clip(np.rint(pigment_rgb), 0, 255)), "RGB"), (x, y))
-    # Protection margin is just two pixels beyond original antialiasing.
+    # v3 retains its original 2px protection margin. v4 grants one
+    # additional antialias/contact pixel without altering the stock elsewhere.
     raw_mask = np.asarray(full_mask, dtype=np.uint8)
-    dilated = cv2.dilate(raw_mask, np.ones((5, 5), np.uint8))
+    kernel = 7 if contact_width_px else 5
+    dilated = cv2.dilate(raw_mask, np.ones((kernel, kernel), np.uint8))
     left, top, right, bottom = guide_box
     allowed = np.zeros(raw_mask.shape, np.uint8)
     allowed[top:bottom, left:right] = 255
     edit_mask = Image.fromarray(cv2.bitwise_and(dilated, allowed), "L")
-    return Slot1MaterialPass(stock, stitched, full_mask, edit_mask, guide_box, full_pigment)
+    return Slot1MaterialPass(stock, stitched, full_mask, edit_mask, guide_box,
+                             full_pigment, contact_width_px)
 
 
 def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Image:
@@ -250,6 +257,27 @@ def finish_slot1_refinement(material: Slot1MaterialPass, generated_bytes: bytes)
     threads = np.clip(candidate + color_shift[None, None, :], 0, 255)
     effective_alpha = np.clip(alpha * .99, 0, 1)
     final = stock * (1 - effective_alpha[..., None]) + threads * effective_alpha[..., None]
+    if material.contact_width_px:
+        # v4 only: preserve the actual twill, adding model-informed contact
+        # shading within two pixels beside the exact source glyph silhouette.
+        # The upper bound prevents an embossed outline or synthetic groove.
+        visible = alpha >= .50
+        distance = cv2.distanceTransform(np.uint8(~visible), cv2.DIST_L2, 3)
+        editable_contact = np.asarray(material.edit_mask, dtype=np.uint8) > 0
+        field = np.zeros(visible.shape, bool)
+        left, top, right, bottom = material.guide_box
+        field[top:bottom, left:right] = True
+        contact = (~visible) & (distance > 0) & (
+            distance <= material.contact_width_px + .25) & editable_contact & field
+        if np.any(contact):
+            model_occlusion = np.clip(np.mean(stock - candidate, axis=2), 0, 9)
+            fade = np.clip(
+                (material.contact_width_px + .25 - distance) /
+                material.contact_width_px, 0, 1)
+            depression = np.minimum(
+                8.0, (.8 + .56 * model_occlusion) * fade)
+            final[contact] = np.maximum(
+                0, stock[contact] - depression[contact, None])
     result = np.uint8(np.clip(np.rint(final), 0, 255))
     # Immutable protection: no changed stock or factory branding outside edit mask.
     editable = np.asarray(material.edit_mask, dtype=np.uint8) > 0
