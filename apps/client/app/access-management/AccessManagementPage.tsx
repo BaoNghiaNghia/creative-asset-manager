@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ActionMessageToast } from "../components/ActionToast";
 import {
-  AccessApiError, addMember, assignMemberRole, createCustomRole, fetchAccessIdentity, fetchViewerFolderOptions, fetchViewerFolderScopes, replaceViewerFolderScopes,
-  fetchMembers, fetchPermissions, fetchRoles, removeMemberRole, switchActiveTenant,
+  AccessApiError, addMember, assignMemberRole, createCustomRole, replaceMemberNavigationAccess, fetchAccessIdentity, fetchViewerFolderOptions, fetchViewerFolderScopes, replaceViewerFolderScopes,
+  fetchMembers, fetchPermissions, fetchNavigationModules, fetchRoles, removeMemberRole, switchActiveTenant,
   updateCustomRole, updateMemberStatus,
   type AccessFilters, type AccessIdentity, type AccessMember, type AccessPermission,
-  type AccessRole, type Page,
+  type AccessRole, type AccessNavigationModule, type Page,
 } from "../../features/access_management";
 import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { BrandIcon } from "../components/Icons";
-import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
+import { WorkspaceNavigation, WorkspaceNavigationIcon } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 
 export type AccessTab = "members" | "roles" | "my-access";
@@ -29,6 +29,7 @@ export function AccessManagementPage() {
   const [members, setMembers] = useState<Page<AccessMember>>(emptyMembers);
   const [roles, setRoles] = useState<AccessRole[]>([]);
   const [permissions, setPermissions] = useState<AccessPermission[]>([]);
+  const [navigationCatalog, setNavigationCatalog] = useState<AccessNavigationModule[]>([]);
   const [filters, setFilters] = useState<AccessFilters>(emptyFilters);
   const [state, setState] = useState<AccessPageState>("loading");
   const [message, setMessage] = useState("");
@@ -44,12 +45,14 @@ export function AccessManagementPage() {
         setState("no-tenant"); return;
       }
       if (!nextIdentity.permissions.includes("tenant_members.read")) { setState("permission-denied"); return; }
-      const [nextMembers, nextRoles, nextPermissions] = await Promise.all([
+      const [nextMembers, nextRoles, nextPermissions, nextModules] = await Promise.all([
         fetchMembers(nextIdentity.active_tenant_id, filters, scopedFetch),
         fetchRoles(nextIdentity.active_tenant_id, scopedFetch),
         fetchPermissions(nextIdentity.active_tenant_id, scopedFetch),
+        fetchNavigationModules(nextIdentity.active_tenant_id, scopedFetch),
       ]);
-      setMembers(nextMembers); setRoles(safeTenantRoles(nextRoles.items)); setPermissions(nextPermissions); setState("ready");
+      setMembers(nextMembers); setRoles(safeTenantRoles(nextRoles.items)); setPermissions(nextPermissions);
+      setNavigationCatalog(nextModules); setState("ready");
     }).catch(error => {
       if (controller.signal.aborted) return;
       setState(accessStateForError(error)); setMessage(error instanceof Error ? error.message : "Access Management could not be loaded.");
@@ -68,7 +71,7 @@ export function AccessManagementPage() {
     } catch (error) { setMessage(error instanceof Error ? error.message : "Tenant switch failed."); }
   }
   return <AccessManagementShell identity={identity}><AccessManagementContent
-    state={state} identity={identity} members={members} roles={roles} permissions={permissions}
+    state={state} identity={identity} members={members} roles={roles} permissions={permissions} navigationCatalog={navigationCatalog}
     filters={filters} tab={tab} message={message} onTab={changeTab} onFilters={setFilters}
     onTenant={changeTenant} onRetry={() => setReload(value => value + 1)}
     onMutation={() => setReload(value => value + 1)} onMessage={setMessage}
@@ -78,14 +81,14 @@ export function AccessManagementPage() {
 export function AccessManagementShell({ children, identity = null }: { children: React.ReactNode; identity?: AccessIdentity | null }) {
   return <main className="access-shell"><aside className="access-sidebar">
     <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>{identity?.email || "Workspace settings"}</small></span></div>
-    <WorkspaceNavigation active="access" showOperations={Boolean(identity?.permissions.includes("ai_operations.read"))} />
+    <WorkspaceNavigation active="access" showOperations={Boolean(identity?.permissions.includes("ai_operations.read"))} permissions={identity?.permissions} navigationModules={identity?.navigation_modules} />
     <small className="access-sidebar-note">Permissions are enforced by the server for every tenant operation.</small>
   </aside><section className="access-main">{children}</section></main>;
 }
 
 type ContentProps = {
   state: AccessPageState; identity: AccessIdentity | null; members: Page<AccessMember>;
-  roles: AccessRole[]; permissions: AccessPermission[]; filters: AccessFilters; tab: AccessTab;
+  roles: AccessRole[]; permissions: AccessPermission[]; navigationCatalog?: AccessNavigationModule[]; filters: AccessFilters; tab: AccessTab;
   message?: string; onTab: (tab: AccessTab) => void; onFilters: (filters: AccessFilters) => void;
   onTenant: (tenantId: string) => void; onRetry: () => void; onMutation: () => void; onMessage: (value: string) => void;
 };
@@ -146,20 +149,101 @@ function AccessState({ state, message, onRetry }: { state: AccessPageState; mess
 
 function MembersTab(props: ContentProps) {
   const { identity, members, roles, filters, onFilters, onMutation, onMessage } = props;
-  const canManageMembers = identity!.permissions.includes("tenant_members.manage");
-  const canManageRoles = identity!.permissions.includes("tenant_roles.manage");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const canManageMembers = Boolean(identity?.permissions.includes("tenant_members.manage"));
+  const canManageRoles = Boolean(identity?.permissions.includes("tenant_roles.manage"));
+  const canEdit = canManageMembers || canManageRoles;
   const pages = Math.max(1, Math.ceil(members.total / members.page_size));
-  return <div className="access-content"><div className="access-toolbar"><div><small className="access-toolbar-label">Find a member</small><form aria-label="Member filters" onSubmit={event => event.preventDefault()}>
-    <label>Search<input value={filters.query} onChange={event => onFilters({ ...filters, query: event.target.value, page: 1 })} placeholder="Name or email" /></label>
-    <label>Status<select value={filters.status} onChange={event => onFilters({ ...filters, status: event.target.value, page: 1 })}><option value="">All statuses</option>{["invited", "active", "suspended", "removed"].map(value => <option key={value}>{value}</option>)}</select></label>
-    <label>Role<select value={filters.role} onChange={event => onFilters({ ...filters, role: event.target.value, page: 1 })}><option value="">All roles</option>{roles.map(role => <option key={role.id} value={role.key}>{role.name}</option>)}</select></label>
-  </form></div>{canManageMembers && <InviteMemberForm tenantId={identity!.active_tenant_id} onDone={onMutation} onMessage={onMessage} />}</div>
-    {!members.items.length ? <div className="access-empty"><h2>No members found</h2><p>Adjust the filters or invite an existing application user.</p></div> : <div className="access-table-wrap"><table className="access-table"><caption>Tenant members</caption><thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Joined</th><th>Actions</th></tr></thead><tbody>{members.items.map(member => <tr key={member.membership_id}>
-      <td><div className="access-member-profile"><MemberAvatar member={member}/><span><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></span></div></td><td><StatusBadge status={member.status} /></td>
-      <td><div className="role-chips">{member.roles.length ? member.roles.map(role => <span key={role.id}>{role.name}{canManageRoles && <DangerousAction label="Remove" title="Remove role" description={`Remove ${role.name} from this member?`} onConfirm={reason => removeMemberRole(identity!.active_tenant_id, member.membership_id, role.id, reason).then(() => { onMessage("Role removed."); onMutation(); })} />}</span>) : <em>No roles</em>}</div></td>
-      <td>{formatDate(member.joined_at)}</td><td><div className="member-action-stack"><MemberActions member={member} roles={roles} tenantId={identity!.active_tenant_id} canManageMembers={canManageMembers} canManageRoles={canManageRoles} onDone={onMutation} onMessage={onMessage} />{canManageMembers && member.roles.some(role => role.key === "viewer") && <ViewerFolderScopeEditor tenantId={identity!.active_tenant_id} membershipId={member.membership_id} onMessage={onMessage} />}</div></td>
-    </tr>)}</tbody></table></div>}
+  const editing = members.items.find(member => member.membership_id === editingId);
+  return <div className="access-content access-members-content">
+    <div className="access-toolbar access-toolbar-compact">
+      <form aria-label="Member filters" onSubmit={event => event.preventDefault()}>
+        <label>Search<input type="search" value={filters.query} onChange={event => onFilters({ ...filters, query: event.target.value, page: 1 })} placeholder="Name or email" /></label>
+        <label>Status<select value={filters.status} onChange={event => onFilters({ ...filters, status: event.target.value, page: 1 })}><option value="">All statuses</option>{["invited", "active", "suspended", "removed"].map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label>Role<select value={filters.role} onChange={event => onFilters({ ...filters, role: event.target.value, page: 1 })}><option value="">All roles</option>{roles.map(role => <option key={role.id} value={role.key}>{role.name}</option>)}</select></label>
+      </form>
+      {canManageMembers && <InviteMemberForm tenantId={identity!.active_tenant_id} onDone={onMutation} onMessage={onMessage} />}
+    </div>
+    <div className="access-members-heading"><div><h2>Tenant members</h2><span>{members.total} members · Manage modules and workspace roles</span></div></div>
+    {!members.items.length ? <div className="access-empty"><h2>No members found</h2><p>Adjust your filters or invite a member.</p></div> :
+    <div className="access-table-wrap"><table className="access-table access-member-table">
+      <caption className="sr-only">Tenant members</caption>
+      <thead><tr><th>Member</th><th>Navbar access</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <tbody>{members.items.map(member => {
+        const admin = member.roles.some(role => role.key === "tenant_admin");
+        const selected = member.navigation_modules;
+        return <tr key={member.membership_id}>
+          <td><div className="access-member-profile"><MemberAvatar member={member} /><span><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></span></div></td>
+          <td><span className={"access-nav-badge " + (admin ? "admin" : selected === undefined || selected === null ? "legacy" : "scoped")}>{admin ? "All modules · Admin" : selected == null ? "Role-based access" : selected.length + " / 9 modules"}</span>{selected && selected.length > 0 && <small className="access-nav-preview">{selected.map(key => props.navigationCatalog?.find(item => item.key === key)?.label || key).join(", ")}</small>}</td>
+          <td><div className="access-compact-roles">{member.roles.length ? <><span>{member.roles[0].name}</span>{member.roles.length > 1 && <small>+{member.roles.length - 1}</small>}</> : <em>No roles</em>}</div></td>
+          <td><StatusBadge status={member.status} /></td>
+          <td className="access-joined">{formatDate(member.joined_at)}</td>
+          <td>{canEdit ? <button type="button" className="access-manage-button" aria-haspopup="dialog" aria-label={"Manage access for " + (member.display_name || member.email || member.user_id)} onClick={() => setEditingId(member.membership_id)}>Manage access</button> : <span className="access-readonly">Read only</span>}</td>
+        </tr>;
+      })}</tbody>
+    </table></div>}
     <div className="access-pagination" aria-label="Member pagination"><button disabled={filters.page <= 1} onClick={() => onFilters({ ...filters, page: filters.page - 1 })}>Previous</button><span>Page {filters.page} of {pages}</span><button disabled={filters.page >= pages} onClick={() => onFilters({ ...filters, page: filters.page + 1 })}>Next</button></div>
+    {editing && <MemberAccessDialog key={editing.membership_id} member={editing}
+      tenantId={identity!.active_tenant_id} roles={roles} navigationCatalog={props.navigationCatalog || []}
+      canManageMembers={canManageMembers} canManageRoles={canManageRoles}
+      onClose={() => setEditingId(null)}
+      onDone={() => { setEditingId(null); onMutation(); }}
+      onMessage={onMessage}/>}
+  </div>;
+}
+
+function MemberAccessDialog({member, tenantId, roles, navigationCatalog, canManageMembers, canManageRoles, onClose, onDone, onMessage}: {
+  member: AccessMember; tenantId: string; roles: AccessRole[]; navigationCatalog: AccessNavigationModule[];
+  canManageMembers: boolean; canManageRoles: boolean; onClose: () => void; onDone: () => void; onMessage: (message: string) => void;
+}) {
+  const admin = member.roles.some(role => role.key === "tenant_admin");
+  const [mode, setMode] = useState<"roles" | "navbar">(member.navigation_modules == null ? "roles" : "navbar");
+  const [selected, setSelected] = useState<Set<string>>(new Set(member.navigation_modules || []));
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const canAssignModules = canManageMembers && canManageRoles && !admin && member.status !== "removed";
+  const savingRef = useRef(false);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !savingRef.current) onClose(); };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [onClose]);
+  const selectedModules = [...selected];
+  return <div className="access-member-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <section className="access-member-dialog" role="dialog" aria-modal="true" aria-label={"Manage access for " + (member.display_name || member.email || member.user_id)}>
+      <header className="access-member-dialog-header"><div className="access-member-dialog-person"><MemberAvatar member={member}/><div><small>MEMBER ACCESS</small><h2>{member.display_name || "Unnamed user"}</h2><p>{member.email || member.user_id}</p></div></div><button type="button" className="access-member-dialog-close" autoFocus aria-label="Close access editor" onClick={onClose}>×</button></header>
+      <div className="access-member-dialog-body">
+        <section className="access-nav-editor">
+          <div className="access-nav-editor-heading"><div><h3>Navbar access</h3><p>Selected modules grant all tenant actions supported by that module. Other modules remain inaccessible for scoped members.</p></div><span className="access-selection-count">{mode === "roles" ? "Role-based" : selected.size + " selected"}</span></div>
+          {admin ? <p className="access-admin-protected">Tenant administrators keep unrestricted navigation access. Their scope cannot be reduced here.</p> : <>
+            <div className="access-scope-switch" role="group" aria-label="Access policy"><button type="button" aria-pressed={mode === "navbar"} disabled={!canAssignModules || saving} className={mode === "navbar" ? "active" : ""} onClick={() => setMode("navbar")}>Selected navbar modules</button><button type="button" aria-pressed={mode === "roles"} disabled={!canAssignModules || saving} className={mode === "roles" ? "active" : ""} onClick={() => setMode("roles")}>Use existing roles</button></div>
+            {mode === "navbar" && <fieldset className="access-nav-module-grid" disabled={!canAssignModules || saving}><legend>Allowed navbar sections</legend>
+              {navigationCatalog.map(option => <label key={option.key} className={"access-nav-module " + (selected.has(option.key) ? "selected" : "") + (!option.can_grant && !selected.has(option.key) ? " unavailable" : "")}>
+                <input type="checkbox" checked={selected.has(option.key)} disabled={!option.can_grant || !canAssignModules || saving}
+                  onChange={() => setSelected(current => { const next = new Set(current); next.has(option.key) ? next.delete(option.key) : next.add(option.key); return next; })}/>
+                <WorkspaceNavigationIcon name={option.key as import("../components/WorkspaceNavigation").WorkspaceRoute} />
+                <span>{option.label}</span>
+              </label>)}
+              {!navigationCatalog.length && <p role="status">Navbar permissions are not available.</p>}
+            </fieldset>}
+            {mode === "navbar" && <p className="access-nav-scope-help">Granted: {selectedModules.length ? selectedModules.map(key => navigationCatalog.find(option => option.key === key)?.label || key).join(", ") : "No modules (member cannot access workspace features)"}. Tenant membership and folder security still apply.</p>}
+            {canAssignModules && <div className="access-nav-save"><label>Reason for change<input value={reason} minLength={3} disabled={saving} onChange={event => setReason(event.target.value)} placeholder="e.g. Assign inventory and review work" /></label><button className="primary" type="button" disabled={saving || reason.trim().length < 3 || (mode === "navbar" && !navigationCatalog.length)} onClick={async () => {
+              if (savingRef.current) return; savingRef.current = true; setSaving(true); setError("");
+              try { await replaceMemberNavigationAccess(tenantId, member.membership_id, mode === "roles" ? null : selectedModules, reason.trim()); onMessage("Navbar permissions updated."); onDone(); }
+              catch (next) { setError(next instanceof Error ? next.message : "Could not update navigation access."); }
+              finally { savingRef.current = false; setSaving(false); }
+            }}>{saving ? "Saving…" : "Save navbar access"}</button></div>}
+          </>}
+        </section>
+        <section className="access-member-detail-roles"><h3>Roles & membership</h3><p>Manage existing RBAC roles and member status separately from navbar permissions.</p>
+          <div className="role-chips">{member.roles.length ? member.roles.map(role => <span key={role.id}>{role.name}{canManageRoles && <DangerousAction label="Remove" title="Remove role" description={"Remove " + role.name + " from this member?"} onConfirm={reason => removeMemberRole(tenantId, member.membership_id, role.id, reason).then(() => { onMessage("Role removed."); onDone(); })} />}</span>) : <em>No roles</em>}</div>
+          <div className="member-action-stack"><MemberActions member={member} roles={roles} tenantId={tenantId} canManageMembers={canManageMembers} canManageRoles={canManageRoles} onDone={onDone} onMessage={onMessage}/>{canManageMembers && member.roles.some(role => role.key === "viewer") && <ViewerFolderScopeEditor tenantId={tenantId} membershipId={member.membership_id} onMessage={onMessage}/>}</div>
+        </section>
+      </div>
+      {error && <p className="access-nav-error" role="alert">{error}</p>}
+      <footer className="access-member-dialog-footer"><button type="button" disabled={saving} onClick={onClose}>Close</button></footer>
+    </section>
   </div>;
 }
 
@@ -201,7 +285,7 @@ function RoleEditor({ role, tenantId, permissions, actorPermissions, onCancel, o
 
 function MyAccessTab({ identity, onTenant }: { identity: AccessIdentity; onTenant: (tenantId: string) => void }) {
   const tenant = identity.available_tenants.find(item => item.id === identity.active_tenant_id);
-  return <div className="access-content my-access"><section><h2>Current user</h2><dl><dt>User ID</dt><dd><code>{identity.user_id}</code></dd><dt>Active tenant</dt><dd>{tenant?.name || identity.active_tenant_id}</dd><dt>Authorization source</dt><dd>{identity.authorization_source}</dd></dl></section><section><h2>Switch tenant</h2><label>Available tenants<select value={identity.active_tenant_id} onChange={event => onTenant(event.target.value)}>{identity.available_tenants.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></section><section><h2>Current roles</h2><div className="role-chips">{identity.roles.length ? identity.roles.map(role => <span key={role}>{role}</span>) : <em>No assigned roles</em>}</div></section><section className="access-permissions-card"><h2>Effective permissions</h2><PermissionGroups keys={identity.permissions} /></section></div>;
+  return <div className="access-content my-access"><section><h2>Current user</h2><dl><dt>User ID</dt><dd><code>{identity.user_id}</code></dd><dt>Active tenant</dt><dd>{tenant?.name || identity.active_tenant_id}</dd><dt>Authorization source</dt><dd>{identity.authorization_source}</dd></dl></section><section><h2>Switch tenant</h2><label>Available tenants<select value={identity.active_tenant_id} onChange={event => onTenant(event.target.value)}>{identity.available_tenants.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></section><section><h2>Current roles</h2><div className="role-chips">{identity.roles.length ? identity.roles.map(role => <span key={role}>{role}</span>) : <em>No assigned roles</em>}</div></section><section className="access-module-summary"><h2>Navbar permissions</h2>{identity.roles.includes("tenant_admin") ? <p>All modules · Tenant administrator</p> : identity.navigation_modules == null ? <p>Existing role permissions</p> : <div className="role-chips">{identity.navigation_modules.length ? identity.navigation_modules.map(key => <span key={key}>{key}</span>) : <em>No navbar modules assigned</em>}</div>}</section><section className="access-permissions-card"><h2>Effective permissions</h2><PermissionGroups keys={identity.permissions} /></section></div>;
 }
 
 export function safeTenantRoles(roles: AccessRole[]) { return roles.filter(role => !role.key.includes("platform_admin")); }

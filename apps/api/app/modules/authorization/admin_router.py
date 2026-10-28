@@ -21,6 +21,7 @@ from app.modules.authorization.principal import (
 
 from app.modules.authorization.service import AuthorizationError
 from app.modules.authorization.principal_cache import principal_cache
+from app.modules.authorization.navigation_scope import NAVIGATION_MODULES, NAVIGATION_LABELS, permissions_for_modules
 from app.modules.authorization.folder_scope import ViewerFolderScopeService
 from app.modules.assets.model import ExternalSourceModel
 from app.modules.auth_persistence.model import TenantMembershipModel
@@ -41,6 +42,12 @@ class MembershipStatusRequest(BaseModel):
     action: Literal["activate", "suspend", "restore", "remove"]
     reason: str = Field(min_length=3, max_length=1000)
     allow_final_admin_override: bool = False
+
+
+class NavigationAccessRequest(BaseModel):
+    # None restores legacy role-based permissions. [] explicitly denies all modules.
+    modules: list[str] | None = Field(default=None, max_length=9)
+    reason: str = Field(min_length=3, max_length=1000)
 
 
 class RoleAssignmentRequest(BaseModel):
@@ -203,6 +210,30 @@ def update_membership(
     return {"membership_id": membership.id, "user_id": membership.user_id, "status": membership.status}
 
 
+@router.put("/members/{membership_id}/navigation-access")
+def replace_navigation_access(
+    tenant_id: str,
+    membership_id: str,
+    body: NavigationAccessRequest,
+    principal: CurrentPrincipal = Depends(require_permission("tenant_roles.manage")),
+):
+    _scope(principal, tenant_id)
+    # Managing modules is a security-sensitive operation, not viewer configuration.
+    if not principal.platform_admin and "tenant_members.manage" not in principal.effective_permissions:
+        raise HTTPException(403, detail={"code": "permission_required", "message": "Member management is required"})
+    modules = _write(
+        lambda service: service.update_member_navigation_modules(
+            tenant_id=tenant_id, membership_id=membership_id,
+            actor_user_id=principal.user_id,
+            actor_permissions=principal.effective_permissions,
+            platform_admin=principal.platform_admin,
+            modules=body.modules, reason=body.reason,
+        ),
+        invalidate_tenant_id=tenant_id,
+    )
+    return {"membership_id": membership_id, "navigation_modules": modules}
+
+
 @router.post("/members/{membership_id}/roles", status_code=201)
 def assign_role(
     tenant_id: str,
@@ -276,6 +307,23 @@ def list_permissions(
     _scope(principal, tenant_id)
     with SessionLocal() as session:
         return {"items": TenantAccessAdminService(session).list_permissions()}
+
+
+@router.get("/navigation-modules")
+def list_navigation_modules(
+    tenant_id: str,
+    principal: CurrentPrincipal = Depends(require_permission("tenant_members.read")),
+):
+    _scope(principal, tenant_id)
+    return {"items": [
+        {
+            "key": key,
+            "label": NAVIGATION_LABELS[key],
+            "permissions": sorted(keys),
+            "can_grant": principal.platform_admin or keys.issubset(principal.effective_permissions),
+        }
+        for key, keys in NAVIGATION_MODULES.items()
+    ]}
 
 
 @router.post("/roles", status_code=201)

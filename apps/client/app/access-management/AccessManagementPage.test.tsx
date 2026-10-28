@@ -1,6 +1,9 @@
+// @vitest-environment jsdom
 // @ts-expect-error Vitest executes this test-only import in Node.
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   AccessApiError, addMember, assignMemberRole, createCustomRole, fetchAccessIdentity,
@@ -13,6 +16,7 @@ import {
   groupPermissions, handleAccessTabKeyDown, memberAvatarLabel, safeTenantRoles,
 } from "./AccessManagementPage";
 
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => undefined;
 const filters: AccessFilters = { query: "", status: "", role: "", page: 1 };
 const identity: AccessIdentity = {
@@ -60,7 +64,9 @@ describe("Access Management route and presentation", () => {
 
   it("renders the members list, filters, role assignment and dangerous actions", () => {
     const html = markup();
-    for (const value of ["Tenant members", "Ari Artist", "ari@example.com", "active", "Tenant admin", "Invite member", "Assign role", "Suspend", "Remove", "Page 1 of 1"]) expect(html).toContain(value);
+    for (const value of ["Tenant members", "Ari Artist", "ari@example.com", "active", "Invite member", "Manage access", "Navbar access", "Page 1 of 1"]) expect(html).toContain(value);
+    expect(html).not.toContain("Assign role…");
+    expect(html).not.toContain("Limit viewer folders");
     expect(html).toContain('class="access-member-avatar"');
     expect(html).toContain('src="https://lh3.googleusercontent.com/ari-avatar"');
     expect(html).toContain("Member filters"); expect(html).toContain('aria-haspopup="dialog"');
@@ -71,10 +77,27 @@ describe("Access Management route and presentation", () => {
     expect(memberAvatarLabel(null, "nghiabao@example.com")).toBe("NG");
   });
 
-  it("offers folder scoping only for viewer memberships", () => {
+  it("moves role management and viewer folder access into the compact editor", async () => {
     const viewer = { ...member, roles: [{ id: "viewer-role", key: "viewer", name: "Viewer", system: true }] };
-    expect(markup("members", { members: { items: [viewer], page: 1, page_size: 25, total: 1 } })).toContain("Limit viewer folders");
-    expect(markup("members", { members: { items: [member], page: 1, page_size: 25, total: 1 } })).not.toContain("Limit viewer folders");
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    const render = async (person: AccessMember) => act(async () => root.render(<AccessManagementContent
+      state="ready" identity={identity} members={{ items: [person], page: 1, page_size: 25, total: 1 }}
+      roles={[role, customRole]} permissions={permissions} filters={filters} tab="members"
+      onTab={noop} onFilters={noop} onTenant={noop} onRetry={noop} onMutation={noop} onMessage={noop}
+    />));
+    await render(viewer);
+    expect(host.textContent).not.toContain("Limit viewer folders");
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Ari Artist"]')!.click());
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain("Limit viewer folders");
+    expect(host.textContent).toContain("Assign role");
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Close access editor"]')!.click());
+    await render(member);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Ari Artist"]')!.click());
+    expect(host.textContent).not.toContain("Limit viewer folders");
+    await act(async () => root.unmount());
+    host.remove();
   });
 
   it("uses permission-based visibility while leaving backend enforcement authoritative", () => {
@@ -110,7 +133,7 @@ describe("Access Management route and presentation", () => {
     const selected: string[] = []; const focus = vi.fn();
     handleAccessTabKeyDown({ key: "ArrowRight", preventDefault: vi.fn(), currentTarget: { querySelectorAll: () => [{ focus }, { focus }, { focus }] } } as never, "members", tab => selected.push(tab));
     expect(selected).toEqual(["roles"]); expect(focus).toHaveBeenCalled();
-    const css = readFileSync(new URL("../../styles/access-management.css", import.meta.url), "utf8");
+    const css = readFileSync(existsSync("styles/access-management.css") ? "styles/access-management.css" : "apps/client/styles/access-management.css", "utf8");
     expect(css).toContain("@media(max-width:900px)"); expect(css).toContain("@media(max-width:650px)"); expect(css).toContain("overflow:auto");
   });
 

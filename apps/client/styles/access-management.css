@@ -215,3 +215,84 @@
   .shell .sidebar .workspace-navigation{display:flex}
   .sidebar-collapse,.sidebar-restore,.sidebar-resizer{display:none}
 }
+
+/* Compact Access Management / member-scoped navbar grants. */
+.access-main .access-header{padding:18px 26px;min-height:88px}
+.access-main .access-header h1{font-size:23px;line-height:1.2;margin:3px 0 5px}
+.access-main .access-header p{font-size:12px}
+.access-main .access-tabs{min-height:43px;padding:0 24px}
+.access-main .access-tabs button{font-size:12px;padding:11px 13px 10px}
+.access-members-content{padding:18px 24px 26px}
+.access-toolbar-compact{padding:12px 14px;margin-bottom:14px;align-items:center;box-shadow:none;border-radius:10px}
+.access-toolbar-compact>form{display:flex;align-items:end;flex-wrap:wrap;gap:10px;min-width:0}
+.access-toolbar-compact label{font-size:11px;gap:4px;min-width:130px}
+.access-toolbar-compact label:first-child{min-width:225px}
+.access-toolbar-compact input,.access-toolbar-compact select{min-height:34px;padding:7px 9px;font-size:12px}
+.access-toolbar-compact button.primary{min-height:34px;font-size:12px;white-space:nowrap}
+.access-members-heading{display:flex;justify-content:space-between;align-items:center;padding:3px 2px 11px;gap:12px}
+.access-members-heading h2{font-size:14px;line-height:1.25;margin:0 0 3px}
+.access-members-heading span{display:block;color:#667085;font-size:11px}
+.access-table-wrap{border-radius:10px;box-shadow:0 2px 12px #17203308}
+.access-member-table{min-width:780px;font-size:12px}
+.access-member-table th{padding:9px 12px;font-size:10px;letter-spacing:.02em}
+.access-member-table td{padding:9px 12px;vertical-align:middle}
+.access-member-table tbody tr:hover{background:#fafcff}
+.access-member-table .access-member-profile{min-width:180px;gap:9px}
+.access-member-table .access-member-avatar{width:30px;height:30px;flex-basis:30px}
+.access-member-table .access-member-profile strong{font-size:12px}
+.access-member-table .access-member-profile small{font-size:10px;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.access-nav-badge{display:inline-flex;align-items:center;max-width:100%;padding:4px 8px;border-radius:7px;background:#f0f4fa;color:#475467;font-size:10px;font-weight:750;white-space:nowrap}
+.access-nav-badge.admin{background:#eaf4ee;color:#127143}
+.access-nav-badge.scoped{background:#eaf0ff;color:#2354b1}
+.access-nav-preview{display:block;max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8390a1;font-size:10px;margin-top:3px}
+.access-compact-roles{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.access-compact-roles>span{padding:4px 7px;background:#eef3ff;color:#35508e;border-radius:6px;font-size:10px;font-weight:650}
+.access-compact-roles>small{font-weight:700;color:#667085}
+.access-compact-roles>em{font-size:11px;color:#98a2b3}
+.access-joined{white-space:nowrap;color:#667085;font-size:11px}
+.access-manage-button{min-height:31px;padding:6px 10px!important;color:#2354b1!important;border-color:#c5d5ef!important;background:#fff!important;white-space:nowrap;font-size:11px}
+.access-manage-button:hover{background:#f3f7ff!important}
+.access-readonly{color:#98a2b3;font-size:11px}
+.access-members-content .access-pagination{margin-top:12px;gap:8px;font-size:11px}
+.access-members-content .access-pagination button{min-width:auto;padding:6px 10px;font-size:11px}
+.access-member-dialog-backdrop{position:fixed;inset:0;z-index:1600;display:flex;justify-content:flex-end;align-items:stretch;background:rgba(15,23,42,.48)}
+.access-member-dialog{display:flex;flex-direction:column;width:min(690px,100%);height:100%;background:#fff;box-shadow:-18px 0 55px #1018282e;overflow:hidden}
+.access-member-dialog-header{padding:20px 24px;border-bottom:1px solid #e8edf3;display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.access-member-dialog-person{display:flex;gap:12px;align-items:center;min-width:0}
+.access-member-dialog-person>.access-member-avatar{width:44px;height:44px;flex-basis:44px}
+.access-member-dialog-person h2{margin:3px 0 2px;font-size:18px;line-height:1.25}
+.access-member-dialog-person p{margin:0;color:#667085;font-size:12px;overflow-wrap:anywhere}
+.access-member-dialog-person small{font-size:10px;letter-spacing:.1em;font-weight:800;color:#4e6fa8}
+.access-member-dialog-close{border:0!important;background:#f2f4f8!important;border-radius:9px!important;font-size:20px!important;width:34px;height:34px;padding:0!important}
+.access-member-dialog-body{padding:22px 24px;overflow:auto;flex:1}
+.access-nav-editor-heading{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.access-nav-editor h3,.access-member-detail-roles h3{margin:0 0 5px;font-size:15px}
+.access-nav-editor p,.access-member-detail-roles>p{font-size:12px;line-height:1.5;color:#68778b;margin:0 0 14px}
+.access-selection-count{background:#edf2fc;color:#355a9c;font-size:11px;padding:5px 8px;border-radius:999px;white-space:nowrap;font-weight:800}
+.access-scope-switch{display:flex;gap:5px;padding:4px;background:#f1f4f9;border-radius:10px;margin-bottom:16px;max-width:470px}
+.access-scope-switch button{flex:1;min-height:32px;border:1px solid transparent;background:transparent;font-size:11px;color:#536273;padding:7px 10px}
+.access-scope-switch button.active{background:#fff;border-color:#dce5f4;color:#265bb6;box-shadow:0 1px 4px #17203313}
+.access-admin-protected{border:1px solid #cee7dc;background:#f0fbf5;border-radius:8px;padding:10px 12px}
+.access-nav-module-grid{padding:0;border:0;margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.access-nav-module-grid legend{font-size:11px;color:#667085;font-weight:750;padding-bottom:8px}
+.access-nav-module{display:flex;align-items:center;gap:8px;min-width:0;min-height:54px;padding:10px;border:1px solid #dde5f0;border-radius:10px;cursor:pointer}
+.access-nav-module:hover{background:#f9fbff;border-color:#b8cbed}
+.access-nav-module.selected{background:#f2f6ff;border-color:#87a9e9;box-shadow:0 0 0 1px #d9e6ff inset}
+.access-nav-module.unavailable{opacity:.52;cursor:not-allowed}
+.access-nav-module input{width:15px;height:15px;min-height:auto;padding:0;margin:0;accent-color:#315ce8;flex:none}
+.access-nav-module .workspace-nav-icon{width:19px;height:19px;flex:none}
+.access-nav-module span{font-size:11px;font-weight:650;color:#344054;line-height:1.25;overflow-wrap:anywhere}
+.access-nav-scope-help{margin:11px 0 0!important;line-height:1.55}
+.access-nav-save{display:flex;align-items:end;gap:10px;margin-top:14px;border-top:1px solid #edf1f7;padding-top:14px}
+.access-nav-save label{display:flex;flex:1;flex-direction:column;gap:5px;font-size:11px;font-weight:700;color:#475467;min-width:0}
+.access-nav-save input{width:100%;min-height:36px;padding:7px 9px;font-size:12px}
+.access-nav-save button{min-height:36px;white-space:nowrap;font-size:12px}
+.access-member-detail-roles{margin-top:22px;border-top:1px solid #e8edf3;padding-top:18px}
+.access-member-detail-roles .role-chips{margin:12px 0}
+.access-member-detail-roles .member-action-stack{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.access-member-detail-roles .member-actions{flex-wrap:wrap}
+.access-member-dialog .access-dialog-backdrop,.access-member-dialog .viewer-folder-scope-backdrop{z-index:250}
+.access-member-dialog-footer{display:flex;justify-content:flex-end;padding:12px 24px;border-top:1px solid #e8edf3;background:#fafcff}
+.access-nav-error{margin:0 24px 14px;color:#b42318;background:#fff3f1;border:1px solid #f3ccc8;border-radius:8px;padding:9px;font-size:12px}
+@media(max-width:900px){.access-members-content{padding:16px}.access-main .access-header{padding:18px}.access-main .access-tabs{padding-inline:16px}}
+@media(max-width:650px){.access-toolbar-compact{align-items:stretch;flex-direction:column}.access-toolbar-compact>form{display:grid;grid-template-columns:1fr 1fr}.access-toolbar-compact label:first-child{grid-column:1/-1}.access-nav-module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.access-member-dialog-header{padding:16px}.access-member-dialog-body{padding:18px 16px}.access-nav-save{flex-direction:column;align-items:stretch}.access-member-dialog-footer{padding:14px 16px}}

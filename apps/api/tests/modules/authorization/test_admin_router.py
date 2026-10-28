@@ -75,6 +75,44 @@ class TenantAccessAdminRouterTest(unittest.TestCase):
         with patch("app.modules.authorization.admin_router.SessionLocal", self.factory):
             return self.client.request(method, path, **kwargs)
 
+    def test_navbar_module_catalog_and_member_assignment(self):
+        created = self.request(
+            "POST", f"/api/v1/tenants/{self.tenant.id}/members",
+            json={"user_id": self.member.id, "status": "active", "reason": "Add assigned member"},
+        )
+        self.assertEqual(created.status_code, 201)
+        member_id = created.json()["membership_id"]
+        catalog = self.request("GET", f"/api/v1/tenants/{self.tenant.id}/navigation-modules")
+        self.assertEqual(catalog.status_code, 200)
+        catalog_by_key = {item["key"]: item for item in catalog.json()["items"]}
+        self.assertTrue(catalog_by_key["inventory"]["can_grant"])
+        self.assertIn("inventory.finalize", catalog_by_key["inventory"]["permissions"])
+        changed = self.request(
+            "PUT", f"/api/v1/tenants/{self.tenant.id}/members/{member_id}/navigation-access",
+            json={"modules": ["inventory", "review-board"], "reason": "Inventory and review responsibilities"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()["navigation_modules"], ["inventory", "review-board"])
+        listing = self.request("GET", f"/api/v1/tenants/{self.tenant.id}/members")
+        assigned = next(item for item in listing.json()["items"] if item["membership_id"] == member_id)
+        self.assertEqual(assigned["navigation_modules"], ["inventory", "review-board"])
+        invalid = self.request(
+            "PUT", f"/api/v1/tenants/{self.tenant.id}/members/{member_id}/navigation-access",
+            json={"modules": ["platform-admin"], "reason": "Invalid privilege"},
+        )
+        self.assertEqual(invalid.status_code, 422)
+        protected = self.request(
+            "PUT", f"/api/v1/tenants/{self.tenant.id}/members/{self.admin_membership.id}/navigation-access",
+            json={"modules": ["assets"], "reason": "Would lock admin"},
+        )
+        self.assertEqual(protected.status_code, 409)
+        reset = self.request(
+            "PUT", f"/api/v1/tenants/{self.tenant.id}/members/{member_id}/navigation-access",
+            json={"modules": None, "reason": "Restore legacy roles"},
+        )
+        self.assertEqual(reset.status_code, 200)
+        self.assertIsNone(reset.json()["navigation_modules"])
+
     def test_member_invite_list_filters_roles_and_permissions(self):
         response = self.request(
             "POST",

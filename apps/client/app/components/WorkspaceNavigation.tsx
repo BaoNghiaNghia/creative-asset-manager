@@ -43,6 +43,7 @@ export function WorkspaceNavigation({
   showOperations = true,
   showReviewBoard,
   permissions,
+  navigationModules,
   aiOperationsTab,
   onAiOperationsTab,
   rrugcStage,
@@ -51,56 +52,70 @@ export function WorkspaceNavigation({
   showOperations?: boolean;
   showReviewBoard?: boolean;
   permissions?: readonly string[];
+  navigationModules?: readonly string[] | null;
   aiOperationsTab?: AiOpsTab;
   onAiOperationsTab?: (tab: AiOpsTab) => void;
   rrugcStage?: RrugcStageTab;
 }) {
   const [visible, setVisible] = useState(showReviewBoard ?? false);
+  const [resolvedAccess, setResolvedAccess] = useState<{ permissions: readonly string[]; navigationModules: readonly string[] | null } | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(active === "operations");
   const [rrugcOpen, setRrugcOpen] = useState(active === "realistic-review-ugc");
   const selectedRrugcGroup = workflowGroupForStage(rrugcStage ?? currentRrugcStage());
 
   useEffect(() => {
-    if (showReviewBoard !== undefined) {
-      setVisible(showReviewBoard);
-      return;
-    }
+    if (showReviewBoard !== undefined) setVisible(showReviewBoard);
+    // Most workspace pages use this shared navbar without passing permissions.
+    // Resolve authoritative tenant grants instead of rendering every route there.
+    if (permissions !== undefined && navigationModules !== undefined && showReviewBoard !== undefined) return;
     let alive = true;
     fetchAccessIdentity()
-      .then(identity => { if (alive) setVisible(mayViewReviewBoard(identity.permissions)); })
-      .catch(() => { if (alive) setVisible(false); });
+      .then(identity => {
+        if (!alive) return;
+        setResolvedAccess({ permissions: identity.permissions, navigationModules: identity.navigation_modules ?? null });
+        if (showReviewBoard === undefined) setVisible(mayViewReviewBoard(identity.permissions));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setResolvedAccess({ permissions: [], navigationModules: [] });
+        if (showReviewBoard === undefined) setVisible(false);
+      });
     return () => { alive = false; };
-  }, [showReviewBoard]);
+  }, [permissions, navigationModules, showReviewBoard]);
 
   useEffect(() => {
     if (active === "operations") setOperationsOpen(true);
     if (active === "realistic-review-ugc") setRrugcOpen(true);
   }, [active]);
 
-  const permissionAware = permissions !== undefined;
-  const canViewOperations = showOperations
-    && (!permissionAware || permissions.includes("ai_operations.read"));
-  const canViewInventory = !permissionAware || permissions.includes("inventory.read");
-  const canViewRrugc = !permissionAware || permissions.includes("realistic_review_ugc.read");
-  const canViewAccess = !permissionAware || permissions.includes("tenant_members.read");
+  const effectivePermissions = permissions ?? resolvedAccess?.permissions;
+  const effectiveModules = navigationModules === undefined ? resolvedAccess?.navigationModules : navigationModules;
+  const permissionAware = effectivePermissions !== undefined;
+  const granted = (module: WorkspaceRoute) => effectiveModules === undefined || effectiveModules === null || effectiveModules.includes(module);
+  const allowed = (key: string) => !permissionAware || effectivePermissions.includes(key);
+  const canViewOperations = granted("operations") && showOperations && allowed("ai_operations.read");
+  const canViewBranding = granted("branding-dna") && allowed("ai_operations.read");
+  const canViewInventory = granted("inventory") && allowed("inventory.read");
+  const canViewRrugc = granted("realistic-review-ugc") && allowed("realistic_review_ugc.read");
+  const canViewAccess = granted("access") && allowed("tenant_members.read");
 
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [
-    { id: "assets", href: "/", label: "Asset Explorer" },
+    ...(granted("assets") ? [{ id: "assets" as const, href: "/", label: "Asset Explorer" }] : []),
     ...(canViewInventory ? [
       { id: "inventory" as const, href: "/inventory", label: "Inventory" },
     ] : []),
     ...(canViewOperations ? [
       { id: "operations" as const, href: "/ai-operations", label: "AI Operations" },
-      { id: "branding-dna" as const, href: "/branding-dna", label: "Branding DNA" },
     ] : []),
+    ...(canViewBranding ? [{ id: "branding-dna" as const, href: "/branding-dna", label: "Branding DNA" }] : []),
     ...(canViewRrugc ? [
       { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "Realistic Review UGC" },
     ] : []),
-    ...(canViewOperations ? [
+    ...(granted("queue") && allowed("ai_operations.read") ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
     ] : []),
-    { id: "generation", href: "/video-generation", label: "Video Generation" },
-    ...(visible ? [{ id: "review-board" as const, href: "/review-board", label: "Review Board" }] : []),
+    ...(granted("generation") ? [{ id: "generation" as const, href: "/video-generation", label: "Video Generation" }] : []),
+    ...(granted("review-board") && visible ? [{ id: "review-board" as const, href: "/review-board", label: "Review Board" }] : []),
     ...(canViewAccess ? [
       { id: "access" as const, href: "/settings/access", label: "Access Management" },
     ] : []),

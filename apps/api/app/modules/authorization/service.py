@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth_persistence.model import AuthAuditEventModel, TenantMembershipModel
 from app.modules.auth_persistence.tenant_membership import TenantAccessError, TenantMembershipService
 from app.modules.authorization.principal_cache import principal_cache
+from app.modules.authorization.navigation_scope import NAVIGATION_MODULES, permissions_for_modules
 from app.modules.authorization.model import MembershipRoleModel, PermissionModel, RoleModel, RolePermissionModel
 
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
@@ -29,6 +30,7 @@ class EffectiveAuthorization:
     membership_id: str
     roles: frozenset[str]
     permissions: frozenset[str]
+    navigation_modules: frozenset[str] | None = None
 
 
 class TenantAuthorizationService:
@@ -55,10 +57,19 @@ class TenantAuthorizationService:
                 PermissionModel.status == "active",
             )
         ).all()
+        roles = frozenset(row[0] for row in rows)
+        assigned = membership.navigation_modules_json
+        if assigned is not None and "tenant_admin" not in roles:
+            modules = frozenset(key for key in assigned if key in NAVIGATION_MODULES)
+            active_permission_keys = frozenset(self.session.scalars(
+                select(PermissionModel.permission_key).where(PermissionModel.status == "active")
+            ))
+            permissions = permissions_for_modules(modules) & active_permission_keys
+            return EffectiveAuthorization(tenant_id, membership.id, roles, permissions, modules)
         return EffectiveAuthorization(
             tenant_id=tenant_id,
             membership_id=membership.id,
-            roles=frozenset(row[0] for row in rows),
+            roles=roles,
             permissions=frozenset(row[1] for row in rows),
         )
 

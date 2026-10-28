@@ -1,6 +1,6 @@
 import type {
   AccessApiErrorCode, AccessFilters, AccessIdentity, AccessMember, AccessPermission,
-  AccessRole, MembershipStatus, Page, ViewerFolderOption, ViewerFolderScope,
+  AccessRole, AccessNavigationModule, MembershipStatus, Page, ViewerFolderOption, ViewerFolderScope,
 } from "./types";
 
 type Fetcher = typeof fetch;
@@ -53,6 +53,11 @@ export async function fetchPermissions(tenantId: string, fetcher: Fetcher = fetc
   return response.items;
 }
 
+export async function fetchNavigationModules(tenantId: string, fetcher: Fetcher = fetch) {
+  const response = await request<{ items: AccessNavigationModule[] }>(`${tenantBase(tenantId)}/navigation-modules`, {}, fetcher);
+  return response.items;
+}
+
 export const addMember = (tenantId: string, body: { email?: string; user_id?: string; status: "invited" | "active"; reason: string }, fetcher: Fetcher = fetch) =>
   request(`${tenantBase(tenantId)}/members`, { method: "POST", body: JSON.stringify(body) }, fetcher);
 
@@ -61,6 +66,12 @@ export const updateMemberStatus = (tenantId: string, membershipId: string, actio
 
 export const assignMemberRole = (tenantId: string, membershipId: string, roleId: string, reason: string, fetcher: Fetcher = fetch) =>
   request(`${tenantBase(tenantId)}/members/${encodeURIComponent(membershipId)}/roles`, { method: "POST", body: JSON.stringify({ role_id: roleId, reason }) }, fetcher);
+
+export const replaceMemberNavigationAccess = (tenantId: string, membershipId: string, modules: string[] | null, reason: string, fetcher: Fetcher = fetch) =>
+  request<{ membership_id: string; navigation_modules: string[] | null }>(
+    `${tenantBase(tenantId)}/members/${encodeURIComponent(membershipId)}/navigation-access`,
+    { method: "PUT", body: JSON.stringify({ modules, reason }) }, fetcher,
+  );
 
 export const removeMemberRole = (tenantId: string, membershipId: string, roleId: string, reason: string, fetcher: Fetcher = fetch) =>
   request(`${tenantBase(tenantId)}/members/${encodeURIComponent(membershipId)}/roles/${encodeURIComponent(roleId)}`, { method: "DELETE", body: JSON.stringify({ reason }) }, fetcher);

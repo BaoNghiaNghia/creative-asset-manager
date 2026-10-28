@@ -60,6 +60,18 @@
       "focus": "form[aria-label='Member filters'] input"
     },
     {
+      "name": "member-navbar-access",
+      "click": "button[aria-label='Manage access for QA Viewer']",
+      "waitFor": ".access-nav-module-grid",
+      "waitMs": 200
+    },
+    {
+      "name": "member-access-close",
+      "click": "button[aria-label='Close access editor']",
+      "waitFor": ".access-table-wrap",
+      "waitMs": 150
+    },
+    {
       "name": "roles-tab",
       "click": "#access-tab-roles",
       "waitFor": ".role-grid"
