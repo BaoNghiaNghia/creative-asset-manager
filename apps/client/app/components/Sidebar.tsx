@@ -123,6 +123,7 @@ export function Sidebar({
   const rootAncestors = path.length > 0 && path[0].id === currentRoot ? [path[0]] : [];
   const activePathIds = new Set(path.map(folder => folder.id));
   const [workspacePermissions, setWorkspacePermissions] = useState<readonly string[]>([]);
+  const [navigationModules, setNavigationModules] = useState<readonly string[] | null>(null);
   const [busySourceId, setBusySourceId] = useState<string | null>(null);
   const [sourceContextMenu, setSourceContextMenu] = useState<SourceContextMenu | null>(null);
 
@@ -131,7 +132,8 @@ export function Sidebar({
     fetchAccessIdentity().then(identity => {
       if (!alive) return;
       setWorkspacePermissions(identity.permissions);
-    }).catch(() => { if (alive) setWorkspacePermissions([]); });
+      setNavigationModules(identity.navigation_modules ?? null);
+    }).catch(() => { if (alive) { setWorkspacePermissions([]); setNavigationModules(null); } });
     return () => { alive = false; };
   }, []);
 
@@ -162,7 +164,8 @@ export function Sidebar({
     </div>
     <WorkspaceNavigation
       active="assets"
-      showOperations={mayViewAiOperations(workspacePermissions)}
+      showOperations={mayViewAiOperations(workspacePermissions) || navigationModules?.includes("branding-dna")}
+      navigationModules={navigationModules}
       permissions={workspacePermissions}
     />
     <p>SOURCES</p>

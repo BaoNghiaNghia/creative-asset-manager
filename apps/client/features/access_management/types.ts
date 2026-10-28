@@ -15,6 +15,7 @@ export type AccessMember = {
   avatar_url?: string | null;
   status: MembershipStatus;
   roles: AccessRoleSummary[];
+  navigation_modules?: string[] | null;
   joined_at: string | null;
   last_login_at: string | null;
 };
@@ -29,6 +30,7 @@ export type AccessRole = AccessRoleSummary & {
 };
 
 export type AccessPermission = { id: string; key: string; description: string | null };
+export type AccessNavigationModule = { key: string; label: string; permissions: string[]; can_grant: boolean };
 export type AccessTenant = { id: string; name: string; slug: string };
 
 export type AccessIdentity = {
@@ -38,6 +40,7 @@ export type AccessIdentity = {
   available_tenants: AccessTenant[];
   roles: string[];
   permissions: string[];
+  navigation_modules?: string[] | null;
   is_processing_admin: boolean;
   authorization_source: string;
   display_name?: string | null;

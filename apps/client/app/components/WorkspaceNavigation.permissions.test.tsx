@@ -22,6 +22,25 @@ describe("WorkspaceNavigation permissions", () => {
     expect(denied).not.toContain('href="/inventory"');
   });
 
+  it("scopes identical shared permission keys to the explicitly granted navbar", () => {
+    const branding = renderToStaticMarkup(
+      <WorkspaceNavigation active="branding-dna"
+        permissions={["ai_operations.read", "ai_provider.configure"]}
+        navigationModules={["branding-dna"]} showOperations showReviewBoard={false} />,
+    );
+    expect(branding).toContain('href="/branding-dna"');
+    expect(branding).not.toContain('href="/ai-operations"');
+    expect(branding).not.toContain('href="/job-queue"');
+    expect(branding).not.toContain('href="/inventory"');
+    const jobs = renderToStaticMarkup(
+      <WorkspaceNavigation active="queue" permissions={["ai_operations.read", "ai_jobs.retry"]}
+        navigationModules={["queue"]} showOperations showReviewBoard={false} />,
+    );
+    expect(jobs).toContain('href="/job-queue"');
+    expect(jobs).not.toContain('href="/ai-operations"');
+    expect(jobs).not.toContain('href="/branding-dna"');
+  });
+
   it("shows Viewer review workflows while hiding admin destinations", () => {
     const markup = renderToStaticMarkup(
       <WorkspaceNavigation

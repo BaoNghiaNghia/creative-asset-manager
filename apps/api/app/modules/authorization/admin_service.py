@@ -14,6 +14,8 @@ from app.modules.auth_persistence.model import (
 )
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.authorization.principal_cache import principal_cache
+from app.modules.authorization.platform_admin import PlatformAdminService
+from app.modules.authorization.navigation_scope import NAVIGATION_MODULES, permissions_for_modules
 from app.modules.authorization.model import (
     MembershipRoleModel,
     PermissionModel,
@@ -119,6 +121,7 @@ class TenantAccessAdminService:
                     "avatar_url": user.avatar_url,
                     "status": membership.status,
                     "roles": role_map[membership.id],
+                    "navigation_modules": membership.navigation_modules_json,
                     "joined_at": membership.joined_at,
                     "last_login_at": user.last_login_at,
                 }
@@ -128,6 +131,73 @@ class TenantAccessAdminService:
             "page_size": page_size,
             "total": total,
         }
+
+    def update_member_navigation_modules(
+        self,
+        *,
+        tenant_id: str,
+        membership_id: str,
+        actor_user_id: str,
+        actor_permissions: frozenset[str],
+        platform_admin: bool,
+        modules: list[str] | None,
+        reason: str,
+    ) -> list[str] | None:
+        self._lock_tenant(tenant_id)
+        membership = self._membership(tenant_id, membership_id)
+        if membership.status == "removed":
+            raise TenantAccessAdminError("member_removed", "Restore the member before assigning modules", status_code=409)
+        if membership.user_id == actor_user_id and not platform_admin:
+            raise TenantAccessAdminError("self_scope_forbidden", "Cannot change your own navbar access", status_code=409)
+        is_tenant_admin = self.session.scalar(
+            select(MembershipRoleModel.id)
+            .join(RoleModel, RoleModel.id == MembershipRoleModel.role_id)
+            .where(
+                MembershipRoleModel.tenant_id == tenant_id,
+                MembershipRoleModel.tenant_membership_id == membership.id,
+                RoleModel.tenant_id == tenant_id,
+                RoleModel.role_key == "tenant_admin",
+                RoleModel.status == "active",
+            )
+        )
+        if is_tenant_admin or PlatformAdminService(self.session).is_platform_admin(membership.user_id):
+            raise TenantAccessAdminError(
+                "protected_admin_scope", "Tenant administrators retain unrestricted module access", status_code=409
+            )
+        if modules is None:
+            # Resetting to legacy roles must never be a privilege-escalation
+            # shortcut for an actor who cannot grant those role permissions.
+            role_keys = set(self.session.scalars(
+                select(PermissionModel.permission_key)
+                .select_from(MembershipRoleModel)
+                .join(RoleModel, RoleModel.id == MembershipRoleModel.role_id)
+                .join(RolePermissionModel, RolePermissionModel.role_id == RoleModel.id)
+                .join(PermissionModel, PermissionModel.id == RolePermissionModel.permission_id)
+                .where(
+                    MembershipRoleModel.tenant_id == tenant_id,
+                    MembershipRoleModel.tenant_membership_id == membership.id,
+                    RoleModel.tenant_id == tenant_id,
+                    RoleModel.status == "active",
+                    PermissionModel.status == "active",
+                )
+            ))
+            self._assert_grant_authority(role_keys, actor_permissions, platform_admin)
+        else:
+            if len(modules) != len(set(modules)) or not set(modules).issubset(NAVIGATION_MODULES):
+                raise ValueError("Unknown or duplicated navbar modules")
+            self._assert_grant_authority(
+                set(permissions_for_modules(set(modules))), actor_permissions, platform_admin
+            )
+        previous = membership.navigation_modules_json
+        membership.navigation_modules_json = sorted(modules) if modules is not None else None
+        membership.updated_at = utcnow()
+        self._audit(
+            "member_navigation_access_replaced", tenant_id, actor_user_id, reason,
+            {"membership_id": membership.id, "old": previous, "new": membership.navigation_modules_json},
+        )
+        self.session.flush()
+        principal_cache.invalidate_tenant(tenant_id)
+        return membership.navigation_modules_json
 
     def add_member(
         self,

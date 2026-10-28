@@ -69,6 +69,8 @@ class TenantMembershipModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="invited")
+    # NULL preserves existing RBAC; [] means no navbar access.
+    navigation_modules_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invited_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

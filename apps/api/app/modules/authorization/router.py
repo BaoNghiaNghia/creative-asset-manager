@@ -73,6 +73,7 @@ def identity(
         "available_tenants": tenants,
         "roles": sorted(principal.effective_roles),
         "permissions": sorted(principal.effective_permissions),
+        "navigation_modules": sorted(principal.navigation_modules) if principal.navigation_modules is not None else None,
         "is_processing_admin": principal.platform_admin
         or "tenant_admin" in principal.effective_roles,
         "authorization_source": principal.authorization_source,
@@ -145,6 +146,7 @@ def select_active_tenant(
         "available_tenants": tenants,
         "roles": sorted(effective.roles),
         "permissions": sorted(effective.permissions),
+        "navigation_modules": sorted(effective.navigation_modules) if effective.navigation_modules is not None else None,
         "is_processing_admin": principal.platform_admin or "tenant_admin" in effective.roles,
         "authorization_source": principal.authorization_source,
         "application_auth_provider": principal.external_identity.provider if principal.external_identity else None,

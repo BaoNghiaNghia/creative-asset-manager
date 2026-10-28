@@ -19,6 +19,7 @@ from app.modules.auth_persistence.tenant_membership import (
     TenantMembershipService,
 )
 from app.modules.authorization.platform_admin import PlatformAdminService
+from app.modules.authorization.navigation_scope import navigation_for_api_path
 from app.modules.authorization.principal_cache import principal_cache
 from app.modules.authorization.service import TenantAuthorizationService
 from app.providers.google.auth import (
@@ -49,6 +50,7 @@ class CurrentPrincipal:
     platform_admin: bool
     session_id: str
     authorization_source: str
+    navigation_modules: frozenset[str] | None = None
 
     @property
     def actor_id(self) -> str:
@@ -136,6 +138,7 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         cloud_session.session_id_hash, cloud_session.active_tenant_id
     )
     if cached is not None:
+        _require_navigation_access(cached, request.url.path)
         return cached
 
     with SessionLocal() as database:
@@ -200,9 +203,20 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         platform_admin=durable_platform_admin or compatibility_admin,
         session_id=cloud_session.session_id_hash,
         authorization_source=authorization_source,
+        navigation_modules=effective.navigation_modules,
     )
     principal_cache.put(principal)
+    _require_navigation_access(principal, request.url.path)
     return principal
+
+
+def _require_navigation_access(principal: CurrentPrincipal, path: str) -> None:
+    module = navigation_for_api_path(path)
+    if (module is not None and not principal.platform_admin
+            and principal.navigation_modules is not None
+            and module not in principal.navigation_modules
+            and not (module == "queue" and "operations" in principal.navigation_modules)):
+        raise authorization_error(403, "navigation_access_required", "This navbar module has not been assigned")
 
 
 def require_permission(permission_key: str):
