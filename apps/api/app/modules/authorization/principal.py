@@ -138,7 +138,7 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         cloud_session.session_id_hash, cloud_session.active_tenant_id
     )
     if cached is not None:
-        _require_navigation_access(cached, request.url.path)
+        _require_navigation_access(cached, _request_path(request))
         return cached
 
     with SessionLocal() as database:
@@ -206,8 +206,17 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         navigation_modules=effective.navigation_modules,
     )
     principal_cache.put(principal)
-    _require_navigation_access(principal, request.url.path)
+    _require_navigation_access(principal, _request_path(request))
     return principal
+
+
+def _request_path(request: Request) -> str:
+    """Use authoritative ASGI route path; tolerate minimal test doubles."""
+    scope = getattr(request, "scope", None)
+    if isinstance(scope, dict) and isinstance(scope.get("path"), str):
+        return scope["path"]
+    url = getattr(request, "url", None)
+    return str(getattr(url, "path", "") or "")
 
 
 def _require_navigation_access(principal: CurrentPrincipal, path: str) -> None:

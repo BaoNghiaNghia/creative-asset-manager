@@ -87,8 +87,9 @@ class MemberNavigationAccessTests(unittest.TestCase):
         with self.assertRaises(TenantAccessAdminError) as legacy_reset:
             self.change(None, actor_permissions=frozenset({"tenant_members.manage", "tenant_roles.manage"}))
         self.assertEqual(legacy_reset.exception.code, "grant_authority_exceeded")
-        with self.assertRaises(LookupError):
+        with self.assertRaises(TenantAccessAdminError) as wrong_membership:
             self.change(["inventory"], member_id=self.other_tenant.id)
+        self.assertEqual(wrong_membership.exception.code, "membership_not_found")
         with self.assertRaises(TenantAccessAdminError) as protect:
             self.change(["inventory"], member_id=self.admin_membership.id)
         self.assertEqual(protect.exception.code, "protected_admin_scope")
