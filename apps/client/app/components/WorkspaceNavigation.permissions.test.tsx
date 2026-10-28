@@ -1,9 +1,30 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { WorkspaceNavigation } from "./WorkspaceNavigation";
+import { WorkspaceNavigation, roleBasedNavbarModules } from "./WorkspaceNavigation";
 import { workspaceRouteForApplicationRoute, requiredPermissionForApplicationRoute } from "../AppRoute";
 
 describe("WorkspaceNavigation permissions", () => {
+  it("derives Viewer checkbox defaults from the same legacy navbar visibility", () => {
+    const viewerPermissions = [
+      "assets.read", "assets.upload", "assets.delete", "search.read",
+      "public_review.read", "public_review.resolve", "realistic_review_ugc.read",
+      "realistic_review_ugc.run", "realistic_review_ugc.configure",
+    ];
+    expect(roleBasedNavbarModules(viewerPermissions)).toEqual([
+      "assets", "realistic-review-ugc", "generation", "review-board",
+    ]);
+    const html = renderToStaticMarkup(
+      <WorkspaceNavigation active="assets" permissions={viewerPermissions}
+        showOperations={false} showReviewBoard={true} />,
+    );
+    expect(html).toContain("Asset Explorer");
+    expect(html).toContain("Realistic Review UGC");
+    expect(html).toContain("Video Generation");
+    expect(html).toContain("Review Board");
+    expect(roleBasedNavbarModules(["inventory.read"])).toEqual([
+      "assets", "inventory", "generation",
+    ]);
+  });
   it("maps Inventory to its own sidebar route with inventory.read permission", () => {
     expect(workspaceRouteForApplicationRoute("inventory")).toBe("inventory");
     expect(requiredPermissionForApplicationRoute("inventory")).toBe("inventory.read");

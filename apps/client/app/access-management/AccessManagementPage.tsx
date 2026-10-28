@@ -9,7 +9,7 @@ import {
 } from "../../features/access_management";
 import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { BrandIcon } from "../components/Icons";
-import { WorkspaceNavigation, WorkspaceNavigationIcon } from "../components/WorkspaceNavigation";
+import { WorkspaceNavigation, WorkspaceNavigationIcon, roleBasedNavbarModules } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 
 export type AccessTab = "members" | "roles" | "my-access";
@@ -198,7 +198,7 @@ function MemberAccessDialog({member, tenantId, roles, navigationCatalog, canMana
 }) {
   const admin = member.roles.some(role => role.key === "tenant_admin");
   const [mode, setMode] = useState<"roles" | "navbar">(member.navigation_modules == null ? "roles" : "navbar");
-  const [selected, setSelected] = useState<Set<string>>(new Set(member.navigation_modules || []));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(member.navigation_modules ?? roleBasedNavbarModules(roles.filter(role => role.status === "active" && member.roles.some(assigned => assigned.id === role.id || assigned.key === role.key)).flatMap(role => role.permissions))));
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -227,6 +227,7 @@ function MemberAccessDialog({member, tenantId, roles, navigationCatalog, canMana
               </label>)}
               {!navigationCatalog.length && <p role="status">Navbar permissions are not available.</p>}
             </fieldset>}
+            {mode === "navbar" && member.navigation_modules == null && <p className="access-nav-scope-help" role="note">These checkboxes reflect the current role-based navbar. Saving converts the selection to full permissions within each chosen module; viewing this preview does not change access.</p>}
             {mode === "navbar" && <p className="access-nav-scope-help">Granted: {selectedModules.length ? selectedModules.map(key => navigationCatalog.find(option => option.key === key)?.label || key).join(", ") : "No modules (member cannot access workspace features)"}. Tenant membership and folder security still apply.</p>}
             {canAssignModules && <div className="access-nav-save"><label>Reason for change<input value={reason} minLength={3} disabled={saving} onChange={event => setReason(event.target.value)} placeholder="e.g. Assign inventory and review work" /></label><button className="primary" type="button" disabled={saving || reason.trim().length < 3 || (mode === "navbar" && !navigationCatalog.length)} onClick={async () => {
               if (savingRef.current) return; savingRef.current = true; setSaving(true); setError("");

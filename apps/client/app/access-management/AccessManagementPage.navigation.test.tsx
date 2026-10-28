@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessManagementContent } from "./AccessManagementPage";
-import type { AccessIdentity, AccessMember, AccessNavigationModule } from "../../features/access_management";
+import type { AccessIdentity, AccessMember, AccessNavigationModule, AccessRole } from "../../features/access_management";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => { vi.unstubAllGlobals(); document.body.replaceChildren(); });
@@ -25,7 +25,49 @@ const modules: AccessNavigationModule[] = [
   { key: "access", label: "Access Management", permissions: ["tenant_members.manage"], can_grant: false },
 ];
 
+const viewerRole: AccessRole = {
+  id: "viewer", key: "viewer", name: "Viewer", system: true, protected: true,
+  description: null, status: "active", created_at: "", updated_at: "",
+  permissions: [
+    "assets.read", "assets.upload", "assets.delete", "search.read",
+    "public_review.read", "public_review.resolve", "realistic_review_ugc.read",
+    "realistic_review_ugc.run", "realistic_review_ugc.configure",
+  ],
+};
+const allNavigationModules: AccessNavigationModule[] = [
+  "assets", "inventory", "operations", "branding-dna", "realistic-review-ugc",
+  "queue", "generation", "review-board", "access",
+].map(key => ({ key, label: key, permissions: [], can_grant: true }));
+
 describe("Compact member navbar access editor", () => {
+  it("prechecks the four existing Viewer navbar entries without changing stored permissions", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<AccessManagementContent
+      state="ready" identity={identity}
+      members={{ items: [member], page: 1, page_size: 25, total: 1 }}
+      roles={[viewerRole]} permissions={[]} navigationCatalog={allNavigationModules}
+      filters={{ query: "", status: "", role: "", page: 1 }} tab="members"
+      onTab={() => {}} onFilters={() => {}} onTenant={() => {}}
+      onRetry={() => {}} onMutation={() => {}} onMessage={() => {}}
+    />));
+    expect(host.textContent).toContain("Role-based access");
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Test Member"]')!.click());
+    expect(host.querySelector(".access-nav-module-grid")).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('.access-scope-switch button:first-child')!.click());
+    const checked = [...host.querySelectorAll<HTMLLabelElement>(".access-nav-module")]
+      .filter(label => label.querySelector<HTMLInputElement>('input')?.checked)
+      .map(label => label.textContent?.trim());
+    expect(checked).toEqual(["assets", "realistic-review-ugc", "generation", "review-board"]);
+    expect(host.textContent).toContain("4 selected");
+    expect(host.textContent).toContain("viewing this preview does not change access");
+    expect(fetcher).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
   it("saves selected modules through a tenant-scoped audited endpoint", async () => {
     const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ membership_id: member.membership_id, navigation_modules: ["inventory"] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetcher);
@@ -34,17 +76,17 @@ describe("Compact member navbar access editor", () => {
     document.body.append(host);
     const root = createRoot(host);
     await act(async () => root.render(<AccessManagementContent
-      state="ready" identity={identity} members={{ items: [member], page: 1, page_size: 25, total: 1 }}
-      roles={[]} permissions={[]} navigationCatalog={modules}
+      state="ready" identity={identity} members={{ items: [{ ...member, navigation_modules: [] }], page: 1, page_size: 25, total: 1 }}
+      roles={[viewerRole]} permissions={[]} navigationCatalog={modules}
       filters={{ query: "", status: "", role: "", page: 1 }} tab="members"
       onTab={() => {}} onFilters={() => {}} onTenant={() => {}}
       onRetry={() => {}} onMutation={done} onMessage={() => {}}
     />));
-    expect(host.textContent).toContain("Role-based access");
+    expect(host.textContent).toContain("0 / 9 modules");
     expect(host.querySelectorAll("tbody tr")).toHaveLength(1);
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Test Member"]')!.click());
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-pressed="false"]')!.click());
+    expect(host.querySelector(".access-nav-module-grid")).not.toBeNull();
     const inventory = host.querySelector<HTMLInputElement>('.access-nav-module input[type="checkbox"]')!;
     await act(async () => inventory.click());
     expect(inventory.checked).toBe(true);
