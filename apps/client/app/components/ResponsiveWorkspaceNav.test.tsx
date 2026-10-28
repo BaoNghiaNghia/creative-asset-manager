@@ -20,6 +20,20 @@ describe("responsive mobile workspace navigation", () => {
     ]);
   });
 
+  it("enforces selected navbar modules on mobile even where permission keys overlap", () => {
+    const scoped = availableMobileDestinations(
+      ["ai_operations.read", "ai_provider.configure", "ai_jobs.retry"],
+      ["branding-dna"],
+    );
+    expect(scoped.map(item => item.id)).toEqual(["branding-dna"]);
+    const queue = availableMobileDestinations(
+      ["ai_operations.read", "ai_jobs.retry"],
+      ["queue"],
+    );
+    expect(queue.map(item => item.id)).toEqual(["queue"]);
+    expect(availableMobileDestinations(["assets.read", "inventory.read"], []).length).toBe(0);
+  });
+
   it("keeps at most four discoverable tabs and exposes the rest in More", () => {
     const admin = availableMobileDestinations([
       "ai_operations.read", "realistic_review_ugc.read",

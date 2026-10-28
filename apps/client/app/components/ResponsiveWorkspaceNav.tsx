@@ -19,8 +19,9 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
 ];
 
 /** Navigation on phones uses the same permission model as the desktop sidebar. */
-export function availableMobileDestinations(permissions: readonly string[]): readonly MobileDestination[] {
+export function availableMobileDestinations(permissions: readonly string[], navigationModules: readonly string[] | null = null): readonly MobileDestination[] {
   return ALL_MOBILE_DESTINATIONS.filter(item => {
+    if (navigationModules !== null && !navigationModules.includes(item.id)) return false;
     if (item.id === "operations" || item.id === "queue" || item.id === "branding-dna") return permissions.includes("ai_operations.read");
     if (item.id === "inventory") return permissions.includes("inventory.read");
     if (item.id === "realistic-review-ugc") return permissions.includes("realistic_review_ugc.read");
@@ -37,6 +38,7 @@ export function splitMobileDestinations(destinations: readonly MobileDestination
 
 export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
   const [permissions, setPermissions] = useState<readonly string[]>([]);
+  const [navigationModules, setNavigationModules] = useState<readonly string[] | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [ugcOpen, setUgcOpen] = useState(false);
   const ugcButton = useRef<HTMLButtonElement>(null);
@@ -48,8 +50,8 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
   useEffect(() => {
     let alive = true;
     fetchAccessIdentity()
-      .then(identity => { if (alive) setPermissions(identity.permissions); })
-      .catch(() => { if (alive) setPermissions([]); });
+      .then(identity => { if (alive) { setPermissions(identity.permissions); setNavigationModules(identity.navigation_modules ?? null); } })
+      .catch(() => { if (alive) { setPermissions([]); setNavigationModules([]); } });
     return () => { alive = false; };
   }, []);
 
@@ -114,7 +116,7 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
     };
   }, [ugcOpen]);
 
-  const destinations = availableMobileDestinations(permissions);
+  const destinations = availableMobileDestinations(permissions, navigationModules);
   const { tabs, more } = splitMobileDestinations(destinations);
   const selectedInMore = more.some(item => item.id === active);
   const activeUgcGroup = workflowGroupForStage(currentRrugcStage());
@@ -130,6 +132,7 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
         showOperations={permissions.includes("ai_operations.read")}
         showReviewBoard={mayViewReviewBoard(permissions)}
         permissions={permissions}
+        navigationModules={navigationModules}
       />
       <nav className="mobile-workspace-tabs" aria-label="Mobile workspace navigation">
         {tabs.map(item => item.id === "realistic-review-ugc" ? <button

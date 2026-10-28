@@ -90,8 +90,11 @@ class MemberNavigationAccessTests(unittest.TestCase):
         with self.assertRaises(TenantAccessAdminError) as wrong_membership:
             self.change(["inventory"], member_id=self.other_tenant.id)
         self.assertEqual(wrong_membership.exception.code, "membership_not_found")
-        with self.assertRaises(TenantAccessAdminError) as protect:
+        with self.assertRaises(TenantAccessAdminError) as self_scope:
             self.change(["inventory"], member_id=self.admin_membership.id)
+        self.assertEqual(self_scope.exception.code, "self_scope_forbidden")
+        with self.assertRaises(TenantAccessAdminError) as protect:
+            self.change(["inventory"], member_id=self.admin_membership.id, actor_id=self.user.id)
         self.assertEqual(protect.exception.code, "protected_admin_scope")
 
     def test_api_routes_enforce_separate_branding_and_operations_scope(self):
