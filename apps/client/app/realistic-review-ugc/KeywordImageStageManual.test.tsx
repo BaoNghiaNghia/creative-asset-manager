@@ -30,6 +30,11 @@ vi.mock("./api", async importOriginal => ({
   createManualKeywordImage: vi.fn(async () => ({
     created: true, keyword_id: "manual-1", job_id: "job-1", status: "queued",
   })),
+  getHatStockCatalog: vi.fn(async () => ({ can_sync: false, colors: {
+    "white-black": { revision: "fixture-1", views: {
+      front: "/official/white-black/front.jpg", side: "/official/white-black/side.jpg",
+    } },
+  } })),
   listGenerationOutputVersions: vi.fn(async () => ({ stage: "stage1", job_id: "job-1", versions: Array.from({ length: 5 }, (_, index) => ({
     version: 5 - index, url: "/api/v1/image/" + (5 - index), created_at: "2026-10-10T00:00:00Z", width: 512, height: 512,
   })) })),

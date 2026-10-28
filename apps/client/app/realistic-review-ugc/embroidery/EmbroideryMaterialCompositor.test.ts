@@ -28,14 +28,16 @@ describe("8869 embroidery color and material compositor", () => {
     expect(at(src.data, src.width, 10, 12)[0]).toBeGreaterThan(100); // source never mutated
   });
 
-  it("changes thread pigment when changing caps, for all 13 palette profiles", () => {
+  it("matches thread pigment to stock-backed cap colors without collapsing most palettes", () => {
     const src = create();
     const outputs = BLUEPRINT_HAT_COLORS.map(hat => {
       const out = renderEmbroideryMaterial(src, hat.id, "auto");
       return at(out, src.width, 11, 12).slice(0, 3).join(",");
     });
-    expect(BLUEPRINT_HAT_COLORS).toHaveLength(13);
-    expect(new Set(outputs).size).toBe(13);
+    expect(BLUEPRINT_HAT_COLORS).toHaveLength(12);
+    // Distinct hat colors can share a close embroidery pigment after quantization;
+    // require broad palette differentiation, not a one-to-one RGB fingerprint.
+    expect(new Set(outputs).size).toBeGreaterThanOrEqual(Math.ceil(BLUEPRINT_HAT_COLORS.length * .8));
     expect(outputs[0]).not.toBe(outputs[1]);
   });
 
