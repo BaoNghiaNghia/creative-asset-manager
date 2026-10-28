@@ -12,6 +12,11 @@ import type { SourcePlanReferencePreview } from "./types";
 vi.mock("./api", async importOriginal => {
   const actual = await importOriginal<typeof import("./api")>();
   return { ...actual,
+    getHatStockCatalog: vi.fn(async () => ({ can_sync: false, colors: {
+      "white-black": { revision: "fixture-1", views: {
+        front: "/official/white-black/front.jpg", side: "/official/white-black/side.jpg",
+      } },
+    } })),
     selectStage1ProductDesign: vi.fn(async (_jobId: string, _version: number, selected: boolean) => ({
       selected, source_plan_id: selected ? "source-plan-1" : null,
     })),
@@ -99,7 +104,7 @@ describe("Version history comparison", () => {
     });
     expect(host.querySelector(".rrugc-blueprint-options")).toBeNull();
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('.rrugc-version-layout-toggle button[title^="Preview each"]')!.click();
+      host.querySelector<HTMLButtonElement>('.rrugc-version-layout-toggle button[title^="Preview designs on"]')!.click();
     });
     expect(host.querySelector<HTMLInputElement>('.rrugc-version-blueprint-actions input[type="checkbox"]')?.checked).toBe(true);
     expect(host.querySelector<HTMLSelectElement>('.rrugc-version-blueprint-actions select')?.value).toBe("original");
