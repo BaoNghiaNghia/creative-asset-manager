@@ -61,7 +61,7 @@ export function blueprintFitArtwork(
   info: Pick<ImageInfo, "width" | "height" | "bounds">,
   frameWidth: number, frameHeight: number, percent: number,
   limits: { maxWidth: number; maxHeight: number },
-): { style: CSSProperties; effectivePercent: number; heightLimited: boolean } {
+): { style: CSSProperties; guideStyle: CSSProperties; effectivePercent: number; heightLimited: boolean } {
   const b = info.bounds;
   const contentWidth = Math.max(1, b.width * info.width);
   const contentHeight = Math.max(1, b.height * info.height);
@@ -75,6 +75,20 @@ export function blueprintFitArtwork(
   const actual = Math.min(zoom, heightCap, widthCap);
   const renderedWidth = Math.max(1, info.width * base * actual);
   const renderedHeight = Math.max(1, info.height * base * actual);
+  // The cyan *preview outline* should follow the painted stitch footprint,
+  // not the entire maximum machine-placement rectangle. For a wide two-line
+  // logo a fixed-height rectangle otherwise appears empty above and below.
+  // Never stretch letters or resize the tenant's saved safe placement field.
+  const paintedWidth = renderedWidth * b.width;
+  const paintedHeight = renderedHeight * b.height;
+  const paintedLeft = (frameWidth - paintedWidth) / 2;
+  const paintedTop = (frameHeight - paintedHeight) / 2;
+  const gutterX = frameWidth * .018;
+  const gutterY = frameHeight * .025;
+  const guideLeft = Math.max(0, paintedLeft - gutterX);
+  const guideTop = Math.max(0, paintedTop - gutterY);
+  const guideRight = Math.min(frameWidth, paintedLeft + paintedWidth + gutterX);
+  const guideBottom = Math.min(frameHeight, paintedTop + paintedHeight + gutterY);
   return {
     style: {
       position: "absolute", width: renderedWidth, height: renderedHeight,
@@ -82,6 +96,12 @@ export function blueprintFitArtwork(
       left: frameWidth / 2 - (b.x + b.width / 2) * renderedWidth,
       top: frameHeight / 2 - (b.y + b.height / 2) * renderedHeight,
       transform: "none",
+    },
+    guideStyle: {
+      position: "absolute",
+      left: guideLeft, top: guideTop,
+      width: Math.max(0, guideRight - guideLeft),
+      height: Math.max(0, guideBottom - guideTop),
     },
     effectivePercent: Math.round(actual * 100),
     heightLimited: zoom > heightCap + .0001,
@@ -116,5 +136,5 @@ export function useBlueprintArtworkFit(source: string, percent: number) {
       // The fit function also hard-caps user zoom to this frame.
       { maxWidth: frame.width * .98, maxHeight: frame.height * .98 },
     ) : null;
-  return { frameRef, onLoad, style: fitted?.style, ready, fitted };
+  return { frameRef, onLoad, style: fitted?.style, guideStyle: fitted?.guideStyle, ready, fitted };
 }

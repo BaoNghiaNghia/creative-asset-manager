@@ -35,6 +35,13 @@ it("maintains the real cap reference scale and safe Front placement", () => {
   expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject(frame);
 });
 
+it("keeps painted guide geometry synchronized between front, lens and detail", () => {
+  expect(preview).toContain("frontFit.guideStyle");
+  expect(preview).toContain('className="rrugc-blueprint-front-guide is-artwork-fit"');
+  expect(detailCss).toContain(".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design");
+  expect(css).toContain(".rrugc-blueprint-selected-design>.rrugc-blueprint-front-guide.is-artwork-fit");
+  expect(css).not.toContain(".rrugc-blueprint-view-zoom-caption");
+});
 it("makes the verified Side stock photo authoritative and visible at native orientation", () => {
   const selectors = [
     ".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image.is-stock",

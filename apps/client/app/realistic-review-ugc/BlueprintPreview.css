@@ -327,9 +327,6 @@
   background:#f8fbff;color:#607994;
   user-select:none;touch-action:pan-x;
 }
-.rrugc-blueprint-view-zoom-caption{
-  font-size:9px;font-weight:750;color:#607994;white-space:nowrap;
-}
 .rrugc-blueprint-view-zoom-slider{
   display:block;width:90px;min-width:58px;max-width:100px;height:17px;
   margin:0;accent-color:#3895c7;cursor:pointer;touch-action:pan-x;
@@ -350,7 +347,6 @@
 }
 @media(max-width:375px){
   .rrugc-blueprint-view-zoom-slider{width:62px}
-  .rrugc-blueprint-view-zoom-caption{display:none}
 }
 /* Fit the painted artwork into the entire expanded dashed field at 100%.
    Keep this frame identical in preview, magnifier and enlarged detail. */
@@ -452,4 +448,10 @@ button.rrugc-blueprint-thread-swatch:focus-visible{
   border:1px solid #cbdce9;box-shadow:0 2px 7px rgba(19,42,62,.15);
 }
 .rrugc-blueprint-detail-affordance svg{display:block;flex:none}
+/* The full machine-placement field is unchanged. Once a transparent design is
+   measured, the dashed preview outline hugs its actual painted embroidery;
+   it remains bounded by the saved machine field and never rescales letters. */
+.rrugc-blueprint-selected-design>.rrugc-blueprint-front-guide.is-artwork-fit{
+  box-sizing:border-box;pointer-events:none;z-index:4;
+}
 .rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier{z-index:20}

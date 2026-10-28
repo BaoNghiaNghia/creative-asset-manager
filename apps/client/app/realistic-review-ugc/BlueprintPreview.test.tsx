@@ -142,6 +142,9 @@ describe("Blueprint 8869 official stock and embroidery", () => {
     await mount({ guides: true });
     expect(host.querySelectorAll(".rrugc-blueprint-view-zoom")).toHaveLength(1);
     expect(host.querySelector('input[aria-label="Front design zoom"]')).not.toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-view-zoom-caption")).toBeNull();
+    expect(host.querySelector(".rrugc-blueprint-view-zoom output")?.textContent).toBe("100%");
+    expect(host.querySelector(".rrugc-blueprint-view-zoom")?.textContent).not.toContain("Design");
     expect(host.querySelector('input[aria-label="Right side design zoom"]')).toBeNull();
     expect(host.querySelectorAll(".rrugc-blueprint-front-guide")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-blueprint-side-guides")).toHaveLength(0);

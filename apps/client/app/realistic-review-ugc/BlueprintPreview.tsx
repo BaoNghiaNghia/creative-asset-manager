@@ -432,12 +432,17 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                     onError={() => setArtworkFailedSource(activeDesignSrc)}
                     style={frontFit.style ?? fallbackArtworkStyle}
                     alt={designName(activeDesign) + " fitted embroidery on " + activeColor.label} draggable={false}/>
+                  {guides && !editingPlacement && frontFit.guideStyle &&
+                    <div className="rrugc-blueprint-front-guide is-artwork-fit" style={frontFit.guideStyle}
+                      aria-label="Visible embroidery footprint within the front placement field">
+                      <span>Front embroidery area</span>
+                    </div>}
                 </div>
                 {editingPlacement && <FrontPlacementEditor value={draftPlacement} onChange={setDraftPlacement}/>}
                 {(guides && !editingPlacement) && <>
-                  <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
+                  {!frontFit.guideStyle && <div className="rrugc-blueprint-front-guide" aria-label="Front embroidery guideline">
                     <span>Front embroidery area</span>
-                  </div>
+                  </div>}
                   <div className="rrugc-blueprint-front-height-guides" role="img" aria-label="Maximum height of front embroidery between two blue horizontal lines">
                     <span className="rrugc-blueprint-height-line is-upper"/>
                     <span className="rrugc-blueprint-height-line is-lower"/>
@@ -459,9 +464,13 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                     <div className="rrugc-blueprint-selected-design">
                       <img src={tintedFrontSrc} alt="" draggable={false}
                         style={frontFit.style ?? fallbackArtworkStyle}/>
+                      {guides && frontFit.guideStyle &&
+                        <div className="rrugc-blueprint-front-guide is-artwork-fit" style={frontFit.guideStyle}>
+                          <span>Front embroidery area</span>
+                        </div>}
                     </div>
                     {guides && <>
-                      <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>
+                      {!frontFit.guideStyle && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
                       <div className="rrugc-blueprint-front-height-guides" aria-hidden="true">
                         <span className="rrugc-blueprint-height-line is-upper"/>
                         <span className="rrugc-blueprint-height-line is-lower"/>

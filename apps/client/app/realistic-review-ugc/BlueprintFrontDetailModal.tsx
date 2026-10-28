@@ -125,9 +125,13 @@ export function BlueprintFrontDetailModal({
                   <BlueprintSmoothImage src={detailedEmbroiderySrc} key={designSrc + colorId}
                     onLoad={fit.onLoad} style={fit.style ?? { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "contain" }}
                     alt={designLabel + " embroidery mounted on the front"} draggable={false}/>
+                  {guides && fit.guideStyle &&
+                    <div className="rrugc-blueprint-front-guide is-artwork-fit" style={fit.guideStyle}>
+                      <span>Front embroidery area</span>
+                    </div>}
                 </div>
                 {guides && <>
-                  <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>
+                  {!fit.guideStyle && <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>}
                   <div className="rrugc-blueprint-front-height-guides" aria-hidden="true">
                     <span className="rrugc-blueprint-height-line is-upper"/>
                     <span className="rrugc-blueprint-height-line is-lower"/>

@@ -18,7 +18,6 @@ export function BlueprintViewZoom({ label, value, onChange }: Props) {
   return <div className="rrugc-blueprint-view-zoom" role="group" aria-label={label + " design size"}
     onPointerDown={stopDrag} onPointerMove={stopDrag} onPointerUp={stopDrag}
     onPointerCancel={stopDrag} onClick={event => event.stopPropagation()}>
-    <label className="rrugc-blueprint-view-zoom-caption" htmlFor={inputId}>Design</label>
     <input id={inputId} className="rrugc-blueprint-view-zoom-slider" type="range"
       min={BLUEPRINT_DESIGN_MIN} max={BLUEPRINT_DESIGN_MAX} step={BLUEPRINT_DESIGN_STEP}
       value={value} aria-label={label + " design zoom"}

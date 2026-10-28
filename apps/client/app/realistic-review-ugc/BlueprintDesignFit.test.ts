@@ -41,6 +41,47 @@ describe("Blueprint front artwork auto-fit", () => {
     expect(Number(g.style.top) + Number(g.style.height) * .5).toBeCloseTo(70, 4);
     expect(g.effectivePercent).toBe(100);
   });
+  it("fits the dashed preview outline tightly around a wide logo without stretching typography", () => {
+    const frameWidth = 295, frameHeight = 132;
+    const bounds = { x: .1, y: .42, width: .8, height: .16 };
+    const result = blueprintFitArtwork({ width: 512, height: 512, bounds },
+      frameWidth, frameHeight, 100, { maxWidth: frameWidth * .98, maxHeight: frameHeight * .98 });
+    const actualLeft = Number(result.style.left) + bounds.x * Number(result.style.width);
+    const actualTop = Number(result.style.top) + bounds.y * Number(result.style.height);
+    const actualWidth = Number(result.style.width) * bounds.width;
+    const actualHeight = Number(result.style.height) * bounds.height;
+    const left = Number(result.guideStyle.left), top = Number(result.guideStyle.top);
+    const width = Number(result.guideStyle.width), height = Number(result.guideStyle.height);
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(left + width).toBeLessThanOrEqual(frameWidth);
+    expect(top + height).toBeLessThanOrEqual(frameHeight);
+    expect(left).toBeLessThan(actualLeft);
+    expect(top).toBeLessThan(actualTop);
+    expect(left + width).toBeGreaterThan(actualLeft + actualWidth);
+    expect(top + height).toBeGreaterThan(actualTop + actualHeight);
+    expect(height).toBeLessThan(frameHeight * .75);
+    expect(width).toBeGreaterThan(frameWidth * .95);
+    expect(Number(result.style.width) / Number(result.style.height)).toBeCloseTo(1, 8);
+  });
+  it("keeps the fitted dashed area inside the original placement bounds at all zoom levels", () => {
+    for (const bounds of [
+      { x: .15, y: .42, width: .7, height: .16 },
+      { x: .42, y: .1, width: .16, height: .8 },
+      { x: .26, y: .26, width: .48, height: .48 },
+    ]) for (const zoom of [40, 100, 150, 200]) {
+      const result = blueprintFitArtwork({ width: 512, height: 512, bounds },
+        295, 132, zoom, { maxWidth: 295 * .98, maxHeight: 132 * .98 });
+      const left = Number(result.guideStyle.left), top = Number(result.guideStyle.top);
+      const width = Number(result.guideStyle.width), height = Number(result.guideStyle.height);
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(left + width).toBeLessThanOrEqual(295.00001);
+      expect(top + height).toBeLessThanOrEqual(132.00001);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+    }
+  });
   it("limits embroidery height between the two horizontal guidelines even at 200%", () => {
     const d = { width: 512, height: 512, bounds: { x: .2, y: .2, width: .6, height: .6 } };
     const out = blueprintFitArtwork(d, 188, 84, 200, { maxWidth: 320, maxHeight: 132 });
