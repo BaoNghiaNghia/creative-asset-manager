@@ -20,10 +20,10 @@
   margin:3px 0 0;max-width:none;font-size:10px;line-height:1.35;
 }
 .rrugc-colorway-stage.is-products-compact .rrugc-stage-header-actions{
-  align-items:center;flex:0 0 auto;min-width:0;
+  align-items:center;flex:0 1 570px;min-width:0;
 }
 .rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions{
-  gap:6px;justify-content:flex-end;
+  display:flex;align-items:center;gap:10px;justify-content:flex-end;flex-wrap:nowrap;width:100%;min-width:0;
 }
 .rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions .rrugc-primary{
   min-height:32px;padding:6px 10px;border-radius:7px;font-size:11px;
@@ -49,8 +49,11 @@
   display:block!important;min-width:0;margin-top:8px;padding:0;
   border:0;background:transparent;border-radius:0;
 }
-.rrugc-colorway-stage.is-products-compact .rrugc-colorway-search{
-  width:100%;min-width:0;
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions .rrugc-colorway-search{
+  flex:1 1 310px;width:min(100%,390px);max-width:390px;min-width:160px;
+}
+.rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions .rrugc-primary{
+  flex:0 0 auto;white-space:nowrap;
 }
 .rrugc-colorway-stage.is-products-compact .rrugc-colorway-search input{
   min-height:34px;font-size:11px;
@@ -63,7 +66,7 @@
     flex-direction:column;align-items:stretch;gap:7px;
   }
   .rrugc-colorway-stage.is-products-compact .rrugc-stage-header-actions{
-    width:auto;justify-content:flex-start;
+    width:100%;flex:1 1 auto;justify-content:flex-start;
   }
   .rrugc-colorway-stage.is-products-compact .rrugc-colorway-header-actions{
     justify-content:flex-start;

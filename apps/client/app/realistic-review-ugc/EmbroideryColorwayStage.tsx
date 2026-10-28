@@ -546,11 +546,21 @@ export function EmbroideryColorwayStage({
         ? <>22 outputs per design · Ecommerce 01–04 · Multi-hat (3) · UGC (3) · 12 Hat Colors. Run each Skill independently.</>
         : <>Scans the configured Drive root recursively. Only JPG/PNG files whose filename begins with <code>embroidery_</code> appear here. All other filenames are excluded.</>}
       actions={workflow === "products"
-        ? (hatCatalog?.can_sync ? <div className="rrugc-colorway-header-actions">
-          <button type="button" className="rrugc-primary rrugc-icon-action" data-hat-stock-sync-open onClick={() => setHatSyncOpen(true)}>
+        ? <div className="rrugc-colorway-header-actions">
+          <div className="rrugc-colorway-search">
+            <RrugcSmartSearchInput
+              stageId="stage2"
+              query={query}
+              onQueryChange={onQueryChange}
+              suggestions={searchSuggestions}
+              placeholder="Search embroidery design or folder…"
+              label="Search Stage 2 embroidery designs"
+            />
+          </div>
+          {hatCatalog?.can_sync && <button type="button" className="rrugc-primary rrugc-icon-action" data-hat-stock-sync-open onClick={() => setHatSyncOpen(true)}>
             <RrugcActionIcon name="scan" /> Sync Hat Images
-          </button>
-        </div> : undefined)
+          </button>}
+        </div>
         : <div className="rrugc-colorway-header-actions">
           <span className="rrugc-colorway-scan-badge"><i aria-hidden="true" />Drive · embroidery_ JPG/PNG</span>
           <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}>
@@ -573,10 +583,10 @@ export function EmbroideryColorwayStage({
       {workflow === "reviews" && <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} planned outputs</small></article>}
     </div>
 
-    <div className="rrugc-colorway-toolbar">
+    {workflow === "reviews" && <div className="rrugc-colorway-toolbar">
       <div className="rrugc-colorway-search">
         <RrugcSmartSearchInput
-          stageId={workflow === "products" ? "stage2" : "reviews-stage2"}
+          stageId="reviews-stage2"
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}
@@ -617,7 +627,7 @@ export function EmbroideryColorwayStage({
           {queueing ? "Queueing…" : "Run selected · " + (selectedIds.size * COLOR_SLOT_COUNT)}
         </button>
       </>}
-    </div>
+    </div>}
 
     {workflow === "products" ? <ResizableSourceLayout stage={2}
       tree={<ProductsStage2SourceTree
