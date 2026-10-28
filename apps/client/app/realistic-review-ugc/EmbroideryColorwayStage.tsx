@@ -80,10 +80,9 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange, placement }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void; placement?: FrontPlacement }) {
+function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange, placement }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void; placement?: FrontPlacement }) {
   if (productLayout) {
     return <div className="rrugc-colorway-source is-product-card">
-      <label className="rrugc-design-hat-color">Hat color <select aria-label="Ecommerce stock color" value={color} onChange={event => onColorChange?.(event.target.value)}>{(colors || []).map(item => <option key={item} value={item}>{item.replaceAll("-", " ")}</option>)}</select></label>
       <AppliedHatPreview
         designSrc={plan.source_preview_url}
         designName={cleanDesignName(plan.source_name)}
@@ -91,6 +90,12 @@ function DesignSource({ plan, productLayout = false, stockViews, color, colors, 
         stockViews={stockViews}
         placement={placement}
       />
+      <label className="rrugc-design-hat-color">
+        <span>Hat color</span>
+        <select aria-label="Ecommerce stock color" value={color} onChange={event => onColorChange?.(event.target.value)}>
+          {(colors || []).map(item => <option key={item} value={item}>{item.replaceAll("-", " ")}</option>)}
+        </select>
+      </label>
     </div>;
   }
   const groupCount = Math.max(1, plan.source_group_images?.length || plan.embroidery_group_size || 1);

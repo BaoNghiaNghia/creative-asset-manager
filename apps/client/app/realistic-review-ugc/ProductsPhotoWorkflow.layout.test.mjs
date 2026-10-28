@@ -61,7 +61,7 @@ describe("Products Stage 2 photo workflow layout", () => {
     expect(css).toContain("grid-column:1;grid-row:2;align-items:flex-start");
   });
 
-  it("shows four equal embroidery gallery tiles without responsive reflow to three columns", () => {
+  it("shows five embroidery gallery tiles while keeping responsive previews", () => {
     expect(galleryCss).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(galleryCss).not.toMatch(/repeat\(3/);
     expect(css).toContain(">.rrugc-applied-hat-grid");

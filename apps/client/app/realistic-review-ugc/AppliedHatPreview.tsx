@@ -8,16 +8,19 @@ import { productEmbroideryArtworkUrl, productFabricArtworkUrl, publicHatStockUrl
 
 const HAT_VIEWS = [
   { key: "front", label: "front" },
+  { key: "three-quarter", label: "three-quarter" },
   { key: "side", label: "right side" },
   { key: "back", label: "back" },
 ] as const;
+
+type HatStockViews = Partial<Record<(typeof HAT_VIEWS)[number]["key"], string>>;
 
 const STOCK_ROOT = "/rrugc/blueprint/stock/natural-black";
 
 function HatImage({ designSrc, view, stockViews, placement }: {
   designSrc: string;
   view: (typeof HAT_VIEWS)[number];
-  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  stockViews?: HatStockViews;
   placement: FrontPlacement;
 }) {
   const tileRef = useRef<HTMLDivElement>(null);
@@ -37,8 +40,9 @@ function HatImage({ designSrc, view, stockViews, placement }: {
     return () => observer.disconnect();
   }, [nearViewport, front]);
 
-  // Keep all three cap angles on the same official Natural/Black stock set.
-  const hatSrc = publicHatStockUrl(stockViews?.[view.key] || `${STOCK_ROOT}/${view.key}.jpg`);
+  // Never substitute a different camera angle when a selected color lacks its optional 3/4 photo.
+  const missingThreeQuarter = view.key === "three-quarter" && !stockViews?.["three-quarter"];
+  const hatSrc = missingThreeQuarter ? "" : publicHatStockUrl(stockViews?.[view.key] || `${STOCK_ROOT}/${view.key}.jpg`);
   const embroiderySrc = useBlueprintEmbroideryComposite(
     front && nearViewport ? designSrc : "",
     hatSrc,
@@ -50,8 +54,9 @@ function HatImage({ designSrc, view, stockViews, placement }: {
   );
 
   return <div className="rrugc-applied-hat-image" ref={tileRef} role="img"
-    aria-label={`Valucap 8869 ${view.label} view${front ? " with front embroidery design applied" : " without applied embroidery"}`}>
-    {front ? <div className="rrugc-applied-hat-front-scene" style={frontPlacementStyle(placement)}>
+    aria-label={`Valucap 8869 ${view.label} view${missingThreeQuarter ? " photo not synced" : front ? " with front embroidery design applied" : " without applied embroidery"}`}>
+    {missingThreeQuarter ? <div className="rrugc-applied-hat-missing" role="status">3/4 photo not synced</div>
+    : front ? <div className="rrugc-applied-hat-front-scene" style={frontPlacementStyle(placement)}>
       <DeferredImage className="rrugc-applied-hat-stock" src={hatSrc} alt="" aria-hidden="true" rootMargin="350px" />
       {nearViewport && <div className="rrugc-applied-hat-front-frame" ref={fit.frameRef}>
         <img className="rrugc-applied-hat-front-artwork"
@@ -66,7 +71,7 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews,
   designSrc: string;
   designName: string;
   revision: string;
-  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  stockViews?: HatStockViews;
   placement?: FrontPlacement;
 }) {
   // Reuse one alpha-preserving, cached source for both the original tile and
@@ -74,7 +79,7 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews,
   const artworkSrc = productEmbroideryArtworkUrl(designSrc);
   const fabricPhotoSrc = productFabricArtworkUrl(designSrc);
   return <div className="rrugc-applied-hat-grid" key={revision}
-    aria-label="Original embroidery design, embroidered front hat, and unembroidered side and back references">
+    aria-label="Original embroidery design, embroidered front hat, and unembroidered three-quarter, side and back references">
     <div className="rrugc-applied-hat-image is-original-design" role="img" aria-label={`Original embroidery design: ${designName}`}>
       <DeferredImage src={fabricPhotoSrc} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
