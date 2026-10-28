@@ -419,3 +419,37 @@ button.rrugc-blueprint-thread-swatch:focus-visible{
 .rrugc-blueprint-selected-card:has(.rrugc-front-placement-editor) .rrugc-blueprint-panel-visual{min-height:0}
 .rrugc-blueprint-selected-card .rrugc-blueprint-panel-header:has(.rrugc-blueprint-front-placement-actions){flex-wrap:wrap;row-gap:5px}
 .rrugc-blueprint-selected-card .rrugc-blueprint-panel-header-actions:has(.rrugc-blueprint-front-placement-actions){flex-wrap:wrap;justify-content:flex-end}
+/* Blueprint stock consistency: Front and Side use the same verified 8869
+   color group. Never render the legacy mirrored photo atlas or Roberts art. */
+.rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image.is-stock{
+  position:relative;display:block;box-sizing:border-box;width:auto;height:100%;
+  min-width:0;min-height:0;max-width:100%;max-height:100%;aspect-ratio:1;
+  background:#fff;overflow:hidden;
+}
+.rrugc-blueprint-side-image.is-stock>.rrugc-blueprint-side-hat,
+.rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier-scene>.rrugc-blueprint-side-hat{
+  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;object-position:center;transform:none;
+}
+.rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier-scene{
+  background:#fff;
+}
+.rrugc-blueprint-side-guide-note{
+  position:absolute;z-index:4;left:8px;top:8px;padding:5px 8px;
+  background:rgba(248,251,254,.92);border:1px solid #dce7f1;border-radius:6px;
+  color:#586d84;font-size:10px;font-weight:650;max-width:90%;
+}
+.rrugc-blueprint-artwork-unavailable{
+  position:absolute;bottom:38px;left:50%;transform:translateX(-50%);
+  z-index:8;width:max-content;max-width:90%;padding:7px 10px;
+  border-radius:7px;background:#fff4e3;color:#80561b;
+  box-shadow:0 1px 7px rgba(42,55,70,.15);font-size:10px;text-align:center;
+}
+.rrugc-blueprint-selected-hat .rrugc-blueprint-detail-affordance,
+.rrugc-blueprint-side-image.is-stock .rrugc-blueprint-detail-affordance{
+  opacity:1;display:inline-flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,.94);color:#30587a;
+  border:1px solid #cbdce9;box-shadow:0 2px 7px rgba(19,42,62,.15);
+}
+.rrugc-blueprint-detail-affordance svg{display:block;flex:none}
+.rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier{z-index:20}

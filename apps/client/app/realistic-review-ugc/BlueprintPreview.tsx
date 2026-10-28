@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { GenerationOutputVersion } from "./api";
+import type { GenerationOutputVersion, HatStockCatalog } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothImage";
 import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
-import { BlueprintSideGuides } from "./BlueprintSideGuides";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
@@ -13,21 +12,37 @@ import { FrontPlacementEditor } from "./FrontPlacementEditor";
 import { DEFAULT_FRONT_PLACEMENT, frontPlacementChanged, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./BlueprintPreview.css";
 
+/** Blueprint uses the SAME imported Valucap 8869 stock group for Front and Side. */
 export const BLUEPRINT_HAT_COLORS = [
-  { id: "black", label: "Natural / Black", short: "Black" },
-  { id: "brown", label: "Natural / Brown", short: "Brown" },
-  { id: "camo-green", label: "Natural / Camo Green", short: "Camo Green" },
-  { id: "charcoal", label: "Natural / Charcoal", short: "Charcoal" },
-  { id: "forest-green", label: "Natural / Forest Green", short: "Forest Green" },
-  { id: "khaki", label: "Natural / Khaki", short: "Khaki" },
-  { id: "maroon", label: "Natural / Maroon", short: "Maroon" },
-  { id: "mossy-oak-breakup", label: "Natural / Mossy Oak", short: "Mossy Oak" },
-  { id: "navy", label: "Natural / Navy", short: "Navy" },
-  { id: "realtree-all-purpose", label: "Natural / Realtree", short: "Realtree" },
-  { id: "red", label: "Natural / Red", short: "Red" },
-  { id: "royal", label: "Natural / Royal", short: "Royal" },
-  { id: "khaki-maroon", label: "Khaki / Maroon", short: "Khaki/Maroon" },
+  { id: "black", key: "white-black", label: "White / Black", short: "Black" },
+  { id: "brown", key: "natural-brown", label: "Natural / Brown", short: "Brown" },
+  { id: "camo-green", key: "natural-camo-green", label: "Natural / Camo Green", short: "Camo Green" },
+  { id: "charcoal", key: "natural-charcoal", label: "Natural / Charcoal", short: "Charcoal" },
+  { id: "forest-green", key: "natural-forest-green", label: "Natural / Forest Green", short: "Forest Green" },
+  { id: "khaki", key: "natural-khaki", label: "Natural / Khaki", short: "Khaki" },
+  { id: "maroon", key: "natural-maroon", label: "Natural / Maroon", short: "Maroon" },
+  { id: "mossy-oak-breakup", key: "natural-mossy-oak-breakup", label: "Natural / Mossy Oak", short: "Mossy Oak" },
+  { id: "realtree-all-purpose", key: "natural-realtree-all-purpose", label: "Natural / Realtree", short: "Realtree" },
+  { id: "royal", key: "natural-royal", label: "Natural / Royal", short: "Royal" },
+  { id: "white-navy", key: "white-navy", label: "White / Navy", short: "White/Navy" },
+  { id: "white-red", key: "white-red", label: "White / Red", short: "White/Red" },
 ] as const;
+
+export function blueprintHatPhoto(
+  colorId: string, catalog: HatStockCatalog | null = null, view: "front" | "side" = "front",
+) {
+  const color = BLUEPRINT_HAT_COLORS.find(item => item.id === colorId);
+  if (!color) return "";
+  const synced = catalog?.colors[color.key]?.views[view];
+  if (typeof synced === "string" && synced.startsWith("/") && !synced.startsWith("//")) return synced;
+  // Missing synchronized stock is NOT replaced by the legacy small JPEGs.
+  return "";
+}
+
+export function blueprintAvailableColors(catalog: HatStockCatalog | null = null) {
+  return BLUEPRINT_HAT_COLORS.filter(color =>
+    Boolean(blueprintHatPhoto(color.id, catalog, "front") && blueprintHatPhoto(color.id, catalog, "side")));
+}
 
 export const BLUEPRINT_WINDOW_SIZE = 5;
 
@@ -49,27 +64,6 @@ export function blueprintNavigate(
   };
 }
 
-export function blueprintHatPhoto(colorId: string) {
-  return colorId === "khaki-maroon"
-    ? "/rrugc/blueprint/fronts/khaki-maroon.jpg"
-    : "/rrugc/blueprint/fronts/natural-" + encodeURIComponent(colorId) + ".webp";
-}
-
-export const BLUEPRINT_SIDE_ATLAS = "/rrugc/blueprint/sides-atlas-fit.webp";
-export const BLUEPRINT_SIDE_CALIBRATION_DESIGN = "/rrugc/blueprint/roberts-reference.png";
-
-// The trimmed 3 × 4 atlas contains entire side caps; display one full cell
-// without zooming or cropping any part of the brim or crown.
-export function blueprintSidePosition(colorIndex: number) {
-  if (colorIndex === 12) return {
-    backgroundImage: 'url("/rrugc/blueprint/sides/khaki-maroon.jpg")',
-    backgroundSize: "contain", backgroundRepeat: "no-repeat", backgroundPosition: "center",
-  };
-  const col = colorIndex % 3;
-  const row = Math.floor(colorIndex / 3);
-  return { backgroundPosition: `${col * 50}% ${(row * 100) / 3}%` };
-}
-
 function designName(version: GenerationOutputVersion) {
   return version.output_name?.split(/[\\/]/).filter(Boolean).pop() || "Design " + version.version;
 }
@@ -84,7 +78,7 @@ type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
 export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
-  placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize,
+  placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize, stockCatalog = null, stockCatalogLoading = false,
 }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
@@ -96,12 +90,13 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   placementReady?: boolean;
   onSavePlacement?: (placement: FrontPlacement) => Promise<FrontPlacement>;
   onSaveDesignSize?: (version: number, percent: number) => Promise<number>;
+  stockCatalog?: HatStockCatalog | null;
+  stockCatalogLoading?: boolean;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
   const [colorIndex, setColorIndex] = useState(0);
   const [frontDesignSize, setFrontDesignSize] = useState(100);
-  const [sideDesignSize, setSideDesignSize] = useState(100);
   const [frontDetailOpen, setFrontDetailOpen] = useState(false);
   const [editingPlacement, setEditingPlacement] = useState(false);
   const [draftPlacement, setDraftPlacement] = useState<FrontPlacement>(placement);
@@ -163,8 +158,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
       setSizeSaving(false);
     }
   };
-  const [sideAtlasReady, setSideAtlasReady] = useState(false);
-  const [sideAtlasFailed, setSideAtlasFailed] = useState(false);
+  const [sideFailedSource, setSideFailedSource] = useState<string | null>(null);
+  const [artworkFailedSource, setArtworkFailedSource] = useState<string | null>(null);
   const dragOrigin = useRef<DragOrigin | null>(null);
   const designTrackRef = useRef<HTMLDivElement>(null);
   const suppressNextClick = useRef(false);
@@ -177,7 +172,11 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   useEffect(() => {
     setFrontDesignSize(savedDesignSize);
   }, [activeDesign?.version, savedDesignSize]);
-  const activeColor = BLUEPRINT_HAT_COLORS[colorIndex];
+  const synchronizedColors = blueprintAvailableColors(stockCatalog);
+  const selectedColorIndex = Math.min(colorIndex, synchronizedColors.length - 1);
+  const activeColor = synchronizedColors[selectedColorIndex] ?? BLUEPRINT_HAT_COLORS[0];
+  const frontHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "front");
+  const sideHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "side");
   // Only the cap canvas requests ephemeral stitch geometry. The thumbnail,
   // original and downloaded Stage 1 design stay RGB embroidery-on-fabric.
   const activeDesignSrc = activeDesign ? activeDesign.url
@@ -186,43 +185,48 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.
-  const tintedFrontSrc = useBlueprintEmbroideryComposite(activeDesignSrc, blueprintHatPhoto(activeColor.id), activeColor.id, threadMode);
-  const tintedSideSrc = useBlueprintEmbroideryComposite(BLUEPRINT_SIDE_CALIBRATION_DESIGN, "", activeColor.id, threadMode, 0, "side");
+  const tintedFrontSrc = useBlueprintEmbroideryComposite(activeDesignSrc, frontHatSrc, activeColor.id, threadMode);
   const frontFit = useBlueprintArtworkFit(activeDesignSrc, frontDesignSize);
+  // Do not hide embroidery while the fit observer measures the field. The
+  // source endpoint is alpha-only, so its temporary contain-fit is safe.
+  const fallbackArtworkStyle = {
+    position: "absolute" as const, left: 0, top: 0, width: "100%", height: "100%",
+    objectFit: "contain" as const,
+  };
 
   useEffect(() => {
     hideBlueprintLens(frontLens.current);
     hideBlueprintLens(sideLens.current);
-  }, [activeColor.id, activeDesign?.url]);
+  }, [activeColor.id, activeDesign?.url, frontHatSrc, sideHatSrc]);
 
   const move = useCallback((direction: "left" | "right" | "up" | "down", steps = 1) => {
     if (direction === "left" || direction === "right") {
       setDesignIndex(index => clamp(index + (direction === "right" ? steps : -steps), versions.length));
     } else {
-      setColorIndex(index => clamp(index + (direction === "down" ? steps : -steps), BLUEPRINT_HAT_COLORS.length));
+      setColorIndex(index => clamp(index + (direction === "down" ? steps : -steps), synchronizedColors.length));
     }
-  }, [versions.length]);
+  }, [versions.length, synchronizedColors.length]);
 
   // Warm the active preview and the two nearest choices; schedule neighbors after
   // the active image so fast drag/key navigation can reuse decoded browser images.
   useEffect(() => {
     if (!activeDesign) return;
-    prefetchBlueprintImage(blueprintHatPhoto(activeColor.id));
-    prefetchBlueprintImage(BLUEPRINT_SIDE_ATLAS);
+    prefetchBlueprintImage(frontHatSrc);
+    prefetchBlueprintImage(sideHatSrc);
     prefetchBlueprintImage(thumbnailUrl(activeDesign.url, 512));
     const timer = window.setTimeout(() => {
       for (const offset of [-2, -1, 1, 2]) {
-        const color = BLUEPRINT_HAT_COLORS[colorIndex + offset];
+        const color = synchronizedColors[selectedColorIndex + offset];
         if (color) {
-          prefetchBlueprintImage(blueprintHatPhoto(color.id));
-
+          prefetchBlueprintImage(blueprintHatPhoto(color.id, stockCatalog, "front"));
+          prefetchBlueprintImage(blueprintHatPhoto(color.id, stockCatalog, "side"));
         }
         const design = versions[selectedDesign + offset];
         if (design) prefetchBlueprintImage(thumbnailUrl(design.url, 512));
       }
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [activeColor.id, activeDesign?.url, colorIndex, selectedDesign, versions]);
+  }, [activeColor.id, activeDesign?.url, selectedColorIndex, selectedDesign, versions, frontHatSrc, sideHatSrc, stockCatalog]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -292,6 +296,11 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
 
   const neighbors = [-3, -2, -1, 0, 1, 2, 3];
   if (!activeDesign) return <div className="rrugc-blueprint-empty">No designs available to preview.</div>;
+  if (!synchronizedColors.length) return <div className="rrugc-blueprint-empty" role="status">
+    {stockCatalogLoading
+      ? "Loading synchronized Valucap 8869 stock photos…"
+      : "No synchronized Valucap 8869 Front/Side stock pair is available. Open Stage 2 and Sync Hat Images."}
+  </div>;
 
   return <section className="rrugc-blueprint rrugc-blueprint-cross" aria-label="Blueprint cross puzzle · design and hat color navigator">
     <div className="rrugc-blueprint-cross-layout">
@@ -352,22 +361,22 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
           onPointerDown={event => onPointerDown(event,"vertical")} onPointerMove={onPointerMove}
           onPointerUp={onPointerUp} onPointerCancel={() => { dragOrigin.current = null; }} onClickCapture={clickCapture}>
           {neighbors.map(delta => {
-            const index = colorIndex + delta;
-            const color = BLUEPRINT_HAT_COLORS[index];
+            const index = selectedColorIndex + delta;
+            const color = synchronizedColors[index];
             if (!color) return null;
             return <button type="button" key={color.id}
               className={"rrugc-blueprint-color-choice" + (delta === 0 ? " is-selected" : "")}
               style={{ transform: "translate(-50%, calc(-50% + " + (delta * 94) + "px))" }}
               aria-label={"Select hat color " + color.label} aria-pressed={delta === 0}
               onClick={() => setColorIndex(index)}>
-              <DeferredImage className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id)} rootMargin="180px"
+              <DeferredImage className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id, stockCatalog, "front")} rootMargin="180px"
                 alt="" loading="lazy" decoding="async" draggable={false}/>
               <span className="rrugc-blueprint-color-name">{color.short}</span>
             </button>;
           })}
         </div>
         <button type="button" className="rrugc-blueprint-color-control is-next" aria-label="Next hat color"
-          disabled={colorIndex === BLUEPRINT_HAT_COLORS.length - 1} onClick={() => move("down")}>↓</button>
+          disabled={selectedColorIndex === synchronizedColors.length - 1} onClick={() => move("down")}>↓</button>
       </div>
 
       <div className="rrugc-blueprint-preview-area" role="region" aria-label="Front and right-facing side previews for selected hat">
@@ -411,16 +420,17 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
               onClick={() => { if (!editingPlacement && !suppressNextClick.current) { hideBlueprintLens(frontLens.current); setFrontDetailOpen(true); } }}
               onKeyDown={event => { if (!editingPlacement && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); event.stopPropagation(); setFrontDetailOpen(true); } }}
               onPointerMove={event => !editingPlacement && moveBlueprintLens(event, frontLens.current,
-                Array.from(event.currentTarget.querySelectorAll<HTMLImageElement>(".rrugc-blueprint-smooth-img")).every(image => image.classList.contains("is-loaded")))}
+                Boolean(event.currentTarget.querySelector(".rrugc-blueprint-hat-original.is-loaded")))}
               onPointerLeave={() => hideBlueprintLens(frontLens.current)}
               onPointerDown={() => hideBlueprintLens(frontLens.current)}>
               <div className="rrugc-blueprint-front-scene" style={placementStyle}>
-                <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)}
+                <BlueprintSmoothImage className="rrugc-blueprint-hat-original" src={frontHatSrc}
                   alt={"Valucap 8869 original cap front, " + activeColor.label} draggable={false}/>
                 <div ref={frontFit.frameRef} className="rrugc-blueprint-selected-design">
                   <BlueprintSmoothImage key={activeDesign.version} src={tintedFrontSrc}
-                    onLoad={frontFit.onLoad}
-                    style={frontFit.style ?? { opacity: 0 }}
+                    onLoad={event => { frontFit.onLoad(event); setArtworkFailedSource(null); }}
+                    onError={() => setArtworkFailedSource(activeDesignSrc)}
+                    style={frontFit.style ?? fallbackArtworkStyle}
                     alt={designName(activeDesign) + " fitted embroidery on " + activeColor.label} draggable={false}/>
                 </div>
                 {editingPlacement && <FrontPlacementEditor value={draftPlacement} onChange={setDraftPlacement}/>}
@@ -434,14 +444,21 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                   </div>
                 </>}
               </div>
-              <span className="rrugc-blueprint-detail-affordance" aria-hidden="true">⤢ View larger</span>
+              {artworkFailedSource === activeDesignSrc && <span className="rrugc-blueprint-artwork-unavailable" role="status">
+                This design has no usable transparent embroidery preview
+              </span>}
+              <span className="rrugc-blueprint-detail-affordance" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.4 15.4 5 5M8 10.5h5m-2.5-2.5v5"/>
+                </svg> Zoom
+              </span>
               <div ref={frontLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                 <div className="rrugc-blueprint-magnifier-scene">
                   <div className="rrugc-blueprint-front-scene" style={placementStyle}>
-                    <img className="rrugc-blueprint-hat-original" src={blueprintHatPhoto(activeColor.id)} alt="" draggable={false}/>
+                    <img className="rrugc-blueprint-hat-original" src={frontHatSrc} alt="" draggable={false}/>
                     <div className="rrugc-blueprint-selected-design">
                       <img src={tintedFrontSrc} alt="" draggable={false}
-                        style={frontFit.style ?? { opacity: 0 }}/>
+                        style={frontFit.style ?? fallbackArtworkStyle}/>
                     </div>
                     {guides && <>
                       <div className="rrugc-blueprint-front-guide"><span>Front embroidery area</span></div>
@@ -467,39 +484,34 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               <span className="rrugc-blueprint-side-color">{activeColor.short}</span>
-              <span className="rrugc-blueprint-thread-source" title="Thread material is rendered on cap with preserved stitch highlights">{threadMode === "auto" ? "Auto-match thread" : "Original threads"}</span>
-              <BlueprintViewZoom label="Right side" value={sideDesignSize} onChange={setSideDesignSize}/>
+              <span className="rrugc-blueprint-thread-source" title="Official selected-color Valucap 8869 factory photo">Verified stock</span>
             </div>
           </header>
           <div className="rrugc-blueprint-panel-visual">
-            {sideAtlasFailed
-              ? <div className="rrugc-blueprint-side-unavailable" role="status">Side reference image could not be loaded</div>
-              : <div className={"rrugc-blueprint-side-image" + (sideAtlasReady ? " is-ready" : "")}
-                  role="img" aria-label={"Valucap 8869 right-facing mirrored side reference, " + activeColor.label}
-                  onPointerMove={event => moveBlueprintLens(event, sideLens.current, sideAtlasReady)}
+            {!sideHatSrc || sideFailedSource === sideHatSrc
+              ? <div className="rrugc-blueprint-side-unavailable" role="status">
+                  Official 8869 side stock unavailable for {activeColor.label}
+                </div>
+              : <div className="rrugc-blueprint-side-image is-stock is-ready" role="img"
+                  aria-label={"Original Valucap 8869 side stock, " + activeColor.label}
+                  onPointerMove={event => moveBlueprintLens(event, sideLens.current,
+                    Boolean(event.currentTarget.querySelector(".rrugc-blueprint-side-hat.is-loaded")))}
                   onPointerLeave={() => hideBlueprintLens(sideLens.current)}
                   onPointerDown={() => hideBlueprintLens(sideLens.current)}>
-                  <img className="rrugc-blueprint-side-probe" src={BLUEPRINT_SIDE_ATLAS} alt=""
-                    aria-hidden="true" onLoad={() => setSideAtlasReady(true)}
-                    onError={() => setSideAtlasFailed(true)} />
-                  <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
-                  </div>
-                  <img className="rrugc-blueprint-side-calibration-design"
-                    src={tintedSideSrc}
-                    style={{ "--side-design-scale": sideDesignSize / 100 } as React.CSSProperties}
-                    draggable={false} alt="Roberts reference embroidery, default right-side sizing design"/>
-                  {guides && <BlueprintSideGuides />}
+                  <BlueprintSmoothImage className="rrugc-blueprint-side-hat" src={sideHatSrc}
+                    alt={"Official Valucap 8869 side, " + activeColor.label}
+                    onError={() => setSideFailedSource(sideHatSrc)} draggable={false}/>
+                  {guides && <span className="rrugc-blueprint-side-guide-note">
+                    Stock geometry preserved · prior atlas hoop calibration not applied
+                  </span>}
+                  <span className="rrugc-blueprint-detail-affordance" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.4 15.4 5 5M8 10.5h5m-2.5-2.5v5"/>
+                    </svg> Hover to zoom
+                  </span>
                   <div ref={sideLens} className="rrugc-blueprint-magnifier" aria-hidden="true">
                     <div className="rrugc-blueprint-magnifier-scene">
-                      <div className="rrugc-blueprint-magnifier-side-surface">
-                        <div className="rrugc-blueprint-side-content" style={blueprintSidePosition(colorIndex)}>
-                        </div>
-                        <img className="rrugc-blueprint-side-calibration-design"
-                          src={tintedSideSrc}
-                          style={{ "--side-design-scale": sideDesignSize / 100 } as React.CSSProperties}
-                          draggable={false} alt=""/>
-                        {guides && <BlueprintSideGuides decorative />}
-                      </div>
+                      <img className="rrugc-blueprint-side-hat" src={sideHatSrc} alt="" draggable={false}/>
                     </div>
                   </div>
                 </div>}
@@ -510,10 +522,10 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
     </div>
     <div className="rrugc-blueprint-footnote">
       <span>Placement is approximate; verify embroidery proof before production.</span>
-      <span>13 official 8869 colorways · Low-relief material composite · Thread color by hat</span>
+      <span>{synchronizedColors.length} synchronized 8869 colorways · Verified Front/Side stock pairs · Thread color by hat</span>
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
-      hatSrc={blueprintHatPhoto(activeColor.id)} designSrc={activeDesignSrc} compositedSrc={tintedFrontSrc}
+      hatSrc={frontHatSrc} designSrc={activeDesignSrc} compositedSrc={tintedFrontSrc}
       threadMode={threadMode} colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
       guides={guides} placement={placement}

@@ -131,6 +131,46 @@ def fabric_output_bytes(stitched: Image.Image) -> bytes:
     return output.getvalue()
 
 
+def _flat_white_artwork_geometry(source: Image.Image) -> Image.Image | None:
+    """Recover only a provably plain white design canvas, never a fabric photo.
+
+    Some uploaded Stage 1 skills produce blue/dark typography on white without
+    the historical alpha/metadata. This temporary cap-preview matte does NOT
+    alter the master PNG or its download. An opaque photo or a nonwhite paper
+    texture must still fail closed rather than stamp a rectangle on the cap.
+    """
+    rgb = source.convert("RGB")
+    # Sample the complete outside border at reduced resolution. A true flat
+    # canvas has almost exclusively white/neutral corners AND edges.
+    probe = rgb.resize((96, 96), Image.Resampling.BILINEAR)
+    samples = [
+        probe.getpixel((x, y))
+        for y in range(96) for x in range(96)
+        if x < 5 or x >= 91 or y < 5 or y >= 91
+    ]
+    white = sum(min(pixel) >= 243 and max(pixel) - min(pixel) <= 9 for pixel in samples)
+    if white / len(samples) < .985:
+        return None
+
+    # Use color-channel distance from pure white, retaining real colored
+    # lettering and soft AA edges while dropping only the flat background.
+    diff = ImageChops.difference(rgb, Image.new("RGB", rgb.size, "white"))
+    red, green, blue = diff.split()
+    distance = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+    alpha = distance.point([
+        0 if value <= 8 else 255 if value >= 28
+        else round((value - 8) * 255 / 20) for value in range(256)
+    ])
+    coverage = sum(alpha.histogram()[24:]) / max(1, rgb.width * rgb.height)
+    # Reject an all-white image and giant nonwhite photo rectangles. Both
+    # cannot be safely interpreted as an isolated embroidery design.
+    if not .001 <= coverage <= .48:
+        return None
+    rgba = rgb.convert("RGBA")
+    rgba.putalpha(alpha)
+    return rgba
+
+
 def thread_preview_bytes(original_bytes: bytes, size_pixels: int | None = None) -> bytes:
     """Temporary browser-only thread geometry view, never a published design.
 
@@ -149,7 +189,9 @@ def thread_preview_bytes(original_bytes: bytes, size_pixels: int | None = None) 
             # Do not guess or cut cloth from an unrelated untagged photograph.
             actual = source.convert("RGBA")
             if actual.getchannel("A").getextrema()[0] == 255:
-                raise ValueError("Opaque source lacks verified stitch geometry")
+                actual = _flat_white_artwork_geometry(source)
+                if actual is None:
+                    raise ValueError("Opaque source lacks verified stitch geometry")
         if size_pixels is not None:
             if not 128 <= size_pixels <= 2048:
                 raise ValueError("Thread preview size out of range")

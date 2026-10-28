@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getFrontPlacement, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, type GenerationOutputVersion } from "./api";
+import { getFrontPlacement, getHatStockCatalog, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, type GenerationOutputVersion, type HatStockCatalog } from "./api";
 import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
@@ -37,6 +37,8 @@ export function GenerationOutputVersionsDialog({
   const [blueprintThreadMode, setBlueprintThreadMode] = useState<ThreadMode>("auto");
   const [frontPlacement, setFrontPlacement] = useState<FrontPlacement>(DEFAULT_FRONT_PLACEMENT);
   const [placementReady, setPlacementReady] = useState(false);
+  const [hatStockCatalog, setHatStockCatalog] = useState<HatStockCatalog | null>(null);
+  const [hatStockLoading, setHatStockLoading] = useState(stage === "stage1");
   const [lightboxVersion, setLightboxVersion] = useState<number | null>(null);
 
   useEffect(() => {
@@ -46,8 +48,15 @@ export function GenerationOutputVersionsDialog({
     setLightboxVersion(null);
     setFrontPlacement(DEFAULT_FRONT_PLACEMENT);
     setPlacementReady(false);
+    setHatStockCatalog(null);
+    setHatStockLoading(stage === "stage1");
     const controller = new AbortController();
     if (stage === "stage1") {
+      // Blueprint's Front and Side must use Stage 2's same official stock.
+      void getHatStockCatalog(controller.signal)
+        .then(value => { if (!controller.signal.aborted) setHatStockCatalog(value); })
+        .catch(() => { if (!controller.signal.aborted) setHatStockCatalog(null); })
+        .finally(() => { if (!controller.signal.aborted) setHatStockLoading(false); });
       void getFrontPlacement(controller.signal)
         .then(value => {
           if (!controller.signal.aborted) {
@@ -213,11 +222,11 @@ export function GenerationOutputVersionsDialog({
 
       <div className="rrugc-version-compare-toolbar">
         <span className="rrugc-version-compare-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.5" /><rect x="14" y="4" width="7" height="16" rx="1.5" /></svg>
-          {blueprint ? "Blueprint · 13 colorways" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{stage === "stage1" ? starredCount + " starred" : compared.length + "/" + versions.length}</strong>
+          {blueprint ? "Blueprint · verified 8869 stock" : masonry ? "Masonry gallery" : "Compare versions"} <strong>{stage === "stage1" ? starredCount + " starred" : compared.length + "/" + versions.length}</strong>
         </span>
         <div className="rrugc-version-layout-toggle" role="group" aria-label="Image gallery layout">
           {stage === "stage1" && <button type="button" aria-pressed={blueprint} onClick={() => setGalleryMode("blueprint")}
-            title="Preview each design on 12 hat colors">Blueprint</button>}
+            title="Preview designs on synchronized Valucap 8869 stock colors">Blueprint</button>}
           <button type="button" aria-pressed={masonry} onClick={() => setGalleryMode("masonry")}
             title="Display all selected images in masonry grid">Masonry</button>
           <button type="button" aria-pressed={!masonry && !blueprint} onClick={() => setGalleryMode("compare")}
@@ -274,6 +283,7 @@ export function GenerationOutputVersionsDialog({
       {!loading && !error && (blueprint
         ? <BlueprintPreview versions={compared} initialVersion={initialVersion}
             guides={blueprintGuides} threadMode={blueprintThreadMode}
+            stockCatalog={hatStockCatalog} stockCatalogLoading={hatStockLoading}
             placement={frontPlacement} placementReady={placementReady}
             onSavePlacement={updateFrontPlacement} onSaveDesignSize={updateFrontDesignSize}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}

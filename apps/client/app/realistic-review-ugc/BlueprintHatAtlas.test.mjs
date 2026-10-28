@@ -2,124 +2,68 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, it } from "vitest";
 
-it("keeps reference cap aspect ratio and isolates the two Blueprint panels", () => {
-  const css = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
-  const selectedCard = css.match(/\.rrugc-blueprint-selected-card\{([^}]+)\}/)?.[1];
-  const selectedHat = css.match(/\.rrugc-blueprint-selected-hat\{([^}]+)\}/)?.[1];
-  expect(selectedCard).toContain("border:none");
-  expect(selectedCard).toContain("background:transparent");
-  expect(selectedCard).toContain("box-shadow:none");
-  expect(selectedCard).toContain("width:min(700px");
-  expect(selectedHat).toContain("height:min(540px");
-  expect(selectedHat).toContain("aspect-ratio:4/5");
+const css = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
+const preview = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.tsx"), "utf8");
+const detailCss = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintFrontDetailModal.css"), "utf8");
+
+const lastRule = (text, selector) => {
+  const withoutComments = text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, name]) => name.trim() === selector);
+  expect(rules.length).toBeGreaterThan(0);
+  return Object.fromEntries(rules.at(-1)[2].split(";").map(part => part.trim())
+    .filter(Boolean).map(part => part.split(/:(.*)/s).slice(0, 2).map(value => value.trim())));
+};
+
+it("maintains the real cap reference scale and safe Front placement", () => {
   expect(css).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
   expect(css).toContain(".rrugc-blueprint-panel-header{");
-  expect(css).not.toContain(".rrugc-blueprint-panel-footer{");
-  expect(css).toContain(".rrugc-blueprint-selection-a11y{");
-  expect(css).toContain("transform:none;transform-origin:center center");
-  expect(css).toContain(".rrugc-blueprint-selected-hat>.rrugc-blueprint-front-scene");
-  expect(css).toContain("transform:scale(1.30);transform-origin:center center");
-  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-selected-hat{overflow:visible}");
-  expect(css).toContain(".rrugc-blueprint-panel-visual{display:grid;place-items:center;flex:1 1 auto;min-height:0;min-width:0;padding:4px 8px;box-sizing:border-box;overflow:hidden}");
   expect(css).toContain(".rrugc-blueprint-magnifier-scene>.rrugc-blueprint-front-scene");
-  expect(css).toContain(".rrugc-blueprint-side-image{background-size:300% 400%");
-  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
-  expect(css).not.toContain(".rrugc-blueprint-side-image{background-size:600% 800%");
-  expect(css).toContain(".rrugc-blueprint-side-guides{");
-  expect(css).toContain(".rrugc-blueprint-side-hoop{stroke:#446eff");
-  expect(css).toContain(".rrugc-blueprint-side-sew-field{stroke:#f04460");
-  expect(css).toContain(".rrugc-blueprint-side-design-field{stroke:#0baed5");
-  expect(css).toContain(".rrugc-blueprint-side-content{");
-  expect(css).toContain("transform:scaleX(-1);transform-origin:50% 50%");
-  expect(css).toContain(".rrugc-blueprint-side-image.is-ready>.rrugc-blueprint-side-content,");
-  expect(css).toContain(".rrugc-blueprint-magnifier-side-surface>.rrugc-blueprint-side-content{");
-  expect(css).toContain(".rrugc-blueprint-side-image.is-ready{background-image:none}");
-  expect(css).toContain(".rrugc-blueprint-magnifier-side-surface{background-image:none}");
-  expect(css).not.toContain(".rrugc-blueprint-panel-visual .rrugc-blueprint-side-guide{");
-  // Maintain exact picture bounds; the change must affect guides only.
-  expect(css).toContain(".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image{width:100%;height:auto;max-height:100%;aspect-ratio:70/43}");
-});
-
-it("enlarges only the cyan Front embroidery guide 10% upward and 10% per side in preview, lens and detail", () => {
-  const previewCss = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
-  const detailCss = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintFrontDetailModal.css"), "utf8");
-  const lastRule = (css, selector) => {
-    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
-    const rules = [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter(([, name]) => name.trim() === selector);
-    expect(rules.length).toBeGreaterThan(0);
-    return Object.fromEntries(rules.at(-1)[2].split(";").map(part => part.trim())
-      .filter(Boolean).map(part => part.split(/:(.*)/s).slice(0, 2).map(value => value.trim())));
-  };
-
-  // Starting rectangle: x=21%, width=58%, y=33%, height=21%.
-  // +10% of existing width on EACH side -> x=15.2%, width=69.6%.
-  // +10% of existing height ABOVE only -> y=30.9%, height=23.1%; bottom remains 54%.
-  expect(lastRule(previewCss, ".rrugc-blueprint-front-scene")).toMatchObject({
+  expect(lastRule(css, ".rrugc-blueprint-front-scene")).toMatchObject({
     "--rrugc-guide-left": "15.2%",
     "--rrugc-guide-top": "30.9%",
     "--rrugc-guide-width": "69.6%",
     "--rrugc-guide-height": "23.1%",
   });
-  expect(lastRule(previewCss, ".rrugc-blueprint-front-guide")).toMatchObject({
-    left: "var(--rrugc-guide-left)",
-    top: "var(--rrugc-guide-top)",
-    width: "var(--rrugc-guide-width)",
-    height: "var(--rrugc-guide-height)",
-  });
-  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-front-guide")).toMatchObject({
-    left: "var(--rrugc-guide-left)",
-    top: "var(--rrugc-guide-top)",
-    width: "var(--rrugc-guide-width)",
-    height: "var(--rrugc-guide-height)",
-  });
-
-  // The content-fitting frame must use exactly the same box as the cyan guide.
-  // Fitted painted PNG pixels (not transparent margins) should occupy it at 100%.
-  const guideFrame = {
+  const frame = {
     left: "var(--rrugc-guide-left)",
     top: "var(--rrugc-guide-top)",
     width: "var(--rrugc-guide-width)",
     height: "var(--rrugc-guide-height)",
   };
-  expect(lastRule(previewCss, ".rrugc-blueprint-selected-design")).toMatchObject(guideFrame);
-  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject(guideFrame);
+  expect(lastRule(css, ".rrugc-blueprint-selected-design")).toMatchObject(frame);
+  expect(lastRule(detailCss, ".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design")).toMatchObject(frame);
 });
 
-it("ships all twelve 1000×1250 original 8869 photographs as full-resolution JPEG files", () => {
-  const colors = [
-    "black","brown","camo-green","charcoal","forest-green","khaki",
-    "maroon","mossy-oak-breakup","navy","realtree-all-purpose","red","royal",
+it("makes the verified Side stock photo authoritative and visible at native orientation", () => {
+  const selectors = [
+    ".rrugc-blueprint-panel-visual>.rrugc-blueprint-side-image.is-stock",
+    ".rrugc-blueprint-side-image.is-stock>.rrugc-blueprint-side-hat",
+    ".rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier-scene>.rrugc-blueprint-side-hat",
   ];
-  for (const color of colors) {
-    const raw = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/fronts/" + color + ".jpg"));
-    expect(raw.subarray(0, 3).toString("hex")).toBe("ffd8ff");
-    expect(raw.length).toBeGreaterThan(120000);
-  }
+  for (const name of selectors) expect(css).toContain(name);
+  expect(css).toContain("object-fit:contain;object-position:center;transform:none");
+  expect(preview).toContain("blueprintAvailableColors(stockCatalog)");
+  expect(preview).toContain("Official 8869 side stock unavailable");
+  expect(preview).not.toContain("roberts-reference");
+  expect(preview).not.toContain("sides-atlas-fit.webp");
+  expect(preview).not.toContain("scaleX(-1)");
+  expect(preview).not.toContain("BlueprintSideGuides");
 });
 
-it("ships the thirteenth Khaki/Maroon source front and side without corrupting the original 12-photo atlas", () => {
-  for (const path of ["fronts/khaki-maroon.jpg", "sides/khaki-maroon.jpg"]) {
-    const raw = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/" + path));
-    expect(raw.subarray(0, 3).toString("hex")).toBe("ffd8ff");
-    expect(raw.length).toBeGreaterThan(10000);
-  }
+it("restores a visible magnifying glass affordance and both hover lenses", () => {
+  expect(css).toContain(".rrugc-blueprint-side-image.is-stock .rrugc-blueprint-magnifier{z-index:20}");
+  expect(css).toContain(".rrugc-blueprint-selected-hat .rrugc-blueprint-detail-affordance,");
+  expect(css).toContain(".rrugc-blueprint-side-image.is-stock .rrugc-blueprint-detail-affordance{");
+  expect(preview).toContain("Hover to zoom");
+  expect(preview).toContain("frontLens");
+  expect(preview).toContain("sideLens");
+  expect(preview).toContain("fallbackArtworkStyle");
 });
 
-it("bundles the 12 uploaded full-cap side photos as safe binary WebP", () => {
-  const webp = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/sides-atlas-fit.webp"));
-  expect(webp.toString("ascii", 0, 4)).toBe("RIFF");
-  expect(webp.toString("ascii", 8, 12)).toBe("WEBP");
-  expect(webp.length).toBeGreaterThan(100000);
-  expect(webp.length).toBeLessThan(400000);
-});
-it("uses the supplied Roberts artwork as the default SIDE sizing reference", () => {
-  const png = readFileSync(resolve(process.cwd(), "public/rrugc/blueprint/roberts-reference.png"));
-  expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-  expect(png.length).toBeGreaterThan(2000);
-  const css = readFileSync(resolve(process.cwd(), "app/realistic-review-ugc/BlueprintPreview.css"), "utf8");
-  expect(css).toContain(".rrugc-blueprint-side-calibration-design{");
-  expect(css).toContain("rotate(-8deg) scale(var(--side-design-scale, 1))");
-  expect(css).toContain(".rrugc-blueprint-side-image>.rrugc-blueprint-side-guides,");
-  expect(css).toContain(".rrugc-blueprint-side-content{");
+it("does not allow the undersized bundled Natural/Black JPEGs as stock fallbacks", () => {
+  expect(preview).not.toContain("/rrugc/blueprint/stock/natural-black");
+  expect(preview).toContain("Missing synchronized stock is NOT replaced");
+  expect(preview).toContain("frontHatSrc");
+  expect(preview).toContain("sideHatSrc");
 });

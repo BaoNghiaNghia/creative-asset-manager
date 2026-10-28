@@ -193,3 +193,43 @@ def test_invalid_png_falls_back_to_unchanged_original_without_matte_repair(monke
     assert drain_stream(response) == original
     assert session.closed
     assert storage.closed == 2  # Failed thumb fetch and fallback source stream.
+
+def test_untagged_white_typography_is_visible_in_blueprint_without_changing_master(monkeypatch):
+    """Flat white design PNGs are valid logo inputs, not fabric photographs."""
+    image = Image.new("RGB", (512, 512), (255, 255, 255))
+    ImageDraw.Draw(image).rectangle((110, 200, 398, 310), fill=(37, 61, 161))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    original_png = output.getvalue()
+
+    visible, _session, _storage, _ = run_request(
+        monkeypatch, artwork="stage1-thread-geometry-v1", thumbnail=True,
+        remote_file_id="white-typography-blueprint-2810",
+        source_bytes=original_png,
+    )
+    with Image.open(BytesIO(visible.body)) as mask:
+        assert mask.mode == "RGBA"
+        assert mask.getpixel((0, 0))[3] == 0
+        assert mask.getpixel((200, 200))[3] == 255
+        assert mask.getpixel((200, 200))[:3] == (37, 61, 161)
+    full, _session, _storage, _ = run_request(
+        monkeypatch, remote_file_id="white-typography-blueprint-2810",
+        source_bytes=original_png,
+    )
+    assert drain_stream(full) == original_png
+
+
+def test_untagged_opaque_fabric_photo_is_not_cut_into_false_logo(monkeypatch):
+    from fastapi import HTTPException
+    import pytest
+
+    image = Image.new("RGB", (512, 512), (230, 220, 208))
+    ImageDraw.Draw(image).rectangle((100, 100, 400, 420), fill=(68, 77, 81))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    with pytest.raises(HTTPException) as exc:
+        run_request(
+            monkeypatch, artwork="stage1-thread-geometry-v1", thumbnail=True,
+            remote_file_id="fabric-photo-fail-closed-2810", source_bytes=output.getvalue(),
+        )
+    assert exc.value.status_code == 422

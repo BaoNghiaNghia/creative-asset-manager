@@ -11,6 +11,9 @@ import {
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => document.body.replaceChildren());
+const stockCatalog = { can_sync: false, colors: {
+  "white-black": { revision: "test", views: { front: "/verified/front.jpg", side: "/verified/side.jpg" } },
+} };
 
 function firePointer(target: Element, type: string, x: number, y: number) {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -103,7 +106,7 @@ describe("Front placement geometry", () => {
       url: "/api/v1/fake/4", width: 1024, height: 1024,
       output_name: "design-4.png", front_design_size: 65,
     };
-    await act(async () => root.render(<BlueprintPreview versions={[version]}
+    await act(async () => root.render(<BlueprintPreview stockCatalog={stockCatalog} versions={[version]}
       placementReady onSaveDesignSize={onSaveDesignSize} />));
     const slider = host.querySelector<HTMLInputElement>('input[aria-label="Front design zoom"]')!;
     expect(slider.value).toBe("65");
@@ -130,7 +133,7 @@ describe("Front placement geometry", () => {
       version: 1, created_at: "2026-10-26T00:00:00Z",
       url: "/api/v1/fake/1", width: 1000, height: 1000, output_name: "design_01.png",
     }];
-    await act(async () => root.render(<BlueprintPreview versions={versions}
+    await act(async () => root.render(<BlueprintPreview stockCatalog={stockCatalog} versions={versions}
       placement={{ ...DEFAULT_FRONT_PLACEMENT }} placementReady guides
       onSavePlacement={saved} />));
     const editButton = Array.from(host.querySelectorAll("button"))

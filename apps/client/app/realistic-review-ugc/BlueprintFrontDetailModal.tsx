@@ -123,7 +123,7 @@ export function BlueprintFrontDetailModal({
                   alt={"Original Valucap 8869 hat, " + colorLabel} draggable={false}/>
                 <div ref={fit.frameRef} className="rrugc-blueprint-selected-design">
                   <BlueprintSmoothImage src={detailedEmbroiderySrc} key={designSrc + colorId}
-                    onLoad={fit.onLoad} style={fit.style ?? { opacity: 0 }}
+                    onLoad={fit.onLoad} style={fit.style ?? { position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "contain" }}
                     alt={designLabel + " embroidery mounted on the front"} draggable={false}/>
                 </div>
                 {guides && <>
