@@ -64,11 +64,12 @@ JOB_TYPE = "rrugc_ecommerce_generate"
 ECOMMERCE_INTERACTIVE_PRIORITY = 96
 MAX_MANUAL_RETRIES = 3
 
-# EC2 is synthesized from verified front and right-side references. Never
-# mislabel side.jpg as a dedicated 3/4 stock photograph.
+# All NEW EC2 jobs use the actual selected-color 3/4 photo as the edit target.
+# Legacy jobs keep their pinned front+side evidence until an EXPLICIT Retry/Regenerate.
+LEGACY_EC2_STOCK_ROLES = ("stock_front", "stock_side_90")
 STOCK_ROLES = {
     "prod_s2_ec1": ("stock_front",),
-    "prod_s2_ec2": ("stock_front", "stock_side_90"),
+    "prod_s2_ec2": ("stock_three_quarter",),
     "prod_s2_ec3": ("stock_side_90",),
     "prod_s2_ec4": ("stock_back",),
 }
@@ -83,11 +84,17 @@ VIEW_PROMPTS = {
         "stitch structure and the five-panel crown. No design outside the guide area. Preserve the exact GatorHats side wordmark on the cap side if it is naturally visible."
     ),
     "prod_s2_ec2": (
-        "FRONT RIGHT THREE-QUARTER high catalog photo. Rotate the exact Valucap 8869 "
-        "five-panel cap from the official frontal view toward the right. Use the separate "
-        "right-side stock photo ONLY as evidence of its side geometry, not as a 3/4 photo. "
-        "Preserve the already embroidered front-reference design, scaling and stitch colors "
-        "with correct perspective on the FRONT crown. The approved product has small red GatorHats embroidered side branding near the lower side seam; show it naturally if visible. Do not invent other text."
+        "SLOT 2 / EXACT FACTORY THREE-QUARTER STOCK EDIT. The provided Edit target "
+        "is an existing REAL FRONT-RIGHT 3/4 Valucap 8869 photo of the SELECTED color. "
+        "Do not turn, rotate, invent, reshoot, generate or reconstruct the hat or angle. "
+        "Preserve its original camera angle, frame, background, five-panel seams, brim, "
+        "bill stitching, textile weave, lighting, shadow, hardware and factory side branding. "
+        "EDIT ONLY the visible front-crown embroidery surface to add fine genuine machine "
+        "stitches. Transfer the EXACT source artwork's lettering, silhouette and thread "
+        "colors, using completed embroidered-front photo ONLY for identity and relative "
+        "placement; foreshorten the design against the REAL angled panel. "
+        "The rest of the source photo must remain visually unchanged. "
+        "No new text, altered cap, puffy embroidery, printed decal or fake 3D relief."
     ),
     "prod_s2_ec3": (
         "TRUE RIGHT SIDE 90 degree high catalog photo. Match the supplied exact stock "
@@ -102,6 +109,15 @@ VIEW_PROMPTS = {
         "Do not place text across the rear crown. Show the rear crown and adjustable strap faithfully."
     ),
 }
+
+LEGACY_EC2_VIEW_PROMPT = (
+    "FRONT RIGHT THREE-QUARTER high catalog photo. Rotate the exact Valucap 8869 "
+    "five-panel cap from the official frontal view toward the right. Use the separate "
+    "right-side stock photo ONLY as evidence of its side geometry, not as a 3/4 photo. "
+    "Preserve the already embroidered front-reference design, scaling and stitch colors "
+    "with correct perspective on the FRONT crown. The approved product has small red GatorHats embroidered side branding near the lower side seam; show it naturally if visible. Do not invent other text."
+)
+
 
 # Scene shots deliberately reuse the proven Ecommerce job persistence, retry,
 # storage/version and image-worker contract. A unique stage identifies EACH
@@ -146,7 +162,8 @@ class EcommerceError(RuntimeError):
         self.code, self.message, self.status_code = code, message, status_code
 
 
-def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black") -> tuple[list[tuple[str, bytes]], str]:
+def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black",
+                *, legacy_three_quarter: bool = False) -> tuple[list[tuple[str, bytes]], str]:
     if color_key not in COLORS:
         raise EcommerceError("ecommerce_color_invalid", "Unknown hat color.", 422)
     if stage not in STOCK_ROLES:
@@ -156,8 +173,11 @@ def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black"
     from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock
     try:
         with stock_read_lock(settings):
+            roles = (LEGACY_EC2_STOCK_ROLES
+                     if stage == "prod_s2_ec2" and legacy_three_quarter
+                     else STOCK_ROLES[stage])
             refs = [(role, read_release_stock(role, project_root=project_root, color_key=color_key)[0])
-                    for role in STOCK_ROLES[stage]]
+                    for role in roles]
     except (OSError, ValueError) as exc:
         raise EcommerceError("ecommerce_stock_unavailable",
                              "A verified GatorHats stock photo is unavailable.", 503) from exc
@@ -166,6 +186,36 @@ def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black"
         for role, content in refs
     )).hexdigest()
     return refs, digest
+
+
+def _pinned_stock_refs(settings: Settings, stage: str, color_key: str,
+                       expected_sha256: str) -> tuple[list[tuple[str, bytes]], bool]:
+    """Resolve immutable old/new EC2 stock snapshots without changing queued jobs."""
+    try:
+        refs, digest = _stock_refs(settings, stage, color_key)
+        if digest == expected_sha256:
+            return refs, False
+    except EcommerceError:
+        if stage != "prod_s2_ec2":
+            raise
+    if stage == "prod_s2_ec2":
+        old_refs, old_digest = _stock_refs(settings, stage, color_key, legacy_three_quarter=True)
+        if old_digest == expected_sha256:
+            return old_refs, True
+    raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
+
+
+def _rebind_ec2_stock_for_explicit_action(settings: Settings, row: RrugcEcommerceJobModel) -> None:
+    """Only a user-initiated Retry/Regenerate may upgrade an old EC2 stock pin."""
+    _, current_sha = _stock_refs(settings, row.stage, row.color_key)
+    if current_sha == row.stock_sha256:
+        return
+    if row.stage == "prod_s2_ec2":
+        _, old_sha = _stock_refs(settings, row.stage, row.color_key, legacy_three_quarter=True)
+        if old_sha == row.stock_sha256:
+            row.stock_sha256 = current_sha
+            return
+    raise EcommerceError("ecommerce_stock_changed", "Official stock reference changed.")
 
 
 def _source_plan(session: Session, tenant_id: str, plan_id: str,
@@ -732,9 +782,7 @@ class EcommerceService:
         plan = _source_plan(self.session, tenant_id, row.source_plan_id, lock=True)
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
-        _, current_digest = _stock_refs(self.settings, row.stage, row.color_key)
-        if current_digest != row.stock_sha256:
-            raise EcommerceError("ecommerce_stock_changed", "Official stock revision changed.")
+        _rebind_ec2_stock_for_explicit_action(self.settings, row)
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
             raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front reference is missing.")
         if row.last_error_code == "ecommerce_skill_changed":
@@ -809,9 +857,7 @@ class EcommerceService:
         plan = _source_plan(self.session, tenant_id, row.source_plan_id, lock=True)
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
-        _, digest = _stock_refs(self.settings, row.stage, row.color_key)
-        if digest != row.stock_sha256:
-            raise EcommerceError("ecommerce_stock_changed", "Official stock reference changed.")
+        _rebind_ec2_stock_for_explicit_action(self.settings, row)
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
             front = _front_job(self.session, plan, row.color_key)
             row.front_reference_remote_file_id = front.output_remote_file_id
@@ -1068,9 +1114,8 @@ class EcommerceGenerateHandler:
                                         skill_version=row.skill_version)
             if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
                 raise EcommerceError("ecommerce_skill_changed", "Selected Skill revision changed.")
-            refs, digest = _stock_refs(settings, row.stage, row.color_key)
-            if digest != row.stock_sha256:
-                raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
+            refs, legacy_three_quarter = _pinned_stock_refs(
+                settings, row.stage, row.color_key, row.stock_sha256)
             multihat_colors: list[str] = []
             multi_color_stock: list[tuple[str, bytes]] = []
             if row.stage in SCENE_GROUPS["prod_s2_mh"]:
@@ -1250,6 +1295,8 @@ class EcommerceGenerateHandler:
             references.append(ReferenceImageInput(
                 image=_prepared_image(refs[2][1]), role="back_reference",
                 label="official Valucap 8869 back panel stock geometry"))
+        view_prompt = (LEGACY_EC2_VIEW_PROMPT if stage == "prod_s2_ec2" and legacy_three_quarter
+                       else VIEW_PROMPTS[stage])
         prompt = (
             ("Use the bundled Cap Stack contact sheets as composition references: "
              f"{multihat_loaded} independently scouted real 3/4-hat photographs "
@@ -1274,13 +1321,22 @@ class EcommerceGenerateHandler:
                            "precise embroidery mask. Keep the original camera, color and "
                            "all non-embroidery pixels unchanged. "
                            if stage == "prod_s2_ec1"
-                           else "Generate ONE photorealistic commercial ecommerce product photograph "
-                                "of the official Valucap 8869 "
-                                + color_key.replace("-", "/") + " five-panel twill cap. ")))
-            + VIEW_PROMPTS[stage]
+                           else ("EXACT PHOTO EDIT, NOT TEXT-TO-IMAGE: The Edit target is the "
+                                 "official selected-color 3/4 stock photo. First inspect that "
+                                 "image file, then invoke $imagegen in IMAGE-EDIT mode using it "
+                                 "as the actual image input. Never create a new hat from a "
+                                 "text prompt or front/side composite. If edit-mode image input "
+                                 "is unavailable, stop with a blocker rather than synthesize "
+                                 "a replacement. Keep framing and all non-embroidery photo "
+                                 "content unchanged. "
+                                 if stage == "prod_s2_ec2" and not legacy_three_quarter
+                                 else "Generate ONE photorealistic commercial ecommerce product photograph "
+                                      "of the official Valucap 8869 "
+                                      + color_key.replace("-", "/") + " five-panel twill cap. "))))
+            + view_prompt
             + (" " + front_placement_prompt(job_front_placement(
                 context.job.payload.get("front_placement")))
-               if stage != "prod_s2_ec4" else "")
+               if stage != "prod_s2_ec4" and (stage != "prod_s2_ec2" or legacy_three_quarter) else "")
             + " " + embroidery_prompt_for_product_slot(stage)
             + (" SLOT 1 ONLY: photographic image-edit workflow: the square-padded stock is the target; "
                "the original design appears as a flat pigment guide, NOT a final "
@@ -1379,6 +1435,9 @@ class EcommerceGenerateHandler:
                                 "input_reference_snapshot": {
                                     "source_revision": row.source_revision,
                                     "stock_sha256": row.stock_sha256,
+                                    "stock_input_roles": [name for name, _ in refs],
+                                    "source_three_quarter_photo": (
+                                        stage == "prod_s2_ec2" and not legacy_three_quarter),
                                     "skill_bundle_sha256": row.skill_bundle_sha256,
                                     "front_reference_remote_file_id": row.front_reference_remote_file_id,
                                     "front_preview_remote_file_id": row.front_preview_remote_file_id,

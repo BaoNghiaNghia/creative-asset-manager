@@ -8,7 +8,9 @@ from app.modules.processing.bootstrap import _JOB_GLOBAL_FLAGS
 from app.modules.processing.worker_roles import IMAGE_AI_JOB_TYPES
 from app.modules.processing_policy.claim import AI_JOB_TYPES, STAGE_POLICY
 from app.modules.realistic_review_ugc.ecommerce_pipeline import (
-    JOB_TYPE, STOCK_ROLES, VIEW_PROMPTS, _stock_refs, EcommerceError, EcommerceService,
+    JOB_TYPE, STOCK_ROLES, VIEW_PROMPTS, LEGACY_EC2_STOCK_ROLES,
+    _stock_refs, _pinned_stock_refs, _rebind_ec2_stock_for_explicit_action,
+    EcommerceError, EcommerceService,
 )
 from app.modules.realistic_review_ugc.model import RrugcEcommerceJobModel
 from app.modules.realistic_review_ugc.router import router
@@ -51,9 +53,11 @@ def test_view_reference_sources_and_anti_invention_prompts():
         + [f"prod_s2_mh_{i}" for i in range(1, 4)]
         + [f"prod_s2_ugc_{i}" for i in range(1, 4)]
     )
-    assert STOCK_ROLES["prod_s2_ec2"] == ("stock_front", "stock_side_90")
+    assert STOCK_ROLES["prod_s2_ec2"] == ("stock_three_quarter",)
+    assert LEGACY_EC2_STOCK_ROLES == ("stock_front", "stock_side_90")
     assert "THREE-QUARTER" in VIEW_PROMPTS["prod_s2_ec2"]
-    assert "not as a 3/4" in VIEW_PROMPTS["prod_s2_ec2"]
+    assert "EXACT FACTORY THREE-QUARTER STOCK EDIT" in VIEW_PROMPTS["prod_s2_ec2"]
+    assert "Do not turn, rotate, invent" in VIEW_PROMPTS["prod_s2_ec2"]
     assert "Keep the rear panel blank" in VIEW_PROMPTS["prod_s2_ec4"]
 
 
@@ -69,6 +73,32 @@ def test_stock_digest_is_pinned_and_source_is_not_client_controlled():
         assert exc.status_code == 422
     else:
         raise AssertionError("Invalid stage was accepted")
+
+
+def test_new_ec2_uses_stock_34_while_old_jobs_remain_pinned_until_explicit_action(tmp_path, monkeypatch):
+    from app.modules.realistic_review_ugc import ecommerce_pipeline as pipeline
+    def fake_stock(role, *, project_root, color_key):
+        return (role.encode("utf8") * 30, {"role": role})
+    monkeypatch.setattr(pipeline, "read_release_stock", fake_stock)
+    settings = SimpleNamespace(CODEX_IMAGE_HOME=str(tmp_path))
+    new_refs, new_digest = _stock_refs(settings, "prod_s2_ec2", "natural-charcoal")
+    old_refs, old_digest = _stock_refs(
+        settings, "prod_s2_ec2", "natural-charcoal", legacy_three_quarter=True)
+    assert [role for role, _ in new_refs] == ["stock_three_quarter"]
+    assert [role for role, _ in old_refs] == ["stock_front", "stock_side_90"]
+    assert new_digest != old_digest
+    pinned, old = _pinned_stock_refs(settings, "prod_s2_ec2", "natural-charcoal", old_digest)
+    assert old and pinned == old_refs
+    pinned, old = _pinned_stock_refs(settings, "prod_s2_ec2", "natural-charcoal", new_digest)
+    assert not old and pinned == new_refs
+    job = RrugcEcommerceJobModel(
+        id="old", tenant_id="tenant", source_plan_id="plan", source_revision="rev",
+        stage="prod_s2_ec2", color_key="natural-charcoal", stock_sha256=old_digest,
+        skill_source="local", skill_name="test", created_by_user_id="actor", status="failed")
+    _rebind_ec2_stock_for_explicit_action(settings, job)
+    assert job.stock_sha256 == new_digest
+    with __import__("pytest").raises(EcommerceError, match="Pinned stock content changed"):
+        _pinned_stock_refs(settings, "prod_s2_ec2", "natural-charcoal", "invalid")
 
 
 def test_job_serialization_and_failure_does_not_mutate_status_unexpectedly():

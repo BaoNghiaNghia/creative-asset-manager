@@ -34,7 +34,8 @@ function ready(color_key = "natural-charcoal", front = false): EcommerceInputRea
     source_plan_id: "plan-1", source_revision: "revision-1", color_key,
     slots: stages.map(stage => ({
       stage, view: stage,
-      required_roles: stage === "prod_s2_ec4" ? ["stock_back"] : ["design", "stock_front"],
+      required_roles: stage === "prod_s2_ec4" ? ["stock_back"] : stage === "prod_s2_ec2"
+        ? ["design", "embroidered_front", "stock_three_quarter"] : ["design", "stock_front"],
       missing_roles: !front && (stage === "prod_s2_ec2" || stage === "prod_s2_ec3")
         ? ["embroidered_front"] : [],
       ready: front || stage === "prod_s2_ec1" || stage === "prod_s2_ec4",
@@ -46,8 +47,8 @@ function ready(color_key = "natural-charcoal", front = false): EcommerceInputRea
 const props = {
   sourceName: "test design", sourcePlanId: "plan-1", selectedColor: "natural-charcoal",
   designSrc: "/design.png", stockCatalog: {
-    "natural-charcoal": { views: {front:"/stock-front.jpg", side:"/stock-side.jpg", back:"/stock-back.jpg"} },
-    "white-red": { views: {front:"/white-red-front.jpg", side:"/white-red-side.jpg", back:"/white-red-back.jpg"} },
+    "natural-charcoal": { views: {front:"/stock-front.jpg", side:"/stock-side.jpg", back:"/stock-back.jpg", "three-quarter":"/stock-three-quarter.jpg"} },
+    "white-red": { views: {front:"/white-red-front.jpg", side:"/white-red-side.jpg", back:"/white-red-back.jpg", "three-quarter":"/white-red-three-quarter.jpg"} },
   },
   configuredSkillNames: names, readiness: null,
   onEcommerceJobChange: vi.fn(),
@@ -113,6 +114,18 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     expect(runButton(1)).toBeNull();
     await act(async () => runButton(2).click());
     expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec2", "natural-charcoal");
+  });
+
+  it("displays the actual three-quarter stock as Skill 2 edit target, not synthetic front/side", async () => {
+    preflight.mockResolvedValue(ready("natural-charcoal", true));
+    await render();
+    await act(async () => host.querySelector<HTMLButtonElement>(
+      '[data-skill="prod_s2_ec2"] .rrugc-products-photo-detail-toggle')!.click());
+    const detail = host.querySelector('[data-skill="prod_s2_ec2"] .rrugc-products-photo-inputs')!;
+    expect(detail.textContent).toContain("Official 3/4 stock");
+    expect(detail.textContent).toContain("edit target");
+    expect(detail.querySelector('img[src="/stock-three-quarter.jpg"]')).not.toBeNull();
+    expect(detail.textContent).not.toContain("Official right-side geometry");
   });
 
   it("never enables a different hat color from a stale preflight", async () => {

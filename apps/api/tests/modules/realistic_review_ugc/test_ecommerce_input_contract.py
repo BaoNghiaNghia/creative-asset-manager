@@ -5,7 +5,8 @@ import pytest
 
 def test_four_skill_roles_do_not_share_front_side_back_references():
     assert [s.stage for s in SHOTS] == [f"prod_s2_ec{i}" for i in range(1, 5)]
-    assert [len(s.required_roles) for s in SHOTS] == [2, 4, 3, 1]
+    assert [len(s.required_roles) for s in SHOTS] == [2, 3, 3, 1]
+    assert SHOTS[1].required_roles == ("design", "embroidered_front", "stock_three_quarter")
     assert SHOTS[-1].embroidery_surface is None
 
 def test_temporary_preview_urls_cannot_be_used_as_durable_references():
@@ -13,9 +14,22 @@ def test_temporary_preview_urls_cannot_be_used_as_durable_references():
         "design": "data:image/png;base64,abc",
         "embroidered_front": "blob:session-1",
         "stock_front": "/rrugc/blueprint/fronts/natural-black.webp",
-        "stock_side_90": "/rrugc/blueprint/stock/natural-black/side.jpg",
+        "stock_three_quarter": "/api/v1/realistic-review-ugc/products/hat-stock/natural-black/three-quarter",
     })
-    assert missing == ("design", "embroidered_front", "stock_front", "stock_side_90")
+    assert missing == ("design", "embroidered_front", "stock_three_quarter")
+
+def test_three_quarter_stock_required_even_with_completed_front():
+    assets = {"design": "drive:design-01", "embroidered_front": "drive:completed-front"}
+    missing = missing_persisted_inputs("prod_s2_ec2", assets)
+    assert missing == ("stock_three_quarter",)
+    assert build_execution_preflight(
+        "prod_s2_ec2", assets, worker_ready=True, skill_ready=True
+    )["ready"] is False
+    assets["stock_three_quarter"] = "sha256:" + "a" * 64
+    assert build_execution_preflight(
+        "prod_s2_ec2", assets, worker_ready=True, skill_ready=True
+    )["ready"] is True
+
 
 def test_worker_and_skill_gates_remain_closed_even_when_inputs_are_saved():
     assets = {"design": "drive:design-01", "stock_front": "drive:cap-01"}

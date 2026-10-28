@@ -19,7 +19,18 @@ from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
 
 
 @pytest.fixture
-def ecommerce_db(monkeypatch):
+def ecommerce_db(monkeypatch, tmp_path):
+    # The test catalog explicitly contains a verified 3/4 photo.
+    # Production without one must remain blocked instead of synthesizing the angle.
+    from PIL import Image
+    from app.modules.realistic_review_ugc import hat_stock_sync
+    true_angle = tmp_path / "three-quarter.jpg"
+    Image.new("RGB", (450, 450), (226, 220, 208)).save(true_angle, "JPEG")
+    monkeypatch.setattr(
+        hat_stock_sync, "read_managed_stock",
+        lambda _settings, color, view: (true_angle, "test-rev")
+        if color == "natural-black" and view == "three-quarter" else None,
+    )
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine, tables=[
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
@@ -106,6 +117,17 @@ def test_three_quarter_and_side_require_completed_front(ecommerce_db):
         with pytest.raises(EcommerceError, match="Skill 1"):
             service.queue(tenant_id="tenant-001", user_id="operator",
                           source_plan_id="plan-001", stage=stage)
+
+
+def test_slot2_fails_closed_without_real_three_quarter_stock(ecommerce_db, monkeypatch):
+    from app.modules.realistic_review_ugc import hat_stock_sync
+    session, settings = ecommerce_db
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock", lambda *_args: None)
+    with pytest.raises(EcommerceError, match="verified GatorHats stock photo"):
+        EcommerceService(session, settings).queue(
+            tenant_id="tenant-001", user_id="operator",
+            source_plan_id="plan-001", stage="prod_s2_ec2")
+    assert not list(session.scalars(select(RrugcEcommerceJobModel)))
 
 
 def test_unembroidered_back_has_own_independent_job(ecommerce_db):

@@ -30,10 +30,27 @@ def test_official_reference_evidence_is_content_addressed(tmp_path):
 
 
 def test_unknown_or_missing_view_is_fail_closed(tmp_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(FileNotFoundError):
         read_release_stock("stock_three_quarter", project_root=tmp_path)
     assert release_stock_evidence(project_root=tmp_path)["stock_three_quarter"]["ready"] is False
     assert release_stock_evidence(project_root=tmp_path)["stock_front"]["ready"] is False
+
+
+def test_managed_three_quarter_is_real_verified_stock_and_never_front_or_side(tmp_path, monkeypatch):
+    from app.modules.realistic_review_ugc import hat_stock_sync
+    official_34 = _stock(tmp_path, "three-quarter.jpg")
+    def only_three_quarter(_settings, color, view):
+        return (official_34, "revision") if color == "natural-charcoal" and view == "three-quarter" else None
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock", only_three_quarter)
+    content, evidence = read_release_stock(
+        "stock_three_quarter", project_root=tmp_path, color_key="natural-charcoal")
+    assert content == official_34.read_bytes()
+    assert evidence["role"] == "stock_three_quarter"
+    assert len(evidence["sha256"]) == 64
+    proof = release_stock_evidence(project_root=tmp_path, color_key="natural-charcoal")
+    assert proof["stock_three_quarter"]["ready"] is True
+    assert proof["stock_front"]["ready"] is False
+    assert proof["stock_side_90"]["ready"] is False
 
 
 def test_malformed_reference_fails_validation(tmp_path):

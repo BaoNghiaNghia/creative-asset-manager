@@ -11,10 +11,11 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
-# The frontend's current bundled inventory has only these three verified angles.
+# The synchronized, immutable stock catalog supplies a verified 3/4 angle where imported.
 STOCK_FILES = {
     "stock_front": "front.jpg",
     "stock_side_90": "side.jpg",
+    "stock_three_quarter": "three-quarter.jpg",
     "stock_back": "back.jpg",
 }
 MAX_STOCK_BYTES = 15 * 1024 * 1024
@@ -74,8 +75,4 @@ def release_stock_evidence(*, project_root: Path,
             result[role] = {"ready": True, **metadata}
         except (OSError, ValueError):
             result[role] = {"ready": False, "role": role}
-    result["stock_three_quarter"] = {
-        "ready": False, "role": "stock_three_quarter",
-        "reason": "independent_three_quarter_stock_not_verified",
-    }
     return result

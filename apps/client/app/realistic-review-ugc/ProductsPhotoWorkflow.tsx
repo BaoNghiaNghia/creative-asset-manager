@@ -29,7 +29,7 @@ type StepDefinition = {
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "embroidered_front" }, { label: "Front stock for perspective", kind: "front" }, { label: "Official right-side geometry", kind: "side" }], inputInstruction: "Hat ThreeQuarter Embroidery: match the front design and cap color while adjusting placement to the angled crown." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "embroidered_front" }], inputInstruction: "Edit the verified 3/4 stock image of the selected hat color. Keep its camera, crown, visor, seams, lighting, background and factory branding unchanged; add only realistic front embroidery in natural perspective." },
   { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "Hat Side90 Embroidery: preserve the design, scaled for the visible side perspective, without inventing lettering." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "GatorHats 8869 Front to Back: use the real back stock image; do not invent rear embroidery." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
@@ -118,9 +118,9 @@ type Props = {
   lastUpdated?: string | null;
   sourcePlanId?: string;
   designSrc?: string;
-  stockViews?: Partial<Record<"front" | "side" | "back", string>>;
+  stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter", string>>;
   selectedColor?: string;
-  stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back", string>> }>;
+  stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back" | "three-quarter", string>> }>;
   ecommerceJobs?: EcommerceJob[];
   onEcommerceJobChange?: () => void | Promise<void>;
   readiness: ProductsStage2PhotoReadiness | null;
@@ -450,6 +450,7 @@ export function ProductsPhotoWorkflow({
           label: input.label,
           src: input.kind === "design" ? stage2OriginalUrl(designSrc) : input.kind === "embroidered_front"
             ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
+            : input.kind === "angle" ? (selectedStockViews?.["three-quarter"] || "")
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
             : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
@@ -574,7 +575,7 @@ export function ProductsPhotoWorkflow({
                 })}
               </div>
               <p>{step.inputInstruction}</p>
-              <small>Actual inputs are checked by the server. Stock references are pinned to the released file hashes; generated Front references must complete before Skills 2–3 can run.</small>
+              <small>Inputs are verified on the server. Skill 2 edits the pinned 3/4 stock photograph directly; it never synthesizes the cap angle from front/side. A completed Front output is required for design continuity.</small>
             </div>}
             {step.key === "prod_s2_mh" && <section aria-label="Pinned Multi-hat Cap Stack references" className="rrugc-products-photo-ugc-scout">
               <strong>Cap Stack Scout · {multiHatReferences.length}/20 references</strong>

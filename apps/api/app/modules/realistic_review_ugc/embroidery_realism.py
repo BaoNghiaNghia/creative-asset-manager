@@ -106,9 +106,13 @@ _SLOT_DIRECTIONS = {
     ),
     "prod_s2_ec2": (
         "SLOT 2 / FRONT-RIGHT 3/4: wrap and foreshorten the same fine embroidery "
-        "over the curved front panel; use the completed Front for text and "
-        "placement only, never for thick relief. Do not duplicate front art "
-        "on the lateral panel. "
+        "over the curved front panel of the supplied true 3/4 stock photo; "
+        "this exact stock photo is the immutable image-edit target, NOT a "
+        "suggestion to synthesize a camera angle from front and side. "
+        "Do not rotate, reconstruct, reframe, recolor, relight or change its "
+        "existing seams, visor, factory marks or background. Use the completed "
+        "Front for typography and placement only, never for thick relief. "
+        "Do not duplicate front art on the lateral panel. "
     ),
     "prod_s2_ec3": (
         "SLOT 3 / TRUE RIGHT SIDE: show only the small part of front art that "
