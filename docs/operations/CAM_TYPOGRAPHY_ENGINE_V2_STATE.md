@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-28
-status: APPROVED_SPEC_NOT_IMPLEMENTED
+status: G1_1_FOUNDATION_IN_DEVELOPMENT_G0_1_ROLLBACK_UNVERIFIED
 active_gate: G0
-next_action: G0.0
+next_action: G0.1_ROLLBACK_EVIDENCE_AND_G1.2_API
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,27 +14,29 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 4bd2ee7be7739bb8b11334d9ff3b0bcd90e90fdf
-feature_branch: docs/typography-engine-v2-20261028
-pr: 38
-ci: PR38_RECHECK_PENDING_AFTER_MAIN_SYNC
+vps_main_commit: f32b7084d316a73c7c437c222b89f2afe16abcdc
+feature_branch: feat/typography-v2-reference-foundation-20261028
+pr: PENDING_FOUNDATION_PR
+ci: LOCAL_G1_1_24_OF_24_SQLITE_AUTH_PASS_GITHUB_CI_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
-blockers: []
+blockers:
+  - G0_1_PRODUCTION_RELEASE_CURRENT_PREVIOUS_OUTSIDE_CODELOCAL_WORKSPACE
+  - G0_1_DISK_87_PERCENT_AND_SWAP_1_9_OF_2_GIB_REQUIRES_CAPACITY_REVIEW
 rollback:
   backend: UNVERIFIED_AT_START
   frontend: UNVERIFIED_AT_START
-  windows: UNVERIFIED_AT_START
+  windows: AVAILABLE_0_1_45_KEEP
 ---
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Chú ý:** Đây là checkpoint ban đầu của **tính năng mới chưa triển khai**. Các đường dẫn source/phiên bản cũ mới chỉ được ghi nhận trong quá trình lập kế hoạch, không thay thế gate kiểm tra hiện tại. Mọi trạng thái chuyển sang VERIFIED phải có test/evidence.
+> **Cập nhật G1.1:** Bộ schema/repository đang được phát triển và kiểm thử trên clean worktree, **chưa chạy trên production**. UI, AI analyzer, generation, Scout và feature flag vẫn chưa kích hoạt. Gate G0.1 rollback access còn BLOCKED, không được kích hoạt backend/frontend khi chưa giải quyết.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.0 — Persist four artifacts (RUNBOOK, STATE, UI_BLUEPRINT, HTML PROTOTYPE) to repository; then G0.1 Read-only baseline audit** trên VPS và Windows Tool, theo mục G0 của `CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md`.
+**G0.1 — Bổ sung rollback evidence từ workspace có quyền phù hợp, xử lý capacity risk VPS; tiếp tục G1.2 API metadata trong branch cách ly, chỉ mở PR sau CI.** Không deploy production/migration/worker cho đến khi tất cả gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -47,8 +49,8 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PENDING | main SHA, worktree, health, rollback, version, risk |
-| G1 | Data contract/schema/API nền tảng | PENDING | migrations, API tests, tenant isolation |
+| G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main f32b7084; API/DB healthy; disk 87%, swap 1.9/2 GiB; current/previous symlinks bị hard-block |
+| G1 | Data contract/schema/API nền tảng | IN_PROGRESS (G1.1 only) | models/repo, new tenant privileges, 24/24 local combined tests; API, PostgreSQL CI/feature flags pending |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | PENDING | batch upload/dedup, UI QA UX-01..UX-04, UX-08 |
 | G3 | Visual Analyzer & Style DNA | PENDING | sample DNA, cache/analyzer metrics |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
@@ -115,6 +117,18 @@ Công việc mở đầu:
 - **Đã hợp nhất `origin/main` sau PR #39 vào nhánh docs PR #38**, chưa merge PR #38 tại thời điểm ghi. Feature code/migration/Windows extension chưa triển khai, Auto Scout OFF.
 - **Gate:** G0.0 IN_PROGRESS. Chỉ đạt khi PR #38 CI xanh và merge vào main, sau đó G0.1 hoàn tất baseline; chưa cho phép bỏ qua các gate để lên production.
 - **Next action:** push docs branch cập nhật, chờ CI PR #38 full green → merge main → kiểm tra source & rollback G0.1 → triển khai G1 schema/API trên clean worktree.
+
+---
+
+### 2026-10-28 19:xx +07 — G0.0 merged, G0.1 baseline and G1.1 isolated foundation
+
+- **G0.0 VERIFIED:** PR #38 merged `main` as `f32b7084d316a73c7c437c222b89f2afe16abcdc` after **17/17 GitHub checks successful** (including frontend/API/migrations/Windows/Browser QA/security). Runbook/STATE/UI Blueprint/prototype and five screenshot baselines are in main.
+- **G0.1 baseline:** production public `/version` = backend commit `d4573f7ee825c659ad44401fc9c60fec297aaefd`, frontend `build-info.json` = `08c228e3da6c846d54c700909b462144d162fe24`. API and nginx `active`, `/ready` returns PostgreSQL + Elasticsearch available. Root disk **87%** used (~6.2 GiB free), RAM available ~3.6 GiB, swap **1.9/2 GiB** used, load average 2.94/3.31/3.39 at audit. Do not launch new production workers under these conditions.
+- **Rollback blocker:** CodeLocal rejects explicit `/opt/creative-asset-manager/current` and `/var/www/creative-asset-manager/current` paths as outside authorized workspace. No access bypass attempted; actual current/previous release symlinks and storage rollback remain unverified. Windows active Scout Manager 0.1.46, rollback file 0.1.45 present; no token access.
+- **G1.1 development only:** clean isolated worktree `.cam-typography-v2-foundation-20261028` from current `origin/main`. Added additive `0188_typography_v2_foundation` (reference + versioned Style DNA, tenant-scoped FK, unique tenant+hash); `TypographyReferenceRepository` with private/workspace visibility and dedup across UGC; RBAC keys `typography_reference.read/upload/manage`, `typography_generate.run`, `typography_scout.manage` (not automatically assigned Viewer/Operator).
+- **Local verification:** G1.1 repository, migration, previous authorization tests **24/24 passed** together; migration upgrade, guarded rollback with live data, empty-table rollback verified. Migration test runs Alembic in a subprocess to avoid polluting Base.metadata of other tests. PostgreSQL 12.22/16.4 CI, production release preflight and G1.2 API tests still pending.
+- **Production impact:** none; no migrated production schema, no exposed endpoint, no changed Stage 1 v1, no Scout changes or extra workers.
+- **Next:** complete G1.1 PR CI; implement G1.2 batch upload/list/detail/editorial API behind OFF feature flag, tenant/auth negative tests, then G2 frontend. Retain G0.1 hard-block; do not activate production until gates pass.
 
 ---
 

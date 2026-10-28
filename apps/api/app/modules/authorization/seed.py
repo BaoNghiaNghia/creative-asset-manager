@@ -37,6 +37,12 @@ PERMISSION_DEFINITIONS = {
     "realistic_review_ugc.read": "Read Realistic Review UGC workflows",
     "realistic_review_ugc.run": "Run Realistic Review UGC workflows",
     "realistic_review_ugc.configure": "Configure Realistic Review UGC workflows",
+    # Typography V2 rights are opt-in; existing Viewer/Operator roles never gain write access.
+    "typography_reference.read": "Read typography reference library",
+    "typography_reference.upload": "Upload typography reference images",
+    "typography_reference.manage": "Review, edit, and archive typography references",
+    "typography_generate.run": "Generate typography designs with approved references",
+    "typography_scout.manage": "Configure tenant-scoped Typography Scout",
     **INVENTORY_PERMISSION_DEFINITIONS,
 }
 
