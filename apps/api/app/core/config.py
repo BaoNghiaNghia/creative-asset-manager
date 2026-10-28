@@ -222,6 +222,11 @@ class Settings(BaseSettings):
     CODEX_IMAGE_MODEL: str = ""
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
+    # Typography V2 is additive and invisible until the gated pilot is approved.
+    # Empty canary list means disabled for all tenants even when the global
+    # flag is true: intentional deny-by-default safety boundary.
+    TYPOGRAPHY_V2_ENABLED: bool = False
+    TYPOGRAPHY_V2_CANARY_TENANT_IDS: str = ""
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
     CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED: bool = False
     CLOUDFLARE_AI_ACCOUNT_ID: str = ""

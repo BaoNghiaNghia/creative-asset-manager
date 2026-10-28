@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-28
-status: G1_1_FOUNDATION_IN_DEVELOPMENT_G0_1_ROLLBACK_UNVERIFIED
-active_gate: G0
-next_action: G0.1_ROLLBACK_EVIDENCE_AND_G1.2_API
+status: G1_2_API_READY_FOR_CI_G0_1_ROLLBACK_BLOCKED
+active_gate: G1
+next_action: G1.2_PR_CI_THEN_G2_UI_AND_G0.1_ROLLBACK_EVIDENCE
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: f32b7084d316a73c7c437c222b89f2afe16abcdc
-feature_branch: feat/typography-v2-reference-foundation-20261028
-pr: PENDING_FOUNDATION_PR
-ci: LOCAL_G1_1_24_OF_24_SQLITE_AUTH_PASS_GITHUB_CI_PENDING
+vps_main_commit: b5b74814635b70997791c7847c3cdc4bf9c9115f
+feature_branch: feat/typography-v2-reference-api-20261028
+pr: G1_2_PR_PENDING
+ci: G1_1_17_OF_17_GREEN_LOCAL_G1_2_API_8_OF_8_LEGACY_4_OF_4_CI_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -32,7 +32,7 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G1.1:** Bộ schema/repository đang được phát triển và kiểm thử trên clean worktree, **chưa chạy trên production**. UI, AI analyzer, generation, Scout và feature flag vẫn chưa kích hoạt. Gate G0.1 rollback access còn BLOCKED, không được kích hoạt backend/frontend khi chưa giải quyết.
+> **Cập nhật G1.2:** G1.1 schema/repository đã merge vào `main` (PR #40, 17/17 CI). G1.2 API có feature flag **OFF mặc định**, đang kiểm thử trong clean worktree, chưa deploy production. UI, AI analyzer, generation và Windows Scout chưa kích hoạt; G0.1 rollback vẫn BLOCKED.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
@@ -50,7 +50,7 @@ Công việc mở đầu:
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
 | G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main f32b7084; API/DB healthy; disk 87%, swap 1.9/2 GiB; current/previous symlinks bị hard-block |
-| G1 | Data contract/schema/API nền tảng | IN_PROGRESS (G1.1 only) | models/repo, new tenant privileges, 24/24 local combined tests; API, PostgreSQL CI/feature flags pending |
+| G1 | Data contract/schema/API nền tảng | IN_PROGRESS (G1.2 API CI pending) | PR #40 merged 17/17; G1.2 API 8/8 local + 4/4 legacy regression pass, feature flag OFF, PR/CI pending |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | PENDING | batch upload/dedup, UI QA UX-01..UX-04, UX-08 |
 | G3 | Visual Analyzer & Style DNA | PENDING | sample DNA, cache/analyzer metrics |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
@@ -129,6 +129,18 @@ Công việc mở đầu:
 - **Local verification:** G1.1 repository, migration, previous authorization tests **24/24 passed** together; migration upgrade, guarded rollback with live data, empty-table rollback verified. Migration test runs Alembic in a subprocess to avoid polluting Base.metadata of other tests. PostgreSQL 12.22/16.4 CI, production release preflight and G1.2 API tests still pending.
 - **Production impact:** none; no migrated production schema, no exposed endpoint, no changed Stage 1 v1, no Scout changes or extra workers.
 - **Next:** complete G1.1 PR CI; implement G1.2 batch upload/list/detail/editorial API behind OFF feature flag, tenant/auth negative tests, then G2 frontend. Retain G0.1 hard-block; do not activate production until gates pass.
+
+---
+
+### 2026-10-28 — G1.1 merged, G1.2 pilot API in isolated branch
+
+- **G1.1 merged:** PR #40, `b5b74814635b70997791c7847c3cdc4bf9c9115f`, **17/17 GitHub checks green** including PostgreSQL 12/16, API, frontend, Windows, Browser QA and security. No production deploy.
+- **G1.2 implementation:** `feat/typography-v2-reference-api-20261028` from merged main. Added `TYPOGRAPHY_V2_ENABLED` default false and an empty `TYPOGRAPHY_V2_CANARY_TENANT_IDS`. New tenant-scoped API: batch reference uploads (12 PNG/JPEG/WEBP, 20MB max each), list/search/pagination/detail/image/DNA, patch scope/rights/privacy/tags/preference, archive; audit writes without private payloads. Component roles layout/font_mood/overlap and balanced influence preserved.
+- **Security:** Deny non-canary tenants, including platform admins; new permissions separate from RRUGC role permissions. Private references cannot be viewed by other users without manage; old RRUGC list/detail/image/upload and candidate promotion cannot return typography-only storage rows. Upload duplicates never auto-upgrade rights or copy design content. Scope campaign/keyword IDs are tenant-checked.
+- **Local evidence:** 8/8 new API tests passed; 4/4 selected existing RRUGC reference regression tests passed. No worker/imagegen/scout/API route activated in production.
+- **Production unchanged, G0.1 BLOCKED:** release rollback symlinks outside CodeLocal authorized workspace; root disk/swap capacity review remains required. Do not deploy or enable feature until verified.
+- **Next action:** CI/merge G1.2 after all mandatory jobs green → G2 UI implementation from blueprint + UX-01..UX-16, while resolving G0.1 access/capacity separately.
+- **API contract:** `docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_API_CONTRACT.md`.
 
 ---
 
