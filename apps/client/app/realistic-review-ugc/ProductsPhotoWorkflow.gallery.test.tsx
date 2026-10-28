@@ -175,7 +175,7 @@ describe("Products photo output gallery navigation",()=>{
     });
     const shot = host.querySelector<HTMLImageElement>('[data-skill="prod_s2_ec4"] .rrugc-products-photo-output-strip img')!;
     const color = host.querySelector<HTMLImageElement>('[data-skill="colorway"] .rrugc-colorway-slot img')!;
-    expect(shot.getAttribute("src")).toBe(fullEcommerce + "?thumbnail=true&size=128");
+    expect(shot.getAttribute("src")).toBe(fullEcommerce + "?thumbnail=true&size=256");
     expect(color.getAttribute("src")).toBe(fullColor + "?thumbnail=true&size=128");
     expect([...host.querySelectorAll("img")].some(img => img.getAttribute("src") === fullEcommerce)).toBe(false);
     await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());

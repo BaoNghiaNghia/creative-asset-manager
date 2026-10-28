@@ -71,6 +71,11 @@ function runButton(slot: number) {
     '[data-skill="prod_s2_ec' + slot + '"] .rrugc-products-photo-run-button',
   )!;
 }
+function runState(slot: number) {
+  return host.querySelector<HTMLElement>(
+    '[data-skill="prod_s2_ec' + slot + '"] .rrugc-products-photo-run-state',
+  );
+}
 async function render(extra: Partial<typeof props> & { ecommerceJobs?: EcommerceJob[] } = {}) {
   await act(async () => root.render(<ProductsPhotoWorkflow {...props} {...extra} />));
 }
@@ -83,9 +88,9 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     expect(runButton(1).className).toContain("is-ready");
     expect(runButton(4).className).toContain("is-ready");
     expect(runButton(1).disabled).toBe(false);
-    expect(runButton(1).getAttribute("aria-disabled")).toBe("false");
-    expect(runButton(2).className).toContain("is-unavailable");
-    expect(runButton(3).className).toContain("is-unavailable");
+    expect(runButton(1).getAttribute("aria-disabled")).toBeNull();
+    expect(runState(2)?.className).toContain("is-blocked");
+    expect(runState(3)?.className).toContain("is-blocked");
     await act(async () => runButton(1).click());
     expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec1", "natural-charcoal");
     expect(preflight).toHaveBeenCalledTimes(2);
@@ -94,7 +99,7 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
   it("unlocks dependent slots after Front completes, without expanding them", async () => {
     preflight.mockImplementation(async () => ready("natural-charcoal", preflight.mock.calls.length > 1));
     await render();
-    expect(runButton(2).className).toContain("is-unavailable");
+    expect(runState(2)?.className).toContain("is-blocked");
     const frontJob: EcommerceJob = {
       id: "old-front", source_plan_id: "plan-1", stage: "prod_s2_ec1", color_key: "natural-charcoal",
       status: "completed", retry_count: 0, attempt_count: 1,
@@ -104,7 +109,8 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     expect(preflight).toHaveBeenCalledTimes(2);
     expect(runButton(2).className).toContain("is-ready");
     expect(runButton(3).className).toContain("is-ready");
-    expect(runButton(1).disabled).toBe(true);
+    expect(runState(1)?.className).toContain("is-completed");
+    expect(runButton(1)).toBeNull();
     await act(async () => runButton(2).click());
     expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec2", "natural-charcoal");
   });
@@ -117,9 +123,8 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     await render();
     expect(runButton(1).className).toContain("is-ready");
     await render({selectedColor:"white-red"});
-    expect(runButton(1).className).toContain("is-unavailable");
-    expect(runButton(1).disabled).toBe(false);
-    expect(runButton(1).getAttribute("aria-disabled")).toBe("false");
+    expect(runState(1)?.className).toContain("is-checking");
+    expect(runButton(1)).toBeNull();
     await act(async () => { resolveNew?.(ready("white-red")); });
     expect(runButton(1).className).toContain("is-ready");
   });

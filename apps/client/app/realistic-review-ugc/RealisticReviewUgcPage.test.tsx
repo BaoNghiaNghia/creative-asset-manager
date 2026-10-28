@@ -428,7 +428,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
     expect(markup).toContain('id="rrugc-stage2-search-input"');
     expect(markup).toContain("Embroidery design → 7-skill Product Stage 2");
-    expect(markup).toContain("7-skill configuration · 22 outputs");
+    expect(markup).toContain("Planned outputs");
+    expect(markup).not.toContain("7-skill configuration · 22 outputs");
     expect(markup).not.toContain("<th>13-color batch</th>");
     expect(reviewMarkup).toContain("<th>13-color batch</th>");
     expect(markup).toContain("JPG / PNG");
@@ -910,14 +911,14 @@ describe("Realistic Review UGC source-first workspace", () => {
     );
 
     expect(markup).toContain("<h2>Analysis Keyword</h2>");
-    expect(markup).toContain("Live keyword data");
+    expect(markup).toContain("Total keywords");
     expect(markup).toContain('aria-label="Open Research Intelligence"');
     expect(markup).toContain('aria-label="Open Search Intelligence"');
     expect(markup.indexOf('aria-label="Open Research Intelligence"')).toBeLessThan(
       markup.indexOf('aria-label="Open Search Intelligence"'),
     );
     expect(markup).toContain('aria-haspopup="dialog"');
-    expect(markup.indexOf("Search Intelligence")).toBeLessThan(markup.indexOf("Live keyword data"));
+    expect(markup.indexOf("Search Intelligence")).toBeLessThan(markup.indexOf("Total keywords"));
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
     expect(markup).toContain("Đề xuất");
     expect(markup).toContain("Bỏ đề xuất");
@@ -978,7 +979,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Short-tail");
     expect(markup).toContain("Mid-tail");
     expect(markup).toContain("Long-tail");
-    expect(markup).toContain('title="Clear all Stage 0 filters and show every keyword"');
+    expect(markup).not.toContain('title="Clear all Stage 0 filters and show every keyword"');
     expect(markup).toContain('role="combobox"');
     expect(markup).toContain('aria-autocomplete="list"');
     expect(markup).not.toContain("Any volume");
