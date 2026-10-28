@@ -14,13 +14,13 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: UNVERIFIED_AT_START
-feature_branch: null
-pr: null
-ci: not_run
+vps_main_commit: 4bd2ee7be7739bb8b11334d9ff3b0bcd90e90fdf
+feature_branch: docs/typography-engine-v2-20261028
+pr: 38
+ci: PR38_RECHECK_PENDING_AFTER_MAIN_SYNC
 vps_release_commit: null
-windows_active_version: LAST_OBSERVED_0.1.46_VERIFY_AGAIN
-last_verified_at: null
+windows_active_version: VERIFIED_0.1.46
+last_verified_at: 2026-10-28
 blockers: []
 rollback:
   backend: UNVERIFIED_AT_START
@@ -101,6 +101,20 @@ Công việc mở đầu:
 - **Chưa thực hiện:** không có thay đổi code production, không bật Auto Scout, không chạy migrations; bản thiết kế chưa được commit `main`.
 - **Trạng thái:** `APPROVED_SPEC_NOT_IMPLEMENTED`; `ui_design_status=UI_TARGET_DEFINED_NOT_IMPLEMENTED`. G0.0 cập nhật thành persist **4 files**.
 - **Bước kế:** G0.0 docs/prototype PR → G0.1 baseline → G1, sau đó xây UI theo chính blueprint này.
+
+---
+
+### 2026-10-28 — G0.0 implementation start / safety cleanup / CI unblocking
+
+- **Request:** Dọn các phần không cần rồi triển khai Typography Engine V2 trên VPS và Windows.
+- **VPS:** kiểm kê 50G root, ban đầu ~87% dùng / 6.4G free; dọn hai Git worktree sạch, commit đã nằm trong main (`.cam-browser-qa-approved-20261028`, `.cam-slot1-v4-release-20261028`), sau đó ~86% dùng / 6.7G free. Không xóa source dirty, job data, storage, previous releases hay repo branches.
+- **Windows:** RRUGC Scout Manager active `0.1.46` (process PID 11648 verified); giữ rollback `0.1.45`, xóa 15 file release 0.1.40–0.1.44 (setup/portable/SHA), release folder từ ~134MB xuống ~45MB. Không sửa profile, paired token, log hoặc uncommitted code.
+- **Baseline production read-only:** `creative-asset-manager-api.service` + nginx active, `/ready` báo PostgreSQL/Elasticsearch available; `/version` backend phục vụ `d4573f7ee825c659ad44401fc9c60fec297aaefd`. Kiểm tra symlink `current/previous` bị CodeLocal workspace hard-block; **không bypass**, bằng chứng rollback cần tiếp tục ở G0.1.
+- **Documentation source:** worktree sạch `.cam-typography-engine-v2-20261028` tạo từ `origin/main`, commit `2def456ed88ba0e828f22aab9ad48aa774ad433e`; PR #38 đang chờ CI xanh. Đã copy RUNBOOK, STATE, UI Blueprint, prototype HTML, reproducible Playwright QA và 5 screenshot baselines. **5/5** prototype views browser QA đạt, không có JS error/horizontal overflow; không phải production QA.
+- **CI blocker found:** PR #38 docs-only bị 5 test frontend cũ lỗi từ main (không có stock catalog fixture, selector UI lỗi thời, số palette dự kiến lệch). Đã sửa riêng 3 file test không thay đổi sản phẩm trong PR #39, local targeted Vitest **17/17** pass, typecheck pass, **15/15 GitHub CI jobs green**, PR #39 merged main commit `4bd2ee7be7739bb8b11334d9ff3b0bcd90e90fdf`. Full local suite bị CodeLocal cancel trước báo cáo cuối; GitHub CI là bằng chứng toàn diện.
+- **Đã hợp nhất `origin/main` sau PR #39 vào nhánh docs PR #38**, chưa merge PR #38 tại thời điểm ghi. Feature code/migration/Windows extension chưa triển khai, Auto Scout OFF.
+- **Gate:** G0.0 IN_PROGRESS. Chỉ đạt khi PR #38 CI xanh và merge vào main, sau đó G0.1 hoàn tất baseline; chưa cho phép bỏ qua các gate để lên production.
+- **Next action:** push docs branch cập nhật, chờ CI PR #38 full green → merge main → kiểm tra source & rollback G0.1 → triển khai G1 schema/API trên clean worktree.
 
 ---
 
