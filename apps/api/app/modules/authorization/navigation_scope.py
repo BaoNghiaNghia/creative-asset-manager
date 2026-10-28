@@ -22,7 +22,7 @@ NAVIGATION_MODULES: dict[str, frozenset[str]] = {
     "branding-dna": frozenset({"ai_operations.read", "ai_provider.configure"}),
     "realistic-review-ugc": frozenset({
         "realistic_review_ugc.read", "realistic_review_ugc.run",
-        "realistic_review_ugc.configure", "assets.read",
+        "realistic_review_ugc.configure", "assets.read", "assets.generate",
     }),
     "queue": frozenset({
         "ai_operations.read", "ai_jobs.retry", "ai_jobs.cancel",
@@ -82,6 +82,10 @@ def navigation_for_api_path(path: str) -> str | None:
         ("/api/v1/public-review/shares", "review-board"),
         ("/api/v1/video-generations", "generation"),
         ("/api/explorer", "assets"),
+        ("/explorer", "assets"),
+        ("/api/sources", "assets"),
+        ("/api/v1/asset-ingestions", "assets"),
+        ("/metadata", "assets"),
         ("/api/v1/search", "assets"),
         ("/api/v1/admin/search", "assets"),
     )
