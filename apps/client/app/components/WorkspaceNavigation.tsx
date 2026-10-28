@@ -22,6 +22,25 @@ export const mayViewReviewBoard = (permissions: readonly string[]) =>
   permissions.includes("public_review.read")
   || permissions.includes("realistic_review_ugc.read");
 
+/** Mirrors the unscoped navbar for a member's effective role permissions.
+ * This is a display/default-selection helper only; the server remains
+ * authoritative, and changing a member's grants still requires Save.
+ */
+export function roleBasedNavbarModules(permissions: readonly string[]): WorkspaceRoute[] {
+  const allowed = new Set(permissions);
+  const canViewOperations = allowed.has("ai_operations.read");
+  return [
+    "assets",
+    ...(allowed.has("inventory.read") ? ["inventory" as const] : []),
+    ...(canViewOperations ? ["operations" as const, "branding-dna" as const] : []),
+    ...(allowed.has("realistic_review_ugc.read") ? ["realistic-review-ugc" as const] : []),
+    ...(canViewOperations ? ["queue" as const] : []),
+    "generation",
+    ...(mayViewReviewBoard(permissions) ? ["review-board" as const] : []),
+    ...(allowed.has("tenant_members.read") ? ["access" as const] : []),
+  ];
+}
+
 const navigationIconSources: Record<WorkspaceRoute, string> = {
   assets: assetExplorerIcon,
   inventory: inventoryIcon,
