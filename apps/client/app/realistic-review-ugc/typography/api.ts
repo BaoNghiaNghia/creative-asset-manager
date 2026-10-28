@@ -33,6 +33,12 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Returns an HTTP 200 availability flag for authenticated users, even when
+// Typography V2 is OFF. Do not probe protected reference routes to discover access.
+export function getTypographyStatus(signal?: AbortSignal): Promise<{ available: boolean }> {
+  return jsonRequest(BASE.replace(/\/references$/, "") + "/status", { signal });
+}
+
 export function listTypographyReferences(
   filters: TypographyReferenceFilters = {}, signal?: AbortSignal,
 ): Promise<TypographyReferencePage> {

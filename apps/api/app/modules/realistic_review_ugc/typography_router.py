@@ -48,19 +48,36 @@ MAX_BATCH_FILES = 12
 ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 
 
-def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)):
-    """Even an admin cannot reach this pilot API without an explicit tenant canary."""
+def _tenant_can_use_v2(tenant_id: str) -> bool:
     settings = get_settings()
     tenants = {
         tenant.strip()
         for tenant in settings.TYPOGRAPHY_V2_CANARY_TENANT_IDS.split(",")
         if tenant.strip()
     }
-    if not settings.TYPOGRAPHY_V2_ENABLED or principal.active_tenant_id not in tenants:
+    return bool(settings.TYPOGRAPHY_V2_ENABLED and tenant_id in tenants)
+
+
+def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)):
+    """Even an admin cannot reach this pilot API without an explicit tenant canary."""
+    if not _tenant_can_use_v2(principal.active_tenant_id):
         raise HTTPException(status_code=404, detail={
             "code": "typography_v2_disabled", "message": "Typography V2 is not enabled.",
         })
     return principal
+
+
+# A non-mutating, authenticated capability probe returns HTTP 200 when OFF.
+# This prevents the default Stage 1 page from emitting expected 404s in Browser QA.
+status_router = APIRouter(prefix="/typography", tags=["typography-v2"])
+
+
+@status_router.get("/status")
+def typography_feature_status(
+    principal: CurrentPrincipal = Depends(require_authenticated_principal),
+):
+    can_read = principal.platform_admin or "typography_reference.read" in principal.effective_permissions
+    return {"available": bool(can_read and _tenant_can_use_v2(principal.active_tenant_id))}
 
 
 router = APIRouter(

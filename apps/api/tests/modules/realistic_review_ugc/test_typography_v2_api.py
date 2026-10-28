@@ -148,6 +148,20 @@ def enabled(env):
     env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a"
 
 
+def test_status_probe_preserves_canary_and_permission_boundaries(env):
+    status = "/api/v1/realistic-review-ugc/typography/status"
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 404
+    enabled(env)
+    assert env.client.get(status).json() == {"available": True}
+    env.identity("viewer", permissions={"realistic_review_ugc.read"})
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 403
+    env.identity("outsider", tenant="tenant-b")
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 404
+
+
 def test_default_off_does_not_expose_even_to_administrator(env):
     for method in ("get", "post"):
         env.identity("admin", platform_admin=True)

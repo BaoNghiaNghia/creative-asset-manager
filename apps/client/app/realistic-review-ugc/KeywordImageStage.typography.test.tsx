@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { listTypographyReferences } from "./typography/api";
+import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import type { TypographyReferencePage } from "./typography/types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,6 +33,7 @@ vi.mock("./api", async original => ({
 }));
 vi.mock("./typography/api", async original => ({
   ...(await original<typeof import("./typography/api")>()),
+  getTypographyStatus: vi.fn(),
   listTypographyReferences: vi.fn(),
 }));
 const page: TypographyReferencePage = {
@@ -45,6 +46,7 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/realistic-review-ugc?stage=1");
   host = document.createElement("div");
   document.body.append(host); root = createRoot(host);
+  vi.mocked(getTypographyStatus).mockResolvedValue({ available: true });
   vi.mocked(listTypographyReferences).mockResolvedValue(page);
 });
 afterEach(async () => {
@@ -66,7 +68,7 @@ async function click(button: Element | null) {
 
 describe("Stage 1 Typography V2 feature gating and non-destructive navigation", () => {
   it("keeps V1 keyword jobs unchanged when the V2 backend is OFF or forbidden", async () => {
-    vi.mocked(listTypographyReferences).mockRejectedValueOnce(new Error("typography_v2_disabled"));
+    vi.mocked(getTypographyStatus).mockResolvedValueOnce({ available: false });
     await renderStage();
     expect(host.querySelector("[data-testid=typography-stage1-subnav]")).toBeNull();
     expect(host.querySelector(".rrugc-keyword-gen-table")).not.toBeNull();

@@ -21,6 +21,7 @@
   "sources": [],
   "folders": {},
   "apiRoutes": [
+    {"method":"GET","path":"/api/v1/realistic-review-ugc/typography/status","body":{"available":false}},
     {"method":"GET","path":"/api/v1/realistic-review-ugc/cap-stack","body":{
       "items":[{"id":"cap-qa-1","pin_url":"https://www.pinterest.com/pin/123456/","image_url":"data:image/svg+xml,%3Csvg%20xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox='0%200%20400%20300'%3E%3Crect%20width='400'%20height='300'%20fill='%23e6ddce'%2F%3E%3Cpath%20d='M80%20160Q200%2070%20320%20160L340%20180L60%20180Z'%20fill='%237a8caa'%2F%3E%3Cpath%20d='M80%20200Q200%20110%20320%20200L340%20220L60%20220Z'%20fill='%23bba782'%2F%3E%3C%2Fsvg%3E","alt_text":"Stacked caps arranged on a table","source_query":"Cap Stack","caps_detected":3,"count_status":"needs_review","count_confidence":0.52,"is_cap_stack":true,"ai_suspected":true,"ai_suspicion_confidence":0.60,"visual_summary":"Several overlapping baseball caps are visible, but the rear brims are partially hidden.","analysis_model":"gemini-pool-qa","analysis_error_code":null,"manual_caps_count":4,"manual_label":"good","created_at":"2026-10-15T05:00:00Z"}],
       "total":1,"page":1,"page_size":40,

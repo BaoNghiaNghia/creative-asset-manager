@@ -4,7 +4,7 @@
 
 ## Activation and permission boundaries
 
-All endpoints share prefix `/api/v1/realistic-review-ugc/typography` and are blocked (HTTP 404 `typography_v2_disabled`) unless **both** `TYPOGRAPHY_V2_ENABLED=true` and the active tenant ID appears in `TYPOGRAPHY_V2_CANARY_TENANT_IDS` (comma-separated). Defaults are **OFF** and empty; changing flags is a separate audited rollout after G0/G1–G10 gates pass. No feature activation was performed by this PR.
+Reference endpoints share prefix `/api/v1/realistic-review-ugc/typography` and are blocked (HTTP 404 `typography_v2_disabled`) unless **both** `TYPOGRAPHY_V2_ENABLED=true` and the active tenant ID appears in `TYPOGRAPHY_V2_CANARY_TENANT_IDS` (comma-separated). Defaults are **OFF** and empty; changing flags is a separate audited rollout after G0/G1–G10 gates pass. No feature activation was performed by this PR.
 
 - `typography_reference.read`: list/detail/images/style DNA of workspace-visible or self-created private reference assets.
 - `typography_reference.upload`: upload images to the active tenant; created items remain `candidate` and cannot be auto-approved.
@@ -17,6 +17,7 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 
 | Method | Path after prefix | Access | Notes |
 |---|---|---|---|
+| GET | `/status` | authenticated | HTTP 200 `{ "available": boolean }`; false when feature OFF, tenant not allowlisted or read permission absent; never reveals reference data |
 | GET | `/references?status=&query=&source_type=&scope=&style_role=&my_uploads_only=&sort=&limit=&offset=` | read | Tenant/private filtered list and aggregate stats/capabilities; paginated, archived excluded by default |
 | GET | `/references/{id}` | read | Tenant/private visibility 404 on inaccessible ID |
 | GET | `/references/{id}/image` | read | Streams Managed Storage, `Cache-Control: private`, no public Drive URL |

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
-import { listTypographyReferences } from "./typography/api";
+import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
 import { Stage1Subnav } from "./typography/Stage1Subnav";
 import type { TypographyReferencePage } from "./typography/types";
@@ -278,11 +278,17 @@ export function KeywordImageStage({
   useEffect(() => {
     if (!active) return;
     const ctrl = new AbortController();
-    // Server defaults OFF and requires the active tenant in the allowlist.
-    // 403/404/unknown API routes must never create a visible nav entry.
-    void listTypographyReferences({ limit: 1 }, ctrl.signal)
-      .then(page => {
-        if (!ctrl.signal.aborted) { setIdeasAccess(page); setIdeasCount(page.stats.total); }
+    // The authenticated status probe always returns 200 when V2 is OFF.
+    // Do not request a protected reference endpoint until tenant and read access are verified.
+    void getTypographyStatus(ctrl.signal)
+      .then(status => {
+        if (!status.available || ctrl.signal.aborted) {
+          if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
+          return;
+        }
+        return listTypographyReferences({ limit: 1 }, ctrl.signal).then(page => {
+          if (!ctrl.signal.aborted) { setIdeasAccess(page); setIdeasCount(page.stats.total); }
+        });
       })
       .catch(() => {
         if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
