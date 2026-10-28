@@ -29,6 +29,8 @@ from app.modules.branding_dna import scout_session_model as branding_dna_scout_s
 from app.modules.branding_dna import knowledge_model as branding_dna_knowledge_models  # noqa: F401
 from app.modules.branding_dna import handoff_model as branding_dna_handoff_models  # noqa: F401
 from app.modules.inventory.jobs import model as inventory_job_models  # noqa: F401
+from app.modules.realistic_review_ugc import model as rrugc_models  # noqa: F401
+from app.modules.realistic_review_ugc import typography_model as rrugc_typography_models  # noqa: F401
 from app.modules.inventory import persistence_model as inventory_persistence_models  # noqa: F401
 from app.modules.video_generation import model as video_generation_models  # noqa: F401
 from app.modules.visual_search import backfill_model as visual_search_backfill_models  # noqa: F401
