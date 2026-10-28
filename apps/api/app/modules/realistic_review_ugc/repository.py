@@ -355,6 +355,11 @@ class RrugcRepository:
             select(RrugcReferenceAssetModel).where(
                 RrugcReferenceAssetModel.tenant_id == tenant_id,
                 RrugcReferenceAssetModel.id == reference_asset_id,
+                # Typography-only private assets may not escape via legacy RRUGC routes.
+                or_(
+                    RrugcReferenceAssetModel.profile_key.is_(None),
+                    RrugcReferenceAssetModel.profile_key != "typography-idea",
+                ),
             )
         )
 
@@ -574,7 +579,11 @@ class RrugcRepository:
         offset: int = 0,
     ) -> list[RrugcReferenceAssetModel]:
         statement = select(RrugcReferenceAssetModel).where(
-            RrugcReferenceAssetModel.tenant_id == tenant_id
+            RrugcReferenceAssetModel.tenant_id == tenant_id,
+            or_(
+                RrugcReferenceAssetModel.profile_key.is_(None),
+                RrugcReferenceAssetModel.profile_key != "typography-idea",
+            ),
         )
         if source_type:
             statement = statement.where(

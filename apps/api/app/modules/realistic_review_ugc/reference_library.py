@@ -28,6 +28,7 @@ from app.modules.visual_search.preprocess import (
 
 
 REFERENCE_PROFILE_REALISTIC_PERSON_UGC = "realistic-person-ugc"
+REFERENCE_PROFILE_TYPOGRAPHY_IDEA = "typography-idea"
 REFERENCE_ASSET_MAX_BYTES = 20_000_000
 REFERENCE_TYPES = frozenset({"person", "product", "scene", "detail", "artwork", "other"})
 
@@ -123,6 +124,17 @@ class RrugcReferenceLibrary:
     def __init__(self, session: Session):
         self.session = session
         self.repository = RrugcRepository(session)
+
+    @staticmethod
+    def _protect_private_typography_profile(asset: RrugcReferenceAssetModel, requested_profile: str) -> None:
+        # A legacy UGC caller must not reuse a private typography-only storage row.
+        if (asset.profile_key == REFERENCE_PROFILE_TYPOGRAPHY_IDEA
+                and requested_profile != REFERENCE_PROFILE_TYPOGRAPHY_IDEA):
+            raise ReferenceLibraryError(
+                "reference_asset_restricted",
+                "The reference image is not available for this workflow.",
+                status_code=409,
+            )
 
     def set_seed(
         self,
@@ -276,6 +288,7 @@ class RrugcReferenceLibrary:
                 candidate.content_hash,
             )
         if existing is not None:
+            self._protect_private_typography_profile(existing, REFERENCE_PROFILE_REALISTIC_PERSON_UGC)
             return ReferenceAssetPromotion(asset=existing, created=False)
 
         row = RrugcReferenceAssetModel(
@@ -323,6 +336,7 @@ class RrugcReferenceLibrary:
                 )
             if existing is None:
                 raise
+            self._protect_private_typography_profile(existing, REFERENCE_PROFILE_REALISTIC_PERSON_UGC)
             return ReferenceAssetPromotion(asset=existing, created=False)
 
     async def upload_reference(
@@ -338,6 +352,7 @@ class RrugcReferenceLibrary:
         profile_key: str = REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
         tags: list[str] | None = None,
         themes: list[str] | None = None,
+        allowed_image_formats: frozenset[str] | None = None,
     ) -> ReferenceAssetPromotion:
         normalized_type = str(reference_type or "other").strip().lower()
         if normalized_type not in REFERENCE_TYPES:
@@ -387,6 +402,12 @@ class RrugcReferenceLibrary:
             height = prepared.height
         finally:
             prepared.image.close()
+        if allowed_image_formats is not None and image_format not in allowed_image_formats:
+            raise ReferenceLibraryError(
+                "reference_asset_format_unsupported",
+                "Reference image format is not allowed for this workflow.",
+                status_code=422,
+            )
 
         content_hash = hashlib.sha256(content).hexdigest()
         existing = self.repository.reference_asset_by_content_hash(
@@ -394,6 +415,7 @@ class RrugcReferenceLibrary:
             content_hash,
         )
         if existing is not None:
+            self._protect_private_typography_profile(existing, profile_key)
             return ReferenceAssetPromotion(asset=existing, created=False)
 
         content_type, suffix = reference_image_content_type(image_format)
@@ -487,4 +509,5 @@ class RrugcReferenceLibrary:
             )
             if existing is None:
                 raise
+            self._protect_private_typography_profile(existing, profile_key)
             return ReferenceAssetPromotion(asset=existing, created=False)
