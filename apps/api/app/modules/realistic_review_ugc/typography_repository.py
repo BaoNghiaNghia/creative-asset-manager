@@ -6,7 +6,7 @@ Never access by an unscoped reference id, even for privileged administrators.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import RrugcReferenceAssetModel
@@ -53,6 +53,9 @@ class TypographyReferenceRepository:
     def list(
         self, tenant_id: str, *, user_id: str, manage: bool = False,
         status: str | None = None, query: str | None = None,
+        source_type: str | None = None, scope: str | None = None,
+        style_role: str | None = None,
+        my_uploads_only: bool = False, sort: str = "newest",
         limit: int = 40, offset: int = 0,
     ) -> tuple[list[RrugcTypographyReferenceModel], int]:
         conditions = [
@@ -63,6 +66,20 @@ class TypographyReferenceRepository:
             conditions.append(RrugcTypographyReferenceModel.editorial_status == status)
         else:
             conditions.append(RrugcTypographyReferenceModel.editorial_status != "archived")
+        if source_type:
+            conditions.append(RrugcTypographyReferenceModel.source_type == source_type)
+        if scope:
+            conditions.append(RrugcTypographyReferenceModel.scope == scope)
+        if my_uploads_only:
+            conditions.append(RrugcTypographyReferenceModel.created_by_user_id == user_id)
+        if style_role:
+            # Literal values are validated at the router; match JSON string tokens
+            # consistently on PostgreSQL JSONB and the SQLite test database.
+            conditions.append(
+                cast(RrugcTypographyReferenceModel.reference_roles_json, String).ilike(
+                    '%"' + style_role + '"%'
+                )
+            )
         if query:
             # Plain keyword search. User-provided % and _ are escaped so a
             # search cannot silently expand to an all-tenant scan.
@@ -73,19 +90,41 @@ class TypographyReferenceRepository:
                     RrugcTypographyReferenceModel.notes.ilike(pattern, escape="\\"),
                     RrugcTypographyReferenceModel.source_attribution.ilike(pattern, escape="\\"),
                     RrugcTypographyReferenceModel.skill_name.ilike(pattern, escape="\\"),
+                    cast(RrugcTypographyReferenceModel.tags_json, String).ilike(pattern, escape="\\"),
                 )
             )
         statement = select(RrugcTypographyReferenceModel).where(*conditions)
         total = self.session.scalar(
             select(func.count()).select_from(RrugcTypographyReferenceModel).where(*conditions)
         ) or 0
+        ordering = {
+            "newest": (RrugcTypographyReferenceModel.updated_at.desc(), RrugcTypographyReferenceModel.id.desc()),
+            "oldest": (RrugcTypographyReferenceModel.updated_at.asc(), RrugcTypographyReferenceModel.id.asc()),
+            "priority": (RrugcTypographyReferenceModel.priority.desc(), RrugcTypographyReferenceModel.updated_at.desc(), RrugcTypographyReferenceModel.id.desc()),
+        }
         rows = list(self.session.scalars(
-            statement.order_by(
-                RrugcTypographyReferenceModel.updated_at.desc(),
-                RrugcTypographyReferenceModel.id.desc(),
-            ).offset(offset).limit(limit)
+            statement.order_by(*ordering.get(sort, ordering["newest"])).offset(offset).limit(limit)
         ))
         return rows, total
+
+    def stats(self, tenant_id: str, *, user_id: str, manage: bool = False) -> dict[str, int]:
+        """Tenant/privacy-filtered full library counts, independent of page filters."""
+        model = RrugcTypographyReferenceModel
+        row = self.session.execute(
+            select(
+                func.count(model.id),
+                func.sum(case((model.editorial_status == "approved", 1), else_=0)),
+                func.sum(case((model.editorial_status == "candidate", 1), else_=0)),
+                func.sum(case((model.analysis_status.in_(["pending", "running"]), 1), else_=0)),
+            ).where(
+                model.tenant_id == tenant_id,
+                model.editorial_status != "archived",
+                self._visible(user_id, manage),
+            )
+        ).one()
+        return {key: int(row[index] or 0) for index, key in enumerate(
+            ("total", "approved", "needs_review", "analyzing")
+        )}
 
     def link_asset(
         self, *, tenant_id: str, workspace_id: str, asset_id: str,

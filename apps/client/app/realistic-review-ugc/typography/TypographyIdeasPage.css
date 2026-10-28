@@ -1,0 +1,110 @@
+/* Typography V2 G2: scoped CAM Stage 1 design tokens; no global button/card overrides. */
+.typography-stage1-subnav{display:flex;align-items:center;gap:8px;min-height:40px;margin:2px 0 12px;padding:0 3px;border-bottom:1px solid #dde5f1;overflow-x:auto}
+.typography-stage1-subnav button{flex:none;display:flex;align-items:center;gap:7px;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 12px;background:transparent;color:#64758c;font-size:12px;font-weight:760;cursor:pointer;white-space:nowrap}
+.typography-stage1-subnav button.active{border-bottom-color:#305fe2;color:#244bba}
+.typography-stage1-subnav button span{border-radius:12px;background:#eff3ff;padding:2px 7px;font-size:10px}
+.typography-stage1-subnav-hint{padding-left:12px;color:#93a0b3;font-size:11px;white-space:nowrap;cursor:help}
+.typography-ideas{min-width:0;color:#2e405e;font-size:12px}
+.typography-ideas *{box-sizing:border-box}
+.typography-ideas :is(button,input,select,textarea):focus-visible{outline:2px solid #4d76df;outline-offset:2px}
+.typography-ideas button{cursor:pointer;font-family:inherit}
+.typography-ideas button:disabled{cursor:not-allowed;opacity:.52}
+.typography-ideas-heading{display:flex;gap:20px;justify-content:space-between;align-items:flex-start;margin:15px 0 12px}
+.typography-ideas-copy{max-width:660px}
+.typography-eyebrow{margin:0 0 6px;color:#5475b9;font-weight:850;font-size:9px;letter-spacing:.075em}
+.typography-ideas-copy h3{font-size:22px;font-weight:840;line-height:1.2;margin:0 0 6px;color:#263d62}
+.typography-ideas-copy>p:last-child{margin:0;color:#798aa1;line-height:1.5;font-size:11px}
+.typography-primary{display:inline-flex;justify-content:center;align-items:center;gap:8px;border:1px solid #315fe9;border-radius:8px;background:#315fe9;color:#fff;padding:10px 14px;font-weight:800;font-size:11px;white-space:nowrap;min-height:36px}
+.typography-primary:not(:disabled):hover{background:#244cc8}
+.typography-quiet{border:1px solid #d5dfeb!important;border-radius:7px;background:#fff;color:#53719d;padding:7px 10px;font-size:11px;font-weight:730;min-height:32px}
+.typography-quiet:hover{border-color:#91aee3!important;color:#274db0}
+.typography-ideas-counters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}
+.typography-ideas-counters span{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:50px;padding:12px 14px;border:1px solid #e0e8f1;border-radius:9px;background:#f9fbff;color:#7a89a1;font-size:11px;font-weight:650}
+.typography-ideas-counters strong{font-size:19px;color:#2b436a;font-variant-numeric:tabular-nums}
+.typography-ideas-filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:12px 0;padding:9px;border:1px solid #e1e8f1;border-radius:9px;background:#fafcfe}
+.typography-ideas-filterbar label{display:inline-flex;align-items:center;min-width:0}
+.typography-ideas-filterbar select,.typography-ideas-filterbar input:not([type="checkbox"]){height:34px;max-width:100%;border:1px solid #d1dce9;border-radius:7px;padding:0 9px;background:white;color:#304967;font:inherit;font-size:11px}
+.typography-ideas-filterbar select{max-width:180px}
+.typography-filter-search{flex:1 1 220px}
+.typography-filter-search input{width:100%}
+.typography-ideas-filterbar .typography-toggle{display:flex;align-items:center;gap:6px;margin:0 5px;color:#667b99;white-space:nowrap;font-size:11px}
+.typography-toggle input{width:15px;height:15px;accent-color:#315fe9}
+.typography-ideas-grid{column-count:4;column-gap:12px}
+.typography-reference-card{display:inline-block;width:100%;break-inside:avoid;margin:0 0 12px;border:1px solid #e2e8f1;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 2px 7px #1e385b0b}
+.typography-reference-image{position:relative;display:block;width:100%;min-height:130px;padding:0;border:0;background:#f2f5fb}
+.typography-reference-image img{display:block;width:100%;height:auto;max-height:380px;object-fit:contain;object-position:center}
+.typography-status-pill{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:5px 8px;border-radius:13px;background:#f0f5fb;color:#516681;font-size:9px;font-weight:780;box-shadow:0 1px 6px #0002}
+.typography-status-approved{background:#eaf7ee;color:#276847}.typography-status-rejected{background:#fdeeee;color:#a23d43}.typography-status-archived{background:#e8ebf0;color:#626978}
+.typography-reference-info{display:grid;gap:6px;padding:10px}
+.typography-reference-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#2b4164}
+.typography-reference-info>span{color:#8a97a9;font-size:10px;text-transform:capitalize}
+.typography-reference-tags{display:flex;gap:5px;flex-wrap:wrap}
+.typography-reference-tags span{padding:4px 6px;border-radius:6px;background:#f0f4fb;color:#627ca8;font-size:9px;text-transform:capitalize}
+.typography-reference-info .typography-quiet{justify-self:start;padding:5px 9px;min-height:28px}
+.typography-empty{text-align:center;padding:50px 20px;border:1px dashed #cad7e9;border-radius:10px;background:#f9fbfe;color:#7890ac}
+.typography-empty strong{color:#344c71;font-size:16px}.typography-empty p{font-size:11px}
+.typography-empty button{margin-top:6px}
+.typography-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0;color:#7b89a0;font-size:11px}
+.typography-pagination div{display:flex;gap:6px}.typography-pagination button{min-height:34px;border:1px solid #d7e0ec;border-radius:7px;padding:6px 12px;background:#fff;color:#536b8b}
+.typography-pagination button:disabled{opacity:.4;cursor:not-allowed}
+.typography-notice,.typography-error{display:flex;align-items:center;justify-content:space-between;gap:9px;margin:9px 0;padding:10px 13px;border-radius:8px;background:#eef7f2;color:#2a6848;font-size:11px}
+.typography-error{background:#fff1f2;color:#a0454d}
+.typography-notice button,.typography-error button{border:0;background:none;color:inherit;font-weight:750;cursor:pointer}
+.typography-dialog-backdrop{position:fixed;inset:0;z-index:10030;display:flex;align-items:center;justify-content:center;padding:12px;background:#1021408a}
+.typography-upload-dialog{width:min(680px,calc(100vw - 24px));max-height:calc(100vh - 30px);overflow:auto;padding:20px;border-radius:14px;border:1px solid #d8e2f0;background:#fff;box-shadow:0 20px 65px #08193043;color:#31486b;font-size:12px}
+.typography-upload-dialog>header,.typography-detail-drawer>header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding-bottom:15px;border-bottom:1px solid #e4eaf2}
+.typography-upload-dialog header small,.typography-detail-drawer header small{font-size:9px;color:#6684b4;font-weight:830;letter-spacing:.06em}
+.typography-upload-dialog h2,.typography-detail-drawer h2{margin:5px 0;font-size:23px;line-height:1.2;color:#263d62;overflow-wrap:anywhere}
+.typography-upload-dialog header p,.typography-detail-drawer header p{font-size:11px;color:#8292aa;margin:4px 0}
+.typography-close{flex:none;width:36px;height:36px;border:1px solid #d7dfeb;border-radius:8px;background:white;color:#526c91;font-size:21px;cursor:pointer}
+.typography-dropzone{margin:14px 0;border:1.5px dashed #a9bfdf;border-radius:10px;min-height:136px;background:#f8fbff;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:7px;padding:14px;text-align:center}
+.typography-dropzone.is-dragging{background:#eaf1ff;border-color:#4369d5}
+.typography-dropzone strong{font-size:14px;color:#46669a}.typography-dropzone span{font-size:11px;color:#8996ab}
+.typography-dropzone button,.typography-editor-actions button{border:1px solid #ccd9ea;background:white;border-radius:7px;min-height:32px;padding:7px 12px;color:#526e9f;cursor:pointer}
+.typography-upload-settings{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:7px}
+.typography-upload-settings label,.typography-editor-fields label{display:grid;gap:5px;font-size:10px;color:#7487a1;font-weight:760}
+.typography-upload-settings label:last-child{grid-column:1/-1}
+.typography-upload-settings :is(input,select),.typography-editor-fields :is(input:not([type=checkbox]),select,textarea){width:100%;min-width:0;min-height:34px;border:1px solid #d4deec;border-radius:7px;padding:7px 9px;background:white;color:#344c70;font:inherit;font-size:11px}
+.typography-rights-notice{padding:10px;border-radius:8px;background:#faf6ec;color:#8a7052;font-size:11px;line-height:1.45}
+.typography-upload-list{max-height:230px;overflow:auto;margin:10px 0}
+.typography-upload-file{display:grid;grid-template-columns:minmax(80px,1fr) 58px minmax(70px,1.2fr) auto;align-items:center;gap:8px;padding:7px;border-bottom:1px solid #e7edf6;font-size:10px}
+.typography-upload-file>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.typography-upload-file small{color:#96a1b0}.typography-upload-file b{color:#5376aa;font-weight:720;overflow-wrap:anywhere}
+.typography-upload-file b.state-error{color:#b14850}.typography-upload-file b.state-created{color:#357552}
+.typography-upload-file button{border:0;background:transparent;color:#5476b8;cursor:pointer}
+.typography-upload-dialog>footer,.typography-detail-drawer>footer{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #e4eaf2}
+.typography-drawer-backdrop{justify-content:flex-end;padding:0}
+.typography-detail-drawer{position:relative;display:flex;flex-direction:column;flex:none;width:min(560px,100vw);height:100vh;max-height:100vh;border-left:1px solid #dce5ef;background:white;box-shadow:-16px 0 40px #0719362b;color:#31486b;padding:20px}
+.typography-drawer-body{flex:1;min-height:0;overflow:auto;padding:15px 0 8px}
+.typography-drawer-image{display:flex;justify-content:center;align-items:center;max-height:360px;min-height:140px;overflow:hidden;background:#f1f5fb;border-radius:9px}
+.typography-drawer-image img{max-width:100%;max-height:360px;object-fit:contain}
+.typography-drawer-tabs{display:flex;gap:7px;border-bottom:1px solid #e2e8f1;margin:15px 0}
+.typography-drawer-tabs button{padding:11px 10px;border:0;border-bottom:2px solid transparent;background:transparent;color:#7a8ba7;cursor:pointer;font-size:11px;font-weight:700}
+.typography-drawer-tabs button[aria-selected=true]{color:#2858c8;border-bottom-color:#315fe9}
+.typography-drawer-content{font-size:11px;color:#647b9a;line-height:1.55}
+.typography-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.typography-info-grid div{display:grid;gap:4px;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafcfe}
+.typography-info-grid dt{font-size:9px;color:#9aabc0}.typography-info-grid dd{margin:0;font-size:11px;color:#334f77;overflow-wrap:anywhere}
+.typography-editor-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.typography-editor-fields label:nth-of-type(n+4),.typography-editor-fields fieldset{grid-column:1/-1}
+.typography-editor-fields fieldset{border:1px solid #d8e2ee;border-radius:8px;padding:10px;display:flex;flex-wrap:wrap;gap:13px}
+.typography-editor-fields fieldset legend{font-size:10px;color:#60759b}
+.typography-editor-fields fieldset label{display:flex;align-items:center;gap:6px}
+.typography-editor-fields textarea{min-height:70px}
+.typography-editor-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}
+.typography-dna-empty{border:1px dashed #cad8ec;padding:20px;border-radius:8px;background:#f8faff}
+.typography-dna-result{border:1px solid #e0e7f2;border-radius:9px;padding:12px;margin:8px 0}.typography-dna-result h4{font-size:13px}
+.typography-dna-result code{overflow-wrap:anywhere;white-space:normal}
+.typography-lineage dd{overflow-wrap:anywhere;margin-bottom:12px}
+.typography-detail-drawer>footer{flex-wrap:wrap;flex:none;font-size:11px}
+.typography-detail-drawer>footer button{border:1px solid #d5dfed;border-radius:7px;padding:9px 11px;background:#fff;color:#52709e;font-weight:730;cursor:pointer}
+.typography-detail-drawer>footer .typography-primary{background:#315fe9;border-color:#315fe9;color:#fff}
+.typography-archive-confirm{position:absolute;inset:auto 12px 12px;z-index:2;background:#fff;border:1px solid #d9c7c7;border-radius:10px;padding:16px;box-shadow:0 10px 25px #0002}
+.typography-archive-confirm strong{font-size:14px;color:#8e3a43}.typography-archive-confirm p{font-size:11px;color:#667b98}
+.typography-archive-confirm div{display:flex;justify-content:flex-end;gap:8px}
+.typography-archive-confirm button{border:1px solid #d4deec;border-radius:7px;padding:9px 12px;background:#fff;cursor:pointer}
+.typography-archive-confirm .typography-danger{background:#a43945;color:#fff;border-color:#a43945}
+@media(max-width:1279px){.typography-ideas-grid{column-count:3}.typography-ideas-counters span{padding:9px}.typography-ideas-filterbar select{max-width:150px}}
+@media(max-width:899px){.typography-ideas-grid{column-count:2}.typography-ideas-counters{grid-template-columns:repeat(2,minmax(0,1fr))}.typography-ideas-heading{flex-wrap:wrap}}
+@media(max-width:600px){.typography-ideas-heading{gap:12px}.typography-ideas-copy h3{font-size:19px}.typography-ideas-filterbar{gap:6px;padding:7px}.typography-ideas-filterbar label:has(select){flex:1 1 42%}.typography-ideas-filterbar select{max-width:none;width:100%;min-height:44px}.typography-filter-search{flex-basis:100%}.typography-filter-search input{min-height:44px}.typography-ideas-filterbar .typography-quiet{min-height:44px}.typography-reference-info{padding:7px}.typography-reference-info strong{font-size:11px}.typography-reference-tags{gap:3px}.typography-upload-dialog{padding:12px}.typography-upload-settings{grid-template-columns:1fr}.typography-upload-settings label:last-child{grid-column:auto}.typography-upload-file{grid-template-columns:minmax(50px,1fr) 45px minmax(70px,1.2fr) auto;gap:4px}.typography-detail-drawer{height:100dvh;max-height:100dvh;padding:12px}.typography-ideas-counters strong{font-size:16px}.typography-ideas-counters span{min-height:44px}.typography-stage1-subnav button{min-height:44px}.typography-reference-info button{min-height:44px}}
+@media(max-width:350px){.typography-ideas-grid{column-count:1}}
+@media(prefers-reduced-motion:reduce){.typography-ideas *{scroll-behavior:auto!important;transition:none!important}}

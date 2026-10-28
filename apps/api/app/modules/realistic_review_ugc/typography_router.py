@@ -135,6 +135,11 @@ def _asset_names(session: Session, tenant: str, asset_ids: set[str]) -> dict[str
 def list_typography_references(
     status: Literal["candidate", "approved", "rejected", "archived"] | None = Query(default=None),
     query: str | None = Query(default=None, max_length=100),
+    source_type: Literal["upload", "scout", "internal"] | None = Query(default=None),
+    scope: Literal["workspace", "campaign", "keyword", "skill"] | None = Query(default=None),
+    style_role: Literal["layout", "font_mood", "overlap"] | None = Query(default=None),
+    my_uploads_only: bool = Query(default=False),
+    sort: Literal["newest", "oldest", "priority"] = Query(default="newest"),
     limit: int = Query(default=40, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_db),
@@ -145,11 +150,20 @@ def list_typography_references(
         principal.active_tenant_id,
         user_id=principal.user_id,
         manage=_can_manage(principal),
-        status=status, query=query, limit=limit, offset=offset,
+        status=status, query=query, source_type=source_type, scope=scope,
+        style_role=style_role, my_uploads_only=my_uploads_only, sort=sort,
+        limit=limit, offset=offset,
     )
     names = _asset_names(session, principal.active_tenant_id, {row.asset_id for row in rows})
+    rights = principal.effective_permissions
     return {"items": [_view(row, names.get(row.asset_id)) for row in rows],
-            "total": total, "limit": limit, "offset": offset}
+            "total": total, "limit": limit, "offset": offset,
+            "stats": repo.stats(principal.active_tenant_id, user_id=principal.user_id, manage=_can_manage(principal)),
+            "capabilities": {
+                "read": True,
+                "upload": principal.platform_admin or "typography_reference.upload" in rights,
+                "manage": _can_manage(principal),
+            }}
 
 
 @router.get("/references/{reference_id}")

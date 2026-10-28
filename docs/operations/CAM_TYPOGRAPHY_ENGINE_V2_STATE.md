@@ -2,22 +2,22 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-28
-status: G1_2_API_READY_FOR_CI_G0_1_ROLLBACK_BLOCKED
-active_gate: G1
-next_action: G1.2_PR_CI_THEN_G2_UI_AND_G0.1_ROLLBACK_EVIDENCE
+status: G2_UI_DEV_CI_PENDING_G0_1_ROLLBACK_BLOCKED
+active_gate: G2
+next_action: G2_FRONTEND_API_CI_QA_THEN_G3_STYLE_DNA_AND_G0_1_ROLLBACK
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
 canonical_ui_prototype: docs/operations/prototypes/CAM_TYPOGRAPHY_ENGINE_V2_UI_PREVIEW.html
-ui_design_status: UI_TARGET_DEFINED_NOT_IMPLEMENTED
+ui_design_status: G2_LIBRARY_IMPLEMENTED_IN_FEATURE_BRANCH_G4_STYLE_LAB_NOT_STARTED
 ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: b5b74814635b70997791c7847c3cdc4bf9c9115f
-feature_branch: feat/typography-v2-reference-api-20261028
-pr: G1_2_PR_PENDING
-ci: G1_1_17_OF_17_GREEN_LOCAL_G1_2_API_8_OF_8_LEGACY_4_OF_4_CI_PENDING
+vps_main_commit: b8e558cd48c80dd6a50fc8b986eb40a6c8ae71b2
+feature_branch: feat/typography-v2-ideas-ui-20261028
+pr: G2_PR_PENDING
+ci: G1_2_17_OF_17_GREEN_G2_LOCAL_UI_8_OF_8_API_9_OF_9_STAGE1_LEGACY_15_OF_15_FRONTEND_CI_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -32,11 +32,11 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G1.2:** G1.1 schema/repository đã merge vào `main` (PR #40, 17/17 CI). G1.2 API có feature flag **OFF mặc định**, đang kiểm thử trong clean worktree, chưa deploy production. UI, AI analyzer, generation và Windows Scout chưa kích hoạt; G0.1 rollback vẫn BLOCKED.
+> **Cập nhật G2:** PR #40 G1.1 và PR #41 G1.2 đã merge vào `main` (**17/17 CI cho G1.2**). G2 Typography Ideas Library, Stage 1 subnav, form upload và drawer đang ở worktree riêng; chưa deploy production. Backend vẫn **OFF mặc định**, không có generation/analyzer/Scout. G0.1 rollback access vẫn BLOCKED.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.1 — Bổ sung rollback evidence từ workspace có quyền phù hợp, xử lý capacity risk VPS; tiếp tục G1.2 API metadata trong branch cách ly, chỉ mở PR sau CI.** Không deploy production/migration/worker cho đến khi tất cả gates liên quan VERIFIED.
+**G2 — Hoàn thiện thư viện ảnh typography và frontend/API filters; chạy TypeScript, tests, Browser QA/CI rồi merge `main` nếu tất cả bắt buộc xanh. Tiếp tục G0.1 rollback/access/capacity qua authorized workspace.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -50,8 +50,8 @@ Công việc mở đầu:
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
 | G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main f32b7084; API/DB healthy; disk 87%, swap 1.9/2 GiB; current/previous symlinks bị hard-block |
-| G1 | Data contract/schema/API nền tảng | IN_PROGRESS (G1.2 API CI pending) | PR #40 merged 17/17; G1.2 API 8/8 local + 4/4 legacy regression pass, feature flag OFF, PR/CI pending |
-| G2 | Web Typography Ideas Library & Stage 1 subnav | PENDING | batch upload/dedup, UI QA UX-01..UX-04, UX-08 |
+| G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
+| G2 | Web Typography Ideas Library & Stage 1 subnav | IN_PROGRESS, PR/CI pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | PENDING | sample DNA, cache/analyzer metrics |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
@@ -65,7 +65,7 @@ Công việc mở đầu:
 ## 3. Quyết định đã được chốt — KHÔNG hỏi lại
 
 - `concept-short-v2`, giữ nguyên `concept-short-v1`.
-- **UI design lock V1**: Stage 1 subnav chỉ `Keyword Jobs` / `Typography Ideas` / `Style Lab`; Windows mock là màn hình preview riêng, không phải CAM Web tab. Desktop Style Lab 3 vùng và responsive theo UI_BLUEPRINT §§2–9. Không hỏi lại thiết kế mặc định khi user gõ “tiếp tục”.
+- **UI design lock V1**: Stage 1 subnav `Keyword Jobs` / `Typography Ideas` / `Style Lab` (Style Lab rendered as explicitly unavailable until G4); Windows mock là màn hình preview riêng, không phải CAM Web tab. Desktop Style Lab 3 vùng và responsive theo UI_BLUEPRINT §§2–9. Không hỏi lại thiết kế mặc định khi user gõ “tiếp tục”.
 - Balanced, tham khảo **Layout + Font + Overlap**, không lấy toàn bộ hình mũ/lighting/vành mũ vào Stage 1.
 - Exact keyword lock, không tự thêm text hoặc copy 1:1 thiết kế gốc.
 - Cho user upload ảnh vào CAM, Scout Windows mở rộng nguồn reference.
@@ -141,6 +141,18 @@ Công việc mở đầu:
 - **Production unchanged, G0.1 BLOCKED:** release rollback symlinks outside CodeLocal authorized workspace; root disk/swap capacity review remains required. Do not deploy or enable feature until verified.
 - **Next action:** CI/merge G1.2 after all mandatory jobs green → G2 UI implementation from blueprint + UX-01..UX-16, while resolving G0.1 access/capacity separately.
 - **API contract:** `docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_API_CONTRACT.md`.
+
+---
+
+### 2026-10-28 — G1.2 merged, G2 Ideas Library frontend in isolated branch
+
+- **G1.2 MERGED:** PR #41, `b8e558cd48c80dd6a50fc8b986eb40a6c8ae71b2`, **17/17 GitHub checks green** (16 workflow jobs plus security). No production deploy or API flag activation.
+- **G2 implementation underway:** clean feature worktree `.cam-typography-v2-ideas-ui-20261028`, branch `feat/typography-v2-ideas-ui-20261028`, from merged `main`. Added conditional Stage 1 subnav, with existing Keyword Jobs V1 table and search/sort/page kept mounted; tab switch is explicit and query-param backed. Library is gated by tenant auth/rights/feature flag (existing API GET must succeed); disabled backend falls back to original V1 with no new controls.
+- **Typography Ideas:** image grid (preserve original aspect ratio), server-provided counters, pagination, keyword/tag/source search, style-component/source/scope/status/sort/my-uploads filters; upload modal batch up to 20 files, PNG/JPEG/WEBP <=20MB each, three concurrent multipart requests with two images each; per-file created/duplicate/error, isolated retry, privacy and source-rights selections. Reference drawer displays the actual image, metadata/rights, Style DNA list or empty state, editable tags/scope/priority/style components, rights-gated approve, audited archive confirmation. Viewer controls are read-only.
+- **API enhancements for G2:** filter by style role/source/scope/my uploads, sort by priority/age, tenant/private-filtered summary stats and capability flags. All remain behind G1.2 default-OFF tenant canary.
+- **Verification to date:** dedicated G2 UI 6/6 + Stage 1 conditional navigation 2/2 + existing Stage 1 15/15; backend typography API 9/9 + foundation 6/6. Full frontend suite, CI and actual authenticated browser responsive QA still pending.
+- **Deliberate exclusions:** no fake Style Lab/Generate action; G3 DNA analyzer, G4 Dynamic Composer, G5/G6 generation & QA and G7 Windows Scout are not part of G2. No source images, tokens or tenant secrets committed.
+- **Production:** unchanged. G0.1 rollback symlink inspection and capacity gate still BLOCKED. Explicitly do not deploy G2 code, migrate schema, or turn on flags until rollouts are authorized and safe.
 
 ---
 
