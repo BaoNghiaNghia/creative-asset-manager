@@ -98,6 +98,7 @@
       "name": "candidate-review-open",
       "click": ".rrugc-source-ref-open",
       "waitFor": ".rrugc-source-review-modal .rrugc-source-review-votes",
+      "waitForDeferredImages": ".rrugc-source-review-modal .rrugc-deferred-img",
       "mobileAssertions": [
         {
           "type": "min-control-size",
@@ -130,10 +131,14 @@
       "waitFor": "#rrugc-panel-stage1 .rrugc-keyword-gen-trend .rrugc-stage0-sparkline",
       "waitMs": 200,
       "requireIcons": [
-        "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button.rrugc-icon-action",
-        "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button"
+        "#rrugc-panel-stage1 .rrugc-keyword-gen-actions button.rrugc-icon-action"
       ],
       "assertions": [
+        {
+          "type": "count",
+          "selector": "#rrugc-panel-stage1 .rrugc-keyword-manual-controls button",
+          "value": 0
+        },
         {
           "type": "text-includes",
           "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen-sort.active .rrugc-sort-indicator",

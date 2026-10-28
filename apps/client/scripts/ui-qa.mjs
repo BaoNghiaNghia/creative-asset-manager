@@ -17,11 +17,12 @@ import { assertUiStep } from "./ui-qa-assertions.mjs";
 import { assertQualityBudgets } from "./ui-qa-quality.mjs";
 import { installUiQaFixture, loadUiQaFixture } from "./ui-qa-fixture.mjs";
 import { assertFixturePermissions } from "./ui-qa-fixture-rbac.mjs";
-import { isExpectedQaRequestAbort } from "./ui-qa-request-classification.mjs";
+import { isExpectedQaRequestAbort, isFixtureNavigationCancellation } from "./ui-qa-request-classification.mjs";
 import {
   parseCsvList,
   selectExecutionSteps,
   selectPlanSteps,
+  initialQaRoute,
 } from "./ui-qa-targeting.mjs";
 
 const VIEWPORTS = {
@@ -411,6 +412,13 @@ async function performStep(page, step) {
   if (Number.isFinite(settleMs) && settleMs > 0) {
     await page.waitForTimeout(settleMs);
   }
+  if (step.waitForDeferredImages) {
+    await page.waitForFunction(selector => {
+      const images = [...document.querySelectorAll(selector)];
+      return images.length > 0 && images.every(image =>
+        image.classList.contains("is-loaded") || image.classList.contains("is-failed"));
+    }, step.waitForDeferredImages, { timeout: 8000 });
+  }
   await assertUiStep(page, step.assertions);
 }
 
@@ -426,6 +434,7 @@ const requestedStates = parseCsvList(
 );
 const captureSteps = selectPlanSteps(plan.steps, requestedStates);
 const executionSteps = selectExecutionSteps(plan.steps, requestedStates);
+const firstNavigation = initialQaRoute(url, executionSteps);
 const captureStateNames = new Set(
   captureSteps.map((step) => sanitize(step.name || "state")),
 );
@@ -534,6 +543,9 @@ try {
     const context = await browser.newContext({ viewport });
     await installUiQaFixture(context, fixture, url);
     const page = await context.newPage();
+    const requestStartedAt = new WeakMap();
+    let explicitNavigationAt = null;
+    page.on("request", request => requestStartedAt.set(request, Date.now()));
 
     const issues = {
       consoleErrors: [],
@@ -555,7 +567,16 @@ try {
         error: request.failure()?.errorText || "request_failed",
       };
       if (isExpectedQaRequestAbort(failure, qaMode, url)) {
-        issues.ignoredRequestFailures.push(failure);
+        issues.ignoredRequestFailures.push({ ...failure, reason: "known-read-cancellation" });
+        return;
+      }
+      if (isFixtureNavigationCancellation(failure, url, {
+        fixture: Boolean(fixture),
+        startedAt: requestStartedAt.get(request),
+        navigatedAt: explicitNavigationAt,
+        failedAt: Date.now(),
+      })) {
+        issues.ignoredRequestFailures.push({ ...failure, reason: "fixture-page-navigation" });
         return;
       }
       issues.requestFailures.push(failure);
@@ -571,12 +592,17 @@ try {
     const iconAudit = [];
     const qualityAudit = [];
     try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      await page.goto(firstNavigation.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       await page.waitForTimeout(Number(process.env.CAM_UI_QA_SETTLE_MS || 800));
 
-      for (const step of executionSteps) {
+      for (const [index, step] of executionSteps.entries()) {
         try {
-          await performStep(page, step);
+          // The first explicit full-page target was already loaded above.
+          // Do not mount a second app instance just to reach the same route.
+          const actionStep = index === 0 && firstNavigation.skipFirstGoto
+            ? { ...step, goto: undefined } : step;
+          if (actionStep.goto || actionStep.resetBefore) explicitNavigationAt = Date.now();
+          await performStep(page, actionStep);
       if (viewportName === "mobile" || viewportName === "mobileSmall") {
         await assertUiStep(page, plan.mobileAssertions || []);
         await assertUiStep(page, step.mobileAssertions || []);

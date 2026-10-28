@@ -43,6 +43,19 @@ export function selectExecutionSteps(steps, requestedNames = []) {
   return steps.slice(0, lastIndex + 1);
 }
 
+export function initialQaRoute(baseUrl, executionSteps) {
+  const first = executionSteps?.[0];
+  if (!first?.goto || first.resetBefore) {
+    return { url: new URL(baseUrl).href, skipFirstGoto: false };
+  }
+  const base = new URL(baseUrl);
+  const target = new URL(String(first.goto), base);
+  if (target.origin !== base.origin) {
+    throw new Error("UI QA navigation must remain on the fixture preview origin");
+  }
+  return { url: target.href, skipFirstGoto: true };
+}
+
 export function collectRepairTargets(analysis, maxTargets = 4) {
   const limit = Math.max(1, Number(maxTargets) || 4);
   const issues = Array.isArray(analysis?.issues) ? analysis.issues : [];

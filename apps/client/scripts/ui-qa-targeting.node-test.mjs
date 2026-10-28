@@ -2,11 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   collectRepairTargets,
+  initialQaRoute,
   parseCsvList,
   sanitizeStateName,
   selectExecutionSteps,
   selectPlanSteps,
 } from "./ui-qa-targeting.mjs";
+
+test("initial QA navigation loads the intended route directly", () => {
+  const base = "http://127.0.0.1:49000/realistic-review-ugc";
+  const first = { goto: "/realistic-review-ugc?workflow=products&stage=stage0" };
+  assert.equal(initialQaRoute(base, [first]).skipFirstGoto, true);
+  assert.equal(initialQaRoute(base, [first]).url, base + "?workflow=products&stage=stage0");
+  assert.equal(initialQaRoute(base, [{ name: "default" }]).skipFirstGoto, false);
+  assert.equal(initialQaRoute(base, [{ goto: "/home", resetBefore: true }]).skipFirstGoto, false);
+  assert.throws(() => initialQaRoute(base, [{ goto: "http://localhost:9999" }]));
+});
 
 test("parses compact CSV targets", () => {
   assert.deepEqual(parseCsvList(" mobile, desktop ,,tabletPortrait "), [

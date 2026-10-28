@@ -56,11 +56,13 @@ const imageQueue = createImageQueue();
 type DeferredImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> & {
   src: string;
   rootMargin?: string;
+  embeddedInButton?: boolean;
 };
 
 export function DeferredImage({
   src,
   rootMargin = "220px",
+  embeddedInButton = false,
   className = "",
   onLoad,
   onError,
@@ -96,6 +98,12 @@ export function DeferredImage({
   }, [src, retryIndex]);
 
   useEffect(() => {
+    // Inline fixture/artwork images have no network cost. Start them eagerly
+    // to avoid race-dependent placeholders in full-page QA screenshots.
+    if (src.startsWith("data:")) {
+      setNearViewport(true);
+      return;
+    }
     const target = imageRef.current;
     if (!target || typeof IntersectionObserver === "undefined") {
       setNearViewport(true);
@@ -158,8 +166,10 @@ export function DeferredImage({
       release();
       onError?.(event);
     }}
-  />{failed && <button type="button" className="rrugc-deferred-error is-action"
-    onClick={() => setRetryIndex(index => index + 1)} aria-label={"Retry image " + (props.alt || "")}>
-    Image unavailable · Retry
-  </button>}</>;
+  />{failed && (embeddedInButton
+    ? <span className="rrugc-deferred-error" aria-hidden="true">Image unavailable</span>
+    : <button type="button" className="rrugc-deferred-error is-action"
+      onClick={() => setRetryIndex(index => index + 1)} aria-label={"Retry image " + (props.alt || "")}>
+      Image unavailable · Retry
+    </button>)}</>;
 }

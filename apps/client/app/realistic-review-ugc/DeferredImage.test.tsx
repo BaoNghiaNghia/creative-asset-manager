@@ -71,6 +71,36 @@ describe("Shared Stage 0–5 modal image skeleton / lazy loading", () => {
     await act(async () => root.unmount());
   });
 
+  it("eagerly grants inline SVG fixtures without waiting for intersection", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor() {}
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const source = "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E";
+    await act(async () => root.render(<DeferredImage src={source} alt="Fixture" />));
+    expect(host.querySelector("img")?.getAttribute("src")).toBe(source);
+    await act(async () => root.unmount());
+  });
+
+  it("never nests a retry button inside an interactive image preview", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<button type="button" aria-label="Open output">
+      <DeferredImage src="/api/v1/preview/nested" alt="Output" embeddedInButton />
+    </button>));
+    const img = host.querySelector("img")!;
+    await act(async () => img.dispatchEvent(new Event("error")));
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(host.querySelector(".rrugc-deferred-error")?.tagName).toBe("SPAN");
+    await act(async () => root.unmount());
+  });
+
   it("limits concurrent modal image requests to eight while keeping queued skeletons", async () => {
     const host = document.createElement("div");
     document.body.append(host);

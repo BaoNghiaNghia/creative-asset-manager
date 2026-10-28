@@ -498,7 +498,7 @@ function ReferenceSlider({
             aria-label={"Open all references for " + plan.source_name + ", starting from reference " + (index + 1)}
             onClick={() => setReviewOpen(true)}
           >
-            <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
+            <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" embeddedInButton />
             <span>{index + 1}</span>
             {reference.status === "analysis_failed" && <i className="rrugc-source-ref-ai-state is-failed">!</i>}
           </button>

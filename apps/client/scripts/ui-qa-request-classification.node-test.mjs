@@ -1,6 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isExpectedQaRequestAbort } from "./ui-qa-request-classification.mjs";
+import { isExpectedQaRequestAbort, isFixtureNavigationCancellation } from "./ui-qa-request-classification.mjs";
+
+test("only old fixture GETs canceled by an explicit page navigation are benign", () => {
+  const site = "http://127.0.0.1:49000/realistic-review-ugc";
+  const oldRead = {
+    method: "GET",
+    url: "http://127.0.0.1:49000/api/v1/auth/identity",
+    error: "net::ERR_ABORTED",
+  };
+  const timing = {
+    fixture: true, startedAt: 1000, navigatedAt: 1200, failedAt: 1400,
+  };
+  assert.equal(isFixtureNavigationCancellation(oldRead, site, timing), true);
+  for (const opts of [
+    { fixture: false }, { startedAt: 1201 },
+    { failedAt: 6201 }, { failedAt: 1199 },
+    { navigatedAt: null }, { startedAt: undefined },
+  ]) {
+    assert.equal(isFixtureNavigationCancellation(oldRead, site, { ...timing, ...opts }), false);
+  }
+  for (const failure of [
+    { ...oldRead, method: "POST" },
+    { ...oldRead, error: "net::ERR_CONNECTION_REFUSED" },
+    { ...oldRead, url: "http://example.invalid/api/v1/auth/identity" },
+    { ...oldRead, url: "not a url" },
+  ]) assert.equal(isFixtureNavigationCancellation(failure, site, timing), false);
+});
 
 test("read-only completion feed cancelled by stage navigation is benign", () => {
   assert.equal(isExpectedQaRequestAbort({
@@ -43,6 +69,18 @@ test("inventory incident QA ignores only fixture identity GET cancellations", ()
     {method:"GET",url:same.replace("identity","permissions"),error:"net::ERR_ABORTED"},
     {method:"GET",url:"http://other-host.invalid/api/v1/auth/identity",error:"net::ERR_ABORTED"},
   ]) assert.equal(isExpectedQaRequestAbort(request,"inventory-incident",site),false);
+});
+
+test("baseline proposals do not hide aborted writes or foreign/unknown requests", () => {
+  const site = "http://127.0.0.1:49000/realistic-review-ugc";
+  for (const mode of ["repair", "baseline-proposal", "baseline-accept"]) {
+    for (const failure of [
+      { method: "POST", url: site + "/api/v1/data", error: "net::ERR_ABORTED" },
+      { method: "GET", url: site + "/api/v1/unexpected", error: "net::ERR_ABORTED" },
+      { method: "GET", url: "https://outside.test/api/v1/data", error: "net::ERR_ABORTED" },
+      { method: "GET", url: site + "/api/v1/realistic-review-ugc/stage4/completions", error: "net::ERR_CONNECTION_REFUSED" },
+    ]) assert.equal(isExpectedQaRequestAbort(failure, mode, site), false);
+  }
 });
 
 test("never hide other request failures or unexpected aborted mutations", () => {

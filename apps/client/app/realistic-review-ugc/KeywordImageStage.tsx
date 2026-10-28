@@ -426,7 +426,7 @@ export function KeywordImageStage({
         {bulkRunning
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
-        <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}>Picked design</button>
+        <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}><RrugcActionIcon name="check" />Picked design</button>
       </div>}
     />
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">

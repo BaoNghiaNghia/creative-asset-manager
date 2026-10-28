@@ -443,7 +443,7 @@ function Stage2ReferencePicker({
           title="Open reference preview"
           onClick={() => setReviewOpen(true)}
         >
-          <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" />
+          <DeferredImage src={reference.image_url} alt="" rootMargin="180px" referrerPolicy="no-referrer" embeddedInButton />
         </button>
         <button
           type="button"
@@ -1284,6 +1284,7 @@ export function Stage2JobTable({
                   >
                     <DeferredImage
                       src={stage2JobOutputThumbnailUrl(run.id, 192, run.output_remote_file_id)}
+                      embeddedInButton
                       alt={"Generated output " + (index + 1)}
                       rootMargin="180px"
                     />

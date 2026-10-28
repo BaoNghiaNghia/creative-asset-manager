@@ -65,7 +65,9 @@ CHANGED="$({
 export CAM_UI_CHANGED_FILES="$CHANGED"
 
 cd "$CLIENT"
-setsid npm run dev -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
+# Compare the same production bundle that will be deployed, not Vite dev HMR.
+npm run build
+setsid npm run preview -- --host "$HOST" --port "$PORT" --strictPort >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 80); do
   if curl --silent --fail --max-time 1 "$ROOT_URL" >/dev/null; then break; fi

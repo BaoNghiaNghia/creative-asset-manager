@@ -65,6 +65,22 @@ for profile in "${PROFILES[@]}"; do
   node "$CLIENT/scripts/ui-qa-profiles.mjs" --profile "$profile" --format-lines >/dev/null
 done
 
+# The QA preview serves dist/, not the working React source. Refuse a
+# previously built bundle when a newer commit changed frontend inputs.
+# This prevents false positives/negatives from testing stale HTML or JS.
+note "Verifying QA preview build provenance"
+[[ -f "$CLIENT/dist/build-info.json" ]] || die "Missing dist/build-info.json. Run npm run build first."
+BUILD_COMMIT="$(node -e 'const p=require(process.argv[1]);process.stdout.write(String(p.build_commit||""))' "$CLIENT/dist/build-info.json")"
+[[ "$BUILD_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "Invalid QA dist build commit."
+git -C "$ROOT" cat-file -e "${BUILD_COMMIT}^{commit}" || die "QA dist build commit is unknown."
+git -C "$ROOT" merge-base --is-ancestor "$BUILD_COMMIT" HEAD || die "QA dist comes from an unrelated release."
+if ! git -C "$ROOT" diff --quiet "$BUILD_COMMIT" HEAD -- \
+    apps/client/app apps/client/styles apps/client/layouts apps/client/public \
+    apps/client/index.html apps/client/package.json apps/client/package-lock.json \
+    apps/client/vite.config.ts packages/types packages/ui packages/utils; then
+  die "QA dist predates frontend source changes. Run npm run build before Browser QA."
+fi
+
 if [[ -n "${CAM_UI_STAGING_PORT:-}" ]]; then
   PORT="$CAM_UI_STAGING_PORT"
 else
