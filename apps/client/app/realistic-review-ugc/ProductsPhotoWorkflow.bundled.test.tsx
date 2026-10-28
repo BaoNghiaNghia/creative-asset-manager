@@ -55,9 +55,10 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
         configuredSkillNames={{ [spec.key]: spec.name }}
       />));
       const row = host.querySelector<HTMLElement>(`[data-skill="${spec.key}"]`)!;
-      const runButton = row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)!;
-      expect(runButton.disabled).toBe(true);
-      expect(runButton.getAttribute("title")).toContain("assigned Skill is unavailable");
+      const blockedState = row.querySelector<HTMLElement>(".rrugc-products-photo-run-state")!;
+      expect(blockedState.className).toContain("is-blocked");
+      expect(blockedState.getAttribute("title")).toContain("assigned Skill is unavailable");
+      expect(row.querySelector(`button[aria-label="Run ${spec.title}"]`)).toBeNull();
       expect(row.querySelector(".rrugc-products-photo-stage-detail")).toBeNull();
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       const panel = row.querySelector<HTMLElement>(".rrugc-products-photo-stage-detail")!;
@@ -89,10 +90,10 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       await act(async () => row.querySelector<HTMLButtonElement>(`button[aria-label="${spec.title} details"]`)!.click());
       const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
       expect(panel.textContent).not.toContain("is installed but the worker is unavailable");
-      expect(row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)?.getAttribute("title")).toContain("worker is unavailable");
+      expect(row.querySelector<HTMLElement>(".rrugc-products-photo-run-state")?.getAttribute("title")).toContain("worker is unavailable");
       expect(panel.querySelector("details")).toBeNull();
       expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")).toBeNull();
-      expect(row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)?.disabled).toBe(true);
+      expect(row.querySelector<HTMLButtonElement>(`button[aria-label="Run ${spec.title}"]`)).toBeNull();
       await act(async () => root.unmount());
     });
   }
@@ -175,13 +176,14 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
       configuredSkillNames={{ prod_s2_ugc: "ugc-gatorhats" }}
     />));
     const row = host.querySelector<HTMLElement>('[data-skill="prod_s2_ugc"]')!;
-    const run = row.querySelector<HTMLButtonElement>('[aria-label="Run UGC"]')!;
-    expect(run.disabled).toBe(true);
-    expect(run.getAttribute("title")).toContain("worker is unavailable");
+    const blockedState = row.querySelector<HTMLElement>(".rrugc-products-photo-run-state")!;
+    expect(blockedState.className).toContain("is-blocked");
+    expect(row.querySelector('button[aria-label="Run UGC"]')).toBeNull();
+    expect(blockedState.getAttribute("title")).toContain("worker is unavailable");
     await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="UGC details"]')!.click());
     const panel = row.querySelector<HTMLElement>(".is-bundled-skill-detail")!;
     expect(panel.textContent).not.toContain("Skill ugc-gatorhats is installed but the worker is unavailable");
-    expect(run.getAttribute("title")).toContain("worker is unavailable");
+    expect(blockedState.getAttribute("title")).toContain("worker is unavailable");
     expect(panel.textContent).not.toContain("exact approved Skill ZIP");
     expect(panel.querySelector(".rrugc-products-photo-bundle-missing")).toBeNull();
     expect(panel.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-actions button")).toBeNull();
