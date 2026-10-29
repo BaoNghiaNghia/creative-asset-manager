@@ -857,6 +857,32 @@ cleanup_old_releases() {
   # pre-deploy cleanup pass.
   protect_release "${TARGET:-}"
 
+  # The dedicated PostgreSQL backup can temporarily use an older, already
+  # built release while the live API database remains at Alembic 0187.
+  # Protect that pinned backup runtime even after the current/previous
+  # pointers change during a later backend deployment.
+  local backup_override="/etc/systemd/system/creative-asset-manager-db-backup.service.d/90-cam-isolated-backup-runtime.conf"
+  if [[ -e "$backup_override" || -L "$backup_override" ]]; then
+    if [[ -L "$backup_override" || ! -f "$backup_override" ]] ||
+       ! grep -Fxq "# CAM isolated backup runtime v1" "$backup_override"; then
+      warn "Untrusted backup runtime override; refusing backend release pruning"
+      return 0
+    fi
+    local backup_release_found=false
+    for release in "$RELEASES"/*; do
+      [[ -d "$release" && ! -L "$release" ]] || continue
+      if grep -Fxq "ExecStart=$release/apps/api/.venv/bin/python -m app.operations.database_backup_cli backup" "$backup_override"; then
+        protect_release "$release"
+        backup_release_found=true
+        break
+      fi
+    done
+    if ! $backup_release_found; then
+      warn "Backup runtime release unresolved; refusing backend release pruning"
+      return 0
+    fi
+  fi
+
 
   #
   # Protect releases that running services are still using.
