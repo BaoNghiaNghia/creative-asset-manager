@@ -1996,7 +1996,20 @@ if ! $NO_MIGRATE; then
 else
 
   info \
-    "Database migrations skipped (--no-migrate)"
+    "Checking schema compatibility before activating --no-migrate release"
+
+  "$TARGET/deploy/tools/production_env.py" \
+    run-quiet \
+    --env-file "$ENV_FILE" \
+    --expected-owner-uid 0 \
+    -- \
+    "$PYTHON" \
+    "$TARGET/deploy/tools/check_alembic_head.py" \
+    "$TARGET/apps/api/alembic.ini" \
+    || die "Refusing --no-migrate deployment: PostgreSQL schema is not at the target code head. Current production release remains active."
+
+  info \
+    "Database migrations skipped (--no-migrate); schema compatibility verified"
 
 fi
 

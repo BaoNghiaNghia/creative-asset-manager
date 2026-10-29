@@ -119,6 +119,18 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         # Deploy installs templates but must not forcibly run pg_dump.
         self.assertNotIn("systemctl start creative-asset-manager-db-backup.service", source)
 
+    def test_no_migrate_preflight_rejects_schema_mismatch_before_activation(self) -> None:
+        source = BACKEND.read_text()
+        preflight = source.index('Checking schema compatibility before activating --no-migrate release')
+        activation = source.index('"Activating backend release"')
+        self.assertLess(preflight, activation)
+        self.assertIn('check_alembic_head.py', source)
+        self.assertIn('Refusing --no-migrate deployment:', source)
+        checker = (ROOT / "deploy" / "tools" / "check_alembic_head.py").read_text()
+        self.assertIn("ALEMBIC_PREFLIGHT=SCHEMA_MISMATCH", checker)
+        self.assertIn("get_current_heads()", checker)
+        self.assertIn('ScriptDirectory.from_config(config).get_heads()', checker)
+
     def test_backend_keeps_independent_previous_rollback_by_default(self) -> None:
         source = BACKEND.read_text()
         # Operational regression: single-release retention removed the
