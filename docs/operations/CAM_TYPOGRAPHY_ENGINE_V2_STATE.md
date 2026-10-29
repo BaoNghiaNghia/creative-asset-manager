@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G0_1_BACKUP_DEDICATED_IDENTITY_CODE_TESTED_NOT_DEPLOYED
+status: G0_1_BACKUP_IDENTITY_CODE_MERGED_MAIN_NOT_PRODUCTION
 active_gate: G0.1
-next_action: MERGE_BACKUP_FIX_AFTER_CI_THEN_DEDICATED_ROLE_AND_OFF_HOST_FULL_RESTORE
+next_action: OPERATOR_PROVISION_SCOPED_BACKUP_ROLE_THEN_FULL_OFF_HOST_RESTORE_AND_0188_0189_COMPAT_QA
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 3ef0b81ebc5fb980b066c0d18b2e749284f15832
-feature_branch: fix/typography-g0-backup-identity-20261029
-pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_MERGED
-ci: G3_HUMAN_REVIEW_PR_56_CI_2482_PASS_16_OF_16_PR_57_MERGED_CI_NOT_RECHECKED
+vps_main_commit: bd27289b579ced7f003292fedfe09366b9c1b490
+feature_branch: main
+pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_MERGED
+ci: BACKUP_G0_1_PR_60_RUN_40834817984_ALL_17_CHECKS_PASS
 vps_release_commit: null
 frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
 windows_active_version: VERIFIED_0.1.46
@@ -269,6 +269,14 @@ Công việc mở đầu:
 - **Local verification:** dedicated backup module + CLI tests and VPS deploy tests **64/64 PASS** using workspace-local Python, `python3 -m py_compile` PASS, `git diff --check` PASS. Systemd unit syntax accepted; analyzer warned about an unrelated existing CodeLocal service setting. No real `pg_dump`, Google Drive write, production credential read or migration occurred.
 - **Safety still blocked:** source code/tests do not create a read-only backup role or demonstrate restored full dataset. Operator must provision dedicated non-superuser backup identity with `SELECT` covering both protected incident tables, deliver password exclusively in root-owned backup-only config, then verify full dump/remote checksum/off-host restore and backwards-compatible `0188/0189` migration rehearsal. Root disk ~89%, swap near 2 GiB; no backend deploy, V2/pilot/Scout remain OFF.
 - **Next:** reviewed PR and required CI to `main`; only after G0.1 gates pass, deploy backend from `main` and run health/rollback checks. Frontend production remains `2e5286434`.
+
+### 2026-10-29 — PR #60 fully verified and merged into main
+
+- **GitHub:** clean PR #60 merged at `bd27289b579ced7f003292fedfe09366b9c1b490` after **17/17 checks successful**, including GitGuardian Security Checks, API/worker sharded & full, PostgreSQL 12/16, pipeline, frontend, Windows and Browser QA. Prior PR #58 and PR #59 were closed due security warnings about *synthetic static* test passwords; replacement generates credentials dynamically and has GitGuardian SUCCESS.
+- **Local VPS source:** canonical `main` worktree fast-forwarded to `bd27289b5`. The unrelated untracked `docs/plans/CAM_THREADTRANSFER_V1_IMPLEMENTATION.md` was preserved. Temporary clean PR #60 and older PR #59 worktrees removed after verification.
+- **Production rollout:** code is merged into `main` only. Backend remains at `d4573f7e`; running PostgreSQL remains at known revision `0187`; `0188/0189` have NOT been applied. `TYPOGRAPHY_V2_ENABLED`, pilot/Scout remain OFF. The earlier frontend production release `2e5286434` is unchanged. This is **not** a completed backend release or backup recovery.
+- **Remaining hard gates:** production dedicated backup PostgreSQL login and root-only secret **not provisioned/activated**; last observed scheduled dump failed, two incident tables require read coverage by backup-only role; full off-host database restore, data/compatibility/rollback drills and server disk/swap headroom remain unverified. Do not invoke an unsafe full dump or backend migration/deploy. Next step: scoped operator provisioning, read-only privileges audit, checked `pg_dump -Fc` with remote checksum verification, independently restored full dataset outside production, then 0188/0189 compatibility rehearsal.
+- **Actual tests:** targeted 64/64 local PASS; GitHub 17/17 PASS. No live backup restoration or paid G3 pilot occurred.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
