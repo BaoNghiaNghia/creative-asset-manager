@@ -183,3 +183,64 @@ def test_verify_readonly_connection_rejects_unexpected_login():
         operator.verify_readonly_connection(
             target(), operator.secrets.token_urlsafe(32), runner=runner
         )
+
+
+def test_audit_is_materialized_before_acl_evaluation():
+    import inspect
+
+    source = inspect.getsource(operator.privilege_coverage)
+    assert "table_objects AS MATERIALIZED" in source
+    assert "sequence_objects AS MATERIALIZED" in source
+    assert "FROM sequence_objects" in source
+    assert "FROM table_objects" in source
+
+
+def test_verify_existing_uses_protected_credential_without_mutations(tmp_path):
+    path = tmp_path / "database-backup.env"
+    secret = operator.secrets.token_urlsafe(24)
+    backup_url = target().set(username="cam_backup", password=secret)
+    path.write_text(
+        "DATABASE_BACKUP_DATABASE_URL=" +
+        backup_url.render_as_string(hide_password=False) + "\n"
+    )
+    path.chmod(0o600)
+    calls = []
+
+    def fake_sql(query):
+        calls.append(query)
+        if "FROM pg_roles" in query:
+            return "1"
+        if "MATERIALIZED" in query:
+            return "197|0|1|0|0|0"
+        raise AssertionError("unexpected SQL")
+
+    with patch.object(operator, "credentials_file_state", return_value="ROOT_0600"), patch.object(
+        operator, "endpoint_resolves", return_value=True,
+    ), patch.object(operator, "verify_readonly_connection") as check_login:
+        result = operator.verify_existing(
+            target(), sql_runner=fake_sql, backup_path=path
+        )
+    assert result["BACKUP_ENV"] == "ROOT_0600"
+    assert result["TABLES_WITHOUT_SELECT"] == 0
+    assert result["SEQUENCES_WITH_WRITE"] == 0
+    check_login.assert_called_once()
+    assert check_login.call_args.args[1] == secret
+    assert all("CREATE ROLE" not in query for query in calls)
+
+
+def test_verify_existing_fails_closed_on_unexpected_target(tmp_path):
+    path = tmp_path / "database-backup.env"
+    backup_url = target().set(
+        username="cam_backup", host="wrong-host",
+        password=operator.secrets.token_urlsafe(24),
+    )
+    path.write_text(
+        "DATABASE_BACKUP_DATABASE_URL=" +
+        backup_url.render_as_string(hide_password=False) + "\n"
+    )
+    path.chmod(0o600)
+    with patch.object(operator, "credentials_file_state", return_value="ROOT_0600"):
+        with pytest.raises(operator.BackupIdentityGateError):
+            operator.verify_existing(
+                target(), sql_runner=lambda query: "1", backup_path=path
+            )

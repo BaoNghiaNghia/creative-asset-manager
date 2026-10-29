@@ -92,28 +92,33 @@ def role_exists(*, sql_runner=postgres_sql) -> bool:
 
 def privilege_coverage(*, sql_runner=postgres_sql) -> tuple[int, int, int, int, int, int]:
     """Read-only catalog audit; separate reader must access ALL user data."""
+    # MATERIALIZED is essential: PostgreSQL can otherwise evaluate
+    # has_sequence_privilege() on pg_toast/table OIDs before relkind filters.
     query = """
+WITH
+  table_objects AS MATERIALIZED (
+    SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relkind IN ('r','p','m')
+  ),
+  sequence_objects AS MATERIALIZED (
+    SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relkind='S'
+  )
 SELECT
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind IN ('r','p','m')),
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind IN ('r','p','m')
- AND NOT has_table_privilege('cam_backup',c.oid,'SELECT')),
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind='S'),
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind='S'
- AND NOT has_sequence_privilege('cam_backup',c.oid,'SELECT')),
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind IN ('r','p','m')
- AND (has_table_privilege('cam_backup',c.oid,'INSERT')
-   OR has_table_privilege('cam_backup',c.oid,'UPDATE')
-   OR has_table_privilege('cam_backup',c.oid,'DELETE')
-   OR has_table_privilege('cam_backup',c.oid,'TRUNCATE'))),
-(SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
- WHERE n.nspname='public' AND c.relkind='S'
- AND (has_sequence_privilege('cam_backup',c.oid,'USAGE')
-   OR has_sequence_privilege('cam_backup',c.oid,'UPDATE')));
+  (SELECT COUNT(*) FROM table_objects),
+  (SELECT COUNT(*) FROM table_objects
+   WHERE NOT has_table_privilege('cam_backup',oid,'SELECT')),
+  (SELECT COUNT(*) FROM sequence_objects),
+  (SELECT COUNT(*) FROM sequence_objects
+   WHERE NOT has_sequence_privilege('cam_backup',oid,'SELECT')),
+  (SELECT COUNT(*) FROM table_objects
+   WHERE has_table_privilege('cam_backup',oid,'INSERT')
+      OR has_table_privilege('cam_backup',oid,'UPDATE')
+      OR has_table_privilege('cam_backup',oid,'DELETE')
+      OR has_table_privilege('cam_backup',oid,'TRUNCATE')),
+  (SELECT COUNT(*) FROM sequence_objects
+   WHERE has_sequence_privilege('cam_backup',oid,'USAGE')
+      OR has_sequence_privilege('cam_backup',oid,'UPDATE'));
 """
     raw = sql_runner(query).split("|")
     if len(raw) != 6:
@@ -223,6 +228,39 @@ def run_status(url: Any, *, sql_runner=postgres_sql, backup_path: Path = BACKUP_
     return result
 
 
+def verify_existing(
+    url: Any, *, sql_runner=postgres_sql, backup_path: Path = BACKUP_ENV,
+) -> dict[str, str | int]:
+    """Read-only verification of an already-provisioned backup credential."""
+    if not role_exists(sql_runner=sql_runner):
+        raise BackupIdentityGateError("Dedicated backup role does not exist.")
+    if credentials_file_state(backup_path) != "ROOT_0600":
+        raise BackupIdentityGateError("Backup-only credential file missing or insecure.")
+    try:
+        configured = make_url(
+            str(dotenv_values(backup_path, interpolate=False).get("DATABASE_BACKUP_DATABASE_URL") or "")
+        )
+        if (
+            configured.get_backend_name() != "postgresql"
+            or configured.database != DATABASE
+            or configured.host != url.host
+            or (configured.port or 5432) != (url.port or 5432)
+            or configured.username != BACKUP_ROLE
+            or not configured.password
+            or configured.query
+        ):
+            raise ValueError("invalid backup connection")
+    except Exception as exc:
+        raise BackupIdentityGateError(
+            "Backup-only credential file has an unexpected connection target."
+        ) from exc
+    counts = privilege_coverage(sql_runner=sql_runner)
+    if counts[0] <= 0 or counts[1] or counts[3] or counts[4] or counts[5]:
+        raise BackupIdentityGateError("Backup role is not strictly read-only on every user object.")
+    verify_readonly_connection(url, configured.password)
+    return run_status(url, sql_runner=sql_runner, backup_path=backup_path)
+
+
 def provision(url: Any, *, sql_runner=postgres_sql, backup_path: Path = BACKUP_ENV) -> dict[str, str | int]:
     if os.geteuid() != 0:
         raise BackupIdentityGateError("Only a local root operator can provision backup credentials.")
@@ -261,18 +299,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="CAM PostgreSQL backup identity operator")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--status", action="store_true", help="Read-only status")
+    group.add_argument("--verify", action="store_true", help="Verify saved role and login read-only")
     group.add_argument("--apply", action="store_true", help="Provision production backup reader")
     args = parser.parse_args()
     try:
         url = load_target()
-        info = provision(url) if args.apply else run_status(url)
+        info = provision(url) if args.apply else verify_existing(url) if args.verify else run_status(url)
     except BackupIdentityGateError as exc:
         print("BACKUP_IDENTITY=BLOCKED")
         print("ERROR=" + str(exc))
         return 2
     for key, value in info.items():
         print(f"{key}={value}")
-    print("BACKUP_IDENTITY=" + ("PROVISIONED" if args.apply else "INSPECTED"))
+    print("BACKUP_IDENTITY=" + ("PROVISIONED" if args.apply else "VERIFIED" if args.verify else "INSPECTED"))
     return 0
 
 
