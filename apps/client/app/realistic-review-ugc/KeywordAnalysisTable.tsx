@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { attachKeywordSourceImage } from "./api";
 import { KeywordSearchInput } from "./KeywordSearchInput";
+import { formatRelativeDateTime } from "./RelativeDateTime";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
 import { DeferredImage } from "./DeferredImage";
@@ -89,11 +90,7 @@ function formatDetailDate(value: string | null | undefined): string {
 }
 
 function formatTableDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return formatRelativeDateTime(value);
 }
 
 function providerLabel(value: string): string {
@@ -996,7 +993,7 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-cpc"><strong>{formatCpc(item.cpc_high)}</strong><small>high bid</small></td>
               <td className="rrugc-stage0-platform-cell"><Stage0SourcePlatforms item={item} /></td>
               <td className="rrugc-stage0-agent-cell"><Stage0AgentBadge agents={item.source_agents} /></td>
-              <td className="rrugc-stage0-created-date"><strong>{formatTableDate(item.created_at)}</strong></td>
+              <td className="rrugc-stage0-created-date"><strong title={item.created_at ? new Date(item.created_at).toLocaleString() : "—"}>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
                   <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Add favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="heart" filled={item.favorite} /></button>

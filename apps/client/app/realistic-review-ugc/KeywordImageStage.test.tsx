@@ -14,12 +14,12 @@ const keyword = {
 } satisfies Stage2Skill;
 
 describe("Stage 0 picked date formatting", () => {
-  it("uses the saved timestamp as an absolute date, never job completion time", () => {
-    const value = "2026-10-08T08:15:00Z";
-    expect(formatStage0PickedAt(value)).toBe(new Date(value).toLocaleString("vi-VN", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    }));
+  it("uses the same 24h relative display as Finished at", () => {
+    const now = Date.parse("2026-10-12T16:00:00Z");
+    const recent = new Date(now - 2 * 3600_000).toISOString();
+    const old = new Date(now - 25 * 3600_000).toISOString();
+    expect(formatStage0PickedAt(recent, now)).toBe("2h trước");
+    expect(formatStage0PickedAt(old, now)).toBe(formatKeywordJobFinishedAt(old, now));
     expect(formatStage0PickedAt(null)).toBe("—");
     expect(formatStage0PickedAt("invalid")).toBe("—");
   });

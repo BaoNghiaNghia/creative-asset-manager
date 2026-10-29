@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
+import { formatRelativeDateTime } from "./RelativeDateTime";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
 import { Stage1Subnav } from "./typography/Stage1Subnav";
 import type { TypographyReferencePage } from "./typography/types";
@@ -58,29 +59,12 @@ function formatKeywordJobFinishedAtAbsolute(value: string | null | undefined): s
   });
 }
 
-export function formatStage0PickedAt(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("vi-VN", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
+export function formatStage0PickedAt(value: string | null | undefined, now = Date.now()): string {
+  return formatRelativeDateTime(value, now);
 }
 
 export function formatKeywordJobFinishedAt(value: string | null | undefined, now = Date.now()): string {
-  if (!value) return "—";
-  const finishedAt = Date.parse(value);
-  if (!Number.isFinite(finishedAt)) return "—";
-  const elapsed = now - finishedAt;
-  // Future timestamps or jobs finished >=24h ago retain the complete date.
-  if (elapsed < 0 || elapsed >= 24 * 60 * 60 * 1000) {
-    return formatKeywordJobFinishedAtAbsolute(value);
-  }
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes === 0) return "Vừa xong";
-  if (minutes < 60) return `${minutes} phút trước`;
-  return `${Math.floor(minutes / 60)}h trước`;
+  return formatRelativeDateTime(value, now);
 }
 const STATUS_LABEL: Record<KeywordImageStatus, string> = {
   not_run: "Not run", queued: "Queued", running: "Running", completed: "Completed", failed: "Failed",
