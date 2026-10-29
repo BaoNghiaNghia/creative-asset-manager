@@ -2,7 +2,7 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_DNA_CONTRACT_MERGED_CACHE_DEVELOPMENT_G0_1_ROLLBACK_BLOCKED
+status: G3_CACHE_MERGED_QUEUE_POLICY_DEVELOPMENT_G0_1_ROLLBACK_BLOCKED
 active_gate: G3
 next_action: G3_ANALYZER_QUEUE_CACHE_AND_QA_PLUS_G2_AUTHENTICATED_VISUAL_QA_G0_1_ROLLBACK
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 302cfce2949fd9c469ab43b44ad6c00b4a19951d
-feature_branch: feat/typography-v2-g3-cache-20261029
-pr: G2_PR_42_MERGED_G3_CONTRACT_PR_43_MERGED_CACHE_PR_PENDING
-ci: G3_CONTRACT_PR_43_CI_2453_16_OF_16_JOBS_GREEN_CACHE_PENDING
+vps_main_commit: 7a11f41ffa03c00f27bf9bbba994a56cf7b39d2c
+feature_branch: feat/typography-v2-g3-queue-policy-20261029
+pr: G2_PR_42_MERGED_G3_CONTRACT_PR_43_MERGED_CACHE_PR_44_MERGED_QUEUE_POLICY_PENDING
+ci: G3_CACHE_PR_44_CI_2455_16_OF_16_JOBS_GREEN_QUEUE_POLICY_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
