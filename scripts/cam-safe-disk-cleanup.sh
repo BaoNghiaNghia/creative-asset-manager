@@ -85,8 +85,32 @@ else
   echo "No PREVIOUS symlink: choosing newest older valid release as offline fallback."
 fi
 if ! release_ok "$rollback" || [[ "$active" == "$rollback" ]]; then safe=0; fi
+# A temporary dedicated backup service can pin an immutable backend release
+# not referenced by CURRENT/PREVIOUS. Never remove a pinned backup runtime.
+BACKUP_OVERRIDE=/etc/systemd/system/creative-asset-manager-db-backup.service.d/90-cam-isolated-backup-runtime.conf
+pinned_backup=""
+if [[ -e "$BACKUP_OVERRIDE" || -L "$BACKUP_OVERRIDE" ]]; then
+  if [[ -L "$BACKUP_OVERRIDE" || ! -f "$BACKUP_OVERRIDE" ]] ||
+     ! grep -Fxq "# CAM isolated backup runtime v1" "$BACKUP_OVERRIDE"; then
+    safe=0
+    echo "SKIP: untrusted isolated backup runtime override"
+  else
+    for candidate in "$RELEASE_ROOT"/*; do
+      release_ok "$candidate" || continue
+      if grep -Fxq "ExecStart=$candidate/apps/api/.venv/bin/python -m app.operations.database_backup_cli backup" "$BACKUP_OVERRIDE"; then
+        pinned_backup="$candidate"
+        break
+      fi
+    done
+    if [[ -z "$pinned_backup" ]]; then
+      safe=0
+      echo "SKIP: isolated backup runtime cannot be validated"
+    fi
+  fi
+fi
 echo "CURRENT : ${active:-unresolved}"
 echo "FALLBACK: ${rollback:-unresolved} (previous symlink exists: $had_previous)"
+[[ -z "$pinned_backup" ]] || echo "BACKUP RUNTIME: $pinned_backup (protected)"
 echo "== Verified obsolete immutable releases =="
 potential=0
 count=0
@@ -97,7 +121,7 @@ if ((safe)); then
     if ! release_ok "$target"; then echo "SKIP unknown path: $target"; continue; fi
     size="$(bytes "$target")"
     [[ "$size" =~ ^[0-9]+$ ]] || { echo "SKIP unmeasurable: $target"; continue; }
-    if [[ "$target" == "$active" || "$target" == "$rollback" ]]; then
+    if [[ "$target" == "$active" || "$target" == "$rollback" || "$target" == "$pinned_backup" ]]; then
       echo "PROTECT $(human "$size") $target"; continue
     fi
     ts="$(stat -c %Y -- "$target" 2>/dev/null || true)"
@@ -120,7 +144,7 @@ if ((safe)); then
         b="previous_pointer_changed"
       fi
       if [[ "$a" != "$active" || "$b" != "$rollback" ||
-            "$target" == "$a" || "$target" == "$b" ]] ||
+            "$target" == "$a" || "$target" == "$b" || "$target" == "$pinned_backup" ]] ||
          ! release_ok "$target" ||
          pgrep -af -- "$target" >/dev/null 2>&1; then
         echo "SKIP changed release state: $target"
