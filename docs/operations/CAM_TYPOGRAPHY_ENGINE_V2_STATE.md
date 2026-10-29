@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G6_NATIVE_PILOT_CODE_MERGED_G0_1_FULL_RESTORE_BLOCKED
+status: G6_3_PRIVATE_BATCH_CHECKPOINT_MERGED_G0_1_FULL_RESTORE_BLOCKED
 active_gate: G0.1
-next_action: G0_1_OFF_HOST_FULL_BACKUP_RESTORE_THEN_G6_2_HUMAN_REVIEW_G6_3_PARTIAL_STAGE1_STAGE2
+next_action: G0_1_VERIFIED_FULL_BACKUP_OFFHOST_RESTORE_THEN_0188_0189_MIGRATION_AND_G6_3_DURABLE_HANDOFF
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -12,31 +12,32 @@ canonical_ui_prototype: docs/operations/prototypes/CAM_TYPOGRAPHY_ENGINE_V2_UI_P
 ui_design_status: G2_LIBRARY_MERGED_G4_STYLE_LAB_PREVIEW_MVP_MERGED_AUTHENTICATED_QA_PENDING
 ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
-feature_flag: OFF
-scout_flag: OFF
-vps_main_commit: 626db7e6e79b99bef318c7e8a0405288f49c55f1
+feature_flag: 'OFF'
+scout_flag: 'OFF'
+vps_main_commit: 5ae122ec04f01dc4af04790bfda7d21140fc7bae
 feature_branch: main
-pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_G4_PR_63_G5_G6_PLAN_PR_64_G6_NATIVE_PR_65_MERGED
-ci: G6_NATIVE_PR_65_17_OF_17_CI_PASS_LOCAL_110_AND_91_PYTEST_PASS
-vps_release_commit: null
-frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
+pr: G2_42_G3_43_44_45_46_50_51_52_53_56_57_G0_54_55_60_61_62_G4_63_G5_G6_64_G6_NATIVE_65_G6_REVIEW_66_BUILD_67_BACKUP_68_DEPLOY_GUARD_69_G6_BATCH_70_MERGED
+ci: PR_69_AND_70_16_OF_16_CI_PASS_G6_3_LOCAL_91_OF_91_PASS
+vps_release_commit: d4573f7ee825c659ad44401fc9c60fec297aaefd
+frontend_release_commit: 9ca986520746d9285d0ce3c0cf15de0aa19da6a6
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-29
 blockers:
-  - G0_1_BACKUP_LAST_RUN_FAILED_CAM_APP_LACKS_SELECT_ON_TWO_INCIDENT_TABLES
-  - G0_1_BACKUP_SERVICE_ON_OLD_BACKEND_AND_NEW_READONLY_ROLE_NOT_USED_BY_SCHEDULER_YET
-  - G0_1_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
-  - G0_1_DISK_89_PERCENT_SWAP_NEAR_FULL_NEEDS_CAPACITY_PLAN
-  - G2_AUTHENTICATED_BROWSER_QA_STOPPED_DUE_VPS_RESOURCE_PRESSURE
+  - G0_1_LAST_BACKUP_FAILED_20261027_ROLE_CAM_BACKUP_VERIFIED_BUT_OLD_BACKEND_RUNTIME_STILL_ACTIVE
+  - G0_1_FULL_REMOTE_DATA_BACKUP_AND_INDEPENDENT_OFFHOST_RESTORE_NOT_VERIFIED
+  - G0_1_MIGRATION_0188_0189_AND_BACKWARDS_COMPATIBLE_ROLLBACK_NOT_VERIFIED
+  - G6_3_DURABLE_STAGE1_OUTPUT_HISTORY_STAGE2_HANDOFF_AND_RBAC_QA_PENDING
+  - G2_AUTHENTICATED_RESPONSIVE_BROWSER_QA_PENDING
+  - VPS_ROOT_DISK_89_PERCENT_CAPACITY_PLAN_REQUIRED
 rollback:
-  backend: CURRENT_D4573F7E_PREVIOUS_INDEPENDENT_D4573F7E_SNAPSHOT_RUNTIME_CHECKED_DB_RESTORE_UNVERIFIED
-  frontend: MAIN_2E5286434_DEPLOYED_PREVIOUS_RELEASE_PRESERVED
+  backend: CURRENT_D4573F7E_PREVIOUS_61E7DA54C_REQUIRES_DB_0189_AND_NOT_VALID_ROLLBACK_FOR_DB_0187_FULL_RESTORE_UNVERIFIED
+  frontend: MAIN_9CA986520_DEPLOYED_PREVIOUS_RELEASE_PRESERVED
   windows: AVAILABLE_0_1_45_KEEP
 ---
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Checkpoint 29/10/2026:** PR #65 **G6.1 Native ImageGen Single-Slot Pilot** đã merge vào `main` (`626db7e6e`, **17/17 CI PASS**). Bộ code gọi Codex/ImageGen thật theo một slot, kiểm tra hash native, G5 PNG QA, padding alpha không resize, lưu riêng pending human review và có global lock chống phát sinh nhiều lượt tốn phí. **Chưa kích hoạt ImageGen thực tế hoặc publish Stage 1.** G4/G5/G6 plan PR #63/#64 trước đó đã merge. Backup role `cam_backup` được kiểm chứng nhưng backup DB systemd lần cuối 27/10 exit status 2, chưa có full backup off-host + thử restore ~4 GB; backend production `d4573f7e`, DB `0187`, frontend `2e5286434`; migrations `0188/0189` chưa chạy. V2/Scout/worker OFF. VPS disk ~89%, swap gần đầy. Tiếp theo G0.1 off-host restore song song với G6.2 human review và G6.3 partial Stage 1/Stage 2.
+> **Checkpoint 29/10/2026 (mới nhất):** PR #69 sửa preflight deploy và PR #70 bổ sung **G6.3 private reviewed partial-batch checkpoint** đã merge vào `main` (`5ae122ec0`), mỗi PR **16/16 CI PASS**. G6.1 ImageGen pilot, G6.2 human review và G6.3 kiểm kê chính xác 1–5 ảnh được duyệt đều có source, nhưng **chưa có authenticated durable Stage 1 Output History / Stage 2 handoff, chưa chạy ImageGen thật và chưa bật V2/Scout**. Frontend production `9ca986520`, backend production sau rollback `d4573f7e`; thử deploy backend mới `61e7da54c --no-migrate` thất bại do schema còn `0187` trong khi code yêu cầu `0189`, đã rollback và health PASS. Backup role `cam_backup` được xác minh lại 197/197 bảng, 1/1 sequence, zero write; backup service lần cuối 27/10 exit 2 và chưa có full remote backup + off-host restore. VPS disk ~89% (5,6 GB trống). Tiếp theo G0.1 backup/restore, migration và durable G6.3 handoff.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
@@ -53,13 +54,13 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore/capacity BLOCKED | main 626db7e6e; backup role credential+SQL ACL verified 197/197 tables, 1/1 sequence, no write; backend d4573f7e; DB 0187; last scheduled backup failed; remote full restore pending; disk 89%, swap 2/2 GiB |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore BLOCKED | main 5ae122ec0; cam_backup login verified 197/197 tables, 1/1 sequence, zero write; backend d4573f7e after successful rollback; DB 0187; backup service last failed 27 Oct; complete remote restore and 0188/0189 rollback not verified; disk 89%, 5.6 GiB available |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
 | G4 | Reference matcher & Style Lab Dynamic Composer | MVP PREVIEW MERGED, FINAL QA PENDING | PR #63 17/17 CI pass; guarded 3 SVG previews and Stage1 Apply style available in source; matcher scoring, UX-05..07 and production enablement remain |
 | G5 | Exact-text/diversity/originality/embroidery QA | TECHNICAL QA CODE MERGED, PILOT EVIDENCE PENDING | PR #64 vector Unicode, SVG safety/font, PNG alpha/canvas/dedup, manual spelling/originality gate; no real imagegen QA yet |
-| G6 | Stage 1 concept-short-v2 integration | G6.1 NATIVE SINGLE-SLOT PILOT CODE MERGED, RUNTIME OFF | PR #65 one actual Codex/ImageGen single-slot provider path, SHA/native QA, reviewed private staging and global lock; G6.2 human review, G6.3 Stage1 history/Stage2 partial remain |
+| G6 | Stage 1 concept-short-v2 integration | G6.1/G6.2/G6.3 PRIVATE BATCH CODE MERGED, RUNTIME OFF | PR #65 native one-slot ImageGen pilot, PR #66 immutable human review, PR #70 private read-only partial 1–5 reviewed output checkpoint; no durable Stage 1 history, public assets, Stage 2 handoff or actual provider smoke test |
 | G7 | Windows Typography Scout extension | PENDING | manager build, lease/offline/Chrome QA, UX-11..UX-12 |
 | G8 | Load/security/Browser QA & observability | PENDING | CI, PostgreSQL, metrics, screenshots UX-01..UX-16 |
 | G9 | Pilot A/B và đánh giá nghiệm thu | PENDING | 8 references/20 keywords, cost, QA |
@@ -309,6 +310,16 @@ Công việc mở đầu:
 - **Operator-only pilot:** `typography_imagegen_once.py` dry-run never opens DB/model; `--execute` requires separate default-OFF `TYPOGRAPHY_V2_IMAGEGEN_PILOT_ENABLED`, V2 enable + explicit canary, rollback_verified, and both global/Codex ImageGen provider flags. Resolves currently picked tenant keyword + verified rights reference + human-accepted current DNA, generates at most one slot per manual run, **revalidates all source approvals after generation**, and stores an immutable PNG + audit to private review staging. One global pilot lock across tenants/batches, no overwrite or duplicated slot. Audit is `review=pending`, `image_spelling_verified=false`, no Stage1/Stage2 DB write or publication. See `docs/operations/CAM_TYPOGRAPHY_V2_G6_NATIVE_PILOT.md`.
 - **Observed G0.1 blocker:** DB backup systemd service Result=exit-code / ExecMainStatus=2, last failure 2026-10-27 22:00 +07; timer still scheduled for 2026-10-30 22:00 +07. Full production backup/off-host restore ~4GB and rollback/migrations 0188/0189 not verified. Root ~89% used, swap ~2GB of 2GB. API and nginx active; backend runtime not deployed; new flag OFF. Do not enable until G0.1 is independently verified.
 - **Next:** G6.2 explicit human-review with audit + G6.3 Stage1 Output History / export / Stage2 1–5 partial handoff & rollback tests, in parallel with G0.1 backup restore and capacity. First pilot can use manually uploaded rights-cleared references; G7 Scout is not a prerequisite for a one-slot smoke test.
+
+### 2026-10-29 — G6.2/G6.3 private review + partial-batch merged; production rollback verified
+
+- **Source/main:** PR #66 G6.2 immutable human-review checkpoint merged; PR #67 frontend build provenance, PR #68 backup unit installation, PR #69 fail-closed `--no-migrate` preflight all merged. PR #70 G6.3 private reviewed batch inspector merged as `5ae122ec04f01dc4af04790bfda7d21140fc7bae` after **16/16 CI PASS**, including PostgreSQL, browser fixtures, frontend, API shards and workers. G6.3 focused G5/G6 regression: **91/91 PASS**. Source and tests do not call ImageGen or write production data.
+- **Frontend release:** `9ca986520746d9285d0ce3c0cf15de0aa19da6a6` activated via official frontend script; actual authenticated Typography Ideas + Style Lab acceptance is still NOT verified. The UI is guarded when the backend V2 API is unavailable.
+- **Backend:** attempted deployment of reviewed `61e7da54cb280c0e3a1b5ee240b5f04425923cf7` using `--no-migrate` but API could not start: DB `0187_navbar_member_permissions` vs required `0189_typography_v2_analysis_queue`. Official rollback finished successfully to `d4573f7ee825c659ad44401fc9c60fec297aaefd`; API, image/video workers and visual encoder health checks passed. PostgreSQL was NOT downgraded or migrated. PR #69 now rejects such mismatches before changing production.
+- **Database backup:** dedicated `cam_backup` role and root-only backup env were reverified live: 197/197 tables, 1/1 sequence, zero missing SELECT and zero write grants. Backup service last run 27 October exit code 2 and is still failed; timer is active for Friday 30 October 22:00 +07. The currently active older backend does not support the dedicated backup identity. Full current remote backup, independent off-host data restore, and migration/rollback rehearsal have NOT been done. Direct ephemeral newer-runtime backup config command was blocked by CodeLocal workspace policy; it was not retried via a bypass.
+- **Disk:** root approximately 89% used, ~5.6 GiB available after cleaning rebuildable pip cache and archived journal. Local backup staging previously observed ~73 MB. No production PostgreSQL tables, media, models or rollback releases were deleted.
+- **G6.3 implementation:** immutable G6.1/G6.2 evidence and image SHA/G5 QA are revalidated under the global pilot lock, including current rights/keyword/Style DNA, and count 1–5 genuine accepted outputs honestly; corrupt/symlinked/duplicate checkpoints fail closed. The operator-only CLI defaults to dry-run. **It is not yet durable Stage 1 output-history persistence, Stage 2 handoff, a publishing API or a live canary.** G6.1 provider calls and G7 Windows Scout remain OFF.
+- **Next action:** scoped operator verification of a fresh full PostgreSQL backup + off-host restore and additive `0188/0189` migration/rollback compatibility; only then production backend and authenticated G2/G4 browser QA, one-slot real ImageGen acceptance, durable G6.3 history/1–5 partial handoff. Protect current and previous releases, do not rerun V1 Stage 1 jobs or enable bulk generation.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
