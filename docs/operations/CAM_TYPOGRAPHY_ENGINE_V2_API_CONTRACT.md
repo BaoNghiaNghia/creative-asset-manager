@@ -1,6 +1,6 @@
 # CAM Typography V2 — G1.2 API Contract (pilot, default OFF)
 
-**Scope:** metadata and durable reference-image library only. This release **does not** start Typography Scout, analysis, layout composition, ImageGen, Stage 1 jobs, or modify `concept-short-v1`.
+**Scope:** metadata and durable reference-image library plus G3 *explicit queue request/status* contracts. These API routes **do not execute AI**, register a worker, start Typography Scout, layout composition, ImageGen, or change Stage 1 `concept-short-v1`.
 
 ## Activation and permission boundaries
 
@@ -21,10 +21,19 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 | GET | `/references?status=&query=&source_type=&scope=&style_role=&my_uploads_only=&sort=&limit=&offset=` | read | Tenant/private filtered list and aggregate stats/capabilities; paginated, archived excluded by default |
 | GET | `/references/{id}` | read | Tenant/private visibility 404 on inaccessible ID |
 | GET | `/references/{id}/image` | read | Streams Managed Storage, `Cache-Control: private`, no public Drive URL |
-| GET | `/references/{id}/dna` | read | Existing analyzer versions; empty before G3 |
+| GET | `/references/{id}/dna` | read | Existing versioned Style DNA, visibility checked |
+| GET | `/references/{id}/analysis` | read | Current analyzer version job status/cache only; tenant/private visibility enforced, never lease/token/provider metadata |
+| POST | `/references/{id}/analyze` | manage | Explicit idempotent enqueue **only**; source rights + canary checked; no provider call or background start |
 | POST | `/references/uploads` | upload | Multipart `files` repeated, up to 12 images; `rights`, `privacy`, optional attribution |
 | PATCH | `/references/{id}` | manage | Partial JSON metadata; `approved` requires verified source rights |
 | DELETE | `/references/{id}` | manage | Soft archive only (no image/storage deletion) |
+
+### G3 explicit Analyze queue boundary (development only)
+
+- `POST /references/{id}/analyze` requires **typography_reference.manage** and BOTH the server-side feature flag and tenant canary. There is **no request body** for a model, prompt or provider. CAM pins `g3-layout-font-overlap-v1` as the analyzer version.
+- A request adds an idempotent tenant/version/hash job if the reference is active and rights are `owned`, `licensed` or `permitted_reference`. Possible `outcome` values are `created`, `existing`, `cache_hit`; missing/cross-tenant reference returns 404, unverified rights or inactive reference returns 409. An audit event is written only for a newly created job.
+- `GET /references/{id}/analysis` requires **typography_reference.read** and obeys private/workspace visibility. It returns `analyzer_version`, `analysis_status`, `dna_available` and an optional public job view (`id`, `status`, `attempt_count`, `next_attempt_at`, `last_error_code`). **Lease token, worker owner, private remote file IDs, image URLs and credentials are never returned.**
+- These routes **only enqueue and report state**; they neither call the AI provider nor start a background worker, and cannot be used on production until additive migration `0189` and G0.1 rollback/activation gates are satisfied. Typography V2 remains OFF by default.
 
 ### G2 library filters and response
 
