@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.mocked(listTypographyReferences).mockResolvedValue(page);
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await act(async () => root.unmount());
   host.remove(); document.body.replaceChildren();
   vi.clearAllMocks();
@@ -67,6 +68,24 @@ async function click(button: Element | null) {
 }
 
 describe("Stage 1 Typography V2 feature gating and non-destructive navigation", () => {
+  it("does not request a missing V2 endpoint on the legacy production backend", async () => {
+    vi.stubEnv("PROD", true);
+    vi.stubEnv("VITE_TYPOGRAPHY_V2_STATUS_PROBE", "");
+    await renderStage();
+    expect(getTypographyStatus).not.toHaveBeenCalled();
+    expect(listTypographyReferences).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-testid=typography-stage1-subnav]")).toBeNull();
+    expect(host.querySelector(".rrugc-keyword-gen-table")?.textContent).toContain("Picked date");
+  });
+
+  it("probes an upgraded production backend only when explicitly opted in", async () => {
+    vi.stubEnv("PROD", true);
+    vi.stubEnv("VITE_TYPOGRAPHY_V2_STATUS_PROBE", "true");
+    await renderStage();
+    expect(getTypographyStatus).toHaveBeenCalledOnce();
+    expect(host.querySelector("[data-testid=typography-stage1-subnav]")).not.toBeNull();
+  });
+
   it("keeps V1 keyword jobs unchanged when the V2 backend is OFF or forbidden", async () => {
     vi.mocked(getTypographyStatus).mockResolvedValueOnce({ available: false });
     await renderStage();

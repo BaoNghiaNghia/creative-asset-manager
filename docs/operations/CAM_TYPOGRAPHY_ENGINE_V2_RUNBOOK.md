@@ -449,7 +449,7 @@ Open a **documentation/prototype-only PR**, run full required CI, merge into `ma
 **Thứ tự:**
 1. Merge PR vào `main` theo CI, không force push, không bypass protection.
 2. Deploy additive migration/backend từ **main** qua script hiện hành, giữ `current` + `previous`; health check API/worker/DB/ES; rollback nếu lỗi.
-3. Deploy frontend dist theo đúng commit source provenance; smoke authenticated Stage 1/Library/preview/Stage 2, tablet/mobile; rollback frontend nếu lỗi.
+3. Deploy frontend dist theo đúng commit source provenance; smoke authenticated Stage 1/Library/preview/Stage 2, tablet/mobile; rollback frontend nếu lỗi. Frontend production **không** gọi endpoint `/typography/status` khi API cũ chưa hỗ trợ; chỉ bật probe bằng `VITE_TYPOGRAPHY_V2_STATUS_PROBE=true` lúc build **sau khi** API đã deploy và endpoint status trả HTTP 200. Mặc định giữ OFF để frontend-only hotfix tương thích backend cũ.
 4. Build/release Windows tool từ main; checksum-verify, cài/refresh vào D, kiểm tra version/heartbeat; giữ binary previous.
 5. Bật feature flag pilot theo tenant, theo dõi canary, sau đó mới bật rộng. Auto Scout chỉ bật sau rights/permission/ToS gate.
 6. Kiểm chứng production sau deploy qua public `/version`, `/build-info.json`, `/ready` và luồng người dùng thật (không write stock).
