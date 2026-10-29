@@ -37,7 +37,7 @@ from app.modules.realistic_review_ugc.typography_model import (
 from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
 from app.modules.realistic_review_ugc.typography_dna_review import (
     TypographyDnaReviewRequest, TypographyReviewError, apply_human_review,
-    review_view, VERIFIED_RIGHTS,
+    effective_reviewed_dna, review_view, VERIFIED_RIGHTS,
 )
 from app.modules.realistic_review_ugc.typography_similarity import (
     is_typography_dhash, candidate_matches, typography_hamming_distance,
@@ -45,6 +45,9 @@ from app.modules.realistic_review_ugc.typography_similarity import (
 )
 from app.modules.realistic_review_ugc.typography_repository import (
     TypographyReferenceError, TypographyReferenceRepository,
+)
+from app.modules.realistic_review_ugc.typography_preview import (
+    TypographyPreviewError, build_typography_previews,
 )
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
@@ -101,6 +104,70 @@ router = APIRouter(
 
 def _error(code: str, message: str, *, status_code: int = 422):
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+class TypographyPreviewRequest(BaseModel):
+    """No arbitrary prompt or client-provided DNA: sources are resolved by tenant."""
+    model_config = ConfigDict(extra="forbid")
+    reference_id: str = Field(min_length=1, max_length=36)
+    keyword_id: str = Field(min_length=1, max_length=36)
+    count: int = Field(default=3, ge=1, le=3)
+
+
+@router.post("/previews", dependencies=[Depends(require_permission("realistic_review_ugc.read"))])
+def preview_typography_style(
+    request: TypographyPreviewRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Read-only G4 preview: never calls ImageGen or creates Stage 1 jobs.
+
+    Requires a currently picked, tenant-scoped keyword and a visible approved
+    reference with explicitly accepted, current Style DNA and verified rights.
+    """
+    tenant = principal.active_tenant_id
+    keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
+        RrugcKeywordVolumeModel.id == request.keyword_id,
+        RrugcKeywordVolumeModel.tenant_id == tenant,
+        RrugcKeywordVolumeModel.picked.is_(True),
+    ))
+    if keyword is None:
+        raise _error("typography_keyword_not_found", "Picked keyword not found", status_code=404)
+
+    repo = TypographyReferenceRepository(session)
+    reference = repo.get(tenant, request.reference_id,
+                         user_id=principal.user_id, manage=_can_manage(principal))
+    if reference is None:
+        raise _error("typography_reference_not_found", "Typography reference not found", status_code=404)
+    if (reference.editorial_status != "approved"
+            or reference.source_rights_status not in VERIFIED_RIGHTS):
+        raise _error("typography_reference_not_approved",
+                     "Reference must be approved with verified rights", status_code=409)
+    dna = repo.dna_cached(
+        tenant, reference.id, user_id=principal.user_id,
+        analyzer_version=G3_ANALYZER_VERSION,
+        image_hash=reference.content_hash, manage=_can_manage(principal),
+    )
+    effective = effective_reviewed_dna(reference, dna) if dna is not None else None
+    if effective is None:
+        raise _error("typography_dna_not_accepted",
+                     "Accepted, current Style DNA is required", status_code=409)
+    try:
+        previews = build_typography_previews(
+            keyword.keyword, dna=effective, reference_id=reference.id,
+            dna_id=dna.id, count=request.count,
+        )
+    except TypographyPreviewError as exc:
+        raise _error("typography_preview_invalid", str(exc)) from exc
+    return {
+        "reference_id": reference.id,
+        "keyword_id": keyword.id,
+        "source_keyword_exact": keyword.keyword,
+        "preview_only": True,
+        "job_created": False,
+        "provider_calls": 0,
+        "items": previews,
+    }
 
 
 def _audit(session: Session, principal: CurrentPrincipal, action: str,
@@ -639,9 +706,19 @@ def patch_typography_reference(
     if ("editorial_status" in update.model_fields_set
             or "source_rights_status" in update.model_fields_set):
         try:
+            desired_status = update.editorial_status or row.editorial_status
+            # A rights revocation must always be possible for an approved
+            # reference. If editorial_status was not explicitly supplied,
+            # revoke the approval rather than retain an approved/blocked row.
+            # Explicit attempts to approve unknown/blocked rights still fail.
+            if ("editorial_status" not in update.model_fields_set
+                    and update.source_rights_status is not None
+                    and update.source_rights_status not in VERIFIED_RIGHTS
+                    and desired_status == "approved"):
+                desired_status = "candidate"
             row = repo.update_editorial(
                 principal.active_tenant_id, reference_id, user_id=principal.user_id,
-                status=update.editorial_status or row.editorial_status,
+                status=desired_status,
                 rights=update.source_rights_status,
             )
         except TypographyReferenceError as exc:

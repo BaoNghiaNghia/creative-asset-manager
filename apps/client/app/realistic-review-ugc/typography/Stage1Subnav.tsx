@@ -1,8 +1,10 @@
 import "./TypographyIdeasPage.css";
 
+export type TypographyStageView = "jobs" | "ideas" | "style-lab";
+
 export function Stage1Subnav({ view, onView, ideasCount }: {
-  view: "jobs" | "ideas";
-  onView: (next: "jobs" | "ideas") => void;
+  view: TypographyStageView;
+  onView: (next: TypographyStageView) => void;
   ideasCount: number;
 }) {
   return <nav className="typography-stage1-subnav" aria-label="Stage 1 views" data-testid="typography-stage1-subnav">
@@ -10,6 +12,8 @@ export function Stage1Subnav({ view, onView, ideasCount }: {
       className={view === "jobs" ? "active" : ""}>Keyword Jobs</button>
     <button type="button" onClick={() => onView("ideas")} aria-current={view === "ideas" ? "page" : undefined}
       className={view === "ideas" ? "active" : ""}>Typography Ideas <span>{ideasCount}</span></button>
-    <span className="typography-stage1-subnav-hint" title="Style Lab will become available after its backend QA and rollout gates">Style Lab · Later</span>
+    <button type="button" onClick={() => onView("style-lab")}
+      aria-current={view === "style-lab" ? "page" : undefined}
+      className={view === "style-lab" ? "active" : ""}>Style Lab <span>Preview</span></button>
   </nav>;
 }
