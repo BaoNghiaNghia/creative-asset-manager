@@ -604,6 +604,20 @@ def test_style_lab_preview_api_requires_picked_keyword_and_accepted_private_dna(
     assert data["source_keyword_exact"] == keyword_text
     assert data["job_created"] is False and data["provider_calls"] == 0
     assert data["preview_only"] is True
+    assert data["quality"]["all_technical_pass"] is True
+    assert data["quality"]["image_spelling_verified"] is False
+    assert data["quality"]["release_ready"] is False
+    assert data["quality"]["technical_pass_count"] == 3
+    plan = data["generation_plan"]
+    assert plan["skill"] == "concept-short-v2"
+    assert plan["ready_for_imagegen"] is False
+    assert plan["job_created"] is False and plan["provider_calls"] == 0
+    assert plan["output_contract"]["requested_slots"] == 6
+    assert plan["output_contract"]["actual_count"] == 0
+    assert plan["output_contract"]["status"] == "planned"
+    assert [slot["slot"] for slot in plan["slots"]] == list(range(1, 7))
+    assert all(slot["source_keyword_exact"] == keyword_text for slot in plan["slots"])
+    assert len({slot["layout"] for slot in plan["slots"]}) == 6
     assert len(data["items"]) == 3
     for preview in data["items"]:
         root = ET.fromstring(preview["svg"])

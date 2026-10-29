@@ -49,6 +49,12 @@ from app.modules.realistic_review_ugc.typography_repository import (
 from app.modules.realistic_review_ugc.typography_preview import (
     TypographyPreviewError, build_typography_previews,
 )
+from app.modules.realistic_review_ugc.typography_quality_gate import (
+    TypographyQualityError, audit_svg_previews,
+)
+from app.modules.realistic_review_ugc.typography_generation_plan import (
+    build_concept_short_v2_plan,
+)
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -157,8 +163,18 @@ def preview_typography_style(
             keyword.keyword, dna=effective, reference_id=reference.id,
             dna_id=dna.id, count=request.count,
         )
-    except TypographyPreviewError as exc:
+        quality = audit_svg_previews(keyword.keyword, previews)
+        plan = build_concept_short_v2_plan(
+            keyword=keyword.keyword, reviewed_dna=effective,
+            reference_id=reference.id, dna_id=dna.id, previews=previews,
+        )
+    except (TypographyPreviewError, TypographyQualityError) as exc:
         raise _error("typography_preview_invalid", str(exc)) from exc
+    # Source SVGs are non-publishable drafts. Never return one with failed
+    # technical QA and never imply its spelling was verified after rasterizing.
+    if not quality["all_technical_pass"]:
+        raise _error("typography_preview_qa_rejected",
+                     "Preview failed exact-text or vector-safety validation", status_code=422)
     return {
         "reference_id": reference.id,
         "keyword_id": keyword.id,
@@ -167,6 +183,8 @@ def preview_typography_style(
         "job_created": False,
         "provider_calls": 0,
         "items": previews,
+        "quality": quality,
+        "generation_plan": plan,
     }
 
 
