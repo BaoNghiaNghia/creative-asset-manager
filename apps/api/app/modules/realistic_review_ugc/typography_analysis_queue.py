@@ -261,6 +261,9 @@ class TypographyAnalysisQueue:
         if not enabled or not tenant_allowed or not token:
             return False
         clock = _clock(now)
+        # Serialize lease renewal with tenant capacity claims to avoid
+        # counting an uncommitted renewal as an expired worker.
+        self._tenant_lock(tenant_id)
         authorized_reference = select(Reference.id).where(
             Reference.tenant_id == Job.tenant_id,
             Reference.id == Job.reference_id,
