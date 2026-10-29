@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_ANALYSIS_API_MERGED_PILOT_RUNNER_DEV_G0_1_ROLLBACK_BLOCKED
+status: G3_QUEUE_ADAPTER_API_PILOT_RUNNER_MERGED_PILOT_ACCEPTANCE_PENDING_G0_1_BLOCKED
 active_gate: G3
-next_action: G3_PILOT_RUNNER_CI_THEN_8_LICENSED_IMAGE_QA_G0_1_ROLLBACK
+next_action: G0_1_BACKEND_ROLLBACK_CAPACITY_THEN_G3_8_REFERENCE_PILOT_QA
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 647c02069b3a54a7d40fc97d0c0db69633b9799b
-feature_branch: feat/typography-v2-g3-pilot-runner-20261029
-pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_MERGED_PILOT_RUNNER_PR_PENDING
-ci: G3_API_PR_51_CI_2472_16_OF_16_JOBS_GREEN_PILOT_RUNNER_PENDING
+vps_main_commit: 0f9a05df4b8b5f245123a3eb5922a4605cbfd8c2
+feature_branch: docs/typography-v2-g3-pilot-qa-20261029
+pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_MERGED_PILOT_QA_PR_PENDING
+ci: G3_PILOT_PR_52_CI_2474_16_OF_16_JOBS_GREEN_QA_DOC_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -32,11 +32,11 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G3 (29/10/2026):** PR #46 durable queue, #50 opt-in Vision adapter và #51 explicit Analyze API đã merge vào `main` (CI #2460/#2470/#2472 đều 16/16). Hotfix Stage 0/1 của PR #47–49 đang chạy trên frontend production; backend chưa nâng migration Typography V2. Đang phát triển one-shot pilot launcher không tự chạy, mặc định OFF và có thêm khóa rollback riêng. G0.1 backend rollback vẫn BLOCKED.
+> **Cập nhật G3 (29/10/2026):** PR #46 queue, #50 Vision adapter, #51 Analyze API, #52 one-shot pilot launcher đã merge vào `main`, CI #2460/#2470/#2472/#2474 đều 16/16. Backend production chưa nâng migrations 0188/0189, các cờ V2/pilot/Scout đều OFF. G0.1 rollback backend/capacity còn BLOCKED, chưa xử lý tám ảnh có quyền thực tế.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G3 — DNA schema/cache, queue, Vision adapter và explicit Analyze/status API đã merge. Đang phát triển CLI pilot one-shot mặc định dry-run, có cổng feature + tenant + worker + rollback VERIFIED riêng. Tiếp theo: pilot runner CI, xác minh rollback/capacity, 8 ảnh có quyền và QA metadata/cost.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G3 — Code queue/adapter/API/CLI pilot đã merge, chưa có AI call thực hay pilot nghiệm thu. Ưu tiên G0.1: chuẩn bị backend previous/rollback thực sự và capacity, kiểm tra ảnh pilot có quyền sử dụng; sau đó vận hành 8 lượt có budget/QA. Không deploy production, không bật cờ khi rollback chưa VERIFIED.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -49,10 +49,10 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main 647c0206; frontend QA pass; backend current present nhưng previous symlink chưa có; disk 89%, swap 2/2 GiB |
+| G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main 0f9a05df; backend current present nhưng previous symlink chưa có; disk 89%, swap 2/2 GiB |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | IN_PROGRESS, queue/Vision adapter/Analyze API merged; pilot CLI development (OFF) | 8 rights-verified DNA samples, latency/cost, ROI QA, override |
+| G3 | Visual Analyzer & Style DNA | Code merged (queue/adapter/API/pilot CLI); REAL PILOT PENDING, flags OFF | eight licensed samples, review, latency/cost/ROI/override |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -212,6 +212,14 @@ Công việc mở đầu:
 - **test plan:** fake-provider/storage tests for no side effects in dry-run, feature OFF, tenant mismatch, rollback flag OFF, one tick at concurrency 1 and provider lifecycle; CI required before any merge. No real image/paid model request.
 - **hard-block remains:** backend `previous` release missing, 89% disk, swap 2/2 GiB; not safe to apply migrations `0188/0189` or enable any worker. Need authenticated G2 screenshots, eight rights-verified pilot reference images and sanitized DNA/latency/cost before G3 acceptance.
 - **next:** pilot CLI CI/merge; safety/rollback capacity remediation; rights-verified sample QA and G3 manual override + perceptual dedup, then G4.
+
+### 2026-10-29 — G3 code path merged, pilot evidence and release safety still open
+
+- **main:** PR #52 one-shot pilot launcher merged as `0f9a05df4b8b5f245123a3eb5922a4605cbfd8c2` following CI #2474 16/16 PASS; PR #51 explicit Analyze API CI #2472 also 16/16 PASS. This is **code readiness**, not G3 field acceptance.
+- **G3 pilot safety:** `TYPOGRAPHY_V2_ENABLED=false`, empty tenant allowlist, `TYPOGRAPHY_V2_PILOT_WORKER_ENABLED=false` and `TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED=false` by default. Pilot CLI without `--execute` is dry run and no automation/daemon has been registered.
+- **current branch:** `docs/typography-v2-g3-pilot-qa-20261029`; preparing G3 QA rubric with eight pseudonymous slots and required rights, image hash, typography-only region, schema, originality, human review, latency/token/cost evidence. No images/tokens/tenant IDs are committed.
+- **hard blocker:** backend production has only `current` release; no verified `previous` rollback, 89% disk, swap fully allocated. Do not run migration `0188/0189` or enable V2, worker or Scout until these are remediated and signed off.
+- **G3 exit remaining:** eight rights-verified reference analyses (plus failures/reviews), perceptual near-duplicate checks, manual override workflow, ROI crop comparison and UX pilot screenshot QA. After real evidence, advance G4 Style Lab with exact keyword transfer.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
