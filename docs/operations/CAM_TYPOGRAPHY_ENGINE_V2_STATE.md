@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-28
-status: G2_UI_DEV_CI_PENDING_G0_1_ROLLBACK_BLOCKED
-active_gate: G2
-next_action: G2_FRONTEND_API_CI_QA_THEN_G3_STYLE_DNA_AND_G0_1_ROLLBACK
+status: G2_MERGED_G3_DNA_CONTRACT_IN_PROGRESS_G0_1_ROLLBACK_BLOCKED
+active_gate: G3
+next_action: G3_ANALYZER_QUEUE_CACHE_AND_QA_PLUS_G2_AUTHENTICATED_VISUAL_QA_G0_1_ROLLBACK
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: b8e558cd48c80dd6a50fc8b986eb40a6c8ae71b2
+vps_main_commit: 8275286cecbf330c716f99fff5f1e921ebc945de
 feature_branch: feat/typography-v2-ideas-ui-20261028
-pr: G2_PR_PENDING
-ci: G1_2_17_OF_17_GREEN_G2_LOCAL_UI_8_OF_8_API_9_OF_9_STAGE1_LEGACY_15_OF_15_FRONTEND_CI_PENDING
+pr: G2_PR_42_MERGED_G3_PR_PENDING
+ci: G2_PR_42_CI_2451_16_OF_16_JOBS_GREEN_G3_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -171,6 +171,13 @@ Công việc mở đầu:
 - Rollback readiness: ...
 - Next action: Gx.z — ...
 ```
+
+### 2026-10-29 — G2 merged, G3 schema contract started
+
+- **G2 merged:** PR #42 on `main` commit `8275286cecbf330c716f99fff5f1e921ebc945de`; CI #2451 all 16 jobs successful (frontend, PostgreSQL 12/16, browser matrix, worker, Windows package). Authenticated Typography Ideas UI visual acceptance with 8 rights-verified pilot images remains separate/pending; do not call G8 or G9 complete.
+- **G3 development:** branch `feat/typography-v2-g3-dna-contract-20261029` created from merged `origin/main`. Add strict `typography-dna/v1` parser/validation contract + negative tests for source hash mismatch, malformed bounding box, untrusted graph relations, over-occlusion, NaN/invalid confidence. Contract has no new DB migration, worker, provider calls, or public routes.
+- **Production:** unchanged; `TYPOGRAPHY_V2_ENABLED=false`, Auto Scout OFF. G0.1 symlink rollback access still blocked; disk at ~88% on VPS, no new production worker.
+- **Next:** confirm G3 contract CI, implement source-hash/version cache, bounded analyzer queue and failure/retry budgets; collect 8 anonymized rights-verified DNA samples and authenticated desktop/tablet/mobile UI screenshots. Keep G0.1 hard gate.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
