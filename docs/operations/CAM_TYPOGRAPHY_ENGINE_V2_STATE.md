@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G6_3_PRIVATE_BATCH_CHECKPOINT_MERGED_G0_1_FULL_RESTORE_BLOCKED
+status: G0_1_BACKUP_RUNTIME_ISOLATED_FULL_REMOTE_RESTORE_PENDING
 active_gate: G0.1
-next_action: G0_1_VERIFIED_FULL_BACKUP_OFFHOST_RESTORE_THEN_0188_0189_MIGRATION_AND_G6_3_DURABLE_HANDOFF
+next_action: G0_1_RUN_VERIFIED_BACKUP_CHECKSUM_OFFHOST_RESTORE_THEN_0188_0189_MIGRATION_AND_G6_3_DURABLE_HANDOFF
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,28 +14,30 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: 'OFF'
 scout_flag: 'OFF'
-vps_main_commit: 5ae122ec04f01dc4af04790bfda7d21140fc7bae
+vps_main_commit: 1ed3c7311dac41e1975ee4f307aeeee7d30676ce
 feature_branch: main
 pr: G2_42_G3_43_44_45_46_50_51_52_53_56_57_G0_54_55_60_61_62_G4_63_G5_G6_64_G6_NATIVE_65_G6_REVIEW_66_BUILD_67_BACKUP_68_DEPLOY_GUARD_69_G6_BATCH_70_MERGED
-ci: PR_69_AND_70_16_OF_16_CI_PASS_G6_3_LOCAL_91_OF_91_PASS
+ci: PR_72_16_OF_16_CI_PASS_BACKUP_RUNTIME_36_OF_36_AND_BACKUP_53_OF_53_LOCAL_PASS
 vps_release_commit: d4573f7ee825c659ad44401fc9c60fec297aaefd
 frontend_release_commit: 9ca986520746d9285d0ce3c0cf15de0aa19da6a6
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-29
 blockers:
-  - G0_1_LAST_BACKUP_FAILED_20261027_ROLE_CAM_BACKUP_VERIFIED_BUT_OLD_BACKEND_RUNTIME_STILL_ACTIVE
+  - G0_1_BACKUP_RUNTIME_SERVICE_PINNED_TO_MERGED_61E7DA54C_CONFIG_VERIFIED_BUT_FULL_BACKUP_NOT_RUN
   - G0_1_FULL_REMOTE_DATA_BACKUP_AND_INDEPENDENT_OFFHOST_RESTORE_NOT_VERIFIED
   - G0_1_MIGRATION_0188_0189_AND_BACKWARDS_COMPATIBLE_ROLLBACK_NOT_VERIFIED
   - G6_3_DURABLE_STAGE1_OUTPUT_HISTORY_STAGE2_HANDOFF_AND_RBAC_QA_PENDING
   - G2_AUTHENTICATED_RESPONSIVE_BROWSER_QA_PENDING
-  - VPS_ROOT_DISK_89_PERCENT_CAPACITY_PLAN_REQUIRED
+  - VPS_ROOT_DISK_88_PERCENT_5_7GB_AVAILABLE_CAPACITY_CHECK_BEFORE_FULL_DUMP
 rollback:
-  backend: CURRENT_D4573F7E_PREVIOUS_61E7DA54C_REQUIRES_DB_0189_AND_NOT_VALID_ROLLBACK_FOR_DB_0187_FULL_RESTORE_UNVERIFIED
+  backend: CURRENT_D4573F7E_PREVIOUS_61E7DA54C_PINNED_BACKUP_ONLY_NO_SCHEMA_MIGRATION_FULL_RESTORE_UNVERIFIED
   frontend: MAIN_9CA986520_DEPLOYED_PREVIOUS_RELEASE_PRESERVED
   windows: AVAILABLE_0_1_45_KEEP
 ---
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
+
+> **Checkpoint mới 29/10/2026, 21:10 +07:** PR #72 đã merge main ở `1ed3c7311`, CI **16/16 PASS**. Đã kích hoạt **riêng backup runtime** trên VPS bằng operator `cam_isolate_db_backup_runtime.py --apply`, dùng release đã có `61e7da54c` để backup service đọc credential `cam_backup` khi API vẫn chạy `d4573f7e`. `verify-config` read-only và systemd pinned ExecStart PASS; **không có pg_dump, Drive upload, full backup hoặc remote/off-host restore trong lượt này**. Backend API/workers không restart, PostgreSQL vẫn `0187`, ImageGen/Scout OFF. Safe disk dry-run bảo vệ 2 release và cho thấy 5,7 GB trống (88% used). Kế tiếp phải chạy và xác minh full backup/Drive checksum rồi thử off-host restore trước migration `0188/0189`. Đừng xóa runtime đang được backup service ghim.
 
 > **Checkpoint 29/10/2026 (mới nhất):** PR #69 sửa preflight deploy và PR #70 bổ sung **G6.3 private reviewed partial-batch checkpoint** đã merge vào `main` (`5ae122ec0`), mỗi PR **16/16 CI PASS**. G6.1 ImageGen pilot, G6.2 human review và G6.3 kiểm kê chính xác 1–5 ảnh được duyệt đều có source, nhưng **chưa có authenticated durable Stage 1 Output History / Stage 2 handoff, chưa chạy ImageGen thật và chưa bật V2/Scout**. Frontend production `9ca986520`, backend production sau rollback `d4573f7e`; thử deploy backend mới `61e7da54c --no-migrate` thất bại do schema còn `0187` trong khi code yêu cầu `0189`, đã rollback và health PASS. Backup role `cam_backup` được xác minh lại 197/197 bảng, 1/1 sequence, zero write; backup service lần cuối 27/10 exit 2 và chưa có full remote backup + off-host restore. VPS disk ~89% (5,6 GB trống). Tiếp theo G0.1 backup/restore, migration và durable G6.3 handoff.
 
@@ -54,7 +56,7 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore BLOCKED | main 5ae122ec0; cam_backup login verified 197/197 tables, 1/1 sequence, zero write; backend d4573f7e after successful rollback; DB 0187; backup service last failed 27 Oct; complete remote restore and 0188/0189 rollback not verified; disk 89%, 5.6 GiB available |
+| G0 | Baseline & safety preflight VPS/Windows | BACKUP RUNTIME REPAIRED, FULL REMOTE RESTORE BLOCKED | main 1ed3c7311; backup unit isolated to 61e7da54c (read-only verify-config PASS, full dump NOT run); cam_backup verified 197/197 tables and 1/1 sequence, zero write; backend d4573f7e, DB 0187; last historical backup failed 27 Oct; off-host restore and migration drill pending; disk 88%, 5.7GB available |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
@@ -320,6 +322,14 @@ Công việc mở đầu:
 - **Disk:** root approximately 89% used, ~5.6 GiB available after cleaning rebuildable pip cache and archived journal. Local backup staging previously observed ~73 MB. No production PostgreSQL tables, media, models or rollback releases were deleted.
 - **G6.3 implementation:** immutable G6.1/G6.2 evidence and image SHA/G5 QA are revalidated under the global pilot lock, including current rights/keyword/Style DNA, and count 1–5 genuine accepted outputs honestly; corrupt/symlinked/duplicate checkpoints fail closed. The operator-only CLI defaults to dry-run. **It is not yet durable Stage 1 output-history persistence, Stage 2 handoff, a publishing API or a live canary.** G6.1 provider calls and G7 Windows Scout remain OFF.
 - **Next action:** scoped operator verification of a fresh full PostgreSQL backup + off-host restore and additive `0188/0189` migration/rollback compatibility; only then production backend and authenticated G2/G4 browser QA, one-slot real ImageGen acceptance, durable G6.3 history/1–5 partial handoff. Protect current and previous releases, do not rerun V1 Stage 1 jobs or enable bulk generation.
+
+### 2026-10-29 — G0.1 backup runtime isolated without backend migration
+
+- **Commit/CI:** PR #72 merged as `1ed3c7311dac41e1975ee4f307aeeee7d30676ce`, **16/16 CI PASS**. Focused deployment/safety tests **36/36 PASS**, backup/Google Drive/restore code tests **53/53 PASS**. New scoped operator and instructions: `scripts/cam_isolate_db_backup_runtime.py`, `docs/operations/CAM_TYPOGRAPHY_V2_BACKUP_RUNTIME_RECOVERY.md`.
+- **Production action verified:** from a clean synced main checkout, the operator's dry-run succeeded for the already-installed immutable `61e7da54cb280c0e3a1b5ee240b5f04425923cf7`. Its `--apply` completed successfully, including systemd-run **read-only verify-config** and checking the actual backup.service ExecStart after installing the owned drop-in. Result: `BACKUP_RUNTIME_ISOLATED=YES`; `FULL_DUMP_STARTED=NO`.
+- **Scope:** only backup.service WorkingDirectory/ExecStart pinned to the known-good existing runtime. No API/worker restart, no current/previous pointer change, no PostgreSQL mutation, migration, ImageGen invocation, new virtualenv or dump. Previously failed backup history is not retroactively treated as successful. The backup timer retains its Tuesday/Friday schedule; next scheduled execution was 30 October 2026 22:00 +07 when last observed.
+- **Safety/disk:** safe cleanup dry-run recognized the isolated override and protected active backend and backup-pinned prior release (724MB). Root 88% used, about 5.7GB available; no product, database, media, backup or model files deleted. A separate combined systemctl verification command was blocked by CodeLocal policy; did not retry it. The successful operator independently checked the loaded ExecStart as part of activation.
+- **Next G0.1 gate:** inspect actual scheduled or manually authorized full managed backup result; verify full remote size and checksums, then restore the entire database on an independent off-host instance. Plan disk headroom before any local 4GB-class dump and confirm remote OAuth destination. Only then rehearse migrations `0188/0189`, backward-compatibility and rollback; V2/Scout/ImageGen activation remain OFF. Restore the ordinary backup unit with the operator's `--restore-current` command after a successfully migrated active backend supports the dedicated backup reader.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
