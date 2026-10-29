@@ -1,10 +1,10 @@
 # Database Backup to Google Drive
 
-**Status:** IMPLEMENTED / NOT YET ACTIVATED IN PRODUCTION
+**Status:** IMPLEMENTED / PRODUCTION TIMER ACTIVE, LATEST OBSERVED BACKUP FAILED
 **Target database size:** < 10 GB
 **Scheduler:** systemd
 **Remote storage:** Google Drive managed storage
-**Production rollout:** NOT STARTED
+**Production rollout:** BLOCKED until dedicated identity, verified full backup and off-host restore
 
 This is the authoritative functional and operational specification for V1. See
 [the implementation plan](../plans/DATABASE_BACKUP_IMPLEMENTATION.md) for the
@@ -23,7 +23,7 @@ scheduling; an application polling loop must not schedule backups.
 | Calendar | `Tue,Fri *-*-* 22:00:00 Asia/Ho_Chi_Minh` |
 | Missed run | `Persistent=true` |
 
-The future timer is `creative-asset-manager-db-backup.timer`; its paired
+The deployed timer is `creative-asset-manager-db-backup.timer`; its paired
 oneshot service is `creative-asset-manager-db-backup.service`. It must use
 `/etc/creative-asset-manager/production.env`, the `creative-assets`
 identity, and `/opt/creative-asset-manager/current/apps/api` as working
@@ -34,6 +34,81 @@ to schedule backup work.
 No WAL/PITR or object-storage architecture is required for V1. Reassess backup
 duration, staging disk, restore time, WAL/PITR, and object storage if growth
 materially exceeds the target range.
+
+## Dedicated PostgreSQL backup identity (October 29, 2026 remediation)
+
+The production backup timer previously ran `pg_dump` as the app role from
+`DATABASE_URL`. On 27 October its dump failed, and read-only PostgreSQL catalog
+inspection found the app role could not read two protected
+`cam_incident_20261024_*` recovery tables. Those tables must **not** be excluded
+from backup, deleted, or made readable by the general app role just to clear
+the error. The missing privileges are a plausible cause; the old error
+message did not preserve sufficient sanitized stderr to prove causality.
+
+Backup V1 now accepts optional `DATABASE_BACKUP_DATABASE_URL` for a **separate
+PostgreSQL login**. Deliver it only in
+`/etc/creative-asset-manager/database-backup.env` (root:root, mode 0600),
+loaded by `creative-asset-manager-db-backup.service` after its standard
+production environment. This file must not be loaded by the API or other
+workers. The application continues using `DATABASE_URL` without changes.
+The backup URL is rejected *before any dump* unless it uses the same
+PostgreSQL database, host and port but a different username; URL query
+overrides are forbidden. No password enters process arguments or normal
+diagnostic output. An absent backup URL retains legacy behavior for existing
+installations, but **must not be used as production remediation while these
+incident tables remain inaccessible to the app role**. `verify-config`
+reports only `POSTGRESQL_BACKUP_IDENTITY=DEDICATED` or
+`APPLICATION_LEGACY`, and does not prove table read coverage.
+
+Operator-controlled provisioning (never from a routine agent migration):
+
+1. Have an authorized PostgreSQL administrator provision a new
+   **LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION** role
+   solely for a backup of `creative_asset_manager`. Generate a fresh
+   high-entropy secret using an approved secret delivery workflow, not a
+   command line, Git file, terminal transcript or agent chat.
+2. Restrict `CONNECT` to the target database. Grant only `USAGE` on
+   required schemas and `SELECT` on **every** table, including the two
+   incident tables, plus necessary sequence read privileges. Do not grant
+   `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `pg_write_all_data`
+   or broad administrative memberships. Configure narrowly scoped
+   default privileges per table owner for future migrations.
+3. Install a **separate** root:root 0600 backup-only environment file from
+   `deploy/database-backup.env.example`, with the **same endpoint/database**
+   as `DATABASE_URL` but a different username. Do not put the backup secret
+   into shared `production.env`, a shell command or any committed file. Never
+   paste its populated value into documentation. Do not change the app's role
+   or current backend configuration until release and backup repair pass the
+   deployment gates.
+4. With a dedicated connection, perform a read-only catalog privilege audit
+   of all application tables and sequences (zero missing read grants),
+   then `verify-config`. Under the dedicated backup identity, a safe
+   table-coverage query (do **not** run as superuser for this check) is:
+
+   ```sql
+   SELECT COUNT(*) AS tables_without_select
+   FROM pg_class c
+   JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname NOT LIKE 'pg_%'
+     AND n.nspname <> 'information_schema'
+     AND c.relkind IN ('r', 'p', 'm')
+     AND NOT has_table_privilege(current_user, c.oid, 'SELECT');
+   ```
+
+   Run an equivalent `has_sequence_privilege(..., 'SELECT')` audit for
+   `relkind='S'`. Both counts must be zero. This is only an access check;
+   a **real** `pg_dump -Fc` and `pg_restore --list` must still pass.
+5. Confirm independent Google Drive checksum/size verification and download,
+   then restore the *complete data* into an isolated off-host PostgreSQL test
+   environment, validate table/row counts including both incident tables,
+   and rehearse additive migrations `0188` / `0189` with old-release
+   compatibility. Only then clear the G0.1 migration/rollback block.
+
+This is an opt-in backend code path, **not** authorization to create a role,
+modify production secrets, start a new backup job, grant SQL privileges, or
+activate Typography Engine V2. All such actions require a separate guarded
+operator workflow; never retry a failed full dump under an unverified identity
+while the production disk and swap are under pressure.
 
 ## Dump and staging contract
 

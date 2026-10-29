@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_SIMILARITY_MERGED_FRONTEND_MAIN_DEPLOYED_G0_1_BACKUP_BLOCKED
+status: G0_1_BACKUP_DEDICATED_IDENTITY_CODE_TESTED_NOT_DEPLOYED
 active_gate: G0.1
-next_action: REPAIR_SCOPED_DATABASE_BACKUP_AND_VERIFY_OFF_HOST_FULL_DATA_RESTORE_BEFORE_0188_0189
+next_action: MERGE_BACKUP_FIX_AFTER_CI_THEN_DEDICATED_ROLE_AND_OFF_HOST_FULL_RESTORE
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,8 +14,8 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
-feature_branch: main
+vps_main_commit: 3ef0b81ebc5fb980b066c0d18b2e749284f15832
+feature_branch: fix/typography-g0-backup-identity-20261029
 pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_MERGED
 ci: G3_HUMAN_REVIEW_PR_56_CI_2482_PASS_16_OF_16_PR_57_MERGED_CI_NOT_RECHECKED
 vps_release_commit: null
@@ -24,6 +24,7 @@ windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-29
 blockers:
   - G0_1_BACKUP_LAST_RUN_FAILED_CAM_APP_LACKS_SELECT_ON_TWO_INCIDENT_TABLES
+  - G0_1_DEDICATED_BACKUP_ROLE_NOT_PROVISIONED_SEPARATE_SECRET_NOT_INSTALLED
   - G0_1_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
   - G0_1_DISK_89_PERCENT_SWAP_NEAR_FULL_NEEDS_CAPACITY_PLAN
   - G2_AUTHENTICATED_BROWSER_QA_STOPPED_DUE_VPS_RESOURCE_PRESSURE
@@ -260,6 +261,14 @@ Công việc mở đầu:
 - **Capacity/cleanup:** root free space increased approximately 5.1 to 5.5 GiB after removing a clean already-merged Typography worktree, removing 463 rebuildable pip-cache files, and retiring the temporary release checkout. Root remains ~89% full and 2 GiB swap was again nearly full under browser QA. Preserved current/previous backend releases, product outputs, databases and source/worktree changes.
 - **UI QA:** standalone read-only production Firefox QA was attempted but cancelled after >3 minutes due CPU/RAM/swap pressure; **NOT PASS**. Six partial screenshots (including a tablet Reviews failure capture) were retained privately at `apps/client/.ui-qa/production-smoke/20261029T063724Z` in the main worktree. No authenticated 1440/768/390 Typography Ideas acceptance was established. Locked QA dependencies surfaced 39 npm audit advisories (32 moderate, 5 high, 2 critical); these require classification and are not automatically patched.
 - **Next:** repair the complete PostgreSQL backup path without broadening `cam_app` access; verify a fresh off-host data restore, target schema `0188/0189` compatibility, safe rollback and VPS headroom; run authenticated UI QA on a sufficiently resourced machine; verify rights for eight G3 pilot references. Only then consider backend canary and G4. Frontend release remains the only production change from this turn.
+
+### 2026-10-29 — G0.1 dedicated backup identity code and safety tests
+
+- **Cause localized, no production mutation:** latest scheduled backup failure remained `DatabaseBackupDumpError` (27/10). Read-only PostgreSQL catalog confirms `cam_app` is missing `SELECT` on exactly 2 of 197 public regular tables (`cam_incident_20261024_job_hold`, `cam_incident_20261024_source_reuse`). A separate `cam_backup` login was **not present** at inspection time. No role/privilege/secret was created or changed.
+- **Remediation code prepared:** opt-in `DATABASE_BACKUP_DATABASE_URL` for a separate PostgreSQL login, validated same application database/host/port, different role, no URL query override. Only the backup systemd unit loads optional `/etc/creative-asset-manager/database-backup.env` (root-owned 0600), not the shared production environment. Legacy mode stays available but is not an acceptable remediation for the unreadable incident tables. Libpq inherited target/identity overrides are stripped.
+- **Local verification:** dedicated backup module + CLI tests and VPS deploy tests **64/64 PASS** using workspace-local Python, `python3 -m py_compile` PASS, `git diff --check` PASS. Systemd unit syntax accepted; analyzer warned about an unrelated existing CodeLocal service setting. No real `pg_dump`, Google Drive write, production credential read or migration occurred.
+- **Safety still blocked:** source code/tests do not create a read-only backup role or demonstrate restored full dataset. Operator must provision dedicated non-superuser backup identity with `SELECT` covering both protected incident tables, deliver password exclusively in root-owned backup-only config, then verify full dump/remote checksum/off-host restore and backwards-compatible `0188/0189` migration rehearsal. Root disk ~89%, swap near 2 GiB; no backend deploy, V2/pilot/Scout remain OFF.
+- **Next:** reviewed PR and required CI to `main`; only after G0.1 gates pass, deploy backend from `main` and run health/rollback checks. Frontend production remains `2e5286434`.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
