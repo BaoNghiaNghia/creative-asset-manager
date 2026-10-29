@@ -292,8 +292,17 @@ export function KeywordImageStage({
   }, []);
   useEffect(() => {
     if (!active) return;
+    // The current production API may predate Typography V2. Its missing
+    // /typography/status endpoint yields a real 404 in strict Browser QA.
+    // Only probe after an explicitly opted-in frontend build; Vitest/dev
+    // keeps the contract probe enabled for the Typography V2 integration.
+    if (import.meta.env.PROD && import.meta.env.VITE_TYPOGRAPHY_V2_STATUS_PROBE !== "true") {
+      setIdeasAccess(null);
+      setIdeasCount(0);
+      return;
+    }
     const ctrl = new AbortController();
-    // The authenticated status probe always returns 200 when V2 is OFF.
+    // The V2 API returns 200 when V2 is OFF, once the backend is deployed.
     // Do not request a protected reference endpoint until tenant and read access are verified.
     void getTypographyStatus(ctrl.signal)
       .then(status => {
