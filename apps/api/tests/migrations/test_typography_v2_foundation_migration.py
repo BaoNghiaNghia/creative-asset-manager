@@ -15,7 +15,9 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import RrugcReferenceAssetModel
-from app.modules.realistic_review_ugc.typography_model import RrugcTypographyReferenceModel
+from app.modules.realistic_review_ugc.typography_model import (
+    RrugcTypographyReferenceModel, RrugcTypographyAnalysisJobModel,
+)
 
 
 def migration(db_path: Path, op: str, target: str, *, expected_failure: str | None = None):
@@ -49,6 +51,13 @@ def test_typography_foundation_migrates_and_refuses_destructive_rollback():
         assert "rrugc_reference_assets" in inspector.get_table_names()
         assert "rrugc_typography_references" in inspector.get_table_names()
         assert "rrugc_typography_style_dna" in inspector.get_table_names()
+        assert "rrugc_typography_analysis_jobs" in inspector.get_table_names()
+        queue_fks = inspector.get_foreign_keys("rrugc_typography_analysis_jobs")
+        assert any(fk["referred_table"] == "rrugc_typography_references"
+                   and fk["constrained_columns"] == ["tenant_id", "reference_id"]
+                   for fk in queue_fks)
+        assert any(item["name"] == "uq_typography_analysis_job_version"
+                   for item in inspector.get_unique_constraints("rrugc_typography_analysis_jobs"))
         reference_fks = inspector.get_foreign_keys("rrugc_typography_references")
         assert any(
             fk["referred_table"] == "rrugc_reference_assets"
@@ -74,9 +83,23 @@ def test_typography_foundation_migrates_and_refuses_destructive_rollback():
                 asset_id=parent.id, content_hash=parent.content_hash,
                 created_by_user_id="owner",
             ))
+            session.flush()
+            session.add(RrugcTypographyAnalysisJobModel(
+                id="analysis-job-1", tenant_id="tenant-a", reference_id="typo-1",
+                analyzer_version="pilot-1", image_hash=parent.content_hash,
+                status="queued", attempt_count=0,
+            ))
             session.commit()
         db.dispose()
 
+        migration(path, "downgrade", "0188_typography_v2_foundation",
+                  expected_failure="typography_analysis_jobs_must_be_drained_before_downgrade")
+        db = create_engine(f"sqlite:///{path}")
+        assert "rrugc_typography_analysis_jobs" in inspect(db).get_table_names()
+        with Session(db) as session:
+            session.delete(session.get(RrugcTypographyAnalysisJobModel, "analysis-job-1"))
+            session.commit()
+        db.dispose()
         migration(path, "downgrade", "0187_navbar_member_permissions",
                   expected_failure="typography_v2_data_must_be_archived_before_downgrade")
         db = create_engine(f"sqlite:///{path}")

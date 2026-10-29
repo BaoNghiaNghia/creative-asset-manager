@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_CACHE_MERGED_QUEUE_POLICY_DEVELOPMENT_G0_1_ROLLBACK_BLOCKED
+status: G3_POLICY_MERGED_DURABLE_QUEUE_PR_PENDING_G0_1_ROLLBACK_BLOCKED
 active_gate: G3
-next_action: G3_ANALYZER_QUEUE_CACHE_AND_QA_PLUS_G2_AUTHENTICATED_VISUAL_QA_G0_1_ROLLBACK
+next_action: G3_DURABLE_QUEUE_CI_THEN_WORKER_ADAPTER_AND_8_REFERENCE_PILOT_PLUS_G0_1_ROLLBACK
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 7a11f41ffa03c00f27bf9bbba994a56cf7b39d2c
-feature_branch: feat/typography-v2-g3-queue-policy-20261029
-pr: G2_PR_42_MERGED_G3_CONTRACT_PR_43_MERGED_CACHE_PR_44_MERGED_QUEUE_POLICY_PENDING
-ci: G3_CACHE_PR_44_CI_2455_16_OF_16_JOBS_GREEN_QUEUE_POLICY_PENDING
+vps_main_commit: c3f8fe45ca8114737f821bc2c47d63006e2c7e1c
+feature_branch: feat/typography-v2-g3-durable-queue-20261029
+pr: G2_PR_42_MERGED_G3_PR_43_44_45_MERGED_QUEUE_STORAGE_PR_PENDING
+ci: G3_QUEUE_POLICY_PR_45_CI_2457_16_OF_16_JOBS_GREEN_DURABLE_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -36,7 +36,7 @@ rollback:
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G3 — Style DNA contract đã merge; tiếp tục tenant/private-safe cache, analyzer job queue bounded và pilot QA trên 8 ảnh. G2 authenticated browser visual QA và G0.1 rollback/access/capacity vẫn đang chờ.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G3 — DNA schema/cache/dispatch policy merged; đang xây durable analyzer queue (idempotent enqueue, tenant lease, heartbeat, retry and atomic DNA finalize) trên nhánh riêng. Tiếp theo: CI và analyzer adapter, 8 reference pilot, G2 authenticated UI QA; G0.1 rollback/capacity vẫn BLOCKED.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -52,7 +52,7 @@ Công việc mở đầu:
 | G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main f32b7084; API/DB healthy; disk 87%, swap 1.9/2 GiB; current/previous symlinks bị hard-block |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | IN_PROGRESS, contract merged; cache branch active | sample DNA, cache/analyzer metrics |
+| G3 | Visual Analyzer & Style DNA | IN_PROGRESS, DNA schema/cache/dispatch policy merged; durable queue in CI prep | sample DNA, cache/analyzer metrics |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -178,6 +178,15 @@ Công việc mở đầu:
 - **G3 development:** branch `feat/typography-v2-g3-dna-contract-20261029` created from merged `origin/main`. Add strict `typography-dna/v1` parser/validation contract + negative tests for source hash mismatch, malformed bounding box, untrusted graph relations, over-occlusion, NaN/invalid confidence. Contract has no new DB migration, worker, provider calls, or public routes.
 - **Production:** unchanged; `TYPOGRAPHY_V2_ENABLED=false`, Auto Scout OFF. G0.1 symlink rollback access still blocked; disk at ~88% on VPS, no new production worker.
 - **Next:** confirm G3 contract CI, implement source-hash/version cache, bounded analyzer queue and failure/retry budgets; collect 8 anonymized rights-verified DNA samples and authenticated desktop/tablet/mobile UI screenshots. Keep G0.1 hard gate.
+
+### 2026-10-29 — G3 durable queue storage and lease safety (feature branch)
+
+- **PR #45 merged:** GitHub CI #2457 16/16 jobs green, main commit `c3f8fe45ca8114737f821bc2c47d63006e2c7e1c`. Pure dispatch policy is verified in CI; it did not schedule any job.
+- **Current branch:** `feat/typography-v2-g3-durable-queue-20261029` from fresh `origin/main`. Implement additive Alembic `0189`, tenant-linked unique job identity (`reference_id + image_hash + analyzer_version`), bounded due-time claim, PostgreSQL tenant advisory capacity lock + `SKIP LOCKED`, lease fencing, heartbeat, bounded timeout recovery, retry budget and atomic Style DNA persistence.
+- **Fail-closed invariants:** no enqueue/claim/heartbeat/complete without explicit feature+tenant-canary allow; verified rights checked at enqueue, claim, renewal and completion; stale token cannot save results; invalid/untrusted analysis goes to human review. No image bytes or raw model responses in job rows.
+- **Test evidence:** Python syntax and migration test additions prepared; full SQLite/PostgreSQL CI to verify after PR creation. This is storage/lease infrastructure, **not a live worker**, AI analyzer, background scheduler, active queue, public API or completed G3 gate.
+- **Production:** unchanged; feature OFF, auto Scout OFF, no migration deployed. G0.1 rollback symlink access/capacity and authenticated G2 UI pilot screenshot QA remain blocked/pending.
+- **Next:** CI for durable queue, connect guarded worker/provider adapter and budgeted retry with 8 verified reference samples, do actual authenticated desktop/tablet/mobile screenshot QA, then G4.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
