@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_QUEUE_ADAPTER_API_PILOT_RUNNER_MERGED_PILOT_ACCEPTANCE_PENDING_G0_1_BLOCKED
-active_gate: G3
-next_action: G0_1_BACKEND_ROLLBACK_CAPACITY_THEN_G3_8_REFERENCE_PILOT_QA
+status: G3_CODE_MERGED_G0_1_BACKEND_SNAPSHOT_READY_DB_CAPACITY_BLOCKED
+active_gate: G0.1
+next_action: G0_1_DB_RESTORE_SCHEMA_COMPAT_CAPACITY_THEN_G3_8_REFERENCE_PILOT
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,29 +14,29 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 0f9a05df4b8b5f245123a3eb5922a4605cbfd8c2
-feature_branch: docs/typography-v2-g3-pilot-qa-20261029
-pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_MERGED_PILOT_QA_PR_PENDING
-ci: G3_PILOT_PR_52_CI_2474_16_OF_16_JOBS_GREEN_QA_DOC_PENDING
+vps_main_commit: c0ab6d8c8e123edd46607d13ae143ec91b0d822c
+feature_branch: docs/typography-v2-g0-rollback-evidence-20261029
+pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_MERGED_G0_ROLLBACK_PR_54_MERGED_EVIDENCE_PR_PENDING
+ci: G3_QA_PR_53_CI_2476_PASS_16_OF_16_ROLLBACK_FIX_PR_54_CI_2478_PASS_16_OF_16
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
 blockers:
-  - G0_1_BACKEND_CURRENT_PRESENT_PREVIOUS_SYMLINK_MISSING
-  - G0_1_DISK_89_PERCENT_AND_SWAP_2_GIB_OF_2_GIB_REQUIRES_CAPACITY_REVIEW
+  - G0_1_DATABASE_BACKUP_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
+  - G0_1_DISK_90_PERCENT_SWAP_2_OF_2_GIB_REQUIRES_CAPACITY_PLAN
 rollback:
-  backend: CURRENT_VERIFIED_PREVIOUS_MISSING
+  backend: CURRENT_D4573F7E_PREVIOUS_INDEPENDENT_D4573F7E_SNAPSHOT_RUNTIME_CHECKED_DB_RESTORE_UNVERIFIED
   frontend: HOTFIX_FRONTEND_RELEASE_VERIFIED_TYPOGRAPHY_ROLLBACK_PENDING
   windows: AVAILABLE_0_1_45_KEEP
 ---
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G3 (29/10/2026):** PR #46 queue, #50 Vision adapter, #51 Analyze API, #52 one-shot pilot launcher đã merge vào `main`, CI #2460/#2470/#2472/#2474 đều 16/16. Backend production chưa nâng migrations 0188/0189, các cờ V2/pilot/Scout đều OFF. G0.1 rollback backend/capacity còn BLOCKED, chưa xử lý tám ảnh có quyền thực tế.
+> **Cập nhật G0.1 (29/10/2026):** PR #53 QA guide và PR #54 backend retention fix đã merge vào `main` (CI #2476/#2478 đều 16/16). Backend production `current` vẫn là release `d4573f7e`; đã tạo `previous` thành bản sao vật lý độc lập và kiểm tra runtime/Alembic, không restart. **Chưa xác minh DB restore/schema rollback; disk 90% và swap 2/2 GiB**, nên V2/pilot/Scout vẫn OFF, chưa chạy tám ảnh thật.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G3 — Code queue/adapter/API/CLI pilot đã merge, chưa có AI call thực hay pilot nghiệm thu. Ưu tiên G0.1: chuẩn bị backend previous/rollback thực sự và capacity, kiểm tra ảnh pilot có quyền sử dụng; sau đó vận hành 8 lượt có budget/QA. Không deploy production, không bật cờ khi rollback chưa VERIFIED.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G0.1 — Đã chuẩn bị bản sao backend rollback độc lập và sửa retention trên `main`, nhưng mới kiểm tra runtime, chưa làm drill DB restore/schema compatibility. Tiếp theo: xác minh backup/restore trên DB test, kế hoạch capacity cho disk/swap/CPU, sau đó pilot 8 ảnh có quyền theo checklist G3. Production V2, pilot và Scout tiếp tục OFF, không chạy migration 0188/0189.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -49,10 +49,10 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main 0f9a05df; backend current present nhưng previous symlink chưa có; disk 89%, swap 2/2 GiB |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, DB/capacity BLOCKED | main c0ab6d8c; independent `previous` snapshot created, runtime validated; disk 90%, swap 2/2 GiB; database restore and schema compatibility still pending |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | Code merged (queue/adapter/API/pilot CLI); REAL PILOT PENDING, flags OFF | eight licensed samples, review, latency/cost/ROI/override |
+| G3 | Visual Analyzer & Style DNA | Code + QA acceptance merged; REAL PILOT PENDING, flags OFF | eight rights-verified samples, human review, latency/cost/ROI, override and dedup |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -220,6 +220,16 @@ Công việc mở đầu:
 - **current branch:** `docs/typography-v2-g3-pilot-qa-20261029`; preparing G3 QA rubric with eight pseudonymous slots and required rights, image hash, typography-only region, schema, originality, human review, latency/token/cost evidence. No images/tokens/tenant IDs are committed.
 - **hard blocker:** backend production has only `current` release; no verified `previous` rollback, 89% disk, swap fully allocated. Do not run migration `0188/0189` or enable V2, worker or Scout until these are remediated and signed off.
 - **G3 exit remaining:** eight rights-verified reference analyses (plus failures/reviews), perceptual near-duplicate checks, manual override workflow, ROI crop comparison and UX pilot screenshot QA. After real evidence, advance G4 Style Lab with exact keyword transfer.
+
+### 2026-10-29 — G0.1 rollback retention repaired, independent snapshot seeded (not full gate)
+
+- **Source:** `main=c0ab6d8c8e123edd46607d13ae143ec91b0d822c`, PR #53 QA guide merged with CI #2476 (16/16); PR #54 backend retention fix merged with CI #2478 (16/16). Source deploy script now defaults/minimum **2** releases, refuses one-release mode and cannot delete the previous symlink after a successful deploy. The running backend still uses the older release; this new script policy has **not** been exercised by a production backend deploy.
+- **Production backend `current`:** `/opt/creative-asset-manager/releases/d4573f7ee825c659ad44401fc9c60fec297aaefd`, validated release marker, API venv imports and Alembic code head `0187_navbar_member_permissions`. This **does not establish the production DB revision**, which remains to be checked.
+- **Rollback seed `previous`:** independent copy at `/opt/creative-asset-manager/releases/d4573f7ee825c659ad44401fc9c60fec297aaefd-g0rollback-20261029`, `previous` symlink created atomically under backend deployment lock; SHA marker, ready marker, critical requirements, Python runtime and single Alembic head validated. Release marker has a **different inode** from current. It is a physical snapshot of the same pre-upgrade commit; the future deploy script will replace `previous` with the then-old current release.
+- **Production stability after seed:** current symlink unchanged, API/image/video services active; `/live` and `/ready` returned HTTP 200 with the production Host header. No database migration, service restart, provider call, Windows Scout change or pilot execution. Config check found no override for `CAM_BACKEND_RELEASE_KEEP`, V2 feature flag not true.
+- **Capacity:** VPS disk originally 89%; removed three clean worktrees whose commits were already merged (Typography foundation/API and Stage 1 date hotfix), dropping to 88%; the ~725 MiB independent safety snapshot raised use to **90% (about 5.0 GiB free)**. Memory ~7.8 GiB total, ~3.1 GiB available; swap **2/2 GiB allocated**. A brief `vmstat` sample showed no active swap-in/out in its later seconds, but several PostgreSQL processes were CPU-intensive. No swapoff, restart, delete of dirty worktrees or database tuning was attempted.
+- **Backup/DB gate:** `/opt/creative-asset-manager/backups` contained historical env/config evidence, not a verified current PostgreSQL restore artifact. A read-only production-env/alembic DB query was blocked at the CodeLocal workspace boundary; **no workaround was attempted**, no DB credential read. A verified PostgreSQL backup/restore, actual DB revision, migration `0188/0189` compatibility with the old runtime and a non-disruptive rollback drill remain required.
+- **Next safe sequence:** (1) obtain authorized, scoped read-only DB/backup validation and restore to an isolated test DB, (2) confirm 0188/0189 additive backward-compatible rollback and release target, (3) reduce/plan production disk and swap pressure, (4) run G2 authenticated desktop/tablet/mobile reference UI QA, (5) verify rights of exactly eight references and costs, (6) only then authorize the one-shot G3 pilot. **Keep all rollout/pilot/Scout flags OFF until gates pass.**
 
 ## 6. Quy tắc bảo toàn trạng thái
 
