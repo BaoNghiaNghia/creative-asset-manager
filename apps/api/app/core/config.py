@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     DATABASE_POOL_RECYCLE_SECONDS: int = 1800
     DATABASE_CONNECT_TIMEOUT_SECONDS: int = 10
     DATABASE_BACKUP_ENABLED: bool = False
+    # Dedicated, read-only PostgreSQL login for full backups; never change DATABASE_URL.
+    DATABASE_BACKUP_DATABASE_URL: str = ""
     DATABASE_BACKUP_DRIVE_FOLDER_ID: str = ""
     DATABASE_BACKUP_RETENTION_DAYS: int = 21
     DATABASE_BACKUP_MAX_FILES: int = 6

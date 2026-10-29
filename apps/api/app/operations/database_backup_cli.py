@@ -8,8 +8,6 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.engine import make_url
-
 from app.core.config import get_settings
 from app.modules.database_backup.google_drive import (
     DatabaseBackupRemoteError,
@@ -23,6 +21,7 @@ from app.modules.database_backup.service import (
     DatabaseBackupError,
     DatabaseBackupPreflightError,
     DatabaseBackupService,
+    resolve_backup_connection_url,
 )
 from app.modules.database_backup.workflow import DatabaseBackupWorkflow
 from app.modules.database_backup.verified_receipt import write_verified_receipt
@@ -51,13 +50,8 @@ def verify_configuration(
         and str(getattr(settings, "GOOGLE_CLIENT_SECRET", "") or "").strip()
     ):
         raise DatabaseBackupConfigurationError("Managed Google Drive refresh credentials are incomplete.")
-    database_url = str(getattr(settings, "DATABASE_URL", "") or "").strip()
-    try:
-        parsed = make_url(database_url)
-    except Exception as exc:
-        raise DatabaseBackupConfigurationError("Database URL is invalid.") from exc
-    if parsed.get_backend_name() != "postgresql" or not parsed.database:
-        raise DatabaseBackupConfigurationError("Database backup requires PostgreSQL.")
+    # The backup-specific role is validated before the first pg_dump call.
+    resolve_backup_connection_url(settings)
     staging = Path(str(getattr(settings, "DATABASE_BACKUP_STAGING_DIRECTORY", "")))
     if not staging.is_absolute():
         raise DatabaseBackupConfigurationError("Database backup staging directory must be absolute.")
@@ -75,6 +69,10 @@ def verify_configuration(
         "DATABASE_BACKUP_CONFIGURATION": "VALID",
         "MANAGED_GOOGLE_DRIVE_IDENTITY": "CONFIGURED",
         "TENANT_SOURCE_DRIVE_OAUTH": "NOT_USED",
+        "POSTGRESQL_BACKUP_IDENTITY": (
+            "DEDICATED" if str(getattr(settings, "DATABASE_BACKUP_DATABASE_URL", "") or "").strip()
+            else "APPLICATION_LEGACY"
+        ),
         "RETENTION_DAYS": int(settings.DATABASE_BACKUP_RETENTION_DAYS),
         "MAX_FILES": int(settings.DATABASE_BACKUP_MAX_FILES),
     }
