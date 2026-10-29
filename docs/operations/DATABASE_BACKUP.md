@@ -62,6 +62,44 @@ reports only `POSTGRESQL_BACKUP_IDENTITY=DEDICATED` or
 
 Operator-controlled provisioning (never from a routine agent migration):
 
+The idempotence guard in `scripts/cam_pg_backup_identity_operator.py`
+requires a confirmed **local root** session and performs no changes by default.
+On the VPS, from a clean, reviewed `main` checkout with the project's
+Python virtualenv, first run:
+
+```sh
+apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --status
+```
+
+Only after verifying the active production database, target hostname,
+existing backup role and protected file ownership, use the deliberately
+non-default `--apply` action:
+
+```sh
+apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --apply
+apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --status
+```
+
+`--apply` generates a fresh random secret in process memory, creates the
+`cam_backup` role inside one PostgreSQL transaction, grants only
+database CONNECT, schema USAGE, table SELECT and **sequence SELECT**
+(neither sequence USAGE nor UPDATE, which could advance sequences),
+and records the backup-only URL in an exclusive root:root 0600 file.
+It configures scoped default SELECT privileges for future tables/sequences
+owned by `cam_app` or `postgres`. It refuses existing roles and files,
+unexpected endpoints or unresolved DNS and never logs credentials.
+Successful output must show **0 tables/sequences lacking SELECT and
+0 tables/sequences with write-capable privileges**. A failed connection
+check after role creation leaves the protected secret file in place for
+controlled repair; do not delete the last usable credential.
+
+This action does **not** deploy backend code, install/activate the new
+systemd unit, restart services, change `cam_app`, execute a full dump,
+upload anything to Drive, run migrations or prove recovery. The existing
+timer still uses the old backend until a separately gated release.
+If any gate fails, stop without invoking the timer; preserve evidence and
+the rollback release.
+
 1. Have an authorized PostgreSQL administrator provision a new
    **LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION** role
    solely for a backup of `creative_asset_manager`. Generate a fresh
