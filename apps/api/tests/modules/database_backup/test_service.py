@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -145,6 +147,51 @@ class DatabaseBackupServiceTest(unittest.TestCase):
         self.assertEqual(dump_kwargs["env"]["PGPASSWORD"], "secret-value")
         self.assertEqual(dump_kwargs["env"]["PGDATABASE"], "creative_assets")
         self.assertEqual(runner.calls[1][0][:2], ["pg_restore", "--list"])
+
+    def test_dedicated_backup_role_uses_same_db_without_leaking_secret(self):
+        runner = FakeRunner()
+        backup_url = "postgresql+psycopg://cam_backup:backup-only-secret@db.internal:5432/creative_assets"
+        with patch.dict(os.environ, {
+            "PGHOST": "unsafe.internal", "PGHOSTADDR": "192.0.2.1",
+            "PGSERVICE": "wrong-service", "PGPASSFILE": "/private/not-used",
+            "PGUSER": "untrusted-user", "PGPASSWORD": "inherited-secret",
+            "PGDATABASE": "other_database",
+        }):
+            backup = self.service(
+                runner, DATABASE_BACKUP_DATABASE_URL=backup_url,
+            ).create_verified_dump()
+        self.assertTrue(backup.path.exists())
+        command, kwargs = runner.calls[0]
+        self.assertEqual(command[0], "pg_dump")
+        self.assertNotIn("backup-only-secret", " ".join(command))
+        self.assertEqual(kwargs["env"]["PGHOST"], "db.internal")
+        self.assertEqual(kwargs["env"]["PGUSER"], "cam_backup")
+        self.assertEqual(kwargs["env"]["PGPASSWORD"], "backup-only-secret")
+        self.assertEqual(kwargs["env"]["PGDATABASE"], "creative_assets")
+        for key in ("PGHOSTADDR", "PGSERVICE", "PGPASSFILE"):
+            self.assertNotIn(key, kwargs["env"])
+
+    def test_dedicated_backup_url_rejects_other_target_or_same_app_role(self):
+        invalid_urls = [
+            "postgresql+psycopg://other:secret@db.internal:5432/other_database",
+            "postgresql+psycopg://other:secret@another-db:5432/creative_assets",
+            "postgresql+psycopg://other:secret@db.internal:55432/creative_assets",
+            "postgresql+psycopg://backup_user:new-password@db.internal:5432/creative_assets",
+            "sqlite:///creative_assets",
+            "postgresql+psycopg://other:secret@db.internal:5432/creative_assets?host=another-db",
+            "secret://do-not-log",
+        ]
+        for backup_url in invalid_urls:
+            with self.subTest(backup_url=backup_url.split("://", 1)[0]):
+                runner = FakeRunner()
+                service = self.service(
+                    runner, DATABASE_BACKUP_DATABASE_URL=backup_url
+                )
+                with self.assertRaises(DatabaseBackupConfigurationError) as caught:
+                    service.create_verified_dump()
+                self.assertNotIn("secret", str(caught.exception))
+                self.assertEqual(runner.calls, [])
+                self.assertEqual(list(self.staging.glob("*.dump")), [])
 
     def test_dump_failure_removes_partial_file_and_never_verifies(self):
         runner = FakeRunner(dump_returncode=1)

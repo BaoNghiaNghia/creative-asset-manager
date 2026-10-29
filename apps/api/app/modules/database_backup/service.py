@@ -57,6 +57,49 @@ class VerifiedDatabaseBackup:
 Runner = Callable[..., Any]
 
 
+def resolve_backup_connection_url(settings: Any) -> Any:
+    """Resolve the exact production database without broadening the app identity.
+
+    A separately configured backup identity must use another PostgreSQL role
+    on the same database endpoint. Never interpolate credentials into errors.
+    Legacy DATABASE_URL remains the default until an operator provisions the
+    dedicated identity, so existing installations do not silently change.
+    """
+    application_raw = str(getattr(settings, "DATABASE_URL", "") or "").strip()
+    if not application_raw:
+        raise DatabaseBackupConfigurationError("Database URL is not configured.")
+    try:
+        application_url = make_url(application_raw)
+        if application_url.get_backend_name() != "postgresql" or not application_url.database:
+            raise ValueError("invalid database")
+    except Exception as exc:
+        raise DatabaseBackupConfigurationError(
+            "Database backup requires a valid PostgreSQL application database URL."
+        ) from exc
+
+    backup_raw = str(getattr(settings, "DATABASE_BACKUP_DATABASE_URL", "") or "").strip()
+    if not backup_raw:
+        return application_url
+    try:
+        backup_url = make_url(backup_raw)
+        is_same_target = (
+            backup_url.get_backend_name() == "postgresql"
+            and backup_url.database == application_url.database
+            and backup_url.host == application_url.host
+            and (backup_url.port or 5432) == (application_url.port or 5432)
+        )
+        is_separate_role = bool(
+            backup_url.username and backup_url.username != application_url.username
+        )
+        if not is_same_target or not is_separate_role or backup_url.query:
+            raise ValueError("invalid backup identity or endpoint")
+    except Exception as exc:
+        raise DatabaseBackupConfigurationError(
+            "Dedicated backup PostgreSQL URL must use a different role on the same database endpoint, without URL query options."
+        ) from exc
+    return backup_url
+
+
 class DatabaseBackupService:
     """Create and locally verify a custom PostgreSQL dump."""
 
@@ -221,20 +264,14 @@ class DatabaseBackupService:
         )
 
     def _postgres_environment(self) -> dict[str, str]:
-        database_url = str(getattr(self._settings, "DATABASE_URL", "") or "").strip()
-        if not database_url:
-            raise DatabaseBackupConfigurationError("Database URL is not configured.")
-        try:
-            url = make_url(database_url)
-        except Exception as exc:
-            raise DatabaseBackupConfigurationError(
-                "Database URL is not a valid PostgreSQL URL."
-            ) from exc
-        if url.get_backend_name() != "postgresql" or not url.database:
-            raise DatabaseBackupConfigurationError(
-                "Database backup requires a PostgreSQL database URL."
-            )
+        url = resolve_backup_connection_url(self._settings)
         environment = os.environ.copy()
+        # No inherited libpq overrides may silently redirect a backup.
+        for key in (
+            "PGDATABASE", "PGHOST", "PGHOSTADDR", "PGPORT", "PGUSER",
+            "PGPASSWORD", "PGSERVICE", "PGSERVICEFILE", "PGPASSFILE",
+        ):
+            environment.pop(key, None)
         environment["PGDATABASE"] = url.database
         if url.host:
             environment["PGHOST"] = url.host
