@@ -426,3 +426,32 @@ def test_typography_library_filters_stats_capabilities_and_private_scopes(env):
     assert env.client.get(BASE + "/" + third).status_code == 404
     env.identity("owner", permissions={"typography_reference.read"})
     assert env.client.get(BASE, params={"my_uploads_only": True}).json()["total"] == 3
+
+
+def test_dna_cache_is_tenant_private_hash_and_version_scoped(env):
+    from app.modules.realistic_review_ugc.typography_repository import TypographyReferenceRepository
+
+    enabled(env)
+    private = env.upload(91).json()["items"][0]["reference"]
+    shared = env.upload(92).json()["items"][0]["reference"]
+    env.client.patch(BASE + "/" + shared["id"], json={"privacy": "workspace"})
+    with Session(env.engine, expire_on_commit=False) as session:
+        repo = TypographyReferenceRepository(session)
+        dna = RrugcTypographyStyleDnaModel(
+            tenant_id="tenant-a", reference_id=private["id"],
+            analyzer_version="pilot-1", image_hash=private["content_hash"],
+            typography_region_json={"x": 0.1, "y": 0.2, "w": 0.7, "h": 0.5},
+            style_family="serif", font_mood_json={"primary": "serif"},
+            layout_graph_json={"nodes": [], "edges": []}, overlap_rules_json=[],
+            confidence=0.8,
+        )
+        session.add(dna)
+        session.flush()
+        lookup = dict(tenant_id="tenant-a", ref_id=private["id"],
+                      analyzer_version="pilot-1", image_hash=private["content_hash"])
+        assert repo.dna_cached(**lookup, user_id="owner") is dna
+        assert repo.dna_cached(**{**lookup, "analyzer_version": "pilot-2"}, user_id="owner") is None
+        assert repo.dna_cached(**{**lookup, "image_hash": "f" * 64}, user_id="owner") is None
+        assert repo.dna_cached(**{**lookup, "tenant_id": "tenant-b"}, user_id="owner") is None
+        assert repo.dna_cached(**lookup, user_id="colleague") is None
+        assert repo.dna_cached(**{**lookup, "ref_id": shared["id"]}, user_id="owner") is None

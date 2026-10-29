@@ -1,8 +1,8 @@
 ---
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
-updated_at: 2026-10-28
-status: G2_MERGED_G3_DNA_CONTRACT_IN_PROGRESS_G0_1_ROLLBACK_BLOCKED
+updated_at: 2026-10-29
+status: G3_DNA_CONTRACT_MERGED_CACHE_DEVELOPMENT_G0_1_ROLLBACK_BLOCKED
 active_gate: G3
 next_action: G3_ANALYZER_QUEUE_CACHE_AND_QA_PLUS_G2_AUTHENTICATED_VISUAL_QA_G0_1_ROLLBACK
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 8275286cecbf330c716f99fff5f1e921ebc945de
-feature_branch: feat/typography-v2-ideas-ui-20261028
-pr: G2_PR_42_MERGED_G3_PR_PENDING
-ci: G2_PR_42_CI_2451_16_OF_16_JOBS_GREEN_G3_PENDING
+vps_main_commit: 302cfce2949fd9c469ab43b44ad6c00b4a19951d
+feature_branch: feat/typography-v2-g3-cache-20261029
+pr: G2_PR_42_MERGED_G3_CONTRACT_PR_43_MERGED_CACHE_PR_PENDING
+ci: G3_CONTRACT_PR_43_CI_2453_16_OF_16_JOBS_GREEN_CACHE_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -36,7 +36,7 @@ rollback:
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G2 — Hoàn thiện thư viện ảnh typography và frontend/API filters; chạy TypeScript, tests, Browser QA/CI rồi merge `main` nếu tất cả bắt buộc xanh. Tiếp tục G0.1 rollback/access/capacity qua authorized workspace.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G3 — Style DNA contract đã merge; tiếp tục tenant/private-safe cache, analyzer job queue bounded và pilot QA trên 8 ảnh. G2 authenticated browser visual QA và G0.1 rollback/access/capacity vẫn đang chờ.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -51,8 +51,8 @@ Công việc mở đầu:
 |---|---|---|---|
 | G0 | Baseline & safety preflight VPS/Windows | BLOCKED (rollback) | main f32b7084; API/DB healthy; disk 87%, swap 1.9/2 GiB; current/previous symlinks bị hard-block |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
-| G2 | Web Typography Ideas Library & Stage 1 subnav | IN_PROGRESS, PR/CI pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | PENDING | sample DNA, cache/analyzer metrics |
+| G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
+| G3 | Visual Analyzer & Style DNA | IN_PROGRESS, contract merged; cache branch active | sample DNA, cache/analyzer metrics |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |

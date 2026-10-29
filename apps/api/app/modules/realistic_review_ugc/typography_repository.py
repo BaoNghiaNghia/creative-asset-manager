@@ -196,6 +196,24 @@ class TypographyReferenceRepository:
         row.reviewed_by_user_id = user_id
         return row
 
+    def dna_cached(self, tenant_id: str, ref_id: str, *, user_id: str,
+                   analyzer_version: str, image_hash: str, manage: bool = False):
+        """Exact version/source cache hit only after tenant and privacy checks.
+
+        This is a read-only gateway: no implicit analysis, approvals or worker calls.
+        """
+        reference = self.get(tenant_id, ref_id, user_id=user_id, manage=manage)
+        if reference is None or reference.content_hash != image_hash:
+            return None
+        return self.session.scalar(
+            select(RrugcTypographyStyleDnaModel).where(
+                RrugcTypographyStyleDnaModel.tenant_id == tenant_id,
+                RrugcTypographyStyleDnaModel.reference_id == ref_id,
+                RrugcTypographyStyleDnaModel.image_hash == image_hash,
+                RrugcTypographyStyleDnaModel.analyzer_version == analyzer_version,
+            )
+        )
+
     def dna_versions(self, tenant_id: str, ref_id: str, *, user_id: str, manage: bool = False):
         if self.get(tenant_id, ref_id, user_id=user_id, manage=manage) is None:
             return []
