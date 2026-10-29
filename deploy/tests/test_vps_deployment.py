@@ -106,6 +106,30 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
 
+    def test_backend_keeps_independent_previous_rollback_by_default(self) -> None:
+        source = BACKEND.read_text()
+        # Operational regression: single-release retention removed the
+        # previous symlink after every successful backend deploy.
+        self.assertIn('KEEP_RELEASES="${CAM_BACKEND_RELEASE_KEEP:-2}"', source)
+        self.assertIn('((KEEP_RELEASES >= 2))', source)
+        self.assertIn("--keep-releases must be at least 2", source)
+        self.assertNotIn('rm -f -- "$PREVIOUS"', source)
+        self.assertIn('protect_release "$previous_target"', source)
+        self.assertIn('protect_release "$current_target"', source)
+        self.assertIn('activate_release \\', source)
+        self.assertIn('"$PREVIOUS.new"', source)
+        self.assertIn('"$PREVIOUS"', source)
+
+    def test_backend_rejects_explicit_single_release_without_side_effects(self) -> None:
+        # Argument validation runs before deployment lock, logging,
+        # package installation, service changes or schema migrations.
+        result = subprocess.run(
+            ["bash", str(BACKEND), "--keep-releases", "1"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be at least 2", result.stderr)
+
     def test_default_profile_enables_exactly_four_image_workers(self) -> None:
         source = BACKEND.read_text()
         self.assertIn("Stopping/disabling optional image worker 5", source)
