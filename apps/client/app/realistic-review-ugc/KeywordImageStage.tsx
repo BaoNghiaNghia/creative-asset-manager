@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { getTypographyStatus, listTypographyReferences } from "./typography/api";
+import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
+import { Stage1Subnav } from "./typography/Stage1Subnav";
+import type { TypographyReferencePage } from "./typography/types";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
@@ -248,6 +252,49 @@ export function KeywordImageStage({
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
   const bulkAbortRef = useRef<AbortController | null>(null);
+  const [stageView, setStageView] = useState<"jobs" | "ideas">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ideas" ? "ideas" : "jobs");
+  const [ideasAccess, setIdeasAccess] = useState<TypographyReferencePage | null>(null);
+  const [ideasCount, setIdeasCount] = useState(0);
+  const onIdeasCount = useCallback((count: number) => setIdeasCount(count), []);
+  const showKeywordJobs = !ideasAccess || stageView === "jobs";
+  const jobsActive = active && showKeywordJobs;
+  const changeStageView = (next: "jobs" | "ideas") => {
+    setStageView(next);
+    const url = new URL(window.location.href);
+    if (next === "jobs") url.searchParams.delete("view");
+    else url.searchParams.set("view", next);
+    window.history.pushState({}, "", url.pathname + url.search + url.hash);
+    setPickedModalOpen(false);
+    setKeywordDetailTarget(null);
+  };
+  useEffect(() => {
+    const onPopState = () => {
+      setStageView(new URLSearchParams(window.location.search).get("view") === "ideas" ? "ideas" : "jobs");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    const ctrl = new AbortController();
+    // The authenticated status probe always returns 200 when V2 is OFF.
+    // Do not request a protected reference endpoint until tenant and read access are verified.
+    void getTypographyStatus(ctrl.signal)
+      .then(status => {
+        if (!status.available || ctrl.signal.aborted) {
+          if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
+          return;
+        }
+        return listTypographyReferences({ limit: 1 }, ctrl.signal).then(page => {
+          if (!ctrl.signal.aborted) { setIdeasAccess(page); setIdeasCount(page.stats.total); }
+        });
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
+      });
+    return () => ctrl.abort();
+  }, [active]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedQuery(query.trim()); setPage(1); }, 250);
@@ -255,7 +302,7 @@ export function KeywordImageStage({
   }, [query]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!jobsActive) return;
     const controller = new AbortController();
     setCatalogLoading(true);
     void listStage2Skills(false, controller.signal)
@@ -272,7 +319,7 @@ export function KeywordImageStage({
       })
       .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
     return () => controller.abort();
-  }, [active, skillCatalogRevision]);
+  }, [jobsActive, skillCatalogRevision]);
 
   // Respect the stage default; any ready image-generation Skill can receive
   // Stage 1's keyword-only prompt, including skills with bundled references.
@@ -301,7 +348,7 @@ export function KeywordImageStage({
   });
 
   useEffect(() => {
-    if (!active) return;
+    if (!jobsActive) return;
     const controller = new AbortController();
     let busy = true;
     setLoading(true);
@@ -314,7 +361,7 @@ export function KeywordImageStage({
       void refresh(controller.signal).catch(() => undefined).finally(() => { busy = false; });
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [active, page, pageSize, debouncedQuery, status, sortBy, sortDirection]);
+  }, [jobsActive, page, pageSize, debouncedQuery, status, sortBy, sortDirection]);
 
   useEffect(() => {
     if (!keywordDetailTarget) return;
@@ -414,10 +461,10 @@ export function KeywordImageStage({
   const pageCount = Math.max(1, Math.ceil(data.total / data.page_size));
   return <div className="rrugc-keyword-gen">
     <RrugcStageHeader
-      kicker="STAGE 1 / KEYWORD-TO-IMAGE"
-      title="Generate images from used keywords"
-      description="Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail."
-      actions={<div className="rrugc-keyword-gen-actions">
+      kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : "STAGE 1 / TYPOGRAPHY IDEAS"}
+      title={showKeywordJobs ? "Generate images from used keywords" : "Typography Ideas Library"}
+      description={showKeywordJobs ? "Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail." : "Explore, upload and review typography references before using them in new keyword designs."}
+      actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
         <label className="rrugc-keyword-gen-search">
           <span className="sr-only">Search used keywords</span>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
@@ -427,8 +474,13 @@ export function KeywordImageStage({
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
         <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}><RrugcActionIcon name="check" />Picked design</button>
-      </div>}
+      </div> : undefined}
     />
+    {ideasAccess && <Stage1Subnav view={stageView} onView={changeStageView} ideasCount={ideasCount} />}
+    {ideasAccess && <div hidden={stageView !== "ideas"} className="typography-ideas-view">
+      <TypographyIdeasPage active={active && stageView === "ideas"} firstPage={ideasAccess} onCountChange={onIdeasCount} />
+    </div>}
+    <div hidden={!showKeywordJobs} className="typography-keyword-jobs-shell">
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
       <button type="button" aria-pressed={status === "all"} className={status === "all" ? "active" : ""} onClick={() => { setStatus("all"); setPage(1); }}>
         <strong>{totalUsed.toLocaleString()}</strong><span>All used</span>
@@ -545,5 +597,6 @@ export function KeywordImageStage({
             </div>
           </section>
         </div>)}
+    </div>
   </div>;
 }

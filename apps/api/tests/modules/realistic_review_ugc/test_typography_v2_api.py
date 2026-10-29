@@ -148,6 +148,20 @@ def enabled(env):
     env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a"
 
 
+def test_status_probe_preserves_canary_and_permission_boundaries(env):
+    status = "/api/v1/realistic-review-ugc/typography/status"
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 404
+    enabled(env)
+    assert env.client.get(status).json() == {"available": True}
+    env.identity("viewer", permissions={"realistic_review_ugc.read"})
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 403
+    env.identity("outsider", tenant="tenant-b")
+    assert env.client.get(status).json() == {"available": False}
+    assert env.client.get(BASE).status_code == 404
+
+
 def test_default_off_does_not_expose_even_to_administrator(env):
     for method in ("get", "post"):
         env.identity("admin", platform_admin=True)
@@ -370,3 +384,45 @@ def test_scope_switches_are_validated_and_cannot_cross_tenants(env):
     assert env.client.patch(BASE + "/" + ref_id, json={
         "scope": "keyword",
     }).status_code == 422
+
+
+def test_typography_library_filters_stats_capabilities_and_private_scopes(env):
+    enabled(env)
+    refs = [env.upload(value).json()["items"][0]["reference"] for value in (88, 117, 174)]
+    first, second, third = (ref["id"] for ref in refs)
+    env.client.patch(BASE + "/" + first, json={
+        "editorial_status": "approved", "source_rights_status": "owned",
+        "priority": 25, "tags": ["interlocking", "script"], "notes": "High contrast serif",
+        "privacy": "workspace",
+    })
+    env.client.patch(BASE + "/" + second, json={
+        "priority": 8, "notes": "Magazine style", "privacy": "workspace",
+    })
+    env.client.patch(BASE + "/" + third, json={
+        "source_attribution": "Source author", "priority": 4,
+    })
+    page = env.client.get(BASE).json()
+    assert page["stats"] == {"total": 3, "approved": 1, "needs_review": 2, "analyzing": 3}
+    assert page["capabilities"] == {"read": True, "upload": True, "manage": True}
+    assert env.client.get(BASE, params={"query": "Interlocking"}).json()["total"] == 1
+    assert env.client.get(BASE, params={"query": "MagAziNe"}).json()["total"] == 1
+    assert env.client.get(BASE, params={"query": "%"}).json()["total"] == 0
+    assert env.client.get(BASE, params={"sort": "priority"}).json()["items"][0]["id"] == first
+    assert env.client.get(BASE, params={"status": "approved"}).json()["total"] == 1
+    assert env.client.get(BASE, params={"status": "candidate"}).json()["total"] == 2
+    assert env.client.get(BASE, params={"source_type": "scout"}).json()["total"] == 0
+    assert env.client.get(BASE, params={"scope": "skill"}).json()["total"] == 0
+    assert env.client.get(BASE, params={"style_role": "font_mood"}).json()["total"] == 3
+    assert env.client.get(BASE, params={"style_role": "script; DROP TABLE"}).status_code == 422
+    assert env.client.get(BASE, params={"limit": 1, "offset": 2}).json()["items"]
+    assert env.client.get(BASE, params={"limit": 0}).status_code == 422
+
+    env.identity("colleague", permissions={"typography_reference.read"})
+    visible = env.client.get(BASE).json()
+    assert visible["total"] == 2
+    assert visible["stats"]["total"] == 2
+    assert visible["capabilities"] == {"read": True, "upload": False, "manage": False}
+    assert env.client.get(BASE, params={"my_uploads_only": True}).json()["total"] == 0
+    assert env.client.get(BASE + "/" + third).status_code == 404
+    env.identity("owner", permissions={"typography_reference.read"})
+    assert env.client.get(BASE, params={"my_uploads_only": True}).json()["total"] == 3

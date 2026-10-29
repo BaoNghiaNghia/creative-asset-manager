@@ -48,19 +48,36 @@ MAX_BATCH_FILES = 12
 ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 
 
-def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)):
-    """Even an admin cannot reach this pilot API without an explicit tenant canary."""
+def _tenant_can_use_v2(tenant_id: str) -> bool:
     settings = get_settings()
     tenants = {
         tenant.strip()
         for tenant in settings.TYPOGRAPHY_V2_CANARY_TENANT_IDS.split(",")
         if tenant.strip()
     }
-    if not settings.TYPOGRAPHY_V2_ENABLED or principal.active_tenant_id not in tenants:
+    return bool(settings.TYPOGRAPHY_V2_ENABLED and tenant_id in tenants)
+
+
+def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)):
+    """Even an admin cannot reach this pilot API without an explicit tenant canary."""
+    if not _tenant_can_use_v2(principal.active_tenant_id):
         raise HTTPException(status_code=404, detail={
             "code": "typography_v2_disabled", "message": "Typography V2 is not enabled.",
         })
     return principal
+
+
+# A non-mutating, authenticated capability probe returns HTTP 200 when OFF.
+# This prevents the default Stage 1 page from emitting expected 404s in Browser QA.
+status_router = APIRouter(prefix="/typography", tags=["typography-v2"])
+
+
+@status_router.get("/status")
+def typography_feature_status(
+    principal: CurrentPrincipal = Depends(require_authenticated_principal),
+):
+    can_read = principal.platform_admin or "typography_reference.read" in principal.effective_permissions
+    return {"available": bool(can_read and _tenant_can_use_v2(principal.active_tenant_id))}
 
 
 router = APIRouter(
@@ -135,6 +152,11 @@ def _asset_names(session: Session, tenant: str, asset_ids: set[str]) -> dict[str
 def list_typography_references(
     status: Literal["candidate", "approved", "rejected", "archived"] | None = Query(default=None),
     query: str | None = Query(default=None, max_length=100),
+    source_type: Literal["upload", "scout", "internal"] | None = Query(default=None),
+    scope: Literal["workspace", "campaign", "keyword", "skill"] | None = Query(default=None),
+    style_role: Literal["layout", "font_mood", "overlap"] | None = Query(default=None),
+    my_uploads_only: bool = Query(default=False),
+    sort: Literal["newest", "oldest", "priority"] = Query(default="newest"),
     limit: int = Query(default=40, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_db),
@@ -145,11 +167,20 @@ def list_typography_references(
         principal.active_tenant_id,
         user_id=principal.user_id,
         manage=_can_manage(principal),
-        status=status, query=query, limit=limit, offset=offset,
+        status=status, query=query, source_type=source_type, scope=scope,
+        style_role=style_role, my_uploads_only=my_uploads_only, sort=sort,
+        limit=limit, offset=offset,
     )
     names = _asset_names(session, principal.active_tenant_id, {row.asset_id for row in rows})
+    rights = principal.effective_permissions
     return {"items": [_view(row, names.get(row.asset_id)) for row in rows],
-            "total": total, "limit": limit, "offset": offset}
+            "total": total, "limit": limit, "offset": offset,
+            "stats": repo.stats(principal.active_tenant_id, user_id=principal.user_id, manage=_can_manage(principal)),
+            "capabilities": {
+                "read": True,
+                "upload": principal.platform_admin or "typography_reference.upload" in rights,
+                "manage": _can_manage(principal),
+            }}
 
 
 @router.get("/references/{reference_id}")
