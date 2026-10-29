@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { formatKeywordJobDuration, formatKeywordJobFinishedAt, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
+import { formatKeywordJobDuration, formatKeywordJobFinishedAt, formatStage0PickedAt, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
 import type { KeywordImageRow, Stage2Skill } from "./types";
 
 const keyword = {
@@ -12,6 +12,18 @@ const keyword = {
   synced_version: null, ready: true, keyword_artwork_ready: true,
   sync_state: "ready", version_options: [],
 } satisfies Stage2Skill;
+
+describe("Stage 0 picked date formatting", () => {
+  it("uses the saved timestamp as an absolute date, never job completion time", () => {
+    const value = "2026-10-08T08:15:00Z";
+    expect(formatStage0PickedAt(value)).toBe(new Date(value).toLocaleString("vi-VN", {
+      day: "2-digit", month: "2-digit", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }));
+    expect(formatStage0PickedAt(null)).toBe("—");
+    expect(formatStage0PickedAt("invalid")).toBe("—");
+  });
+});
 
 describe("Stage 1 job elapsed time", () => {
   it("formats completed time precisely and does not invent missing timestamps", () => {

@@ -446,6 +446,11 @@ def test_stage1_sort_applies_across_pages_and_keeps_missing_values_last(db):
     second.search_volume = 50
     third.search_volume = 200
     other.search_volume = 9999
+    # Stage 0 selection date is independent of job start/completion time.
+    first.picked_at = datetime(2026, 10, 8, 8, 15, tzinfo=timezone.utc)
+    second.picked_at = datetime(2026, 10, 9, 9, 30, tzinfo=timezone.utc)
+    third.picked_at = None  # Legacy picked keywords may have no recorded timestamp.
+    other.picked_at = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
     first.provider_raw_json = {"trend": [{"period": "2026-08", "volume": 120},
                                          {"period": "2026-09", "volume": 300}],
                                "three_month_change_pct": 20, "yoy_change_pct": 3.5}
@@ -479,11 +484,16 @@ def test_stage1_sort_applies_across_pages_and_keeps_missing_values_last(db):
     assert ordered("keyword", "asc") == ["alpha", "middle", "zebra"]
     assert ordered("search_volume", "desc") == ["alpha", "middle", "zebra"]
     assert ordered("duration", "desc") == ["zebra", "alpha", "middle"]
+    assert ordered("picked_at", "asc") == ["alpha", "zebra", "middle"]
+    assert ordered("picked_at", "desc") == ["zebra", "alpha", "middle"]
     assert ordered("finished_at", "asc") == ["alpha", "zebra", "middle"]
     row = service.list_used(tenant_id="tenant-a", page=1, page_size=1,
                             sort_by="keyword", sort_dir="asc")["items"][0]
     assert row["trend"] == [{"period": "2026-08", "volume": 120}, {"period": "2026-09", "volume": 300}]
     assert row["three_month_change_pct"] == 20.0
+    assert row["picked_at"].startswith("2026-10-08T08:15:00")
+    assert service.list_used(tenant_id="tenant-a", page=1, page_size=10,
+                             sort_by="picked_at", sort_dir="desc")["items"][-1]["picked_at"] is None
     assert service.list_used(tenant_id="tenant-b", page=1, page_size=10)["total"] == 1
     with pytest.raises(ValueError, match="Unsupported Stage 1 ordering"):
         service.list_used(tenant_id="tenant-a", page=1, page_size=10, sort_by="arbitrary_sql")

@@ -142,6 +142,50 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows the Stage 0 picked timestamp and sorts by Picked date, without assuming a date for legacy records", async () => {
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      page: 1, page_size: 20, total: 2,
+      overview: { not_run: 2, queued: 0, running: 0, completed: 0, failed: 0 },
+      items: ["SELECTED", "LEGACY"].map((keyword, index) => ({
+        keyword_id: keyword, keyword, search_volume: 100,
+        picked_at: index === 0 ? "2026-10-08T08:15:00Z" : null,
+        source_image_url: null, status: "not_run" as const, job_id: null,
+        skill_name: null, skill_version: null, retry_count: 0,
+        saved_output_count: 0, attempt_count: 0, max_attempts: 0,
+        error_code: null, error_message: null, output_url: null, updated_at: null,
+      })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const times = host.querySelectorAll<HTMLTimeElement>(".rrugc-keyword-gen-picked time");
+    expect(times).toHaveLength(1);
+    expect(times[0].dateTime).toBe("2026-10-08T08:15:00Z");
+    expect(times[0].textContent).toContain("2026");
+    expect(host.querySelectorAll(".rrugc-keyword-gen-picked")[1]?.textContent).toBe("—");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Picked date descending"]')?.click();
+      await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "picked_at", sortDirection: "desc", page: 1 }),
+      expect.anything(),
+    );
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Picked date ascending"]')?.click();
+      await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "picked_at", sortDirection: "asc", page: 1 }),
+      expect.anything(),
+    );
+    await act(async () => root.unmount());
+  });
+
   it("renders Output slider and Actions as independent table columns", async () => {
     vi.mocked(listKeywordImages).mockResolvedValueOnce({
       page: 1, page_size: 20, total: 1,
@@ -162,15 +206,16 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Duration↕", "Finished at↓", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
-    expect(cells).toHaveLength(9);
+    expect(cells).toHaveLength(10);
     expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
     expect(cells[5].textContent).toBe("—");
     expect(cells[6].textContent).toBe("—");
-    expect(cells[7].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
-    expect(cells[8].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
-    expect(cells[8].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    expect(cells[7].textContent).toBe("—");
+    expect(cells[8].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[9].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[9].querySelector(".rrugc-keyword-output-track")).toBeNull();
     // A real thumbnail click must restore the same gallery modal used by Versions;
     // dragging the strip remains separate and never navigates to a raw image URL.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });

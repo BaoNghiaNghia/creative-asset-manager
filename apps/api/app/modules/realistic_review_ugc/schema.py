@@ -941,6 +941,7 @@ class KeywordImageCreateRequest(BaseModel):
 class KeywordImageRowResponse(BaseModel):
     keyword_id: str
     keyword: str
+    picked_at: str | None = None
     search_volume: int
     trend: list[KeywordVolumeTrendPointResponse] = Field(default_factory=list)
     three_month_change_pct: float | None = None

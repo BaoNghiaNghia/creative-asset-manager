@@ -235,6 +235,7 @@ export type KeywordImageStatus = "not_run" | "queued" | "running" | "completed" 
 export type KeywordImageRow = {
   keyword_id: string;
   keyword: string;
+  picked_at?: string | null;
   search_volume: number;
   trend?: KeywordVolumeTrendPoint[];
   three_month_change_pct?: number | null;
