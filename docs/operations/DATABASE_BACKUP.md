@@ -77,8 +77,16 @@ non-default `--apply` action:
 
 ```sh
 apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --apply
-apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --status
+apps/api/.venv/bin/python scripts/cam_pg_backup_identity_operator.py --verify
 ```
+
+`--verify` is strictly read-only and checks actual saved-credential login,
+all table/sequence SELECT coverage and zero write-capable privileges. It
+materializes the sequence-only catalog before calling PostgreSQL sequence ACL
+functions, preventing the optimizer from applying sequence ACL checks to
+non-sequence `pg_toast` OIDs. If `--apply` already created a role and credential
+but failed at a post-creation audit, **never rerun `--apply`**. Use
+`--status` followed by `--verify` to diagnose the safely preserved state.
 
 `--apply` generates a fresh random secret in process memory, creates the
 `cam_backup` role inside one PostgreSQL transaction, grants only
