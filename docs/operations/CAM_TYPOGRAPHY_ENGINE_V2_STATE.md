@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G0_1_BACKUP_RUNTIME_ISOLATED_FULL_REMOTE_RESTORE_PENDING
+status: G0_1_FULL_DRIVE_BACKUP_VERIFIED_OFFHOST_RESTORE_PENDING
 active_gate: G0.1
-next_action: G0_1_RUN_VERIFIED_BACKUP_CHECKSUM_OFFHOST_RESTORE_THEN_0188_0189_MIGRATION_AND_G6_3_DURABLE_HANDOFF
+next_action: G0_1_INDEPENDENT_OFFHOST_RESTORE_AND_0188_0189_REHEARSAL_THEN_BACKEND_G6_3_HANDOFF
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,21 +14,21 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: 'OFF'
 scout_flag: 'OFF'
-vps_main_commit: 1ed3c7311dac41e1975ee4f307aeeee7d30676ce
+vps_main_commit: bdce6c17a0236fd304fdd496cfa8666598e7b37b
 feature_branch: main
 pr: G2_42_G3_43_44_45_46_50_51_52_53_56_57_G0_54_55_60_61_62_G4_63_G5_G6_64_G6_NATIVE_65_G6_REVIEW_66_BUILD_67_BACKUP_68_DEPLOY_GUARD_69_G6_BATCH_70_MERGED
-ci: PR_72_16_OF_16_CI_PASS_BACKUP_RUNTIME_36_OF_36_AND_BACKUP_53_OF_53_LOCAL_PASS
+ci: PR_72_73_16_OF_16_CI_PASS_BACKUP_36_OF_36_AND_53_OF_53_LOCAL_PASS
 vps_release_commit: d4573f7ee825c659ad44401fc9c60fec297aaefd
 frontend_release_commit: 9ca986520746d9285d0ce3c0cf15de0aa19da6a6
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-29
 blockers:
-  - G0_1_BACKUP_RUNTIME_SERVICE_PINNED_TO_MERGED_61E7DA54C_CONFIG_VERIFIED_BUT_FULL_BACKUP_NOT_RUN
-  - G0_1_FULL_REMOTE_DATA_BACKUP_AND_INDEPENDENT_OFFHOST_RESTORE_NOT_VERIFIED
+  - G0_1_MANAGED_DRIVE_BACKUP_VERIFIED_20261029_221202_SHA256_6F19A8AA_OFFHOST_RESTORE_NOT_RUN
+  - G0_1_FULL_REMOTE_BACKUP_VERIFIED_BUT_INDEPENDENT_OFFHOST_DATA_RESTORE_NOT_VERIFIED
   - G0_1_MIGRATION_0188_0189_AND_BACKWARDS_COMPATIBLE_ROLLBACK_NOT_VERIFIED
   - G6_3_DURABLE_STAGE1_OUTPUT_HISTORY_STAGE2_HANDOFF_AND_RBAC_QA_PENDING
   - G2_AUTHENTICATED_RESPONSIVE_BROWSER_QA_PENDING
-  - VPS_ROOT_DISK_88_PERCENT_5_7GB_AVAILABLE_CAPACITY_CHECK_BEFORE_FULL_DUMP
+  - VPS_ROOT_DISK_88_PERCENT_5_7GB_AVAILABLE_KEEP_BEFORE_MIGRATION
 rollback:
   backend: CURRENT_D4573F7E_PREVIOUS_61E7DA54C_PINNED_BACKUP_ONLY_NO_SCHEMA_MIGRATION_FULL_RESTORE_UNVERIFIED
   frontend: MAIN_9CA986520_DEPLOYED_PREVIOUS_RELEASE_PRESERVED
@@ -37,13 +37,15 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Checkpoint mới 29/10/2026, 21:10 +07:** PR #72 đã merge main ở `1ed3c7311`, CI **16/16 PASS**. Đã kích hoạt **riêng backup runtime** trên VPS bằng operator `cam_isolate_db_backup_runtime.py --apply`, dùng release đã có `61e7da54c` để backup service đọc credential `cam_backup` khi API vẫn chạy `d4573f7e`. `verify-config` read-only và systemd pinned ExecStart PASS; **không có pg_dump, Drive upload, full backup hoặc remote/off-host restore trong lượt này**. Backend API/workers không restart, PostgreSQL vẫn `0187`, ImageGen/Scout OFF. Safe disk dry-run bảo vệ 2 release và cho thấy 5,7 GB trống (88% used). Kế tiếp phải chạy và xác minh full backup/Drive checksum rồi thử off-host restore trước migration `0188/0189`. Đừng xóa runtime đang được backup service ghim.
+> **Checkpoint mới nhất 29/10/2026, 22:12 +07:** Chạy thành công full production `pg_dump` bằng backup identity riêng, thực thi qua backup-only runtime `61e7da54c`; `pg_restore --list`, SHA-256/MD5 Google Drive, kích thước remote và local cleanup đều **PASS**. Dump 393.355.930 bytes (375,1 MiB), SHA-256 `6f19a8aaf96e310fc8b27307967ae32a259c404d649c80e8a506c067fa4f2d20`, MD5 `45b23a55186d0edd152a80f5e9ba2704`; 7 bản remote trước retention, xóa 1 bản cũ theo policy, còn 6. `creative-asset-manager-db-backup.service` trả exit 0, `Result=success`; lịch tiếp theo thứ Sáu 30/10 lúc 22:00 +07. VPS 88% dùng, 5,7 GB trống. **Off-host restore toàn bộ dữ liệu và migration rehearsal `0188/0189` vẫn chưa thực hiện**, backend production vẫn `d4573f7e`, DB `0187`, ImageGen/Scout OFF. Máy tool Windows thiếu PostgreSQL/Docker trên PATH và WSL chưa có distro; không chuyển dữ liệu production trước khi có môi trường restore cô lập.
+
+> **Checkpoint 29/10/2026, 21:10 +07 (trước full backup):** PR #72 đã merge main ở `1ed3c7311`, CI **16/16 PASS**. Đã kích hoạt **riêng backup runtime** trên VPS bằng operator `cam_isolate_db_backup_runtime.py --apply`, dùng release đã có `61e7da54c` để backup service đọc credential `cam_backup` khi API vẫn chạy `d4573f7e`. `verify-config` read-only và systemd pinned ExecStart PASS; **không có pg_dump, Drive upload, full backup hoặc remote/off-host restore trong lượt này**. Backend API/workers không restart, PostgreSQL vẫn `0187`, ImageGen/Scout OFF. Safe disk dry-run bảo vệ 2 release và cho thấy 5,7 GB trống (88% used). Kế tiếp phải chạy và xác minh full backup/Drive checksum rồi thử off-host restore trước migration `0188/0189`. Đừng xóa runtime đang được backup service ghim.
 
 > **Checkpoint 29/10/2026 (mới nhất):** PR #69 sửa preflight deploy và PR #70 bổ sung **G6.3 private reviewed partial-batch checkpoint** đã merge vào `main` (`5ae122ec0`), mỗi PR **16/16 CI PASS**. G6.1 ImageGen pilot, G6.2 human review và G6.3 kiểm kê chính xác 1–5 ảnh được duyệt đều có source, nhưng **chưa có authenticated durable Stage 1 Output History / Stage 2 handoff, chưa chạy ImageGen thật và chưa bật V2/Scout**. Frontend production `9ca986520`, backend production sau rollback `d4573f7e`; thử deploy backend mới `61e7da54c --no-migrate` thất bại do schema còn `0187` trong khi code yêu cầu `0189`, đã rollback và health PASS. Backup role `cam_backup` được xác minh lại 197/197 bảng, 1/1 sequence, zero write; backup service lần cuối 27/10 exit 2 và chưa có full remote backup + off-host restore. VPS disk ~89% (5,6 GB trống). Tiếp theo G0.1 backup/restore, migration và durable G6.3 handoff.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.1 — Role backup chỉ đọc và credential riêng đã được cấp, xác minh xong. Không tạo lại role hoặc rotate secret.** Việc tiếp theo là chụp bản backup production đầy đủ với identity mới, xác minh bản sao remote và restore toàn bộ off-host, đo dung lượng/rollback và thử tương thích migration `0188/0189`; chỉ sau đó mới xem xét deploy backend. Có thể tiếp tục G2 responsive QA/G3 tám ảnh reference có quyền khi đủ tài nguyên, nhưng chưa kích hoạt V2/pilot/Scout. Không chạy full dump trên VPS đang swap full hoặc dùng backend cũ của timer.
+**G0.1 — Full PostgreSQL backup + Drive remote checksum ĐÃ PASS ngày 29/10/2026.** Việc tiếp theo là tải bản backup đã xác minh vào môi trường PostgreSQL **độc lập ngoài VPS**, restore đầy đủ bằng `scripts/cam_db_restore_rehearsal.py`, kiểm chứng bảng/dữ liệu và thử migrations `0188/0189` cùng tương thích rollback. Máy tool `DESKTOP-3FR0LF0` có ổ D đủ dung lượng nhưng chưa có PostgreSQL/Docker trên PATH hoặc WSL distro; không tự cài lên C hoặc chuyển database khi chưa chuẩn bị được môi trường bảo mật. Giữ backend d4573f7e và V2/Scout/ImageGen OFF cho đến khi gate restore đạt. Không chạy lại backup mới nếu bản remote hiện tại vẫn hợp lệ.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -56,7 +58,7 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | BACKUP RUNTIME REPAIRED, FULL REMOTE RESTORE BLOCKED | main 1ed3c7311; backup unit isolated to 61e7da54c (read-only verify-config PASS, full dump NOT run); cam_backup verified 197/197 tables and 1/1 sequence, zero write; backend d4573f7e, DB 0187; last historical backup failed 27 Oct; off-host restore and migration drill pending; disk 88%, 5.7GB available |
+| G0 | Baseline & safety preflight VPS/Windows | FULL MANAGED DRIVE BACKUP VERIFIED, INDEPENDENT RESTORE BLOCKED | main bdce6c17a; 2026-10-29 22:12 +07 full 375MiB pg_dump PASS, pg_restore --list PASS, remote size/MD5/SHA256 PASS, local cleanup PASS, Drive retained 6; backend d4573f7e, DB 0187; off-host full-data restore and migration drill pending; disk 88%, 5.7GB available |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
@@ -330,6 +332,15 @@ Công việc mở đầu:
 - **Scope:** only backup.service WorkingDirectory/ExecStart pinned to the known-good existing runtime. No API/worker restart, no current/previous pointer change, no PostgreSQL mutation, migration, ImageGen invocation, new virtualenv or dump. Previously failed backup history is not retroactively treated as successful. The backup timer retains its Tuesday/Friday schedule; next scheduled execution was 30 October 2026 22:00 +07 when last observed.
 - **Safety/disk:** safe cleanup dry-run recognized the isolated override and protected active backend and backup-pinned prior release (724MB). Root 88% used, about 5.7GB available; no product, database, media, backup or model files deleted. A separate combined systemctl verification command was blocked by CodeLocal policy; did not retry it. The successful operator independently checked the loaded ExecStart as part of activation.
 - **Next G0.1 gate:** inspect actual scheduled or manually authorized full managed backup result; verify full remote size and checksums, then restore the entire database on an independent off-host instance. Plan disk headroom before any local 4GB-class dump and confirm remote OAuth destination. Only then rehearse migrations `0188/0189`, backward-compatibility and rollback; V2/Scout/ImageGen activation remain OFF. Restore the ordinary backup unit with the operator's `--restore-current` command after a successfully migrated active backend supports the dedicated backup reader.
+
+### 2026-10-29 22:07–22:12 +07 — First full managed PostgreSQL backup verified
+
+- **Execution:** official systemd `creative-asset-manager-db-backup.service` launched once using dedicated readonly `cam_backup` identity and isolated immutable runtime `61e7da54c`. Old failed run on 27/10 is historical only; new exit status 0, `Result=success`, active state `inactive/dead` because oneshot completed. No manual re-run is needed.
+- **Integrity:** `PG_DUMP=PASS`; `DUMP_VERIFY=PASS` (`pg_restore --list`); `BACKUP_FILE_SIZE_BYTES=393355930`; SHA-256 `6f19a8aaf96e310fc8b27307967ae32a259c404d649c80e8a506c067fa4f2d20`; MD5 `45b23a55186d0edd152a80f5e9ba2704`. Managed Google Drive `DRIVE_UPLOAD=PASS`, `REMOTE_VERIFY=PASS` and remote MD5 matches. Google Drive file ID omitted from this source log; it remains available in protected journal records.
+- **Retention:** managed backup count before pruning 7, age prune 0, count prune 1, final count 6. Policy deleted one **old remote backup after successful new verification**, not user assets. `LOCAL_CLEANUP=PASS` removed this operation's completed 375 MiB staging dump. Pre-existing unverified local files have **not** been assumed safe to delete.
+- **VPS:** after the backup root remains `88% / 5.7 GB free`; no backend release, PostgreSQL database, Google Drive product media, worker data or model weights were removed. Timer still scheduled Fri 2026-10-30 22:00 +07.
+- **Off-host readiness:** paired `DESKTOP-3FR0LF0` online and D: has ~1.93 TB free, but `pg_restore`, Docker absent from PATH; WSL binary exists but no distro installed. CodeLocal blocked direct inspection outside its Windows workspace, so no installation or production data transfer attempted.
+- **Outstanding hard gate:** `pg_restore --list` proves archive structure only; **full independent off-host PostgreSQL data restore has not passed**. Use existing `scripts/cam_db_restore_rehearsal.py` on a properly isolated disposable PostgreSQL instance and verify counts including incident tables before rehearsing `0188/0189`, then backend production activation. V2, Auto Scout and bulk ImageGen remain OFF.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
