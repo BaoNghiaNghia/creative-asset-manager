@@ -2,41 +2,44 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_HUMAN_REVIEW_MERGED_SIMILARITY_DEV_G0_1_FULL_DATA_CAPACITY_BLOCKED
+status: G3_SIMILARITY_MERGED_FRONTEND_MAIN_DEPLOYED_G0_1_BACKUP_BLOCKED
 active_gate: G0.1
-next_action: G3_SIMILARITY_CI_THEN_G0_1_FULL_BACKUP_RESTORE_AND_8_IMAGE_PILOT
+next_action: REPAIR_SCOPED_DATABASE_BACKUP_AND_VERIFY_OFF_HOST_FULL_DATA_RESTORE_BEFORE_0188_0189
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
 canonical_ui_prototype: docs/operations/prototypes/CAM_TYPOGRAPHY_ENGINE_V2_UI_PREVIEW.html
-ui_design_status: G2_LIBRARY_IMPLEMENTED_IN_FEATURE_BRANCH_G4_STYLE_LAB_NOT_STARTED
+ui_design_status: G2_LIBRARY_MERGED_AUTHENTICATED_QA_PENDING_G4_STYLE_LAB_NOT_STARTED
 ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: faf6b78f4c5d97a65342dbf70b3dab2c8d728ef8
-feature_branch: feat/typography-v2-g3-duplicate-screen-20261029
-pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_56_G0_PR_54_55_MERGED_G3_SIMILARITY_PR_PENDING
-ci: G3_HUMAN_REVIEW_PR_56_CI_2482_PASS_16_OF_16_G3_SIMILARITY_PENDING
+vps_main_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
+feature_branch: main
+pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_MERGED
+ci: G3_HUMAN_REVIEW_PR_56_CI_2482_PASS_16_OF_16_PR_57_MERGED_CI_NOT_RECHECKED
 vps_release_commit: null
+frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
 windows_active_version: VERIFIED_0.1.46
-last_verified_at: 2026-10-28
+last_verified_at: 2026-10-29
 blockers:
-  - G0_1_SCHEMA_ONLY_RESTORE_PASS_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
-  - G0_1_DISK_90_PERCENT_SWAP_2_OF_2_GIB_REQUIRES_CAPACITY_PLAN
+  - G0_1_BACKUP_LAST_RUN_FAILED_CAM_APP_LACKS_SELECT_ON_TWO_INCIDENT_TABLES
+  - G0_1_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
+  - G0_1_DISK_89_PERCENT_SWAP_NEAR_FULL_NEEDS_CAPACITY_PLAN
+  - G2_AUTHENTICATED_BROWSER_QA_STOPPED_DUE_VPS_RESOURCE_PRESSURE
 rollback:
   backend: CURRENT_D4573F7E_PREVIOUS_INDEPENDENT_D4573F7E_SNAPSHOT_RUNTIME_CHECKED_DB_RESTORE_UNVERIFIED
-  frontend: HOTFIX_FRONTEND_RELEASE_VERIFIED_TYPOGRAPHY_ROLLBACK_PENDING
+  frontend: MAIN_2E5286434_DEPLOYED_PREVIOUS_RELEASE_PRESERVED
   windows: AVAILABLE_0_1_45_KEEP
 ---
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G3 (29/10/2026):** PR #56 Human Review đã merge vào `main` (CI #2482 PASS 16/16). G3 đang phát triển ROI dHash near-duplicate warning chỉ sử dụng một lượt analyzer đã có; có lọc tenant/privacy, không tự loại reference hay phát sinh AI call thêm. PostgreSQL production revision `0187`; schema-only restore đã PASS 197/197 bảng, nhưng chưa restore dữ liệu 4 GB. Disk ~90%, swap 2/2 GiB, V2/Scout/pilot OFF.
+> **Checkpoint 29/10/2026:** PR #57 G3 ROI similarity advisory đã merge vào `main` (`2e5286434`). Frontend từ chính commit này đã deploy production và public health checks trong deployment script PASS; backend vẫn chạy release `d4573f7e`, PostgreSQL revision `0187`, migration `0188/0189` chưa chạy và V2/Scout/pilot vẫn OFF. Backup định kỳ 27/10 thất bại; full-data restore chưa kiểm chứng. Browser QA thêm bằng Firefox được dừng do áp lực tài nguyên, không được tính PASS.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G3/G0.1 — Human Review đã merge; phát triển phát hiện gần trùng bằng ROI dHash tại chỗ, cảnh báo-only, không AI pass mới. Tiếp theo: CI/merge similarity; kiểm thử full data backup/restore off-host có đủ dung lượng, capacity, G2 UI QA và 8 ảnh có quyền. Production V2/pilot/Scout vẫn OFF, không chạy migrations 0188/0189.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G0.1 — Ưu tiên khôi phục backup PostgreSQL đầy đủ bằng danh tính backup được giới hạn quyền riêng, không cấp quyền đọc bảng sự cố cho `cam_app` một cách tùy tiện; xác minh tải về và restore full data off-host, tương thích migration `0188/0189`, dung lượng/rollback rồi mới xét backend rollout.** PR #57 đã merge; không cần merge lại. Tiếp theo chạy G2 authenticated responsive QA trên môi trường có đủ RAM và pilot tám ảnh đã xác minh quyền sử dụng. Giữ V2/pilot/Scout OFF, không chạy migrations cho đến khi G0.1 VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -49,10 +52,10 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full data/capacity BLOCKED | main faf6b78f; independent backend previous; live PG 0187; schema-only restore 197/197 tables PASS; disk 90%, swap full; full-data restore pending |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, backup/full data/capacity BLOCKED | main 2e5286434; frontend released; backend d4573f7e and rollback copy; DB 0187; last backup failed; full-data restore pending; disk 89%, swap nearly full |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | Human Review merged; ROI near-duplicate warning in feature branch; real pilot OFF | duplicate QA CI, eight licensed refs, ROI/cost/latency and human QA |
+| G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -247,6 +250,16 @@ Công việc mở đầu:
 - **read-only similarity endpoint:** `GET /references/{id}/dna/{dna_id}/similar` with tenant/canary/read permission, current hash/version, SQL-enforced private/workspace visibility, and distance 0–8. Returns visible reference IDs and distances only, max 25 results scanning up to 500 candidates; `scan_truncated` acknowledges possible omissions. It is an **advisory for human review**, not an automatic rejection/plagiarism determination.
 - **verification:** source/tests Python syntax and diff checks; synthetic tests for ROI vs product background, alpha images, false-positive risk, versioning, malformed inputs, provider one-pass persistence, invalid stored hash and private/cross-tenant API results; CI pending. Current G0.1 remains blocked on full backup/restore, separate clean target for schema upgrade + rollback, disk around 90%, fully allocated 2 GiB swap.
 - **next:** CI/merge warning API; perform G2 authenticated responsive QA; secure eight rights-verified images and create sanitized per-image human-review/latency/cost evidence after G0.1 approval. Production V2/pilot/Scout unchanged and OFF.
+
+### 2026-10-29 — Main frontend production release; G0.1 database backup failure isolated
+
+- **Source:** `main` fast-forwarded from `eb4f966a0` to `2e528643497c159251ac77f3d87ffb941a6e8987`. PR #57 ROI near-duplicate advisory is merged. An unrelated untracked `CAM_THREADTRANSFER_V1_IMPLEMENTATION.md` in the main worktree was preserved, not reset/staged.
+- **Frontend production DEPLOYED:** official `scripts/deploy-cam-frontend.sh --commit 2e528643497c159251ac77f3d87ffb941a6e8987` exited 0 from a temporary clean checkout of the exact main commit. Dist provenance check verified frontend source unchanged from its committed `build-info.json` ancestor; Nginx syntax/reload and deployment script's public HTTP health/icon/version checks succeeded. Backend, database and workers were not restarted by the frontend deploy.
+- **Backend production NOT DEPLOYED:** existing release `d4573f7e` remains active. Production database last independently established at Alembic `0187`. No `0188/0189` migrations, V2 activation, pilot AI calls or Windows Scout changes in this step.
+- **Backup blocker (read-only inspection):** scheduled database backup timer active/enabled; latest observed service execution 2026-10-27 22:00 +07 exited 2 with `DatabaseBackupDumpError`. PostgreSQL metadata shows application role `cam_app` lacks `SELECT` on two postgres-owned incident tables, `cam_incident_20261024_job_hold` and `cam_incident_20261024_source_reuse`; the other 195 public regular tables had `SELECT`. This is a **likely cause, not proven stderr-level diagnosis**. The incident tables are protected recovery evidence. No `GRANT`, application role escalation, data changes, credential access or backup retries were performed. Use a separately scoped, audited backup identity and independently verified remote full-data restore before migrations.
+- **Capacity/cleanup:** root free space increased approximately 5.1 to 5.5 GiB after removing a clean already-merged Typography worktree, removing 463 rebuildable pip-cache files, and retiring the temporary release checkout. Root remains ~89% full and 2 GiB swap was again nearly full under browser QA. Preserved current/previous backend releases, product outputs, databases and source/worktree changes.
+- **UI QA:** standalone read-only production Firefox QA was attempted but cancelled after >3 minutes due CPU/RAM/swap pressure; **NOT PASS**. Six partial screenshots (including a tablet Reviews failure capture) were retained privately at `apps/client/.ui-qa/production-smoke/20261029T063724Z` in the main worktree. No authenticated 1440/768/390 Typography Ideas acceptance was established. Locked QA dependencies surfaced 39 npm audit advisories (32 moderate, 5 high, 2 critical); these require classification and are not automatically patched.
+- **Next:** repair the complete PostgreSQL backup path without broadening `cam_app` access; verify a fresh off-host data restore, target schema `0188/0189` compatibility, safe rollback and VPS headroom; run authenticated UI QA on a sufficiently resourced machine; verify rights for eight G3 pilot references. Only then consider backend canary and G4. Frontend release remains the only production change from this turn.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
