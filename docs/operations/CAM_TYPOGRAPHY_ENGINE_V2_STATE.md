@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G0_1_BACKUP_IDENTITY_CODE_MERGED_MAIN_NOT_PRODUCTION
+status: G0_1_SCOPED_BACKUP_ROLE_VERIFIED_FULL_RESTORE_BLOCKED
 active_gate: G0.1
-next_action: OPERATOR_PROVISION_SCOPED_BACKUP_ROLE_THEN_FULL_OFF_HOST_RESTORE_AND_0188_0189_COMPAT_QA
+next_action: VERIFY_FULL_DATA_BACKUP_OFF_HOST_RESTORE_ROLLBACK_AND_CAPACITY_BEFORE_BACKEND_MIGRATION
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,17 +14,17 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: bd27289b579ced7f003292fedfe09366b9c1b490
+vps_main_commit: 491e037f95004a5bdf1fa79032e21d216ec4ead1
 feature_branch: main
-pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_MERGED
-ci: BACKUP_G0_1_PR_60_RUN_40834817984_ALL_17_CHECKS_PASS
+pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_MERGED
+ci: BACKUP_G0_1_PR_61_62_ALL_17_CHECKS_PASS_LOCAL_54_TESTS_PASS
 vps_release_commit: null
 frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-29
 blockers:
   - G0_1_BACKUP_LAST_RUN_FAILED_CAM_APP_LACKS_SELECT_ON_TWO_INCIDENT_TABLES
-  - G0_1_DEDICATED_BACKUP_ROLE_NOT_PROVISIONED_SEPARATE_SECRET_NOT_INSTALLED
+  - G0_1_BACKUP_SERVICE_ON_OLD_BACKEND_AND_NEW_READONLY_ROLE_NOT_USED_BY_SCHEDULER_YET
   - G0_1_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
   - G0_1_DISK_89_PERCENT_SWAP_NEAR_FULL_NEEDS_CAPACITY_PLAN
   - G2_AUTHENTICATED_BROWSER_QA_STOPPED_DUE_VPS_RESOURCE_PRESSURE
@@ -36,11 +36,11 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Checkpoint 29/10/2026:** PR #57 G3 ROI similarity advisory đã merge vào `main` (`2e5286434`). Frontend từ chính commit này đã deploy production và public health checks trong deployment script PASS; backend vẫn chạy release `d4573f7e`, PostgreSQL revision `0187`, migration `0188/0189` chưa chạy và V2/Scout/pilot vẫn OFF. Backup định kỳ 27/10 thất bại; full-data restore chưa kiểm chứng. Browser QA thêm bằng Firefox được dừng do áp lực tài nguyên, không được tính PASS.
+> **Checkpoint 29/10/2026:** PR #61 và #62 đã merge vào `main` (code `491e037f9`), cả hai 17/17 CI PASS. Production đã tạo role `cam_backup` và credential riêng root:root 0600; đọc được 197/197 bảng và 1/1 sequence, không có quyền ghi; `--verify` kết nối bằng credential thực tế PASS. **Chưa có full backup/remote restore**; backup service vẫn chạy backend cũ `d4573f7e`, migration DB vẫn `0187`, `0188/0189` chưa chạy, V2/Scout/pilot OFF. Frontend production vẫn `2e5286434`. Swap VPS 2/2 GiB, disk 89%.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.1 — Ưu tiên khôi phục backup PostgreSQL đầy đủ bằng danh tính backup được giới hạn quyền riêng, không cấp quyền đọc bảng sự cố cho `cam_app` một cách tùy tiện; xác minh tải về và restore full data off-host, tương thích migration `0188/0189`, dung lượng/rollback rồi mới xét backend rollout.** PR #57 đã merge; không cần merge lại. Tiếp theo chạy G2 authenticated responsive QA trên môi trường có đủ RAM và pilot tám ảnh đã xác minh quyền sử dụng. Giữ V2/pilot/Scout OFF, không chạy migrations cho đến khi G0.1 VERIFIED.
+**G0.1 — Role backup chỉ đọc và credential riêng đã được cấp, xác minh xong. Không tạo lại role hoặc rotate secret.** Việc tiếp theo là chụp bản backup production đầy đủ với identity mới, xác minh bản sao remote và restore toàn bộ off-host, đo dung lượng/rollback và thử tương thích migration `0188/0189`; chỉ sau đó mới xem xét deploy backend. Có thể tiếp tục G2 responsive QA/G3 tám ảnh reference có quyền khi đủ tài nguyên, nhưng chưa kích hoạt V2/pilot/Scout. Không chạy full dump trên VPS đang swap full hoặc dùng backend cũ của timer.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -53,7 +53,7 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, backup/full data/capacity BLOCKED | main 2e5286434; frontend released; backend d4573f7e and rollback copy; DB 0187; last backup failed; full-data restore pending; disk 89%, swap nearly full |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore/capacity BLOCKED | main 491e037f9; backup role credential+SQL ACL verified 197/197 tables, 1/1 sequence, no write; backend d4573f7e; DB 0187; last scheduled backup failed; remote full restore pending; disk 89%, swap 2/2 GiB |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
@@ -277,6 +277,14 @@ Công việc mở đầu:
 - **Production rollout:** code is merged into `main` only. Backend remains at `d4573f7e`; running PostgreSQL remains at known revision `0187`; `0188/0189` have NOT been applied. `TYPOGRAPHY_V2_ENABLED`, pilot/Scout remain OFF. The earlier frontend production release `2e5286434` is unchanged. This is **not** a completed backend release or backup recovery.
 - **Remaining hard gates:** production dedicated backup PostgreSQL login and root-only secret **not provisioned/activated**; last observed scheduled dump failed, two incident tables require read coverage by backup-only role; full off-host database restore, data/compatibility/rollback drills and server disk/swap headroom remain unverified. Do not invoke an unsafe full dump or backend migration/deploy. Next step: scoped operator provisioning, read-only privileges audit, checked `pg_dump -Fc` with remote checksum verification, independently restored full dataset outside production, then 0188/0189 compatibility rehearsal.
 - **Actual tests:** targeted 64/64 local PASS; GitHub 17/17 PASS. No live backup restoration or paid G3 pilot occurred.
+
+### 2026-10-29 — G0.1 live backup identity provisioned; full restore still blocked
+
+- **Merged source:** PR #61 `ed1e76f8a` and PR #62 `491e037f9`, each **17/17 CI PASS** including GitGuardian. Local focused backup/operator suite **54 PASS**.
+- **Production metadata-only DDL (intentional):** an operator-only script from reviewed `main` generated a fresh secret locally and committed a dedicated `cam_backup` role with LOGIN, NOSUPERUSER, NOINHERIT and limited CONNECT, public schema USAGE, table SELECT and sequence SELECT. Default read grants scoped to `cam_app`/postgres-owned future objects. No `INSERT/UPDATE/DELETE/TRUNCATE`, no sequence `USAGE/UPDATE`, no grants to `cam_app`, no data modifications, no exposed credentials.
+- **Credential handling:** backup-only root-owned `0600` environment file created. First post-creation audit failed due PostgreSQL plan evaluating a sequence ACL function on a non-sequence `pg_toast` OID, **after** role creation. No second provisioning attempt was made. PR #62 fixed it using MATERIALIZED table/sequence OID sets and added read-only `--verify`.
+- **Live verification:** `--verify` on production PASS: role exists, credential file `ROOT_0600`, endpoint DNS valid, dedicated PostgreSQL login successful, 197/197 public tables and 1/1 sequence readable; `TABLES_WITH_WRITE=0`, `SEQUENCES_WITH_WRITE=0`. Two incident recovery tables are included; no 4GB full dump executed.
+- **Remaining hard-block:** existing systemd backup service still runs old backend code, last backup failed, no verified remote full-data copy/independent off-host restore or `0188/0189` migration rehearsal; root disk about 89% full, 2/2 GiB swap full. Do not deploy new backend/migrate/activate Typography V2 until those prerequisites and rollback pass. Frontend prod remains previous verified main release.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
