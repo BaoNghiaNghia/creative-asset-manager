@@ -594,6 +594,7 @@ class KeywordImageService:
             "keyword": func.lower(RrugcKeywordVolumeModel.keyword),
             "search_volume": RrugcKeywordVolumeModel.search_volume,
             "duration": duration_seconds,
+            "picked_at": RrugcKeywordVolumeModel.picked_at,
             "finished_at": finished_at,
         }
         if sort_by not in sort_columns or sort_dir not in ("asc", "desc"):
@@ -653,6 +654,7 @@ class KeywordImageService:
                              and processing and (processing.payload_json or {}).get("replace_outputs"))
             items.append({
                 "keyword_id": keyword.id, "keyword": keyword.keyword,
+                "picked_at": keyword.picked_at.isoformat() if keyword.picked_at else None,
                 "search_volume": keyword.search_volume, "source_image_url": keyword.source_image_url,
                 "trend": stage1_keyword_trend(keyword.provider_raw_json),
                 "three_month_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "three_month_change_pct"),

@@ -306,7 +306,7 @@ export const getQueryIntelligence = (signal?: AbortSignal) =>
 
 
 export const listKeywordImages = (
-  filters: { page?: number; pageSize?: number; query?: string; status?: string; sortBy?: "keyword" | "search_volume" | "duration" | "finished_at"; sortDirection?: "asc" | "desc" } = {},
+  filters: { page?: number; pageSize?: number; query?: string; status?: string; sortBy?: "keyword" | "search_volume" | "picked_at" | "duration" | "finished_at"; sortDirection?: "asc" | "desc" } = {},
   signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({

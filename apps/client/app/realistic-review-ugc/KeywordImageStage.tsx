@@ -19,7 +19,7 @@ import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolu
 import "./KeywordImageStage.css";
 
 const PAGE_SIZES = [20, 50, 100] as const;
-export type KeywordImageSortBy = "keyword" | "search_volume" | "duration" | "finished_at";
+export type KeywordImageSortBy = "keyword" | "search_volume" | "picked_at" | "duration" | "finished_at";
 type KeywordImageSortDirection = "asc" | "desc";
 
 function Stage1SortHeader({ column, label, sortBy, sortDirection, onSort }: {
@@ -55,6 +55,16 @@ function formatKeywordJobFinishedAtAbsolute(value: string | null | undefined): s
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString(undefined, {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+export function formatStage0PickedAt(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("vi-VN", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
   });
 }
 
@@ -222,12 +232,17 @@ export function KeywordImageStage({
   onManageSkills: () => void;
 }) {
   const [data, setData] = useState<KeywordImagePage>(EMPTY);
+  // The deployed Stage 0 detail API already exposes picked_at. Read it only for
+  // legacy Stage 1 responses until the new Stage 1 backend is safely released.
+  const [legacyPickedDates, setLegacyPickedDates] = useState<Record<string, string | null>>({});
+  const pickedDateRequests = useRef(new Set<string>());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [status, setStatus] = useState<"all" | KeywordImageStatus>("all");
   const [sortBy, setSortBy] = useState<KeywordImageSortBy>("finished_at");
+  const pickedSortSupported = data.items.length > 0 && data.items.every(item => item.picked_at !== undefined);
   const [sortDirection, setSortDirection] = useState<KeywordImageSortDirection>("desc");
   const onSort = (column: KeywordImageSortBy) => {
     setSortDirection(current => column === sortBy ? (current === "asc" ? "desc" : "asc") : column === "keyword" ? "asc" : "desc");
@@ -362,6 +377,39 @@ export function KeywordImageStage({
     }, 5000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [jobsActive, page, pageSize, debouncedQuery, status, sortBy, sortDirection]);
+
+  // Bounded, cached compatibility reads; never refetch every 5s poll.
+  // The API's tenant-scoped detail route is already available in production.
+  const legacyIds = data.items.filter(row => row.picked_at === undefined)
+    .map(row => row.keyword_id).join("|");
+  useEffect(() => {
+    if (!jobsActive || !legacyIds) return;
+    const pending = legacyIds.split("|").filter(id => !pickedDateRequests.current.has(id));
+    if (!pending.length) return;
+    const controller = new AbortController();
+    let cursor = 0;
+    const worker = async () => {
+      while (!controller.signal.aborted && cursor < pending.length) {
+        const id = pending[cursor++];
+        pickedDateRequests.current.add(id);
+        try {
+          const detail = await getKeywordAnalysisDetail(id, controller.signal);
+          if (!controller.signal.aborted) {
+            setLegacyPickedDates(current => ({ ...current, [id]: detail.picked_at ?? null }));
+          }
+        } catch {
+          if (!controller.signal.aborted) {
+            // Missing or inaccessible data is never substituted with job dates.
+            setLegacyPickedDates(current => ({ ...current, [id]: null }));
+          }
+        } finally {
+          if (controller.signal.aborted) pickedDateRequests.current.delete(id);
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(3, pending.length) }, () => worker()));
+    return () => controller.abort();
+  }, [jobsActive, legacyIds]);
 
   useEffect(() => {
     if (!keywordDetailTarget) return;
@@ -508,13 +556,16 @@ export function KeywordImageStage({
           <th>Trend</th>
           <Stage1SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Generation skill</th><th>Job status</th>
+          {pickedSortSupported
+            ? <Stage1SortHeader column="picked_at" label="Picked date" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+            : <th title="Sorting by picked date will be available after the Stage 1 API upgrade">Picked date</th>}
           <Stage1SortHeader column="duration" label="Duration" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <Stage1SortHeader column="finished_at" label="Finished at" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Output</th><th>Actions</th>
         </tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={9}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={10}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
@@ -544,6 +595,12 @@ export function KeywordImageStage({
                   {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Running image-generation Skill"}</small> : null}
                   {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
+                <td className="rrugc-keyword-gen-picked">{(() => {
+                  const pickedAt = row.picked_at === undefined ? legacyPickedDates[row.keyword_id] : row.picked_at;
+                  return pickedAt && formatStage0PickedAt(pickedAt) !== "—"
+                    ? <time dateTime={pickedAt} title={formatKeywordJobFinishedAtAbsolute(pickedAt)}>{formatStage0PickedAt(pickedAt)}</time>
+                    : <span className="rrugc-keyword-gen-muted">—</span>;
+                })()}</td>
                 <td className="rrugc-keyword-gen-duration" title={row.started_at || "Job has not started"}>{row.started_at
                   ? formatKeywordJobDuration(row.started_at, row.finished_at) : "—"}{row.started_at && !row.finished_at && row.status === "running" && <small>Running</small>}</td>
                 <td className="rrugc-keyword-gen-finished">{row.finished_at
@@ -560,7 +617,7 @@ export function KeywordImageStage({
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={9}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={10}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>

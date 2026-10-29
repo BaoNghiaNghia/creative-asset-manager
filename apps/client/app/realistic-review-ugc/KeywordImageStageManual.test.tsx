@@ -142,13 +142,91 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows the Stage 0 picked timestamp and sorts by Picked date, without assuming a date for legacy records", async () => {
+    const response = {
+      page: 1, page_size: 20, total: 2,
+      overview: { not_run: 2, queued: 0, running: 0, completed: 0, failed: 0 },
+      items: ["SELECTED", "LEGACY"].map((keyword, index) => ({
+        keyword_id: keyword, keyword, search_volume: 100,
+        picked_at: index === 0 ? "2026-10-08T08:15:00Z" : null,
+        source_image_url: null, status: "not_run" as const, job_id: null,
+        skill_name: null, skill_version: null, retry_count: 0,
+        saved_output_count: 0, attempt_count: 0, max_attempts: 0,
+        error_code: null, error_message: null, output_url: null, updated_at: null,
+      })),
+    };
+    vi.mocked(listKeywordImages).mockResolvedValueOnce(response).mockResolvedValueOnce(response).mockResolvedValueOnce(response);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const times = host.querySelectorAll<HTMLTimeElement>(".rrugc-keyword-gen-picked time");
+    expect(times).toHaveLength(1);
+    expect(times[0].dateTime).toBe("2026-10-08T08:15:00Z");
+    expect(times[0].textContent).toContain("2026");
+    expect(host.querySelectorAll(".rrugc-keyword-gen-picked")[1]?.textContent).toBe("—");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Picked date descending"]')?.click();
+      await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "picked_at", sortDirection: "desc", page: 1 }),
+      expect.anything(),
+    );
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Picked date ascending"]')?.click();
+      await Promise.resolve();
+    });
+    expect(listKeywordImages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "picked_at", sortDirection: "asc", page: 1 }),
+      expect.anything(),
+    );
+    await act(async () => root.unmount());
+  });
+
+  it("falls back to the existing Stage 0 detail API when the deployed Stage 1 API omits picked_at", async () => {
+    vi.mocked(getKeywordAnalysisDetail).mockResolvedValueOnce({
+      id: "legacy-1", keyword: "LEGACY", search_volume: 100,
+      provider: "aebrowse_google_ads", picked: true,
+      picked_at: "2026-10-08T08:15:00Z", favorite: false, favorite_at: null,
+      source_image_url: null, source_pin_url: null, fetched_at: "2026-10-10T01:00:00Z",
+    } as never);
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      total: 1, page: 1, page_size: 20,
+      overview: { not_run: 1, queued: 0, running: 0, completed: 0, failed: 0 },
+      items: [{
+        keyword_id: "legacy-1", keyword: "LEGACY", search_volume: 100,
+        source_image_url: null, status: "not_run", job_id: null,
+        skill_name: null, skill_version: null, retry_count: 0,
+        saved_output_count: 0, attempt_count: 0, max_attempts: 0,
+        error_code: null, error_message: null, output_url: null, updated_at: null,
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+    expect(getKeywordAnalysisDetail).toHaveBeenCalledWith("legacy-1", expect.anything());
+    expect(host.querySelector<HTMLTimeElement>(".rrugc-keyword-gen-picked time")?.dateTime)
+      .toBe("2026-10-08T08:15:00Z");
+    expect(host.querySelector(".rrugc-keyword-gen-table thead")?.textContent).toContain("Picked date");
+    expect(host.querySelector('button[aria-label="Sort by Picked date descending"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("renders Output slider and Actions as independent table columns", async () => {
     vi.mocked(listKeywordImages).mockResolvedValueOnce({
       page: 1, page_size: 20, total: 1,
       overview: { not_run: 0, queued: 0, running: 0, completed: 1, failed: 0 },
       items: [{
         keyword_id: "key-1", keyword: "BEACH PLEASE", search_volume: 100,
-        source_image_url: null, status: "completed", job_id: "job-1",
+        picked_at: null, source_image_url: null, status: "completed", job_id: "job-1",
         skill_name: "redesign-8869-v3", skill_version: null, retry_count: 0,
         saved_output_count: 5, attempt_count: 1, max_attempts: 1,
         error_code: null, error_message: null, output_url: "/api/v1/image/5", updated_at: null,
@@ -162,15 +240,16 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Duration↕", "Finished at↓", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
-    expect(cells).toHaveLength(9);
+    expect(cells).toHaveLength(10);
     expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
     expect(cells[5].textContent).toBe("—");
     expect(cells[6].textContent).toBe("—");
-    expect(cells[7].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
-    expect(cells[8].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
-    expect(cells[8].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    expect(cells[7].textContent).toBe("—");
+    expect(cells[8].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[9].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[9].querySelector(".rrugc-keyword-output-track")).toBeNull();
     // A real thumbnail click must restore the same gallery modal used by Versions;
     // dragging the strip remains separate and never navigates to a raw image URL.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
