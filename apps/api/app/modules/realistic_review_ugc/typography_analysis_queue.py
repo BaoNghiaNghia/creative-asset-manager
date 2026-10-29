@@ -21,6 +21,7 @@ from app.modules.realistic_review_ugc.typography_analysis_policy import (
 from app.modules.realistic_review_ugc.typography_dna_contract import (
     TypographyDnaContractError, validate_typography_dna,
 )
+from app.modules.realistic_review_ugc.typography_similarity import is_typography_dhash
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel as Reference,
     RrugcTypographyStyleDnaModel as Dna,
@@ -340,6 +341,7 @@ class TypographyAnalysisQueue:
     def complete(
         self, *, tenant_id: str, job_id: str, token: str,
         payload: dict, enabled: bool = False, tenant_allowed: bool = False,
+        perceptual_hash: str | None = None,
         now: datetime | None = None,
     ) -> str:
         """Atomic DNA commit only for an enabled, rights-verified active lease."""
@@ -368,6 +370,9 @@ class TypographyAnalysisQueue:
             dna = validate_typography_dna(payload, source_sha256=job.image_hash)
             if dna["analyzer_version"] != job.analyzer_version:
                 raise TypographyDnaContractError("Analyzer version mismatch")
+            # Never accept an unversioned/model-supplied image hash here.
+            if perceptual_hash is not None and not is_typography_dhash(perceptual_hash):
+                raise TypographyDnaContractError("Invalid server perceptual hash")
         except TypographyDnaContractError:
             return self.fail(
                 tenant_id=tenant_id, job_id=job_id, token=token,
@@ -391,6 +396,7 @@ class TypographyAnalysisQueue:
                 layout_graph_json=dna["layout_graph"],
                 overlap_rules_json=dna["overlap_rules"],
                 confidence=dna["confidence"],
+                perceptual_hash=perceptual_hash,
             ))
         job.status = "completed"
         job.completed_at = clock

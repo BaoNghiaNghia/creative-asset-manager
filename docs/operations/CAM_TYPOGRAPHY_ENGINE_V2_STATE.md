@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_HUMAN_REVIEW_DEV_G0_1_SCHEMA_RESTORE_VERIFIED_FULL_DATA_CAPACITY_BLOCKED
+status: G3_HUMAN_REVIEW_MERGED_SIMILARITY_DEV_G0_1_FULL_DATA_CAPACITY_BLOCKED
 active_gate: G0.1
-next_action: G3_HUMAN_REVIEW_CI_THEN_G0_1_FULL_BACKUP_RESTORE_AND_CAPACITY
+next_action: G3_SIMILARITY_CI_THEN_G0_1_FULL_BACKUP_RESTORE_AND_8_IMAGE_PILOT
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: d53da73bebac1c18dc37163fe0335ccca8c98909
-feature_branch: feat/typography-v2-g3-human-review-20261029
-pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_G0_PR_54_55_MERGED_G3_HUMAN_REVIEW_PR_PENDING
-ci: G0_1_EVIDENCE_PR_55_CI_2480_PASS_16_OF_16_G3_HUMAN_REVIEW_PENDING
+vps_main_commit: faf6b78f4c5d97a65342dbf70b3dab2c8d728ef8
+feature_branch: feat/typography-v2-g3-duplicate-screen-20261029
+pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_56_G0_PR_54_55_MERGED_G3_SIMILARITY_PR_PENDING
+ci: G3_HUMAN_REVIEW_PR_56_CI_2482_PASS_16_OF_16_G3_SIMILARITY_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
@@ -32,11 +32,11 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G0.1/G3 (29/10/2026):** PR #55 checkpoint đã merge vào `main` (CI #2480 PASS 16/16). PostgreSQL production revision `0187`; schema-only backup được restore thử vào database tạm: 197/197 bảng, 944 constraints, 708 indexes, 18 MB, dọn sạch sau 4 giây. **Không restore dữ liệu 4 GB hoặc apply migrations 0188/0189**. G3 đang phát triển human review/structural override từ schema hiện có, chưa chạy AI. Disk ~90%, swap 2/2 GiB, V2/Scout/pilot OFF.
+> **Cập nhật G3 (29/10/2026):** PR #56 Human Review đã merge vào `main` (CI #2482 PASS 16/16). G3 đang phát triển ROI dHash near-duplicate warning chỉ sử dụng một lượt analyzer đã có; có lọc tenant/privacy, không tự loại reference hay phát sinh AI call thêm. PostgreSQL production revision `0187`; schema-only restore đã PASS 197/197 bảng, nhưng chưa restore dữ liệu 4 GB. Disk ~90%, swap 2/2 GiB, V2/Scout/pilot OFF.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.1/G3 — Đã PASS schema-only restore từ production nhưng chưa có full-data restore. Đang hoàn thiện G3 human review: giới hạn chỉnh region/font/layout/overlap, kiểm tra quyền/tenant, giữ DNA AI nguyên bản và audit. Tiếp theo: CI/merge human review; thực hiện full backup/restore drill trên storage/cluster cách ly đủ dung lượng, capacity, 8 ảnh có quyền và UI QA. Production V2/pilot/Scout OFF.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G3/G0.1 — Human Review đã merge; phát triển phát hiện gần trùng bằng ROI dHash tại chỗ, cảnh báo-only, không AI pass mới. Tiếp theo: CI/merge similarity; kiểm thử full data backup/restore off-host có đủ dung lượng, capacity, G2 UI QA và 8 ảnh có quyền. Production V2/pilot/Scout vẫn OFF, không chạy migrations 0188/0189.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -49,10 +49,10 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full data/capacity BLOCKED | main d53da73b; independent backend previous; live PG 0187; schema-only restore 197/197 tables PASS; disk 90%, swap full; full-data restore pending |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full data/capacity BLOCKED | main faf6b78f; independent backend previous; live PG 0187; schema-only restore 197/197 tables PASS; disk 90%, swap full; full-data restore pending |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | Human review API in feature branch; one-shot AI pipeline/QA docs merged; real pilot OFF | review CI, near-duplicate screening, eight licensed samples, ROI/cost and manual QA |
+| G3 | Visual Analyzer & Style DNA | Human Review merged; ROI near-duplicate warning in feature branch; real pilot OFF | duplicate QA CI, eight licensed refs, ROI/cost/latency and human QA |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -239,6 +239,14 @@ Công việc mở đầu:
 - **Additional rollback QA:** `.venv/bin/uvicorn` and `.venv/bin/alembic` console scripts in current and previous physical snapshot have old absolute shebangs pointing to deleted build staging paths. API's actual systemd ExecStart uses the safe `python -m uvicorn` form and current API/worker health remained PASS; do not assume copied console entrypoints are independently executable. A clean deploy/rollback entrypoint audit remains part of G0 acceptance.
 - **G3 human review code:** new pure `typography_dna_review.py` and manage-only `PATCH /references/{id}/dna/{dna_id}/review`, with decisions, fixed reason codes, bounded normalized structural overrides, tenant/hash/version checks, rights gating, atomic audit and immutable AI result preservation. The existing `manual_override_json` column from migration 0188 is used; **no new migration**. Accepted effective DNA invalidates when rights/editorial approval changes. API tests use synthetic references; full CI required before merge.
 - **Still BLOCKED:** no verified complete production data backup/restore and 0188/0189 backward-compatibility drill; disk about 90%, swap 2/2 GiB allocated; G3 eight licensed references, human QA, ROI cost and near-duplicate screening outstanding. Production V2/pilot/Scout flags remain OFF; no AI calls, migration, backend deploy or service restart in this work.
+
+### 2026-10-29 — G3 human review merged, typography-only dHash advisory in development
+
+- **main:** `faf6b78f4c5d97a65342dbf70b3dab2c8d728ef8` after PR #56 Human Review CI #2482 full 16/16 PASS. Its bounded, audited manual override/readiness API uses existing 0188 columns and remains feature OFF.
+- **feature branch:** `feat/typography-v2-g3-duplicate-screen-20261029` computes `tdh1` 64-bit perceptual hash from the *already prepared and SHA-verified image*, cropping the AI's normalized **typography-only** region. ROI hashing occurs locally only after one validated analyzer call and is stored in existing `rrugc_typography_style_dna.perceptual_hash`, with lease-fenced persistence. No extra provider call, no new migration.
+- **read-only similarity endpoint:** `GET /references/{id}/dna/{dna_id}/similar` with tenant/canary/read permission, current hash/version, SQL-enforced private/workspace visibility, and distance 0–8. Returns visible reference IDs and distances only, max 25 results scanning up to 500 candidates; `scan_truncated` acknowledges possible omissions. It is an **advisory for human review**, not an automatic rejection/plagiarism determination.
+- **verification:** source/tests Python syntax and diff checks; synthetic tests for ROI vs product background, alpha images, false-positive risk, versioning, malformed inputs, provider one-pass persistence, invalid stored hash and private/cross-tenant API results; CI pending. Current G0.1 remains blocked on full backup/restore, separate clean target for schema upgrade + rollback, disk around 90%, fully allocated 2 GiB swap.
+- **next:** CI/merge warning API; perform G2 authenticated responsive QA; secure eight rights-verified images and create sanitized per-image human-review/latency/cost evidence after G0.1 approval. Production V2/pilot/Scout unchanged and OFF.
 
 ## 6. Quy tắc bảo toàn trạng thái
 

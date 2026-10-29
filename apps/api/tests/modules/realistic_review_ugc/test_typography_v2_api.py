@@ -759,3 +759,69 @@ def test_low_confidence_human_acceptance_requires_explicit_reason(env):
         assert session.query(AuthAuditEventModel).filter_by(
             action="typography_reference.dna_reviewed",
         ).count() == 1
+
+
+def test_typography_dna_similarity_is_read_only_bounded_and_private(env):
+    source, source_dna = _reviewable_reference_and_dna(env, 201)
+    duplicate, duplicate_dna = _reviewable_reference_and_dna(env, 202)
+    different, different_dna = _reviewable_reference_and_dna(env, 203)
+    with Session(env.engine) as session:
+        session.get(RrugcTypographyStyleDnaModel, source_dna).perceptual_hash = "tdh1:0000000000000000"
+        session.get(RrugcTypographyStyleDnaModel, duplicate_dna).perceptual_hash = "tdh1:0000000000000000"
+        session.get(RrugcTypographyStyleDnaModel, different_dna).perceptual_hash = "tdh1:ffffffffffffffff"
+        # Candidate is another person's private image in the same tenant.
+        session.get(RrugcTypographyReferenceModel, duplicate["id"]).created_by_user_id = "other-owner"
+        session.commit()
+    path = BASE + "/" + source["id"] + "/dna/" + source_dna + "/similar"
+    manager = env.client.get(path, params={"max_distance": 0})
+    assert manager.status_code == 200, manager.text
+    assert manager.json()["status"] == "ready"
+    assert manager.json()["items"] == [{
+        "reference_id": duplicate["id"], "dna_id": duplicate_dna,
+        "distance": 0,
+    }]
+    assert "perceptual_hash" not in manager.text
+    assert "source_url" not in manager.text
+    assert env.client.get(path, params={"max_distance": 9}).status_code == 422
+    assert env.client.get(path, params={"limit": 26}).status_code == 422
+
+    env.identity("owner", permissions={"typography_reference.read"})
+    viewer = env.client.get(path)
+    assert viewer.status_code == 200
+    assert viewer.json()["items"] == []  # Never infer a private match.
+    env.identity("owner")
+    assert env.client.patch(BASE + "/" + duplicate["id"], json={
+        "privacy": "workspace",
+    }).status_code == 200
+    env.identity("owner", permissions={"typography_reference.read"})
+    shared = env.client.get(path)
+    assert shared.status_code == 200
+    assert len(shared.json()["items"]) == 1
+    env.identity("outsider", tenant="tenant-b", platform_admin=True)
+    env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a,tenant-b"
+    assert env.client.get(path).status_code == 404
+    env.identity("owner")
+    # Correcting the candidate bbox invalidates its old AI-ROI fingerprint.
+    other_review = BASE + "/" + duplicate["id"] + "/dna/" + duplicate_dna + "/review"
+    assert env.client.patch(other_review, json={
+        "decision": "accepted", "reason_code": "region_corrected",
+        "override": {"typography_region": {"x": .14, "y": .22, "w": .55, "h": .49}},
+    }).status_code == 200
+    assert env.client.get(path).json()["items"] == []
+    # Correcting the source bbox also suppresses stale, misleading matches.
+    source_review = BASE + "/" + source["id"] + "/dna/" + source_dna + "/review"
+    assert env.client.patch(source_review, json={
+        "decision": "accepted", "reason_code": "region_corrected",
+        "override": {"typography_region": {"x": .14, "y": .22, "w": .55, "h": .49}},
+    }).status_code == 200
+    assert env.client.get(path).json() == {
+        "status": "hash_stale_after_region_edit", "items": [],
+        "scan_truncated": False,
+    }
+    with Session(env.engine) as session:
+        session.get(RrugcTypographyStyleDnaModel, source_dna).perceptual_hash = None
+        session.commit()
+    assert env.client.get(path).json() == {
+        "status": "hash_unavailable", "items": [], "scan_truncated": False,
+    }
+    assert env.storage.calls == 3  # Similarity never reads or regenerates assets.

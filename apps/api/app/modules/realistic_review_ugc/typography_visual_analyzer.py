@@ -34,6 +34,7 @@ from app.modules.realistic_review_ugc.typography_dna_contract import (
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel as Reference,
 )
+from app.modules.realistic_review_ugc.typography_similarity import typography_dhash
 
 MAX_SOURCE_BYTES = 12 * 1024 * 1024
 MAX_SOURCE_PIXELS = 20_000_000
@@ -331,13 +332,15 @@ class TypographyVisualAnalysisRunner:
             session.commit()
             return status
 
-    def _complete(self, claim: AnalysisClaim, payload: dict) -> str:
+    def _complete(self, claim: AnalysisClaim, payload: dict,
+                  perceptual_hash: str | None = None) -> str:
         if not self.enabled_for_tenant(claim.tenant_id):
             return "feature_disabled"
         with self.session_factory() as session:
             status = TypographyAnalysisQueue(session).complete(
                 tenant_id=claim.tenant_id, job_id=claim.job_id,
                 token=claim.token, payload=payload, enabled=True, tenant_allowed=True,
+                perceptual_hash=perceptual_hash,
             )
             session.commit()
             return status
@@ -398,7 +401,13 @@ class TypographyVisualAnalysisRunner:
             if not self._authorized(claim):
                 status = self._fail(claim, "reference_changed", retryable=False)
                 return AnalysisTick(status, provider_calls, error_code="reference_changed")
-            status = self._complete(claim, dna)
+            # Local typography-only ROI hash. Advisory metadata only: an
+            # unsupported crop must not discard otherwise valid Style DNA.
+            try:
+                perceptual_hash = typography_dhash(image_bytes, dna["typography_region"])
+            except ValueError:
+                perceptual_hash = None
+            status = self._complete(claim, dna, perceptual_hash=perceptual_hash)
             return AnalysisTick(status, provider_calls, int((monotonic() - start) * 1000))
         except TypographyImageUnavailable as exc:
             status = self._fail(claim, "image_unavailable", retryable=False)
