@@ -2013,6 +2013,8 @@ progress 84 \
 
 for unit in \
   creative-asset-manager-api.service \
+  creative-asset-manager-db-backup.service \
+  creative-asset-manager-db-backup.timer \
   creative-asset-manager-error-logger.service \
   creative-asset-manager-error-logger.timer \
   creative-asset-manager-disk-watch.service \

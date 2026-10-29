@@ -106,6 +106,19 @@ class SimplifiedProductionDeploymentTest(unittest.TestCase):
         for forbidden in ("docker compose build api", "docker compose up api", "docker compose up worker", "alembic downgrade"):
             self.assertNotIn(forbidden, source)
 
+    def test_backend_release_installs_dedicated_backup_systemd_units(self) -> None:
+        source = BACKEND.read_text()
+        install_section = source.split('"Installing native systemd units"', 1)[1].split('systemctl daemon-reload', 1)[0]
+        for name in ("creative-asset-manager-db-backup.service", "creative-asset-manager-db-backup.timer"):
+            self.assertIn(name, install_section)
+            self.assertTrue((ROOT / "deploy" / "systemd" / name).is_file())
+        backup_unit = (ROOT / "deploy" / "systemd" / "creative-asset-manager-db-backup.service").read_text()
+        self.assertIn("EnvironmentFile=/etc/creative-asset-manager/production.env", backup_unit)
+        self.assertIn("EnvironmentFile=-/etc/creative-asset-manager/database-backup.env", backup_unit)
+        self.assertNotIn("DATABASE_BACKUP_DATABASE_URL=", backup_unit)
+        # Deploy installs templates but must not forcibly run pg_dump.
+        self.assertNotIn("systemctl start creative-asset-manager-db-backup.service", source)
+
     def test_backend_keeps_independent_previous_rollback_by_default(self) -> None:
         source = BACKEND.read_text()
         # Operational regression: single-release retention removed the
