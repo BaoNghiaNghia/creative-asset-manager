@@ -2,22 +2,22 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G0_1_SCOPED_BACKUP_ROLE_VERIFIED_FULL_RESTORE_BLOCKED
+status: G4_PREVIEW_MVP_MERGED_G0_1_FULL_RESTORE_BLOCKED
 active_gate: G0.1
-next_action: VERIFY_FULL_DATA_BACKUP_OFF_HOST_RESTORE_ROLLBACK_AND_CAPACITY_BEFORE_BACKEND_MIGRATION
+next_action: PARALLEL_G5_G6_OFFLINE_QA_WITH_G0_1_OFF_HOST_BACKUP_RESTORE_BEFORE_PRODUCTION_ACTIVATION
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
 canonical_ui_prototype: docs/operations/prototypes/CAM_TYPOGRAPHY_ENGINE_V2_UI_PREVIEW.html
-ui_design_status: G2_LIBRARY_MERGED_AUTHENTICATED_QA_PENDING_G4_STYLE_LAB_NOT_STARTED
+ui_design_status: G2_LIBRARY_MERGED_G4_STYLE_LAB_PREVIEW_MVP_MERGED_AUTHENTICATED_QA_PENDING
 ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 491e037f95004a5bdf1fa79032e21d216ec4ead1
+vps_main_commit: 8a8ad2c124f6cdd625efbcac480ca7592f3d5591
 feature_branch: main
-pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_MERGED
-ci: BACKUP_G0_1_PR_61_62_ALL_17_CHECKS_PASS_LOCAL_54_TESTS_PASS
+pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_G4_PR_63_MERGED
+ci: G4_PR_63_17_OF_17_CI_PASS_G4_LOCAL_PYTEST_54_PASS
 vps_release_commit: null
 frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
 windows_active_version: VERIFIED_0.1.46
@@ -36,7 +36,7 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Checkpoint 29/10/2026:** PR #61 và #62 đã merge vào `main` (code `491e037f9`), cả hai 17/17 CI PASS. Production đã tạo role `cam_backup` và credential riêng root:root 0600; đọc được 197/197 bảng và 1/1 sequence, không có quyền ghi; `--verify` kết nối bằng credential thực tế PASS. **Chưa có full backup/remote restore**; backup service vẫn chạy backend cũ `d4573f7e`, migration DB vẫn `0187`, `0188/0189` chưa chạy, V2/Scout/pilot OFF. Frontend production vẫn `2e5286434`. Swap VPS 2/2 GiB, disk 89%.
+> **Checkpoint 29/10/2026:** PR #63 **G4 Style Lab preview MVP** đã merge vào `main` (`8a8ad2c12`, 17/17 CI PASS), nhưng chưa phát hành backend/frontend production; V2 vẫn OFF. PR #61/#62 đã hoàn thành tài khoản backup riêng `cam_backup`, quyền SELECT 197/197 bảng + 1/1 sequence và không quyền ghi. **Backup dữ liệu ~4 GB + restore off-host còn thiếu**; runtime backend `d4573f7e`, DB revision `0187`, frontend production `2e5286434`. `0188/0189` chưa chạy; Scout/pilot OFF, disk ~89%, swap gần đầy. Tiếp tục G5/G6 offline đồng thời gỡ G0.1.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
@@ -57,7 +57,7 @@ Công việc mở đầu:
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
-| G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
+| G4 | Reference matcher & Style Lab Dynamic Composer | MVP PREVIEW MERGED, FINAL QA PENDING | PR #63 17/17 CI pass; guarded 3 SVG previews and Stage1 Apply style available in source; matcher scoring, UX-05..07 and production enablement remain |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
 | G7 | Windows Typography Scout extension | PENDING | manager build, lease/offline/Chrome QA, UX-11..UX-12 |
@@ -285,6 +285,13 @@ Công việc mở đầu:
 - **Credential handling:** backup-only root-owned `0600` environment file created. First post-creation audit failed due PostgreSQL plan evaluating a sequence ACL function on a non-sequence `pg_toast` OID, **after** role creation. No second provisioning attempt was made. PR #62 fixed it using MATERIALIZED table/sequence OID sets and added read-only `--verify`.
 - **Live verification:** `--verify` on production PASS: role exists, credential file `ROOT_0600`, endpoint DNS valid, dedicated PostgreSQL login successful, 197/197 public tables and 1/1 sequence readable; `TABLES_WITH_WRITE=0`, `SEQUENCES_WITH_WRITE=0`. Two incident recovery tables are included; no 4GB full dump executed.
 - **Remaining hard-block:** existing systemd backup service still runs old backend code, last backup failed, no verified remote full-data copy/independent off-host restore or `0188/0189` migration rehearsal; root disk about 89% full, 2/2 GiB swap full. Do not deploy new backend/migrate/activate Typography V2 until those prerequisites and rollback pass. Frontend prod remains previous verified main release.
+
+### 2026-10-29 — Fast-track G4 Style Lab preview-only MVP merged
+
+- **Implementation:** PR #63 merged into `main` as `8a8ad2c124f6cdd625efbcac480ca7592f3d5591`; **17/17 GitHub CI PASS** including frontend deterministic dist, Browser QA fixtures, API shards, PostgreSQL and GitGuardian. Local bounded Python tests 54 PASS. Worktree built and committed frontend `dist`, kept provenance metadata as in CI. No production runtime was deployed.
+- **G4 vertical slice:** tenant-canary guarded `POST /typography/previews` requires a **picked Stage0 keyword**, `typography_reference.read` and keyword read grant, a visible approved rights-verified reference and human-accepted current Style DNA. Returns three deterministic SVG vector drafts with original Vietnamese/unicode keyword exactly preserved; no AI provider call, Stage1 job, storage or database write. Stage1 guarded navigation now has `Style Lab` plus row `Apply style`, 3-pane UI Reference / Previews / Balanced controls. Revoking rights invalidates prior approval. `concept-short-v1` and Stage2 untouched. UI and QA are MVP, NOT embroidery-ready final outputs.
+- **Fast MVP path to runnable image:** build G5 exact-text, glyph/legibility, originality/diversity & partial-slot QA and G6 `concept-short-v2` pilot job integration OFFLINE with synthetic/rights-verified fixtures **in parallel** with G0.1 full remote database backup, off-host 4GB restore, 0188/0189 backward-compatibility/rollback proof and capacity plan. Pilot reference acquisition can be manual; Windows Typography Scout G7 must not block a manual-reference pilot but is required for full project acceptance.
+- **Still blocked:** production backend release remains `d4573f7e`, actual DB migration `0187`, frontend production `2e5286434`. V2/canary/Scout/pilot OFF, no real 8-reference G3 or 20-keyword G9 pilot. Root 89% and swap nearly full. Production Stage1 Style Lab not visible until safe backend + migrations + canary/verified frontend release.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
