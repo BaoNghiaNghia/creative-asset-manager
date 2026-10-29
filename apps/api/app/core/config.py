@@ -227,6 +227,10 @@ class Settings(BaseSettings):
     # flag is true: intentional deny-by-default safety boundary.
     TYPOGRAPHY_V2_ENABLED: bool = False
     TYPOGRAPHY_V2_CANARY_TENANT_IDS: str = ""
+    # Separate server-side opt-in for one-shot G3 pilot runs; never schedules work.
+    TYPOGRAPHY_V2_PILOT_WORKER_ENABLED: bool = False
+    # Never set until migration, backend rollback and capacity are verified.
+    TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED: bool = False
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
     CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED: bool = False
     CLOUDFLARE_AI_ACCOUNT_ID: str = ""
