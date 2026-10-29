@@ -140,3 +140,54 @@ class RrugcTypographyStyleDnaModel(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     manual_override_json: Mapped[dict | None] = mapped_column(JSON)
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+class RrugcTypographyAnalysisJobModel(Base):
+    """Durable, tenant-scoped G3 analysis work. No worker is registered by this model."""
+
+    __tablename__ = "rrugc_typography_analysis_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "reference_id"],
+            ["rrugc_typography_references.tenant_id", "rrugc_typography_references.id"],
+            name="fk_typography_analysis_job_reference_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "reference_id", "analyzer_version", "image_hash",
+            name="uq_typography_analysis_job_version",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','completed','failed','needs_review')",
+            name="ck_typography_analysis_job_status",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND attempt_count <= 3",
+            name="ck_typography_analysis_job_attempts",
+        ),
+        Index(
+            "ix_typography_analysis_job_claim",
+            "tenant_id", "status", "next_attempt_at", "created_at",
+        ),
+        Index(
+            "ix_typography_analysis_job_lease",
+            "tenant_id", "status", "lease_expires_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    analyzer_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utcnow)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
