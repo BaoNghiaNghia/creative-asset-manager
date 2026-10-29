@@ -5,8 +5,11 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
+from secrets import token_urlsafe
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from sqlalchemy.engine import URL
 
 from app.modules.database_backup.google_drive import DATABASE_BACKUP_KIND, RemoteDatabaseBackup
 from app.modules.database_backup.retention import DatabaseBackupRetentionResult
@@ -50,6 +53,7 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["DATABASE_BACKUP_CONFIGURATION"], "VALID")
         self.assertEqual(result["TENANT_SOURCE_DRIVE_OAUTH"], "NOT_USED")
+        self.assertEqual(result["POSTGRESQL_BACKUP_IDENTITY"], "APPLICATION_LEGACY")
         missing = SimpleNamespace(access_token=None, refresh_token=None)
         with patch.object(
             cli, "resolve_managed_storage_credential", return_value=missing
@@ -79,6 +83,29 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
                 which=lambda command: f"/usr/bin/{command}",
             )
         self.assertEqual(result["DATABASE_BACKUP_CONFIGURATION"], "VALID")
+
+    def test_verify_config_validates_dedicated_identity_without_secret_exposure(self):
+        persisted = SimpleNamespace(
+            access_token="database-access", refresh_token=None
+        )
+        synthetic_password = token_urlsafe(18)
+        dedicated = URL.create(
+            "postgresql+psycopg", username="cam_backup", password=synthetic_password,
+            host="db", database="creative_assets",
+        ).render_as_string(hide_password=False)
+        with patch.object(cli, "resolve_managed_storage_credential", return_value=persisted):
+            result = cli.verify_configuration(
+                settings(DATABASE_BACKUP_DATABASE_URL=dedicated),
+                which=lambda command: f"/usr/bin/{command}",
+            )
+            self.assertEqual(result["POSTGRESQL_BACKUP_IDENTITY"], "DEDICATED")
+            self.assertNotIn(synthetic_password, str(result))
+            with self.assertRaises(DatabaseBackupConfigurationError) as caught:
+                cli.verify_configuration(
+                    settings(DATABASE_BACKUP_DATABASE_URL=dedicated.replace("/creative_assets", "/wrong")),
+                    which=lambda command: f"/usr/bin/{command}",
+                )
+            self.assertNotIn(synthetic_password, str(caught.exception))
 
     def test_verify_config_fails_closed_when_postgres_tools_are_missing(self):
         persisted = SimpleNamespace(access_token="database-access", refresh_token=None)
@@ -183,6 +210,11 @@ class DatabaseBackupCliTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("WorkingDirectory=/opt/creative-asset-manager/current/apps/api", service)
         self.assertIn("database_backup_cli backup", service)
         self.assertIn("ReadWritePaths=/var/lib/creative-asset-manager/database-backup", service)
+        self.assertIn("EnvironmentFile=-/etc/creative-asset-manager/database-backup.env", service)
+        production_example = (root / "deploy/production.env.example").read_text()
+        backup_example = (root / "deploy/database-backup.env.example").read_text()
+        self.assertNotIn("DATABASE_BACKUP_DATABASE_URL=", production_example)
+        self.assertIn("DATABASE_BACKUP_DATABASE_URL=", backup_example)
 
 
 async def _async_result(value):
