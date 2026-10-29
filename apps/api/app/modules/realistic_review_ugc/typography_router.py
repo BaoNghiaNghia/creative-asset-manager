@@ -32,7 +32,9 @@ from app.modules.realistic_review_ugc.reference_library import (
 )
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
+    RrugcTypographyAnalysisJobModel,
 )
+from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
 from app.modules.realistic_review_ugc.typography_repository import (
     TypographyReferenceError, TypographyReferenceRepository,
 )
@@ -44,6 +46,8 @@ READ = require_permission("typography_reference.read")
 UPLOAD = require_permission("typography_reference.upload")
 MANAGE = require_permission("typography_reference.manage")
 PROFILE = "typography-idea"
+# Server-owned analyzer version; never accept a client-controlled model/version.
+G3_ANALYZER_VERSION = "g3-layout-font-overlap-v1"
 MAX_BATCH_FILES = 12
 ALLOWED_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
 
@@ -340,6 +344,87 @@ async def upload_typography_references(
             "created": sum(item["status"] == "created" for item in results),
             "duplicates": sum(item["status"] == "duplicate" for item in results),
             "failed": sum(item["status"] == "error" for item in results)}
+
+
+def _analysis_job_view(
+    session: Session, principal: CurrentPrincipal, reference_id: str,
+) -> dict:
+    """Never expose lease tokens, provider credentials, private storage IDs."""
+    tenant_id = principal.active_tenant_id
+    ref = TypographyReferenceRepository(session).get(
+        tenant_id, reference_id,
+        user_id=principal.user_id, manage=_can_manage(principal),
+    )
+    if ref is None:
+        raise _error("typography_reference_not_found", "Typography reference not found",
+                     status_code=404)
+    job = session.scalar(select(RrugcTypographyAnalysisJobModel).where(
+        RrugcTypographyAnalysisJobModel.tenant_id == tenant_id,
+        RrugcTypographyAnalysisJobModel.reference_id == reference_id,
+        RrugcTypographyAnalysisJobModel.analyzer_version == G3_ANALYZER_VERSION,
+        RrugcTypographyAnalysisJobModel.image_hash == ref.content_hash,
+    ))
+    dna = session.scalar(select(RrugcTypographyStyleDnaModel.id).where(
+        RrugcTypographyStyleDnaModel.tenant_id == tenant_id,
+        RrugcTypographyStyleDnaModel.reference_id == reference_id,
+        RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
+        RrugcTypographyStyleDnaModel.image_hash == ref.content_hash,
+    ))
+    return {
+        "reference_id": reference_id,
+        "analyzer_version": G3_ANALYZER_VERSION,
+        "analysis_status": ref.analysis_status,
+        "dna_available": dna is not None,
+        "job": ({
+            "id": job.id,
+            "status": job.status,
+            "attempt_count": job.attempt_count,
+            "next_attempt_at": job.next_attempt_at,
+            "last_error_code": job.last_error_code,
+        } if job is not None else None),
+    }
+
+
+@router.get("/references/{reference_id}/analysis")
+def get_typography_analysis_status(
+    reference_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    return _analysis_job_view(session, principal, reference_id)
+
+
+@router.post("/references/{reference_id}/analyze")
+def enqueue_typography_analysis(
+    reference_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    """Explicit, idempotent request. This does NOT run any AI model or worker."""
+    tenant_id = principal.active_tenant_id
+    if not _tenant_can_use_v2(tenant_id):
+        raise _error("typography_v2_disabled", "Typography V2 is not enabled.",
+                     status_code=404)
+    queue = TypographyAnalysisQueue(session)
+    job, outcome = queue.enqueue(
+        tenant_id=tenant_id,
+        reference_id=reference_id,
+        user_id=principal.user_id,
+        analyzer_version=G3_ANALYZER_VERSION,
+        enabled=True, tenant_allowed=True, manage=True,
+    )
+    if outcome == "reference_unavailable":
+        raise _error("typography_reference_not_found", "Typography reference not found",
+                     status_code=404)
+    if outcome not in {"created", "existing", "cache_hit"}:
+        raise _error("typography_analysis_unavailable", "Analysis requires an active, rights-verified reference.",
+                     status_code=409)
+    if outcome == "created":
+        _audit(session, principal, "analysis_requested", reference_id,
+               analyzer_version=G3_ANALYZER_VERSION, job_id=job.id)
+    session.commit()
+    response = _analysis_job_view(session, principal, reference_id)
+    return {"outcome": outcome, **response}
 
 
 class TypographyReferencePatch(BaseModel):

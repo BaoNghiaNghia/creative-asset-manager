@@ -24,6 +24,7 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.router import router as rrugc_router
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
+    RrugcTypographyAnalysisJobModel,
 )
 
 
@@ -123,6 +124,7 @@ def env(monkeypatch):
     RrugcReferenceAssetModel.__table__.create(engine)
     RrugcTypographyReferenceModel.__table__.create(engine)
     RrugcTypographyStyleDnaModel.__table__.create(engine)
+    RrugcTypographyAnalysisJobModel.__table__.create(engine)
     AuthAuditEventModel.__table__.create(engine)
     context = {"principal": principal()}
     config = SimpleNamespace(TYPOGRAPHY_V2_ENABLED=False, TYPOGRAPHY_V2_CANARY_TENANT_IDS="")
@@ -455,3 +457,84 @@ def test_dna_cache_is_tenant_private_hash_and_version_scoped(env):
         assert repo.dna_cached(**{**lookup, "tenant_id": "tenant-b"}, user_id="owner") is None
         assert repo.dna_cached(**lookup, user_id="colleague") is None
         assert repo.dna_cached(**{**lookup, "ref_id": shared["id"]}, user_id="owner") is None
+
+
+def test_explicit_analysis_enqueue_status_is_flagged_rights_checked_and_idempotent(env):
+    ref = None
+    # V2 remains hidden by default, even from an administrator.
+    assert env.client.post(BASE + "/missing/analyze").status_code == 404
+    enabled(env)
+    ref = env.upload(123).json()["items"][0]["reference"]
+    endpoint = BASE + "/" + ref["id"] + "/analyze"
+    status_url = BASE + "/" + ref["id"] + "/analysis"
+    empty = env.client.get(status_url)
+    assert empty.status_code == 200
+    assert empty.json()["job"] is None and not empty.json()["dna_available"]
+    denied = env.client.post(endpoint)
+    assert denied.status_code == 409
+    assert denied.json()["detail"]["code"] == "typography_analysis_unavailable"
+    approved = env.client.patch(BASE + "/" + ref["id"], json={
+        "source_rights_status": "licensed", "editorial_status": "approved",
+    })
+    assert approved.status_code == 200, approved.text
+    created = env.client.post(endpoint)
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["outcome"] == "created"
+    assert body["analyzer_version"] == "g3-layout-font-overlap-v1"
+    assert body["job"]["status"] == "queued"
+    assert body["job"]["attempt_count"] == 0
+    assert body["dna_available"] is False
+    # Queueing is not an AI call; no new upload/blob or provider request occurs.
+    assert env.storage.calls == 1
+    again = env.client.post(endpoint)
+    assert again.status_code == 200
+    assert again.json()["outcome"] == "existing"
+    assert again.json()["job"]["id"] == body["job"]["id"]
+    assert env.client.get(status_url).json()["job"]["status"] == "queued"
+    # Never expose lease owners, tokens, storage keys or original source URLs.
+    assert not {"lease_token", "lease_owner", "remote_file_id", "source_url"} & set(body["job"])
+    with Session(env.engine) as session:
+        assert session.query(RrugcTypographyAnalysisJobModel).count() == 1
+        audits = session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.analysis_requested").all()
+        assert len(audits) == 1
+        assert audits[0].tenant_id == "tenant-a"
+        assert "source_url" not in audits[0].detail_json
+
+    env.identity("owner", permissions={"typography_reference.read"})
+    assert env.client.get(status_url).status_code == 200
+    assert env.client.post(endpoint).status_code == 403
+    env.identity("colleague", permissions={"typography_reference.read"})
+    assert env.client.get(status_url).status_code == 404
+    env.identity("colleague", permissions={"typography_reference.manage"})
+    assert env.client.post(endpoint).status_code == 200  # manager explicitly allowed
+    env.identity("outsider", tenant="tenant-b", platform_admin=True)
+    env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a,tenant-b"
+    assert env.client.get(status_url).status_code == 404
+    assert env.client.post(endpoint).status_code == 404
+
+
+def test_analysis_endpoint_reports_existing_versioned_dna_cache_without_ai(env):
+    enabled(env)
+    ref = env.upload(161).json()["items"][0]["reference"]
+    assert env.client.patch(BASE + "/" + ref["id"], json={
+        "source_rights_status": "owned",
+    }).status_code == 200
+    with Session(env.engine) as session:
+        session.add(RrugcTypographyStyleDnaModel(
+            tenant_id="tenant-a", reference_id=ref["id"],
+            analyzer_version="g3-layout-font-overlap-v1", image_hash=ref["content_hash"],
+            typography_region_json={"x": 0.1, "y": 0.2, "w": 0.7, "h": 0.5},
+            style_family="serif", font_mood_json={"primary": "serif"},
+            layout_graph_json={"nodes": [], "edges": []},
+            overlap_rules_json=[], confidence=0.9,
+        ))
+        session.commit()
+    result = env.client.post(BASE + "/" + ref["id"] + "/analyze")
+    assert result.status_code == 200, result.text
+    assert result.json()["outcome"] == "cache_hit"
+    assert result.json()["dna_available"] is True
+    assert result.json()["job"] is None
+    with Session(env.engine) as session:
+        assert session.query(RrugcTypographyAnalysisJobModel).count() == 0
