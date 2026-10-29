@@ -215,7 +215,9 @@ def test_valid_dna_complete_and_no_repeat_job(engine):
         job = claim(q)
         token = job.lease_token
         assert q.complete(enabled=True, tenant_allowed=True, tenant_id=ref.tenant_id, job_id=job.id, token=token,
-                          payload=dna_payload(ref.content_hash), now=CLOCK) == "completed"
+                          payload=dna_payload(ref.content_hash),
+                          perceptual_hash="tdh1:0123456789abcdef",
+                          now=CLOCK) == "completed"
         ref_id, job_id = ref.id, job.id
         db.commit()
     with Session(engine) as db:
@@ -225,8 +227,24 @@ def test_valid_dna_complete_and_no_repeat_job(engine):
         assert job.status == "completed"
         assert ref.analysis_status == "ready"
         assert db.query(Dna).count() == 1
+        assert db.query(Dna).one().perceptual_hash == "tdh1:0123456789abcdef"
         assert enqueue(q, ref)[1] == "cache_hit"
         assert claim(q) is None
+
+
+def test_invalid_server_perceptual_hash_is_never_persisted(engine):
+    with Session(engine) as db:
+        ref = add_ref(db)
+        q = TypographyAnalysisQueue(db)
+        enqueue(q, ref)
+        job = claim(q)
+        assert q.complete(
+            enabled=True, tenant_allowed=True, tenant_id=ref.tenant_id,
+            job_id=job.id, token=job.lease_token, now=CLOCK,
+            payload=dna_payload(ref.content_hash),
+            perceptual_hash="untrusted-provider-output",
+        ) == "needs_review"
+        assert db.query(Dna).count() == 0
 
 
 def test_rights_revoked_during_lease_cannot_store_dna(engine):

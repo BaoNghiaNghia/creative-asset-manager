@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -38,6 +38,10 @@ from app.modules.realistic_review_ugc.typography_analysis_queue import Typograph
 from app.modules.realistic_review_ugc.typography_dna_review import (
     TypographyDnaReviewRequest, TypographyReviewError, apply_human_review,
     review_view, VERIFIED_RIGHTS,
+)
+from app.modules.realistic_review_ugc.typography_similarity import (
+    is_typography_dhash, candidate_matches, typography_hamming_distance,
+    has_stale_roi_hash,
 )
 from app.modules.realistic_review_ugc.typography_repository import (
     TypographyReferenceError, TypographyReferenceRepository,
@@ -232,6 +236,87 @@ def list_typography_style_dna(
         "confidence": row.confidence, "analyzed_at": row.analyzed_at,
         "review": review_view(ref, row),
     } for row in versions]}
+
+
+@router.get("/references/{reference_id}/dna/{dna_id}/similar")
+def list_similar_typography_dna(
+    reference_id: str,
+    dna_id: str,
+    max_distance: int = Query(default=6, ge=0, le=8),
+    limit: int = Query(default=10, ge=1, le=25),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Advisory-only near-duplicate screening, never automated rejection.
+
+    Bound the candidate scan and filter visibility *inside SQL* so a viewer
+    cannot infer the existence of another user's private reference by match
+    count or IDs. The dHash is neither returned nor accepted from the client.
+    """
+    tenant_id = principal.active_tenant_id
+    reference = TypographyReferenceRepository(session).get(
+        tenant_id, reference_id, user_id=principal.user_id,
+        manage=_can_manage(principal),
+    )
+    if reference is None:
+        raise _error("typography_reference_not_found", "Typography reference not found",
+                     status_code=404)
+    dna = session.scalar(select(RrugcTypographyStyleDnaModel).where(
+        RrugcTypographyStyleDnaModel.id == dna_id,
+        RrugcTypographyStyleDnaModel.tenant_id == tenant_id,
+        RrugcTypographyStyleDnaModel.reference_id == reference_id,
+        RrugcTypographyStyleDnaModel.image_hash == reference.content_hash,
+        RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
+    ))
+    if dna is None:
+        raise _error("typography_dna_not_found", "Current Style DNA result not found",
+                     status_code=404)
+    if not is_typography_dhash(dna.perceptual_hash):
+        return {"status": "hash_unavailable", "items": [], "scan_truncated": False}
+    # The stored ROI hash refers to the original AI bbox. If a reviewer
+    # corrected that bbox, do not claim this old fingerprint represents
+    # the effective typography region until a local rescan is performed.
+    if has_stale_roi_hash(dna.manual_override_json):
+        return {"status": "hash_stale_after_region_edit", "items": [],
+                "scan_truncated": False}
+    d = RrugcTypographyStyleDnaModel
+    r = RrugcTypographyReferenceModel
+    candidates = select(d, r).join(r, and_(
+        d.tenant_id == r.tenant_id, d.reference_id == r.id,
+    )).where(
+        d.tenant_id == tenant_id,
+        d.reference_id != reference_id,
+        d.analyzer_version == G3_ANALYZER_VERSION,
+        d.perceptual_hash.like("tdh1:%"),
+        r.source_rights_status.in_(VERIFIED_RIGHTS),
+        r.editorial_status.in_(("candidate", "approved")),
+    )
+    if not _can_manage(principal):
+        candidates = candidates.where(or_(
+            r.privacy == "workspace", r.created_by_user_id == principal.user_id,
+        ))
+    rows = session.execute(
+        candidates.order_by(d.analyzed_at.desc(), d.id.desc()).limit(501),
+    ).all()
+    matches = []
+    for candidate, other_ref in rows[:500]:
+        if has_stale_roi_hash(candidate.manual_override_json):
+            continue  # Candidate ROI hash also refers to stale AI geometry.
+        if not candidate_matches(dna.perceptual_hash, candidate.perceptual_hash,
+                                 threshold=max_distance):
+            continue
+        matches.append({
+            "reference_id": other_ref.id, "dna_id": candidate.id,
+            "distance": typography_hamming_distance(
+                dna.perceptual_hash, candidate.perceptual_hash,
+            ),
+        })
+    matches.sort(key=lambda item: (item["distance"], item["reference_id"]))
+    return {
+        "status": "ready",
+        "items": matches[:limit],
+        "scan_truncated": len(rows) > 500,
+    }
 
 
 @router.patch("/references/{reference_id}/dna/{dna_id}/review")

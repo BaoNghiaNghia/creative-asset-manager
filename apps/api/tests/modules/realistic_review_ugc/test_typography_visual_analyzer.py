@@ -19,6 +19,9 @@ from app.domain.providers.contracts import (
 )
 from app.modules.realistic_review_ugc.model import RrugcReferenceAssetModel as Asset
 from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
+from app.modules.realistic_review_ugc.typography_similarity import (
+    is_typography_dhash, typography_dhash,
+)
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel as Ref,
     RrugcTypographyStyleDnaModel as Dna,
@@ -171,6 +174,10 @@ def test_success_commits_structural_dna_once_and_preserves_private_source(engine
         assert dna.analyzer_version == "vision-pilot-1"
         assert dna.image_hash == sha256(raw).hexdigest()
         assert dna.layout_graph_json["nodes"][0]["path_type"] == "arch"
+        assert is_typography_dhash(dna.perceptual_hash)
+        assert dna.perceptual_hash == typography_dhash(
+            provider.calls[0].image_bytes, dna.typography_region_json,
+        )
         assert session.scalar(select(Ref)).analysis_status == "ready"
     assert tick(runner).status == "no_eligible_job"
     assert len(provider.calls) == 1

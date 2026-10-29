@@ -23,6 +23,7 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 | GET | `/references/{id}/image` | read | Streams Managed Storage, `Cache-Control: private`, no public Drive URL |
 | GET | `/references/{id}/dna` | read | Versioned raw AI DNA and guarded manual-review status/effective structure; tenant/private filtered |
 | PATCH | `/references/{id}/dna/{dna_id}/review` | manage | Human accept / needs-review / reject and bounded layout, font-mood, overlap override; audit only, no AI call |
+| GET | `/references/{id}/dna/{dna_id}/similar` | read | Read-only ROI dHash near-duplicate warnings, same-tenant & private visibility filter, bounded scan; no automatic rejection |
 | GET | `/references/{id}/analysis` | read | Current analyzer version job status/cache only; tenant/private visibility enforced, never lease/token/provider metadata |
 | POST | `/references/{id}/analyze` | manage | Explicit idempotent enqueue **only**; source rights + canary checked; no provider call or background start |
 | POST | `/references/uploads` | upload | Multipart `files` repeated, up to 12 images; `rights`, `privacy`, optional attribution |
@@ -39,6 +40,10 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 ### G3 manual Style DNA review
 
 Human review is an explicit, manage-only step after Style DNA analysis. A reviewer may `accepted`, `needs_review`, or `rejected` a source/versioned result with a fixed reason code, optionally correcting normalized region, general font mood, structural layout graph and overlap. Arbitrary text and exact original lettering are **not** accepted. The original AI result is never overwritten; the existing `manual_override_json` field holds only the human decision/structural patch. Accepted `effective_dna` is released to future Style Lab only while the same tenant, source hash, analyzer version, verified rights and editorial approval remain valid. Revocation invalidates effective DNA immediately. No new migration or background worker is required for this API; all pilot flags remain OFF. See `CAM_TYPOGRAPHY_ENGINE_V2_G3_HUMAN_REVIEW.md`.
+
+### G3 near-duplicate screening (advisory only)
+
+After a successful single-pass visual analysis, CAM computes a local versioned 64-bit dHash on the AI-identified typography-only ROI and saves it in the pre-existing `perceptual_hash` DNA column. `GET /references/{id}/dna/{dna_id}/similar` returns only visible same-tenant reference IDs and Hamming distances; source hashes and private image URLs never appear. Defaults: distance 6, limit 10, scan cap 500; truncated scans are clearly marked. The hint can trigger the human reviewer reason `near_duplicate` but **never** automatically rejects a source. No model re-run or extra migration; see `CAM_TYPOGRAPHY_ENGINE_V2_G3_SIMILARITY.md`.
 
 ### G2 library filters and response
 
