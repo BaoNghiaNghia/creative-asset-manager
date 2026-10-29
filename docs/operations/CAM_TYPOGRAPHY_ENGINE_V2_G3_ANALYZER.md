@@ -26,6 +26,22 @@
 - Test with **synthetic generated image bytes and fake provider/storage only**. Verify disabled/tenant mismatch never bills, denied rights, hash mismatch, invalid graph/text injection, low confidence, transient retry, lease fencing and flag revocation.
 - Before real pilot, secure eight licensed/owned images, capture per-image consent/provenance and 8 sanitized DNA results. Measure confidence, one-call/token usage, P50/P95 latency, cache rate, failed/review rate, and whether typography-only layout survived product/background distractions.
 
+## Optional operator-invoked pilot launcher (not active)
+
+A one-shot launcher exists at `app.modules.realistic_review_ugc.typography_pilot_once`. It uses CAM's configured Gemini metadata provider registry and tenant-scoped Google Managed Storage **only after three independent server-side gates**:
+
+- `TYPOGRAPHY_V2_ENABLED=true` AND an explicit tenant in `TYPOGRAPHY_V2_CANARY_TENANT_IDS`;
+- `TYPOGRAPHY_V2_PILOT_WORKER_ENABLED=true` (default `false`);
+- `TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED=true` (default `false`), set only after signed-off DB migration, backend rollback and capacity validation.
+
+Without `--execute`, the command returns `dry_run_only` without even opening a DB, storage or provider registry:
+
+```sh
+python -m app.modules.realistic_review_ugc.typography_pilot_once --tenant-id APPROVED_TENANT_ID
+```
+
+After G0.1/G3 pilot authorization **only**, add `--execute`. Each invocation claims **at most one job**, runs **at most one provider request**, and closes the AI registry; it never loops, schedules itself or starts a system service. Output contains only a machine status, provider-call count and latency, never image bytes or private IDs. All pilot execution remains blocked as of this checkpoint because production backend `previous` is absent and VPS capacity is constrained.
+
 ## Next steps (no auto activation)
 
 1. Merge adapter only after required CI is green.
