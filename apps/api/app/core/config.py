@@ -231,6 +231,9 @@ class Settings(BaseSettings):
     TYPOGRAPHY_V2_CANARY_TENANT_IDS: str = ""
     # Separate server-side opt-in for one-shot G3 pilot runs; never schedules work.
     TYPOGRAPHY_V2_PILOT_WORKER_ENABLED: bool = False
+    # A distinct, default-off ImageGen pilot gate, independent of the G3
+    # analyzer worker; no automatic Stage 1 dispatch can activate this.
+    TYPOGRAPHY_V2_IMAGEGEN_PILOT_ENABLED: bool = False
     # Never set until migration, backend rollback and capacity are verified.
     TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED: bool = False
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False

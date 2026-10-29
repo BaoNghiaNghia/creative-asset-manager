@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "skill_name": "concept-short-v2",
+  "display_name": "Typography V2 Single-Slot ImageGen Pilot",
+  "description": "Produce one native transparent embroidery typography PNG from an approved G6 slot plan for human QA; never auto-publish",
+  "workflows": [
+    "typography_v2_single_slot"
+  ],
+  "product_types": [
+    "baseball_cap",
+    "trucker_hat"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [],
+  "max_references": 1
+}

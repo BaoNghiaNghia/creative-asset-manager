@@ -572,6 +572,61 @@ def _reviewable_reference_and_dna(env, color: int = 177):
         return ref, dna.id
 
 
+def test_g6_imagegen_plan_resolver_checks_current_human_dna_and_rights(env):
+    from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
+        resolve_plan, TypographyPilotError,
+    )
+
+    ref, dna_id = _reviewable_reference_and_dna(env, 216)
+    with Session(env.engine) as session:
+        keyword = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword="Cà phê SÀI GÒN",
+            keyword_normalized="g6-ca-phe-sai-gon-unique",
+            picked=True, search_volume=3,
+        )
+        session.add(keyword)
+        session.commit()
+        key_id = keyword.id
+
+    with Session(env.engine) as session:
+        with pytest.raises(TypographyPilotError) as exc:
+            resolve_plan(session, tenant_id="tenant-a", user_id="owner",
+                         keyword_id=key_id, reference_id=ref["id"])
+        assert exc.value.code == "dna_not_accepted"
+
+    response = env.client.patch(
+        BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review",
+        json={"decision": "accepted", "reason_code": "approved"},
+    )
+    assert response.status_code == 200, response.text
+    with Session(env.engine) as session:
+        plan = resolve_plan(
+            session, tenant_id="tenant-a", user_id="owner",
+            keyword_id=key_id, reference_id=ref["id"],
+        )
+        assert plan["skill"] == "concept-short-v2"
+        assert plan["source_keyword_exact"] == "Cà phê SÀI GÒN"
+        assert plan["requested_slots"] == 6
+        assert plan["job_created"] is False
+        with pytest.raises(TypographyPilotError):
+            resolve_plan(session, tenant_id="tenant-b", user_id="owner",
+                         keyword_id=key_id, reference_id=ref["id"])
+        with pytest.raises(TypographyPilotError):
+            resolve_plan(session, tenant_id="tenant-a", user_id="colleague",
+                         keyword_id=key_id, reference_id=ref["id"])
+    response = env.client.patch(
+        BASE + "/" + ref["id"], json={"source_rights_status": "blocked"},
+    )
+    assert response.status_code == 200, response.text
+    with Session(env.engine) as session:
+        with pytest.raises(TypographyPilotError) as exc:
+            resolve_plan(
+                session, tenant_id="tenant-a", user_id="owner",
+                keyword_id=key_id, reference_id=ref["id"],
+            )
+        assert exc.value.code == "reference_not_approved"
+
+
 def test_style_lab_preview_api_requires_picked_keyword_and_accepted_private_dna(env):
     import xml.etree.ElementTree as ET
 
