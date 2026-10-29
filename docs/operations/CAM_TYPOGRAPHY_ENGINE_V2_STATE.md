@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G3_CODE_MERGED_G0_1_BACKEND_SNAPSHOT_READY_DB_CAPACITY_BLOCKED
+status: G3_HUMAN_REVIEW_DEV_G0_1_SCHEMA_RESTORE_VERIFIED_FULL_DATA_CAPACITY_BLOCKED
 active_gate: G0.1
-next_action: G0_1_DB_RESTORE_SCHEMA_COMPAT_CAPACITY_THEN_G3_8_REFERENCE_PILOT
+next_action: G3_HUMAN_REVIEW_CI_THEN_G0_1_FULL_BACKUP_RESTORE_AND_CAPACITY
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,15 +14,15 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: c0ab6d8c8e123edd46607d13ae143ec91b0d822c
-feature_branch: docs/typography-v2-g0-rollback-evidence-20261029
-pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_MERGED_G0_ROLLBACK_PR_54_MERGED_EVIDENCE_PR_PENDING
-ci: G3_QA_PR_53_CI_2476_PASS_16_OF_16_ROLLBACK_FIX_PR_54_CI_2478_PASS_16_OF_16
+vps_main_commit: d53da73bebac1c18dc37163fe0335ccca8c98909
+feature_branch: feat/typography-v2-g3-human-review-20261029
+pr: G2_PR_42_MERGED_G3_PR_43_44_45_46_50_51_52_53_G0_PR_54_55_MERGED_G3_HUMAN_REVIEW_PR_PENDING
+ci: G0_1_EVIDENCE_PR_55_CI_2480_PASS_16_OF_16_G3_HUMAN_REVIEW_PENDING
 vps_release_commit: null
 windows_active_version: VERIFIED_0.1.46
 last_verified_at: 2026-10-28
 blockers:
-  - G0_1_DATABASE_BACKUP_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
+  - G0_1_SCHEMA_ONLY_RESTORE_PASS_FULL_DATA_RESTORE_AND_0188_0189_COMPAT_NOT_VERIFIED
   - G0_1_DISK_90_PERCENT_SWAP_2_OF_2_GIB_REQUIRES_CAPACITY_PLAN
 rollback:
   backend: CURRENT_D4573F7E_PREVIOUS_INDEPENDENT_D4573F7E_SNAPSHOT_RUNTIME_CHECKED_DB_RESTORE_UNVERIFIED
@@ -32,11 +32,11 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Cập nhật G0.1 (29/10/2026):** PR #53 QA guide và PR #54 backend retention fix đã merge vào `main` (CI #2476/#2478 đều 16/16). Backend production `current` vẫn là release `d4573f7e`; đã tạo `previous` thành bản sao vật lý độc lập và kiểm tra runtime/Alembic, không restart. **Chưa xác minh DB restore/schema rollback; disk 90% và swap 2/2 GiB**, nên V2/pilot/Scout vẫn OFF, chưa chạy tám ảnh thật.
+> **Cập nhật G0.1/G3 (29/10/2026):** PR #55 checkpoint đã merge vào `main` (CI #2480 PASS 16/16). PostgreSQL production revision `0187`; schema-only backup được restore thử vào database tạm: 197/197 bảng, 944 constraints, 708 indexes, 18 MB, dọn sạch sau 4 giây. **Không restore dữ liệu 4 GB hoặc apply migrations 0188/0189**. G3 đang phát triển human review/structural override từ schema hiện có, chưa chạy AI. Disk ~90%, swap 2/2 GiB, V2/Scout/pilot OFF.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
-**G0.1 — Đã chuẩn bị bản sao backend rollback độc lập và sửa retention trên `main`, nhưng mới kiểm tra runtime, chưa làm drill DB restore/schema compatibility. Tiếp theo: xác minh backup/restore trên DB test, kế hoạch capacity cho disk/swap/CPU, sau đó pilot 8 ảnh có quyền theo checklist G3. Production V2, pilot và Scout tiếp tục OFF, không chạy migration 0188/0189.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
+**G0.1/G3 — Đã PASS schema-only restore từ production nhưng chưa có full-data restore. Đang hoàn thiện G3 human review: giới hạn chỉnh region/font/layout/overlap, kiểm tra quyền/tenant, giữ DNA AI nguyên bản và audit. Tiếp theo: CI/merge human review; thực hiện full backup/restore drill trên storage/cluster cách ly đủ dung lượng, capacity, 8 ảnh có quyền và UI QA. Production V2/pilot/Scout OFF.** Không deploy production/migration/worker cho đến khi các gates liên quan VERIFIED.
 
 Công việc mở đầu:
 1. Đọc RUNBOOK + STATE + UI_BLUEPRINT + HTML prototype. Nếu chưa có trong `main`, đưa **cả bốn artifact** vào `docs/operations/` (prototype nằm trong `docs/operations/prototypes/`) qua clean worktree + documentation-only PR + CI, không chạm production.
@@ -49,10 +49,10 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, DB/capacity BLOCKED | main c0ab6d8c; independent `previous` snapshot created, runtime validated; disk 90%, swap 2/2 GiB; database restore and schema compatibility still pending |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full data/capacity BLOCKED | main d53da73b; independent backend previous; live PG 0187; schema-only restore 197/197 tables PASS; disk 90%, swap full; full-data restore pending |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
-| G3 | Visual Analyzer & Style DNA | Code + QA acceptance merged; REAL PILOT PENDING, flags OFF | eight rights-verified samples, human review, latency/cost/ROI, override and dedup |
+| G3 | Visual Analyzer & Style DNA | Human review API in feature branch; one-shot AI pipeline/QA docs merged; real pilot OFF | review CI, near-duplicate screening, eight licensed samples, ROI/cost and manual QA |
 | G4 | Reference matcher & Style Lab Dynamic Composer | PENDING | 3 keyword transfers, SVG preview, UX-05..UX-07 |
 | G5 | Exact-text/diversity/originality/embroidery QA | PENDING | QA tests, partial outputs contract |
 | G6 | Stage 1 concept-short-v2 integration | PENDING | Skill tests, job/Stage 2 regression |
@@ -230,6 +230,15 @@ Công việc mở đầu:
 - **Capacity:** VPS disk originally 89%; removed three clean worktrees whose commits were already merged (Typography foundation/API and Stage 1 date hotfix), dropping to 88%; the ~725 MiB independent safety snapshot raised use to **90% (about 5.0 GiB free)**. Memory ~7.8 GiB total, ~3.1 GiB available; swap **2/2 GiB allocated**. A brief `vmstat` sample showed no active swap-in/out in its later seconds, but several PostgreSQL processes were CPU-intensive. No swapoff, restart, delete of dirty worktrees or database tuning was attempted.
 - **Backup/DB gate:** `/opt/creative-asset-manager/backups` contained historical env/config evidence, not a verified current PostgreSQL restore artifact. A read-only production-env/alembic DB query was blocked at the CodeLocal workspace boundary; **no workaround was attempted**, no DB credential read. A verified PostgreSQL backup/restore, actual DB revision, migration `0188/0189` compatibility with the old runtime and a non-disruptive rollback drill remain required.
 - **Next safe sequence:** (1) obtain authorized, scoped read-only DB/backup validation and restore to an isolated test DB, (2) confirm 0188/0189 additive backward-compatible rollback and release target, (3) reduce/plan production disk and swap pressure, (4) run G2 authenticated desktop/tablet/mobile reference UI QA, (5) verify rights of exactly eight references and costs, (6) only then authorize the one-shot G3 pilot. **Keep all rollout/pilot/Scout flags OFF until gates pass.**
+
+### 2026-10-29 — Isolated production-schema restore PASS and G3 human review implementation
+
+- **main:** `d53da73bebac1c18dc37163fe0335ccca8c98909`, after PR #55 G0.1 documentation CI #2480 PASS 16/16; working feature branch `feat/typography-v2-g3-human-review-20261029`.
+- **Read-only production DB check:** PostgreSQL database `creative_asset_manager`, Alembic revision `0187_navbar_member_permissions`, about 3996 MB, 197 public tables, 3 active and 21 idle connections at observation time. No app credentials were read or printed.
+- **G0 isolated restore drill:** Schema-only `pg_dump` (about 451 KB, no user rows) restored to a uniquely named temporary PostgreSQL database on the same cluster in **4 seconds**. It contained **197/197 tables, 944 constraints and 708 indexes**, with a valid seeded revision 0187. Test database occupied about 18 MB and was removed automatically after successful checks. Production database/schema were never altered. **This proves only schema restore, NOT 4 GB data recovery or 0188/0189 migration on a production clone.**
+- **Additional rollback QA:** `.venv/bin/uvicorn` and `.venv/bin/alembic` console scripts in current and previous physical snapshot have old absolute shebangs pointing to deleted build staging paths. API's actual systemd ExecStart uses the safe `python -m uvicorn` form and current API/worker health remained PASS; do not assume copied console entrypoints are independently executable. A clean deploy/rollback entrypoint audit remains part of G0 acceptance.
+- **G3 human review code:** new pure `typography_dna_review.py` and manage-only `PATCH /references/{id}/dna/{dna_id}/review`, with decisions, fixed reason codes, bounded normalized structural overrides, tenant/hash/version checks, rights gating, atomic audit and immutable AI result preservation. The existing `manual_override_json` column from migration 0188 is used; **no new migration**. Accepted effective DNA invalidates when rights/editorial approval changes. API tests use synthetic references; full CI required before merge.
+- **Still BLOCKED:** no verified complete production data backup/restore and 0188/0189 backward-compatibility drill; disk about 90%, swap 2/2 GiB allocated; G3 eight licensed references, human QA, ROI cost and near-duplicate screening outstanding. Production V2/pilot/Scout flags remain OFF; no AI calls, migration, backend deploy or service restart in this work.
 
 ## 6. Quy tắc bảo toàn trạng thái
 

@@ -538,3 +538,224 @@ def test_analysis_endpoint_reports_existing_versioned_dna_cache_without_ai(env):
     assert result.json()["job"] is None
     with Session(env.engine) as session:
         assert session.query(RrugcTypographyAnalysisJobModel).count() == 0
+
+
+def _reviewable_reference_and_dna(env, color: int = 177):
+    """Synthetic authorized reference and valid AI DNA; no provider is called."""
+    enabled(env)
+    ref = env.upload(color).json()["items"][0]["reference"]
+    assert env.client.patch(BASE + "/" + ref["id"], json={
+        "source_rights_status": "owned", "editorial_status": "approved",
+    }).status_code == 200
+    with Session(env.engine) as session:
+        dna = RrugcTypographyStyleDnaModel(
+            tenant_id="tenant-a", reference_id=ref["id"],
+            analyzer_version="g3-layout-font-overlap-v1",
+            image_hash=ref["content_hash"],
+            typography_region_json={"x": .10, "y": .15, "w": .65, "h": .55},
+            style_family="arched-serif",
+            font_mood_json={
+                "primary": "serif", "secondary": None, "weight": "heavy",
+                "contrast": "medium", "proportions": "wide",
+            },
+            layout_graph_json={
+                "nodes": [{
+                    "id": "n1", "role": "primary", "size_ratio": 1.0,
+                    "path_type": "arch", "align": "center",
+                }],
+                "edges": [],
+            },
+            overlap_rules_json=[], confidence=.89,
+        )
+        session.add(dna)
+        session.commit()
+        return ref, dna.id
+
+
+def test_style_dna_human_review_and_structural_override_preserve_original(env):
+    ref, dna_id = _reviewable_reference_and_dna(env)
+    prefix = BASE + "/" + ref["id"]
+    endpoint = prefix + "/dna/" + dna_id + "/review"
+    original = env.client.get(prefix + "/dna").json()["items"][0]
+    assert original["review"]["decision"] == "pending"
+    assert original["review"]["effective_dna"] is None
+    assert env.client.get(prefix + "/analysis").json()["dna_review_status"] == "pending"
+
+    accepted = env.client.patch(endpoint, json={
+        "decision": "accepted", "reason_code": "approved",
+    })
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["review"]["decision"] == "accepted"
+    assert accepted.json()["review"]["effective_dna"]["style_family"] == "arched-serif"
+    assert env.client.get(prefix + "/analysis").json()["dna_review_status"] == "accepted"
+
+    corrected = env.client.patch(endpoint, json={
+        "decision": "accepted", "reason_code": "layout_corrected",
+        "override": {
+            "typography_region": {"x": .12, "y": .21, "w": .66, "h": .49},
+            "font_mood": {
+                "primary": "slab_serif", "secondary": None,
+                "weight": "bold", "contrast": "low", "proportions": "wide",
+            },
+            "layout_graph": {
+                "nodes": [
+                    {"id": "n1", "role": "primary", "size_ratio": 1,
+                     "path_type": "arch", "align": "center"},
+                    {"id": "n2", "role": "secondary", "size_ratio": .45,
+                     "path_type": "straight", "align": "center"},
+                ],
+                "edges": [{"from": "n1", "to": "n2",
+                           "relation": "above", "strength": .9}],
+            },
+            "overlap_rules": [{
+                "a": "n1", "b": "n2", "region": "center",
+                "reading_priority": "primary_first",
+                "max_occlusion_ratio": .18,
+            }],
+        },
+    })
+    assert corrected.status_code == 200, corrected.text
+    effective = corrected.json()["review"]["effective_dna"]
+    assert effective["typography_region"]["x"] == .12
+    assert effective["font_mood"]["primary"] == "slab_serif"
+    assert len(effective["layout_graph"]["nodes"]) == 2
+    assert effective["overlap_rules"][0]["max_occlusion_ratio"] == .18
+    assert corrected.json()["review"]["has_override"] is True
+    with Session(env.engine) as session:
+        dna = session.get(RrugcTypographyStyleDnaModel, dna_id)
+        # Human edits NEVER overwrite versioned AI source DNA.
+        assert dna.typography_region_json == original["typography_region"]
+        assert dna.font_mood_json == original["font_mood"]
+        assert dna.layout_graph_json == original["layout_graph"]
+        assert dna.overlap_rules_json == original["overlap_rules"]
+        assert dna.manual_override_json["image_hash"] == ref["content_hash"]
+        assert "Nike" not in str(dna.manual_override_json)
+        assert session.get(RrugcTypographyReferenceModel, ref["id"]).analysis_status == "ready"
+        audits = session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.dna_reviewed",
+        ).all()
+        assert len(audits) == 2 and all(row.tenant_id == "tenant-a" for row in audits)
+        assert audits[-1].detail_json["structural_override"] is True
+        assert "source_url" not in str(audits[-1].detail_json)
+    assert env.storage.calls == 1  # never run image generation or storage writes
+
+
+def test_style_dna_review_reject_near_duplicate_and_rights_recheck(env):
+    ref, dna_id = _reviewable_reference_and_dna(env, 178)
+    prefix = BASE + "/" + ref["id"]
+    endpoint = prefix + "/dna/" + dna_id + "/review"
+    flagged = env.client.patch(endpoint, json={
+        "decision": "needs_review", "reason_code": "near_duplicate",
+    })
+    assert flagged.status_code == 200, flagged.text
+    assert flagged.json()["review"]["effective_dna"] is None
+    assert env.client.get(prefix + "/analysis").json()["dna_review_status"] == "needs_review"
+    with Session(env.engine) as session:
+        assert session.get(RrugcTypographyReferenceModel, ref["id"]).analysis_status == "needs_review"
+    assert env.client.patch(prefix, json={"source_rights_status": "blocked"}).status_code == 200
+    denied = env.client.patch(endpoint, json={
+        "decision": "accepted", "reason_code": "approved",
+    })
+    assert denied.status_code == 409
+    assert denied.json()["detail"]["code"] == "typography_rights_unverified"
+    rejected = env.client.patch(endpoint, json={
+        "decision": "rejected", "reason_code": "rights_concern",
+    })
+    assert rejected.status_code == 200
+    assert rejected.json()["review"]["decision"] == "rejected"
+    assert rejected.json()["review"]["effective_dna"] is None
+    with Session(env.engine) as session:
+        assert session.get(RrugcTypographyStyleDnaModel, dna_id).manual_override_json["decision"] == "rejected"
+        assert session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.dna_reviewed",
+        ).count() == 2
+    assert env.client.delete(prefix).status_code == 200
+    assert env.client.patch(endpoint, json={
+        "decision": "needs_review", "reason_code": "other",
+    }).status_code == 409
+
+
+def test_style_dna_review_strict_security_invalid_edit_no_tenant_leak(env):
+    ref, dna_id = _reviewable_reference_and_dna(env, 179)
+    endpoint = BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review"
+    accepted = {"decision": "accepted", "reason_code": "approved"}
+    env.identity("viewer", permissions={"typography_reference.read"})
+    assert env.client.patch(endpoint, json=accepted).status_code == 403
+    env.identity("colleague", permissions={"typography_reference.manage"})
+    assert env.client.patch(endpoint, json=accepted).status_code == 200
+    env.identity("outsider", tenant="tenant-b", platform_admin=True)
+    env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a,tenant-b"
+    assert env.client.patch(endpoint, json=accepted).status_code == 404
+    assert env.client.get(BASE + "/" + ref["id"] + "/dna").status_code == 404
+    env.identity("owner")
+    env.config.TYPOGRAPHY_V2_ENABLED = False
+    assert env.client.patch(endpoint, json=accepted).status_code == 404
+    enabled(env)
+    invalid = [
+        {"decision": "accepted", "reason_code": "approved",
+         "override": {"typography_region": {"x": .2, "y": .2, "w": .3, "h": .3}}},
+        {"decision": "rejected", "reason_code": "other",
+         "override": {"typography_region": {"x": .2, "y": .2, "w": .3, "h": .3}}},
+        {"decision": "accepted", "reason_code": "region_corrected",
+         "override": {"typography_region": {"x": .9, "y": .2, "w": .5, "h": .3}}},
+        {"decision": "accepted", "reason_code": "layout_corrected",
+         "override": {"layout_graph": {"nodes": [{
+             "id": "BRAND NAME", "role": "primary", "size_ratio": 1,
+             "path_type": "arch", "align": "center",
+         }], "edges": []}}},
+        {"decision": "accepted", "reason_code": "overlap_corrected",
+         "override": {"overlap_rules": [{
+             "a": "n1", "b": "n2", "region": "center",
+             "reading_priority": "primary_first", "max_occlusion_ratio": .9,
+         }]}},
+        {"decision": "accepted", "reason_code": "approved",
+         "source_text": "NEVER COPY THE BRAND"},
+    ]
+    for payload in invalid:
+        response = env.client.patch(endpoint, json=payload)
+        assert response.status_code == 422, (payload, response.text)
+    with Session(env.engine) as session:
+        dna = session.get(RrugcTypographyStyleDnaModel, dna_id)
+        assert dna.manual_override_json["decision"] == "accepted"
+        assert dna.manual_override_json["override"] is None
+        assert session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.dna_reviewed",
+        ).count() == 1
+    assert env.storage.calls == 1
+
+
+def test_accepted_dna_is_invalidated_when_rights_are_revoked(env):
+    ref, dna_id = _reviewable_reference_and_dna(env, 180)
+    url = BASE + "/" + ref["id"]
+    assert env.client.patch(url + "/dna/" + dna_id + "/review", json={
+        "decision": "accepted", "reason_code": "approved",
+    }).status_code == 200
+    assert env.client.get(url + "/dna").json()["items"][0]["review"]["effective_dna"]
+    assert env.client.patch(url, json={"source_rights_status": "blocked"}).status_code == 200
+    review = env.client.get(url + "/dna").json()["items"][0]["review"]
+    assert review["decision"] == "needs_review"
+    assert review["reason_code"] == "approval_invalidated"
+    assert review["effective_dna"] is None
+    assert env.client.get(url + "/analysis").json()["dna_review_status"] == "needs_review"
+
+
+def test_low_confidence_human_acceptance_requires_explicit_reason(env):
+    ref, dna_id = _reviewable_reference_and_dna(env, 181)
+    with Session(env.engine) as session:
+        session.get(RrugcTypographyStyleDnaModel, dna_id).confidence = .42
+        session.commit()
+    endpoint = BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review"
+    implicit = env.client.patch(endpoint, json={
+        "decision": "accepted", "reason_code": "approved",
+    })
+    assert implicit.status_code == 422
+    assert implicit.json()["detail"]["code"] == "typography_dna_review_invalid"
+    explicit = env.client.patch(endpoint, json={
+        "decision": "accepted", "reason_code": "low_confidence_reviewed",
+    })
+    assert explicit.status_code == 200, explicit.text
+    assert explicit.json()["review"]["effective_dna"]["confidence"] == .42
+    with Session(env.engine) as session:
+        assert session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.dna_reviewed",
+        ).count() == 1

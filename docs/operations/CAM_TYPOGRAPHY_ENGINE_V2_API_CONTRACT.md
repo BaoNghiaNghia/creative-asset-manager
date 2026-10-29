@@ -21,7 +21,8 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 | GET | `/references?status=&query=&source_type=&scope=&style_role=&my_uploads_only=&sort=&limit=&offset=` | read | Tenant/private filtered list and aggregate stats/capabilities; paginated, archived excluded by default |
 | GET | `/references/{id}` | read | Tenant/private visibility 404 on inaccessible ID |
 | GET | `/references/{id}/image` | read | Streams Managed Storage, `Cache-Control: private`, no public Drive URL |
-| GET | `/references/{id}/dna` | read | Existing versioned Style DNA, visibility checked |
+| GET | `/references/{id}/dna` | read | Versioned raw AI DNA and guarded manual-review status/effective structure; tenant/private filtered |
+| PATCH | `/references/{id}/dna/{dna_id}/review` | manage | Human accept / needs-review / reject and bounded layout, font-mood, overlap override; audit only, no AI call |
 | GET | `/references/{id}/analysis` | read | Current analyzer version job status/cache only; tenant/private visibility enforced, never lease/token/provider metadata |
 | POST | `/references/{id}/analyze` | manage | Explicit idempotent enqueue **only**; source rights + canary checked; no provider call or background start |
 | POST | `/references/uploads` | upload | Multipart `files` repeated, up to 12 images; `rights`, `privacy`, optional attribution |
@@ -34,6 +35,10 @@ Existing Viewer and Operator roles never gain any of these new permissions autom
 - A request adds an idempotent tenant/version/hash job if the reference is active and rights are `owned`, `licensed` or `permitted_reference`. Possible `outcome` values are `created`, `existing`, `cache_hit`; missing/cross-tenant reference returns 404, unverified rights or inactive reference returns 409. An audit event is written only for a newly created job.
 - `GET /references/{id}/analysis` requires **typography_reference.read** and obeys private/workspace visibility. It returns `analyzer_version`, `analysis_status`, `dna_available` and an optional public job view (`id`, `status`, `attempt_count`, `next_attempt_at`, `last_error_code`). **Lease token, worker owner, private remote file IDs, image URLs and credentials are never returned.**
 - These routes **only enqueue and report state**; they neither call the AI provider nor start a background worker, and cannot be used on production until additive migration `0189` and G0.1 rollback/activation gates are satisfied. Typography V2 remains OFF by default.
+
+### G3 manual Style DNA review
+
+Human review is an explicit, manage-only step after Style DNA analysis. A reviewer may `accepted`, `needs_review`, or `rejected` a source/versioned result with a fixed reason code, optionally correcting normalized region, general font mood, structural layout graph and overlap. Arbitrary text and exact original lettering are **not** accepted. The original AI result is never overwritten; the existing `manual_override_json` field holds only the human decision/structural patch. Accepted `effective_dna` is released to future Style Lab only while the same tenant, source hash, analyzer version, verified rights and editorial approval remain valid. Revocation invalidates effective DNA immediately. No new migration or background worker is required for this API; all pilot flags remain OFF. See `CAM_TYPOGRAPHY_ENGINE_V2_G3_HUMAN_REVIEW.md`.
 
 ### G2 library filters and response
 

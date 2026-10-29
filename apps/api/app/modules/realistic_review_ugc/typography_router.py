@@ -35,6 +35,10 @@ from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyAnalysisJobModel,
 )
 from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
+from app.modules.realistic_review_ugc.typography_dna_review import (
+    TypographyDnaReviewRequest, TypographyReviewError, apply_human_review,
+    review_view, VERIFIED_RIGHTS,
+)
 from app.modules.realistic_review_ugc.typography_repository import (
     TypographyReferenceError, TypographyReferenceRepository,
 )
@@ -211,8 +215,9 @@ def list_typography_style_dna(
     principal: CurrentPrincipal = Depends(READ),
 ):
     repo = TypographyReferenceRepository(session)
-    if repo.get(principal.active_tenant_id, reference_id, user_id=principal.user_id,
-                manage=_can_manage(principal)) is None:
+    ref = repo.get(principal.active_tenant_id, reference_id, user_id=principal.user_id,
+                   manage=_can_manage(principal))
+    if ref is None:
         raise _error("typography_reference_not_found", "Typography reference not found", status_code=404)
     versions = repo.dna_versions(
         principal.active_tenant_id, reference_id,
@@ -225,7 +230,65 @@ def list_typography_style_dna(
         "font_mood": row.font_mood_json,
         "layout_graph": row.layout_graph_json, "overlap_rules": row.overlap_rules_json,
         "confidence": row.confidence, "analyzed_at": row.analyzed_at,
+        "review": review_view(ref, row),
     } for row in versions]}
+
+
+@router.patch("/references/{reference_id}/dna/{dna_id}/review")
+def review_typography_style_dna(
+    reference_id: str,
+    dna_id: str,
+    request: TypographyDnaReviewRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    """Approve, reject or correct generalized DNA, never mutate AI output.
+
+    Feature/tenant/RBAC are checked by router dependencies. Lock both rows
+    so a concurrent rights change cannot authorize an out-of-date review.
+    All review changes and the audit event commit in a single transaction.
+    """
+    tenant_id = principal.active_tenant_id
+    reference = session.scalar(select(RrugcTypographyReferenceModel).where(
+        RrugcTypographyReferenceModel.id == reference_id,
+        RrugcTypographyReferenceModel.tenant_id == tenant_id,
+    ).with_for_update())
+    if reference is None:
+        raise _error("typography_reference_not_found", "Typography reference not found", status_code=404)
+    dna = session.scalar(select(RrugcTypographyStyleDnaModel).where(
+        RrugcTypographyStyleDnaModel.id == dna_id,
+        RrugcTypographyStyleDnaModel.tenant_id == tenant_id,
+        RrugcTypographyStyleDnaModel.reference_id == reference_id,
+        RrugcTypographyStyleDnaModel.image_hash == reference.content_hash,
+        RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
+    ).with_for_update())
+    if dna is None:
+        raise _error("typography_dna_not_found", "Current Style DNA result not found",
+                     status_code=404)
+    if reference.editorial_status == "archived":
+        raise _error("typography_reference_inactive", "Archived references cannot be reviewed",
+                     status_code=409)
+    if request.decision == "accepted" and (
+        reference.editorial_status != "approved"
+        or reference.source_rights_status not in VERIFIED_RIGHTS
+    ):
+        raise _error("typography_rights_unverified",
+                     "Only active, rights-verified references may be accepted.",
+                     status_code=409)
+    try:
+        review = apply_human_review(dna, request)
+    except TypographyReviewError as exc:
+        raise _error("typography_dna_review_invalid", str(exc), status_code=422) from exc
+    dna.manual_override_json = review
+    reference.analysis_status = "ready" if request.decision == "accepted" else "needs_review"
+    _audit(
+        session, principal, "dna_reviewed", reference_id,
+        dna_id=dna.id, analyzer_version=dna.analyzer_version,
+        decision=request.decision, reason_code=request.reason_code,
+        structural_override=bool(review["override"]),
+    )
+    session.commit()
+    return {"id": dna.id, "reference_id": reference.id, "review": review_view(reference, dna)}
 
 
 @router.get("/references/{reference_id}/image")
@@ -364,7 +427,7 @@ def _analysis_job_view(
         RrugcTypographyAnalysisJobModel.analyzer_version == G3_ANALYZER_VERSION,
         RrugcTypographyAnalysisJobModel.image_hash == ref.content_hash,
     ))
-    dna = session.scalar(select(RrugcTypographyStyleDnaModel.id).where(
+    dna = session.scalar(select(RrugcTypographyStyleDnaModel).where(
         RrugcTypographyStyleDnaModel.tenant_id == tenant_id,
         RrugcTypographyStyleDnaModel.reference_id == reference_id,
         RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
@@ -375,6 +438,7 @@ def _analysis_job_view(
         "analyzer_version": G3_ANALYZER_VERSION,
         "analysis_status": ref.analysis_status,
         "dna_available": dna is not None,
+        "dna_review_status": review_view(ref, dna)["decision"] if dna else "pending",
         "job": ({
             "id": job.id,
             "status": job.status,
