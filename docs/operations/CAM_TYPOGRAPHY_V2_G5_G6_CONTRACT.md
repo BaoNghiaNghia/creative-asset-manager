@@ -22,7 +22,7 @@ The standalone PNG QA `inspect_typography_png` / `audit_png_slot_set` checks gen
 
 ## Remaining steps to actually generate images
 
-- G6.1: build/verify a distinct `concept-short-v2` image provider skill, with image-generation/edit calls and a bounded retry budget, reference conditioning and exact source words. It must consume this versioned plan rather than the old `concept-short-v1` prompt.
+- G6.1 **code merged via PR #65, runtime OFF**: separate `concept-short-v2` native ImageGen single-slot pilot consumes the versioned plan and verifies native PNG hash/G5 QA. Invocation is operator-only, one slot per run with global single-flight, no auto retry or V1 fallback. It has not completed a real provider smoke test. See `docs/operations/CAM_TYPOGRAPHY_V2_G6_NATIVE_PILOT.md` for implementation and flags.
 - G6.2: add separate canary/permission-gated durable job and one-slot checkpoints, technical PNG QA before upload, protected original files, explicit human review, and auditable output manifest. No V1 runner overwrite or Cloudflare bypass without provider policy validation.
 - G6.3: adapt Stage 1 list/history/export and Stage 2 handoff to genuine `partial` outputs and test rollback.
 - G0.1 still blocks runtime migration/activation: verify a current full-data backup, off-host restore of approximately 4 GB, backward compatibility of `0188/0189`, independent rollback and VPS capacity. Existing readonly `cam_backup` setup is only a prerequisite.

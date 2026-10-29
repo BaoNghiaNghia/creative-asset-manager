@@ -2,9 +2,9 @@
 project: CAM-TYPOGRAPHY-ENGINE-V2
 state_schema_version: 2
 updated_at: 2026-10-29
-status: G5_QA_MERGED_G6_PLAN_ONLY_G0_1_FULL_RESTORE_BLOCKED
+status: G6_NATIVE_PILOT_CODE_MERGED_G0_1_FULL_RESTORE_BLOCKED
 active_gate: G0.1
-next_action: IMPLEMENT_G6_ISOLATED_IMAGEGEN_PILOT_WORKER_IN_PARALLEL_WITH_G0_1_FULL_OFF_HOST_BACKUP_RESTORE
+next_action: G0_1_OFF_HOST_FULL_BACKUP_RESTORE_THEN_G6_2_HUMAN_REVIEW_G6_3_PARTIAL_STAGE1_STAGE2
 canonical_runbook: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_RUNBOOK.md
 canonical_state: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_STATE.md
 canonical_ui_blueprint: docs/operations/CAM_TYPOGRAPHY_ENGINE_V2_UI_BLUEPRINT.md
@@ -14,10 +14,10 @@ ui_blueprint_version: 1.0.0
 ui_acceptance: UX-01..UX-16_PENDING
 feature_flag: OFF
 scout_flag: OFF
-vps_main_commit: 9c91efa541682bda3a6b6e6df0b681d572e040ea
+vps_main_commit: 626db7e6e79b99bef318c7e8a0405288f49c55f1
 feature_branch: main
-pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_G4_PR_63_G5_G6_PLAN_PR_64_MERGED
-ci: G5_G6_PR_64_17_OF_17_CI_PASS_LOCAL_88_PYTEST_AND_51_V1_REGRESSION_PASS
+pr: G2_PR_42_G3_PR_43_44_45_46_50_51_52_53_56_57_G0_PR_54_55_60_61_62_G4_PR_63_G5_G6_PLAN_PR_64_G6_NATIVE_PR_65_MERGED
+ci: G6_NATIVE_PR_65_17_OF_17_CI_PASS_LOCAL_110_AND_91_PYTEST_PASS
 vps_release_commit: null
 frontend_release_commit: 2e528643497c159251ac77f3d87ffb941a6e8987
 windows_active_version: VERIFIED_0.1.46
@@ -36,7 +36,7 @@ rollback:
 
 # CAM Typography Engine V2 — Execution State & Checkpoint
 
-> **Checkpoint 29/10/2026:** PR #63 **G4 Style Lab preview MVP** và PR #64 **G5 QA + G6 plan-only handoff** đã merge vào `main` (`9c91efa54`; cả hai PR 17/17 CI PASS). G5 kiểm tra SVG exact text và PNG alpha/canvas/duplicate; G6 có sáu plan slots và contract partial rõ ràng nhưng **chưa có ImageGen worker thực**. Chưa phát hành backend/frontend production, V2 OFF. Backup role `cam_backup` read-only SELECT 197/197 bảng + 1/1 sequence đã có; **backup ~4 GB + restore off-host vẫn thiếu**; runtime backend `d4573f7e`, DB `0187`, frontend `2e5286434`, migrations `0188/0189` chưa chạy. Scout/pilot OFF; disk ~89%, swap đầy. Tiếp theo thực hiện G6 ImageGen runner riêng, đồng thời hoàn thành G0.1.
+> **Checkpoint 29/10/2026:** PR #65 **G6.1 Native ImageGen Single-Slot Pilot** đã merge vào `main` (`626db7e6e`, **17/17 CI PASS**). Bộ code gọi Codex/ImageGen thật theo một slot, kiểm tra hash native, G5 PNG QA, padding alpha không resize, lưu riêng pending human review và có global lock chống phát sinh nhiều lượt tốn phí. **Chưa kích hoạt ImageGen thực tế hoặc publish Stage 1.** G4/G5/G6 plan PR #63/#64 trước đó đã merge. Backup role `cam_backup` được kiểm chứng nhưng backup DB systemd lần cuối 27/10 exit status 2, chưa có full backup off-host + thử restore ~4 GB; backend production `d4573f7e`, DB `0187`, frontend `2e5286434`; migrations `0188/0189` chưa chạy. V2/Scout/worker OFF. VPS disk ~89%, swap gần đầy. Tiếp theo G0.1 off-host restore song song với G6.2 human review và G6.3 partial Stage 1/Stage 2.
 
 ## 1. Next action — nhiệm vụ được chọn sẵn
 
@@ -53,13 +53,13 @@ Công việc mở đầu:
 
 | Gate | Tên | Trạng thái | Evidence cần bổ sung |
 |---|---|---|---|
-| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore/capacity BLOCKED | main 9c91efa54; backup role credential+SQL ACL verified 197/197 tables, 1/1 sequence, no write; backend d4573f7e; DB 0187; last scheduled backup failed; remote full restore pending; disk 89%, swap 2/2 GiB |
+| G0 | Baseline & safety preflight VPS/Windows | PARTIAL, full restore/capacity BLOCKED | main 626db7e6e; backup role credential+SQL ACL verified 197/197 tables, 1/1 sequence, no write; backend d4573f7e; DB 0187; last scheduled backup failed; remote full restore pending; disk 89%, swap 2/2 GiB |
 | G1 | Data contract/schema/API nền tảng | MERGED, ACTIVATION OFF | PR #40 + PR #41 merged; PR #41 17/17 CI green; no production migration or API activation |
 | G2 | Web Typography Ideas Library & Stage 1 subnav | MERGED, authenticated pilot visual QA pending | conditional subnav preserving V1, masonry, batch upload with bounded concurrency, filters, metadata/rights drawer; local UI/API tests; responsive browser QA still pending |
 | G3 | Visual Analyzer & Style DNA | Human Review + ROI near-duplicate advisory PR #57 merged; real pilot OFF | 8 licensed references, human region/dedup review, provider cost/latency and authenticated QA; no production migration |
 | G4 | Reference matcher & Style Lab Dynamic Composer | MVP PREVIEW MERGED, FINAL QA PENDING | PR #63 17/17 CI pass; guarded 3 SVG previews and Stage1 Apply style available in source; matcher scoring, UX-05..07 and production enablement remain |
 | G5 | Exact-text/diversity/originality/embroidery QA | TECHNICAL QA CODE MERGED, PILOT EVIDENCE PENDING | PR #64 vector Unicode, SVG safety/font, PNG alpha/canvas/dedup, manual spelling/originality gate; no real imagegen QA yet |
-| G6 | Stage 1 concept-short-v2 integration | PLAN-ONLY HANDOFF MERGED, ACTUAL WORKER PENDING | PR #64 six distinct fixed-slot prompts and pending/partial contract; ImageGen runner, audited review, Stage1 history/Stage2 partial regression still required |
+| G6 | Stage 1 concept-short-v2 integration | G6.1 NATIVE SINGLE-SLOT PILOT CODE MERGED, RUNTIME OFF | PR #65 one actual Codex/ImageGen single-slot provider path, SHA/native QA, reviewed private staging and global lock; G6.2 human review, G6.3 Stage1 history/Stage2 partial remain |
 | G7 | Windows Typography Scout extension | PENDING | manager build, lease/offline/Chrome QA, UX-11..UX-12 |
 | G8 | Load/security/Browser QA & observability | PENDING | CI, PostgreSQL, metrics, screenshots UX-01..UX-16 |
 | G9 | Pilot A/B và đánh giá nghiệm thu | PENDING | 8 references/20 keywords, cost, QA |
@@ -300,6 +300,15 @@ Công việc mở đầu:
 - **G6 planning only:** canary `POST /typography/previews` also returns `concept-short-v2/plan-v1` with six deterministic independent slot prompts and normalized reviewed DNA path/font/overlap guidance, plus `typography-v2/slots-v1` contract: `requested_slots=6`, `eligible_slots`, `failed_slots`, `pending_slots`, `needs_review_slots`, `actual_count`, `partial`, `completed`. Plans are `pending`, `ready_for_imagegen=false`, `job_created=false`, `provider_calls=0`. This is **not** an ImageGen worker and cannot export/publish an artificial final.
 - **No runtime deploy:** backend still old commit `d4573f7e`, DB `0187`, frontend `2e5286434`, canary/V2/pilot/Scout OFF. Stage1 V1 and Stage2 unchanged. Production API/Nginx remained active; root ~89% and swap full.
 - **Next:** (1) implement standalone, feature-gated `concept-short-v2` actual image-edit worker with real provider output, durable six-slot state, bounded retry, G5 PNG QA + verified human image spelling before Stage1 persistence; (2) test partial 1–5 downstream and Stage2; **in parallel** (3) G0.1 off-host full data backup, 4GB restore, 0188/0189 migration rollback and resource headroom. Do not activate a V2 job before these gates; manual right-cleared references are sufficient for first pilot (no G7 prerequisite).
+
+### 2026-10-29 — G6.1 Native ImageGen single-slot pilot merged (activation OFF)
+
+- **Source/CI:** PR #65 merged `626db7e6e79b99bef318c7e8a0405288f49c55f1`; GitHub **17/17 CI PASS** including Frontend, Browser QA, API shards, PostgreSQL and security. Focused tests 110 PASS; after cost guard and integration additions, regression tests 91 PASS. No real paid provider call in these tests.
+- **New Skill:** `apps/api/managed_skills/concept-short-v2`, manifest workflow `typography_v2_single_slot` only. Cannot replace or be selected as V1 keyword-skill. Not automatically installed into persistent Codex runtime.
+- **Native ImageGen adapter:** new `typography_v2_single_slot` output contract requires byte-exact SHA-256 match with the native PNG cache of *the same isolated Codex job*, no event-only proof and no Cloudflare/API-key fallback. A genuine smaller transparent PNG may be **padded without resizing or redrawing** to 2048×1024 after provenance verification. G5 PNG alpha/size/duplicate QA must pass.
+- **Operator-only pilot:** `typography_imagegen_once.py` dry-run never opens DB/model; `--execute` requires separate default-OFF `TYPOGRAPHY_V2_IMAGEGEN_PILOT_ENABLED`, V2 enable + explicit canary, rollback_verified, and both global/Codex ImageGen provider flags. Resolves currently picked tenant keyword + verified rights reference + human-accepted current DNA, generates at most one slot per manual run, **revalidates all source approvals after generation**, and stores an immutable PNG + audit to private review staging. One global pilot lock across tenants/batches, no overwrite or duplicated slot. Audit is `review=pending`, `image_spelling_verified=false`, no Stage1/Stage2 DB write or publication. See `docs/operations/CAM_TYPOGRAPHY_V2_G6_NATIVE_PILOT.md`.
+- **Observed G0.1 blocker:** DB backup systemd service Result=exit-code / ExecMainStatus=2, last failure 2026-10-27 22:00 +07; timer still scheduled for 2026-10-30 22:00 +07. Full production backup/off-host restore ~4GB and rollback/migrations 0188/0189 not verified. Root ~89% used, swap ~2GB of 2GB. API and nginx active; backend runtime not deployed; new flag OFF. Do not enable until G0.1 is independently verified.
+- **Next:** G6.2 explicit human-review with audit + G6.3 Stage1 Output History / export / Stage2 1–5 partial handoff & rollback tests, in parallel with G0.1 backup restore and capacity. First pilot can use manually uploaded rights-cleared references; G7 Scout is not a prerequisite for a one-slot smoke test.
 
 ## 6. Quy tắc bảo toàn trạng thái
 
