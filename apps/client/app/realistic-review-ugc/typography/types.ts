@@ -97,3 +97,30 @@ export type TypographyDna = {
   confidence: number;
   analyzed_at: string;
 };
+
+/** Zero-provider, non-persisted Style Lab SVGs; NOT Stage 1 generated outputs. */
+export type TypographySvgPreview = {
+  id: string;
+  preview_version: string;
+  source_keyword_exact: string;
+  reference_id: string;
+  dna_id: string;
+  layout: string;
+  font_family: string;
+  influence: "balanced";
+  style_components: string[];
+  svg: string;
+  transparent_background: boolean;
+  preview_only: true;
+  eligible_for_generation: false;
+  qa: { exact_keyword: boolean; status: "preview_only"; requires_human_review: boolean };
+};
+export type TypographyPreviewResponse = {
+  reference_id: string;
+  keyword_id: string;
+  source_keyword_exact: string;
+  preview_only: true;
+  job_created: false;
+  provider_calls: 0;
+  items: TypographySvgPreview[];
+};

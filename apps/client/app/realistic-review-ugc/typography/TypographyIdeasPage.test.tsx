@@ -212,12 +212,14 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(document.querySelector("[data-testid=typography-detail-drawer]")).toBeNull();
   });
 
-  it("makes navigation explicit and never opens Style Lab before G4", async () => {
+  it("exposes a preview-only Style Lab under the V2 subnav", async () => {
     const navigate = vi.fn();
     await act(async () => root.render(<Stage1Subnav view="jobs" onView={navigate} ideasCount={12} />));
-    expect(host.querySelectorAll(".typography-stage1-subnav button")).toHaveLength(2);
-    expect(host.textContent).toContain("Style Lab · Later");
+    expect(host.querySelectorAll(".typography-stage1-subnav button")).toHaveLength(3);
+    expect(host.textContent).toContain("Style Lab Preview");
     await click([...host.querySelectorAll("button")].find(button => button.textContent?.includes("Typography Ideas")) || null);
     expect(navigate).toHaveBeenCalledWith("ideas");
+    await click([...host.querySelectorAll("button")].find(button => button.textContent?.includes("Style Lab")) || null);
+    expect(navigate).toHaveBeenCalledWith("style-lab");
   });
 });

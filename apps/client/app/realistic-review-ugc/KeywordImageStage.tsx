@@ -4,7 +4,8 @@ import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listSt
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { formatRelativeDateTime } from "./RelativeDateTime";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
-import { Stage1Subnav } from "./typography/Stage1Subnav";
+import { Stage1Subnav, type TypographyStageView } from "./typography/Stage1Subnav";
+import { TypographyStyleLab, type StyleLabKeyword } from "./typography/TypographyStyleLab";
 import type { TypographyReferencePage } from "./typography/types";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
@@ -251,14 +252,17 @@ export function KeywordImageStage({
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selectedSkillKey, setSelectedSkillKey] = useState("");
   const bulkAbortRef = useRef<AbortController | null>(null);
-  const [stageView, setStageView] = useState<"jobs" | "ideas">(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "ideas" ? "ideas" : "jobs");
+  const [stageView, setStageView] = useState<TypographyStageView>(() => {
+    const view = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : "";
+    return view === "ideas" || view === "style-lab" ? view : "jobs";
+  });
+  const [selectedStyleKeyword, setSelectedStyleKeyword] = useState<StyleLabKeyword | null>(null);
   const [ideasAccess, setIdeasAccess] = useState<TypographyReferencePage | null>(null);
   const [ideasCount, setIdeasCount] = useState(0);
   const onIdeasCount = useCallback((count: number) => setIdeasCount(count), []);
   const showKeywordJobs = !ideasAccess || stageView === "jobs";
   const jobsActive = active && showKeywordJobs;
-  const changeStageView = (next: "jobs" | "ideas") => {
+  const changeStageView = (next: TypographyStageView) => {
     setStageView(next);
     const url = new URL(window.location.href);
     if (next === "jobs") url.searchParams.delete("view");
@@ -269,7 +273,8 @@ export function KeywordImageStage({
   };
   useEffect(() => {
     const onPopState = () => {
-      setStageView(new URLSearchParams(window.location.search).get("view") === "ideas" ? "ideas" : "jobs");
+      const view = new URLSearchParams(window.location.search).get("view");
+      setStageView(view === "ideas" || view === "style-lab" ? view : "jobs");
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -502,9 +507,11 @@ export function KeywordImageStage({
   const pageCount = Math.max(1, Math.ceil(data.total / data.page_size));
   return <div className="rrugc-keyword-gen">
     <RrugcStageHeader
-      kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : "STAGE 1 / TYPOGRAPHY IDEAS"}
-      title={showKeywordJobs ? "Generate images from used keywords" : "Typography Ideas Library"}
-      description={showKeywordJobs ? "Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail." : "Explore, upload and review typography references before using them in new keyword designs."}
+      kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : stageView === "ideas" ? "STAGE 1 / TYPOGRAPHY IDEAS" : "STAGE 1 / STYLE LAB"}
+      title={showKeywordJobs ? "Generate images from used keywords" : stageView === "ideas" ? "Typography Ideas Library" : "Balanced Typography Style Lab"}
+      description={showKeywordJobs ? "Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail."
+        : stageView === "ideas" ? "Explore, upload and review typography references before using them in new keyword designs."
+          : "Explore original vector drafts with approved Style DNA. No AI generation or job is created."}
       actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
         <label className="rrugc-keyword-gen-search">
           <span className="sr-only">Search used keywords</span>
@@ -521,6 +528,11 @@ export function KeywordImageStage({
     {ideasAccess && <div hidden={stageView !== "ideas"} className="typography-ideas-view">
       <TypographyIdeasPage active={active && stageView === "ideas"} firstPage={ideasAccess} onCountChange={onIdeasCount} />
     </div>}
+    {ideasAccess && stageView === "style-lab" && <TypographyStyleLab
+      active={active}
+      keywords={data.items.map(item => ({ keyword_id: item.keyword_id, keyword: item.keyword }))}
+      selectedKeyword={selectedStyleKeyword}
+      onBack={() => changeStageView("jobs")} />}
     <div hidden={!showKeywordJobs} className="typography-keyword-jobs-shell">
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
       <button type="button" aria-pressed={status === "all"} className={status === "all" ? "active" : ""} onClick={() => { setStatus("all"); setPage(1); }}>
@@ -607,6 +619,12 @@ export function KeywordImageStage({
                     onRun={() => void runOne(row)}
                     onPublishAvailable={() => void publishAvailable(row)}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
+                  {ideasAccess && <button type="button" className="typography-style-lab-open"
+                    aria-label={"Apply style to " + row.keyword}
+                    title="Open preview-only Style Lab (no image generation)"
+                    onClick={() => { setSelectedStyleKeyword({ keyword_id: row.keyword_id, keyword: row.keyword }); changeStageView("style-lab"); }}>
+                    Apply style
+                  </button>}
                 </td>
               </tr>;
             })}

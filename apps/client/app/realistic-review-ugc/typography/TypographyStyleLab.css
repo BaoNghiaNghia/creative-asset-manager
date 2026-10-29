@@ -1,0 +1,50 @@
+/* G4 Style Lab MVP — scoped CAM Stage 1 styles, no global overrides. */
+.typography-style-lab-open{display:block;width:100%;margin:7px 0 0;padding:6px 8px;border-radius:6px;border:1px solid #cfdef2;background:#f5f8ff;color:#315db6;font-size:10px;font-weight:750;cursor:pointer}
+.typography-style-lab-open:hover{border-color:#8eace8;background:#eef3ff}
+.typography-style-lab-open:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.typography-style-lab{color:#293e5a;min-width:0}
+.typography-style-lab *{box-sizing:border-box}
+.typography-style-lab-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:17px 2px 15px}
+.typography-style-lab-heading h3{font-weight:820;font-size:22px;line-height:1.22;margin:0 0 6px;color:#263d62}
+.typography-style-lab-heading p:last-child{max-width:610px;margin:0;color:#788ba1;font-size:11px;line-height:1.55}
+.typography-style-lab-grid{display:grid;grid-template-columns:minmax(210px,1.1fr) minmax(310px,2fr) minmax(230px,1.15fr);gap:12px;align-items:start}
+.typography-style-lab-panel{min-width:0;min-height:315px;border:1px solid #e1e8f2;border-radius:10px;background:#fff;padding:16px}
+.typography-style-lab-panel h4{font-size:14px;font-weight:770;margin:0 0 16px;color:#293f61}
+.typography-style-lab-eyebrow{font-size:10px;font-weight:810;letter-spacing:.065em;color:#617fbb;margin:0 0 8px}
+.typography-style-lab-panel label{display:flex;flex-direction:column;gap:6px;color:#5c708b;font-size:11px;font-weight:690;margin:0 0 15px}
+.typography-style-lab-panel select{width:100%;min-width:0;min-height:37px;background:#fff;color:#2c4463;border:1px solid #d1dce9;border-radius:8px;padding:0 9px;font:inherit}
+.typography-style-lab-panel :is(select,button):focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.typography-style-lab-reference{display:flex;flex-direction:column;gap:7px}
+.typography-style-lab-reference img{max-width:100%;width:100%;height:205px;object-fit:contain;background:#f4f6fa;border-radius:8px}
+.typography-style-lab-reference strong{font-size:12px;color:#283e60;overflow-wrap:anywhere}
+.typography-style-lab-reference span{font-size:11px;color:#55749e}
+.typography-style-lab-reference small{font-size:10px;line-height:1.5;color:#7c8ea5}
+.typography-style-lab-warning,.typography-style-lab-hint{line-height:1.55;font-size:11px;color:#657c9a}
+.typography-style-lab-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;min-width:0}
+.typography-style-lab-preview{min-width:0;border:1px solid #e1e8f1;border-radius:8px;overflow:hidden;background:#fff}
+.typography-style-lab-image{display:flex;align-items:center;justify-content:center;min-width:0;aspect-ratio:960/560;background:#f5f7fa}
+.typography-style-lab-image img{width:100%;height:100%;object-fit:contain}
+.typography-style-lab-preview>div:last-child{padding:8px;display:flex;flex-direction:column;gap:4px}
+.typography-style-lab-preview strong{font-size:10px;text-transform:capitalize;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;color:#3b5172}
+.typography-style-lab-preview small{font-size:9px;color:#7a8ba2}
+.typography-style-lab-empty{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:7px;text-align:center;min-height:195px;border:1px dashed #cbd8e9;border-radius:9px;background:#fafbff;padding:15px}
+.typography-style-lab-empty strong{font-size:13px;color:#657a99}
+.typography-style-lab-empty p{font-size:11px;color:#8796a9;line-height:1.6;margin:0}
+.typography-style-lab-notice{margin:12px 0 0;color:#7c8ba0;font-size:10px;line-height:1.5}
+.typography-style-lab-exact{padding:11px 12px;border-radius:8px;background:#f3f6fc;margin:0 0 16px;display:flex;flex-direction:column;gap:6px}
+.typography-style-lab-exact small{color:#7890ad}
+.typography-style-lab-exact strong{font-size:13px;color:#263d62;white-space:pre-wrap;overflow-wrap:anywhere}
+.typography-style-lab-controls-title{display:flex;gap:5px;justify-content:space-between;margin:0 0 8px;font-size:11px;font-weight:760;color:#415878}
+.typography-style-lab-controls-title span{color:#8799b1;font-size:10px;font-weight:500}
+.typography-style-lab-components{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.typography-style-lab-components label{display:flex;flex-direction:row;align-items:center;gap:5px;margin:0;padding:7px 9px;border:1px solid #e0e7f4;border-radius:7px;background:#f8faff;color:#5374a6;font-size:10px}
+.typography-style-lab-components input{accent-color:#305fe2;opacity:1}
+.typography-style-lab-qa{border-top:1px solid #e8edf5;padding-top:12px;margin-bottom:12px;font-size:10px;line-height:1.55;color:#6b809d}
+.typography-style-lab-qa strong{display:block;margin:0 0 7px;color:#3a557e;font-size:11px}
+.typography-style-lab-qa p{margin:0 0 8px}
+.typography-style-lab-panel>.typography-primary{width:100%;min-height:39px}
+.typography-style-lab-panel>.typography-primary:disabled{opacity:.55;cursor:not-allowed}
+.typography-style-lab-error{padding:10px;border:1px solid #f5b9bc;background:#fff2f2;border-radius:7px;color:#aa4040;font-size:11px;overflow-wrap:anywhere}
+.typography-style-lab-status{display:block;text-align:center;margin:10px 0 0;color:#8392a4;font-size:10px}
+@media (max-width:1100px){.typography-style-lab-grid{grid-template-columns:minmax(180px,1fr) minmax(250px,1.4fr)}.typography-style-lab-panel:last-child{grid-column:1/-1;min-height:auto}.typography-style-lab-results{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:690px){.typography-style-lab-heading{flex-direction:column}.typography-style-lab-grid{grid-template-columns:minmax(0,1fr)}.typography-style-lab-panel{min-height:unset}.typography-style-lab-panel:last-child{grid-column:auto}.typography-style-lab-results{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}

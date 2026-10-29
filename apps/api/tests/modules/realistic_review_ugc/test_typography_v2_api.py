@@ -572,6 +572,93 @@ def _reviewable_reference_and_dna(env, color: int = 177):
         return ref, dna.id
 
 
+def test_style_lab_preview_api_requires_picked_keyword_and_accepted_private_dna(env):
+    import xml.etree.ElementTree as ET
+
+    uri = "/api/v1/realistic-review-ugc/typography/previews"
+    request = {"reference_id": "private", "keyword_id": "stage0-keyword", "count": 3}
+    assert env.client.post(uri, json=request).status_code == 404  # OFF
+    ref, dna_id = _reviewable_reference_and_dna(env, 196)
+    keyword_text = "Cà phê & Việt Nam <3"
+    with Session(env.engine) as session:
+        keyword = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword=keyword_text,
+            keyword_normalized="ca phe viet nam", picked=True,
+            search_volume=11,
+        )
+        session.add(keyword)
+        session.commit()
+        key_id = keyword.id
+    request.update(reference_id=ref["id"], keyword_id=key_id)
+    pending = env.client.post(uri, json=request)
+    assert pending.status_code == 409
+    assert pending.json()["detail"]["code"] == "typography_dna_not_accepted"
+    accepted = env.client.patch(
+        BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review",
+        json={"decision": "accepted", "reason_code": "approved"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    response = env.client.post(uri, json=request)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["source_keyword_exact"] == keyword_text
+    assert data["job_created"] is False and data["provider_calls"] == 0
+    assert data["preview_only"] is True
+    assert len(data["items"]) == 3
+    for preview in data["items"]:
+        root = ET.fromstring(preview["svg"])
+        rendered = "".join("".join(el.itertext()) for el in root.iter()
+                           if el.tag.endswith("}text"))
+        assert rendered == keyword_text
+        assert preview["eligible_for_generation"] is False
+        assert "<script" not in preview["svg"]
+    assert env.client.post(uri, json=request).json() == data  # deterministic
+    assert env.storage.calls == 1  # original reference upload only
+    with Session(env.engine) as session:
+        assert session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.previewed",
+        ).count() == 0
+    env.identity("colleague", permissions={"typography_reference.read", "realistic_review_ugc.read"})
+    assert env.client.post(uri, json=request).status_code == 404  # private
+    env.identity("reader_only", permissions={"typography_reference.read"})
+    assert env.client.post(uri, json=request).status_code == 403  # lacks keyword access
+    env.identity("outsider", tenant="tenant-b")
+    assert env.client.post(uri, json=request).status_code == 404  # non-canary
+    env.identity("owner")
+    assert env.client.post(uri, json={**request, "keyword_id": "unknown"}).status_code == 404
+    assert env.client.post(uri, json={**request, "count": 4}).status_code == 422
+    assert env.client.post(uri, json={**request, "prompt": "draw a cat"}).status_code == 422
+    with Session(env.engine) as session:
+        session.get(RrugcKeywordVolumeModel, key_id).picked = False
+        session.commit()
+    assert env.client.post(uri, json=request).status_code == 404
+
+
+def test_style_lab_preview_is_invalidated_when_rights_are_revoked(env):
+    ref, dna_id = _reviewable_reference_and_dna(env, 198)
+    with Session(env.engine) as session:
+        keyword = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword="SÀI GÒN",
+            keyword_normalized="sai gon", picked=True, search_volume=5,
+        )
+        session.add(keyword)
+        session.commit()
+        key_id = keyword.id
+    url = "/api/v1/realistic-review-ugc/typography/previews"
+    request = {"reference_id": ref["id"], "keyword_id": key_id}
+    assert env.client.patch(
+        BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review",
+        json={"decision": "accepted", "reason_code": "approved"},
+    ).status_code == 200
+    assert env.client.post(url, json=request).status_code == 200
+    assert env.client.patch(BASE + "/" + ref["id"], json={
+        "source_rights_status": "blocked",
+    }).status_code == 200
+    response = env.client.post(url, json=request)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "typography_reference_not_approved"
+
+
 def test_style_dna_human_review_and_structural_override_preserve_original(env):
     ref, dna_id = _reviewable_reference_and_dna(env)
     prefix = BASE + "/" + ref["id"]

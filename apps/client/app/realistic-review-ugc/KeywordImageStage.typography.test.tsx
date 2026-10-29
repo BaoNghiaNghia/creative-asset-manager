@@ -117,4 +117,22 @@ describe("Stage 1 Typography V2 feature gating and non-destructive navigation", 
     expect(host.textContent).toContain("Generate all unused");
     expect(new URLSearchParams(window.location.search).has("view")).toBe(false);
   });
+
+  it("opens a selected picked keyword in preview-only Style Lab without losing the V1 table", async () => {
+    await renderStage();
+    const table = host.querySelector(".rrugc-keyword-gen-table");
+    const apply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply style to BEACH BABE"]');
+    expect(apply).not.toBeNull();
+    await click(apply);
+    expect(host.querySelector("[data-testid=typography-style-lab]")).not.toBeNull();
+    expect(host.textContent).toContain("BEACH BABE");
+    expect(host.textContent).toContain("0 ImageGen calls");
+    expect(host.querySelector(".typography-keyword-jobs-shell")?.hasAttribute("hidden")).toBe(true);
+    expect(host.querySelector(".rrugc-keyword-gen-table")).toBe(table);
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("style-lab");
+    const back = [...host.querySelectorAll("button")].find(item => item.textContent === "Back to Keyword Jobs");
+    await click(back || null);
+    expect(host.querySelector(".typography-keyword-jobs-shell")?.hasAttribute("hidden")).toBe(false);
+    expect(host.querySelector(".rrugc-keyword-gen-table")).toBe(table);
+  });
 });

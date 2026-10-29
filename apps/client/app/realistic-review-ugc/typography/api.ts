@@ -2,6 +2,7 @@ import { RrugcApiError } from "../api";
 import type {
   TypographyDna, TypographyReference, TypographyReferenceFilters, TypographyReferencePage,
   TypographyReferencePatch, TypographyUploadBatch, TypographyRights, TypographyPrivacy,
+  TypographyPreviewResponse,
 } from "./types";
 
 const BASE = "/api/v1/realistic-review-ugc/typography/references";
@@ -84,4 +85,13 @@ export function patchTypographyReference(id: string, changes: TypographyReferenc
 
 export function archiveTypographyReference(id: string): Promise<{ id: string; editorial_status: "archived" }> {
   return jsonRequest(BASE + "/" + encodeURIComponent(id), { method: "DELETE" });
+}
+
+/** G4 low-cost preview: no image generation, job, storage write or publication. */
+export function previewTypographyStyle(
+  input: { reference_id: string; keyword_id: string; count?: number }, signal?: AbortSignal,
+): Promise<TypographyPreviewResponse> {
+  return jsonRequest(BASE.replace(/\/references$/, "") + "/previews", {
+    method: "POST", body: JSON.stringify({ ...input, count: input.count ?? 3 }), signal,
+  });
 }
