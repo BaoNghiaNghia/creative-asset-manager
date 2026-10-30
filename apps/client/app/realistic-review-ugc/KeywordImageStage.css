@@ -528,3 +528,14 @@
   .rrugc-keyword-gen-loading span { animation: none; }
   .rrugc-keyword-result-preview > img { transition: none; }
 }
+
+/* G6.3: visible MVP entry on every Stage 1 keyword page. */
+.rrugc-keyword-gen-actions .typography-v2-entry{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:8px 12px;border:1px solid #7c9edc;background:#edf4ff;border-radius:8px;color:#274f99;font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer}
+.rrugc-keyword-gen-actions .typography-v2-entry span{font-size:9px;letter-spacing:.07em;padding:3px 6px;border-radius:5px;background:#2956ad;color:#fff}
+.rrugc-keyword-gen-actions .typography-v2-entry:hover{background:#dceaff;border-color:#426fc2}
+.rrugc-keyword-gen-actions .typography-v2-entry:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.typography-v2-availability{border:1px solid #d9e4f5;border-radius:12px;background:#f9fbff;margin:16px 0;padding:24px;color:#344e74}
+.typography-v2-availability-kicker{font-size:10px;font-weight:850;letter-spacing:.1em;color:#4d75b5}
+.typography-v2-availability h3{font-size:21px;line-height:1.35;margin:8px 0}
+.typography-v2-availability p{font-size:12px;line-height:1.7;max-width:800px;color:#607792}
+.typography-v2-availability button{border:1px solid #cad9ef;border-radius:8px;background:#fff;color:#315a9b;padding:9px 13px;font-weight:750;cursor:pointer}

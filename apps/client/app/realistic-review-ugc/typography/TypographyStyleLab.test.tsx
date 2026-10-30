@@ -83,6 +83,10 @@ describe("Style Lab G4 preview-only contract", () => {
     expect(host.textContent).toContain("Balanced Typography");
     expect(host.textContent).toContain("Cà phê Việt Nam");
     expect(host.textContent).toContain("0 ImageGen calls");
+    expect(host.textContent).toContain("Typography V2 · Reviewed output workflow");
+    expect(host.querySelector(".typography-v2-mvp")).not.toBeNull();
+    expect(host.querySelector(".typography-v2-mvp")?.parentElement?.getAttribute("data-testid"))
+      .toBe("typography-style-lab");
     expect(listTypographyReferences).toHaveBeenCalledWith({ status: "approved", limit: 100 }, expect.any(AbortSignal));
     expect(previewTypographyStyle).not.toHaveBeenCalled();
     const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Preview 3 concepts");
