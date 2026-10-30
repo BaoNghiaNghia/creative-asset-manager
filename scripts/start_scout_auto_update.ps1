@@ -1,7 +1,8 @@
 param(
     [switch]$SkipUpdate,
     [switch]$KeywordMode,
-    [switch]$CapStackMode
+    [switch]$CapStackMode,
+    [switch]$TypographyMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +15,8 @@ $RequirementsPath = Join-Path $RepoRoot "apps\rrugc_scout\requirements.txt"
 $RequirementsStampPath = Join-Path $RepoRoot ".rrugc-scout-requirements.sha256"
 $ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
 $KeywordScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\quote_keyword_volume.py"
-if ($KeywordMode -and $CapStackMode) { throw "KeywordMode and CapStackMode are mutually exclusive." }
+$TypographyScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\typography_design_scout.py"
+if (($KeywordMode -and ($CapStackMode -or $TypographyMode)) -or ($CapStackMode -and $TypographyMode)) { throw "Scout modes are mutually exclusive." }
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -254,7 +256,7 @@ function Acquire-ScoutRunnerLock([string]$Mode) {
         return
     }
 
-    $safeMode = if ($Mode -in @("Keyword", "CapStack")) { $Mode } else { "Review" }
+    $safeMode = if ($Mode -in @("Keyword", "CapStack", "Typography")) { $Mode } else { "Review" }
     $mutexName = "Local\CreativeAssetManager.RrugcScout.Runner." + $safeMode
     $script:RunnerMutex = New-Object System.Threading.Mutex($false, $mutexName)
     $acquired = $false
@@ -394,6 +396,9 @@ if (-not $SkipUpdate) {
             elseif ($CapStackMode) {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -CapStackMode
             }
+            elseif ($TypographyMode) {
+                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TypographyMode
+            }
             else {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
             }
@@ -417,9 +422,11 @@ $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
 $keywordProfileDir = Get-ConfigValue $config "RRUGC_KEYWORD_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-keyword")
 $capStackProfileDir = Get-ConfigValue $config "RRUGC_CAP_STACK_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-cap-stack")
+$typographyProfileDir = Get-ConfigValue $config "RRUGC_TYPOGRAPHY_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-typography")
 $profileDir = [IO.Path]::GetFullPath($profileDir).TrimEnd([char[]]"\/")
 $keywordProfileDir = [IO.Path]::GetFullPath($keywordProfileDir).TrimEnd([char[]]"\/")
 $capStackProfileDir = [IO.Path]::GetFullPath($capStackProfileDir).TrimEnd([char[]]"\/")
+$typographyProfileDir = [IO.Path]::GetFullPath($typographyProfileDir).TrimEnd([char[]]"\/")
 $pathComparer = [StringComparer]::OrdinalIgnoreCase
 $profileSeparator = [IO.Path]::DirectorySeparatorChar
 if (
@@ -439,6 +446,13 @@ foreach ($existing in @($profileDir, $keywordProfileDir)) {
         $existing.StartsWith($capStackProfileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase)
     ) {
         Fail "Cap Stack Chrome profile must be separate from Review and Keyword profiles."
+    }
+}
+foreach ($existing in @($profileDir, $keywordProfileDir, $capStackProfileDir)) {
+    if ($pathComparer.Equals($existing, $typographyProfileDir) -or
+        $typographyProfileDir.StartsWith($existing + $profileSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+        $existing.StartsWith($typographyProfileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "Typography Design Scout Chrome profile must be separate from other Scout profiles."
     }
 }
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
@@ -470,6 +484,9 @@ if (-not (Test-Path -LiteralPath $keywordProfileDir)) {
 }
 if (-not (Test-Path -LiteralPath $capStackProfileDir)) {
     New-Item -ItemType Directory -Path $capStackProfileDir -Force | Out-Null
+}
+if ($TypographyMode -and -not (Test-Path -LiteralPath $typographyProfileDir)) {
+    New-Item -ItemType Directory -Path $typographyProfileDir -Force | Out-Null
 }
 
 $python = ""
@@ -566,13 +583,30 @@ $shortScoutVersion = $scoutVersion -replace '^rrugc-scout-', ''
 # Keyword Scout are independent. A mode-specific runner mutex prevents only
 # accidental duplicate starts of the same Scout.
 Release-ScoutStartupLock
-$runMode = if ($KeywordMode) { "Keyword" } elseif ($CapStackMode) { "CapStack" } else { "Review" }
+$runMode = if ($KeywordMode) { "Keyword" } elseif ($CapStackMode) { "CapStack" } elseif ($TypographyMode) { "Typography" } else { "Review" }
 Acquire-ScoutRunnerLock $runMode
 
 $scoutExit = 1
 $env:RRUGC_SCOUT_TOKEN = $token
 try {
-    if ($KeywordMode) {
+    if ($TypographyMode) {
+        if (-not (Test-Path -LiteralPath $TypographyScoutPath)) { Fail "Typography Scout script missing." }
+        try { $Host.UI.RawUI.WindowTitle = "Typography Design Scout | $shortScoutVersion | $head" } catch {}
+        Write-Step "Starting one-shot Typography Design Scout"
+        Write-Host "Pinterest: isolated profile, 3 picked keywords, max 8 candidates." -ForegroundColor Green
+        Write-Host "Rights remain unknown; candidates never auto-generate." -ForegroundColor Green
+        $typographyArguments = @(
+            $TypographyScoutPath, "--base-url", $baseUrl,
+            "--agent-id", $agentId, "--profile-dir", $typographyProfileDir,
+            "--keyword-limit", "3", "--max-images", "8", "--execute"
+        )
+        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+            $typographyArguments += @("--chrome-executable", $chromeExecutable)
+        }
+        & $python @typographyArguments
+        $scoutExit = $LASTEXITCODE
+    }
+    elseif ($KeywordMode) {
         if (-not (Test-Path -LiteralPath $KeywordScoutPath)) {
             Fail ("Keyword Scout entry point is missing: " + $KeywordScoutPath)
         }
