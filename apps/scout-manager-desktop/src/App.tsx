@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BrandingDnaPilotCard } from "./BrandingDnaPilotCard";
-import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, MonitorDown, MonitorUp, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, X } from "lucide-react";
+import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, MonitorDown, MonitorUp, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 
-type ModeName = "review" | "keyword" | "cap_stack";
+type ModeName = "review" | "keyword" | "cap_stack" | "typography";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type OperationsSummary = {
@@ -38,6 +38,7 @@ const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "cap_stack", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
+  { mode: "typography", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 
@@ -146,6 +147,40 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
   </article>;
 }
 
+function TypographyScoutCard({ info, busy, onAction, onLogin }: {
+  info: ModeInfo; busy: boolean;
+  onAction: (command: "start" | "stop" | "restart", mode: ModeName) => void;
+  onLogin: () => void;
+}) {
+  const running = info.state === "Running";
+  const done = info.state === "Completed" || info.state.startsWith("Imported");
+  const failed = info.state.includes("failed") || info.state.includes("required");
+  return <article className="scout-card typography-scout-card" data-testid="typography-scout-card">
+    <div className="scout-top">
+      <div className="scout-identity">
+        <div className="mode-icon typography"><Sparkles size={24}/></div>
+        <div><h2>Typography Design Scout</h2><p>Stage 0 picked keywords → Typography Ideas</p></div>
+      </div>
+      <span className={"status-pill " + (running || done ? "success" : failed ? "danger" : "neutral")}>
+        <span className="status-dot"/>{info.state}
+      </span>
+    </div>
+    <div className="scout-compact-kpis" aria-label="Typography scout scope">
+      <span>Sources <strong>Pinterest</strong></span>
+      <span>Run <strong>Once</strong></span>
+      <span>Rights <strong>Unknown</strong></span>
+    </div>
+    <p className="typography-scout-note">Imports up to 8 candidate images per run. Stage 0 sources work without browser login; fresh Pinterest discovery requires signing in to the separate Typography profile. Nothing is auto-approved or sent to ImageGen.</p>
+    {info.lastError && <div className="inline-error"><CircleAlert size={15}/><span>{info.lastError}</span></div>}
+    <div className="card-actions typography-scout-actions">
+      <button className="button secondary slim" disabled={busy || running} onClick={() => onAction("start", "typography")}><Play size={16}/> Run once</button>
+      <button className="button secondary slim" disabled={busy || !running} onClick={() => onAction("stop", "typography")}><Pause size={16}/> Stop</button>
+      <button className="button secondary slim" disabled={busy || running} onClick={onLogin}><LockKeyhole size={16}/> Sign in to Pinterest</button>
+    </div>
+    <small className="typography-scout-footer">Manual run only · Not included in Run automation · Results appear in CAM Typography Ideas</small>
+  </article>;
+}
+
 export default function App() {
   const [state, setState] = useState<Dashboard>(EMPTY);
   const [keywordSummary, setKeywordSummary] = useState<KeywordSummary | null>(null);
@@ -218,10 +253,11 @@ export default function App() {
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
   const capStack = state.modes.find(m => m.mode === "cap_stack") ?? EMPTY.modes[2];
+  const typography = state.modes.find(m => m.mode === "typography") ?? EMPTY.modes[3];
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated scouting for Review + Keyword + Cap Stack, plus a CAM-connected Branding DNA Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated Review, Keyword and Cap Stack scouting, one-shot Typography Ideas, and a CAM-connected Branding DNA Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
@@ -240,6 +276,7 @@ export default function App() {
       <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
+      <TypographyScoutCard info={typography} busy={controlBlocked} onAction={onMode} onLogin={() => void act("typography_login")}/>
     </section>
     <BrandingDnaPilotCard nativeAvailable={isNative} controllerAvailable={state.controllerAvailable} managerBusy={busy||state.updating}/>
     <footer className="foot"><span><ShieldCheck size={14}/> Local credentials • Separate Chrome profiles • Bounded retries</span><span>{state.paired ? "Paired" : "Pairing required"} · Close window to tray · <button type="button" className="quit-link" disabled={busy || !isNative} onClick={() => { if (window.confirm("Quit Scout Manager and stop all Scouts?")) void act("quit_manager"); }}>Quit and stop</button></span></footer>

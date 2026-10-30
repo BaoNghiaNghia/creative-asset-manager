@@ -138,6 +138,26 @@ struct OperationsSummary {
     fetched_at: String,
 }
 
+// Typography is manually triggered and completes once; never entered by Run automation.
+const AUTOMATIC_SCOUT_MODES: [&str; 3] = ["review", "keyword", "cap_stack"];
+const MANAGED_SCOUT_MODES: [&str; 4] = ["review", "keyword", "cap_stack", "typography"];
+
+fn typography_one_shot_state(exit: Option<i32>, log: &str) -> (&'static str, Option<&'static str>) {
+    // Logs append across runs; a previous run's login message is not evidence
+    // that the just-completed run needs login again.
+    let latest = log.rsplit("==> Starting one-shot Typography Design Scout")
+        .next().unwrap_or(log);
+    match exit {
+        Some(0) if latest.contains("LIVE_PINTEREST_LOGIN_REQUIRED") =>
+            ("Imported · Pinterest login needed", None),
+        Some(0) => ("Completed", None),
+        Some(21) =>
+            ("Pinterest login required", Some("Use Sign in to Pinterest, then run once again.")),
+        _ =>
+            ("Scout failed", Some("Review the local Typography Scout log; no automatic retry.")),
+    }
+}
+
 struct Scout {
     name: &'static str,
     child: Option<Child>,
@@ -358,7 +378,7 @@ impl Controller {
         Ok(Self {
             repo,
             log_root,
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("typography")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
@@ -445,6 +465,9 @@ impl Controller {
             process.arg("-KeywordMode");
         } else if name == "cap_stack" {
             process.arg("-CapStackMode");
+        } else if name == "typography" {
+            // One-shot, explicit-only import; never starts from Run automation.
+            process.arg("-TypographyMode");
         }
         hide_console(&mut process); // no flashing PowerShell console
         let mut child = process
@@ -516,7 +539,8 @@ impl Controller {
         if self.updating.load(Ordering::SeqCst) {
             return Err("Source update is in progress.".into());
         }
-        if (command == "start" || command == "restart") && !self.automation_enabled.load(Ordering::SeqCst) {
+        if mode != "typography" && (command == "start" || command == "restart")
+            && !self.automation_enabled.load(Ordering::SeqCst) {
             return Err("Click Run automation before starting an individual Scout.".into());
         }
         let mut all = self.lock_modes()?;
@@ -546,6 +570,35 @@ impl Controller {
             _ => Err("Unsupported Scout command.".into()),
         }
     }
+    fn open_typography_login(&self) -> Result<(), String> {
+        self.require_manager_lock()?;
+        if self.updating.load(Ordering::SeqCst) || self.shutdown_requested.load(Ordering::SeqCst) {
+            return Err("Scout Manager is updating or shutting down.".into());
+        }
+        if self.lock_modes()?.iter().any(|m| m.name == "typography" && m.child.is_some()) {
+            return Err("Stop the running Typography Scout before signing in.".into());
+        }
+        #[cfg(windows)]
+        {
+            let script = self.repo.join("START_SCOUT_TYPOGRAPHY_LOGIN.cmd");
+            if !script.is_file() {
+                return Err("Typography login launcher is missing from the Scout checkout.".into());
+            }
+            // Deliberately visible: the operator completes Pinterest login manually.
+            // No password, token, cookie or profile is forwarded to the UI.
+            Command::new("cmd.exe")
+                .args(["/D", "/C"])
+                .arg(script)
+                .current_dir(&self.repo)
+                .spawn()
+                .map_err(|_| "Could not open the isolated Pinterest sign-in window.".to_string())?;
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Pinterest sign-in is only available on Windows.".into())
+        }
+    }
     fn control_all(&self, command: &str) -> Result<(), String> {
         match command {
             "start" => {
@@ -553,7 +606,7 @@ impl Controller {
                 self.automation_enabled.store(true, Ordering::SeqCst);
                 if let Ok(mut status) = self.update_state.lock() { *status = "Auto update active".into(); }
                 let mut errors = Vec::new();
-                for m in ["review", "keyword", "cap_stack"] {
+                for m in AUTOMATIC_SCOUT_MODES {
                     if let Err(error) = self.control(m, "start") {
                         errors.push(error);
                     }
@@ -567,7 +620,7 @@ impl Controller {
             "stop" => {
                 self.require_manager_lock()?;
                 self.automation_enabled.store(false, Ordering::SeqCst);
-                for m in ["review", "keyword", "cap_stack"] {
+                for m in MANAGED_SCOUT_MODES {
                     self.control(m, "stop")?;
                 }
                 if let Ok(mut status) = self.update_state.lock() { *status = "Paused - press Run automation".into(); }
@@ -617,6 +670,16 @@ impl Controller {
                         #[cfg(windows)]
                         {
                             scout.job.take();
+                        }
+                        if scout.name == "typography" {
+                            // A finished one-shot must never be watchdog-restarted.
+                            scout.desired = false;
+                            scout.started_at = None;
+                            let tail = file_tail(&log_file(&self.log_root, scout.name), 25);
+                            let (state, message) = typography_one_shot_state(status.code(), &tail);
+                            scout.state = state.into();
+                            scout.last_error = message.map(str::to_string);
+                            continue;
                         }
                         let stable = scout
                             .started_at
@@ -748,6 +811,10 @@ impl Controller {
     }
     fn check_update(&self) -> Result<(), String> {
         self.require_manager_lock()?;
+        // Never interrupt a one-shot Typography import for background Git updates.
+        if self.lock_modes()?.iter().any(|m| m.name == "typography" && m.child.is_some()) {
+            return Err("Typography Scout is running. Update source after it finishes.".into());
+        }
         {
             // Claim the update gate before releasing the no-child check.
             // The heartbeat supervisor cannot launch into a source update.
@@ -1484,7 +1551,7 @@ fn log_tail(
     mode: String,
     max_lines: usize,
 ) -> Result<String, String> {
-    if mode != "review" && mode != "keyword" && mode != "cap_stack" && mode != "branding_dna" {
+    if mode != "review" && mode != "keyword" && mode != "cap_stack" && mode != "typography" && mode != "branding_dna" {
         return Err("Unknown log source.".into());
     }
     if mode == "branding_dna" {
@@ -1514,6 +1581,13 @@ async fn control_scout(
     tauri::async_runtime::spawn_blocking(move || controller.control(&mode, &command))
         .await
         .map_err(|_| "Scout process operation failed unexpectedly.".to_string())?
+}
+#[tauri::command]
+async fn typography_login(state: tauri::State<'_, Arc<Controller>>) -> Result<(), String> {
+    let controller = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || controller.open_typography_login())
+        .await
+        .map_err(|_| "Typography sign-in operation failed unexpectedly.".to_string())?
 }
 #[tauri::command]
 async fn control_all(state: tauri::State<'_, Arc<Controller>>, command: String) -> Result<(), String> {
@@ -1750,6 +1824,7 @@ pub fn run() {
             operations_summary,
             log_tail,
             control_scout,
+            typography_login,
             control_all,
             set_chrome_minimized,
             check_update,
@@ -1863,6 +1938,23 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]
+    fn no_automatic_typography_discovery_without_operator_action() {
+        assert_eq!(AUTOMATIC_SCOUT_MODES, ["review", "keyword", "cap_stack"]);
+        assert!(MANAGED_SCOUT_MODES.contains(&"typography"));
+        assert!(!AUTOMATIC_SCOUT_MODES.contains(&"typography"));
+        let one_shot = Scout::new("typography");
+        assert!(!one_shot.desired && one_shot.child.is_none());
+    }
+    #[test]
+    fn typography_result_is_one_shot_and_ignores_stale_login_lines() {
+        let old = "==> Starting one-shot Typography Design Scout\nLIVE_PINTEREST_LOGIN_REQUIRED\nTypography Design Scout: {'created': 3}\n";
+        let next = "==> Starting one-shot Typography Design Scout\nTypography Design Scout: {'created': 2}\n";
+        assert_eq!(typography_one_shot_state(Some(0), &(old.to_string() + next)), ("Completed", None));
+        assert_eq!(typography_one_shot_state(Some(0), old), ("Imported · Pinterest login needed", None));
+        assert_eq!(typography_one_shot_state(Some(21), ""), ("Pinterest login required", Some("Use Sign in to Pinterest, then run once again.")));
+        assert_eq!(typography_one_shot_state(Some(1), ""), ("Scout failed", Some("Review the local Typography Scout log; no automatic retry.")));
+    }
+    #[test]
     fn scout_is_idle_until_explicitly_requested() {
         let review = Scout::new("review");
         let keyword = Scout::new("keyword");
@@ -1897,7 +1989,7 @@ mod tests {
             // fixture on that exact path conversion route.
             repo: shell_friendly_path(scratch.canonicalize().unwrap()),
             log_root: logs.clone(),
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("typography")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),
