@@ -153,7 +153,11 @@ def typography_scout_picked_keywords(
         .order_by(RrugcKeywordVolumeModel.picked_at.desc(), RrugcKeywordVolumeModel.id)
         .limit(limit)
     ).all()
-    return {"keywords": [{"id": row.id, "keyword": row.keyword} for row in keywords]}
+    return {"keywords": [
+        {"id": row.id, "keyword": row.keyword,
+         "source_pin_url": row.source_pin_url, "source_image_url": row.source_image_url}
+        for row in keywords
+    ]}
 
 
 @status_router.post("/scout-agents/{agent_id}/references")
