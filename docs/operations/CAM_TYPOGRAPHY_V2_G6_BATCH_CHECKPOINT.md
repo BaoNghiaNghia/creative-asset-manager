@@ -47,6 +47,21 @@ duplicate/pending/rejected/symlink/stale-source rejection and stable binding.
 Production pilot, worker and Scout flags remain unchanged. This is a
 source-only handoff precursor, not a completed durable G6.3 release.
 
+## G6.3 authenticated API-only selection preview — 30 October 2026
+
+An authenticated `POST /typography/batches/{batch_id}/selection-preview`
+accepts only `keyword_id`, `reference_id`, and 1–6 strictly integer
+`selected_slots`. It requires the explicit Typography ImageGen pilot gate,
+tenant canary, reference read, general RRUGC read, and `typography_generate.run`.
+It resolves the picked keyword, rights-approved reference and current
+human-accepted DNA from the server, then revalidates before/after reading the
+private ImageGen checkpoints under the original single-flight lock.
+The HTTP response is an explicit allowlist containing hashes and slot numbers,
+never private PNG paths, literal keyword, reference DNA, or storage secrets.
+Unknown batches are not disclosed. A matching selection is **not** a durable
+Output History record, Stage 2 source plan, or publication authorization.
+V1 jobs, managed storage and provider calls remain untouched.
+
 ## Scope boundary and remaining production work
 
 This is **not yet** G6.3 publication or a Stage 1 / Stage 2 output handoff. Do not enable V2 image-generation workers based on this checkpoint alone. Remaining work includes authenticated RBAC review UI/API, durable database job and asset upload identity, transactional Stage 1 version history for 1–5 accepted PNGs, authorized per-image Stage 2 selection, ZIP/export and rollback with product-specific QA. V1 Stage 1 and Stage 2 remain unchanged. There are no provider calls or remote storage operations in this implementation.

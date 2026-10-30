@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Literal
+from pydantic import StrictInt
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -55,6 +56,10 @@ from app.modules.realistic_review_ugc.typography_quality_gate import (
 from app.modules.realistic_review_ugc.typography_generation_plan import (
     build_concept_short_v2_plan,
 )
+from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
+    TypographyPilotError, enabled as pilot_enabled, resolve_plan as resolve_pilot_plan,
+)
+from app.modules.realistic_review_ugc.typography_reviewed_batch import inspect_reviewed_batch
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 
@@ -110,6 +115,83 @@ router = APIRouter(
 
 def _error(code: str, message: str, *, status_code: int = 422):
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+
+class TypographyPrivateSelectionPreviewRequest(BaseModel):
+    """No client-supplied review state, checksums, storage IDs or source text."""
+    model_config = ConfigDict(extra="forbid")
+    keyword_id: str = Field(min_length=1, max_length=36)
+    reference_id: str = Field(min_length=1, max_length=36)
+    selected_slots: list[StrictInt] = Field(min_length=1, max_length=6)
+
+
+@router.post(
+    "/batches/{batch_id}/selection-preview",
+    dependencies=[
+        Depends(require_permission("realistic_review_ugc.read")),
+        Depends(require_permission("typography_generate.run")),
+    ],
+)
+def preview_private_typography_selection(
+    batch_id: str,
+    request: TypographyPrivateSelectionPreviewRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """G6.3 READ-ONLY preview; cannot create Stage1 assets or Stage2 jobs.
+
+    The explicit V2 ImageGen pilot opt-in remains required, even while the
+    separate Ideas/Style Lab API-only canary is enabled. A future publisher
+    must independently validate all source, PNG and storage receipts.
+    """
+    tenant = principal.active_tenant_id
+    settings = get_settings()
+    if not pilot_enabled(settings, tenant):
+        raise _error("typography_private_selection_disabled",
+                     "Private reviewed selection is not enabled.", status_code=404)
+
+    def current_plan():
+        return resolve_pilot_plan(
+            session, tenant_id=tenant, user_id=principal.user_id,
+            keyword_id=request.keyword_id, reference_id=request.reference_id,
+        )
+
+    try:
+        result = inspect_reviewed_batch(
+            settings=settings, tenant_id=tenant, batch_id=batch_id,
+            plan=current_plan(), revalidate=current_plan,
+            keyword_id=request.keyword_id, selected_slots=request.selected_slots,
+        )
+        selected = result["selection_preview"]
+    except TypographyPilotError as exc:
+        # Intentionally hide tenant, private batch paths, reference rights,
+        # and whether another user's batch exists.
+        status = 404 if exc.code in {
+            "batch_missing", "batch_id_invalid", "reference_not_approved",
+            "keyword_not_picked", "dna_not_accepted", "pilot_disabled",
+        } else 409
+        raise _error(
+            "typography_private_selection_unavailable",
+            "Reviewed selection is unavailable.", status_code=status,
+        ) from exc
+
+    # Explicit response allowlist: the inspector also returns server-only
+    # image paths and literal keywords, which must NEVER cross this route.
+    return {
+        "schema_version": selected["schema_version"],
+        "batch_id": batch_id,
+        "selection_sha256": selected["selection_sha256"],
+        "selected_slots": selected["selected_slots"],
+        "selected_count": selected["selected_count"],
+        "selected_images": selected["selected_images"],
+        "private_only": True,
+        "requires_managed_storage_commit": True,
+        "published": False,
+        "stage1_output_saved": False,
+        "stage2_handoff_performed": False,
+        "can_queue_stage2": False,
+    }
 
 
 class TypographyPreviewRequest(BaseModel):

@@ -981,3 +981,39 @@ def test_typography_dna_similarity_is_read_only_bounded_and_private(env):
         "status": "hash_unavailable", "items": [], "scan_truncated": False,
     }
     assert env.storage.calls == 3  # Similarity never reads or regenerates assets.
+
+
+def test_private_selection_route_fails_closed_without_pilot_or_permission(env):
+    enabled(env)
+    route = "/api/v1/realistic-review-ugc/typography/batches/00000000-0000-4000-8000-000000000001/selection-preview"
+    request = {
+        "keyword_id": "keyword-1",
+        "reference_id": "reference-1",
+        "selected_slots": [1],
+    }
+    # The Ideas/Style Lab API-only canary must not expose the private pilot.
+    response = env.client.post(route, json=request)
+    assert response.status_code in (403, 404)
+    assert env.storage.calls == 0
+    assert "private_image_path" not in response.text
+    env.identity("operator-with-generate", permissions=ALL_PERMISSIONS | {"typography_generate.run"})
+    response = env.client.post(route, json=request)
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "typography_private_selection_disabled"
+    assert env.storage.calls == 0
+
+
+def test_private_selection_route_rejects_malformed_client_payload(env):
+    enabled(env)
+    route = "/api/v1/realistic-review-ugc/typography/batches/00000000-0000-4000-8000-000000000001/selection-preview"
+    env.identity("operator-with-generate", permissions=ALL_PERMISSIONS | {"typography_generate.run"})
+    for body in (
+        {"keyword_id": "k", "reference_id": "r", "selected_slots": [True]},
+        {"keyword_id": "k", "reference_id": "r", "selected_slots": [1.5]},
+        {"keyword_id": "k", "reference_id": "r", "selected_slots": []},
+        {"keyword_id": "k", "reference_id": "r", "selected_slots": [1] * 7},
+        {"keyword_id": "k", "reference_id": "r", "selected_slots": [1], "asset_id": "forged"},
+    ):
+        response = env.client.post(route, json=body)
+        assert response.status_code == 422
+    assert env.storage.calls == 0
