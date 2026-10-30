@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TypographyStyleLab } from "./TypographyStyleLab";
-import { listTypographyReferences, previewTypographyStyle } from "./api";
+import { listTypographyReferences, previewTypographyStyle, listSavedTypographyV2, saveReviewedTypographyBatch, handoffTypographyV2 } from "./api";
 import type { TypographyPreviewResponse, TypographyReference } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -11,6 +11,9 @@ import type { TypographyPreviewResponse, TypographyReference } from "./types";
 vi.mock("./api", () => ({
   listTypographyReferences: vi.fn(),
   previewTypographyStyle: vi.fn(),
+  listSavedTypographyV2: vi.fn(),
+  saveReviewedTypographyBatch: vi.fn(),
+  handoffTypographyV2: vi.fn(),
 }));
 
 const reference: TypographyReference = {
@@ -49,6 +52,15 @@ beforeEach(() => {
     capabilities: { read: true, upload: true, manage: true },
   });
   vi.mocked(previewTypographyStyle).mockResolvedValue(preview);
+  vi.mocked(listSavedTypographyV2).mockResolvedValue({ keyword_id: "kw-1", items: [] });
+  vi.mocked(saveReviewedTypographyBatch).mockResolvedValue({
+    saved_count: 1, new_count: 1, items: [{ slot: 1, version: 1 }],
+    published: false, stage2_jobs_created: 0,
+  });
+  vi.mocked(handoffTypographyV2).mockResolvedValue({
+    selected: true, source_plan_id: "source-1", scout_started: false,
+    stage2_jobs_created: 0,
+  });
 });
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -101,5 +113,13 @@ describe("Style Lab G4 preview-only contract", () => {
     const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Preview 3 concepts");
     expect(button?.hasAttribute("disabled")).toBe(true);
     expect(previewTypographyStyle).not.toHaveBeenCalled();
+  });
+});
+
+describe("Reviewed V2 MVP actions are explicitly opted in", () => {
+  it("does not save or select Stage 2 on initial render", async () => {
+    await renderLab();
+    expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
+    expect(handoffTypographyV2).not.toHaveBeenCalled();
   });
 });
