@@ -1,6 +1,8 @@
 """G6.3 private V2 history: isolation, idempotency and failure gates."""
 from __future__ import annotations
 
+import asyncio
+
 from hashlib import sha256
 from types import SimpleNamespace
 
@@ -101,8 +103,7 @@ def test_checkpoint_identity_must_match_reviewed_png():
                             size_bytes=100, plan_sha256="b"*64)
 
 
-@pytest.mark.asyncio
-async def test_disabled_writer_never_reads_db_or_uploads():
+def test_disabled_writer_never_reads_db_or_uploads():
     from app.modules.realistic_review_ugc.typography_output_history import save_reviewed_v2_outputs
     class Storage:
         async def store_asset(self, request):
@@ -110,10 +111,10 @@ async def test_disabled_writer_never_reads_db_or_uploads():
     def factory():
         pytest.fail("Unexpected DB")
     with pytest.raises(TypographyPilotError) as exc:
-        await save_reviewed_v2_outputs(
+        asyncio.run(save_reviewed_v2_outputs(
             settings=flags(), tenant_id="tenant-a", user_id="operator",
             keyword_id="keyword-a", reference_id="ref", batch_id="batch",
-            selected_slots=[1], session_factory=factory, storage=Storage())
+            selected_slots=[1], session_factory=factory, storage=Storage()))
     assert exc.value.code == "history_disabled"
 
 
@@ -220,13 +221,12 @@ def _history_fixture(tmp_path, monkeypatch, *, slots=(1, 2)):
     return engine, keyword_id, batch_id, MemoryStorage(), save
 
 
-@pytest.mark.asyncio
-async def test_private_history_saves_genuine_partial_and_replays_idempotently(tmp_path, monkeypatch):
+def test_private_history_saves_genuine_partial_and_replays_idempotently(tmp_path, monkeypatch):
     engine, keyword_id, batch_id, storage, save = _history_fixture(
         tmp_path, monkeypatch, slots=(1, 2, 3),
     )
     try:
-        first = await save([1, 3], storage)
+        first = asyncio.run(save([1, 3], storage))
         assert first["saved_count"] == 2
         assert first["new_count"] == 2
         assert first["stage2_jobs_created"] == 0
@@ -234,7 +234,7 @@ async def test_private_history_saves_genuine_partial_and_replays_idempotently(tm
         assert first["private_only"] is True
         assert [r["slot"] for r in first["items"]] == [1, 3]
 
-        again = await save([3, 1], storage)
+        again = asyncio.run(save([3, 1], storage))
         assert again["saved_count"] == 2
         assert again["new_count"] == 0
         assert len(storage.calls) == 2  # Retry does not upload again.
@@ -255,20 +255,19 @@ async def test_private_history_saves_genuine_partial_and_replays_idempotently(tm
         engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_private_history_upload_failure_retains_committed_first_slot(tmp_path, monkeypatch):
+def test_private_history_upload_failure_retains_committed_first_slot(tmp_path, monkeypatch):
     engine, keyword_id, _, storage, save = _history_fixture(tmp_path, monkeypatch)
     try:
         storage.fail_on.add(2)
         from app.domain.providers.contracts import StorageProviderError
         with pytest.raises(StorageProviderError):
-            await save([1, 2], storage)
+            asyncio.run(save([1, 2], storage)))
         with Session(engine) as session:
             rows = list(session.scalars(select(RrugcImageOutputVersionModel)))
             assert len(rows) == 1
             assert rows[0].output_name == "design_01.png"
         storage.fail_on.clear()
-        recovered = await save([1, 2], storage)
+        recovered = asyncio.run(save([1, 2], storage))
         assert recovered["saved_count"] == 2
         assert recovered["new_count"] == 1
         assert [slot for slot, _ in storage.calls] == [1, 2]
@@ -276,8 +275,7 @@ async def test_private_history_upload_failure_retains_committed_first_slot(tmp_p
         engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_private_history_revoked_keyword_prevents_upload(tmp_path, monkeypatch):
+def test_private_history_revoked_keyword_prevents_upload(tmp_path, monkeypatch):
     engine, keyword_id, _, storage, save = _history_fixture(tmp_path, monkeypatch)
     try:
         with Session(engine) as session:
@@ -285,7 +283,7 @@ async def test_private_history_revoked_keyword_prevents_upload(tmp_path, monkeyp
             row.picked = False
             session.commit()
         with pytest.raises(TypographyPilotError) as exc:
-            await save([1], storage)
+            asyncio.run(save([1], storage)))
         assert exc.value.code == "source_changed"
         assert storage.calls == []
         with Session(engine) as session:
