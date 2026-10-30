@@ -134,39 +134,26 @@ fn default_startup_stays_idle_and_unpaired_opt_in_fails_closed() {
 }
 
 #[test]
-fn typography_stage0_and_live_search_are_explicit_separate_one_shot_launches() {
-    let fixture = Fixture::new("typography-modes", true, true);
+fn typography_single_action_runs_stage0_and_live_discovery_once() {
+    let fixture = Fixture::new("typography-smart-run", true, true);
     fixture.controller.apply_startup(Idle).unwrap();
     fixture.controller.control("typography", "start").unwrap();
     fixture.wait_ready(&["typography"]);
-    {
-        let all = fixture.controller.lock_modes().unwrap();
-        let typography = all.iter().find(|m| m.name == "typography").unwrap();
-        assert!(!typography.typography_browser);
-    }
-    let seed_handles = fixture.process_handles();
-    fixture.controller.control("typography", "stop").unwrap();
-    assert_processes_exited(seed_handles);
-
-    fixture.controller.control("typography", "discover").unwrap();
-    {
-        let all = fixture.controller.lock_modes().unwrap();
-        let typography = all.iter().find(|m| m.name == "typography").unwrap();
-        assert!(typography.typography_browser);
-    }
     let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline
-        && !file_tail(&log_file(&fixture.controller.log_root, "typography"), 15)
+        && !file_tail(&log_file(&fixture.controller.log_root, "typography"), 20)
             .contains("FAKE_SCOUT_STARTED:typography-live")
     {
         thread::sleep(Duration::from_millis(100));
     }
-    assert!(file_tail(&log_file(&fixture.controller.log_root, "typography"), 15)
+    assert!(file_tail(&log_file(&fixture.controller.log_root, "typography"), 20)
         .contains("FAKE_SCOUT_STARTED:typography-live"));
     let handles = fixture.process_handles();
     fixture.controller.control("typography", "stop").unwrap();
     fixture.assert_paused();
     assert_processes_exited(handles);
+    // There is no separate Discover command or unintended automatic mode.
+    assert!(fixture.controller.control("typography", "discover").is_err());
 }
 
 #[test]
