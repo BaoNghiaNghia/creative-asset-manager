@@ -170,7 +170,6 @@ struct Scout {
     #[cfg(windows)]
     job: Option<winjob::Job>,
     desired: bool,
-    typography_browser: bool,
     restarts: u32,
     started_at: Option<Instant>,
     next_try: Instant,
@@ -185,7 +184,6 @@ impl Scout {
             #[cfg(windows)]
             job: None,
             desired: false,
-            typography_browser: false,
             restarts: 0,
             started_at: None,
             next_try: Instant::now(),
@@ -474,9 +472,10 @@ impl Controller {
         } else if name == "cap_stack" {
             process.arg("-CapStackMode");
         } else if name == "typography" {
-            // One-shot, explicit-only import; never starts from Run automation.
-            process.arg("-TypographyMode");
-            if scout.typography_browser { process.arg("-TypographyBrowserMode"); }
+            // Single smart action: Stage 0 source intake and fresh Pinterest
+            // discovery if the dedicated browser session is available.
+            // Browser failure remains a bounded partial result (not a retry).
+            process.args(["-TypographyMode", "-TypographyBrowserMode"]);
         }
         hide_console(&mut process); // no flashing PowerShell console
         let mut child = process
@@ -559,21 +558,12 @@ impl Controller {
             .ok_or("Unknown Scout mode.")?;
         match command {
             "start" => {
-                if mode == "typography" { scout.typography_browser = false; }
-                scout.desired = true;
-                scout.restarts = 0;
-                self.launch(scout)
-            }
-            "discover" if mode == "typography" => {
-                if scout.child.is_some() { return Err("Stop the current Typography run before fresh discovery.".into()); }
-                scout.typography_browser = true;
                 scout.desired = true;
                 scout.restarts = 0;
                 self.launch(scout)
             }
             "stop" => {
                 scout.desired = false;
-                scout.typography_browser = false;
                 self.terminate(scout);
                 drop(all);
                 if mode == "keyword" { self.release_owned_leases_best_effort(); }
@@ -581,7 +571,6 @@ impl Controller {
             }
             "restart" => {
                 self.terminate(scout);
-                if mode == "typography" { scout.typography_browser = false; }
                 scout.desired = true;
                 scout.restarts = 0;
                 self.launch(scout)
@@ -1963,7 +1952,6 @@ mod tests {
         assert!(!AUTOMATIC_SCOUT_MODES.contains(&"typography"));
         let one_shot = Scout::new("typography");
         assert!(!one_shot.desired && one_shot.child.is_none());
-        assert!(!one_shot.typography_browser);
     }
     #[test]
     fn typography_result_is_one_shot_and_ignores_stale_login_lines() {

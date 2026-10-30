@@ -19,6 +19,7 @@ import httpx
 from scout import (
     ScoutProfileLock, access_gate, allowed_image, extract_visible,
     guard_pinterest_response, launch_context,
+    mark_pinterest_login_ready, clear_pinterest_login_ready,
 )
 
 BASE_PATH = "/api/v1/realistic-review-ugc/typography/scout-agents/"
@@ -229,12 +230,16 @@ async def scout(args: argparse.Namespace) -> dict:
                         except RuntimeError as exc:
                             if ("Pinterest login or verification required" in str(exc)
                                     or str(exc).startswith("Pinterest access gate:")):
+                                clear_pinterest_login_ready(args.profile_dir)
                                 print("LIVE_PINTEREST_LOGIN_REQUIRED: log into the isolated "
                                       "profile with START_SCOUT_TYPOGRAPHY_LOGIN.cmd. "
                                       "Existing Stage 0 source candidates were kept.")
                                 if counts["created"] + counts["duplicate"] > 0:
                                     return counts
                             raise
+                        # A genuine Pinterest search passed the access gate;
+                        # remember this verified session, not merely stored cookies.
+                        mark_pinterest_login_ready(args.profile_dir)
                         for pin in pins:
                             hit_limit = await collect(
                                 pin_url=pin.pin_url, image_url=pin.image_url,

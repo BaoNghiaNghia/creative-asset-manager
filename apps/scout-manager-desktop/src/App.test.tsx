@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import App from "./App";
+import App, { TypographyScoutCard } from "./App";
 import { BrandingDnaReports } from "./BrandingDnaReports";
 import {agentDisplayState,blockedShopSummary,camConnectionState,describeShopBlockers} from "./BrandingDnaPilotCard";
 describe("Tauri Scout Manager dashboard", () => {
@@ -34,11 +34,11 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Keyword Scout");
     expect(html).toContain("Cap Stack Scout");
     expect(html).toContain("Typography Design Scout");
-    expect(html).toContain("Stage 0 picked keywords");
-    expect(html).toContain("Run once");
-    expect(html).toContain("Find new designs");
-    expect(html).toContain("Sign in to Pinterest");
-    expect(html).toContain("Never part of Run automation");
+    expect(html).toContain("Picked keywords");
+    expect(html).toContain("Scout ideas");
+    expect(html).not.toContain("Find new designs");
+    expect(html).not.toContain("Sign in to Pinterest");
+    expect(html).toContain("Not part of Run automation");
     expect(html).toContain("Branding DNA · Browser Agent");
     expect(html).toContain("Mở shop tự do");
     expect(html).toContain("Start agent");
@@ -70,7 +70,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Minimize Scout Chrome windows");
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain("Review Scout AI queue (shared Gemini)");
-    expect(html).toContain("no ImageGen calls.");
+    expect(html).toContain("No ImageGen");
     expect(html).toContain("Stage 1 AI jobs");
     expect(html).toContain("Keyword search jobs");
     expect(html).toContain("Queued / retry");
@@ -91,6 +91,24 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Open log folder");
     expect(html).toContain("Branding DNA Agent");
     expect(html).toContain('disabled=""');
+  });
+  it("shows exactly one primary Typography action and sign-in only after a real login gate", () => {
+    const base = { mode: "typography" as const, pid: null, desired: false, restarts: 0, lastError: null };
+    const props = { busy: false, onAction: () => {}, onLogin: () => {} };
+    const ready = renderToStaticMarkup(<TypographyScoutCard {...props} info={{ ...base, state: "Completed" }} />);
+    expect((ready.match(/<button/g) ?? []).length).toBe(1);
+    expect(ready).toContain("Scout ideas");
+    expect(ready).not.toContain("Sign in to Pinterest");
+    const running = renderToStaticMarkup(<TypographyScoutCard {...props} info={{ ...base, state: "Running" }} />);
+    expect((running.match(/<button/g) ?? []).length).toBe(1);
+    expect(running).toContain("Stop");
+    expect(running).not.toContain("Scout ideas");
+    expect(running).not.toContain("Sign in to Pinterest");
+    const needsLogin = renderToStaticMarkup(<TypographyScoutCard {...props} info={{ ...base, state: "Pinterest login needed" }} />);
+    expect((needsLogin.match(/<button/g) ?? []).length).toBe(2);
+    expect(needsLogin).toContain("Sign in to Pinterest");
+    const browserFailed = renderToStaticMarkup(<TypographyScoutCard {...props} info={{ ...base, state: "Pinterest browser unavailable" }} />);
+    expect(browserFailed).not.toContain("Sign in to Pinterest");
   });
   it("shows only a read-only local reports surface when a shop is selected", () => {
     const html = renderToStaticMarkup(<BrandingDnaReports nativeAvailable={false} shopUrl="https://www.etsy.com/shop/TestCaps" scanRunning={false}/>);
