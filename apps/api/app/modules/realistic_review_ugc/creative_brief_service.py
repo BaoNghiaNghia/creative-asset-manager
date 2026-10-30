@@ -20,12 +20,43 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.creative_brief import CreativeBrief, generate_brief
+from app.modules.realistic_review_ugc.creative_engine_v3 import SCHEMA_VERSION as V3_SCHEMA, build_v3_preview
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
 )
 
 PROMPT_VERSION = "meaning-first-v1"
 JOB_TYPE = "rrugc_creative_brief_generate"
+
+
+def v3_enabled(settings: Settings, tenant_id: str) -> bool:
+    """Fail closed unless both flags and an explicit tenant ID match."""
+    return bool(
+        settings.CREATIVE_ENGINE_V3_ENABLED
+        and tenant_id
+        and tenant_id in {
+            item.strip() for item in settings.CREATIVE_ENGINE_V3_CANARY_TENANT_IDS.split(",")
+            if item.strip()
+        }
+    )
+
+
+def get_v3_preview(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
+    """Read-only projection of existing picked-keyword V1, no DB or AI writes."""
+    detail = get_brief(session, tenant_id=tenant_id, keyword_id=keyword_id)
+    response = {
+        "schema_version": V3_SCHEMA,
+        "keyword_id": detail["keyword_id"],
+        "keyword_exact": detail["keyword"],
+        "source_status": detail["status"],
+    }
+    if detail["status"] != "completed" or detail["brief"] is None:
+        return {**response, "planner_status": "v1_brief_not_ready", "concepts": [],
+                "preview_only": True, "job_created": False, "can_generate_artwork": False}
+    return {**response, **build_v3_preview(
+        keyword=detail["keyword"], brief_json=detail["brief"],
+        source_prompt_version=detail["prompt_version"],
+    )}
 
 
 def _utcnow() -> datetime:

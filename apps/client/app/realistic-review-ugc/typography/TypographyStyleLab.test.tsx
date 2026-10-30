@@ -3,8 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TypographyStyleLab } from "./TypographyStyleLab";
-import { listTypographyReferences, previewTypographyStyle, listSavedTypographyV2, saveReviewedTypographyBatch, handoffTypographyV2 } from "./api";
+import { listTypographyReferences, previewTypographyStyle, listSavedTypographyV2, saveReviewedTypographyBatch, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
 import type { TypographyPreviewResponse, TypographyReference } from "./types";
+import type { CreativeV3Preview } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,6 +15,8 @@ vi.mock("./api", () => ({
   listSavedTypographyV2: vi.fn(),
   saveReviewedTypographyBatch: vi.fn(),
   handoffTypographyV2: vi.fn(),
+  getCreativeV3Status: vi.fn(),
+  getCreativeV3Preview: vi.fn(),
 }));
 
 const reference: TypographyReference = {
@@ -52,6 +55,7 @@ beforeEach(() => {
     capabilities: { read: true, upload: true, manage: true },
   });
   vi.mocked(previewTypographyStyle).mockResolvedValue(preview);
+  vi.mocked(getCreativeV3Status).mockResolvedValue({ available: false, schema_version: "creative-v3.0-preview-v1" });
   vi.mocked(listSavedTypographyV2).mockResolvedValue({ keyword_id: "kw-1", items: [] });
   vi.mocked(saveReviewedTypographyBatch).mockResolvedValue({
     saved_count: 1, new_count: 1, items: [{ slot: 1, version: 1 }],
@@ -89,6 +93,7 @@ describe("Style Lab G4 preview-only contract", () => {
       .toBe("typography-style-lab");
     expect(listTypographyReferences).toHaveBeenCalledWith({ status: "approved", limit: 100 }, expect.any(AbortSignal));
     expect(previewTypographyStyle).not.toHaveBeenCalled();
+    expect(getCreativeV3Preview).not.toHaveBeenCalled();
     const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Preview 3 concepts");
     expect(button?.hasAttribute("disabled")).toBe(false);
     await act(async () => (button as HTMLButtonElement).click());
@@ -125,5 +130,67 @@ describe("Reviewed V2 MVP actions are explicitly opted in", () => {
     await renderLab();
     expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
     expect(handoffTypographyV2).not.toHaveBeenCalled();
+  });
+});
+describe("Creative Engine V3 read-only P1 bridge", () => {
+  it("shows three distinct concepts only behind an explicit server canary", async () => {
+    vi.mocked(getCreativeV3Status).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3.0-preview-v1",
+    });
+    const quote = "Cà phê Việt Nam";
+    const plan: CreativeV3Preview = {
+      schema_version: "creative-v3.0-preview-v1",
+      keyword_id: "kw-1",
+      keyword_exact: quote,
+      source_status: "completed",
+      planner_status: "v1_bridge_preview_only",
+      preview_only: true,
+      job_created: false,
+      can_generate_artwork: false,
+      exact_text_locked: true,
+      concepts: (["safe", "creative_twist", "explore"] as const).map((mode, i) => ({
+        id: "concept-" + i, source_mode: mode, mode_label: mode,
+        name: "Concept " + mode, description: "Original design direction",
+        creative_hook: "Hook " + mode, meaning_rationale: "Identity",
+        familiar_format: "Typography", twist_description: "One twist",
+        typography_plan: "Readable", embroidery_plan: "Satin",
+        clarity_assessment_unverified: "Not verified",
+        embroidery_fit_unverified: "Not verified", risks: [],
+        mechanism: null, mechanism_verified: false,
+        text_spans: [{ text: quote, role: "locked_quote" }],
+        design_blueprint_status: "not_composed",
+        quality: { status: "needs_review", reasons: ["semantic_review_required"] },
+      })),
+    };
+    vi.mocked(getCreativeV3Preview).mockResolvedValue(plan);
+    await renderLab();
+    expect(getCreativeV3Status).toHaveBeenCalledOnce();
+    expect(getCreativeV3Preview).toHaveBeenCalledWith("kw-1", expect.any(AbortSignal));
+    expect(host.querySelectorAll(".typography-creative-v3-routes button")).toHaveLength(3);
+    expect(host.textContent).toContain("Exact text locked");
+    expect(host.textContent).toContain("Hook creative_twist");
+    const explore = host.querySelector<HTMLButtonElement>(".typography-creative-v3-routes button:last-child");
+    await act(async () => { explore?.click(); });
+    expect(explore?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.textContent).toContain("Hook explore");
+    expect(previewTypographyStyle).not.toHaveBeenCalled();
+    expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
+    expect(handoffTypographyV2).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a V3 plan when V1 is not analyzed", async () => {
+    vi.mocked(getCreativeV3Status).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3.0-preview-v1",
+    });
+    vi.mocked(getCreativeV3Preview).mockResolvedValue({
+      schema_version: "creative-v3.0-preview-v1", keyword_id: "kw-1",
+      keyword_exact: "Cà phê Việt Nam", source_status: "not_analyzed",
+      planner_status: "v1_brief_not_ready",
+      concepts: [], preview_only: true, job_created: false, can_generate_artwork: false,
+    });
+    await renderLab();
+    expect(host.textContent).toContain("Analyze this keyword first");
+    expect(host.querySelectorAll(".typography-creative-v3-routes button")).toHaveLength(0);
+    expect(previewTypographyStyle).not.toHaveBeenCalled();
   });
 });

@@ -225,6 +225,10 @@ class Settings(BaseSettings):
     RRUGC_CREATIVE_BRIEF_ENABLED: bool = True
     RRUGC_CREATIVE_BRIEF_MODEL: str = ""
     RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS: int = 180
+    # Creative Engine V3 P1 read-only bridge: requires explicit tenant canary.
+    # Disabled by default; never enables a worker, image generation or handoff.
+    CREATIVE_ENGINE_V3_ENABLED: bool = False
+    CREATIVE_ENGINE_V3_CANARY_TENANT_IDS: str = ""
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.

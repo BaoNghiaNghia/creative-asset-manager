@@ -6,12 +6,38 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.creative_brief_service import (
-    get_brief, queue_brief, queue_picked_backfill,
+    get_brief, get_v3_preview, queue_brief, queue_picked_backfill, v3_enabled,
 )
 
 router = APIRouter(prefix="/keyword-creative-briefs", tags=["creative-brief"])
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
+
+
+@router.get("/v3/status")
+def creative_engine_v3_status(principal: CurrentPrincipal = Depends(READ)):
+    """Capability probe: HTTP 200 when OFF, no tenant identifiers or data."""
+    return {"available": v3_enabled(get_settings(), principal.active_tenant_id),
+            "schema_version": "creative-v3.0-preview-v1"}
+
+
+@router.get("/{keyword_id}/v3-preview")
+def creative_engine_v3_preview(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Tenant-scoped, non-generating V1-to-V3 concept preview for Style Lab."""
+    if not v3_enabled(get_settings(), principal.active_tenant_id):
+        raise HTTPException(status_code=404, detail="Creative Engine V3 unavailable")
+    try:
+        return get_v3_preview(
+            session, tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Picked keyword not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Existing Creative Brief needs review") from exc
 
 
 @router.get("/{keyword_id}")

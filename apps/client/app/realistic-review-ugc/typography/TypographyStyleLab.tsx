@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listTypographyReferences, previewTypographyStyle, saveReviewedTypographyBatch, listSavedTypographyV2, handoffTypographyV2 } from "./api";
-import type { TypographySavedVersion } from "./api";
+import { listTypographyReferences, previewTypographyStyle, saveReviewedTypographyBatch, listSavedTypographyV2, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
+import type { TypographySavedVersion, CreativeV3Preview } from "./api";
 import type {
   TypographyReference, TypographyPreviewResponse, TypographySvgPreview,
 } from "./types";
@@ -34,6 +34,11 @@ export function TypographyStyleLab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+  const [v3Available, setV3Available] = useState(false);
+  const [v3Preview, setV3Preview] = useState<CreativeV3Preview | null>(null);
+  const [v3Loading, setV3Loading] = useState(false);
+  const [v3Error, setV3Error] = useState("");
+  const [v3Mode, setV3Mode] = useState<"safe" | "creative_twist" | "explore">("creative_twist");
 
   const [batchId, setBatchId] = useState("");
   const [chosenSlots, setChosenSlots] = useState<number[]>([1]);
@@ -109,6 +114,43 @@ export function TypographyStyleLab({
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
+  // V3 remains independently feature-gated; a normal V2 Style Lab session
+  // never probes protected V3 data when the availability flag is OFF.
+  useEffect(() => {
+    if (!active) {
+      setV3Available(false);
+      return;
+    }
+    const controller = new AbortController();
+    void getCreativeV3Status(controller.signal)
+      .then(result => { if (!controller.signal.aborted) setV3Available(result.available === true); })
+      .catch(() => { if (!controller.signal.aborted) setV3Available(false); });
+    return () => controller.abort();
+  }, [active]);
+
+  useEffect(() => {
+    setV3Preview(null);
+    setV3Loading(false);
+    setV3Error("");
+    setV3Mode("creative_twist");
+    if (!active || !v3Available || !keywordId) return;
+    const controller = new AbortController();
+    setV3Loading(true);
+    void getCreativeV3Preview(keywordId, controller.signal)
+      .then(result => {
+        if (!controller.signal.aborted) {
+          setV3Preview(result);
+          setV3Error("");
+        }
+      })
+      .catch(reason => {
+        if (!controller.signal.aborted)
+          setV3Error(reason instanceof Error ? reason.message : "V3 preview unavailable.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setV3Loading(false); });
+    return () => controller.abort();
+  }, [active, v3Available, keywordId]);
+
   useEffect(() => {
     setSavedVersions([]); setStage2Selected([]); setMvpMessage("");
     if (!active || !keywordId) return;
@@ -127,6 +169,8 @@ export function TypographyStyleLab({
   }, [keywords, selectedKeyword]);
   const currentKeyword = visibleKeywords.find(item => item.keyword_id === keywordId);
   const reference = references.find(item => item.id === referenceId);
+  const currentV3 = v3Preview?.concepts.find(item => item.source_mode === v3Mode);
+  const v3ExactTextMatch = !v3Preview || Boolean(currentKeyword && v3Preview.keyword_exact === currentKeyword.keyword);
 
   const createPreviews = async () => {
     if (!currentKeyword || !reference || busy) return;
@@ -161,6 +205,44 @@ export function TypographyStyleLab({
       </div>
       <button type="button" className="typography-quiet" onClick={onBack}>Back to Keyword Jobs</button>
     </div>
+    {v3Available && <section className="typography-creative-v3" aria-label="Creative Engine V3 concept preview">
+      <header className="typography-creative-v3-heading">
+        <div><p className="typography-eyebrow">CREATIVE ENGINE V3 · P1 PREVIEW</p>
+          <h4>Meaning-first concept directions</h4>
+          <p>Connect an analyzed keyword to three creative routes, before choosing a style reference.</p></div>
+        <span>Preview only · No ImageGen</span>
+      </header>
+      {v3Loading && <p role="status" className="typography-creative-v3-hint">Loading existing Creative Brief…</p>}
+      {v3Error && <p role="alert" className="typography-creative-v3-warning">Creative V3 preview unavailable: {v3Error}</p>}
+      {!v3Loading && !v3Error && (!v3Preview || v3Preview.planner_status === "v1_brief_not_ready") &&
+        <p role="status" className="typography-creative-v3-hint">
+          {keywordId ? "Analyze this keyword first in Keyword Jobs → Creative Brief. No generation is triggered here."
+            : "Select a picked keyword to inspect its existing Creative Brief."}
+        </p>}
+      {v3Preview?.planner_status === "v1_bridge_preview_only" && !v3ExactTextMatch &&
+        <p role="alert" className="typography-creative-v3-warning">Source keyword changed. Preview hidden; reload the original Creative Brief.</p>}
+      {v3Preview?.planner_status === "v1_bridge_preview_only" && v3ExactTextMatch && <div className="typography-creative-v3-body">
+        <div className="typography-creative-v3-routes" role="group" aria-label="Creative V3 concept routes">
+          {v3Preview.concepts.map(item => <button key={item.id} type="button"
+            aria-pressed={v3Mode === item.source_mode} onClick={() => setV3Mode(item.source_mode)}
+            className={v3Mode === item.source_mode ? "active" : ""}>
+            <small>{item.mode_label}</small><strong>{item.name}</strong>
+            <span>{item.description}</span>
+          </button>)}
+        </div>
+        {currentV3 && <div className="typography-creative-v3-detail">
+          <strong>Creative hook</strong>
+          <p>{currentV3.creative_hook}</p>
+          <small>Mechanism: {currentV3.mechanism || "Needs classification"} ·
+            Blueprint: not composed · QA: needs review</small>
+          <div className="typography-creative-v3-locked">
+            <strong>Exact text locked</strong>
+            <span>{v3ExactTextMatch ? currentKeyword?.keyword : "Source text mismatch — preview blocked."}</span>
+          </div>
+          <p className="typography-creative-v3-hint">Derived from V1; not a completed V3 planner or approved artwork. Explore/Exploit requires explicit feedback and validation.</p>
+        </div>}
+      </div>}
+    </section>}
     <div className="typography-v2-mvp-guide">
       <strong>Typography V2 · Reviewed output workflow</strong>
       <span>01 · Preview style</span><span>02 · Human-review an existing ImageGen batch</span><span>03 · Save and select for Stage 2</span>

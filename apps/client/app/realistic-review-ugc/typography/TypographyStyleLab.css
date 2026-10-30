@@ -73,3 +73,36 @@
 .typography-style-lab>.typography-v2-mvp>small{flex-basis:100%}
 .typography-style-lab>.typography-v2-mvp button{min-height:36px}
 @media(max-width:690px){.typography-style-lab>.typography-v2-mvp{align-items:stretch}.typography-style-lab>.typography-v2-mvp>label{flex-basis:100%}.typography-style-lab>.typography-v2-mvp>.typography-primary{flex:1 1 100%}}
+/* V3 P1 bridge is a text-only supplement, never a generated artwork preview. */
+.typography-creative-v3{margin:14px 0 16px;border:1px solid #d6e4f8;border-radius:12px;background:#f8fbff;overflow:hidden}
+.typography-creative-v3-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #dfe8f5}
+.typography-creative-v3-heading h4{margin:2px 0 3px;font-size:16px;color:#2a4062;line-height:1.3}
+.typography-creative-v3-heading p:not(.typography-eyebrow){margin:0;color:#667d99;font-size:11px;line-height:1.5}
+.typography-creative-v3-heading>span{flex:none;border:1px solid #cfddf0;border-radius:99px;padding:6px 10px;background:#fff;color:#5b78ac;font-size:11px;font-weight:700}
+.typography-creative-v3-hint{margin:0;padding:13px 18px;color:#5d718a;font-size:11px;line-height:1.55}
+.typography-creative-v3-warning{margin:12px 18px;padding:12px;border:1px solid #edc8d2;border-radius:8px;color:#9f3951;background:#fff8fa;font-size:12px}
+.typography-creative-v3-body{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;padding:14px 18px 18px}
+.typography-creative-v3-routes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.typography-creative-v3-routes button{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:12px;border:1px solid #d7e2f0;border-radius:10px;background:#fff;text-align:left;cursor:pointer;color:#2c4768;line-height:1.45}
+.typography-creative-v3-routes button.active{border-color:#5279dd;background:#eef4ff;box-shadow:inset 3px 0 0 #5279dd}
+.typography-creative-v3-routes button:hover{border-color:#93abe8}
+.typography-creative-v3-routes button:focus-visible{outline:2px solid #315fe9;outline-offset:2px}
+.typography-creative-v3-routes button small{color:#58709c;font-size:10px;font-weight:750}
+.typography-creative-v3-routes button strong{font-size:12px;overflow-wrap:anywhere}
+.typography-creative-v3-routes button span{font-size:11px;color:#6c8099;overflow-wrap:anywhere}
+.typography-creative-v3-detail{min-width:0;padding:12px 14px;border-radius:10px;background:#fff;border:1px solid #dbe6f3}
+.typography-creative-v3-detail>strong{font-size:12px;color:#28446a}
+.typography-creative-v3-detail>p:not(.typography-creative-v3-hint){margin:7px 0 11px;font-size:12px;line-height:1.55;color:#3c5674;overflow-wrap:anywhere}
+.typography-creative-v3-detail>small{display:block;color:#7a8ba2;font-size:11px}
+.typography-creative-v3-locked{display:grid;gap:5px;margin:12px 0 0;padding:10px 12px;border-left:3px solid #2d9678;border-radius:6px;background:#eef8f5}
+.typography-creative-v3-locked strong{font-size:10px;color:#277b63;text-transform:uppercase;letter-spacing:.035em}
+.typography-creative-v3-locked span{font-size:12px;font-weight:750;line-height:1.5;color:#284b41;overflow-wrap:anywhere;white-space:pre-wrap}
+.typography-creative-v3-detail .typography-creative-v3-hint{padding:10px 0 0;font-size:10px}
+@media(max-width:1024px){.typography-creative-v3-body{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:680px){
+  .typography-creative-v3-heading{align-items:flex-start;padding:12px 14px;flex-wrap:wrap}
+  .typography-creative-v3-heading>span{white-space:normal}
+  .typography-creative-v3-body{padding:12px 14px}
+  .typography-creative-v3-routes{grid-template-columns:minmax(0,1fr)}
+  .typography-creative-v3-routes button{min-height:44px}
+}

@@ -131,3 +131,54 @@ export function handoffTypographyV2(keywordId: string, version: number, selected
     method: "POST", body: JSON.stringify({ keyword_id: keywordId, version, selected }),
   });
 }
+/** Creative Engine V3 P1 preview is a read-only projection of existing V1 briefs.
+ * No job, image, source selection, or feedback write is performed.
+ */
+export type CreativeV3ConceptPreview = {
+  id: string;
+  source_mode: "safe" | "creative_twist" | "explore";
+  mode_label: string;
+  name: string;
+  description: string;
+  creative_hook: string;
+  meaning_rationale: string;
+  familiar_format: string;
+  twist_description: string;
+  typography_plan: string;
+  embroidery_plan: string;
+  clarity_assessment_unverified: string;
+  embroidery_fit_unverified: string;
+  risks: string[];
+  mechanism: string | null;
+  mechanism_verified: false;
+  text_spans: { text: string; role: "locked_quote" }[];
+  design_blueprint_status: "not_composed";
+  quality: { status: "needs_review"; reasons: string[] };
+};
+export type CreativeV3Preview = {
+  schema_version: "creative-v3.0-preview-v1";
+  keyword_id: string;
+  keyword_exact: string;
+  source_status: string;
+  planner_status: "v1_bridge_preview_only" | "v1_brief_not_ready";
+  source?: { brief_prompt_version: string; brief_content_sha256: string;
+    style_dna_id: null; reference_rights_reviewed: false };
+  intent_hint?: string;
+  concepts: CreativeV3ConceptPreview[];
+  exact_text_locked?: true;
+  mode_policy?: { balanced: "creative_twist"; explore: "explore";
+    exploit: "requires_explicit_approved_feedback" };
+  preview_only: true;
+  job_created: false;
+  can_generate_artwork: false;
+};
+
+const CREATIVE_V3_BASE = "/api/v1/realistic-review-ugc/keyword-creative-briefs";
+
+export function getCreativeV3Status(signal?: AbortSignal): Promise<{ available: boolean; schema_version: string }> {
+  return jsonRequest(CREATIVE_V3_BASE + "/v3/status", { signal });
+}
+
+export function getCreativeV3Preview(keywordId: string, signal?: AbortSignal): Promise<CreativeV3Preview> {
+  return jsonRequest(CREATIVE_V3_BASE + "/" + encodeURIComponent(keywordId) + "/v3-preview", { signal });
+}
