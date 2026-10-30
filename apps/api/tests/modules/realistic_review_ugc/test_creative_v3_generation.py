@@ -548,3 +548,21 @@ def test_v3_openai_api_rejects_invalid_image_and_does_not_fabricate(tmp_path, mo
         ))
     from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
     assert not list(_job_directory(cfg, tenant_id="tenant-a", processing_id=processing_id).glob("output/final/*.png"))
+
+def test_creative_v3_defaults_to_codex_and_never_inherits_paid_api_keys(monkeypatch, tmp_path):
+    from app.modules.realistic_review_ugc.creative_v3_generation import image_provider
+    from app.providers.ai.codex_image import _codex_env
+
+    assert image_provider(SimpleNamespace()) == "codex"
+    monkeypatch.setenv("OPENAI_API_KEY", "sensitive-test-placeholder")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid")
+    monkeypatch.setenv("CODEX_API_KEY", "sensitive-test-placeholder")
+    monkeypatch.setenv("OPENAI_EXECUTOR_API_KEY", "sensitive-test-placeholder")
+    monkeypatch.setenv("OPENAI_ORGANIZATION", "dummy")
+    monkeypatch.setenv("OPENAI_PROJECT", "dummy")
+    child = _codex_env(tmp_path)
+    assert child["CODEX_HOME"] == str(tmp_path)
+    assert all(name not in child for name in (
+        "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORGANIZATION",
+        "OPENAI_PROJECT", "CODEX_API_KEY", "OPENAI_EXECUTOR_API_KEY",
+    ))

@@ -40,7 +40,7 @@ OPENAI_IMAGE_QUALITIES = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 
 def image_provider(settings: Any) -> str:
-    return str(getattr(settings, "CREATIVE_ENGINE_V3_IMAGE_PROVIDER", "openai")).strip().lower()
+    return str(getattr(settings, "CREATIVE_ENGINE_V3_IMAGE_PROVIDER", "codex")).strip().lower()
 
 
 def api_config_signature(settings: Any) -> str:
