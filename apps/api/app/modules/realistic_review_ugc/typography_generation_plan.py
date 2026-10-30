@@ -16,7 +16,7 @@ from app.modules.realistic_review_ugc.typography_quality_gate import (
     G5_VERSION, TypographyQualityError, audit_svg_previews, summarize_v2_slots,
 )
 
-PLAN_VERSION = "concept-short-v2/plan-v2"
+PLAN_VERSION = "concept-short-v2/plan-v1"
 SKILL_NAME = "concept-short-v2"
 CANVAS = (2048, 1024)
 _LAYOUT_RECIPES = (
