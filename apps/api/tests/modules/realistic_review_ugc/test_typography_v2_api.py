@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -200,6 +201,8 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
     assert picked_source["keyword"] == "ADVENTURE AWAITS"
     assert picked_source["source_pin_url"] == form["source_url"]
     assert picked_source["source_image_url"] == "https://i.pinimg.com/1200x/a/b/source.jpg"
+    pending = env.client.get(base + "/keywords", headers=header).json()["pending_sources"]
+    assert [row["id"] for row in pending] == [keyword_id]
     wrong_domain = env.client.post(endpoint, headers=header,
                                    files=upload, data={**form, "source_url": "https://evil.example/pin/123456789012345/"})
     assert wrong_domain.status_code == 422
@@ -213,6 +216,7 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
     assert created.json()["source_rights_status"] == "unknown"
     repeated = env.client.post(endpoint, headers=header, files=upload, data=form)
     assert repeated.json()["status"] == "duplicate"
+    assert env.client.get(base + "/keywords", headers=header).json()["pending_sources"] == []
     assert env.storage.calls == 1
     with Session(env.engine) as db:
         rows = db.query(RrugcTypographyReferenceModel).all()
@@ -230,6 +234,71 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
     # Unverified rights remain unapprovable, even after an agent upload.
     assert env.client.patch(BASE + "/" + created.json()["reference_id"],
                             json={"editorial_status": "approved"}).status_code == 422
+
+def test_design_scout_seed_queue_skips_imported_pins_and_tenant_collisions(env, monkeypatch):
+    """Fresh Stage 0 seeds advance on every run, even after rejection/archival."""
+    import app.modules.realistic_review_ugc.scout_automation as scout_auth
+
+    def authenticate(self, *, agent_id, raw_token, lock=False):
+        assert agent_id == "agent-a" and raw_token == "paired-secret"
+        return SimpleNamespace(id=agent_id, tenant_id="tenant-a", active=True)
+
+    monkeypatch.setattr(scout_auth.RrugcAutoScoutService, "authenticate_agent", authenticate)
+    enabled(env)
+    env.config.TYPOGRAPHY_V2_DESIGN_SCOUT_ENABLED = True
+    now = datetime(2026, 10, 30, tzinfo=timezone.utc)
+    with Session(env.engine, expire_on_commit=False) as db:
+        picks = []
+        for index, (pin, tenant) in enumerate((
+            ("1234500001", "tenant-a"),
+            ("1234500001", "tenant-a"),  # same source Pin, different picked keyword
+            ("1234500002", "tenant-a"),
+            ("1234500003", "tenant-a"),
+            ("1234500004", "tenant-b"),  # tenant boundary
+        )):
+            item = RrugcKeywordVolumeModel(
+                tenant_id=tenant, keyword=f"EXAMPLE {index}",
+                keyword_normalized=f"example {index}",
+                picked=True, picked_at=now - timedelta(minutes=index),
+                source_pin_url=f"https://www.pinterest.com/pin/{pin}/",
+                source_image_url=f"https://i.pinimg.com/1200x/source{index}.jpg",
+            )
+            db.add(item)
+            picks.append(item)
+        db.commit()
+        first, third, fourth = picks[0].id, picks[2].id, picks[3].id
+
+    url = "/api/v1/realistic-review-ugc/typography/scout-agents/agent-a"
+    headers = {"Authorization": "Bearer paired-secret"}
+    before = env.client.get(url + "/keywords", headers=headers, params={"limit": 3})
+    assert before.status_code == 200, before.text
+    assert [row["keyword"] for row in before.json()["keywords"]] == [
+        "EXAMPLE 0", "EXAMPLE 1", "EXAMPLE 2",
+    ]
+    assert [row["id"] for row in before.json()["pending_sources"]] == [
+        first, third, fourth,
+    ]
+
+    payload = {
+        "source_url": "https://www.pinterest.com/pin/1234500001/",
+        "source_query": "Picked Stage 0 Pinterest reference",
+        "keyword_id": first,
+    }
+    uploaded = env.client.post(
+        url + "/references", headers=headers, data=payload,
+        files={"file": ("source.png", image(70), "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["status"] == "created"
+    assert env.client.delete(BASE + "/" + uploaded.json()["reference_id"]).status_code == 200
+
+    after = env.client.get(url + "/keywords", headers=headers, params={"limit": 3})
+    assert after.status_code == 200, after.text
+    assert [row["id"] for row in after.json()["pending_sources"]] == [third, fourth]
+    assert all(row["source_pin_url"] != payload["source_url"]
+               for row in after.json()["pending_sources"])
+    assert all(row["keyword"] != "EXAMPLE 4" for row in after.json()["pending_sources"])
+
 
 def test_status_probe_preserves_canary_and_permission_boundaries(env):
     status = "/api/v1/realistic-review-ugc/typography/status"

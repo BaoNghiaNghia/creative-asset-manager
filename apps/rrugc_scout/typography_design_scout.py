@@ -113,10 +113,15 @@ async def scout(args: argparse.Namespace) -> dict:
     ) as api:
         reply = await api.get(endpoint + "/keywords", params={"limit": args.keyword_limit})
         reply.raise_for_status()
-        selected = reply.json().get("keywords", [])
+        discovery = reply.json()
+        selected = discovery.get("keywords", [])
         if not selected:
             return counts
+        # Backwards compatible: older CAM versions return only "keywords".
+        # Newer APIs rotate the independent Stage 0 seed lane past imported Pins.
+        pending_sources = discovery.get("pending_sources", selected)
         counts["keywords"] = len(selected)
+        counts["seed_keywords"] = len(pending_sources)
         if not args.execute:
             for row in selected:
                 print("DRY RUN picked keyword: " + str(row["keyword"])[:80])
@@ -175,7 +180,7 @@ async def scout(args: argparse.Namespace) -> dict:
             # Reuse real Pinterest results already found by Stage 0 Scout first.
             # No Chrome login or new crawl is needed to collect these candidates.
             # Original source rights remain unknown, not licensed/approved.
-            for row in selected:
+            for row in pending_sources:
                 if attempts >= 24 or counts["created"] + counts["duplicate"] >= args.max_images:
                     return counts
                 if not row.get("source_pin_url") or not row.get("source_image_url"):

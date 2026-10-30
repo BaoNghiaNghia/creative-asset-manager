@@ -146,18 +146,69 @@ def typography_scout_picked_keywords(
     session: Session = Depends(get_db),
 ):
     agent = _design_scout_agent(session, agent_id=agent_id, authorization=authorization)
+    base = (
+        RrugcKeywordVolumeModel.tenant_id == agent.tenant_id,
+        RrugcKeywordVolumeModel.picked.is_(True),
+    )
+    order = (RrugcKeywordVolumeModel.picked_at.desc(), RrugcKeywordVolumeModel.id)
     keywords = session.scalars(
-        select(RrugcKeywordVolumeModel)
-        .where(RrugcKeywordVolumeModel.tenant_id == agent.tenant_id,
-               RrugcKeywordVolumeModel.picked.is_(True))
-        .order_by(RrugcKeywordVolumeModel.picked_at.desc(), RrugcKeywordVolumeModel.id)
-        .limit(limit)
+        select(RrugcKeywordVolumeModel).where(*base).order_by(*order).limit(limit)
     ).all()
-    return {"keywords": [
-        {"id": row.id, "keyword": row.keyword,
-         "source_pin_url": row.source_pin_url, "source_image_url": row.source_image_url}
-        for row in keywords
-    ]}
+
+    # Preserve the latest keyword list for fresh Pinterest searches, while
+    # rotating the Stage 0 seed lane past sources already imported on earlier
+    # runs. Without this, every one-shot restart downloads the same 3 Pins.
+    # The check is tenant-scoped, includes rejected/archived source candidates,
+    # and does not require another table, job queue, or a schema migration.
+    imported_pin = (
+        select(RrugcTypographyReferenceModel.id)
+        .where(
+            RrugcTypographyReferenceModel.tenant_id == agent.tenant_id,
+            RrugcTypographyReferenceModel.source_type == "scout",
+            RrugcTypographyReferenceModel.source_url == RrugcKeywordVolumeModel.source_pin_url,
+        )
+        .correlate(RrugcKeywordVolumeModel)
+        .exists()
+    )
+    source_rows = session.scalars(
+        select(RrugcKeywordVolumeModel)
+        .where(
+            *base,
+            RrugcKeywordVolumeModel.source_pin_url.is_not(None),
+            RrugcKeywordVolumeModel.source_image_url.is_not(None),
+            ~imported_pin,
+        )
+        .order_by(*order)
+        .limit(limit * 20)
+    ).all()
+
+    pending_sources = []
+    seen_pins: set[str] = set()
+    for row in source_rows:
+        # Stage 0 may link several picked keywords to one identical Pin.
+        # Pick one representative without changing any Stage 0 state.
+        try:
+            canonical_pin, _ = _canonical_design_pin(row.source_pin_url or "")
+        except HTTPException:
+            continue
+        if canonical_pin in seen_pins or not row.source_image_url:
+            continue
+        seen_pins.add(canonical_pin)
+        pending_sources.append({
+            "id": row.id, "keyword": row.keyword,
+            "source_pin_url": canonical_pin, "source_image_url": row.source_image_url,
+        })
+        if len(pending_sources) >= limit:
+            break
+
+    return {
+        "keywords": [
+            {"id": row.id, "keyword": row.keyword,
+             "source_pin_url": row.source_pin_url, "source_image_url": row.source_image_url}
+            for row in keywords
+        ],
+        "pending_sources": pending_sources,
+    }
 
 
 @status_router.post("/scout-agents/{agent_id}/references")
