@@ -228,6 +228,7 @@ export function TypographyStyleLab({
           <strong>No concepts yet</strong>
           <p>Choose one picked keyword and an approved reference, then create three no-cost SVG previews.</p>
         </div>}
+        {previews?.generation_plan?.style_brief && <div className="typography-style-lab-notice" aria-label="Scout design style brief"><strong>Scout → Prompt · Design brief</strong><p>{previews.generation_plan.style_brief}</p><small>Abstract typography guidance only; keyword remains locked. ImageGen uses this brief rather than source image pixels.</small></div>}
         <p className="typography-style-lab-notice">Vector drafts only. This does not create an AI image, save an output or publish a product.</p>
       </section>
       <aside className="typography-style-lab-panel" aria-label="Balanced controls and quality">

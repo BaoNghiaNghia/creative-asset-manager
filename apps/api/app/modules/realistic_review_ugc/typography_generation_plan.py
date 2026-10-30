@@ -16,7 +16,7 @@ from app.modules.realistic_review_ugc.typography_quality_gate import (
     G5_VERSION, TypographyQualityError, audit_svg_previews, summarize_v2_slots,
 )
 
-PLAN_VERSION = "concept-short-v2/plan-v1"
+PLAN_VERSION = "concept-short-v2/plan-v2"
 SKILL_NAME = "concept-short-v2"
 CANVAS = (2048, 1024)
 _LAYOUT_RECIPES = (
@@ -76,6 +76,29 @@ def build_concept_short_v2_plan(
     if not isinstance(overlap_rules, list):
         raise TypographyQualityError("Invalid approved overlap rules.")
     allow_overlap = bool(overlap_rules)
+    # Convert reviewed Scout imagery into a bounded descriptive style brief.
+    # Never forward source lettering, arbitrary analyzer prose or reference pixels.
+    weight = font_mood.get("weight")
+    weight = weight if weight in {"light", "regular", "medium", "semibold", "bold", "heavy", "black"} else "bold"
+    contrast = font_mood.get("contrast")
+    contrast = contrast if contrast in {"low", "medium", "high"} else "medium"
+    proportions = font_mood.get("proportions")
+    proportions = proportions if proportions in {"narrow", "normal", "wide", "condensed", "expanded"} else "normal"
+    nodes = [item for item in graph["nodes"] if isinstance(item, Mapping)]
+    hierarchy = "one dominant headline" if len(nodes) == 1 else "dominant headline with secondary text hierarchy"
+    edges = graph.get("edges", [])
+    relations = sorted({
+        edge["relation"] for edge in edges
+        if isinstance(edge, Mapping) and edge.get("relation") in {"above", "below", "inside", "overlap"}
+    }) if isinstance(edges, list) else []
+    relationship = ", ".join(relations) if relations else "clear separation"
+    style_brief = (
+        f"Typography style brief: {weight} lettering, {contrast} stroke contrast, "
+        f"{proportions} letter proportions; {hierarchy}; primary text follows a "
+        f"{path} path with {alignment} alignment; relationships: {relationship}; "
+        f"{'restrained, legible overlap' if allow_overlap else 'no letter overlap'}. "
+        "Reuse only these abstract visual relationships; create an original arrangement. "
+    )
     quote_literal = json.dumps(keyword, ensure_ascii=False)
     word_count = len(keyword.split())
     # Store only a deterministic seed + normalized, fixed-vector structural
@@ -106,7 +129,7 @@ def build_concept_short_v2_plan(
             "Reproduce every Unicode character and all original spacing/punctuation "
             "in the same reading order; do not insert, remove, translate, shorten or reword. "
             "Structural composition guidance (not source artwork): " + instruction + " "
-            + dna_guidance + "Use the approved Google Fonts OFL family " + font +
+            + dna_guidance + style_brief + "Use the approved Google Fonts OFL family " + font +
             " as a typography mood guide; avoid tracing a reference glyph silhouette. "
             + overlap + " "
             "Use embroidery-realistic satin thread direction, stitch ridges and fine edge relief, "
@@ -138,6 +161,7 @@ def build_concept_short_v2_plan(
         "source_keyword_exact": keyword, "reference_id": reference_id,
         "dna_id": dna_id, "source_image_hash": reviewed_dna.get("image_hash"),
         "reference_influence": "balanced",
+        "style_brief": style_brief.strip(),
         "requested_slots": 6, "preview_qa": quality,
         "output_contract": output_contract,
         "slots": slots, "ready_for_imagegen": False,

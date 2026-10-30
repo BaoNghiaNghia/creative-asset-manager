@@ -122,5 +122,6 @@ export type TypographyPreviewResponse = {
   preview_only: true;
   job_created: false;
   provider_calls: 0;
+  generation_plan?: { style_brief: string };
   items: TypographySvgPreview[];
 };
