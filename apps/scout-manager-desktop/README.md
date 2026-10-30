@@ -1,5 +1,31 @@
 # RRUGC Scout Manager
 
+## v0.1.48 — Fix Typography Scout Chrome startup failures (2026-10-30)
+
+Production incident: a Typography "Run once" launched an isolated Pinterest
+Chrome profile even when Stage 0 sources could be imported without a
+browser. On DESKTOP-3FR0LF0, Chrome exited during startup and the one-shot
+returned code 1, shown only as generic "Scout failed".
+
+**Run once** now imports existing picked Stage 0 sources using the existing
+seed-only mode: no Chrome or login required. **Find new designs** explicitly
+opts into fresh Pinterest search using the isolated Typography profile;
+**Sign in to Pinterest** still opens its separate manual login window.
+If live Chrome cannot launch, the Scout keeps any Stage 0 candidate imports,
+reports LIVE_PINTEREST_BROWSER_UNAVAILABLE and the Manager shows an actionable
+non-retrying browser warning, not a generic failure. Error details never expose
+browser paths, credentials, cookies or private URLs.
+
+Both actions remain one-shot, at most eight candidate images per run,
+never in global Run automation, and never auto-restart. Source rights remain
+unknown, editorial status candidate. Other Scout modes, CAM backend APIs,
+Stage 1 V1, ImageGen and Stage 2 are not modified. No migration required.
+
+Windows operator: update to immutable GitHub release scout-manager-v0.1.48
+with UPDATE_SCOUT_MANAGER_RELEASE.cmd; verify SHA-256, active-version marker,
+and resolve-only launcher. Preserve scout.local.env, Chrome profiles, existing
+Scout jobs, and the prior Portable EXE for rollback.
+
 ## v0.1.47 — Typography Ideas one-shot Scout (2026-10-30)
 
 Adds a dedicated **Typography Design Scout** card to RRUGC Scout Manager.

@@ -36,8 +36,9 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Typography Design Scout");
     expect(html).toContain("Stage 0 picked keywords");
     expect(html).toContain("Run once");
+    expect(html).toContain("Find new designs");
     expect(html).toContain("Sign in to Pinterest");
-    expect(html).toContain("Not included in Run automation");
+    expect(html).toContain("Never part of Run automation");
     expect(html).toContain("Branding DNA · Browser Agent");
     expect(html).toContain("Mở shop tự do");
     expect(html).toContain("Start agent");
@@ -69,7 +70,7 @@ describe("Tauri Scout Manager dashboard", () => {
     expect(html).toContain("Minimize Scout Chrome windows");
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain("Review Scout AI queue (shared Gemini)");
-    expect(html).toContain("Nothing is auto-approved or sent to ImageGen.");
+    expect(html).toContain("no ImageGen calls.");
     expect(html).toContain("Stage 1 AI jobs");
     expect(html).toContain("Keyword search jobs");
     expect(html).toContain("Queued / retry");

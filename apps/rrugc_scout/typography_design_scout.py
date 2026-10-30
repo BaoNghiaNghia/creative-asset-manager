@@ -204,10 +204,23 @@ async def scout(args: argparse.Namespace) -> dict:
             lock.acquire()
             playwright = context = None
             try:
-                playwright, context = await launch_context(SimpleNamespace(
-                    profile_dir=args.profile_dir, headless=args.headless,
-                    chrome_executable=args.chrome_executable,
-                ))
+                try:
+                    playwright, context = await launch_context(SimpleNamespace(
+                        profile_dir=args.profile_dir, headless=args.headless,
+                        chrome_executable=args.chrome_executable,
+                    ))
+                except Exception:
+                    # A dedicated Chrome profile may not launch in a noninteractive
+                    # Windows session or when Chromium/Chrome conflicts with
+                    # existing profile ownership. Keep Stage 0 candidates and
+                    # never turn a successful import into a failed whole run.
+                    # Do not print raw Playwright stderr (may contain local paths).
+                    print("LIVE_PINTEREST_BROWSER_UNAVAILABLE: isolated Chrome failed "
+                          "to start. Stage 0 candidate import is preserved. "
+                          "Close only the Typography Chrome window and try fresh "
+                          "Pinterest discovery after manual sign-in.")
+                    counts["browser_status"] = "unavailable"
+                    return counts
                 page = context.pages[0] if context.pages else await context.new_page()
                 for row in selected:
                     for query in search_queries(str(row["keyword"])):
@@ -268,8 +281,17 @@ def main() -> int:
             return 21
         print("Design Scout browser failure: " + type(exc).__name__)
         return 1
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code in (401, 403):
+            print("TYPOGRAPHY_SCOUT_PAIRING_REQUIRED: check the paired CAM Scout agent.")
+        elif code == 404:
+            print("TYPOGRAPHY_SCOUT_API_UNAVAILABLE: verify the CAM Typography pilot flag and API.")
+        else:
+            print("TYPOGRAPHY_SCOUT_API_ERROR: HTTP " + str(code))
+        return 1
     except (httpx.HTTPError, OSError) as exc:
-        print("Design Scout failed safely: " + type(exc).__name__)
+        print("TYPOGRAPHY_SCOUT_NETWORK_ERROR: " + type(exc).__name__)
         return 1
     print("Typography Design Scout: " + str(result))
     return 0

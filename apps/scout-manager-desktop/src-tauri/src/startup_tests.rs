@@ -29,11 +29,12 @@ impl Fixture {
         }
         fs::write(
             root.join("scripts/start_scout_auto_update.ps1"),
-            "param([switch]$SkipUpdate, [switch]$KeywordMode, [switch]$CapStackMode, [switch]$TypographyMode)\n\
+            "param([switch]$SkipUpdate, [switch]$KeywordMode, [switch]$CapStackMode, [switch]$TypographyMode, [switch]$TypographyBrowserMode)\n\
              $mode = 'review'\n\
              if ($KeywordMode) { $mode = 'keyword' }\n\
              if ($CapStackMode) { $mode = 'cap_stack' }\n\
              if ($TypographyMode) { $mode = 'typography' }\n\
+             if ($TypographyBrowserMode) { $mode = 'typography-live' }\n\
              Write-Host ('FAKE_SCOUT_STARTED:' + $mode)\n\
              Start-Sleep -Seconds 120\n",
         ).unwrap();
@@ -130,6 +131,42 @@ fn default_startup_stays_idle_and_unpaired_opt_in_fails_closed() {
     let error = fixture.controller.apply_startup(StartAutomation).unwrap_err();
     assert!(error.contains("Pairing required"));
     fixture.assert_paused();
+}
+
+#[test]
+fn typography_stage0_and_live_search_are_explicit_separate_one_shot_launches() {
+    let fixture = Fixture::new("typography-modes", true, true);
+    fixture.controller.apply_startup(Idle).unwrap();
+    fixture.controller.control("typography", "start").unwrap();
+    fixture.wait_ready(&["typography"]);
+    {
+        let all = fixture.controller.lock_modes().unwrap();
+        let typography = all.iter().find(|m| m.name == "typography").unwrap();
+        assert!(!typography.typography_browser);
+    }
+    let seed_handles = fixture.process_handles();
+    fixture.controller.control("typography", "stop").unwrap();
+    assert_processes_exited(seed_handles);
+
+    fixture.controller.control("typography", "discover").unwrap();
+    {
+        let all = fixture.controller.lock_modes().unwrap();
+        let typography = all.iter().find(|m| m.name == "typography").unwrap();
+        assert!(typography.typography_browser);
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline
+        && !file_tail(&log_file(&fixture.controller.log_root, "typography"), 15)
+            .contains("FAKE_SCOUT_STARTED:typography-live")
+    {
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(file_tail(&log_file(&fixture.controller.log_root, "typography"), 15)
+        .contains("FAKE_SCOUT_STARTED:typography-live"));
+    let handles = fixture.process_handles();
+    fixture.controller.control("typography", "stop").unwrap();
+    fixture.assert_paused();
+    assert_processes_exited(handles);
 }
 
 #[test]

@@ -149,12 +149,12 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
 
 function TypographyScoutCard({ info, busy, onAction, onLogin }: {
   info: ModeInfo; busy: boolean;
-  onAction: (command: "start" | "stop" | "restart", mode: ModeName) => void;
+  onAction: (command: "start" | "stop" | "restart" | "discover", mode: ModeName) => void;
   onLogin: () => void;
 }) {
   const running = info.state === "Running";
   const done = info.state === "Completed" || info.state.startsWith("Imported");
-  const failed = info.state.includes("failed") || info.state.includes("required");
+  const failed = info.state.includes("failed") || info.state.includes("required") || info.state.includes("unavailable");
   return <article className="scout-card typography-scout-card" data-testid="typography-scout-card">
     <div className="scout-top">
       <div className="scout-identity">
@@ -170,14 +170,15 @@ function TypographyScoutCard({ info, busy, onAction, onLogin }: {
       <span>Run <strong>Once</strong></span>
       <span>Rights <strong>Unknown</strong></span>
     </div>
-    <p className="typography-scout-note">Imports up to 8 candidate images per run. Stage 0 sources work without browser login; fresh Pinterest discovery requires signing in to the separate Typography profile. Nothing is auto-approved or sent to ImageGen.</p>
+    <p className="typography-scout-note"><strong>Run once</strong> imports unprocessed Stage 0 Pinterest sources without opening Chrome. <strong>Find new designs</strong> uses the separate Pinterest profile and may require manual sign-in. All imported images remain unapproved candidates; no ImageGen calls.</p>
     {info.lastError && <div className="inline-error"><CircleAlert size={15}/><span>{info.lastError}</span></div>}
     <div className="card-actions typography-scout-actions">
       <button className="button secondary slim" disabled={busy || running} onClick={() => onAction("start", "typography")}><Play size={16}/> Run once</button>
+      <button className="button secondary slim" disabled={busy || running} onClick={() => onAction("discover", "typography")} title="Search fresh Pinterest designs in the isolated Chrome profile"><Search size={16}/> Find new designs</button>
       <button className="button secondary slim" disabled={busy || !running} onClick={() => onAction("stop", "typography")}><Pause size={16}/> Stop</button>
       <button className="button secondary slim" disabled={busy || running} onClick={onLogin}><LockKeyhole size={16}/> Sign in to Pinterest</button>
     </div>
-    <small className="typography-scout-footer">Manual run only · Not included in Run automation · Results appear in CAM Typography Ideas</small>
+    <small className="typography-scout-footer">Manual, single-run scouting only · Never part of Run automation · Review the results in CAM Typography Ideas</small>
   </article>;
 }
 
@@ -249,7 +250,7 @@ export default function App() {
     catch (e) { setToast(typeof e === "string" ? e : e instanceof Error ? e.message : "Request failed"); return false; }
     finally { setBusy(false); }
   };
-  const onMode = (command: "start" | "stop" | "restart", which: ModeName) => void act("control_scout", { mode: which, command });
+  const onMode = (command: "start" | "stop" | "restart" | "discover", which: ModeName) => void act("control_scout", { mode: which, command });
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
   const capStack = state.modes.find(m => m.mode === "cap_stack") ?? EMPTY.modes[2];

@@ -148,13 +148,19 @@ fn typography_one_shot_state(exit: Option<i32>, log: &str) -> (&'static str, Opt
     let latest = log.rsplit("==> Starting one-shot Typography Design Scout")
         .next().unwrap_or(log);
     match exit {
+        Some(0) if latest.contains("LIVE_PINTEREST_BROWSER_UNAVAILABLE") =>
+            ("Pinterest browser unavailable", Some("Stage 0 import can still run. Close the dedicated Typography Chrome window before fresh discovery.")),
         Some(0) if latest.contains("LIVE_PINTEREST_LOGIN_REQUIRED") =>
-            ("Imported · Pinterest login needed", None),
+            ("Pinterest login needed", Some("Stage 0 import is preserved. Sign in to the isolated Pinterest profile before fresh discovery.")),
         Some(0) => ("Completed", None),
         Some(21) =>
-            ("Pinterest login required", Some("Use Sign in to Pinterest, then run once again.")),
+            ("Pinterest login required", Some("Use Sign in to Pinterest before fresh discovery.")),
+        Some(22) =>
+            ("Pinterest browser unavailable", Some("Dedicated Typography Chrome could not start. Stage 0 import remains available via Run once.")),
+        Some(1) if latest.contains("Design Scout browser failure: RuntimeError") =>
+            ("Pinterest browser unavailable", Some("Dedicated Typography Chrome could not start. Use Run once for Stage 0; sign in separately for fresh discovery.")),
         _ =>
-            ("Scout failed", Some("Review the local Typography Scout log; no automatic retry.")),
+            ("Scout failed", Some("Typography Scout returned an error. Review the local log; no automatic retry.")),
     }
 }
 
@@ -164,6 +170,7 @@ struct Scout {
     #[cfg(windows)]
     job: Option<winjob::Job>,
     desired: bool,
+    typography_browser: bool,
     restarts: u32,
     started_at: Option<Instant>,
     next_try: Instant,
@@ -178,6 +185,7 @@ impl Scout {
             #[cfg(windows)]
             job: None,
             desired: false,
+            typography_browser: false,
             restarts: 0,
             started_at: None,
             next_try: Instant::now(),
@@ -468,6 +476,7 @@ impl Controller {
         } else if name == "typography" {
             // One-shot, explicit-only import; never starts from Run automation.
             process.arg("-TypographyMode");
+            if scout.typography_browser { process.arg("-TypographyBrowserMode"); }
         }
         hide_console(&mut process); // no flashing PowerShell console
         let mut child = process
@@ -550,12 +559,21 @@ impl Controller {
             .ok_or("Unknown Scout mode.")?;
         match command {
             "start" => {
+                if mode == "typography" { scout.typography_browser = false; }
+                scout.desired = true;
+                scout.restarts = 0;
+                self.launch(scout)
+            }
+            "discover" if mode == "typography" => {
+                if scout.child.is_some() { return Err("Stop the current Typography run before fresh discovery.".into()); }
+                scout.typography_browser = true;
                 scout.desired = true;
                 scout.restarts = 0;
                 self.launch(scout)
             }
             "stop" => {
                 scout.desired = false;
+                scout.typography_browser = false;
                 self.terminate(scout);
                 drop(all);
                 if mode == "keyword" { self.release_owned_leases_best_effort(); }
@@ -563,6 +581,7 @@ impl Controller {
             }
             "restart" => {
                 self.terminate(scout);
+                if mode == "typography" { scout.typography_browser = false; }
                 scout.desired = true;
                 scout.restarts = 0;
                 self.launch(scout)
@@ -1944,15 +1963,21 @@ mod tests {
         assert!(!AUTOMATIC_SCOUT_MODES.contains(&"typography"));
         let one_shot = Scout::new("typography");
         assert!(!one_shot.desired && one_shot.child.is_none());
+        assert!(!one_shot.typography_browser);
     }
     #[test]
     fn typography_result_is_one_shot_and_ignores_stale_login_lines() {
         let old = "==> Starting one-shot Typography Design Scout\nLIVE_PINTEREST_LOGIN_REQUIRED\nTypography Design Scout: {'created': 3}\n";
-        let next = "==> Starting one-shot Typography Design Scout\nTypography Design Scout: {'created': 2}\n";
+        let next = "==> Starting one-shot Typography Design Scout\nMode: Stage 0 import only (no Chrome required)\nTypography Design Scout: {'created': 2}\n";
         assert_eq!(typography_one_shot_state(Some(0), &(old.to_string() + next)), ("Completed", None));
-        assert_eq!(typography_one_shot_state(Some(0), old), ("Imported · Pinterest login needed", None));
-        assert_eq!(typography_one_shot_state(Some(21), ""), ("Pinterest login required", Some("Use Sign in to Pinterest, then run once again.")));
-        assert_eq!(typography_one_shot_state(Some(1), ""), ("Scout failed", Some("Review the local Typography Scout log; no automatic retry.")));
+        assert_eq!(typography_one_shot_state(Some(0), old).0, "Pinterest login needed");
+        assert_eq!(typography_one_shot_state(Some(0), "LIVE_PINTEREST_BROWSER_UNAVAILABLE").0,
+                   "Pinterest browser unavailable");
+        assert_eq!(typography_one_shot_state(Some(21), "").0, "Pinterest login required");
+        assert_eq!(typography_one_shot_state(Some(22), "").0, "Pinterest browser unavailable");
+        assert_eq!(typography_one_shot_state(Some(1),
+                   "Design Scout browser failure: RuntimeError").0, "Pinterest browser unavailable");
+        assert_eq!(typography_one_shot_state(Some(1), "").0, "Scout failed");
     }
     #[test]
     fn scout_is_idle_until_explicitly_requested() {
