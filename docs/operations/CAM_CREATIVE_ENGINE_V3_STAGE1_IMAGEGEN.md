@@ -1,65 +1,96 @@
-# CAM Creative Engine V3 — Native Stage 1 Artwork (2026-10-30)
+# CAM Creative Engine V3 — Stage 1 Codex-only ImageGen
 
-## Objective and status
+**Updated:** 2026-10-30
+**Branch:** `main` only
+**Production status:** Creative Brief V1 and V3 Preview are available. Image generation **remains OFF** while the built-in Codex CLI `image_gen` tool is absent. No six-image V3 run has succeeded end to end.
 
-Translate an already completed **Creative Brief V1** into **six original embroidery masters** for GatorHats Products Stage 1 without changing the older V1 / Typography V2 workflows. Three meaning-led modes (Typography-First, Creative Twist, Explore) each get independent variants **A** and **B**. **Provider policy (2026-10-30): Codex CLI first, no separate Image API spend.** The direct OpenAI Images API is optional only after explicit operator opt-in; it is OFF in production. Current Codex CLI has `image_generation=true` but the session did not expose `image_gen` on 0.159.3 or isolated 0.166.0, so V3 image generation remains disabled. No fake/flat PIL stitching fallback and no automatic Stage 2 handoff.
+## Goal
 
-| Component | Role |
-| --- | --- |
-| `creative_v3_generation.py` | Tenant-scoped, immutable V1 fingerprint, exact quote, 6 prompts |
-| `creative_v3_openai_runner.py` | Optional paid API path retained for explicit operator opt-in; NOT selected by default or enabled on production |
-| `creative_v3_runner.py` | Preferred Codex CLI `$imagegen` generation with ChatGPT sign-in, native SHA-256 provenance, isolated checkpoints, and G5 RGBA QA; currently blocked by tool availability |
-| Existing `rrugc_keyword_image_generate` worker | Real generation and existing versioned Managed Storage / Stage 1 Output History |
-| `CreativeBriefDialog` | Explicit **Generate 6 embroidery designs** after completing V1, with a gated authenticated status probe |
-| `creative-brief-v3` bundled Skill | Preferred isolated one-slot Codex CLI contract, six times per batch; native tool availability is required |
-| Existing Stage 2 | **No automatic handoff**; user must inspect and explicitly pick a design |
+Turn one completed Creative Brief V1 and its **exact** picked keyword into six original transparent satin-stitched embroidery masters for GatorHats Products Stage 1:
 
-## Process
+| Slots | V1 creative mode | Distinction |
+| --- | --- | --- |
+| 01–02 | Typography-First (`safe`) | Clear core direction, layout A/B |
+| 03–04 | Creative Twist | Familiar format with a new meaningful hook, A/B |
+| 05–06 | Explore | Bolder original idea and hierarchy, A/B |
 
+Existing Stage 1 output versions stay intact while generation is pending. New assets pass technical QA and save to existing Managed Storage and Stage 1 Output History only when all six are ready. No automatic Stage 2 handoff. Image spelling and stitch feasibility still require human QA.
+
+## Provider policy: Codex CLI only
+
+- **Never call OpenAI Images API for V3.** The `creative_v3_openai_runner.py` adapter and its API model/quality controls have been **removed**. V3 only supports `CREATIVE_ENGINE_V3_IMAGE_PROVIDER=codex`; any other value denies generation, including when an API key is present.
+- The Codex child process strips `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_ORGANIZATION`, `OPENAI_PROJECT`, `CODEX_API_KEY`, and `OPENAI_EXECUTOR_API_KEY`. No fallback through scripts, Cloudflare FLUX, a vendor API, PIL-rendered embroidery or a stock image.
+- CLI sign-in uses existing ChatGPT subscription access and may consume **Codex usage limits or credits depending on the plan**. It must not be misrepresented as unlimited.
+- The installed `creative-brief-v3` Skill is an isolated single-slot contract. The existing image worker invokes it up to six times, each using the actual built-in `$imagegen`. A genuine native PNG must match the job's isolated `generated_images` cache SHA-256 before any artwork can be accepted.
+- The API's `/keyword-creative-briefs/v3/generation-status` is a config gate, **not a proof that the runtime supports `image_gen`**. Do not enable imagegen solely because `codex features list` reports `image_generation=true`.
+
+## Native one-image capability probe (no paid API)
+
+Run using the **same OS account and `CODEX_HOME` as the production image worker**, without printing authentication files or tokens:
+
+```bash
+python3 scripts/cam-creative-v3-codex-probe.py \
+  --codex-home /var/lib/creative-asset-manager/codex
+
+# Only if the non-generating probe reports ChatGPT login + image feature:
+python3 scripts/cam-creative-v3-codex-probe.py \
+  --codex-home /var/lib/creative-asset-manager/codex \
+  --native --timeout 120
 ```
-Picked keyword (exact, unchanged)
-   -> Completed Creative Brief V1 (strict 3 modes)
-   -> User explicitly clicks "Generate 6 embroidery designs"
-   -> Authorize tenant, feature, revision and native Skill
-   -> Pin SHA-256 of V1 source + keyword in existing processing job
-   -> 1–2 Typography-First, 3–4 Creative Twist, 5–6 Explore
-   -> Each slot: compare live brief fingerprint -> Codex CLI built-in $imagegen
-     -> verified native image SHA-256 -> transparent RGBA
-     -> center-only padding if safe -> 2048x1024 G5 gate
-     -> unique digest + source fingerprint revalidation
-   -> ALL six technical passes required
-   -> Existing Managed Storage + Stage 1 Output History
-   -> User visually reviews spelling, colors, stitch scale, originality
-   -> User optionally picks and hands off to Stage 2 ThreadTransfer
+
+The script always removes API keys from the subprocess, requests **one** original transparent PNG, checks PNG header/alpha and native cache SHA-256, then deletes its temporary workspace. It outputs sanitized JSON only. `status=native_imagegen_verified` and `imagegen_available=true` are required; `ready_for_native_probe_not_verified` only means the CLI appears configured.
+
+If the image tool is not exposed, `status=native_tool_missing_or_no_png`; keep ImageGen OFF. Do not install new Codex binaries into the production path just because they exist: prior isolated probes on CLI 0.159.3 and 0.166.0 did not provide the built-in image tool. Reevaluate a new binary in isolation, then test the **actual worker identity**, and only switch production after success.
+
+## Current execution flow
+
+```text
+Stage 0 picked keyword
+      ↓
+Completed Creative Brief V1: three semantic concept directions
+      ↓
+Explicit user action: Generate 6 embroidery designs
+      ↓
+Authorize tenant + capability + brief revision
+      ↓
+Pin keyword/brief SHA-256 and Codex Skill digest in the existing job queue
+      ↓
+Run six independent native Codex imagegen operations
+      ↓
+Verify native pixel provenance and genuine transparent PNG
+      ↓
+G5 alpha/canvas/uniqueness checks + source fingerprint revalidation
+      ↓
+Versioned Stage 1 Output History (no overwrite)
+      ↓
+Human spelling/stitch review → optional Stage 2
 ```
 
-## Security and limits
+Technical output: 2048 × 1024 transparent RGBA Stage 1 canvas; only safe transparent margin-padding, no artwork redraw. A new processing job gets its own private temporary directory. Six independent outputs are required, and duplicates or fabricated replacements are rejected. Source edits or tenant revocation abort the job.
 
-- V3 is disabled by default and requires **all** of: `CREATIVE_ENGINE_V3_ENABLED=true`, `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=true`, `CREATIVE_ENGINE_V3_CANARY_TENANT_IDS` containing the exact tenant, `IMAGE_GENERATION_ENABLED=true`, `PROCESSING_JOBS_ENABLED=true`, `CODEX_IMAGE_GENERATION_ENABLED=true`, and `CREATIVE_ENGINE_V3_IMAGE_PROVIDER=codex`. Codex must have an authenticated ChatGPT session and the built-in image tool must actually be exposed. An `OPENAI_API_KEY` is **not** needed or passed to the Codex subprocess. The paid API alternative has separate explicit configuration and is OFF.
-- No auto-run or cron; only an authenticated user with `realistic_review_ugc.run` can queue.
-- One request = six distinct Codex built-in imagegen calls, serial within the existing Stage 1 worker. They count toward the logged-in Codex plan's usage limits, but **not** separately billed Image API calls. If built-in `image_gen` is absent, fail explicitly without any synthetic fallback or paid API call. Valid 1–5 PNG checkpoints may be preserved for bounded recovery.
-- A keyword must be still picked, have its **current** completed Creative Brief V1 and be <=150 characters. An old brief, disabled feature, changed quote, different tenant or changed V3 Skill is denied.
-- `expected_brief_updated_at` prevents stale submissions. The processing payload pins V1's content fingerprint and chosen provider; verify before and after each generation call. V1 contents are data, never shell instructions.
-- All six images must pass **technical** checks (correct alpha, canvas, visible footprint, no duplicate). A passing technical test **does not** verify pixel spelling, visual fidelity to the hook, trademark compliance or physical stitch feasibility. These require human inspection; output `font_info_json` records this honestly.
-- A previous output pointer and selected assets are retained while a new job runs. New jobs have separate private per-processing staging locations and cannot read partial designs from prior versions. No migration/new worker/new output table.
-- The Codex subprocess explicitly strips `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_ORGANIZATION`, `OPENAI_PROJECT`, `CODEX_API_KEY` and `OPENAI_EXECUTOR_API_KEY` before launching. No fallback to Image API, Cloudflare FLUX, PIL stitch overlays, flat fonts or synthetic output. Built-in tool unavailability and invalid alpha are genuine job failures, not false successes.
-- On successful managed-storage upload, V3 temporary checkpoints are removed. Failed or deferred job checkpoints are scoped to the failed processing ID; production disk retention can be cleaned separately after recoveries.
-- Existing V1 generation, V2 Style Lab, selected Stage 1 assets and Stage 2 are not regenerated automatically. This version does not launch Stage 2.
+If CLI exits normally but produces no native PNG, the V3 handler distinguishes a **missing built-in image tool** from other output errors. Missing tool is a nonretryable `creative_v3_native_tool_unavailable`, not a generic transient failure that repeatedly consumes quota.
 
-## Release and smoke protocol
+## Safe production switch
 
-1. Unit/regression tests: `test_creative_v3_generation.py`, `test_creative_engine_v3.py`, `test_keyword_images.py`, `CreativeBriefDialog.test.tsx`, TS typecheck, frontend build.
-2. Deploy from `main`; verify `/ready`, `/version`, frontend `build-info.json` and worker services.
-3. Verify feature OFF by default and zero new image-generation jobs.
-4. Confirm the actual worker-selected ChatGPT-authenticated `CODEX_IMAGE_HOME` can perform **one real native** `$imagegen` call and pass the G5 gate (CLI flag alone is insufficient). Keep `CREATIVE_ENGINE_V3_IMAGE_PROVIDER=codex`. Only then enable `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=true` for the one-tenant canary. Until then, leave it `false`; do not spend paid Image API credits. Do not update the production Codex CLI binary merely because a newer version exists unless its isolated image tool probe succeeds.
-5. In an authenticated real Stage 1 keyword with completed brief, click once, monitor six native slots and Managed Storage history. Inspect image legibility before moving it to Stage 2.
-6. Disable `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED` immediately for rollback without touching Creative Brief V1 or existing Stage 1 history.
+Default state:
 
-**Do not claim generation completed until the live provider produced six verified images and the six stored outputs are visible in Stage 1.**
+```env
+CREATIVE_ENGINE_V3_ENABLED=true
+CREATIVE_ENGINE_V3_IMAGE_PROVIDER=codex
+CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=false
+CREATIVE_ENGINE_V3_CANARY_TENANT_IDS=creative-assets-prod
+```
 
-## Actual deployment vs. availability
+The required existing flags `IMAGE_GENERATION_ENABLED`, `CODEX_IMAGE_GENERATION_ENABLED`, and processing queue must also be enabled. Retain the independent `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=false` until the **worker-authenticated** native probe verifies a real PNG. Only then set the flag to `true` and restart API + image workers. Verify one authorized keyword and six managed output versions before wider rollout.
 
-- **Code deploy is separate from canary activation.** The source update can be on `main` while the authenticated `/keyword-creative-briefs/v3/generation-status` endpoint legitimately returns `available:false`.
-- Authorized CodeLocal workspaces exist for the source and `/etc/creative-asset-manager` separately. Production V3 is presently `CREATIVE_ENGINE_V3_IMAGE_PROVIDER=codex` with `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=false`. Protected env owner and mode are `root:creative-assets 640`. Use only the authorized environment workspace for changes; restart API/image workers after any change.
-- A real end-to-end PASS requires a picked keyword with completed V1 brief, explicit Stage 1 launch, six verified **Codex built-in native images**, successful G5 checks, and six managed Output History records. Mocked provider tests and `codex features list` are insufficient.
-- If built-in Codex creates valid transparent RGBA PNG (e.g., 1536 × 1024), the existing transparency-only crop/pad helper may center unchanged native pixels on a 2048 × 1024 canvas. No synthetic thread drawing is allowed. The latest isolated CLI probe (0.166.0) also returned `image_gen unavailable` and wrote no image.
+**Rollback:** set only `CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=false` and restart API/image workers. The completed briefs, earlier image outputs, picked designs, Stage 2, and other Skills remain unchanged.
+
+## Operational acceptance criteria
+
+1. Unit tests for six concepts, prompt correctness, exact quote and unicode, tenant/revision constraints, Codex-only provider, credential scrubbing and rejected forgery pass.
+2. Same-account Codex native one-image probe returns `native_imagegen_verified` with SHA-256 provenance; no API key is used.
+3. V3 canary manually queues one brief, worker receives and generates six distinct native images, QA and Managed Storage both pass.
+4. Output History shows exactly the new six slot versions and retains earlier images.
+5. API and workers remain healthy, disk is stable, and temporary pilot files are cleaned.
+
+**Never report item 3 or 4 as complete when only mocked test images exist.**

@@ -593,7 +593,8 @@ def _classify_stage1_no_images(stdout: str, stderr: str) -> CodexImageProviderEr
         and any(term in combined for term in (
             "unavailable", "not available", "not found", "unknown tool", "not installed",
             "disabled", "not supported", "cannot invoke", "can't invoke",
-            "no access to", "cannot access",
+            "no access to", "cannot access", "not exposed", "not present",
+            "not provided", "no image_gen tool", "no imagegen tool",
         ))
     )
     if missing_image_tool:
@@ -965,6 +966,15 @@ class CodexImageGenRunner:
                     "The Skill tried to modify an existing design; the saved checkpoint was restored.",
                 )
         if process.returncode != 0:
+            if self.config.output_contract == "creative_v3_single_slot":
+                classified = _classify_stage1_no_images(stdout, stderr)
+                if classified.code == "stage1_imagegen_unavailable":
+                    raise CodexImageProviderError(
+                        "creative_v3_native_tool_unavailable",
+                        "Codex CLI has no callable built-in image_gen tool. "
+                        "This requires a Codex entitlement/runtime fix, not a paid Image API fallback.",
+                        retryable=False,
+                    )
             raise _classify_failure(stderr, stdout)
         if (self.config.skill_name == "concept-short-v1"
                 and self.config.output_contract == "stage1_six_final_designs"):
@@ -1055,6 +1065,21 @@ class CodexImageGenRunner:
                 )
             final = output_dir / "final.png"
             if final.is_symlink() or not final.is_file():
+                if self.config.output_contract == "creative_v3_single_slot":
+                    classified = _classify_stage1_no_images(stdout, stderr)
+                    if classified.code == "stage1_imagegen_unavailable":
+                        raise CodexImageProviderError(
+                            "creative_v3_native_tool_unavailable",
+                            "Codex CLI has no callable built-in image_gen tool. "
+                            "No image was generated or billed through Image API.",
+                            retryable=False,
+                        )
+                    raise CodexImageProviderError(
+                        "creative_v3_native_png_missing",
+                        "Codex CLI finished without a verifiable native PNG. "
+                        "Inspect the isolated Codex trace; V3 will not substitute a fake design.",
+                        retryable=False,
+                    )
                 raise CodexImageProviderError(
                     "typography_v2_final_missing", "No native V2 PNG output was produced."
                 )

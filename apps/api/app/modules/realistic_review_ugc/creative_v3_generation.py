@@ -35,46 +35,26 @@ class CreativeV3Error(ValueError):
         super().__init__(message)
 
 
-OPENAI_IMAGE_MODELS = frozenset({"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"})
-OPENAI_IMAGE_QUALITIES = frozenset({"low", "medium", "high", "xhigh", "max"})
-
-
 def image_provider(settings: Any) -> str:
+    """Only subscription-authenticated Codex CLI is supported for V3."""
     return str(getattr(settings, "CREATIVE_ENGINE_V3_IMAGE_PROVIDER", "codex")).strip().lower()
 
 
-def api_config_signature(settings: Any) -> str:
-    """Pinned provider+model/quality contract; no credentials in database."""
-    model = str(getattr(settings, "CREATIVE_ENGINE_V3_OPENAI_MODEL", "")).strip()
-    quality = str(getattr(settings, "CREATIVE_ENGINE_V3_OPENAI_QUALITY", "")).strip()
-    if model not in OPENAI_IMAGE_MODELS or quality not in OPENAI_IMAGE_QUALITIES:
-        raise CreativeV3Error("creative_v3_api_config_invalid", "Image model/quality is not approved.")
-    return _digest_json({
-        "provider": "openai_images_api", "model": model, "quality": quality,
-        "schema": SCHEMA,
-    })
-
-
 def enabled(settings: Any, tenant_id: str) -> bool:
-    tenants = {s.strip() for s in str(getattr(settings, "CREATIVE_ENGINE_V3_CANARY_TENANT_IDS", "")).split(",") if s.strip()}
-    shared = bool(
+    tenants = {
+        value.strip()
+        for value in str(getattr(settings, "CREATIVE_ENGINE_V3_CANARY_TENANT_IDS", "")).split(",")
+        if value.strip()
+    }
+    return bool(
         getattr(settings, "CREATIVE_ENGINE_V3_ENABLED", False)
         and getattr(settings, "CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED", False)
         and getattr(settings, "IMAGE_GENERATION_ENABLED", False)
-        and tenant_id in tenants and bool(tenant_id)
+        and getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)
+        and image_provider(settings) == "codex"
+        and tenant_id
+        and tenant_id in tenants
     )
-    if not shared:
-        return False
-    provider = image_provider(settings)
-    if provider == "openai":
-        return bool(
-            (getattr(settings, "OPENAI_API_KEY", None) or "").strip()
-            and getattr(settings, "CREATIVE_ENGINE_V3_OPENAI_MODEL", "") in OPENAI_IMAGE_MODELS
-            and getattr(settings, "CREATIVE_ENGINE_V3_OPENAI_QUALITY", "") in OPENAI_IMAGE_QUALITIES
-        )
-    if provider == "codex":
-        return bool(getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False))
-    return False
 
 
 def _digest_json(data: Mapping[str, Any]) -> str:

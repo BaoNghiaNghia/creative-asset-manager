@@ -231,12 +231,9 @@ class Settings(BaseSettings):
     CREATIVE_ENGINE_V3_CANARY_TENANT_IDS: str = ""
     # Explicit opt-in, independent from read-only V3 preview or Creative Brief V1.
     CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED: bool = False
-    # Subscription-based Codex CLI is the preferred V3 image provider.
-    # Direct OpenAI Images API remains an explicit, paid opt-in only.
+    # V3 is Codex CLI only: no Images API cost, provider switching, or fallback.
+    # Unknown values intentionally disable generation rather than using API.
     CREATIVE_ENGINE_V3_IMAGE_PROVIDER: str = "codex"
-    CREATIVE_ENGINE_V3_OPENAI_MODEL: str = "gpt-image-2.5-flare"
-    CREATIVE_ENGINE_V3_OPENAI_QUALITY: str = "medium"
-    CREATIVE_ENGINE_V3_OPENAI_TIMEOUT_SECONDS: int = 300
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.
