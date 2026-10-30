@@ -236,6 +236,8 @@ class Settings(BaseSettings):
     TYPOGRAPHY_V2_IMAGEGEN_PILOT_ENABLED: bool = False
     # Never set until migration, backend rollback and capacity are verified.
     TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED: bool = False
+    # Additional default-OFF gate for private V2 output-history writes.
+    TYPOGRAPHY_V2_OUTPUT_PUBLISH_ENABLED: bool = False
     CLOUDFLARE_IMAGE_GENERATION_ENABLED: bool = False
     CONCEPT_SHORT_CLOUDFLARE_EDIT_ENABLED: bool = False
     CLOUDFLARE_AI_ACCOUNT_ID: str = ""
