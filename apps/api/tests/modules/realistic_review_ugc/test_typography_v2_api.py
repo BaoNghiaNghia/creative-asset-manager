@@ -167,6 +167,8 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
         keyword = RrugcKeywordVolumeModel(
             tenant_id="tenant-a", keyword="ADVENTURE AWAITS",
             keyword_normalized="adventure awaits", picked=True,
+            source_pin_url="https://www.pinterest.com/pin/123456789012345/",
+            source_image_url="https://i.pinimg.com/1200x/a/b/source.jpg",
         )
         foreign = RrugcKeywordVolumeModel(
             tenant_id="tenant-b", keyword="OTHER TENANT", keyword_normalized="other tenant",
@@ -194,7 +196,10 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
     wrong = env.client.post(endpoint, headers={"Authorization": "Bearer wrong"},
                             files=upload, data=form)
     assert wrong.status_code == 401
-    assert env.client.get(base + "/keywords", headers=header).json()["keywords"][0]["keyword"] == "ADVENTURE AWAITS"
+    picked_source = env.client.get(base + "/keywords", headers=header).json()["keywords"][0]
+    assert picked_source["keyword"] == "ADVENTURE AWAITS"
+    assert picked_source["source_pin_url"] == form["source_url"]
+    assert picked_source["source_image_url"] == "https://i.pinimg.com/1200x/a/b/source.jpg"
     wrong_domain = env.client.post(endpoint, headers=header,
                                    files=upload, data={**form, "source_url": "https://evil.example/pin/123456789012345/"})
     assert wrong_domain.status_code == 422

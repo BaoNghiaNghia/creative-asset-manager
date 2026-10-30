@@ -99,8 +99,12 @@ async def scout(args: argparse.Namespace) -> dict:
     if not args.base_url.startswith("https://"):
         raise RuntimeError("CAM endpoint must use HTTPS.")
     endpoint = BASE_PATH + args.agent_id
-    counts = {"keywords": 0, "found": 0, "created": 0, "duplicate": 0, "failed": 0}
+    counts = {
+        "keywords": 0, "picked_source_candidates": 0,
+        "new_search_candidates": 0, "created": 0, "duplicate": 0, "failed": 0,
+    }
     attempts = 0
+    seen: set[str] = set()
     async with httpx.AsyncClient(
         base_url=args.base_url.rstrip("/"),
         headers={"Authorization": "Bearer " + token},
@@ -113,72 +117,123 @@ async def scout(args: argparse.Namespace) -> dict:
         if not selected:
             return counts
         counts["keywords"] = len(selected)
-        # GET the server-side picked keyword list BEFORE opening Pinterest.
         if not args.execute:
             for row in selected:
                 print("DRY RUN picked keyword: " + str(row["keyword"])[:80])
             return counts
-        lock = ScoutProfileLock(args.profile_dir)
-        lock.acquire()
-        playwright = context = None
-        try:
-            playwright, context = await launch_context(SimpleNamespace(
-                profile_dir=args.profile_dir, headless=args.headless,
-                chrome_executable=args.chrome_executable,
-            ))
-            page = context.pages[0] if context.pages else await context.new_page()
-            seen: set[str] = set()
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(20.0, connect=7.0),
-                follow_redirects=False,
-            ) as downloads:
-                for selected_row in selected:
-                    for query in search_queries(str(selected_row["keyword"])):
-                        pins = await scan_one_query(page, query=query)
-                        counts["found"] += len(pins)
-                        for pin in pins:
-                            identity = pin_id(pin.pin_url)
-                            if not identity or identity in seen:
-                                continue
-                            seen.add(identity)
-                            attempts += 1
-                            if attempts > 24:  # hard cap even when every image/download fails
-                                return counts
-                            fetched = await download_image(downloads, pin.image_url)
-                            if fetched is None:
-                                continue
-                            image_data, mime = fetched
-                            try:
-                                upload = await api.post(
-                                    endpoint + "/references",
-                                    data={
-                                        "source_url": pin.pin_url,
-                                        "source_query": query,
-                                        "keyword_id": str(selected_row["id"]),
-                                    },
-                                    files={"file": ("typography-pin-" + identity +
-                                                    ACCEPTED_MIME[mime], image_data, mime)},
-                                )
-                                if upload.status_code == 429:
-                                    print("Daily Design Scout intake limit reached.")
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0, connect=7.0),
+            follow_redirects=False,
+        ) as downloads:
+
+            async def collect(
+                *, pin_url: str, image_url: str,
+                keyword_id: str, source_query: str, lane: str,
+            ) -> bool:
+                """Ingest one Pinterest image as unknown-rights candidate, never approve."""
+                nonlocal attempts
+                identity = pin_id(pin_url)
+                if not identity or identity in seen or not allowed_image(image_url):
+                    return False
+                if attempts >= 24 or counts["created"] + counts["duplicate"] >= args.max_images:
+                    return False
+                attempts += 1
+                seen.add(identity)
+                fetched = await download_image(downloads, image_url)
+                if fetched is None:
+                    counts["failed"] += 1
+                    return False
+                image_data, mime = fetched
+                try:
+                    upload = await api.post(
+                        endpoint + "/references",
+                        data={
+                            "source_url": pin_url,
+                            "source_query": source_query[:120],
+                            "keyword_id": keyword_id,
+                        },
+                        files={"file": (
+                            "typography-pin-" + identity + ACCEPTED_MIME[mime],
+                            image_data, mime,
+                        )},
+                    )
+                    if upload.status_code == 429:
+                        print("Daily Design Scout intake limit reached.")
+                        return True
+                    upload.raise_for_status()
+                    state = str(upload.json().get("status") or "")
+                    if state not in {"created", "duplicate"}:
+                        counts["failed"] += 1
+                        return False
+                    counts[state] += 1
+                    counts[lane] += 1
+                except (httpx.HTTPError, ValueError):
+                    counts["failed"] += 1
+                return False
+
+            # Reuse real Pinterest results already found by Stage 0 Scout first.
+            # No Chrome login or new crawl is needed to collect these candidates.
+            # Original source rights remain unknown, not licensed/approved.
+            for row in selected:
+                if attempts >= 24 or counts["created"] + counts["duplicate"] >= args.max_images:
+                    return counts
+                if not row.get("source_pin_url") or not row.get("source_image_url"):
+                    continue
+                hit_limit = await collect(
+                    pin_url=str(row["source_pin_url"]),
+                    image_url=str(row["source_image_url"]),
+                    keyword_id=str(row["id"]),
+                    source_query="Picked Stage 0 Pinterest reference",
+                    lane="picked_source_candidates",
+                )
+                if hit_limit:
+                    return counts
+
+            if args.seed_only or counts["created"] + counts["duplicate"] >= args.max_images:
+                return counts
+
+            # Independent fresh Pinterest search uses only its own isolated
+            # profile, never another Scout's session or user browser cookies.
+            lock = ScoutProfileLock(args.profile_dir)
+            lock.acquire()
+            playwright = context = None
+            try:
+                playwright, context = await launch_context(SimpleNamespace(
+                    profile_dir=args.profile_dir, headless=args.headless,
+                    chrome_executable=args.chrome_executable,
+                ))
+                page = context.pages[0] if context.pages else await context.new_page()
+                for row in selected:
+                    for query in search_queries(str(row["keyword"])):
+                        try:
+                            pins = await scan_one_query(page, query=query)
+                        except RuntimeError as exc:
+                            if ("Pinterest login or verification required" in str(exc)
+                                    or str(exc).startswith("Pinterest access gate:")):
+                                print("LIVE_PINTEREST_LOGIN_REQUIRED: log into the isolated "
+                                      "profile with START_SCOUT_TYPOGRAPHY_LOGIN.cmd. "
+                                      "Existing Stage 0 source candidates were kept.")
+                                if counts["created"] + counts["duplicate"] > 0:
                                     return counts
-                                upload.raise_for_status()
-                                result = upload.json()
-                                state = str(result.get("status") or "")
-                                counts[state] = counts.get(state, 0) + 1
-                            except (httpx.HTTPError, ValueError):
-                                counts["failed"] += 1
-                            if counts["created"] + counts["duplicate"] >= args.max_images:
+                            raise
+                        for pin in pins:
+                            hit_limit = await collect(
+                                pin_url=pin.pin_url, image_url=pin.image_url,
+                                keyword_id=str(row["id"]),
+                                source_query=query, lane="new_search_candidates",
+                            )
+                            if hit_limit:
                                 return counts
-                        if counts["created"] + counts["duplicate"] >= args.max_images:
-                            return counts
-            return counts
-        finally:
-            if context is not None:
-                await context.close()
-            if playwright is not None:
-                await playwright.stop()
-            lock.release()
+                            if attempts >= 24 or counts["created"] + counts["duplicate"] >= args.max_images:
+                                return counts
+                return counts
+            finally:
+                if context is not None:
+                    await context.close()
+                if playwright is not None:
+                    await playwright.stop()
+                lock.release()
 
 
 def main() -> int:
@@ -190,14 +245,25 @@ def main() -> int:
     parser.add_argument("--keyword-limit", type=int, default=3)
     parser.add_argument("--max-images", type=int, default=MAX_IMAGES_PER_RUN)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--seed-only", action="store_true",
+                        help="Import already discovered picked Stage 0 Pinterest sources, no Chrome.")
     parser.add_argument("--headless", action="store_true")
     args = parser.parse_args()
     if not (1 <= args.keyword_limit <= 6 and 1 <= args.max_images <= MAX_IMAGES_PER_RUN):
         parser.error("Use 1-6 picked keywords and at most 8 images per run.")
     try:
         result = asyncio.run(scout(args))
-    except (httpx.HTTPError, RuntimeError, OSError) as exc:
-        # Do not reveal bearer credentials, source URLs, or raw response payload.
+    except RuntimeError as exc:
+        # No source URLs or browser internal errors in logs. Give an actionable
+        # explanation for the new, isolated Chrome profile sign-in case.
+        if ("Pinterest login or verification required" in str(exc)
+                or str(exc).startswith("Pinterest access gate:")):
+            print("PINTEREST_LOGIN_REQUIRED: run START_SCOUT_TYPOGRAPHY_LOGIN.cmd once, "
+                  "sign in to Pinterest, close that Chrome window, then rerun Scout.")
+            return 21
+        print("Design Scout browser failure: " + type(exc).__name__)
+        return 1
+    except (httpx.HTTPError, OSError) as exc:
         print("Design Scout failed safely: " + type(exc).__name__)
         return 1
     print("Typography Design Scout: " + str(result))

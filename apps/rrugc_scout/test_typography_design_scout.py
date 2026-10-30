@@ -4,6 +4,58 @@ import asyncio
 import httpx
 
 from typography_design_scout import download_image, pin_id, search_queries
+import os
+import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from typography_design_scout import scout
+
+
+class PickedSourceBootstrapTests(unittest.TestCase):
+    def test_seed_only_reuses_agent_scoped_pinterest_source_without_chrome(self):
+        events = []
+        source_pin = "https://www.pinterest.com/pin/123456789012345/"
+        source_img = "https://i.pinimg.com/1200x/a/b/123.jpg"
+
+        def respond(request):
+            events.append((request.method, request.url.host, request.url.path))
+            if request.method == "GET" and request.url.path.endswith("/keywords"):
+                return httpx.Response(200, json={"keywords": [
+                    {"id": "stage0-1", "keyword": "ADVENTURE AWAITS",
+                     "source_pin_url": source_pin, "source_image_url": source_img}
+                ]})
+            if request.url.host == "i.pinimg.com":
+                return httpx.Response(200, headers={"content-type": "image/png"},
+                                      content=b"png-source-bytes")
+            if request.method == "POST" and request.url.path.endswith("/references"):
+                form = request.content.decode("latin-1")
+                self.assertIn("Picked Stage 0 Pinterest reference", form)
+                self.assertIn(source_pin, form)
+                return httpx.Response(200, json={"status": "created"})
+            raise AssertionError("Unexpected network call: " + str(request.url))
+
+        original_client = httpx.AsyncClient
+
+        def fake_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(respond)
+            return original_client(*args, **kwargs)
+
+        options = SimpleNamespace(
+            base_url="https://cam.example", agent_id="agent-a", keyword_limit=3,
+            execute=True, seed_only=True, max_images=8, profile_dir="unused-profile",
+            headless=False, chrome_executable="",
+        )
+        with patch("typography_design_scout.httpx.AsyncClient", side_effect=fake_client):
+            with patch.dict(os.environ, {"RRUGC_SCOUT_TOKEN": "test-token"}, clear=False):
+                result = asyncio.run(scout(options))
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["picked_source_candidates"], 1)
+        self.assertEqual(result["new_search_candidates"], 0)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(sum(1 for item in events if item[0] == "POST"), 1)
+        self.assertEqual(sum(1 for item in events if item[1] == "i.pinimg.com"), 1)
+
 
 
 def test_pin_id_requires_pinterest_https_and_numeric_pin():
