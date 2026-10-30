@@ -194,6 +194,51 @@ def preview_private_typography_selection(
     }
 
 
+
+class TypographyV2HandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keyword_id: str = Field(min_length=1, max_length=36)
+    version: StrictInt = Field(ge=1)
+    selected: bool
+
+
+@router.post(
+    "/stage2/handoff",
+    dependencies=[
+        Depends(require_permission("realistic_review_ugc.read")),
+        Depends(require_permission("typography_generate.run")),
+        Depends(require_permission("realistic_review_ugc.run")),
+    ],
+)
+def select_saved_typography_v2_source(
+    request: TypographyV2HandoffRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Explicit manual handoff only; never enqueues Stage 2 or Scout."""
+    from app.modules.realistic_review_ugc.typography_stage2_handoff import (
+        select_saved_v2_design,
+    )
+    try:
+        result = select_saved_v2_design(
+            session, settings=get_settings(),
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            keyword_id=request.keyword_id, version=request.version,
+            selected=request.selected,
+        )
+        session.commit()
+        return result
+    except TypographyPilotError as exc:
+        session.rollback()
+        raise _error("typography_handoff_unavailable",
+                     "Stage 2 handoff unavailable.",
+                     status_code=404 if exc.code in {"history_missing", "handoff_disabled", "keyword_not_picked"} else 409) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise _error("typography_handoff_conflict",
+                     "Stage 2 source has changed.", status_code=409) from exc
+
+
 class TypographyPreviewRequest(BaseModel):
     """No arbitrary prompt or client-provided DNA: sources are resolved by tenant."""
     model_config = ConfigDict(extra="forbid")
