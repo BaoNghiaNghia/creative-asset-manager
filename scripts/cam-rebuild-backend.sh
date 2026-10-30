@@ -1950,6 +1950,15 @@ if [[ -f "$v2_skill_source/SKILL.md" && -f "$v2_skill_source/manifest.json" ]]; 
   rsync -a --delete --chown=creative-assets:creative-assets "$v2_skill_source/" "$destination/"
 fi
 
+# Creative Brief V3 is an isolated native one-slot generator, not a default
+# Stage 1 Skill. Installing it alone creates no jobs and enables no provider.
+v3_skill_source="$TARGET/apps/api/managed_skills/creative-brief-v3"
+if [[ -f "$v3_skill_source/SKILL.md" && -f "$v3_skill_source/manifest.json" ]]; then
+  destination="$CODEX_RUNTIME_DIR/skills/creative-brief-v3"
+  install -d -m 0750 -o creative-assets -g creative-assets "$destination"
+  rsync -a --delete --chown=creative-assets:creative-assets "$v3_skill_source/" "$destination/"
+fi
+
 # Restore write access for uploaded Skills even if an older deployment,
 # manual ZIP update, or root-run repair left existing directories root-owned.
 # Scope strictly to the persistent Skill tree, never the runtime credentials.

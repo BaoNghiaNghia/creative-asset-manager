@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CreativeBriefDialog } from "./CreativeBriefDialog";
-import { generateKeywordCreativeBrief, getKeywordCreativeBrief } from "./api";
+import { generateKeywordCreativeBrief, getKeywordCreativeBrief, getCreativeV3GenerationStatus, generateCreativeV3Stage1Images } from "./api";
 import type { KeywordCreativeBriefDetail } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -13,6 +13,8 @@ vi.mock("./api", async importOriginal => ({
   ...(await importOriginal<typeof import("./api")>()),
   getKeywordCreativeBrief: vi.fn(),
   generateKeywordCreativeBrief: vi.fn(),
+  getCreativeV3GenerationStatus: vi.fn(),
+  generateCreativeV3Stage1Images: vi.fn(),
 }));
 
 const keyword = "CREATIVE DICTATOR";
@@ -77,6 +79,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   onClose = vi.fn();
   vi.mocked(generateKeywordCreativeBrief).mockResolvedValue({} as never);
+  vi.mocked(getCreativeV3GenerationStatus).mockResolvedValue({
+    available: false, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+  });
+  vi.mocked(generateCreativeV3Stage1Images).mockResolvedValue({
+    keyword_id: keywordId, job_id: "job-1", status: "queued",
+    queued: true, expected_output_count: 6,
+  });
 });
 
 afterEach(async () => {
@@ -158,4 +167,27 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(document.activeElement).toBe(opener);
     expect(document.body.style.overflow).toBe("");
   });
+
+  it("does not expose ImageGen unless the tenant is explicitly enabled", async () => {
+    await renderDialog(makeDetail("completed", true));
+    expect(document.querySelector(".rrugc-creative-v3-generate")).toBeNull();
+    expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+  });
+
+  it("queues all six V1-grounded embroidery slots only on a direct user click", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+    });
+    await renderDialog(makeDetail("completed", true));
+    const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
+    expect(button?.textContent).toContain("Generate 6 embroidery designs");
+    expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
+    expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("6 images queued");
+    expect(button?.disabled).toBe(true);
+    expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
+  });
+
 });

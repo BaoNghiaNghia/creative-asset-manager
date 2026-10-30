@@ -229,6 +229,8 @@ class Settings(BaseSettings):
     # Disabled by default; never enables a worker, image generation or handoff.
     CREATIVE_ENGINE_V3_ENABLED: bool = False
     CREATIVE_ENGINE_V3_CANARY_TENANT_IDS: str = ""
+    # Explicit opt-in, independent from read-only V3 preview or Creative Brief V1.
+    CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED: bool = False
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.

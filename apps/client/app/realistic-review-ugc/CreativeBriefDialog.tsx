@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { generateKeywordCreativeBrief, getKeywordCreativeBrief } from "./api";
+import {
+  generateKeywordCreativeBrief, getKeywordCreativeBrief,
+  getCreativeV3GenerationStatus, generateCreativeV3Stage1Images,
+} from "./api";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import type { KeywordCreativeBriefDetail, KeywordCreativeConcept } from "./types";
 import "./CreativeBriefDialog.css";
@@ -49,6 +52,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
+  const [v3Available, setV3Available] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [v3Queued, setV3Queued] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -62,6 +68,14 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
       document.body.style.overflow = previousOverflow;
       if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
     };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getCreativeV3GenerationStatus(controller.signal).then(result => {
+      if (!controller.signal.aborted) setV3Available(result.available && result.output_count === 6);
+    }).catch(() => { if (!controller.signal.aborted) setV3Available(false); });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -107,6 +121,24 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
       setError(reason instanceof Error ? reason.message : "Could not queue analysis.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const generateImages = async () => {
+    if (!v3Available || imageBusy || v3Queued || !detail?.brief || !detail.updated_at) return;
+    if (detail.brief.keyword_exact !== keyword) {
+      setError("The original keyword changed. Reopen the Creative Brief before generating.");
+      return;
+    }
+    setImageBusy(true);
+    setError("");
+    try {
+      await generateCreativeV3Stage1Images(keywordId, detail.updated_at);
+      setV3Queued(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not queue embroidery generation.");
+    } finally {
+      setImageBusy(false);
     }
   };
 
@@ -296,15 +328,29 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
                 </article>}
               </div>
               <p className="rrugc-creative-brief-disclaimer">
-                AI planning guidance only. Concepts are not applied to your generation skill; check the artwork for embroidery suitability.
+                Creative directions are planning data. Actual ImageGen artwork must be visually reviewed for exact spelling and embroidery suitability.
               </p>
             </section>
+            {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
+              <div>
+                <strong>Creative Engine V3 · Embroidery masters</strong>
+                <p>Generate 6 transparent Stage 1 embroidery artworks from this completed brief: 2 original variations for each of the 3 concepts. Existing Output History is preserved.</p>
+                <small>Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
+              </div>
+              <button type="button" className="rrugc-creative-brief-primary"
+                onClick={() => void generateImages()}
+                disabled={imageBusy || v3Queued || !detail?.updated_at}>
+                <RrugcActionIcon name="sparkles" />
+                {v3Queued ? "6 images queued" : imageBusy ? "Adding to queue…" : "Generate 6 embroidery designs"}
+              </button>
+              {v3Queued && <p role="status" className="rrugc-creative-v3-queued">Job queued in Stage 1. You can close this brief and follow its progress in the keyword row.</p>}
+            </section>}
           </>}
         </div>
         <footer className="rrugc-creative-brief-footer">
           <span className="rrugc-creative-brief-footer-meta">
             <RrugcActionIcon name="check" />
-            <span>Text-only · Existing artwork stays unchanged</span>
+            <span>{v3Queued ? "Stage 1 ImageGen queued · Old output history preserved" : "Brief analysis is text-only · Existing artwork unchanged"}</span>
             <span className="rrugc-creative-brief-footer-version">{detail?.prompt_version || "Meaning-First V1"}</span>
           </span>
           <button type="button" onClick={onClose}>Close</button>

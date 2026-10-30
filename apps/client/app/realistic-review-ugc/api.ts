@@ -320,6 +320,17 @@ export const listKeywordImages = (
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
 
+export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
+  request<{ available: boolean; schema_version: string; output_count: number }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status", { signal },
+  );
+
+export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string) =>
+  request<{ keyword_id: string; job_id: string; status: string; queued: boolean; expected_output_count: number }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-generate",
+    { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt }) },
+  );
+
 export const getKeywordCreativeBrief = (keywordId: string, signal?: AbortSignal) =>
   request<import("./types").KeywordCreativeBriefDetail>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId),

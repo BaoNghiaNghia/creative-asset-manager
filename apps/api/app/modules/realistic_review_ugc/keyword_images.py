@@ -350,6 +350,105 @@ class KeywordImageService:
         self.session.refresh(job)
         return job, True
 
+    def queue_creative_v3(
+        self, *, tenant_id: str, user_id: str, keyword_id: str,
+        expected_brief_updated_at: str,
+    ) -> RrugcKeywordImageJobModel:
+        """Explicit Stage 1 action: 3 Creative Brief V1 concepts x 2 variants.
+
+        No new queue infrastructure or DB migration. The source fingerprint
+        is pinned on this immutable Processing job and checked by the worker.
+        Existing published outputs remain visible and are never deleted.
+        """
+        from app.modules.realistic_review_ugc.creative_v3_generation import (
+            SKILL, CONTRACT, SLOT_COUNT, enabled, resolve_plan, snapshot_for_job,
+            CreativeV3Error,
+        )
+        if not enabled(self.settings, tenant_id):
+            raise KeywordImageError("creative_v3_disabled", "Creative V3 ImageGen is not enabled for this tenant.", 404)
+        if not isinstance(expected_brief_updated_at, str) or not expected_brief_updated_at.strip():
+            raise KeywordImageError("creative_v3_revision_required", "Open the latest Creative Brief before generating.", 422)
+        try:
+            plan = resolve_plan(self.session, tenant_id=tenant_id, keyword_id=keyword_id)
+        except CreativeV3Error as exc:
+            raise KeywordImageError(exc.code, str(exc), 409) from exc
+        source = self.session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.tenant_id == tenant_id,
+            RrugcKeywordCreativeBriefModel.keyword_id == keyword_id,
+        ))
+        if source is None or source.updated_at.isoformat() != expected_brief_updated_at:
+            raise KeywordImageError("creative_v3_brief_revision_changed",
+                                    "The Creative Brief changed. Reopen it before generating.", 409)
+        manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        if manifest is None or CONTRACT not in manifest.workflows:
+            raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 ImageGen Skill is not installed.", 503)
+        skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
+        if not skill_hash:
+            raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 Skill is not verified.", 503)
+
+        keyword = self.session.scalar(select(RrugcKeywordVolumeModel).where(
+            RrugcKeywordVolumeModel.tenant_id == tenant_id,
+            RrugcKeywordVolumeModel.id == keyword_id,
+            RrugcKeywordVolumeModel.picked.is_(True),
+        ))
+        if keyword is None or keyword.keyword != plan["keyword_exact"]:
+            raise KeywordImageError("creative_v3_keyword_changed", "Picked keyword changed after Creative Brief analysis.", 409)
+        job = self._job(tenant_id, keyword_id)
+        if job is not None:
+            active_processing = (self.session.get(ProcessingJobModel, job.processing_job_id)
+                                 if job.processing_job_id else None)
+            if (job.status in ("queued", "running") or
+                    (active_processing and active_processing.status in ("pending", "processing"))):
+                raise KeywordImageError(
+                    "creative_v3_job_active", "A Stage 1 run is already active.", 409,
+                )
+        if job is None:
+            job = RrugcKeywordImageJobModel(
+                id=str(uuid4()), tenant_id=tenant_id, keyword_id=keyword_id,
+                keyword_text=keyword.keyword, skill_source="local", skill_id=None,
+                skill_name=SKILL, skill_version=None,
+                skill_bundle_sha256=skill_hash,
+                prompt_text="Creative Brief V1, three modes, two original image variants each.",
+                status="queued", retry_count=0, created_by_user_id=user_id,
+            )
+            self.session.add(job)
+            try:
+                self.session.flush()
+            except IntegrityError as exc:
+                self.session.rollback()
+                raise KeywordImageError(
+                    "creative_v3_job_active", "A Stage 1 run already exists for this keyword.", 409,
+                ) from exc
+        else:
+            # Copy-on-write; preserve output pointer/history and user selections.
+            job.keyword_text = keyword.keyword
+            job.skill_source = "local"
+            job.skill_id = None
+            job.skill_name = SKILL
+            job.skill_version = None
+            job.skill_bundle_sha256 = skill_hash
+            job.prompt_text = "Creative Brief V1, three modes, two original image variants each."
+            job.status = "queued"
+            job.retry_count = 0
+            job.font_plan_json = None
+            job.started_at = None
+            job.completed_at = None
+            job.provider_request_id = None
+            job.last_error_code = None
+            job.last_error_message = None
+        self._enqueue(job)
+        processing = self.session.get(ProcessingJobModel, job.processing_job_id)
+        if processing is None:
+            raise KeywordImageError("creative_v3_queue_failed", "Could not reserve Creative V3 processing.", 503)
+        processing.payload_json = {
+            **(processing.payload_json or {}),
+            "expected_output_count": SLOT_COUNT,
+            "creative_v3": snapshot_for_job(plan),
+        }
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
     def queue_manual(
         self, *, tenant_id: str, user_id: str, text: str,
         skill_source: str | None = None, skill_id: str | None = None,
@@ -756,8 +855,14 @@ class KeywordImageGenerateHandler:
             if error.code not in STAGE1_PARTIAL_RECOVERY_CODES:
                 return None
             settings = self.settings or get_settings()
-            workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
-                         / "codex" / context.job.entity_id)
+            if getattr(context.job, "payload", {}).get("creative_v3"):
+                from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
+                workspace = _job_directory(
+                    settings, tenant_id=context.job.tenant_id, processing_id=context.job.id,
+                )
+            else:
+                workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
+                             / "codex" / context.job.entity_id)
             expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
             missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace, expected_count)
             if missing is None or not (0 < len(missing) < expected_count):
@@ -773,7 +878,7 @@ class KeywordImageGenerateHandler:
             if recovery_count >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS):
                 return None
             # Do not retry behind a successful/published image pointer.
-            if job.output_remote_file_id:
+            if job.output_remote_file_id and not getattr(context.job, "payload", {}).get("creative_v3"):
                 return None
             delay = STAGE1_AUTO_RETRY_DELAYS_SECONDS[recovery_count]
             job.retry_count = recovery_count + 1
@@ -1015,6 +1120,13 @@ class KeywordImageGenerateHandler:
             self._fail(context, "managed_storage_unavailable", "Managed storage unavailable.")
             return JobHandlerResult.non_retryable("managed_storage_unavailable", "Managed storage unavailable.")
 
+        creative_v3_snapshot = getattr(context.job, "payload", {}).get("creative_v3")
+        is_creative_v3 = creative_v3_snapshot is not None
+        if is_creative_v3 and (not isinstance(creative_v3_snapshot, dict)
+                              or context.job.payload.get("upload_only")):
+            return JobHandlerResult.non_retryable(
+                "creative_v3_payload_invalid", "Creative V3 requires a pinned non-upload-only plan."
+            )
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
                 RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
@@ -1024,7 +1136,28 @@ class KeywordImageGenerateHandler:
                 return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
             if job.status == "completed":
                 return JobHandlerResult.completed()
-            if not context.job.payload.get("upload_only"):
+            if not context.job.payload.get("upload_only") and is_creative_v3:
+                from app.modules.realistic_review_ugc.creative_v3_generation import (
+                    SKILL as V3_SKILL, CONTRACT as V3_CONTRACT, enabled as v3_enabled,
+                )
+                if (not v3_enabled(settings, context.job.tenant_id)
+                        or job.skill_name != V3_SKILL):
+                    job.status = "failed"
+                    job.last_error_code = "creative_v3_disabled"
+                    session.commit()
+                    return JobHandlerResult.non_retryable(
+                        "creative_v3_disabled", "Creative V3 image generation was disabled."
+                    )
+                manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, V3_SKILL)
+                if (manifest is None or V3_CONTRACT not in manifest.workflows
+                        or job.skill_bundle_sha256 != installed_stage2_skill_sha256(V3_SKILL, settings=settings)):
+                    job.status = "failed"
+                    job.last_error_code = "creative_v3_skill_changed"
+                    session.commit()
+                    return JobHandlerResult.non_retryable(
+                        "creative_v3_skill_changed", "V3 Skill unavailable or modified since queueing."
+                    )
+            elif not context.job.payload.get("upload_only"):
                 try:
                     verify_stage2_skill_runtime(
                         settings=settings, skill_source=job.skill_source, skill_id=job.skill_id,
@@ -1075,8 +1208,14 @@ class KeywordImageGenerateHandler:
         ))
         preserve_finals = False
         upload_only = bool(context.job.payload.get("upload_only"))
-        workspace = (Path(runner.config.staging_root).resolve()
-                     / "codex" / context.job.entity_id)
+        if is_creative_v3:
+            from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
+            workspace = _job_directory(
+                settings, tenant_id=context.job.tenant_id, processing_id=context.job.id,
+            )
+        else:
+            workspace = (Path(runner.config.staging_root).resolve()
+                         / "codex" / context.job.entity_id)
         # The first run (or explicit manual Regenerate) starts from scratch.
         # A deferred attempt or recovered worker claim instead continues from
         # validated, existing per-design PNG checkpoints.
@@ -1101,6 +1240,30 @@ class KeywordImageGenerateHandler:
                     provider="codex", model=None, image_bytes=b"",
                     mime_type="image/png", output_files=final_files,
                 )
+            elif is_creative_v3:
+                from app.modules.realistic_review_ugc.creative_v3_generation import (
+                    CreativeV3Error, resolve_plan, verify_snapshot,
+                )
+                from app.modules.realistic_review_ugc.creative_v3_runner import generate_six
+
+                def live_plan():
+                    with context.dependencies.session_factory() as brief_session:
+                        return resolve_plan(
+                            brief_session, tenant_id=context.job.tenant_id,
+                            keyword_id=job.keyword_id,
+                        )
+
+                try:
+                    current_plan = live_plan()
+                    verify_snapshot(current_plan, creative_v3_snapshot)
+                    if current_plan["keyword_exact"] != keyword_text:
+                        raise CreativeV3Error("creative_v3_source_changed", "Exact keyword changed.")
+                    generated = await generate_six(
+                        context=context, settings=settings, plan=current_plan,
+                        snapshot=creative_v3_snapshot, revalidate=live_plan,
+                    )
+                except CreativeV3Error as exc:
+                    raise CodexImageProviderError(exc.code, str(exc), retryable=False) from exc
             elif resume_missing == ():
                 # Crash recovery: six valid finals were already generated.
                 final_files = runner._collect_six_final_designs(workspace, output_count)
@@ -1186,6 +1349,15 @@ class KeywordImageGenerateHandler:
                 context, storage, generated, generation_processing_id=original_attempt,
                 skill_name=skill_name,
             )
+            if result.outcome.value == "completed" and is_creative_v3:
+                try:
+                    from app.modules.realistic_review_ugc.creative_v3_runner import cleanup_job
+                    cleanup_job(
+                        settings=settings, tenant_id=context.job.tenant_id,
+                        processing_id=context.job.id,
+                    )
+                except OSError:
+                    context.logger.exception("rrugc_creative_v3_temp_cleanup_deferred")
             if (result.outcome.value == "completed"
                     and context.job.payload.get("replace_outputs")):
                 try:
@@ -1210,19 +1382,35 @@ class KeywordImageGenerateHandler:
             # outages. Never destroy a six-image generation on an upload fault.
             preserve_finals = True
             raise
-        except CodexImageProviderError:
-            # A valid 1–5 checkpoint is never deleted on generation failure.
-            # Even failed CLI turns or timeouts can be resumed without
-            # repeating the already-created numbered PNGs.
+        except CodexImageProviderError as exc:
+            # Preserve partial V3 finals only on a recoverable provider/QA
+            # failure; stale source, revoked rights and unsafe staging must
+            # never become reusable checkpoints.
             missing = runner.stage1_missing_final_numbers(workspace, output_count)
-            preserve_finals = missing is not None and len(missing) < output_count
+            recoverable = (not is_creative_v3 or exc.code in
+                           STAGE1_PARTIAL_RECOVERY_CODES)
+            preserve_finals = (
+                recoverable and missing is not None and
+                0 < len(missing) < output_count
+            )
             raise
         finally:
             # Preview files are NEVER persisted, including after partial/failed
             # generations whose six numbered PNG checkpoints must survive.
-            runner.cleanup_previews(context.job.entity_id)
-            if not preserve_finals:
-                runner.cleanup_attempt(context.job.entity_id)
+            if is_creative_v3:
+                if not preserve_finals:
+                    from app.modules.realistic_review_ugc.creative_v3_runner import cleanup_job
+                    try:
+                        cleanup_job(
+                            settings=settings, tenant_id=context.job.tenant_id,
+                            processing_id=context.job.id,
+                        )
+                    except OSError:
+                        context.logger.exception("rrugc_creative_v3_failed_temp_cleanup_deferred")
+            else:
+                runner.cleanup_previews(context.job.entity_id)
+                if not preserve_finals:
+                    runner.cleanup_attempt(context.job.entity_id)
 
     async def _save_skill_outputs(
         self, context: JobHandlerContext, storage, generated,
@@ -1356,7 +1544,19 @@ class KeywordImageGenerateHandler:
                     )
                 # Older version records preserve their historical font details.
                 # The active renderer has no per-job font plan.
-                font_info = None
+                v3 = getattr(context.job, "payload", {}).get("creative_v3")
+                font_info = ({
+                    "engine": "creative-v3",
+                    "source": "creative-brief-v1",
+                    "brief_sha256": v3.get("source_sha256"),
+                    "plan_fingerprint": v3.get("fingerprint"),
+                    "concept_mode": ("safe", "creative_twist", "explore")[min(index // 2, 2)],
+                    "concept_variant": "A" if index % 2 == 0 else "B",
+                    "technical_qa_passed": True,
+                    "image_spelling_verified": False,
+                    "embroidery_fit_verified": False,
+                    "human_review_required": True,
+                } if isinstance(v3, dict) else None)
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,
                     remote_file_id=stored.remote_file_id, content_type=mime_type,

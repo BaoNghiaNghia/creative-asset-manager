@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "skill_name": "creative-brief-v3",
+  "display_name": "Creative Brief V3 · Native Embroidery ImageGen",
+  "description": "One native transparent embroidered Stage 1 master from a completed Creative Brief V1 concept; exactly one original image per invocation",
+  "workflows": [
+    "creative_v3_single_slot"
+  ],
+  "product_types": [
+    "baseball_cap",
+    "trucker_hat"
+  ],
+  "required_reference_roles": [],
+  "optional_reference_roles": [],
+  "max_references": 0
+}

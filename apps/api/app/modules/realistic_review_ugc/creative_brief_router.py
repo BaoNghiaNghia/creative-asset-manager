@@ -1,5 +1,6 @@
 """Tenant-authorized Creative Brief API, separate from image generation endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -19,6 +20,49 @@ def creative_engine_v3_status(principal: CurrentPrincipal = Depends(READ)):
     """Capability probe: HTTP 200 when OFF, no tenant identifiers or data."""
     return {"available": v3_enabled(get_settings(), principal.active_tenant_id),
             "schema_version": "creative-v3.0-preview-v1"}
+
+
+@router.get("/v3/generation-status")
+def creative_v3_generation_status(principal: CurrentPrincipal = Depends(READ)):
+    """Read-only tenant capability probe, no worker or provider call."""
+    from app.modules.realistic_review_ugc.creative_v3_generation import (
+        SCHEMA, SLOT_COUNT, enabled,
+    )
+    return {
+        "available": enabled(get_settings(), principal.active_tenant_id),
+        "schema_version": SCHEMA, "output_count": SLOT_COUNT,
+    }
+
+
+class CreativeV3GenerateRequest(BaseModel):
+    expected_brief_updated_at: str = Field(min_length=10, max_length=70)
+
+
+@router.post("/{keyword_id}/v3-generate", status_code=202)
+def creative_v3_generate(
+    keyword_id: str,
+    body: CreativeV3GenerateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Explicit, revision-bound six-image run using the existing Stage 1 queue."""
+    from app.modules.realistic_review_ugc.keyword_images import (
+        KeywordImageError, KeywordImageService,
+    )
+    try:
+        job = KeywordImageService(session, get_settings()).queue_creative_v3(
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            keyword_id=keyword_id,
+            expected_brief_updated_at=body.expected_brief_updated_at,
+        )
+        return {"keyword_id": keyword_id, "job_id": job.id,
+                "status": job.status, "queued": True,
+                "engine": "creative-v3", "expected_output_count": 6}
+    except KeywordImageError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail={
+            "code": exc.code, "message": exc.message,
+        }) from exc
 
 
 @router.get("/{keyword_id}/v3-preview")

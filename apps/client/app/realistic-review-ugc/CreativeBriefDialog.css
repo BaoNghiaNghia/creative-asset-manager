@@ -743,3 +743,12 @@
     transition: none !important;
   }
 }
+/* V3 generation is an explicit action after V1 analysis, not a hidden auto-run. */
+.rrugc-creative-v3-generate{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;margin:18px 0 0;padding:18px;border:1px solid #b8cce4;border-radius:12px;background:#f4f8ff}
+.rrugc-creative-v3-generate>div{flex:1 1 340px;min-width:0}
+.rrugc-creative-v3-generate>div>strong{display:block;font-size:14px;font-weight:750;color:#274266}
+.rrugc-creative-v3-generate p{margin:6px 0 5px;font-size:12px;line-height:1.6;color:#506884}
+.rrugc-creative-v3-generate small{font-size:11px;color:#6b7f98;line-height:1.5}
+.rrugc-creative-v3-generate>.rrugc-creative-brief-primary{flex:none;white-space:normal;min-height:42px}
+.rrugc-creative-v3-queued{flex-basis:100%;color:#236e54!important;margin:0!important;font-weight:650}
+@media(max-width:650px){.rrugc-creative-v3-generate{padding:14px}.rrugc-creative-v3-generate>.rrugc-creative-brief-primary{width:100%;justify-content:center}}
