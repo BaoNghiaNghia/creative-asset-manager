@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listTypographyReferences, previewTypographyStyle } from "./api";
+import { listTypographyReferences, previewTypographyStyle, saveReviewedTypographyBatch, listSavedTypographyV2, handoffTypographyV2 } from "./api";
+import type { TypographySavedVersion } from "./api";
 import type {
   TypographyReference, TypographyPreviewResponse, TypographySvgPreview,
 } from "./types";
@@ -33,6 +34,43 @@ export function TypographyStyleLab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+
+  const [batchId, setBatchId] = useState("");
+  const [chosenSlots, setChosenSlots] = useState<number[]>([1]);
+  const [savedVersions, setSavedVersions] = useState<TypographySavedVersion[]>([]);
+  const [stage2Selected, setStage2Selected] = useState<number[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [changing, setChanging] = useState<number | null>(null);
+  const [mvpMessage, setMvpMessage] = useState("");
+  const refreshHistory = async () => {
+    if (keywordId) setSavedVersions((await listSavedTypographyV2(keywordId)).items);
+  };
+  const saveReviewed = async () => {
+    if (!keywordId || !referenceId || !batchId || !chosenSlots.length || saving) return;
+    setSaving(true); setError(""); setMvpMessage("");
+    try {
+      const result = await saveReviewedTypographyBatch(batchId.trim(), {
+        keyword_id: keywordId, reference_id: referenceId, selected_slots: chosenSlots,
+      });
+      await refreshHistory();
+      setMvpMessage("Saved " + result.saved_count + " reviewed design(s).");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Save unavailable."); }
+    finally { setSaving(false); }
+  };
+  const setStage2 = async (version: number) => {
+    if (!keywordId || changing !== null) return;
+    setChanging(version); setError(""); setMvpMessage("");
+    const selected = !stage2Selected.includes(version);
+    try {
+      const result = await handoffTypographyV2(keywordId, version, selected);
+      setStage2Selected(previous => result.selected
+        ? [...new Set([...previous, version])]
+        : previous.filter(v => v !== version));
+      setMvpMessage(result.selected ? "Selected for Stage 2. No job queued." : "Removed from Stage 2.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Selection unavailable."); }
+    finally { setChanging(null); }
+  };
+
 
   useEffect(() => {
     if (selectedKeyword) setKeywordId(selectedKeyword.keyword_id);
@@ -70,6 +108,17 @@ export function TypographyStyleLab({
   }, [keywordId, referenceId]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    setSavedVersions([]); setStage2Selected([]); setMvpMessage("");
+    if (!active || !keywordId) return;
+    let cancelled = false;
+    void listSavedTypographyV2(keywordId).then(result => {
+      if (!cancelled) setSavedVersions(result.items);
+    }).catch(() => { /* The separate V2 publishing pilot may be disabled. */ });
+    return () => { cancelled = true; };
+  }, [active, keywordId]);
+
 
   const visibleKeywords = useMemo(() => {
     const options = new Map(keywords.map(item => [item.keyword_id, item]));
@@ -171,7 +220,37 @@ export function TypographyStyleLab({
         {error && <p role="alert" className="typography-style-lab-error">{error}</p>}
         <button type="button" className="typography-primary" disabled={!currentKeyword || !reference || busy}
           onClick={() => void createPreviews()}>{busy ? "Creating previews…" : "Preview 3 concepts"}</button>
+
         <small className="typography-style-lab-status">0 ImageGen calls · 0 jobs queued · V1 unchanged</small>
+        <div className="typography-v2-mvp" aria-label="Reviewed Typography V2 outputs">
+          <h4>Reviewed outputs · MVP</h4>
+          <p>Save existing human-approved ImageGen images. No images are generated here.</p>
+          <label>Reviewed batch UUID <input aria-label="Reviewed batch UUID" value={batchId}
+            onChange={event => setBatchId(event.target.value)} placeholder="UUID4 batch ID" /></label>
+          <div className="typography-v2-mvp-slots" role="group" aria-label="Reviewed slots">
+            {[1, 2, 3, 4, 5, 6].map(slot => <label key={slot}>
+              <input type="checkbox" checked={chosenSlots.includes(slot)}
+                onChange={event => setChosenSlots(previous => event.target.checked
+                  ? [...previous, slot].sort((a, b) => a - b)
+                  : previous.filter(item => item !== slot))} />{slot}</label>)}
+          </div>
+          <button type="button" className="typography-primary" onClick={() => void saveReviewed()}
+            disabled={!keywordId || !referenceId || !batchId.trim() || !chosenSlots.length || saving}>
+            {saving ? "Saving…" : "Save reviewed images"}
+          </button>
+          <button type="button" className="typography-quiet" disabled={!keywordId}
+            onClick={() => void refreshHistory().catch(() => setError("Cannot load V2 history."))}>
+            Refresh history
+          </button>
+          {savedVersions.map(item => <div key={item.version} className="typography-v2-mvp-version">
+            <span>Version {item.version} · Slot {item.slot}</span>
+            <button type="button" disabled={changing !== null} onClick={() => void setStage2(item.version)}>
+              {stage2Selected.includes(item.version) ? "Remove from Stage 2" : "Select for Stage 2"}
+            </button>
+          </div>)}
+          {mvpMessage && <p role="status">{mvpMessage}</p>}
+          <small>Manual only · ImageGen/Scout not triggered · V1 untouched</small>
+        </div>
       </aside>
     </div>
   </section>;

@@ -194,6 +194,128 @@ def preview_private_typography_selection(
     }
 
 
+
+
+@router.get(
+    "/history/{keyword_id}",
+    dependencies=[Depends(require_permission("realistic_review_ugc.read"))],
+)
+def typography_v2_saved_history(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Tenant-scoped metadata only; managed storage IDs never leave the API."""
+    from app.modules.realistic_review_ugc.typography_output_history import list_v2_history
+    keyword = session.scalar(select(RrugcKeywordVolumeModel.id).where(
+        RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+        RrugcKeywordVolumeModel.id == keyword_id,
+    ))
+    if keyword is None:
+        raise _error("typography_history_unavailable", "Keyword unavailable.", status_code=404)
+    return {"keyword_id": keyword_id, "items": list_v2_history(
+        session, tenant_id=principal.active_tenant_id, keyword_id=keyword_id,
+    )}
+
+
+@router.post(
+    "/batches/{batch_id}/save-reviewed",
+    dependencies=[
+        Depends(require_permission("realistic_review_ugc.read")),
+        Depends(require_permission("typography_generate.run")),
+        Depends(require_permission("realistic_review_ugc.run")),
+    ],
+)
+async def typography_v2_save_approved_batch(
+    batch_id: str,
+    request: TypographyPrivateSelectionPreviewRequest,
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Store only approved private PNGs, never queue generation or Stage 2.
+
+    Writer takes fresh short-lived DB sessions and revalidates rights before
+    every checkpoint. Each slot has a separately committed audit record.
+    """
+    from app.core.database import SessionLocal
+    from app.modules.realistic_review_ugc.typography_output_history import (
+        history_enabled, save_reviewed_v2_outputs,
+    )
+    settings = get_settings()
+    if not history_enabled(settings, principal.active_tenant_id):
+        raise _error("typography_history_disabled", "History writer disabled.", status_code=404)
+    storage = build_managed_storage_provider(settings)
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise _error("typography_history_storage_unavailable", "Managed storage unavailable.", status_code=503)
+    try:
+        result = await save_reviewed_v2_outputs(
+            settings=settings, tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id, keyword_id=request.keyword_id,
+            reference_id=request.reference_id, batch_id=batch_id,
+            selected_slots=request.selected_slots, session_factory=SessionLocal,
+            storage=storage,
+        )
+        return {
+            "keyword_id": result["keyword_id"],
+            "batch_id": result["batch_id"],
+            "saved_count": result["saved_count"],
+            "new_count": result["new_count"],
+            "items": result["items"],
+            "stage2_jobs_created": 0,
+            "published": False,
+        }
+    except TypographyPilotError as exc:
+        raise _error("typography_history_unavailable",
+                     "Reviewed history save unavailable.", status_code=409) from exc
+    except StorageProviderError as exc:
+        raise _error("typography_history_storage_unavailable",
+                     "Managed storage could not persist reviewed images.",
+                     status_code=503) from exc
+
+
+class TypographyV2HandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keyword_id: str = Field(min_length=1, max_length=36)
+    version: StrictInt = Field(ge=1)
+    selected: bool
+
+
+@router.post(
+    "/stage2/handoff",
+    dependencies=[
+        Depends(require_permission("realistic_review_ugc.read")),
+        Depends(require_permission("typography_generate.run")),
+        Depends(require_permission("realistic_review_ugc.run")),
+    ],
+)
+def select_saved_typography_v2_source(
+    request: TypographyV2HandoffRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Explicit manual handoff only; never enqueues Stage 2 or Scout."""
+    from app.modules.realistic_review_ugc.typography_stage2_handoff import (
+        select_saved_v2_design,
+    )
+    try:
+        result = select_saved_v2_design(
+            session, settings=get_settings(),
+            tenant_id=principal.active_tenant_id, user_id=principal.user_id,
+            keyword_id=request.keyword_id, version=request.version,
+            selected=request.selected,
+        )
+        session.commit()
+        return result
+    except TypographyPilotError as exc:
+        session.rollback()
+        raise _error("typography_handoff_unavailable",
+                     "Stage 2 handoff unavailable.",
+                     status_code=404 if exc.code in {"history_missing", "handoff_disabled", "keyword_not_picked"} else 409) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise _error("typography_handoff_conflict",
+                     "Stage 2 source has changed.", status_code=409) from exc
+
+
 class TypographyPreviewRequest(BaseModel):
     """No arbitrary prompt or client-provided DNA: sources are resolved by tenant."""
     model_config = ConfigDict(extra="forbid")

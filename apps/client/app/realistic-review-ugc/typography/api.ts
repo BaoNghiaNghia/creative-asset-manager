@@ -95,3 +95,39 @@ export function previewTypographyStyle(
     method: "POST", body: JSON.stringify({ ...input, count: input.count ?? 3 }), signal,
   });
 }
+
+
+export type ReviewedSelectionRequest = {
+  keyword_id: string;
+  reference_id: string;
+  selected_slots: number[];
+};
+export type TypographySavedVersion = {
+  version: number; slot: number; batch_id: string;
+  created_at: string | null; size_bytes: number; private_only: true;
+};
+const TYPOGRAPHY_BASE = BASE.replace(/\/references$/, "");
+
+export function saveReviewedTypographyBatch(batchId: string, input: ReviewedSelectionRequest) {
+  return jsonRequest<{
+    saved_count: number; new_count: number; items: { slot: number; version: number }[];
+    published: false; stage2_jobs_created: 0;
+  }>(TYPOGRAPHY_BASE + "/batches/" + encodeURIComponent(batchId) + "/save-reviewed", {
+    method: "POST", body: JSON.stringify(input),
+  });
+}
+
+export function listSavedTypographyV2(keywordId: string) {
+  return jsonRequest<{ keyword_id: string; items: TypographySavedVersion[] }>(
+    TYPOGRAPHY_BASE + "/history/" + encodeURIComponent(keywordId),
+  );
+}
+
+export function handoffTypographyV2(keywordId: string, version: number, selected: boolean) {
+  return jsonRequest<{
+    selected: boolean; source_plan_id: string | null;
+    stage2_jobs_created: 0; scout_started: false;
+  }>(TYPOGRAPHY_BASE + "/stage2/handoff", {
+    method: "POST", body: JSON.stringify({ keyword_id: keywordId, version, selected }),
+  });
+}

@@ -89,6 +89,27 @@ No migration, new dependency or production secret is required for this
 source-only implementation. Never use a selection preview as publication
 authorization.
 
+## MVP Stage 2 handoff source-only — 30 October 2026
+
+`typography_stage2_handoff.py` provides an explicit, permission-gated
+manual selection of a **previously persisted** V2 output version. The new
+`POST /typography/stage2/handoff` accepts only a keyword ID, saved version
+and boolean selected state. It resolves the immutable, tenant-owned
+`typography_v2` history row, checks the picked keyword, exact provenance,
+current approved reference and Style DNA fingerprint, then creates or updates
+a synthetic Products Stage 2 `RrugcSourcePlanModel` pointing to the existing
+managed asset. It never creates a Stage 2 image job, starts UGC Scout,
+modifies a V1 output version or copies the PNG.
+
+The new `TYPOGRAPHY_V2_STAGE2_HANDOFF_ENABLED` flag is **OFF by default**
+and also requires the independently gated ImageGen pilot and durable-history
+writer. No operator/UI is auto-enabled by deployment. Existing plans with a
+different revision/owner cannot be hijacked. API requires general RRUGC read,
+run and typography_generate.run permissions plus Typography reference read.
+This is the smallest safe backend bridge; frontend picker wiring, real
+managed-storage verification, real data rollback, and ImageGen pilot
+production authorization are separate MVP completion gates.
+
 ## Scope boundary and remaining production work
 
 This is **not yet** G6.3 publication or a Stage 1 / Stage 2 output handoff. Do not enable V2 image-generation workers based on this checkpoint alone. Remaining work includes authenticated RBAC review UI/API, durable database job and asset upload identity, transactional Stage 1 version history for 1–5 accepted PNGs, authorized per-image Stage 2 selection, ZIP/export and rollback with product-specific QA. V1 Stage 1 and Stage 2 remain unchanged. There are no provider calls or remote storage operations in this implementation.
