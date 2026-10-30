@@ -261,7 +261,7 @@ def test_private_history_upload_failure_retains_committed_first_slot(tmp_path, m
         storage.fail_on.add(2)
         from app.domain.providers.contracts import StorageProviderError
         with pytest.raises(StorageProviderError):
-            asyncio.run(save([1, 2], storage)))
+            asyncio.run(save([1, 2], storage))
         with Session(engine) as session:
             rows = list(session.scalars(select(RrugcImageOutputVersionModel)))
             assert len(rows) == 1
@@ -283,7 +283,7 @@ def test_private_history_revoked_keyword_prevents_upload(tmp_path, monkeypatch):
             row.picked = False
             session.commit()
         with pytest.raises(TypographyPilotError) as exc:
-            asyncio.run(save([1], storage)))
+            asyncio.run(save([1], storage))
         assert exc.value.code == "source_changed"
         assert storage.calls == []
         with Session(engine) as session:
