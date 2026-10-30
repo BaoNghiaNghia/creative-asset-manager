@@ -48,3 +48,13 @@
 .typography-style-lab-status{display:block;text-align:center;margin:10px 0 0;color:#8392a4;font-size:10px}
 @media (max-width:1100px){.typography-style-lab-grid{grid-template-columns:minmax(180px,1fr) minmax(250px,1.4fr)}.typography-style-lab-panel:last-child{grid-column:1/-1;min-height:auto}.typography-style-lab-results{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:690px){.typography-style-lab-heading{flex-direction:column}.typography-style-lab-grid{grid-template-columns:minmax(0,1fr)}.typography-style-lab-panel{min-height:unset}.typography-style-lab-panel:last-child{grid-column:auto}.typography-style-lab-results{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}
+
+.typography-v2-mvp{border-top:1px solid #dce5f1;margin-top:18px;padding-top:16px;display:grid;gap:10px}
+.typography-v2-mvp h4{margin:0;color:#293f61;font-size:13px}
+.typography-v2-mvp p,.typography-v2-mvp small{color:#627792;font-size:11px;line-height:1.5;margin:0}
+.typography-v2-mvp input:not([type=checkbox]){width:100%;min-width:0;padding:9px;border:1px solid #cbd8e8;border-radius:7px}
+.typography-v2-mvp-slots{display:flex;flex-wrap:wrap;gap:8px}
+.typography-v2-mvp-slots label{display:flex;flex-direction:row;align-items:center;margin:0;gap:5px;padding:5px 7px;border:1px solid #e2e8f2;border-radius:7px}
+.typography-v2-mvp-version{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px;border:1px solid #e1e8f1;border-radius:7px;font-size:11px}
+.typography-v2-mvp-version button{border:1px solid #c5d5eb;background:#f7f9ff;border-radius:6px;padding:7px;cursor:pointer}
+.typography-v2-mvp button:disabled{opacity:.5;cursor:not-allowed}
