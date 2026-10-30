@@ -10,7 +10,7 @@ from datetime import datetime
 from hashlib import sha256
 import json
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
     PILOT_SCHEMA, TypographyPilotError, enabled, fingerprint,
@@ -24,6 +24,7 @@ from app.modules.realistic_review_ugc.typography_quality_gate import (
 )
 
 BATCH_SCHEMA = "typography-v2/private-reviewed-batch-v1"
+SELECTION_SCHEMA = "typography-v2/private-reviewed-selection-preview-v1"
 MAX_CHECKPOINT_BYTES = 32 * 1024
 MAX_PNG_BYTES = 25 * 1024 * 1024
 
@@ -154,9 +155,88 @@ def _inspect_batch(
     }
 
 
+
+def _prepare_selection_preview(
+    batch: Mapping[str, Any], *, tenant_id: str, keyword_id: str,
+    selected_slots: Sequence[int],
+) -> dict[str, Any]:
+    """Bind explicitly chosen reviewed slots to an immutable, private intent.
+
+    Called only inside the pilot lock after the full ImageGen/G5/G6.2
+    checkpoint has been verified. This is NOT a storage/publication token:
+    every future writer must independently revalidate source rights, PNG bytes,
+    managed storage receipts, ownership and authorization.
+    """
+    if not isinstance(keyword_id, str) or not 1 <= len(keyword_id.strip()) <= 255:
+        raise TypographyPilotError("selection_invalid", "A selected Stage 0 keyword ID is required.")
+    if (not isinstance(selected_slots, (tuple, list))
+            or not 1 <= len(selected_slots) <= V2_EXPECTED_SLOTS
+            or any(type(slot) is not int or not 1 <= slot <= V2_EXPECTED_SLOTS
+                   for slot in selected_slots)
+            or len(set(selected_slots)) != len(selected_slots)):
+        raise TypographyPilotError("selection_invalid", "Choose 1-6 unique numbered slots.")
+
+    approved = batch.get("reviewed_images")
+    contract = batch.get("slot_contract")
+    if (not isinstance(approved, list)
+            or not isinstance(contract, dict)
+            or batch.get("accepted_count") != len(approved)
+            or batch.get("private_only") is not True
+            or any(batch.get(flag) is not False for flag in (
+                "published", "stage1_output_saved", "stage2_handoff_performed",
+                "eligible_for_publication",
+            ))):
+        raise TypographyPilotError("selection_checkpoint_invalid", "Reviewed batch cannot be selected.")
+    by_slot: dict[int, dict] = {}
+    hashes: set[str] = set()
+    for image in approved:
+        if not isinstance(image, dict):
+            raise TypographyPilotError("selection_checkpoint_invalid", "Reviewed image is invalid.")
+        number, digest, size = image.get("slot"), image.get("sha256"), image.get("size_bytes")
+        if (type(number) is not int or not 1 <= number <= V2_EXPECTED_SLOTS
+                or number in by_slot or not isinstance(digest, str)
+                or not SHA256_PATTERN.fullmatch(digest) or digest in hashes
+                or type(size) is not int or not 0 < size <= MAX_PNG_BYTES):
+            raise TypographyPilotError("selection_checkpoint_invalid", "Reviewed image identity is invalid.")
+        by_slot[number] = {"slot": number, "sha256": digest, "size_bytes": size}
+        hashes.add(digest)
+    if contract.get("eligible_slots") != sorted(by_slot):
+        raise TypographyPilotError("selection_checkpoint_invalid", "Reviewed slot count differs from G5.")
+    chosen = sorted(selected_slots)
+    if any(slot not in by_slot for slot in chosen):
+        raise TypographyPilotError("selection_not_approved", "Only explicitly accepted slots can be selected.")
+
+    # Bind to tenant + Stage0 keyword + batch + exact reviewed PNG bytes.
+    # The fingerprint is an idempotency HINT, never a public access capability.
+    proof = {
+        "schema_version": SELECTION_SCHEMA,
+        "tenant_id": tenant_id, "keyword_id": keyword_id,
+        "batch_id": batch["batch_id"], "plan_sha256": batch["plan_sha256"],
+        "selected_images": [by_slot[number] for number in chosen],
+    }
+    digest = sha256(json.dumps(
+        proof, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    return {
+        "schema_version": SELECTION_SCHEMA,
+        "selection_sha256": digest,
+        "selected_slots": chosen,
+        "selected_count": len(chosen),
+        "selected_images": proof["selected_images"],
+        "requires_managed_storage_commit": True,
+        "private_only": True,
+        "published": False,
+        "stage1_output_saved": False,
+        "stage2_handoff_performed": False,
+        "can_queue_stage2": False,
+    }
+
+
 def inspect_reviewed_batch(
     *, settings: Any, tenant_id: str, batch_id: str,
     plan: Mapping[str, Any], revalidate: Callable[[], Mapping[str, Any]],
+    keyword_id: str | None = None,
+    selected_slots: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Read-only, tenant-gated aggregate with source/rights revalidation.
 
@@ -181,6 +261,11 @@ def inspect_reviewed_batch(
         )
         if not enabled(settings, tenant_id) or fingerprint(revalidate()) != plan_sha:
             raise TypographyPilotError("source_changed", "Reference rights, keyword or Style DNA changed.")
+        if selected_slots is not None:
+            result["selection_preview"] = _prepare_selection_preview(
+                result, tenant_id=tenant_id, keyword_id=keyword_id,
+                selected_slots=selected_slots,
+            )
         return result
 
     return _locked_slot(

@@ -21,6 +21,32 @@ PYTHONPATH=apps/api apps/api/.venv/bin/python -m app.modules.realistic_review_ug
   --reference-id REFERENCE_UUID --batch-id CANONICAL_UUID4
 ```
 
+## G6.3 private selection preview — 30 October 2026
+
+The reviewed-batch inspector now optionally accepts `keyword_id` and
+`selected_slots` (one through six unique integers). Within the original
+single-flight lock, and after current source-rights/Style DNA revalidation,
+it rejects unreviewed, rejected, duplicate or out-of-range selections. Accepted
+selections are sorted and bound to the tenant, Stage 0 keyword ID, batch ID,
+plan checksum and each verified PNG SHA-256/byte count. An identical selection
+has a deterministic `selection_sha256` idempotency hint; a different keyword
+or batch has a different fingerprint.
+
+`selection_preview` contains no private PNG paths, raw keyword, access token,
+or externally accessible file IDs. It explicitly returns
+`published=false`, `stage1_output_saved=false`,
+`stage2_handoff_performed=false`, `can_queue_stage2=false` and
+`requires_managed_storage_commit=true`. The preview is never an authorization
+to publish: it cannot write output history or create a Stage 2 source plan.
+A future writer must separately verify the caller's RBAC, source rights,
+reviewed bytes, managed storage upload receipt, transactional job ownership,
+and idempotent DB publication. No migration or new dependency is introduced.
+
+Focused regression tests cover 1–6 real accepted slots, subset ordering,
+duplicate/pending/rejected/symlink/stale-source rejection and stable binding.
+Production pilot, worker and Scout flags remain unchanged. This is a
+source-only handoff precursor, not a completed durable G6.3 release.
+
 ## Scope boundary and remaining production work
 
 This is **not yet** G6.3 publication or a Stage 1 / Stage 2 output handoff. Do not enable V2 image-generation workers based on this checkpoint alone. Remaining work includes authenticated RBAC review UI/API, durable database job and asset upload identity, transactional Stage 1 version history for 1–5 accepted PNGs, authorized per-image Stage 2 selection, ZIP/export and rollback with product-specific QA. V1 Stage 1 and Stage 2 remain unchanged. There are no provider calls or remote storage operations in this implementation.
