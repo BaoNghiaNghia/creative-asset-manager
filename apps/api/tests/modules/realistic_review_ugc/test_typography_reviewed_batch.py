@@ -319,3 +319,79 @@ def test_batch_cli_rejects_invalid_ids_before_loading_private_db(monkeypatch, ca
     ])
     assert result == 2
     assert json.loads(capsys.readouterr().out)["status"] == "batch_invalid"
+
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5, 6])
+def test_reviewed_selection_preview_preserves_exact_slots_without_publication(tmp_path, count):
+    batch_id, folder = batch(tmp_path)
+    current = plan()
+    for slot in range(1, count + 1):
+        write_slot(folder, slot, current)
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    chosen = list(range(1, count + 1))
+    result = inspect(tmp_path, batch_id, current, keyword_id="keyword-1", selected_slots=chosen)
+    preview = result["selection_preview"]
+    assert preview["selected_slots"] == chosen
+    assert preview["selected_count"] == count
+    assert [i["slot"] for i in preview["selected_images"]] == chosen
+    assert all(len(i["sha256"]) == 64 for i in preview["selected_images"])
+    assert preview["private_only"] is True
+    assert preview["published"] is False
+    assert preview["stage1_output_saved"] is False
+    assert preview["stage2_handoff_performed"] is False
+    assert preview["can_queue_stage2"] is False
+    assert preview["requires_managed_storage_commit"] is True
+    assert "private_image_path" not in str(preview)
+    assert inspect(tmp_path, batch_id, current, keyword_id="keyword-1",
+                   selected_slots=list(reversed(chosen)))["selection_preview"]["selection_sha256"] == preview["selection_sha256"]
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+
+
+def test_reviewed_selection_rejects_pending_rejected_duplicate_and_invalid_slots(tmp_path):
+    batch_id, folder = batch(tmp_path)
+    current = plan()
+    write_slot(folder, 1, current)
+    write_slot(folder, 2, current, approval="rejected")
+    write_slot(folder, 3, current, approval=None)
+    for slots, code in [
+        ([2], "selection_not_approved"), ([3], "selection_not_approved"),
+        ([4], "selection_not_approved"), ([1, 1], "selection_invalid"),
+        ([], "selection_invalid"), ([True], "selection_invalid"),
+        ([0], "selection_invalid"), ([7], "selection_invalid"),
+        ("1", "selection_invalid"),
+    ]:
+        with pytest.raises(TypographyPilotError) as exc:
+            inspect(tmp_path, batch_id, current, keyword_id="keyword-1", selected_slots=slots)
+        assert exc.value.code == code
+    with pytest.raises(TypographyPilotError) as exc:
+        inspect(tmp_path, batch_id, current, selected_slots=[1])
+    assert exc.value.code == "selection_invalid"
+
+
+def test_selection_fingerprint_binds_tenant_keyword_and_selected_image(tmp_path):
+    batch_id, folder = batch(tmp_path)
+    current = plan()
+    write_slot(folder, 1, current)
+    a = inspect(tmp_path, batch_id, current, keyword_id="keyword-a",
+                selected_slots=[1])["selection_preview"]["selection_sha256"]
+    b = inspect(tmp_path, batch_id, current, keyword_id="keyword-b",
+                selected_slots=[1])["selection_preview"]["selection_sha256"]
+    assert a != b
+    batch_id_2, folder_2 = batch(tmp_path)
+    write_slot(folder_2, 1, current)
+    c = inspect(tmp_path, batch_id_2, current, keyword_id="keyword-a",
+                selected_slots=[1])["selection_preview"]["selection_sha256"]
+    assert a != c
+
+
+def test_selection_revalidates_rights_before_returning_handoff_preview(tmp_path):
+    batch_id, folder = batch(tmp_path)
+    current = plan()
+    write_slot(folder, 1, current)
+    stale = plan()
+    stale["source_keyword_exact"] = "WRONG"
+    with pytest.raises(TypographyPilotError) as exc:
+        inspect(tmp_path, batch_id, current, keyword_id="keyword-1",
+                selected_slots=[1], revalidate=lambda: stale)
+    assert exc.value.code == "source_changed"
