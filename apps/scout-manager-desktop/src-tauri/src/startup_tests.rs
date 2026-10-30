@@ -29,10 +29,11 @@ impl Fixture {
         }
         fs::write(
             root.join("scripts/start_scout_auto_update.ps1"),
-            "param([switch]$SkipUpdate, [switch]$KeywordMode, [switch]$CapStackMode)\n\
+            "param([switch]$SkipUpdate, [switch]$KeywordMode, [switch]$CapStackMode, [switch]$TypographyMode)\n\
              $mode = 'review'\n\
              if ($KeywordMode) { $mode = 'keyword' }\n\
              if ($CapStackMode) { $mode = 'cap_stack' }\n\
+             if ($TypographyMode) { $mode = 'typography' }\n\
              Write-Host ('FAKE_SCOUT_STARTED:' + $mode)\n\
              Start-Sleep -Seconds 120\n",
         ).unwrap();
@@ -52,6 +53,7 @@ impl Fixture {
                 Scout::new("review"),
                 Scout::new("keyword"),
                 Scout::new("cap_stack"),
+                Scout::new("typography"),
             ]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             manager_lock,
@@ -145,6 +147,9 @@ fn explicit_startup_starts_all_three_once_and_stop_reaps_owned_processes() {
     fixture.wait_ready(&["review", "keyword", "cap_stack"]);
     let ids = fixture.process_ids();
     assert_eq!(ids.len(), 3);
+    let typography = fixture.controller.lock_modes().unwrap();
+    assert!(typography.iter().find(|mode| mode.name == "typography").unwrap().child.is_none());
+    drop(typography);
     let handles = fixture.process_handles();
     fixture.controller.apply_startup(StartAutomation).unwrap();
     assert_eq!(fixture.process_ids(), ids, "Repeated Start must not duplicate a mode");
