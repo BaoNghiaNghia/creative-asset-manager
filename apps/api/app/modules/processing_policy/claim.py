@@ -39,7 +39,7 @@ AI_JOB_TYPES = (
     "asset_analyze", "video_analyze", "ai_batch_prepare", "ai_batch_submit",
     "ai_batch_poll", "ai_batch_import", "ai_batch_retry_items", "image_generate",
     "rrugc_source_plan_analyze", "rrugc_candidate_analyze", "rrugc_generate",
-    "rrugc_stage2_generate", "rrugc_keyword_image_generate", "rrugc_colorway_generate",
+    "rrugc_stage2_generate", "rrugc_keyword_image_generate", "rrugc_creative_brief_generate", "rrugc_colorway_generate",
     "rrugc_ecommerce_generate",
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
@@ -149,6 +149,9 @@ STAGE_POLICY = {
     "rrugc_colorway_generate": "pipeline_enabled",
     "rrugc_ecommerce_generate": "pipeline_enabled",
     "rrugc_keyword_image_generate": "pipeline_enabled",
+    # Text-only Creative Brief uses Codex, not Gemini, but must pass the same
+    # tenant-scoped AI concurrency/analysis policy to be claimable.
+    "rrugc_creative_brief_generate": "ai_analysis_enabled",
     "rrugc_stage3_analyze": "ai_analysis_enabled",
     "rrugc_cap_stack_analyze": "ai_analysis_enabled",
     "rrugc_research_vision": "ai_analysis_enabled",

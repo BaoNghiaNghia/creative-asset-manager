@@ -364,6 +364,58 @@ class ProcessingPolicyTest(unittest.TestCase):
             self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (0, 0))
             self.assertEqual((provider.active_jobs, provider.single_active_jobs), (0, 0))
 
+    def test_creative_brief_text_job_claims_on_image_worker_with_ai_limits(self):
+        # Regression: this worker type used to be registered but was absent
+        # from STAGE_POLICY, so every queued Creative Brief waited forever.
+        self.policy("creative-tenant", total=3, ai=1)
+        jobs = [
+            self.job("creative-tenant", f"creative-brief-{n}",
+                     kind="rrugc_creative_brief_generate",
+                     provider=None, scope=None)
+            for n in range(2)
+        ]
+        first = self.claim(
+            "image-one", ("rrugc_creative_brief_generate",), worker_role="image",
+        )
+        self.assertIsNotNone(first)
+        self.assertEqual(first.id, jobs[0])
+        with self.sessions() as session:
+            policy = session.get(TenantProcessingPolicyModel, "creative-tenant")
+            self.assertEqual((policy.total_active_jobs, policy.ai_active_jobs), (1, 1))
+        # Codex must not escape AI concurrency even with provider=NULL.
+        self.assertIsNone(self.claim(
+            "image-two", ("rrugc_creative_brief_generate",), worker_role="image",
+        ))
+        with self.sessions() as session:
+            ProcessingJobService(ProcessingRepository(session)).complete(
+                job_id=jobs[0], worker_id="image-one",
+            )
+        second = self.claim(
+            "image-two", ("rrugc_creative_brief_generate",), worker_role="image",
+        )
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, jobs[1])
+
+    def test_creative_brief_obeys_tenant_ai_analysis_gate(self):
+        self.policy("creative-tenant", total=3, ai=1)
+        job_id = self.job("creative-tenant", "creative-gated",
+                          kind="rrugc_creative_brief_generate",
+                          provider=None, scope=None)
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "creative-tenant").ai_analysis_enabled = False
+        self.assertIsNone(self.claim(
+            "image-one", ("rrugc_creative_brief_generate",), worker_role="image",
+        ))
+        with self.sessions() as session:
+            self.assertEqual(session.get(ProcessingJobModel, job_id).status, "pending")
+        with self.sessions.begin() as session:
+            session.get(TenantProcessingPolicyModel, "creative-tenant").ai_analysis_enabled = True
+        claimed = self.claim(
+            "image-one", ("rrugc_creative_brief_generate",), worker_role="image",
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.id, job_id)
+
     def test_stage1_batch_queues_wait_for_a_single_active_codex_generation(self):
         self.policy("tenant", total=5, ai=5)
         jobs = [self.job("tenant", f"stage1-{index}",
