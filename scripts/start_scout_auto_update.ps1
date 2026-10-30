@@ -2,7 +2,8 @@ param(
     [switch]$SkipUpdate,
     [switch]$KeywordMode,
     [switch]$CapStackMode,
-    [switch]$TypographyMode
+    [switch]$TypographyMode,
+    [switch]$TypographyBrowserMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,7 @@ $ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
 $KeywordScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\quote_keyword_volume.py"
 $TypographyScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\typography_design_scout.py"
 if (($KeywordMode -and ($CapStackMode -or $TypographyMode)) -or ($CapStackMode -and $TypographyMode)) { throw "Scout modes are mutually exclusive." }
+if ($TypographyBrowserMode -and -not $TypographyMode) { throw "TypographyBrowserMode requires TypographyMode." }
 
 function Write-Step([string]$Message) {
     Write-Host ""
@@ -397,7 +399,11 @@ if (-not $SkipUpdate) {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -CapStackMode
             }
             elseif ($TypographyMode) {
-                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TypographyMode
+                if ($TypographyBrowserMode) {
+                    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TypographyMode -TypographyBrowserMode
+                } else {
+                    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TypographyMode
+                }
             }
             else {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate
@@ -593,14 +599,18 @@ try {
         if (-not (Test-Path -LiteralPath $TypographyScoutPath)) { Fail "Typography Scout script missing." }
         try { $Host.UI.RawUI.WindowTitle = "Typography Design Scout | $shortScoutVersion | $head" } catch {}
         Write-Step "Starting one-shot Typography Design Scout"
-        Write-Host "Pinterest: isolated profile, 3 picked keywords, max 8 candidates." -ForegroundColor Green
+        Write-Host "Pinterest: 3 picked keywords, max 8 candidates." -ForegroundColor Green
+        Write-Host ("Mode: " + $(if ($TypographyBrowserMode) { "Stage 0 import + fresh Pinterest discovery" } else { "Stage 0 import only (no Chrome required)" })) -ForegroundColor Green
         Write-Host "Rights remain unknown; candidates never auto-generate." -ForegroundColor Green
         $typographyArguments = @(
             $TypographyScoutPath, "--base-url", $baseUrl,
             "--agent-id", $agentId, "--profile-dir", $typographyProfileDir,
             "--keyword-limit", "3", "--max-images", "8", "--execute"
         )
-        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+        if (-not $TypographyBrowserMode) {
+            $typographyArguments += "--seed-only"
+        }
+        if ($TypographyBrowserMode -and -not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
             $typographyArguments += @("--chrome-executable", $chromeExecutable)
         }
         & $python @typographyArguments
