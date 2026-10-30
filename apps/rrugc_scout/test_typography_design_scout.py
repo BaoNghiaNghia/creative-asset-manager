@@ -19,6 +19,57 @@ class PickedSourceBootstrapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             _verify_chrome_launch_failure(Path(temp))
 
+    def test_verified_session_is_remembered_and_login_gate_clears_it(self):
+        from scout import (
+            pinterest_login_ready, mark_pinterest_login_ready,
+        )
+
+        class FakeContext:
+            pages = [object()]
+            async def close(self):
+                pass
+
+        class FakePlaywright:
+            async def stop(self):
+                pass
+
+        original_client = httpx.AsyncClient
+
+        def respond(request):
+            if request.method == "GET" and request.url.path.endswith("/keywords"):
+                return httpx.Response(200, json={
+                    "keywords": [{"id": "k1", "keyword": "ADVENTURE AWAITS"}],
+                    "pending_sources": [],
+                })
+            raise AssertionError("Unexpected request")
+
+        def mock_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(respond)
+            return original_client(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            options = SimpleNamespace(
+                base_url="https://cam.example", agent_id="agent-a", keyword_limit=3,
+                execute=True, seed_only=False, max_images=8,
+                profile_dir=Path(tmp) / "pinterest-profile-typography",
+                headless=False, chrome_executable="",
+            )
+            with patch.dict(os.environ, {"RRUGC_SCOUT_TOKEN": "test-token"}, clear=False):
+                with patch("typography_design_scout.httpx.AsyncClient", side_effect=mock_client):
+                    with patch("typography_design_scout.launch_context", return_value=(FakePlaywright(), FakeContext())):
+                        with patch("typography_design_scout.scan_one_query", return_value=[]):
+                            result = asyncio.run(scout(options))
+                self.assertEqual(result["failed"], 0)
+                self.assertTrue(pinterest_login_ready(options.profile_dir))
+                # Login verification, not stored cookies, controls readiness.
+                mark_pinterest_login_ready(options.profile_dir)
+                with patch("typography_design_scout.httpx.AsyncClient", side_effect=mock_client):
+                    with patch("typography_design_scout.launch_context", return_value=(FakePlaywright(), FakeContext())):
+                        with patch("typography_design_scout.scan_one_query", side_effect=RuntimeError("Pinterest login or verification required")):
+                            with self.assertRaisesRegex(RuntimeError, "login or verification"):
+                                asyncio.run(scout(options))
+                self.assertFalse(pinterest_login_ready(options.profile_dir))
+
     def test_seed_only_reuses_agent_scoped_pinterest_source_without_chrome(self):
         events = []
         source_pin = "https://www.pinterest.com/pin/123456789012345/"

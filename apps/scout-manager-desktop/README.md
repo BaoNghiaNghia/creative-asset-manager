@@ -1,5 +1,29 @@
 # RRUGC Scout Manager
 
+## v0.1.49 — Simplified Typography Scout controls (2026-10-30)
+
+The Typography Ideas card has **one action**: "Scout ideas" while idle
+and "Stop" while running. One run imports up to eight unapproved Stage 0
+Pinterest source candidates and attempts fresh Pinterest design discovery
+with the saved isolated profile. If Chrome cannot open, source imports
+remain intact and the existing browser-unavailable message is shown.
+A manual "Sign in to Pinterest" text link appears **only if a real
+Pinterest access/login gate was encountered**. An already usable session
+does not require a redundant sign-in click; successful search records the
+profile-scoped login-ready marker, while a login gate clears it.
+
+Removed the redundant Run once / Find new designs button pair and the
+three decorative metadata pills. Neither source candidates nor fresh
+discovery images are auto-approved, sent to ImageGen, or published to
+Stage 2. Typography remains excluded from global Run automation and
+does not watchdog-restart. The seed-only PowerShell launcher remains
+available for manual browser-free intake if Chrome is unavailable.
+
+No new worker, migration or credential. Install immutable release
+`scout-manager-v0.1.49` using the existing Windows SHA-256-verifying
+release installer. Preserve the previous release, local Scout config,
+and dedicated Chrome profiles.
+
 ## v0.1.48 — Fix Typography Scout Chrome startup failures (2026-10-30)
 
 Production incident: a Typography "Run once" launched an isolated Pinterest
