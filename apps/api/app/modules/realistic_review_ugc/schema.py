@@ -940,6 +940,7 @@ class KeywordImageCreateRequest(BaseModel):
 
 class KeywordImageRowResponse(BaseModel):
     keyword_id: str
+    creative_brief: dict | None = None
     keyword: str
     picked_at: str | None = None
     search_volume: int

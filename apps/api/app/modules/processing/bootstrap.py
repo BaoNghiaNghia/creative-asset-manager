@@ -66,6 +66,7 @@ from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyze
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
 from app.modules.realistic_review_ugc.stage2 import RrugcStage2GenerateJobHandler
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+from app.modules.realistic_review_ugc.creative_brief_service import CreativeBriefGenerateHandler
 from app.modules.realistic_review_ugc.colorways import ColorwayGenerateHandler
 from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceGenerateHandler
 from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllScheduler
@@ -132,6 +133,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "IMAGE_GENERATION_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
     ),
+    "rrugc_creative_brief_generate": ("PROCESSING_JOBS_ENABLED", "RRUGC_CREATIVE_BRIEF_ENABLED"),
     "rrugc_keyword_image_generate": (
         "PROCESSING_JOBS_ENABLED", "IMAGE_GENERATION_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED", "CODEX_IMAGE_GENERATION_ENABLED",
@@ -431,6 +433,7 @@ def build_worker_runtime(
                 ("rrugc_generate", RrugcGenerateJobHandler(settings)),
                 ("rrugc_stage2_generate", RrugcStage2GenerateJobHandler(settings)),
                 ("rrugc_keyword_image_generate", KeywordImageGenerateHandler(settings)),
+                ("rrugc_creative_brief_generate", CreativeBriefGenerateHandler(settings)),
                 ("rrugc_colorway_generate", ColorwayGenerateHandler(settings)),
                 ("rrugc_ecommerce_generate", EcommerceGenerateHandler(settings)),
                 ("rrugc_stage3_analyze", RrugcStage3AnalyzeJobHandler()),

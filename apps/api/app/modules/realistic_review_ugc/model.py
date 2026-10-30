@@ -309,6 +309,32 @@ class RrugcKeywordVolumeModel(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
 
+class RrugcKeywordCreativeBriefModel(Base):
+    """One independent text-only Creative Brief for each picked Stage 0 keyword.
+
+    Never modifies or reuses image generation or output history records.
+    """
+    __tablename__ = "rrugc_keyword_creative_briefs"
+    __table_args__ = (
+        ForeignKeyConstraint(["keyword_id"], ["rrugc_keyword_volumes.id"],
+                             name="fk_rrugc_creative_brief_keyword", ondelete="RESTRICT"),
+        UniqueConstraint("tenant_id", "keyword_id", name="uq_rrugc_creative_brief_keyword"),
+        Index("ix_rrugc_creative_brief_status", "tenant_id", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    keyword_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    keyword_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    brief_json: Mapped[dict | None] = mapped_column(JSON)
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+    processing_job_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
 
 class RrugcScoutFeedbackModel(Base):
     __tablename__ = "rrugc_scout_feedback"

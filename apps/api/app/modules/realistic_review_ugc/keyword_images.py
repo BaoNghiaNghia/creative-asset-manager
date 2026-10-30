@@ -28,7 +28,9 @@ from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountP
 from app.modules.realistic_review_ugc.generation_handler import _bytes_body
 from app.modules.realistic_review_ugc.model import (
     RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
+    RrugcKeywordCreativeBriefModel,
 )
+from app.modules.realistic_review_ugc.creative_brief_service import brief_summary
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.stage2_skills import (
@@ -637,6 +639,16 @@ class KeywordImageService:
                 RrugcImageOutputVersionModel.job_id.in_(visible_job_ids),
             ).group_by(RrugcImageOutputVersionModel.job_id)
         ).all()) if visible_job_ids else {}
+        # One bounded tenant-scoped lookup per page, never a join in the
+        # frequently polled global status/count query.
+        visible_keyword_ids = [keyword.id for keyword, _, _ in rows]
+        brief_rows = list(self.session.scalars(
+            select(RrugcKeywordCreativeBriefModel).where(
+                RrugcKeywordCreativeBriefModel.tenant_id == tenant_id,
+                RrugcKeywordCreativeBriefModel.keyword_id.in_(visible_keyword_ids),
+            )
+        )) if visible_keyword_ids else []
+        briefs_by_keyword = {brief.keyword_id: brief for brief in brief_rows}
         items = []
         for keyword, job, processing in rows:
             state = effective_status(job, processing) if job else "not_run"
@@ -654,6 +666,7 @@ class KeywordImageService:
                              and processing and (processing.payload_json or {}).get("replace_outputs"))
             items.append({
                 "keyword_id": keyword.id, "keyword": keyword.keyword,
+                "creative_brief": brief_summary(briefs_by_keyword.get(keyword.id)),
                 "picked_at": keyword.picked_at.isoformat() if keyword.picked_at else None,
                 "search_volume": keyword.search_volume, "source_image_url": keyword.source_image_url,
                 "trend": stage1_keyword_trend(keyword.provider_raw_json),

@@ -539,3 +539,20 @@
 .typography-v2-availability h3{font-size:21px;line-height:1.35;margin:8px 0}
 .typography-v2-availability p{font-size:12px;line-height:1.7;max-width:800px;color:#607792}
 .typography-v2-availability button{border:1px solid #cad9ef;border-radius:8px;background:#fff;color:#315a9b;padding:9px 13px;font-weight:750;cursor:pointer}
+/* Creative Brief adds one compact readable column; preserve the other jobs columns. */
+.rrugc-keyword-gen-table { min-width: 1950px; }
+.rrugc-keyword-gen-table th:nth-child(1) { width: 12%; }
+.rrugc-keyword-gen-table th:nth-child(2) { width: 8%; }
+.rrugc-keyword-gen-table th:nth-child(3) { width: 6%; }
+.rrugc-keyword-gen-table th:nth-child(4) { width: 16%; }
+.rrugc-keyword-gen-table th:nth-child(5) { width: 8%; }
+.rrugc-keyword-gen-table th:nth-child(6) { width: 10%; }
+.rrugc-keyword-gen-table th:nth-child(7) { width: 9%; }
+.rrugc-keyword-gen-table th:nth-child(8) { width: 6%; }
+.rrugc-keyword-gen-table th:nth-child(9) { width: 7%; }
+.rrugc-keyword-gen-table th:nth-child(10) { width: 13%; }
+.rrugc-keyword-gen-table th:nth-child(11) { width: 5%; }
+.rrugc-creative-brief-cell button { display: grid; gap: 3px; width: 100%; min-width: 0; padding: 4px 0; text-align: left; border: 0; background: transparent; color: #304766; cursor: pointer; }
+.rrugc-creative-brief-cell button strong { font-size: 10px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.rrugc-creative-brief-cell button small { color: #71839b; font-size: 9px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rrugc-creative-brief-cell button em { color: #3e74bb; font-style: normal; font-size: 9px; }

@@ -222,6 +222,9 @@ class Settings(BaseSettings):
     CODEX_IMAGE_HOME: str = "/var/lib/creative-asset-manager/codex"
     CODEX_IMAGE_SKILL: str = "worker-hat-v1"
     CODEX_IMAGE_MODEL: str = ""
+    RRUGC_CREATIVE_BRIEF_ENABLED: bool = True
+    RRUGC_CREATIVE_BRIEF_MODEL: str = ""
+    RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS: int = 180
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.

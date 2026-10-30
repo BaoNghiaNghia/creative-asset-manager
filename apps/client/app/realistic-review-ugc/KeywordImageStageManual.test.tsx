@@ -240,16 +240,17 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Generation skill", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Creative Brief", "Generation skill", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
-    expect(cells).toHaveLength(10);
+    expect(cells).toHaveLength(11);
     expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
-    expect(cells[5].textContent).toBe("—");
+    expect(cells[3].textContent).toContain("Not analyzed");
     expect(cells[6].textContent).toBe("—");
     expect(cells[7].textContent).toBe("—");
-    expect(cells[8].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
-    expect(cells[9].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
-    expect(cells[9].querySelector(".rrugc-keyword-output-track")).toBeNull();
+    expect(cells[8].textContent).toBe("—");
+    expect(cells[9].querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(cells[10].querySelector(".rrugc-keyword-result-actions")).not.toBeNull();
+    expect(cells[10].querySelector(".rrugc-keyword-output-track")).toBeNull();
     // A real thumbnail click must restore the same gallery modal used by Versions;
     // dragging the strip remains separate and never navigates to a raw image URL.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });

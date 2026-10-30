@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { backfillKeywordCreativeBriefs, createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { formatRelativeDateTime } from "./RelativeDateTime";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
@@ -16,6 +16,7 @@ import { SkillJobLogDialog } from "./SkillJobLogDialog";
 import { GenerationOutputVersionsDialog } from "./GenerationOutputVersionsDialog";
 import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
 import { PickedDesignModal } from "./PickedDesignModal";
+import { CreativeBriefDialog } from "./CreativeBriefDialog";
 import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
 import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
 import "./KeywordImageStage.css";
@@ -241,6 +242,8 @@ export function KeywordImageStage({
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
   const [pickedModalOpen, setPickedModalOpen] = useState(false);
+  const [briefTarget, setBriefTarget] = useState<{ id: string; keyword: string } | null>(null);
+  const [briefBatchRunning, setBriefBatchRunning] = useState(false);
   const [pickedDesignOverrides, setPickedDesignOverrides] = useState<Record<string, Record<number, boolean>>>({});
   const [keywordDetailTarget, setKeywordDetailTarget] = useState<{ id: string; keyword: string } | null>(null);
   const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
@@ -524,6 +527,15 @@ export function KeywordImageStage({
         {bulkRunning
           ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
           : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
+        <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action"
+          disabled={briefBatchRunning} onClick={() => {
+            setBriefBatchRunning(true);
+            void backfillKeywordCreativeBriefs().then(result => {
+              setMessage("Creative Brief: " + result.queued + " jobs queued · " + result.skipped + " already analyzed or queued.");
+              void refresh();
+            }).catch(reason => setError(reason instanceof Error ? reason.message : "Unable to queue briefs."))
+              .finally(() => setBriefBatchRunning(false));
+          }}><RrugcActionIcon name="sparkles" />{briefBatchRunning ? "Queueing briefs…" : "Analyze briefs"}</button>
         <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}><RrugcActionIcon name="check" />Picked design</button>
       </div> : undefined}
     />
@@ -572,6 +584,7 @@ export function KeywordImageStage({
           <Stage1SortHeader column="keyword" label="Keyword / Source" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Trend</th>
           <Stage1SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <th>Creative Brief</th>
           <th>Generation skill</th><th>Job status</th>
           {pickedSortSupported
             ? <Stage1SortHeader column="picked_at" label="Picked date" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
@@ -582,7 +595,7 @@ export function KeywordImageStage({
         </tr></thead>
         <tbody>
           {loading && !data.items.length
-            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={10}><span /></td></tr>)
+            ? Array.from({ length: 6 }, (_, index) => <tr key={index} className="rrugc-keyword-gen-loading"><td colSpan={11}><span /></td></tr>)
             : data.items.map(row => {
               const busy = workingIds.has(row.keyword_id);
               return <tr key={row.keyword_id} className={"rrugc-keyword-row status-" + row.status}>
@@ -596,6 +609,23 @@ export function KeywordImageStage({
                 </button></td>
                 <td className="rrugc-keyword-gen-trend"><KeywordTrendChart item={row} onOpen={() => setKeywordDetailTarget({ id: row.keyword_id, keyword: row.keyword })} /></td>
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
+                <td className="rrugc-creative-brief-cell">
+                  <button type="button" onClick={() => setBriefTarget({ id: row.keyword_id, keyword: row.keyword })}
+                    title={"View Creative Brief for " + row.keyword}
+                    aria-label={"View Creative Brief for " + row.keyword}>
+                    <strong>{row.creative_brief?.status === "completed"
+                      ? (row.creative_brief.strategy || "Meaning-First").replaceAll("_", "-")
+                      : row.creative_brief?.status === "queued" ? "Queued"
+                        : row.creative_brief?.status === "running" ? "Analyzing…"
+                          : row.creative_brief?.status === "failed" ? "Retry analysis" : "Not analyzed"}</strong>
+                    <small>{row.creative_brief?.status === "completed"
+                      ? row.creative_brief.meaning_emotion || row.creative_brief.creative_hook
+                      : row.creative_brief?.status === "queued" ? "Waiting for Codex"
+                        : row.creative_brief?.status === "running" ? "Text-only Codex"
+                          : "View concepts"}</small>
+                    {row.creative_brief?.status === "completed" && <em>{row.creative_brief.concept_count} concepts · View</em>}
+                  </button>
+                </td>
                 <td><div className="rrugc-keyword-gen-skill-cell">
                   <span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "Choose Skill"}</span>
                   {row.status === "not_run" ? <small>Next run</small> : row.skill_version ? <small>v{row.skill_version}</small> : null}
@@ -640,7 +670,7 @@ export function KeywordImageStage({
                 </td>
               </tr>;
             })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={10}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={11}><div className="rrugc-keyword-gen-empty"><strong>No keywords in this view</strong><p>Mark keywords as Used in Stage 0, or clear the current search/status filter.</p></div></td></tr>}
         </tbody>
       </table>
     </div>
@@ -653,6 +683,7 @@ export function KeywordImageStage({
         <label>Rows <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Stage 1 rows per page">{PAGE_SIZES.map(size => <option key={size}>{size}</option>)}</select></label>
       </div>
     </footer>
+    {briefTarget && <CreativeBriefDialog key={briefTarget.id} keywordId={briefTarget.id} keyword={briefTarget.keyword} onClose={() => setBriefTarget(null)} />}
     {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title}
       initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)}

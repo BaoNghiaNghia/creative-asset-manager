@@ -369,12 +369,14 @@ router = APIRouter(
 from .products_video_stage import router as products_stage3_video_router
 from .cap_stack_router import router as cap_stack_router
 from .hat_stock_router import router as hat_stock_router
+from .creative_brief_router import router as creative_brief_router
 from .typography_router import router as typography_router, status_router as typography_status_router
 router.include_router(typography_status_router)
 router.include_router(typography_router)
 router.include_router(products_stage3_video_router)
 router.include_router(cap_stack_router)
 router.include_router(hat_stock_router)
+router.include_router(creative_brief_router)
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
 

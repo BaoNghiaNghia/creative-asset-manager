@@ -32,6 +32,7 @@ class JobType(str, Enum):
     RRUGC_GENERATE = "rrugc_generate"
     RRUGC_STAGE2_GENERATE = "rrugc_stage2_generate"
     RRUGC_KEYWORD_IMAGE_GENERATE = "rrugc_keyword_image_generate"
+    RRUGC_CREATIVE_BRIEF_GENERATE = "rrugc_creative_brief_generate"
     RRUGC_COLORWAY_GENERATE = "rrugc_colorway_generate"
     RRUGC_ECOMMERCE_GENERATE = "rrugc_ecommerce_generate"
     RRUGC_STAGE3_ANALYZE = "rrugc_stage3_analyze"

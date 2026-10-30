@@ -231,10 +231,48 @@ export type KeywordVolumeOverview = {
 };
 
 
+export type KeywordCreativeBriefSummary = {
+  status: "queued" | "running" | "completed" | "failed";
+  strategy: string | null;
+  meaning_emotion: string | null;
+  creative_hook: string | null;
+  concept_count: number;
+};
+export type KeywordCreativeConcept = {
+  name: string;
+  mode: "safe" | "creative_twist" | "explore";
+  familiar_format: string;
+  creative_twist: string;
+  description: string;
+  creative_hook: string;
+  typography_plan: string;
+  embroidery_plan: string;
+  clarity_assessment: string;
+  embroidery_fit: string;
+  risks: string[];
+};
+export type KeywordCreativeBriefDetail = {
+  keyword_id: string;
+  keyword: string;
+  status: "stale" | "not_analyzed" | "queued" | "running" | "completed" | "failed";
+  prompt_version: string | null;
+  updated_at: string | null;
+  error_code: string | null;
+  brief: null | {
+    keyword_exact: string;
+    strategy: string;
+    meaning_emotion: string;
+    target_audience: string;
+    purchase_motivation: string;
+    creative_hook: string;
+    concepts: KeywordCreativeConcept[];
+  };
+};
 export type KeywordImageStatus = "not_run" | "queued" | "running" | "completed" | "failed";
 export type KeywordImageRow = {
   keyword_id: string;
   keyword: string;
+  creative_brief?: KeywordCreativeBriefSummary | null;
   picked_at?: string | null;
   search_volume: number;
   trend?: KeywordVolumeTrendPoint[];

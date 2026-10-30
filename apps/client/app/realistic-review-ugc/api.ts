@@ -320,6 +320,24 @@ export const listKeywordImages = (
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
 
+export const getKeywordCreativeBrief = (keywordId: string, signal?: AbortSignal) =>
+  request<import("./types").KeywordCreativeBriefDetail>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId),
+    { signal },
+  );
+
+export const generateKeywordCreativeBrief = (keywordId: string) =>
+  request<{ keyword_id: string; status: string; queued: boolean }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/generate",
+    { method: "POST" },
+  );
+
+export const backfillKeywordCreativeBriefs = (limit = 500, offset = 0) =>
+  request<{ examined: number; queued: number; skipped: number }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/backfill?limit=" + limit + "&offset=" + offset,
+    { method: "POST" },
+  );
+
 export const getKeywordAnalysisDetail = (keywordId: string, signal?: AbortSignal) =>
   request<import("./types").KeywordVolume>(
     "/api/v1/realistic-review-ugc/keyword-analysis/detail/" + encodeURIComponent(keywordId),
