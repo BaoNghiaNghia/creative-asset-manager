@@ -42,6 +42,8 @@ def build(text="Cà phê Việt Nam 2026 & Co", **changes):
 def test_plan_exact_keyword_unmodified_in_six_independent_prompts(keyword):
     result = build(keyword)
     assert result["plan_version"] == PLAN_VERSION
+    # Preserve the existing G6 pilot contract; Style Brief is an additive prompt refinement.
+    assert PLAN_VERSION == "concept-short-v2/plan-v1"
     assert result["skill"] == SKILL_NAME
     assert result["ready_for_imagegen"] is False
     assert result["preview_only"] is True
