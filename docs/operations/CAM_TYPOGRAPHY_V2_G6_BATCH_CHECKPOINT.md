@@ -62,6 +62,33 @@ Unknown batches are not disclosed. A matching selection is **not** a durable
 Output History record, Stage 2 source plan, or publication authorization.
 V1 jobs, managed storage and provider calls remain untouched.
 
+## G6.3 isolated durable V2 output-history writer — 30 October 2026
+
+Source-only, **not deployed**. `typography_output_history.py` adds an explicitly
+operator-authorized and separate-flag-gated writer for a selected set of
+human-approved ImageGen PNGs. It stores each verified PNG through the managed
+storage adapter under a deterministic tenant/keyword/batch/slot asset ID, then
+locks the picked Stage 0 keyword, rechecks reference rights and effective Style
+DNA, and appends an immutable `rrugc_image_output_versions` row with
+`stage="typography_v2"`. The original `stage1` job rows and pointer are
+never updated. Existing stage1 history and Stage 2 plans remain untouched.
+
+The writer does not automatically run from UI, a queue or a worker. Its new
+`TYPOGRAPHY_V2_OUTPUT_PUBLISH_ENABLED` flag defaults to **false**, and all
+existing ImageGen pilot/rollback/tenant gates must also pass. Partial
+checkpointing is intentional: a failed later upload never invalidates earlier
+saved rows; repeated calls reuse existing slot records only when reviewed
+SHA, plan and byte count match. No deletion occurs on upload/database failure.
+
+`list_v2_history()` supplies only read-only private metadata, requires
+separately enforced caller RBAC, and never returns managed Drive IDs.
+**This does not yet create Stage 2 source plans or expose a public route.**
+Before activation, complete full restore/rollback evidence, integration tests
+with an actual managed storage adapter and PostgreSQL, and authorized API QA.
+No migration, new dependency or production secret is required for this
+source-only implementation. Never use a selection preview as publication
+authorization.
+
 ## Scope boundary and remaining production work
 
 This is **not yet** G6.3 publication or a Stage 1 / Stage 2 output handoff. Do not enable V2 image-generation workers based on this checkpoint alone. Remaining work includes authenticated RBAC review UI/API, durable database job and asset upload identity, transactional Stage 1 version history for 1–5 accepted PNGs, authorized per-image Stage 2 selection, ZIP/export and rollback with product-specific QA. V1 Stage 1 and Stage 2 remain unchanged. There are no provider calls or remote storage operations in this implementation.
