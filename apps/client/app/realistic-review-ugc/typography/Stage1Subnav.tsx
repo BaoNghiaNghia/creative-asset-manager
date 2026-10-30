@@ -14,6 +14,6 @@ export function Stage1Subnav({ view, onView, ideasCount }: {
       className={view === "ideas" ? "active" : ""}>Typography Ideas <span>{ideasCount}</span></button>
     <button type="button" onClick={() => onView("style-lab")}
       aria-current={view === "style-lab" ? "page" : undefined}
-      className={view === "style-lab" ? "active" : ""}>Style Lab <span>Preview</span></button>
+      className={view === "style-lab" ? "active" : ""}>Style Lab <span>MVP</span></button>
   </nav>;
 }

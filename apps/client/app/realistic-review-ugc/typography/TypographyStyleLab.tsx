@@ -161,6 +161,40 @@ export function TypographyStyleLab({
       </div>
       <button type="button" className="typography-quiet" onClick={onBack}>Back to Keyword Jobs</button>
     </div>
+    <div className="typography-v2-mvp-guide">
+      <strong>Typography V2 · Reviewed output workflow</strong>
+      <span>01 · Preview style</span><span>02 · Human-review an existing ImageGen batch</span><span>03 · Save and select for Stage 2</span>
+      <small>Image generation, publication and Stage 2 job creation are independently gated.</small>
+    </div>
+        <div className="typography-v2-mvp" aria-label="Reviewed Typography V2 outputs">
+          <h4>Reviewed outputs · MVP</h4>
+          <p>Save existing human-approved ImageGen images. No images are generated here.</p>
+          <label>Reviewed batch UUID <input aria-label="Reviewed batch UUID" value={batchId}
+            onChange={event => setBatchId(event.target.value)} placeholder="UUID4 batch ID" /></label>
+          <div className="typography-v2-mvp-slots" role="group" aria-label="Reviewed slots">
+            {[1, 2, 3, 4, 5, 6].map(slot => <label key={slot}>
+              <input type="checkbox" checked={chosenSlots.includes(slot)}
+                onChange={event => setChosenSlots(previous => event.target.checked
+                  ? [...previous, slot].sort((a, b) => a - b)
+                  : previous.filter(item => item !== slot))} />{slot}</label>)}
+          </div>
+          <button type="button" className="typography-primary" onClick={() => void saveReviewed()}
+            disabled={!keywordId || !referenceId || !batchId.trim() || !chosenSlots.length || saving}>
+            {saving ? "Saving…" : "Save reviewed images"}
+          </button>
+          <button type="button" className="typography-quiet" disabled={!keywordId}
+            onClick={() => void refreshHistory().catch(() => setError("Cannot load V2 history."))}>
+            Refresh history
+          </button>
+          {savedVersions.map(item => <div key={item.version} className="typography-v2-mvp-version">
+            <span>Version {item.version} · Slot {item.slot}</span>
+            <button type="button" disabled={changing !== null} onClick={() => void setStage2(item.version)}>
+              {stage2Selected.includes(item.version) ? "Remove from Stage 2" : "Select for Stage 2"}
+            </button>
+          </div>)}
+          {mvpMessage && <p role="status">{mvpMessage}</p>}
+          <small>Manual only · ImageGen/Scout not triggered · V1 untouched</small>
+        </div>
     <div className="typography-style-lab-grid">
       <section className="typography-style-lab-panel" aria-label="Reference selection">
         <p className="typography-style-lab-eyebrow">01 / REFERENCES</p>
@@ -222,35 +256,7 @@ export function TypographyStyleLab({
           onClick={() => void createPreviews()}>{busy ? "Creating previews…" : "Preview 3 concepts"}</button>
 
         <small className="typography-style-lab-status">0 ImageGen calls · 0 jobs queued · V1 unchanged</small>
-        <div className="typography-v2-mvp" aria-label="Reviewed Typography V2 outputs">
-          <h4>Reviewed outputs · MVP</h4>
-          <p>Save existing human-approved ImageGen images. No images are generated here.</p>
-          <label>Reviewed batch UUID <input aria-label="Reviewed batch UUID" value={batchId}
-            onChange={event => setBatchId(event.target.value)} placeholder="UUID4 batch ID" /></label>
-          <div className="typography-v2-mvp-slots" role="group" aria-label="Reviewed slots">
-            {[1, 2, 3, 4, 5, 6].map(slot => <label key={slot}>
-              <input type="checkbox" checked={chosenSlots.includes(slot)}
-                onChange={event => setChosenSlots(previous => event.target.checked
-                  ? [...previous, slot].sort((a, b) => a - b)
-                  : previous.filter(item => item !== slot))} />{slot}</label>)}
-          </div>
-          <button type="button" className="typography-primary" onClick={() => void saveReviewed()}
-            disabled={!keywordId || !referenceId || !batchId.trim() || !chosenSlots.length || saving}>
-            {saving ? "Saving…" : "Save reviewed images"}
-          </button>
-          <button type="button" className="typography-quiet" disabled={!keywordId}
-            onClick={() => void refreshHistory().catch(() => setError("Cannot load V2 history."))}>
-            Refresh history
-          </button>
-          {savedVersions.map(item => <div key={item.version} className="typography-v2-mvp-version">
-            <span>Version {item.version} · Slot {item.slot}</span>
-            <button type="button" disabled={changing !== null} onClick={() => void setStage2(item.version)}>
-              {stage2Selected.includes(item.version) ? "Remove from Stage 2" : "Select for Stage 2"}
-            </button>
-          </div>)}
-          {mvpMessage && <p role="status">{mvpMessage}</p>}
-          <small>Manual only · ImageGen/Scout not triggered · V1 untouched</small>
-        </div>
+
       </aside>
     </div>
   </section>;

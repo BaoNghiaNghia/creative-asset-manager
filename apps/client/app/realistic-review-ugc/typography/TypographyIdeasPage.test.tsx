@@ -216,7 +216,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     const navigate = vi.fn();
     await act(async () => root.render(<Stage1Subnav view="jobs" onView={navigate} ideasCount={12} />));
     expect(host.querySelectorAll(".typography-stage1-subnav button")).toHaveLength(3);
-    expect(host.textContent).toContain("Style Lab Preview");
+    expect(host.textContent).toContain("Style Lab MVP");
     await click([...host.querySelectorAll("button")].find(button => button.textContent?.includes("Typography Ideas")) || null);
     expect(navigate).toHaveBeenCalledWith("ideas");
     await click([...host.querySelectorAll("button")].find(button => button.textContent?.includes("Style Lab")) || null);

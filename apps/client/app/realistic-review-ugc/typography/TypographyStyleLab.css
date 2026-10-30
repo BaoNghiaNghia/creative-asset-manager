@@ -58,3 +58,18 @@
 .typography-v2-mvp-version{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px;border:1px solid #e1e8f1;border-radius:7px;font-size:11px}
 .typography-v2-mvp-version button{border:1px solid #c5d5eb;background:#f7f9ff;border-radius:6px;padding:7px;cursor:pointer}
 .typography-v2-mvp button:disabled{opacity:.5;cursor:not-allowed}
+
+/* G6.3: put the reviewed-output workspace above the previews. */
+.typography-v2-mvp-guide{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#eef4ff;border:1px solid #d6e3fb;border-radius:12px;padding:12px 16px;margin:12px 0 10px;color:#325386;font-size:11px}
+.typography-v2-mvp-guide strong{flex:1 1 100%;font-size:15px;color:#243f73}
+.typography-v2-mvp-guide span{display:inline-flex;align-items:center;border-radius:7px;padding:6px 9px;background:#fff;border:1px solid #dce7fa;font-weight:700}
+.typography-v2-mvp-guide small{flex:1 1 100%;line-height:1.5;color:#687d9e}
+.typography-style-lab>.typography-v2-mvp{margin:0 0 16px;padding:15px;border:1px solid #cdddf5;border-radius:12px;background:linear-gradient(140deg,#fff,#f9fbff);display:flex;align-items:end;flex-wrap:wrap;gap:10px}
+.typography-style-lab>.typography-v2-mvp h4{flex-basis:100%;font-size:16px;margin:0;color:#253f70}
+.typography-style-lab>.typography-v2-mvp>p{flex-basis:100%}
+.typography-style-lab>.typography-v2-mvp>label{flex:1 1 240px;margin:0;display:flex;flex-direction:column;gap:5px;font-weight:700;font-size:11px;color:#4a6384}
+.typography-style-lab>.typography-v2-mvp .typography-v2-mvp-slots{flex:1 1 210px}
+.typography-style-lab>.typography-v2-mvp>.typography-v2-mvp-version{flex:1 1 200px}
+.typography-style-lab>.typography-v2-mvp>small{flex-basis:100%}
+.typography-style-lab>.typography-v2-mvp button{min-height:36px}
+@media(max-width:690px){.typography-style-lab>.typography-v2-mvp{align-items:stretch}.typography-style-lab>.typography-v2-mvp>label{flex-basis:100%}.typography-style-lab>.typography-v2-mvp>.typography-primary{flex:1 1 100%}}

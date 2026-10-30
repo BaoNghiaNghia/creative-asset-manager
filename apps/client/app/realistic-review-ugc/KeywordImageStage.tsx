@@ -258,9 +258,11 @@ export function KeywordImageStage({
   });
   const [selectedStyleKeyword, setSelectedStyleKeyword] = useState<StyleLabKeyword | null>(null);
   const [ideasAccess, setIdeasAccess] = useState<TypographyReferencePage | null>(null);
+  const [v2Access, setV2Access] = useState<"checking" | "available" | "unavailable">("checking");
   const [ideasCount, setIdeasCount] = useState(0);
   const onIdeasCount = useCallback((count: number) => setIdeasCount(count), []);
-  const showKeywordJobs = !ideasAccess || stageView === "jobs";
+  // Navigation is always visible. The server still controls private V2 access.
+  const showKeywordJobs = stageView === "jobs";
   const jobsActive = active && showKeywordJobs;
   const changeStageView = (next: TypographyStageView) => {
     setStageView(next);
@@ -281,30 +283,27 @@ export function KeywordImageStage({
   }, []);
   useEffect(() => {
     if (!active) return;
-    // The current production API may predate Typography V2. Its missing
-    // /typography/status endpoint yields a real 404 in strict Browser QA.
-    // Only probe after an explicitly opted-in frontend build; Vitest/dev
-    // keeps the contract probe enabled for the Typography V2 integration.
-    if (import.meta.env.PROD && import.meta.env.VITE_TYPOGRAPHY_V2_STATUS_PROBE !== "true") {
-      setIdeasAccess(null);
-      setIdeasCount(0);
-      return;
-    }
+    // Authenticated /typography/status is a 200 capability probe, even when
+    // the canary is OFF. Never hide the navigation based on a build-time env.
     const ctrl = new AbortController();
-    // The V2 API returns 200 when V2 is OFF, once the backend is deployed.
-    // Do not request a protected reference endpoint until tenant and read access are verified.
+    setV2Access("checking");
     void getTypographyStatus(ctrl.signal)
       .then(status => {
-        if (!status.available || ctrl.signal.aborted) {
-          if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
+        if (ctrl.signal.aborted) return;
+        if (!status.available) {
+          setIdeasAccess(null); setIdeasCount(0); setV2Access("unavailable");
           return;
         }
         return listTypographyReferences({ limit: 1 }, ctrl.signal).then(page => {
-          if (!ctrl.signal.aborted) { setIdeasAccess(page); setIdeasCount(page.stats.total); }
+          if (!ctrl.signal.aborted) {
+            setIdeasAccess(page); setIdeasCount(page.stats.total); setV2Access("available");
+          }
         });
       })
       .catch(() => {
-        if (!ctrl.signal.aborted) { setIdeasAccess(null); setIdeasCount(0); }
+        if (!ctrl.signal.aborted) {
+          setIdeasAccess(null); setIdeasCount(0); setV2Access("unavailable");
+        }
       });
     return () => ctrl.abort();
   }, [active]);
@@ -513,6 +512,10 @@ export function KeywordImageStage({
         : stageView === "ideas" ? "Explore, upload and review typography references before using them in new keyword designs."
           : "Explore original vector drafts with approved Style DNA. No AI generation or job is created."}
       actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
+        <button type="button" className="typography-v2-entry" data-testid="typography-v2-entry"
+          onClick={() => changeStageView("style-lab")} title="Open Typography V2 MVP workspace">
+          Typography V2 <span>MVP</span>
+        </button>
         <label className="rrugc-keyword-gen-search">
           <span className="sr-only">Search used keywords</span>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
@@ -524,7 +527,16 @@ export function KeywordImageStage({
         <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => setPickedModalOpen(true)}><RrugcActionIcon name="check" />Picked design</button>
       </div> : undefined}
     />
-    {ideasAccess && <Stage1Subnav view={stageView} onView={changeStageView} ideasCount={ideasCount} />}
+    <Stage1Subnav view={stageView} onView={changeStageView} ideasCount={ideasCount} />
+    {stageView !== "jobs" && !ideasAccess && <section className="typography-v2-availability"
+      data-testid="typography-v2-availability" role="status">
+      <span className="typography-v2-availability-kicker">TYPOGRAPHY V2 · MVP</span>
+      <h3>{v2Access === "checking" ? "Checking Typography V2 access…" : "Typography V2 is not enabled for this workspace"}</h3>
+      <p>{v2Access === "checking"
+        ? "Checking your workspace and read permission without starting image generation."
+        : "The new interface is deployed. Access to private Typography references and Style Lab is controlled by the tenant canary and the typography_reference.read permission. No ImageGen jobs or image uploads were started."}</p>
+      <button type="button" onClick={() => changeStageView("jobs")}>Back to Keyword Jobs</button>
+    </section>}
     {ideasAccess && <div hidden={stageView !== "ideas"} className="typography-ideas-view">
       <TypographyIdeasPage active={active && stageView === "ideas"} firstPage={ideasAccess} onCountChange={onIdeasCount} />
     </div>}
