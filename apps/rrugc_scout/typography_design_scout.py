@@ -196,8 +196,17 @@ def main() -> int:
         parser.error("Use 1-6 picked keywords and at most 8 images per run.")
     try:
         result = asyncio.run(scout(args))
-    except (httpx.HTTPError, RuntimeError, OSError) as exc:
-        # Do not reveal bearer credentials, source URLs, or raw response payload.
+    except RuntimeError as exc:
+        # No source URLs or browser internal errors in logs. Give an actionable
+        # explanation for the new, isolated Chrome profile sign-in case.
+        if ("Pinterest login or verification required" in str(exc)
+                or str(exc).startswith("Pinterest access gate:")):
+            print("PINTEREST_LOGIN_REQUIRED: run START_SCOUT_TYPOGRAPHY_LOGIN.cmd once, "
+                  "sign in to Pinterest, close that Chrome window, then rerun Scout.")
+            return 21
+        print("Design Scout browser failure: " + type(exc).__name__)
+        return 1
+    except (httpx.HTTPError, OSError) as exc:
         print("Design Scout failed safely: " + type(exc).__name__)
         return 1
     print("Typography Design Scout: " + str(result))
