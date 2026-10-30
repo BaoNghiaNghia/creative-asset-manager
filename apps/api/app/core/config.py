@@ -231,6 +231,12 @@ class Settings(BaseSettings):
     CREATIVE_ENGINE_V3_CANARY_TENANT_IDS: str = ""
     # Explicit opt-in, independent from read-only V3 preview or Creative Brief V1.
     CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED: bool = False
+    # OpenAI Images API replaces unavailable Codex CLI $imagegen for V3.
+    # Existing Codex paths remain opt-in for rollback; new V3 runs default to API.
+    CREATIVE_ENGINE_V3_IMAGE_PROVIDER: str = "openai"
+    CREATIVE_ENGINE_V3_OPENAI_MODEL: str = "gpt-image-2.5-flare"
+    CREATIVE_ENGINE_V3_OPENAI_QUALITY: str = "medium"
+    CREATIVE_ENGINE_V3_OPENAI_TIMEOUT_SECONDS: int = 300
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.

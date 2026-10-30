@@ -56,7 +56,12 @@ def settings(on=True):
         CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED=on,
         CREATIVE_ENGINE_V3_CANARY_TENANT_IDS="tenant-a",
         IMAGE_GENERATION_ENABLED=True,
-        CODEX_IMAGE_GENERATION_ENABLED=True,
+        CODEX_IMAGE_GENERATION_ENABLED=False,
+        OPENAI_API_KEY="test-api-key",
+        CREATIVE_ENGINE_V3_IMAGE_PROVIDER="openai",
+        CREATIVE_ENGINE_V3_OPENAI_MODEL="gpt-image-2.5-flare",
+        CREATIVE_ENGINE_V3_OPENAI_QUALITY="medium",
+        CREATIVE_ENGINE_V3_OPENAI_TIMEOUT_SECONDS=120,
     )
 
 
@@ -110,8 +115,8 @@ def test_feature_gate_requires_every_explicit_condition():
     assert enabled(settings(), "tenant-a")
     assert not enabled(settings(), "tenant-b")
     assert not enabled(settings(False), "tenant-a")
-    for field in ("IMAGE_GENERATION_ENABLED", "CODEX_IMAGE_GENERATION_ENABLED",
-                  "CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED", "CREATIVE_ENGINE_V3_ENABLED"):
+    for field in ("IMAGE_GENERATION_ENABLED", "CREATIVE_ENGINE_V3_IMAGEGEN_ENABLED",
+                  "CREATIVE_ENGINE_V3_ENABLED", "OPENAI_API_KEY"):
         disabled = SimpleNamespace(**vars(settings()))
         setattr(disabled, field, False)
         assert not enabled(disabled, "tenant-a")
@@ -265,6 +270,8 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
                     entity_type=entity_type, entity_id=entity_id,
                     idempotency_key=idempotency_key, payload_json=payload,
                     priority=kwargs.get("priority", 0), max_attempts=kwargs.get("max_attempts",1),
+                    provider_key=kwargs.get("provider_key"),
+                    provider_scope=kwargs.get("provider_scope"),
                     status="pending",
                 )
                 session.add(new);session.flush();return new
@@ -293,6 +300,8 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             processing = session.get(ProcessingJobModel, result.processing_job_id)
             assert result.status == "queued"
             assert processing.payload_json["expected_output_count"] == 6
+            assert processing.payload_json["creative_v3"]["provider"] == "openai"
+            assert processing.provider_key == "openai"
             assert processing.payload_json["creative_v3"]["source_sha256"]
             with pytest.raises(KeywordImageError):
                 svc.queue_creative_v3(
@@ -426,3 +435,116 @@ def test_native_v3_rejects_unverified_pixels_without_writing(tmp_path, monkeypat
         ))
     root = worker._job_directory(cfg, tenant_id="tenant-a", processing_id=processing_id)
     assert not list(root.glob("output/final/*.png"))
+
+def test_v3_openai_gate_does_not_depend_on_codex_tool_access():
+    from app.modules.realistic_review_ugc.creative_v3_generation import api_config_signature
+    valid = settings()
+    assert enabled(valid, "tenant-a")
+    assert len(api_config_signature(valid)) == 64
+    wrong_model = SimpleNamespace(**vars(valid))
+    wrong_model.CREATIVE_ENGINE_V3_OPENAI_MODEL = "gpt-image-1"
+    assert not enabled(wrong_model, "tenant-a")
+    no_key = SimpleNamespace(**vars(valid))
+    no_key.OPENAI_API_KEY = None
+    assert not enabled(no_key, "tenant-a")
+    no_canary = SimpleNamespace(**vars(valid))
+    no_canary.CREATIVE_ENGINE_V3_CANARY_TENANT_IDS = ""
+    assert not enabled(no_canary, "tenant-a")
+
+
+def test_v3_openai_api_six_slot_contract_and_resume(tmp_path, monkeypatch):
+    import asyncio
+    import base64
+    from app.modules.realistic_review_ugc import creative_v3_openai_runner as worker
+    from app.modules.realistic_review_ugc.creative_v3_generation import api_config_signature
+
+    calls = []
+    class FakeImages:
+        async def generate(self, **kwargs):
+            calls.append(kwargs)
+            assert kwargs["model"] == "gpt-image-2.5-flare"
+            assert kwargs["background"] == "transparent"
+            assert kwargs["output_format"] == "png"
+            assert kwargs["size"] == "1536x1024"
+            assert kwargs["n"] == 1
+            assert kwargs["extra_body"]["safety_identifier"] != "tenant-a"
+            data = _png((len(calls)*24, 25, 120, 255))
+            return SimpleNamespace(data=[SimpleNamespace(b64_json=base64.b64encode(data).decode("ascii"))])
+
+    class FakeClient:
+        def __init__(self, **options):
+            assert options["max_retries"] == 0
+            assert options["api_key"] == "test-api-key"
+            self.images = FakeImages()
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(worker, "AsyncOpenAI", FakeClient)
+    cfg = SimpleNamespace(
+        **vars(settings()), IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+        OPENAI_ORGANIZATION=None, OPENAI_PROJECT=None,
+    )
+    src = plan()
+    processing_id = str(uuid4())
+    snapshot = {
+        **snapshot_for_job(src), "provider": "openai",
+        "provider_sha256": api_config_signature(cfg),
+    }
+    ctx = SimpleNamespace(
+        job=SimpleNamespace(tenant_id="tenant-a", id=processing_id),
+        is_cancelled=False,
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+    )
+    first = asyncio.run(worker.generate_six(
+        context=ctx, settings=cfg, plan=src, snapshot=snapshot,
+        revalidate=lambda: src,
+    ))
+    assert len(first.output_files) == 6
+    assert len(calls) == 6
+    assert len({call["prompt"] for call in calls}) == 6
+    assert all(__import__("pathlib").Path(x.path).is_file() for x in first.output_files)
+    assert first.provider_metadata["native_api_verified"] is True
+    assert first.provider_metadata["image_spelling_verified"] is False
+    again = asyncio.run(worker.generate_six(
+        context=ctx, settings=cfg, plan=src, snapshot=snapshot,
+        revalidate=lambda: src,
+    ))
+    assert len(again.output_files) == 6 and len(calls) == 6
+    assert all(call["extra_body"]["safety_identifier"] == calls[0]["extra_body"]["safety_identifier"]
+               for call in calls)
+
+
+def test_v3_openai_api_rejects_invalid_image_and_does_not_fabricate(tmp_path, monkeypatch):
+    import asyncio
+    from app.modules.realistic_review_ugc import creative_v3_openai_runner as worker
+    from app.modules.realistic_review_ugc.creative_v3_generation import api_config_signature
+
+    class FakeImages:
+        async def generate(self, **kwargs):
+            return SimpleNamespace(data=[SimpleNamespace(b64_json="not!base64")])
+    class FakeClient:
+        def __init__(self, **options):
+            self.images = FakeImages()
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(worker, "AsyncOpenAI", FakeClient)
+    cfg = SimpleNamespace(
+        **vars(settings()), IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+        OPENAI_ORGANIZATION=None, OPENAI_PROJECT=None,
+    )
+    src = plan()
+    processing_id = str(uuid4())
+    ctx = SimpleNamespace(
+        job=SimpleNamespace(tenant_id="tenant-a", id=processing_id),
+        is_cancelled=False,
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+    )
+    snapshot = {**snapshot_for_job(src), "provider": "openai",
+                "provider_sha256": api_config_signature(cfg)}
+    with pytest.raises(Exception, match="invalid encoded pixels"):
+        asyncio.run(worker.generate_six(
+            context=ctx, settings=cfg, plan=src, snapshot=snapshot, revalidate=lambda: src,
+        ))
+    from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
+    assert not list(_job_directory(cfg, tenant_id="tenant-a", processing_id=processing_id).glob("output/final/*.png"))

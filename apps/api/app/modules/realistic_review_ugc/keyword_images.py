@@ -113,6 +113,9 @@ STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
     "stage1_six_outputs_invalid", "codex_image_timeout", "codex_image_usage_limited",
     "codex_image_provider_error", "stage1_codex_turn_failed",
     "concept_short_flux_rate_limited", "concept_short_flux_unavailable",
+    # OpenAI Image API jobs may resume only from 1-5 verified PNG checkpoints.
+    # Zero-output rate limits and unknown provider failures never auto-spend.
+    "creative_v3_api_rate_limited", "creative_v3_api_transient",
 })
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
@@ -286,7 +289,11 @@ class KeywordImageService:
                    if upload_only else {}),
                 **({"replace_outputs": True} if replace_outputs else {}),
             },
-            priority=20, max_attempts=STAGE1_MAX_ATTEMPTS, provider_key="codex", provider_scope="ai",
+            priority=20, max_attempts=STAGE1_MAX_ATTEMPTS,
+            provider_key=("openai" if job.skill_name == "creative-brief-v3"
+                          and str(getattr(self.settings, "CREATIVE_ENGINE_V3_IMAGE_PROVIDER", "codex")).lower() == "openai"
+                          else "codex"),
+            provider_scope="ai",
         )
         job.processing_job_id = processing.id
 
@@ -362,7 +369,7 @@ class KeywordImageService:
         """
         from app.modules.realistic_review_ugc.creative_v3_generation import (
             SKILL, CONTRACT, SLOT_COUNT, enabled, resolve_plan, snapshot_for_job,
-            CreativeV3Error,
+            api_config_signature, image_provider, CreativeV3Error,
         )
         if not enabled(self.settings, tenant_id):
             raise KeywordImageError("creative_v3_disabled", "Creative V3 ImageGen is not enabled for this tenant.", 404)
@@ -379,12 +386,16 @@ class KeywordImageService:
         if source is None or source.updated_at.isoformat() != expected_brief_updated_at:
             raise KeywordImageError("creative_v3_brief_revision_changed",
                                     "The Creative Brief changed. Reopen it before generating.", 409)
-        manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
-        if manifest is None or CONTRACT not in manifest.workflows:
-            raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 ImageGen Skill is not installed.", 503)
-        skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
-        if not skill_hash:
-            raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 Skill is not verified.", 503)
+        provider = image_provider(self.settings)
+        if provider == "openai":
+            skill_hash = api_config_signature(self.settings)
+        else:
+            manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+            if manifest is None or CONTRACT not in manifest.workflows:
+                raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 ImageGen Skill is not installed.", 503)
+            skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
+            if not skill_hash:
+                raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 Skill is not verified.", 503)
 
         keyword = self.session.scalar(select(RrugcKeywordVolumeModel).where(
             RrugcKeywordVolumeModel.tenant_id == tenant_id,
@@ -443,7 +454,11 @@ class KeywordImageService:
         processing.payload_json = {
             **(processing.payload_json or {}),
             "expected_output_count": SLOT_COUNT,
-            "creative_v3": snapshot_for_job(plan),
+            "creative_v3": {
+                **snapshot_for_job(plan),
+                "provider": provider,
+                "provider_sha256": skill_hash,
+            },
         }
         self.session.commit()
         self.session.refresh(job)
@@ -1111,17 +1126,19 @@ class KeywordImageGenerateHandler:
         output_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
         if not 1 <= output_count <= 24:
             return JobHandlerResult.non_retryable("stage1_output_count_invalid", "Job output count must be between 1 and 24.")
+        creative_v3_snapshot = getattr(context.job, "payload", {}).get("creative_v3")
+        is_creative_v3 = creative_v3_snapshot is not None
+        is_v3_openai = (isinstance(creative_v3_snapshot, dict)
+                        and creative_v3_snapshot.get("provider") == "openai")
         if not (settings.PROCESSING_JOBS_ENABLED and settings.IMAGE_GENERATION_ENABLED
-                and getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)):
+                and (getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)
+                     or is_v3_openai)):
             self._fail(context, "keyword_image_disabled", "Image generation is disabled.", terminal=True)
             return JobHandlerResult.non_retryable("keyword_image_disabled", "Image generation is disabled.")
         storage = context.dependencies.storage_provider
         if storage is None:
             self._fail(context, "managed_storage_unavailable", "Managed storage unavailable.")
             return JobHandlerResult.non_retryable("managed_storage_unavailable", "Managed storage unavailable.")
-
-        creative_v3_snapshot = getattr(context.job, "payload", {}).get("creative_v3")
-        is_creative_v3 = creative_v3_snapshot is not None
         if is_creative_v3 and (not isinstance(creative_v3_snapshot, dict)
                               or context.job.payload.get("upload_only")):
             return JobHandlerResult.non_retryable(
@@ -1139,6 +1156,7 @@ class KeywordImageGenerateHandler:
             if not context.job.payload.get("upload_only") and is_creative_v3:
                 from app.modules.realistic_review_ugc.creative_v3_generation import (
                     SKILL as V3_SKILL, CONTRACT as V3_CONTRACT, enabled as v3_enabled,
+                    image_provider as v3_image_provider, api_config_signature,
                 )
                 if (not v3_enabled(settings, context.job.tenant_id)
                         or job.skill_name != V3_SKILL):
@@ -1148,14 +1166,33 @@ class KeywordImageGenerateHandler:
                     return JobHandlerResult.non_retryable(
                         "creative_v3_disabled", "Creative V3 image generation was disabled."
                     )
-                manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, V3_SKILL)
-                if (manifest is None or V3_CONTRACT not in manifest.workflows
-                        or job.skill_bundle_sha256 != installed_stage2_skill_sha256(V3_SKILL, settings=settings)):
+                if creative_v3_snapshot.get("provider") != v3_image_provider(settings):
                     job.status = "failed"
-                    job.last_error_code = "creative_v3_skill_changed"
+                    job.last_error_code = "creative_v3_provider_changed"
                     session.commit()
                     return JobHandlerResult.non_retryable(
-                        "creative_v3_skill_changed", "V3 Skill unavailable or modified since queueing."
+                        "creative_v3_provider_changed", "V3 provider changed after queueing."
+                    )
+                if is_v3_openai:
+                    skill_valid = (
+                        job.skill_bundle_sha256 == api_config_signature(settings)
+                        and creative_v3_snapshot.get("provider_sha256") == job.skill_bundle_sha256
+                    )
+                else:
+                    manifest = load_codex_skill_manifest(settings.CODEX_IMAGE_HOME, V3_SKILL)
+                    skill_valid = bool(
+                        manifest and V3_CONTRACT in manifest.workflows
+                        and job.skill_bundle_sha256 == installed_stage2_skill_sha256(
+                            V3_SKILL, settings=settings,
+                        )
+                    )
+                if not skill_valid:
+                    job.status = "failed"
+                    job.last_error_code = "creative_v3_provider_config_changed"
+                    session.commit()
+                    return JobHandlerResult.non_retryable(
+                        "creative_v3_provider_config_changed",
+                        "V3 model, quality, or Skill changed after queueing."
                     )
             elif not context.job.payload.get("upload_only"):
                 try:
@@ -1244,7 +1281,10 @@ class KeywordImageGenerateHandler:
                 from app.modules.realistic_review_ugc.creative_v3_generation import (
                     CreativeV3Error, resolve_plan, verify_snapshot,
                 )
-                from app.modules.realistic_review_ugc.creative_v3_runner import generate_six
+                if is_v3_openai:
+                    from app.modules.realistic_review_ugc.creative_v3_openai_runner import generate_six
+                else:
+                    from app.modules.realistic_review_ugc.creative_v3_runner import generate_six
 
                 def live_plan():
                     with context.dependencies.session_factory() as brief_session:
