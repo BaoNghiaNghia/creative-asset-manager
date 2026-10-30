@@ -1,5 +1,26 @@
 # RRUGC Scout Manager
 
+## v0.1.47 — Typography Ideas one-shot Scout (2026-10-30)
+
+Adds a dedicated **Typography Design Scout** card to RRUGC Scout Manager.
+**Run once** invokes the existing `start_scout_auto_update.ps1 -TypographyMode`
+using the already paired agent token and isolated Pinterest profile. Results
+are Stage 1 Typography Ideas `candidate` references with source rights
+`unknown`; no Style DNA analysis, ImageGen, approval, Stage 2 handoff, or
+continuous scan is initiated. **Sign in to Pinterest** opens the existing
+`START_SCOUT_TYPOGRAPHY_LOGIN.cmd` in a visible window for manual login.
+The operator closes the Chrome window and can run a new one-shot afterward.
+
+Typography mode is deliberately **excluded** from the global Run automation
+and startup actions, and **never watchdog-restarts** after a one-shot ends.
+The existing Review, Keyword, Cap Stack and Branding DNA workflows keep their
+previous behavior. Pause/Quit can stop an active Typography run safely, and
+source auto-update refuses to interrupt one. No database migration, new worker,
+provider or new token is required. Update via
+`UPDATE_SCOUT_MANAGER_RELEASE.cmd` after GitHub Windows release
+`scout-manager-v0.1.47` publishes; verify the SHA-256 manifest, the active
+version marker and `START_SCOUT_TAURI.cmd` before launching.
+
 ## v0.1.37 — CAM paired agent presence (2026-10-17)
 
 Branding DNA Browser Agent now sends a pairing-authenticated standby heartbeat
