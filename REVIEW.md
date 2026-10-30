@@ -1,3 +1,11 @@
+## Creative Brief V1 modal UX — 2026-10-30
+
+- Scope: frontend modal TSX/CSS and new focused component tests only. No backend/API, migration, dependency, credentials, worker policy, or Stage 1 output changes.
+- Before: a purposeful keyword briefing state with three route previews and one clear text-only analysis action. During: queued/analyzing status without fake progress percentages. Failed: retry. Completed: strategy summary plus selectable Typography-First / Creative Twist / Explore concepts and execution risks.
+- Keyboard/focus: dialog focus trap, Escape/close, focus restored; accessible state labels, reduced motion, 44px primary touch controls and bounded scrolling on phones.
+- Evidence: TypeScript typecheck PASS; targeted Vitest modal 5/5 and Stage 1 6/6 PASS. Focused fixture Browser QA captured 5 steps each on desktop 1440px, tablet 768px, mobile 390px; modal assertions, no page errors, no console errors, no horizontal overflow, no small targets PASS. Strict fixture report remains FAIL because navigation/unmount cancels nine GET requests per viewport; no HTTP error or failed UI assertion. Standard targeted Auto-Fix encountered a pre-existing RRUGC sidebar-only visual baseline difference (0.600% desktop/default), outside the modal; tracked baselines were not modified.
+- Rollback: frontend release rollback to the previous verified immutable bundle. Database migration is not needed for this UI change. Auth/tenant checks and generated image history are untouched.
+
 ## GatorHats photo ZIP sync — 2026-10-24
 
 - ZIP image validation and color/angle grouping, with safe previews and fail-closed duplicate/missing image handling.

@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## Creative Brief V1 modal UX — 2026-10-30
+
+- [x] Replace the sparse un-analyzed modal with a clear keyword briefing CTA, three concept-route previews, and preservation notice.
+- [x] Make queued/running/failed states explicit, using indeterminate progress and retry without triggering ImageGen.
+- [x] Present completed strategy insights and an interactive three-concept comparison with typography, embroidery feasibility, and risks.
+- [x] Preserve focus return, Escape, close, polling, and phone/tablet/desktop layouts; add targeted component tests and three-viewport fixture QA.
+- [ ] Review historical RRUGC sidebar visual baseline drift separately through the governed proposal workflow; do not alter baselines as part of this feature.
+
+
 ## GatorHats 8869 ZIP photo synchronization — 2026-10-24
 
 - [x] Parse official color/angle tokens from ZIP filenames and directory names, with bounded image validation.
