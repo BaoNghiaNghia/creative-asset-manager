@@ -6,13 +6,15 @@ Physical bytes continue to use the existing managed Reference Library.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
+from urllib.parse import urlsplit
 from typing import Literal
 from pydantic import StrictInt
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -44,6 +46,8 @@ from app.modules.realistic_review_ugc.typography_similarity import (
     is_typography_dhash, candidate_matches, typography_hamming_distance,
     has_stale_roi_hash,
 )
+from app.modules.realistic_review_ugc.scout_automation import RrugcAutoScoutService
+from app.modules.realistic_review_ugc.service import RrugcError
 from app.modules.realistic_review_ugc.typography_repository import (
     TypographyReferenceError, TypographyReferenceRepository,
 )
@@ -96,6 +100,136 @@ def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)
 # A non-mutating, authenticated capability probe returns HTTP 200 when OFF.
 # This prevents the default Stage 1 page from emitting expected 404s in Browser QA.
 status_router = APIRouter(prefix="/typography", tags=["typography-v2"])
+
+
+# Scout Design is a separate, explicit intake from the existing Windows Scout.
+# This endpoint does not queue G3, approve rights, call ImageGen, or mutate Stage 1 V1.
+DESIGN_SCOUT_DAILY_LIMIT = 40
+DESIGN_SCOUT_BYTES_LIMIT = 8 * 1024 * 1024
+_PIN_PATH = re.compile(r"/pin/([0-9]{5,25})/?\Z")
+
+
+def _canonical_design_pin(value: str) -> tuple[str, str]:
+    try:
+        parts = urlsplit(value.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "typography_scout_source_invalid"}) from exc
+    if (parts.scheme != "https" or parts.netloc.lower() not in {"pinterest.com", "www.pinterest.com"}):
+        raise HTTPException(status_code=422, detail={"code": "typography_scout_source_invalid"})
+    match = _PIN_PATH.fullmatch(parts.path)
+    if match is None:
+        raise HTTPException(status_code=422, detail={"code": "typography_scout_source_invalid"})
+    return "https://www.pinterest.com/pin/" + match.group(1) + "/", match.group(1)
+
+
+def _design_scout_agent(session: Session, *, agent_id: str, authorization: str | None):
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.casefold() != "bearer" or not token.strip():
+        raise HTTPException(status_code=401, detail={"code": "typography_scout_auth_invalid"})
+    try:
+        agent = RrugcAutoScoutService(session).authenticate_agent(
+            agent_id=agent_id, raw_token=token.strip(),
+        )
+    except RrugcError as exc:
+        raise HTTPException(status_code=401, detail={"code": "typography_scout_auth_invalid"}) from exc
+    if not (_tenant_can_use_v2(agent.tenant_id)
+            and getattr(get_settings(), "TYPOGRAPHY_V2_DESIGN_SCOUT_ENABLED", False) is True):
+        raise HTTPException(status_code=404, detail={"code": "typography_design_scout_disabled"})
+    return agent
+
+
+@status_router.get("/scout-agents/{agent_id}/keywords")
+def typography_scout_picked_keywords(
+    agent_id: str,
+    limit: int = Query(default=3, ge=1, le=6),
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    agent = _design_scout_agent(session, agent_id=agent_id, authorization=authorization)
+    keywords = session.scalars(
+        select(RrugcKeywordVolumeModel)
+        .where(RrugcKeywordVolumeModel.tenant_id == agent.tenant_id,
+               RrugcKeywordVolumeModel.picked.is_(True))
+        .order_by(RrugcKeywordVolumeModel.picked_at.desc(), RrugcKeywordVolumeModel.id)
+        .limit(limit)
+    ).all()
+    return {"keywords": [{"id": row.id, "keyword": row.keyword} for row in keywords]}
+
+
+@status_router.post("/scout-agents/{agent_id}/references")
+async def typography_scout_upload_reference(
+    agent_id: str,
+    file: UploadFile = File(...),
+    source_url: str = Form(..., max_length=512),
+    source_query: str = Form(..., max_length=120),
+    keyword_id: str = Form(..., max_length=36),
+    authorization: str | None = Header(default=None),
+    session: Session = Depends(get_db),
+):
+    agent = _design_scout_agent(session, agent_id=agent_id, authorization=authorization)
+    pin_url, pin_id = _canonical_design_pin(source_url)
+    keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
+        RrugcKeywordVolumeModel.tenant_id == agent.tenant_id,
+        RrugcKeywordVolumeModel.id == keyword_id,
+        RrugcKeywordVolumeModel.picked.is_(True),
+    ))
+    if keyword is None:
+        raise HTTPException(status_code=404, detail={"code": "typography_scout_keyword_not_picked"})
+    if (file.content_type or "").lower() not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=422, detail={"code": "typography_scout_image_format"})
+    content = await file.read(DESIGN_SCOUT_BYTES_LIMIT + 1)
+    if not content or len(content) > DESIGN_SCOUT_BYTES_LIMIT:
+        raise HTTPException(status_code=413, detail={"code": "typography_scout_image_size"})
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    used = session.scalar(select(func.count(RrugcTypographyReferenceModel.id)).where(
+        RrugcTypographyReferenceModel.tenant_id == agent.tenant_id,
+        RrugcTypographyReferenceModel.source_type == "scout",
+        RrugcTypographyReferenceModel.created_at >= today,
+    )) or 0
+    if used >= DESIGN_SCOUT_DAILY_LIMIT:
+        raise HTTPException(status_code=429, detail={"code": "typography_scout_daily_limit"})
+
+    storage = build_managed_storage_provider(get_settings())
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise HTTPException(status_code=503, detail={"code": "typography_scout_storage_unavailable"})
+    actor = "scout-agent:" + agent.id
+    try:
+        promoted = await RrugcReferenceLibrary(session).upload_reference(
+            tenant_id=agent.tenant_id, user_id=actor,
+            original_filename="typography-pin-" + pin_id + ".jpg",
+            content=content, storage=storage, reference_type="artwork",
+            profile_key=PROFILE,
+            allowed_image_formats=frozenset({"PNG", "JPEG", "WEBP"}),
+        )
+        row, created = TypographyReferenceRepository(session).link_asset(
+            tenant_id=agent.tenant_id, workspace_id=agent.tenant_id,
+            asset_id=promoted.asset.id, user_id=actor,
+            rights="unknown", privacy="workspace", source_type="scout",
+            attribution="Pinterest source; rights not verified",
+        )
+        if created:
+            row.source_platform = "pinterest"
+            row.source_url = pin_url
+            row.scope = "keyword"
+            row.keyword_id = keyword.id
+            row.tags_json = ["scout", "pinterest", "design-reference"]
+            row.notes = "Scout query: " + source_query[:120]
+            session.add(AuthAuditEventModel(
+                tenant_id=agent.tenant_id, actor_id=actor,
+                action="typography_reference.scout_candidate",
+                detail_json={"reference_id": row.id, "keyword_id": keyword.id, "source": "pinterest"},
+            ))
+        session.commit()
+        return {"status": "created" if created else "duplicate",
+                "reference_id": row.id, "keyword_id": keyword.id,
+                "source_rights_status": row.source_rights_status,
+                "editorial_status": row.editorial_status}
+    except (ReferenceLibraryError, TypographyReferenceError) as exc:
+        session.rollback()
+        raise HTTPException(status_code=422, detail={"code": exc.code}) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail={"code": "typography_scout_conflict"}) from exc
 
 
 @status_router.get("/status")

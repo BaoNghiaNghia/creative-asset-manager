@@ -150,6 +150,82 @@ def enabled(env):
     env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a"
 
 
+
+def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate(env, monkeypatch):
+    """Scout token may create a candidate, never grant human source rights."""
+    import app.modules.realistic_review_ugc.scout_automation as scout_auth
+
+    def authenticate(self, *, agent_id, raw_token, lock=False):
+        if agent_id != "agent-a" or raw_token != "paired-secret":
+            from app.modules.realistic_review_ugc.service import RrugcError
+            raise RrugcError("auth_failure", "Invalid credentials", status_code=401)
+        return SimpleNamespace(id=agent_id, tenant_id="tenant-a", active=True)
+
+    monkeypatch.setattr(scout_auth.RrugcAutoScoutService, "authenticate_agent", authenticate)
+    enabled(env)
+    with Session(env.engine, expire_on_commit=False) as db:
+        keyword = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword="ADVENTURE AWAITS",
+            keyword_normalized="adventure awaits", picked=True,
+        )
+        foreign = RrugcKeywordVolumeModel(
+            tenant_id="tenant-b", keyword="OTHER TENANT", keyword_normalized="other tenant",
+            picked=True,
+        )
+        db.add_all((keyword, foreign))
+        db.commit()
+        keyword_id, foreign_id = keyword.id, foreign.id
+
+    base = "/api/v1/realistic-review-ugc/typography/scout-agents/agent-a"
+    endpoint = base + "/references"
+    form = {
+        "source_url": "https://www.pinterest.com/pin/123456789012345/",
+        "source_query": "ADVENTURE AWAITS embroidered cap",
+        "keyword_id": keyword_id,
+    }
+    upload = {"file": ("pin.jpg", image(180), "image/png")}
+    denied = env.client.post(endpoint, files=upload, data=form)
+    assert denied.status_code == 401
+    off = env.client.post(endpoint, headers={"Authorization": "Bearer paired-secret"},
+                          files=upload, data=form)
+    assert off.status_code == 404
+    env.config.TYPOGRAPHY_V2_DESIGN_SCOUT_ENABLED = True
+    header = {"Authorization": "Bearer paired-secret"}
+    wrong = env.client.post(endpoint, headers={"Authorization": "Bearer wrong"},
+                            files=upload, data=form)
+    assert wrong.status_code == 401
+    assert env.client.get(base + "/keywords", headers=header).json()["keywords"][0]["keyword"] == "ADVENTURE AWAITS"
+    wrong_domain = env.client.post(endpoint, headers=header,
+                                   files=upload, data={**form, "source_url": "https://evil.example/pin/123456789012345/"})
+    assert wrong_domain.status_code == 422
+    foreign_keyword = env.client.post(endpoint, headers=header,
+                                      files=upload, data={**form, "keyword_id": foreign_id})
+    assert foreign_keyword.status_code == 404
+    created = env.client.post(endpoint, headers=header, files=upload, data=form)
+    assert created.status_code == 200, created.text
+    assert created.json()["status"] == "created"
+    assert created.json()["editorial_status"] == "candidate"
+    assert created.json()["source_rights_status"] == "unknown"
+    repeated = env.client.post(endpoint, headers=header, files=upload, data=form)
+    assert repeated.json()["status"] == "duplicate"
+    assert env.storage.calls == 1
+    with Session(env.engine) as db:
+        rows = db.query(RrugcTypographyReferenceModel).all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.source_type == "scout" and row.source_platform == "pinterest"
+        assert row.source_url == form["source_url"]
+        assert row.keyword_id == keyword_id
+        assert row.privacy == "workspace"
+        assert row.editorial_status == "candidate" and row.analysis_status == "pending"
+        assert row.source_rights_status == "unknown"
+        assert db.query(RrugcTypographyStyleDnaModel).count() == 0
+        assert any(event.action == "typography_reference.scout_candidate"
+                   for event in db.query(AuthAuditEventModel).all())
+    # Unverified rights remain unapprovable, even after an agent upload.
+    assert env.client.patch(BASE + "/" + created.json()["reference_id"],
+                            json={"editorial_status": "approved"}).status_code == 422
+
 def test_status_probe_preserves_canary_and_permission_boundaries(env):
     status = "/api/v1/realistic-review-ugc/typography/status"
     assert env.client.get(status).json() == {"available": False}

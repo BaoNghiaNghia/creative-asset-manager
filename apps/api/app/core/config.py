@@ -234,6 +234,8 @@ class Settings(BaseSettings):
     # A distinct, default-off ImageGen pilot gate, independent of the G3
     # analyzer worker; no automatic Stage 1 dispatch can activate this.
     TYPOGRAPHY_V2_IMAGEGEN_PILOT_ENABLED: bool = False
+    # One-shot, agent-authenticated Pinterest Design Scout intake only. Never enables generation.
+    TYPOGRAPHY_V2_DESIGN_SCOUT_ENABLED: bool = False
     # Never set until migration, backend rollback and capacity are verified.
     TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED: bool = False
     TYPOGRAPHY_V2_OUTPUT_PUBLISH_ENABLED: bool = False
