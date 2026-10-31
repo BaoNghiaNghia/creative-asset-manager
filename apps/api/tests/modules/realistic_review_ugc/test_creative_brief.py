@@ -23,6 +23,39 @@ def test_accepts_three_concepts():
     assert len(validate_brief(sample(), "SUPPORT LIVE MUSIC").concepts) == 3
 
 
+def test_new_144_brief_requires_nine_distinct_variant_directions():
+    from app.modules.realistic_review_ugc.creative_brief import CreativeBrief144
+    payload = sample()
+    for concept in payload["concepts"]:
+        count = 1 if concept["mode"] == "safe" else 4
+        concept["design_variants"] = [
+            f"{concept['mode']} direction {i + 1}: unique meaningful type layout and stitched hook"
+            for i in range(count)
+        ]
+    brief = CreativeBrief144.model_validate(payload)
+    assert [len(concept.design_variants) for concept in brief.concepts] == [1, 4, 4]
+    assert len(validate_brief(brief.model_dump(), "SUPPORT LIVE MUSIC").concepts) == 3
+    payload["concepts"][1]["design_variants"] = payload["concepts"][1]["design_variants"][:3]
+    with pytest.raises(ValueError):
+        CreativeBrief144.model_validate(payload)
+
+
+def test_legacy_three_concept_brief_is_still_readable_without_variants():
+    payload = sample()
+    brief = validate_brief(payload, "SUPPORT LIVE MUSIC")
+    assert [len(concept.design_variants) for concept in brief.concepts] == [0, 0, 0]
+
+
+def test_new_schema_requires_variant_descriptions_without_unsupported_constraints():
+    from app.modules.realistic_review_ugc.creative_brief import CreativeBrief144
+    schema = CreativeBrief144.model_json_schema()
+    concepts = schema["$defs"]["CreativeConcept144"]
+    assert "design_variants" in concepts["required"]
+    serialized = __import__("json").dumps(schema)
+    for unsupported in ("maxLength", "minLength", "minItems", "maxItems"):
+        assert '"' + unsupported + '"' not in serialized
+
+
 def test_rejects_keyword_rewrite():
     with pytest.raises(ValueError, match="keyword text changed"):
         validate_brief(sample(), "different keyword")

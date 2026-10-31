@@ -26,7 +26,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
 )
 
-PROMPT_VERSION = "meaning-first-v1"
+PROMPT_VERSION = "meaning-first-144-v2"
 JOB_TYPE = "rrugc_creative_brief_generate"
 INTERACTIVE_BRIEF_PRIORITY = 65  # above general aged 50 / Stage 1 queued 51
 
@@ -144,6 +144,21 @@ def queue_brief(
                     ).values(priority=priority).execution_options(synchronize_session=False)
                 )
             return row.status, False
+    # When upgrading the entire picked library, reuse unstarted queued jobs
+    # instead of inserting a second ~500-job backlog. Claimed/running jobs
+    # are NOT reused: their old worker will detect the superseded job ID.
+    reusable = None
+    if row is not None and row.processing_job_id:
+        reusable = session.scalar(
+            select(ProcessingJobModel).where(
+                ProcessingJobModel.id == row.processing_job_id,
+                ProcessingJobModel.tenant_id == tenant_id,
+                ProcessingJobModel.entity_id == row.id,
+                ProcessingJobModel.job_type == JOB_TYPE,
+                ProcessingJobModel.status.in_(("pending", "retry")),
+                ProcessingJobModel.cancellation_requested.is_(False),
+            ).with_for_update()
+        )
     if row is None:
         row = RrugcKeywordCreativeBriefModel(
             id=str(uuid4()), tenant_id=tenant_id, keyword_id=keyword_id,
@@ -159,6 +174,22 @@ def queue_brief(
         row.brief_json = None
         row.completed_at = None
         row.last_error_code = None
+
+    if reusable is not None:
+        reusable.payload_json = {"keyword_id": keyword_id, "prompt_version": PROMPT_VERSION}
+        reusable.status = "pending"
+        reusable.attempt_count = 0
+        reusable.max_attempts = 2
+        reusable.next_attempt_at = _utcnow()
+        reusable.claimed_by = None
+        reusable.claimed_at = None
+        reusable.lease_expires_at = None
+        reusable.last_error_code = None
+        reusable.last_error_message = None
+        reusable.completed_at = None
+        reusable.updated_at = _utcnow()
+        session.flush()
+        return "queued", True
 
     # A new work item is always idempotent at the database row level. The
     # unique processing key contains a nonce only for explicit retries.

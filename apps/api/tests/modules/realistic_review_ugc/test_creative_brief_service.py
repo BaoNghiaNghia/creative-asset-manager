@@ -113,6 +113,74 @@ def test_backfill_can_retry_failed_only_when_explicit_and_remains_idempotent(db)
     )) is None
 
 
+def test_version_upgrade_force_requeues_completed_briefs_without_touching_images(db):
+    old = insert_keyword(db, word="COMPLETED OLD BRIEF")
+    assert queue_brief(db, tenant_id="tenant-a", keyword_id=old.id, settings=settings())[1]
+    db.commit()
+    row = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == old.id))
+    prior_job = row.processing_job_id
+    row.status = "completed"
+    row.prompt_version = "meaning-first-v1"
+    row.brief_json = {"keyword_exact": old.keyword, "concepts": []}
+    db.commit()
+
+    summary = queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())
+    assert summary == {"examined": 1, "queued": 1, "skipped": 0}
+    assert row.prompt_version == PROMPT_VERSION == "meaning-first-144-v2"
+    assert row.status == "queued"
+    assert row.processing_job_id != prior_job
+    assert queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())["queued"] == 0
+
+
+def test_version_upgrade_reuses_unstarted_pending_jobs_in_place(db):
+    keyword = insert_keyword(db, word="PENDING OLD BRIEF")
+    queue_brief(db, tenant_id="tenant-a", keyword_id=keyword.id, settings=settings())
+    db.commit()
+    brief_row = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == keyword.id))
+    old_job_id = brief_row.processing_job_id
+    brief_row.prompt_version = "meaning-first-v1"
+    db.add(ProcessingJobModel(
+        id=old_job_id, tenant_id="tenant-a", job_type=JOB_TYPE,
+        entity_type="rrugc_keyword_creative_brief", entity_id=brief_row.id,
+        idempotency_key="old-unstarted", payload_json={"prompt_version":"meaning-first-v1"},
+        priority=5, status="pending", max_attempts=2,
+    ))
+    db.commit()
+    result = queue_picked_backfill(db, tenant_id="tenant-a", settings=settings(), retry_failed=True)
+    assert result == {"examined": 1, "queued": 1, "skipped": 0}
+    task = db.get(ProcessingJobModel, old_job_id)
+    assert brief_row.processing_job_id == old_job_id  # no duplicate job
+    assert task.payload_json["prompt_version"] == PROMPT_VERSION
+    assert task.status == "pending" and task.attempt_count == 0
+    assert brief_row.prompt_version == PROMPT_VERSION and brief_row.status == "queued"
+    assert queue_picked_backfill(db, tenant_id="tenant-a", settings=settings(), retry_failed=True)["queued"] == 0
+
+
+def test_version_upgrade_supersedes_in_flight_jobs_without_reusing_lease(db):
+    keyword = insert_keyword(db, word="RUNNING OLD BRIEF")
+    queue_brief(db, tenant_id="tenant-a", keyword_id=keyword.id, settings=settings())
+    db.commit()
+    brief_row = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == keyword.id))
+    prior_job_id = brief_row.processing_job_id
+    brief_row.prompt_version = "meaning-first-v1"
+    brief_row.status = "running"
+    db.add(ProcessingJobModel(
+        id=prior_job_id, tenant_id="tenant-a", job_type=JOB_TYPE,
+        entity_type="rrugc_keyword_creative_brief", entity_id=brief_row.id,
+        idempotency_key="old-in-flight", payload_json={}, priority=5,
+        status="processing", max_attempts=2,
+    ))
+    db.commit()
+    assert queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())["queued"] == 1
+    assert brief_row.processing_job_id != prior_job_id
+    assert db.get(ProcessingJobModel, prior_job_id).status == "processing"
+    assert brief_row.prompt_version == PROMPT_VERSION
+    assert queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())["queued"] == 0
+
+
 def test_backfill_offset_window_walks_all_picked_keywords_once(db):
     selected = [insert_keyword(db, word=f"NUMBER {n}") for n in range(7)]
     queued = []

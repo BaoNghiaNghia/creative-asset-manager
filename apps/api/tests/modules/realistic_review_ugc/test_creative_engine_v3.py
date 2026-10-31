@@ -171,7 +171,11 @@ def test_v3_service_cannot_read_other_tenant_and_never_changes_v1_row():
             first = get_v3_preview(session, tenant_id="tenant-a", keyword_id=row.id)
             second = get_v3_preview(session, tenant_id="tenant-a", keyword_id=row.id)
             assert first == second
-            assert first["source_status"] == "completed"
+            # Old meaning-first-v1 briefs are intentionally stale after the
+            # 1/4/4 prompt-version upgrade; this read-only endpoint never
+            # modifies the stored brief or leaks another tenant's data.
+            assert first["source_status"] == "stale"
+            assert first["planner_status"] == "v1_brief_not_ready"
             session.refresh(stored)
             assert stored.status == "completed"
             assert stored.brief_json == brief(keyword)

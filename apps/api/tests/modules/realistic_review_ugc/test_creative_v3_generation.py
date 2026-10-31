@@ -65,6 +65,26 @@ def settings(on=True):
     )
 
 
+def test_new_brief_variants_feed_distinct_nine_image_slot_recipes():
+    payload = brief()
+    for concept in payload["concepts"]:
+        count = 1 if concept["mode"] == "safe" else 4
+        concept["design_variants"] = [
+            f"Original concept {concept['mode']} direction {i}: own unique original stitched interaction"
+            for i in range(count)
+        ]
+    result = _brief_plan(
+        keyword="CREATIVE DICTATOR", brief_json=payload,
+        prompt_version=PROMPT_VERSION, brief_id="fresh-brief",
+    )
+    assert len(result["slots"]) == 9
+    assert [x["mode"] for x in result["slots"]].count("creative_twist") == 4
+    for index, slot in enumerate(result["slots"]):
+        assert "Creative Brief-specific direction:" in slot["variant_recipe"]
+        assert f"Original concept {slot['mode']} direction" in prompt_for_slot(result, index + 1)
+    assert len({x["variant_recipe"] for x in result["slots"]}) == 9
+
+
 def test_mode_to_slot_contract_and_real_prompt_directions():
     data = plan()
     assert [s["mode"] for s in data["slots"]] == [

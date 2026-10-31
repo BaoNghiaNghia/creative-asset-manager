@@ -154,7 +154,12 @@ def _brief_plan(*, keyword: str, brief_json: Mapping[str, Any],
                    else NEW_VARIANT_RECIPES[concept.mode])
         variants = (("A", "B") if schema_version == LEGACY_SCHEMA
                     else MODE_VARIANTS[concept.mode])
-        for variant, recipe in zip(variants, recipes, strict=True):
+        brief_variants = concept.design_variants or []
+        for variant_index, (variant, recipe) in enumerate(zip(variants, recipes, strict=True)):
+            # Use keyword-specific 1/4/4 directions from the V2 brief instead
+            # of repeating a generic style recipe across all keywords.
+            if schema_version == SCHEMA and len(brief_variants) == len(recipes):
+                recipe = f"{recipe} Creative Brief-specific direction: {brief_variants[variant_index]}"
             slots.append({
                 "slot": len(slots) + 1,
                 "mode": MODES[index],
