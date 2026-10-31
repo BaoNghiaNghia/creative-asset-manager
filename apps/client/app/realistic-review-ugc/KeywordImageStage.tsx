@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { backfillKeywordCreativeBriefs, getKeywordAnalysisDetail, getCreativeV3GenerationStatus, listKeywordImages, publishAvailableKeywordImages } from "./api";
 import { queueStage1CreativeBriefRun, type Stage1ImageAction } from "./stage1CreativeBriefRun";
@@ -73,6 +73,72 @@ const STATUS_LABEL: Record<KeywordImageStatus, string> = {
   not_run: "Not run", queued: "Queued", running: "Running", completed: "Completed", failed: "Failed",
 };
 const STATUS_ORDER: KeywordImageStatus[] = ["not_run", "queued", "running", "completed", "failed"];
+/**
+ * Stage 1 status details are intentionally on-demand. Keeping error text in a
+ * body-level portal avoids clipping by the horizontally scrollable job table.
+ * Keyboard focus exposes the same details as mouse hover.
+ */
+export function Stage1JobStatusBadge({ row }: { row: KeywordImageRow }) {
+  const partial = row.status === "completed" && row.error_code === "stage1_partial_output";
+  const label = partial ? "Partial" : STATUS_LABEL[row.status];
+  const detail = partial || row.status === "failed"
+    ? row.error_message?.trim() || row.error_code?.trim() || (partial ? "Only some images were saved." : "Generation failed.")
+    : null;
+  const tooltipId = useId();
+  const badgeRef = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [placement, setPlacement] = useState<{ left: number; top: number; above: boolean } | null>(null);
+
+  const updatePlacement = useCallback(() => {
+    const rect = badgeRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(320, Math.max(0, window.innerWidth - 24));
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+    const above = window.innerHeight - rect.bottom < 135 && rect.top > 135;
+    setPlacement({ left, top: above ? rect.top - 7 : rect.bottom + 7, above });
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    // The scrollable table and page can move independently of each other.
+    // Keep the tooltip anchored without changing row height or layout.
+    window.addEventListener("scroll", updatePlacement, true);
+    window.addEventListener("resize", updatePlacement);
+    return () => {
+      window.removeEventListener("scroll", updatePlacement, true);
+      window.removeEventListener("resize", updatePlacement);
+    };
+  }, [visible, updatePlacement]);
+
+  const showDetail = () => {
+    if (!detail) return;
+    updatePlacement();
+    setVisible(true);
+  };
+
+  return <>
+    <span ref={badgeRef}
+      className={"rrugc-keyword-gen-badge status-" + row.status + (detail ? " has-detail" : "")}
+      tabIndex={detail ? 0 : undefined}
+      aria-label={detail ? label + ": " + detail : undefined}
+      aria-describedby={visible && detail && placement ? tooltipId : undefined}
+      onMouseEnter={detail ? showDetail : undefined}
+      onMouseLeave={detail ? () => setVisible(false) : undefined}
+      onFocus={detail ? showDetail : undefined}
+      onBlur={detail ? () => setVisible(false) : undefined}
+      onKeyDown={detail ? event => { if (event.key === "Escape") setVisible(false); } : undefined}>
+      <i />{label}
+    </span>
+    {visible && detail && placement && createPortal(
+      <div id={tooltipId} role="tooltip" className="rrugc-keyword-gen-error-tooltip"
+        style={{
+          left: placement.left, top: placement.top,
+          transform: placement.above ? "translateY(-100%)" : undefined,
+        }}>{detail}</div>, document.body,
+    )}
+  </>;
+}
+
 const EMPTY: KeywordImagePage = {
   items: [], total: 0, page: 1, page_size: 20,
   overview: { not_run: 0, queued: 0, running: 0, completed: 0, failed: 0 },
@@ -586,9 +652,7 @@ export function KeywordImageStage({
                     ? "Archived · Regenerate with V3" : row.status === "not_run" ? "Next run" : "3 concepts × 2 variants"}</small>
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
-                  <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{row.status === "completed" && row.error_code === "stage1_partial_output" ? "Partial" : STATUS_LABEL[row.status]}</span>
-                  {row.status === "completed" && row.error_code === "stage1_partial_output" && <small className="rrugc-keyword-gen-failure">{row.error_message}</small>}
-                  {row.status === "failed" && <small className="rrugc-keyword-gen-failure" title={row.error_message || row.error_code || ""}>{row.error_message || row.error_code || "Generation failed"}</small>}
+                  <Stage1JobStatusBadge row={row} />
                   {row.retry_count > 0 && <small className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry: " + new Date(row.next_retry_at).toLocaleString() : "Durable Stage 1 recovery"}>
                     {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
                     {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}

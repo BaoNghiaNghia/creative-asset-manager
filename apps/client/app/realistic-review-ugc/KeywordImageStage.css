@@ -255,9 +255,31 @@
 .rrugc-keyword-gen-badge.status-queued { border-color: #e8dfb7; background: #fffaeb; color: #a07828; }
 .rrugc-keyword-gen-badge.status-completed { border-color: #c8e5d6; background: #eefaf3; color: #288356; }
 .rrugc-keyword-gen-badge.status-failed { border-color: #f1caca; background: #fff1f1; color: #ba5261; }
-.rrugc-keyword-gen-attempt,
-.rrugc-keyword-gen-failure { max-width: 100%; color: #91a0b3; font-size: 8.5px; line-height: 1.25; }
-.rrugc-keyword-gen-failure { color: #ab5961; overflow-wrap: anywhere; }
+.rrugc-keyword-gen-attempt { max-width: 100%; color: #91a0b3; font-size: 8.5px; line-height: 1.25; }
+/* The status details are rendered in a body portal to escape table scroll clipping. */
+.rrugc-keyword-gen-badge.has-detail { cursor: help; }
+.rrugc-keyword-gen-badge.has-detail:focus-visible { outline: 2px solid #bc7280; outline-offset: 2px; }
+.rrugc-keyword-gen-error-tooltip {
+  position: fixed;
+  z-index: 10020;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid #edd0d5;
+  border-radius: 8px;
+  background: #fffafa;
+  box-shadow: 0 8px 24px rgba(71, 36, 43, .15);
+  color: #a44b55;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
 .rrugc-keyword-auto-recovery{display:inline-flex;align-items:center;flex-wrap:wrap;gap:3px;color:#88621d;font-size:9px;line-height:1.3;font-weight:700}
 .rrugc-keyword-gen-status-cell .rrugc-keyword-auto-recovery{max-width:230px}
 @media(max-width:767px){.rrugc-keyword-auto-recovery{font-size:10px}}
