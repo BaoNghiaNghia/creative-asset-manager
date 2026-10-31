@@ -1167,3 +1167,79 @@ def test_private_selection_route_rejects_malformed_client_payload(env):
         response = env.client.post(route, json=body)
         assert response.status_code == 422
     assert env.storage.calls == 0
+
+def test_typography_webp_thumbnail_is_private_cached_and_original_is_unchanged(env):
+    enabled(env)
+    uploaded = env.upload(134)
+    ref = uploaded.json()["items"][0]["reference"]
+    endpoint = BASE + "/" + ref["id"] + "/image"
+    original = env.client.get(endpoint)
+    assert original.status_code == 200 and original.headers["content-type"].startswith("image/png")
+    preview = env.client.get(endpoint + "?thumbnail=true&size=320")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/webp")
+    assert preview.headers["cache-control"].startswith("private")
+    assert preview.headers["vary"] == "Cookie"
+    assert preview.headers["etag"]
+    with Image.open(BytesIO(preview.content)) as thumb:
+        assert thumb.format == "WEBP"
+        assert thumb.size == (48, 36)  # No fake upscaling of a small source
+    not_modified = env.client.get(
+        endpoint + "?thumbnail=true&size=320",
+        headers={"If-None-Match": preview.headers["etag"]},
+    )
+    assert not_modified.status_code == 304
+    assert env.client.get(endpoint).content == original.content
+    env.identity("outsider", tenant="tenant-other")
+    assert env.client.get(endpoint + "?thumbnail=true&size=320").status_code == 404
+
+
+def test_g3_one_shot_dispatch_requires_enabled_worker_verified_rights_and_permission(env, monkeypatch):
+    import app.modules.realistic_review_ugc.typography_router as mod
+    enabled(env)
+    ref = env.upload(167).json()["items"][0]["reference"]
+    endpoint = BASE + "/" + ref["id"] + "/analyze-and-run"
+
+    # No background or billing happens while independent pilot gates are OFF.
+    disabled = env.client.post(endpoint)
+    assert disabled.status_code == 409
+    assert disabled.json()["detail"]["code"] == "typography_analyzer_disabled"
+
+    env.config.TYPOGRAPHY_V2_PILOT_WORKER_ENABLED = True
+    env.config.TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED = True
+    unverified = env.client.post(endpoint)
+    assert unverified.status_code == 409
+    assert unverified.json()["detail"]["code"] == "typography_analysis_unavailable"
+
+    fake_calls = []
+    class Registry:
+        def require(self, provider):
+            assert provider == "gemini"
+            return object()
+        async def aclose(self):
+            pass
+
+    async def fake_worker(tenant):
+        fake_calls.append(tenant)
+
+    monkeypatch.setattr("app.providers.ai.factory.build_ai_provider_registry",
+                        lambda *args, **kwargs: Registry())
+    monkeypatch.setattr(mod, "_g3_one_shot_background", fake_worker)
+    approved = env.client.patch(
+        BASE + "/" + ref["id"],
+        json={"source_rights_status": "owned", "editorial_status": "approved"},
+    )
+    assert approved.status_code == 200, approved.text
+    started = env.client.post(endpoint)
+    assert started.status_code == 202, started.text
+    assert started.json()["outcome"] == "created"
+    assert started.json()["job"]["status"] == "queued"
+    assert fake_calls == ["tenant-a"]
+
+    duplicate = env.client.post(endpoint)
+    assert duplicate.status_code == 202
+    assert duplicate.json()["outcome"] == "existing"
+    assert duplicate.json()["job"]["id"] == started.json()["job"]["id"]
+
+    env.identity("reader", permissions={"typography_reference.read"})
+    assert env.client.post(endpoint).status_code == 403

@@ -5,22 +5,26 @@ Physical bytes continue to use the existing managed Reference Library.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
+from uuid import uuid4
 import re
 from urllib.parse import urlsplit
 from typing import Literal
 from pydantic import StrictInt
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.domain.providers.contracts import OpenStoredAssetInput, StorageProviderError
 from app.modules.authorization.principal import (
@@ -38,6 +42,12 @@ from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyAnalysisJobModel,
 )
 from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
+from app.modules.realistic_review_ugc.typography_thumbnails import (
+    MAX_REFERENCE_THUMB_BYTES, typography_thumbnail_webp,
+)
+from app.modules.realistic_review_ugc.image_cache_policy import (
+    preview_etag, matches_etag,
+)
 from app.modules.realistic_review_ugc.typography_dna_review import (
     TypographyDnaReviewRequest, TypographyReviewError, apply_human_review,
     effective_reviewed_dna, review_view, VERIFIED_RIGHTS,
@@ -86,6 +96,14 @@ def _tenant_can_use_v2(tenant_id: str) -> bool:
         if tenant.strip()
     }
     return bool(settings.TYPOGRAPHY_V2_ENABLED and tenant_id in tenants)
+
+
+def _g3_worker_enabled(tenant_id: str) -> bool:
+    """Independent opt-in. The library feature alone never allows billed AI."""
+    settings = get_settings()
+    return bool(_tenant_can_use_v2(tenant_id)
+                and getattr(settings, "TYPOGRAPHY_V2_PILOT_WORKER_ENABLED", False)
+                and getattr(settings, "TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED", False))
 
 
 def _gate(principal: CurrentPrincipal = Depends(require_authenticated_principal)):
@@ -854,9 +872,15 @@ def review_typography_style_dna(
     return {"id": dna.id, "reference_id": reference.id, "review": review_view(reference, dna)}
 
 
+_TYPOGRAPHY_THUMBNAIL_SLOTS = asyncio.Semaphore(3)
+
+
 @router.get("/references/{reference_id}/image")
 async def get_typography_reference_image(
     reference_id: str,
+    thumbnail: bool = Query(default=False),
+    size: int = Query(default=256, ge=128, le=640),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -878,16 +902,51 @@ async def get_typography_reference_image(
         content_type, _ = reference_image_content_type(asset.image_format)
     except ReferenceLibraryError:
         raise _error("typography_asset_invalid", "Reference image is unsupported.", status_code=422)
-    asset_id, remote_id, size = asset.id, asset.remote_file_id, asset.size_bytes
-    # Never hold a DB connection while Managed Storage streams the image.
+    asset_id, remote_id, size_bytes = asset.id, asset.remote_file_id, asset.size_bytes
+    revision = asset.content_hash
+    # Authorize before conditionals/caching; never hold DB during remote I/O.
     session.close()
+    etag = preview_etag(principal.active_tenant_id, remote_id or asset_id, size,
+                        revision="typography-webp-v1:" + revision) if thumbnail else None
+    cache_headers = {
+        "Cache-Control": "private, max-age=300",
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if thumbnail and etag and matches_etag(if_none_match, etag):
+        return Response(status_code=304, headers={**cache_headers, "ETag": etag})
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise _error("managed_storage_unavailable", "Managed Storage is unavailable.", status_code=503)
+    if thumbnail and (size_bytes is None or 0 < size_bytes <= MAX_REFERENCE_THUMB_BYTES):
+        key = (principal.active_tenant_id, "typography-webp-v1", asset_id, f"{revision}:{size}")
+        async def load_thumbnail() -> CachedThumbnail:
+            async with _TYPOGRAPHY_THUMBNAIL_SLOTS:
+                stream = await storage.open_asset(OpenStoredAssetInput(
+                    tenant_id=principal.active_tenant_id, asset_id=asset_id,
+                    remote_file_id=remote_id, content_type=content_type, size_bytes=size_bytes,
+                ))
+                try:
+                    chunks = bytearray()
+                    async for block in stream.body:
+                        chunks.extend(block)
+                        if len(chunks) > MAX_REFERENCE_THUMB_BYTES:
+                            raise ValueError("Reference preview exceeds input limits")
+                    webp = await run_in_threadpool(typography_thumbnail_webp, bytes(chunks), size)
+                    return CachedThumbnail(content=webp, content_type="image/webp", headers=())
+                finally:
+                    await stream.close()
+        try:
+            preview = await thumbnail_cache.get_or_load(key, load_thumbnail)
+            return Response(content=preview.content, media_type="image/webp",
+                            headers={**cache_headers, "ETag": etag or ""})
+        except (StorageProviderError, ValueError, OSError):
+            # Use the unmodified original when a compact preview is unavailable.
+            pass
     try:
         stream = await storage.open_asset(OpenStoredAssetInput(
             tenant_id=principal.active_tenant_id, asset_id=asset_id,
-            remote_file_id=remote_id, content_type=content_type, size_bytes=size,
+            remote_file_id=remote_id, content_type=content_type, size_bytes=size_bytes,
         ))
     except StorageProviderError as exc:
         raise _error("typography_asset_unavailable", "Reference image is unavailable.",
@@ -895,7 +954,7 @@ async def get_typography_reference_image(
     return StreamingResponse(
         stream.body, media_type=stream.content_type,
         background=BackgroundTask(stream.close),
-        headers={"Cache-Control": "private, max-age=300"},
+        headers=cache_headers,
     )
 
 
@@ -996,12 +1055,22 @@ def _analysis_job_view(
         RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
         RrugcTypographyStyleDnaModel.image_hash == ref.content_hash,
     ))
+    rights_ok = ref.source_rights_status in VERIFIED_RIGHTS
+    active = ref.editorial_status not in {"archived", "rejected"}
+    worker_enabled = _g3_worker_enabled(tenant_id)
     return {
         "reference_id": reference_id,
         "analyzer_version": G3_ANALYZER_VERSION,
         "analysis_status": ref.analysis_status,
         "dna_available": dna is not None,
         "dna_review_status": review_view(ref, dna)["decision"] if dna else "pending",
+        "worker_enabled": worker_enabled,
+        "can_request_analysis": bool(_can_manage(principal) and worker_enabled and rights_ok and active),
+        "analysis_blocker": (
+            "reference_inactive" if not active else
+            "rights_unverified" if not rights_ok else
+            "worker_disabled" if not worker_enabled else None
+        ),
         "job": ({
             "id": job.id,
             "status": job.status,
@@ -1052,6 +1121,105 @@ def enqueue_typography_analysis(
     session.commit()
     response = _analysis_job_view(session, principal, reference_id)
     return {"outcome": outcome, **response}
+
+
+# Explicit one-shot UI dispatch. Never auto-analyze an uploaded/scouted image
+# or bypass the existing rights/tenant/rollback/permission boundaries.
+_G3_UI_SLOTS = asyncio.Semaphore(2)
+
+
+async def _g3_one_shot_background(tenant_id: str) -> None:
+    if not _g3_worker_enabled(tenant_id):
+        return
+    from app.core.database import SessionLocal
+    from app.providers.ai.factory import build_ai_provider_registry
+    from app.domain.providers.registry import AiProviderUnavailableError
+    from app.modules.realistic_review_ugc.typography_visual_analyzer import (
+        TypographyVisualAnalysisRunner,
+    )
+    settings = get_settings()
+    storage = build_managed_storage_provider(settings)
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        return
+    async with _G3_UI_SLOTS:
+        registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
+        try:
+            try:
+                provider = registry.require("gemini")
+            except AiProviderUnavailableError:
+                return
+            runner = TypographyVisualAnalysisRunner(
+                session_factory=SessionLocal, storage=storage, provider=provider,
+            )
+            await runner.tick(tenant_id=tenant_id,
+                              worker_id="g3-manual-" + uuid4().hex[:12], concurrency=1)
+        finally:
+            await registry.aclose()
+
+
+@router.post("/references/{reference_id}/analyze-and-run", status_code=202)
+async def request_and_run_typography_analysis(
+    reference_id: str,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    """An explicit user click queues + dispatches at most one guarded G3 job.
+
+    No hidden bulk jobs, scheduled scans or automatic billing. BackgroundTasks
+    returns promptly while G3 uses the durable tenant/lease-fenced queue.
+    """
+    tenant = principal.active_tenant_id
+    if not _g3_worker_enabled(tenant):
+        raise _error("typography_analyzer_disabled",
+                     "The G3 analyzer is not enabled for this tenant.", status_code=409)
+    reference = TypographyReferenceRepository(session).get(
+        tenant, reference_id, user_id=principal.user_id, manage=True,
+    )
+    if reference is None:
+        raise _error("typography_reference_not_found", "Reference not found.", status_code=404)
+    if (reference.source_rights_status not in VERIFIED_RIGHTS
+            or reference.editorial_status in {"archived", "rejected"}):
+        raise _error("typography_analysis_unavailable",
+                     "Verify source rights and keep this reference active before analysis.",
+                     status_code=409)
+    settings = get_settings()
+    storage = build_managed_storage_provider(settings)
+    if isinstance(storage, UnconfiguredAssetStorageProvider):
+        raise _error("typography_storage_unavailable",
+                     "Managed Storage is not configured.", status_code=503)
+    from app.core.database import SessionLocal
+    from app.providers.ai.factory import build_ai_provider_registry
+    from app.domain.providers.registry import AiProviderUnavailableError
+    registry = build_ai_provider_registry(settings, session_factory=SessionLocal)
+    try:
+        try:
+            registry.require("gemini")
+        except AiProviderUnavailableError as exc:
+            raise _error("typography_analyzer_provider_unavailable",
+                         "No G3 vision provider is configured.", status_code=503) from exc
+    finally:
+        await registry.aclose()
+    job, outcome = TypographyAnalysisQueue(session).enqueue(
+        tenant_id=tenant, reference_id=reference_id, user_id=principal.user_id,
+        analyzer_version=G3_ANALYZER_VERSION,
+        enabled=True, tenant_allowed=True, manage=True,
+    )
+    if outcome == "reference_unavailable":
+        raise _error("typography_reference_not_found",
+                     "Typography reference not found", status_code=404)
+    if outcome not in {"created", "existing", "cache_hit"}:
+        raise _error("typography_analysis_unavailable",
+                     "Verify source rights and keep the reference active before analysis.",
+                     status_code=409)
+    if outcome == "created":
+        _audit(session, principal, "analysis_requested", reference_id,
+               analyzer_version=G3_ANALYZER_VERSION, job_id=job.id)
+    session.commit()
+    response = {"outcome": outcome, **_analysis_job_view(session, principal, reference_id)}
+    if outcome != "cache_hit" and job is not None and job.status == "queued":
+        background_tasks.add_task(_g3_one_shot_background, tenant)
+    return response
 
 
 class TypographyReferencePatch(BaseModel):

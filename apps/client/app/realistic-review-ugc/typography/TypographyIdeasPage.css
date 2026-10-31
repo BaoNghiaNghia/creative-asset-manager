@@ -29,17 +29,21 @@
 .typography-filter-search input{width:100%}
 .typography-ideas-filterbar .typography-toggle{display:flex;align-items:center;gap:6px;margin:0 5px;color:#667b99;white-space:nowrap;font-size:11px}
 .typography-toggle input{width:15px;height:15px;accent-color:#315fe9}
-.typography-ideas-grid{column-count:4;column-gap:12px}
-.typography-reference-card{display:inline-block;width:100%;break-inside:avoid;margin:0 0 12px;border:1px solid #e2e8f1;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 2px 7px #1e385b0b}
-.typography-reference-image{position:relative;display:block;width:100%;min-height:130px;padding:0;border:0;background:#f2f5fb}
-.typography-reference-image img{display:block;width:100%;height:auto;max-height:380px;object-fit:contain;object-position:center}
+.typography-ideas-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));align-items:start;gap:10px}
+.typography-reference-card{display:flex;flex-direction:column;min-width:0;width:100%;margin:0;border:1px solid #e2e8f1;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 2px 7px #1e385b0b}
+.typography-reference-image{position:relative;display:block;width:100%;min-height:0;aspect-ratio:4/3;overflow:hidden;padding:0;border:0;background:#f2f5fb}
+.typography-reference-image img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;object-position:center}
+.typography-reference-image .rrugc-deferred-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px;color:#71849f;font-size:10px;line-height:1.4}
+.typography-reference-image .rrugc-deferred-img:not(.is-loaded){opacity:0}
+.typography-reference-image .rrugc-deferred-img.is-loaded{opacity:1}
+
 .typography-status-pill{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:5px 8px;border-radius:13px;background:#f0f5fb;color:#516681;font-size:9px;font-weight:780;box-shadow:0 1px 6px #0002}
 .typography-status-approved{background:#eaf7ee;color:#276847}.typography-status-rejected{background:#fdeeee;color:#a23d43}.typography-status-archived{background:#e8ebf0;color:#626978}
-.typography-reference-info{display:grid;gap:6px;padding:10px}
-.typography-reference-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#2b4164}
-.typography-reference-info>span{color:#8a97a9;font-size:10px;text-transform:capitalize}
+.typography-reference-info{display:grid;align-content:start;gap:5px;padding:8px;min-width:0}
+.typography-reference-info strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#2b4164}
+.typography-reference-info>span{color:#8a97a9;font-size:9px;text-transform:capitalize;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .typography-reference-tags{display:flex;gap:5px;flex-wrap:wrap}
-.typography-reference-tags span{padding:4px 6px;border-radius:6px;background:#f0f4fb;color:#627ca8;font-size:9px;text-transform:capitalize}
+.typography-reference-tags span{padding:3px 5px;border-radius:5px;background:#f0f4fb;color:#627ca8;font-size:9px;text-transform:capitalize}
 .typography-reference-info .typography-quiet{justify-self:start;padding:5px 9px;min-height:28px}
 .typography-empty{text-align:center;padding:50px 20px;border:1px dashed #cad7e9;border-radius:10px;background:#f9fbfe;color:#7890ac}
 .typography-empty strong{color:#344c71;font-size:16px}.typography-empty p{font-size:11px}
@@ -103,8 +107,35 @@
 .typography-archive-confirm div{display:flex;justify-content:flex-end;gap:8px}
 .typography-archive-confirm button{border:1px solid #d4deec;border-radius:7px;padding:9px 12px;background:#fff;cursor:pointer}
 .typography-archive-confirm .typography-danger{background:#a43945;color:#fff;border-color:#a43945}
-@media(max-width:1279px){.typography-ideas-grid{column-count:3}.typography-ideas-counters span{padding:9px}.typography-ideas-filterbar select{max-width:150px}}
-@media(max-width:899px){.typography-ideas-grid{column-count:2}.typography-ideas-counters{grid-template-columns:repeat(2,minmax(0,1fr))}.typography-ideas-heading{flex-wrap:wrap}}
+@media(max-width:1599px){.typography-ideas-grid{grid-template-columns:repeat(7,minmax(0,1fr))}}
+@media(max-width:1399px){.typography-ideas-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:1279px){.typography-ideas-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.typography-ideas-counters span{padding:9px}.typography-ideas-filterbar select{max-width:150px}}
+@media(max-width:1099px){.typography-ideas-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:899px){.typography-ideas-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.typography-ideas-counters{grid-template-columns:repeat(2,minmax(0,1fr))}.typography-ideas-heading{flex-wrap:wrap}}
+@media(max-width:659px){.typography-ideas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.typography-ideas-heading{gap:12px}.typography-ideas-copy h3{font-size:19px}.typography-ideas-filterbar{gap:6px;padding:7px}.typography-ideas-filterbar label:has(select){flex:1 1 42%}.typography-ideas-filterbar select{max-width:none;width:100%;min-height:44px}.typography-filter-search{flex-basis:100%}.typography-filter-search input{min-height:44px}.typography-ideas-filterbar .typography-quiet{min-height:44px}.typography-reference-info{padding:7px}.typography-reference-info strong{font-size:11px}.typography-reference-tags{gap:3px}.typography-upload-dialog{padding:12px}.typography-upload-settings{grid-template-columns:1fr}.typography-upload-settings label:last-child{grid-column:auto}.typography-upload-file{grid-template-columns:minmax(50px,1fr) 45px minmax(70px,1.2fr) auto;gap:4px}.typography-detail-drawer{height:100dvh;max-height:100dvh;padding:12px}.typography-ideas-counters strong{font-size:16px}.typography-ideas-counters span{min-height:44px}.typography-stage1-subnav button{min-height:44px}.typography-reference-info button{min-height:44px}}
-@media(max-width:350px){.typography-ideas-grid{column-count:1}}
+@media(max-width:350px){.typography-ideas-grid{grid-template-columns:minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.typography-ideas *{scroll-behavior:auto!important;transition:none!important}}
+/* G3 analysis status and explicit human review, scoped to the reference drawer. */
+.typography-dna-panel{display:grid;gap:12px;min-width:0}
+.typography-dna-status{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:12px;border:1px solid #dbe4f0;border-radius:9px;background:#f8faff}
+.typography-dna-status>div{display:grid;gap:3px}
+.typography-dna-status strong{color:#304d77;font-size:12px}
+.typography-dna-status span{font-size:11px;color:#63809e}
+.typography-dna-status .typography-primary{min-height:32px;padding:7px 10px}
+.typography-dna-hint{margin:0;color:#6e829e;font-size:11px;line-height:1.5}
+.typography-dna-hint.is-error{color:#a4494f}
+.typography-dna-result header{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.typography-dna-result h4{margin:0;color:#304d77}
+.typography-dna-result header>strong{font-size:10px;color:#55719c;white-space:nowrap}
+.typography-dna-result dl{display:grid;gap:9px;margin:12px 0}
+.typography-dna-result dl>div{display:grid;gap:4px;border-top:1px solid #e6edf4;padding-top:7px}
+.typography-dna-result dt{font-size:10px;color:#8093ae;font-weight:750}
+.typography-dna-result dd{margin:0;color:#415c83;font-size:11px;overflow-wrap:anywhere}
+.typography-dna-review{border-top:1px solid #e6edf4;padding-top:10px;display:grid;gap:9px}
+.typography-dna-review>span{font-size:10px;color:#70819b}
+.typography-dna-review-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.typography-dna-review-actions button,.typography-dna-review-actions select{border:1px solid #cddbea;border-radius:7px;background:#fff;color:#436489;min-height:32px;padding:6px 9px;font-family:inherit;font-size:10px}
+.typography-dna-review-actions button:disabled{opacity:.48;cursor:not-allowed}
+.typography-dna-review-actions select{max-width:100%;flex:1 1 180px}
+.typography-dna-review-actions button:first-child:not(:disabled){background:#e8f5ed;border-color:#a2d2ae;color:#277247}

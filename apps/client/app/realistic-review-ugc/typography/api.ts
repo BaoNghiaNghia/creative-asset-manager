@@ -2,7 +2,7 @@ import { RrugcApiError } from "../api";
 import type {
   TypographyDna, TypographyReference, TypographyReferenceFilters, TypographyReferencePage,
   TypographyReferencePatch, TypographyUploadBatch, TypographyRights, TypographyPrivacy,
-  TypographyPreviewResponse,
+  TypographyPreviewResponse, TypographyAnalysisState,
 } from "./types";
 
 const BASE = "/api/v1/realistic-review-ugc/typography/references";
@@ -63,6 +63,26 @@ export function getTypographyReference(id: string, signal?: AbortSignal): Promis
 
 export function listTypographyDna(id: string, signal?: AbortSignal): Promise<{ items: TypographyDna[] }> {
   return jsonRequest(BASE + "/" + encodeURIComponent(id) + "/dna", { signal });
+}
+
+export function getTypographyAnalysisStatus(id: string, signal?: AbortSignal): Promise<TypographyAnalysisState> {
+  return jsonRequest(BASE + "/" + encodeURIComponent(id) + "/analysis", { signal });
+}
+
+/** Explicit, rights-gated one-shot G3 job. No analyzer call when its pilot worker is OFF. */
+export function runTypographyAnalysis(id: string): Promise<TypographyAnalysisState & { outcome: string }> {
+  return jsonRequest(BASE + "/" + encodeURIComponent(id) + "/analyze-and-run", { method: "POST" });
+}
+
+export function reviewTypographyDna(
+  referenceId: string, dnaId: string,
+  decision: "accepted" | "needs_review" | "rejected",
+  reasonCode: string,
+): Promise<{ id: string; review: NonNullable<TypographyDna["review"]> }> {
+  return jsonRequest(BASE + "/" + encodeURIComponent(referenceId)
+    + "/dna/" + encodeURIComponent(dnaId) + "/review", {
+      method: "PATCH", body: JSON.stringify({ decision, reason_code: reasonCode }),
+    });
 }
 
 export function uploadTypographyReferences(

@@ -96,6 +96,31 @@ export type TypographyDna = {
   overlap_rules: unknown[];
   confidence: number;
   analyzed_at: string;
+  review?: {
+    decision: "pending" | "accepted" | "needs_review" | "rejected";
+    reason_code?: string | null;
+    reviewed_at?: string | null;
+    has_override?: boolean;
+    effective_dna?: Record<string, unknown> | null;
+  };
+};
+
+export type TypographyAnalysisState = {
+  reference_id: string;
+  analyzer_version: string;
+  analysis_status: TypographyAnalysisStatus;
+  dna_available: boolean;
+  dna_review_status: "pending" | "accepted" | "needs_review" | "rejected";
+  worker_enabled: boolean;
+  can_request_analysis: boolean;
+  analysis_blocker: "rights_unverified" | "reference_inactive" | "worker_disabled" | null;
+  job: null | {
+    id: string;
+    status: "queued" | "running" | "completed" | "failed" | "needs_review";
+    attempt_count: number;
+    next_attempt_at: string | null;
+    last_error_code: string | null;
+  };
 };
 
 /** Zero-provider, non-persisted Style Lab SVGs; NOT Stage 1 generated outputs. */

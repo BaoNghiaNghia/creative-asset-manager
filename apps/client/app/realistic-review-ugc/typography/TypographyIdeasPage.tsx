@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RrugcApiError } from "../api";
+import { DeferredImage } from "../DeferredImage";
+import { StyleDnaPanel } from "./StyleDnaPanel";
 import {
-  archiveTypographyReference, getTypographyReference, listTypographyDna,
+  archiveTypographyReference, getTypographyReference,
   listTypographyReferences, patchTypographyReference, uploadTypographyReferences,
 } from "./api";
 import type {
-  TypographyDna, TypographyEditorialStatus, TypographyPrivacy, TypographyReference,
+  TypographyEditorialStatus, TypographyPrivacy, TypographyReference,
   TypographyReferenceFilters, TypographyReferencePage, TypographyRights, TypographyScope,
   TypographySourceType, TypographyStyleRole,
 } from "./types";
@@ -15,7 +17,7 @@ import "./TypographyIdeasPage.css";
 const BATCH_LIMIT = 20;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FORMAT = new Set(["image/jpeg", "image/png", "image/webp"]);
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 80;
 const RIGHTS: TypographyRights[] = ["unknown", "owned", "licensed", "permitted_reference", "blocked"];
 const STATUS: TypographyEditorialStatus[] = ["candidate", "approved", "rejected", "archived"];
 type UploadState = "queued" | "uploading" | "created" | "duplicate" | "error";
@@ -58,6 +60,16 @@ function useDialogKeyboard(onClose: () => void) {
 function displayTitle(ref: TypographyReference) {
   const name = ref.filename || ref.source_attribution || "Typography reference";
   return name.replace(/\.(png|jpe?g|webp)$/i, "");
+}
+
+function compactTitle(ref: TypographyReference) {
+  const title = displayTitle(ref);
+  const pin = title.match(/^typography-pin-(\d+)$/i);
+  return pin ? "Pin #" + pin[1].slice(-8) : title;
+}
+
+function imageThumbnailUrl(url: string): string {
+  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=320";
 }
 
 function statusLabel(ref: TypographyReference) {
@@ -175,15 +187,16 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
     {notice && <div className="typography-notice" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="Dismiss message">×</button></div>}
     {error && <div className="typography-error" role="alert"><span>{error}</span><button type="button" onClick={refresh}>Retry</button></div>}
     {loading && !page.items.length ? <div className="typography-empty" role="status">Loading typography references…</div>
-      : page.items.length ? <div className="typography-ideas-grid">
+      : page.items.length ? <div className="typography-ideas-grid" aria-label="Typography image references">
         {page.items.map(ref => <article key={ref.id} className="typography-reference-card" data-testid="typography-reference-card">
           <button className="typography-reference-image" type="button" onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}
             aria-label={"View typography reference " + displayTitle(ref)}>
-            <img src={ref.image_url} loading="lazy" alt={displayTitle(ref)} />
+            <DeferredImage src={imageThumbnailUrl(ref.image_url)} rootMargin="120px 0px"
+              embeddedInButton alt={displayTitle(ref)} loading="lazy" decoding="async" />
             <span className={"typography-status-pill typography-status-" + ref.editorial_status}>{statusLabel(ref)}</span>
           </button>
           <div className="typography-reference-info">
-            <strong title={displayTitle(ref)}>{displayTitle(ref)}</strong>
+            <strong title={displayTitle(ref)}>{compactTitle(ref)}</strong>
             <span>{ref.source_type} · {ref.scope} · {ref.influence}</span>
             <div className="typography-reference-tags">
               {ref.reference_roles.map(role => <span key={role}>{role === "font_mood" ? "Font" : role}</span>)}
@@ -327,9 +340,6 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
   onClose: () => void; onUpdate: (next: TypographyReference) => void; onArchive: () => void;
 }) {
   const [tab, setTab] = useState<"overview" | "dna" | "usage">("overview");
-  const [dna, setDna] = useState<TypographyDna[]>([]);
-  const [dnaLoading, setDnaLoading] = useState(false);
-  const [dnaError, setDnaError] = useState("");
   const [editing, setEditing] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -373,17 +383,6 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
       reference_roles: reference.reference_roles,
     });
   }, [reference, editing]);
-  useEffect(() => {
-    if (tab !== "dna") return;
-    const ctrl = new AbortController();
-    setDnaLoading(true); setDnaError("");
-    void listTypographyDna(reference.id, ctrl.signal).then(data => {
-      if (!ctrl.signal.aborted) setDna(data.items);
-    }).catch(reason => {
-      if (!ctrl.signal.aborted) setDnaError(feedback(reason));
-    }).finally(() => { if (!ctrl.signal.aborted) setDnaLoading(false); });
-    return () => ctrl.abort();
-  }, [reference.id, tab]);
   const save = async (status?: TypographyEditorialStatus) => {
     if (busy) return;
     setBusy(true); setError("");
@@ -483,14 +482,8 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
           </>}
         </div>}
         {tab === "dna" && <div className="typography-drawer-content">
-          {dnaLoading ? <p role="status">Loading Style DNA…</p> : dnaError ? <p role="alert">{dnaError}</p>
-            : !dna.length ? <div className="typography-dna-empty"><strong>No analysis yet</strong><p>Style DNA will appear after G3 analyzer approval. No analysis is started by opening this drawer.</p></div>
-            : dna.map(result => <article className="typography-dna-result" key={result.id}>
-              <h4>{result.style_family} · {Math.round(result.confidence * 100)}% confidence</h4>
-              <dl><dt>Font mood</dt><dd><code>{JSON.stringify(result.font_mood)}</code></dd>
-                <dt>Layout graph</dt><dd><code>{JSON.stringify(result.layout_graph)}</code></dd>
-                <dt>Overlap rules</dt><dd><code>{JSON.stringify(result.overlap_rules)}</code></dd></dl>
-            </article>)}
+          <StyleDnaPanel reference={reference} canManage={canManage}
+            onReviewed={analysis_status => onUpdate({ ...reference, analysis_status })} />
         </div>}
         {tab === "usage" && <div className="typography-drawer-content typography-lineage">
           <dl><dt>Reference ID</dt><dd>{reference.id}</dd><dt>Content hash</dt><dd><code>{reference.content_hash}</code></dd>

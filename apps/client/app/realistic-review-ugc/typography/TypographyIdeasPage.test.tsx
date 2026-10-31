@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Stage1Subnav } from "./Stage1Subnav";
 import { TypographyIdeasPage } from "./TypographyIdeasPage";
 import {
-  archiveTypographyReference, listTypographyDna, listTypographyReferences,
-  patchTypographyReference, uploadTypographyReferences,
+  archiveTypographyReference, getTypographyAnalysisStatus, listTypographyDna, listTypographyReferences,
+  patchTypographyReference, reviewTypographyDna, runTypographyAnalysis, uploadTypographyReferences,
 } from "./api";
 import type { TypographyReference, TypographyReferencePage } from "./types";
 
@@ -16,6 +16,9 @@ vi.mock("./api", () => ({
   listTypographyReferences: vi.fn(),
   getTypographyReference: vi.fn(),
   listTypographyDna: vi.fn(),
+  getTypographyAnalysisStatus: vi.fn(),
+  runTypographyAnalysis: vi.fn(),
+  reviewTypographyDna: vi.fn(),
   uploadTypographyReferences: vi.fn(),
   patchTypographyReference: vi.fn(),
   archiveTypographyReference: vi.fn(),
@@ -36,7 +39,7 @@ const reference: TypographyReference = {
 
 function fixture(capabilities: TypographyReferencePage["capabilities"] = { read: true, upload: true, manage: true }): TypographyReferencePage {
   return {
-    items: [reference], total: 1, offset: 0, limit: 40,
+    items: [reference], total: 1, offset: 0, limit: 80,
     stats: { total: 1, approved: 0, needs_review: 1, analyzing: 1 },
     capabilities,
   };
@@ -48,6 +51,13 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(listTypographyReferences).mockResolvedValue(fixture());
   vi.mocked(listTypographyDna).mockResolvedValue({ items: [] });
+  vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
+    reference_id: reference.id,
+    analyzer_version: "g3-layout-font-overlap-v1",
+    analysis_status: "pending", dna_available: false, dna_review_status: "pending",
+    worker_enabled: false, can_request_analysis: false,
+    analysis_blocker: "rights_unverified", job: null,
+  });
   vi.mocked(uploadTypographyReferences).mockResolvedValue({
     total: 1, created: 1, duplicates: 0, failed: 0,
     items: [{ index: 0, filename: "idea.png", status: "created", reference }],
@@ -85,7 +95,9 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(host.textContent).not.toContain("Generate eligible");
     expect(host.textContent).not.toContain("Auto match");
     expect(host.querySelector(".typography-ideas-counters")?.textContent).toContain("Approved");
-    expect(host.querySelector(".typography-reference-image img")?.getAttribute("src")).toBe(reference.image_url);
+    expect(host.querySelector(".typography-reference-image img")?.getAttribute("src")).toBe(
+      reference.image_url + "?thumbnail=true&size=320",
+    );
     expect(vi.mocked(listTypographyReferences)).toHaveBeenCalled();
   });
 
@@ -113,6 +125,62 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(detail?.textContent).toContain("No analysis yet");
     expect(listTypographyDna).toHaveBeenCalledWith(reference.id, expect.anything());
     expect(patchTypographyReference).not.toHaveBeenCalled();
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
+    expect(detail?.textContent).toContain("Source rights are unverified");
+  });
+
+
+  it("allows a rights-approved reviewer to request one real G3 job and shows pending status", async () => {
+    const eligible = { ...reference, source_rights_status: "owned" as const, editorial_status: "approved" as const };
+    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [eligible] });
+    vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
+      reference_id: reference.id, analyzer_version: "g3-layout-font-overlap-v1",
+      analysis_status: "pending", dna_available: false, dna_review_status: "pending",
+      worker_enabled: true, can_request_analysis: true, analysis_blocker: null, job: null,
+    });
+    vi.mocked(runTypographyAnalysis).mockResolvedValue({
+      reference_id: reference.id, analyzer_version: "g3-layout-font-overlap-v1",
+      analysis_status: "pending", dna_available: false, dna_review_status: "pending",
+      worker_enabled: true, can_request_analysis: true, analysis_blocker: null,
+      outcome: "created",
+      job: { id: "job-1", status: "queued", attempt_count: 0, last_error_code: null, next_attempt_at: null },
+    });
+    await renderPage({ ...fixture(), items: [eligible] });
+    const detail = await openReference();
+    await click([...(detail?.querySelectorAll("button[role=tab]") || [])].find(element => element.textContent === "Style DNA") || null);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(detail?.textContent).toContain("Analyze Style DNA");
+    await click([...detail!.querySelectorAll("button")].find(element => element.textContent === "Analyze Style DNA") || null);
+    expect(runTypographyAnalysis).toHaveBeenCalledTimes(1);
+    expect(runTypographyAnalysis).toHaveBeenCalledWith(reference.id);
+    expect(detail?.textContent).toContain("Analysis requested");
+  });
+
+  it("shows existing DNA and requires a human review click before accepting", async () => {
+    const eligible = { ...reference, source_rights_status: "owned" as const, editorial_status: "approved" as const };
+    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [eligible] });
+    vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
+      reference_id: reference.id, analyzer_version: "g3-layout-font-overlap-v1",
+      analysis_status: "ready", dna_available: true, dna_review_status: "pending",
+      worker_enabled: true, can_request_analysis: true, analysis_blocker: null,
+      job: { id: "job-1", status: "completed", attempt_count: 1, last_error_code: null, next_attempt_at: null },
+    });
+    vi.mocked(listTypographyDna).mockResolvedValue({ items: [{
+      id: "dna-1", schema_version: "typography-dna/v1", analyzer_version: "g3-layout-font-overlap-v1",
+      style_family: "retro", typography_region: { x: 0.1, y: 0.2, w: 0.5, h: 0.2 },
+      font_mood: { primary: "serif", weight: "bold" }, layout_graph: { nodes: [], edges: [] },
+      overlap_rules: [], confidence: 0.92, analyzed_at: "2026-10-31T00:00:00Z",
+      review: { decision: "pending" },
+    }] });
+    vi.mocked(reviewTypographyDna).mockResolvedValue({ id: "dna-1", review: { decision: "accepted" } });
+    await renderPage({ ...fixture(), items: [eligible] });
+    const detail = await openReference();
+    await click([...(detail?.querySelectorAll("button[role=tab]") || [])].find(element => element.textContent === "Style DNA") || null);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(detail?.textContent).toContain("retro");
+    expect(reviewTypographyDna).not.toHaveBeenCalled();
+    await click([...detail!.querySelectorAll("button")].find(element => element.textContent === "Accept DNA") || null);
+    expect(reviewTypographyDna).toHaveBeenCalledWith("ref-1", "dna-1", "accepted", "approved");
   });
 
   it("validates upload file types and only commits after Upload button", async () => {
