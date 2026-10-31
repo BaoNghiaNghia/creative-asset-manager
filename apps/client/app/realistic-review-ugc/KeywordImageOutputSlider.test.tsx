@@ -125,6 +125,24 @@ describe("Stage 1 draggable image strip", () => {
     expect(next.disabled).toBe(false);
   });
 
+  it("enables the next arrow when wide thumbnails finish loading after initial layout", async () => {
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
+    const next = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!;
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
+    let contentWidth = 240;
+    Object.defineProperty(track, "scrollWidth", { configurable: true, get: () => contentWidth });
+    await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(next.disabled).toBe(true);
+    // The image now occupies its natural 16:9 width, increasing scrollWidth.
+    contentWidth = 420;
+    await act(async () => {
+      track.querySelector<HTMLImageElement>("img")!.dispatchEvent(new Event("load", { bubbles: false }));
+    });
+    expect(next.disabled).toBe(false);
+  });
+
   it("supports mouse drag-scrolling without opening thumbnails by mistake", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));

@@ -315,7 +315,7 @@
 .rrugc-keyword-gen-pages label { display: inline-flex; align-items: center; gap: 5px; }
 .rrugc-keyword-gen-pages select { height: 28px; padding: 0 6px; border: 1px solid #dfe6ef; border-radius: 6px; background: #fff; color: #344b68; font-size: 10px; }
 
-/* Stage 1 output gallery: up to four images visible at once, with drag-to-scroll. */
+/* Stage 1 output gallery: variable-width designs keep their source aspect ratio, with drag-to-scroll. */
 .rrugc-keyword-gen-output-column { min-width: 0; }
 .rrugc-keyword-output { min-width: 0; width: 100%; max-width: 340px; }
 .rrugc-keyword-output-gallery {
@@ -358,11 +358,11 @@
   cursor: default;
 }
 .rrugc-keyword-output-track {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 15px) / 4);
+  display: flex;
+  align-items: stretch;
   gap: 5px;
   width: 100%;
+  height: 50px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
@@ -376,11 +376,15 @@
 .rrugc-keyword-output-track:active { cursor: grabbing; }
 .rrugc-keyword-output-image {
   position: relative;
-  display: block;
-  min-width: 0;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-width: 32px;
+  height: 100%;
   padding: 0;
   cursor: zoom-in;
-  aspect-ratio: 1 / 1;
   overflow: hidden;
   scroll-snap-align: start;
   border: 1px solid #dce5f1;
@@ -390,7 +394,9 @@
 }
 .rrugc-keyword-output-image img {
   display: block;
-  width: 100%;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
   height: 100%;
   object-fit: contain;
   background: #fff;

@@ -5,7 +5,7 @@ import { OutputActivityLoader } from "./OutputActivityLoader";
 
 /**
  * Stage 1 table output strip. Fetch only when this row enters the viewport;
- * keep the complete version list but show at most four thumbnails in the strip.
+ * keep all versions in a horizontal strip with thumbnails sized to their natural aspect ratio.
  */
 export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }: {
   row: KeywordImageRow;
@@ -73,10 +73,14 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     setScroll({ left: node.scrollLeft, end: node.scrollLeft + node.clientWidth >= node.scrollWidth - 2 });
   };
   useEffect(() => {
-    // The first render after loading changes scrollWidth.
+    // New versions, or a failed thumbnail fallback, can change the strip width.
     const frame = window.requestAnimationFrame(updateScroll);
-    return () => window.cancelAnimationFrame(frame);
-  }, [images.length]);
+    const node = viewportRef.current;
+    const observer = node && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updateScroll) : null;
+    if (node) observer?.observe(node);
+    return () => { window.cancelAnimationFrame(frame); observer?.disconnect(); };
+  }, [images.length, brokenVersions.size]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== "mouse" || event.button !== 0) return;
@@ -150,6 +154,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
                   ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
                   : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-source-alpha-v2" + (imageRetry ? "&retry=" + imageRetry : "")}
                     alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
+                    onLoad={updateScroll}
                     onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
                 {picked && <span className="rrugc-keyword-output-picked-mark" aria-hidden="true">✓</span>}
               </button>;
