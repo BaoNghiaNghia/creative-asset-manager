@@ -88,7 +88,7 @@ describe("Stage 1 compact output and action controls", () => {
 
     await act(async () => button("Regenerate BEACH PLEASE").click());
     expect(run).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"][aria-modal="true"] h2')?.textContent).toBe("Regenerate six new designs?");
+    expect(document.querySelector('[role="dialog"][aria-modal="true"] h2')?.textContent).toBe("Regenerate 9 new designs?");
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("BEACH PLEASE");
     await act(async () => document.querySelector<HTMLButtonElement>('.rrugc-keyword-regenerate-buttons button')?.click());
     expect(document.querySelector(".rrugc-keyword-regenerate-dialog")).toBeNull();

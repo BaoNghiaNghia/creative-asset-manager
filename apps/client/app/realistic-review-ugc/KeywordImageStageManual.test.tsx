@@ -10,7 +10,7 @@ import { getKeywordAnalysisDetail, getKeywordImageJobStatus, getCreativeV3Genera
 vi.mock("./api", async importOriginal => ({
   ...(await importOriginal<typeof import("./api")>()),
   getCreativeV3GenerationStatus: vi.fn(async () => ({
-    available: true, output_count: 6, schema_version: "creative-v3",
+    available: true, output_count: 9, schema_version: "creative-v3/stage1-nine-v1",
   })),
   getKeywordCreativeBrief: vi.fn(async (id: string) => ({
     keyword_id: id, keyword: "BEACH PLEASE", status: "completed",
@@ -29,7 +29,7 @@ vi.mock("./api", async importOriginal => ({
   })),
   generateCreativeV3Stage1Images: vi.fn(async () => ({
     queued: true, keyword_id: "key-1", job_id: "v3-job-1", status: "queued",
-    engine: "creative-v3", expected_output_count: 6,
+    engine: "creative-v3", expected_output_count: 9,
   })),
   listStage2Skills: vi.fn(async () => ({
     stage_defaults: { stage1: "local:redesign-8869-v3" },
@@ -241,7 +241,7 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
 
   it("routes Regenerate for completed legacy outputs to a new Creative Brief V3 attempt", async () => {
     vi.mocked(getCreativeV3GenerationStatus).mockResolvedValue({
-      available: true, schema_version: "creative-v3", output_count: 6,
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
     });
     vi.mocked(listKeywordImages).mockResolvedValue({
       page: 1, page_size: 20, total: 1,

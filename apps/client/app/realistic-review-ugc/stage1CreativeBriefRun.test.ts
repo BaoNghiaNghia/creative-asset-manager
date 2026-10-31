@@ -31,7 +31,7 @@ beforeEach(() => {
   vi.mocked(getKeywordCreativeBrief).mockResolvedValue(detail("completed") as never);
   vi.mocked(generateCreativeV3Stage1Images).mockResolvedValue({
     keyword_id: "key-one", job_id: "job-new", status: "queued",
-    queued: true, expected_output_count: 6,
+    queued: true, expected_output_count: 9,
   });
   vi.mocked(regenerateCreativeV3Stage1Images).mockResolvedValue({
     keyword_id: "key-one", job_id: "job-new", processing_job_id: "new-p",
@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 
 describe("Stage 1 Generate, Regenerate and Retry dispatch different V3 endpoints", () => {
-  it("pins a completed three-concept brief and queues six ImageGen outputs", async () => {
+  it("pins a completed three-concept brief and queues nine ImageGen outputs", async () => {
     expect(await queueStage1CreativeBriefRun("key-one", "CREATIVE DICTATOR")).toBe("images_queued");
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith("key-one", "2026-10-31T01:00:00+07:00");

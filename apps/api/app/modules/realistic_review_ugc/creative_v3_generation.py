@@ -1,4 +1,4 @@
-"""Creative Brief V1 -> six original Stage 1 embroidery artwork directions.
+"""Creative Brief V1 -> nine original Stage 1 embroidery artwork directions.
 
 This is a prompt-and-provenance plan, not image QA or a generated image.
 Immutable source fingerprints are checked again by the image worker.
@@ -18,11 +18,34 @@ from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
 )
 
-SCHEMA = "creative-v3/stage1-six-v1"
+LEGACY_SCHEMA = "creative-v3/stage1-six-v1"
+SCHEMA = "creative-v3/stage1-nine-v1"
 SKILL = "creative-brief-v3"
 CONTRACT = "creative_v3_single_slot"
-SLOT_COUNT = 6
+SLOT_COUNT = 9
+LEGACY_SLOT_COUNT = 6
 MODES = ("safe", "creative_twist", "explore")
+# New batches: 1 Typography-First + 4 Creative Twist + 4 Explore.
+MODE_VARIANTS = {"safe": ("A",), "creative_twist": ("A", "B", "C", "D"),
+                 "explore": ("A", "B", "C", "D")}
+# Different concepts must vary construction and visual hierarchy, not just hue.
+NEW_VARIANT_RECIPES = {
+    "safe": (
+        "Typography-First: a clean, instantly legible editorial lettering composition with compact meaning-led satin accents; no decorative clutter.",
+    ),
+    "creative_twist": (
+        "Creative Twist A — letter interaction: make one meaningful word or glyph physically interact with a small embroidery motif; keep all words readable.",
+        "Creative Twist B — visual metaphor: build the exact phrase into a familiar meaning-led object or action without replacing letters.",
+        "Creative Twist C — intentional overlap: use layered typographic hierarchy and negative space to create a distinct visual joke without obscuring text.",
+        "Creative Twist D — directional motion: use semantic gesture, lettering motion and contrasting scale to create a fourth clearly different composition.",
+    ),
+    "explore": (
+        "Explore A — experimental architecture: reflow type along a strong original geometric path or asymmetric structure.",
+        "Explore B — expressive hand-lettering: use an unexpected custom glyph silhouette and stitched rhythm, unlike the other slots.",
+        "Explore C — illustration-type fusion: integrate an original, quote-relevant scene as negative space between readable words.",
+        "Explore D — daring editorial composition: explore off-axis hierarchy, dramatic scale contrasts and layered stitch directions without losing exact quote.",
+    ),
+}
 # Pin new rendering style per job. Keep the two earlier profiles available so
 # failed/resumed jobs retain original prompts and verified slot checkpoints.
 VISUAL_PROFILE = "thread-palette-no-text-outline-v3"
@@ -46,6 +69,15 @@ THREAD_PALETTES = (
     ("Modern pop", "deep teal, coral red, warm cream, bright saffron"),
     ("Rugged character", "burnt orange, olive green, cream, muted denim blue only as an accent"),
     ("Expressive craft", "aubergine plum, copper orange, buttery gold, cool turquoise and ivory"),
+)
+# Nine palette families are slot-specific; palette alone never substitutes for
+# different word shape, meaningful layout and expressive stitch architecture.
+NINE_THREAD_PALETTES = (
+    THREAD_PALETTES[0], THREAD_PALETTES[1], THREAD_PALETTES[2],
+    THREAD_PALETTES[3], THREAD_PALETTES[4], THREAD_PALETTES[5],
+    ("Sunset script", "burnt coral, aubergine, amber yellow, ivory"),
+    ("Night carnival", "deep olive, antique rose, mustard gold, charcoal"),
+    ("Electric folk", "burgundy, pale turquoise, saffron, warm stone"),
 )
 
 
@@ -84,10 +116,13 @@ def _digest_json(data: Mapping[str, Any]) -> str:
 
 
 def _brief_plan(*, keyword: str, brief_json: Mapping[str, Any],
-                prompt_version: str, brief_id: str) -> dict:
+                prompt_version: str, brief_id: str,
+                schema_version: str = SCHEMA) -> dict:
     if prompt_version != PROMPT_VERSION:
         raise CreativeV3Error("creative_v3_brief_stale", "Creative Brief version changed. Re-analyze before generating.")
     brief = validate_brief(brief_json, keyword)
+    if schema_version not in (SCHEMA, LEGACY_SCHEMA):
+        raise CreativeV3Error("creative_v3_schema_invalid", "Unknown Stage 1 plan version.")
     if not 1 <= len(keyword) <= 150 or not keyword.strip():
         raise CreativeV3Error("creative_v3_keyword_unsupported", "Stage 1 supports an exact phrase up to 150 characters.")
     if not isinstance(brief_id, str) or not brief_id:
@@ -115,19 +150,23 @@ def _brief_plan(*, keyword: str, brief_json: Mapping[str, Any],
             "embroidery_fit": concept.embroidery_fit,
             "risks": concept.risks,
         }
-        for variant, recipe in enumerate(VARIANTS):
-            number = index * 2 + variant + 1
+        recipes = (VARIANTS if schema_version == LEGACY_SCHEMA
+                   else NEW_VARIANT_RECIPES[concept.mode])
+        variants = (("A", "B") if schema_version == LEGACY_SCHEMA
+                    else MODE_VARIANTS[concept.mode])
+        for variant, recipe in zip(variants, recipes, strict=True):
             slots.append({
-                "slot": number,
+                "slot": len(slots) + 1,
                 "mode": MODES[index],
-                "variant": "A" if variant == 0 else "B",
+                "variant": variant,
                 "concept": fields,
                 "variant_recipe": recipe,
             })
-    if len(slots) != SLOT_COUNT or len(json.dumps({"context":context,"slots":slots}, ensure_ascii=False)) > 50_000:
-        raise CreativeV3Error("creative_v3_brief_oversized", "Creative Brief is too large for a bounded six-image plan.")
+    count = LEGACY_SLOT_COUNT if schema_version == LEGACY_SCHEMA else SLOT_COUNT
+    if len(slots) != count or len(json.dumps({"context":context,"slots":slots}, ensure_ascii=False)) > 50_000:
+        raise CreativeV3Error("creative_v3_brief_oversized", "Creative Brief is too large for a bounded Stage 1 plan.")
     identity = {
-        "schema_version": SCHEMA,
+        "schema_version": schema_version,
         "brief_id": brief_id,
         "brief_prompt_version": prompt_version,
         "keyword_sha256": _digest(keyword),
@@ -145,7 +184,8 @@ def _brief_plan(*, keyword: str, brief_json: Mapping[str, Any],
     }
 
 
-def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
+def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str,
+                 schema_version: str = SCHEMA) -> dict:
     """Live, tenant-scoped source check; rejects stale, edited, or unpicked data."""
     keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
         RrugcKeywordVolumeModel.tenant_id == tenant_id,
@@ -167,6 +207,7 @@ def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
         return _brief_plan(
             keyword=keyword.keyword, brief_json=brief.brief_json,
             prompt_version=brief.prompt_version, brief_id=brief.id,
+            schema_version=schema_version,
         )
     except ValueError as exc:
         if isinstance(exc, CreativeV3Error):
@@ -175,7 +216,8 @@ def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
 
 
 def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
-    if (not isinstance(snapshot, dict) or snapshot.get("schema_version") != SCHEMA
+    if (not isinstance(snapshot, dict)
+            or snapshot.get("schema_version") != plan.get("identity", {}).get("schema_version")
             or snapshot.get("fingerprint") != plan.get("fingerprint")
             or snapshot.get("keyword_sha256") != plan.get("identity", {}).get("keyword_sha256")
             or snapshot.get("brief_id") != plan.get("identity", {}).get("brief_id")
@@ -187,7 +229,7 @@ def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
 def snapshot_for_job(plan: Mapping[str, Any]) -> dict:
     identity = plan["identity"]
     return {
-        "schema_version": SCHEMA,
+        "schema_version": identity["schema_version"],
         "fingerprint": plan["fingerprint"],
         "keyword_sha256": identity["keyword_sha256"],
         "brief_id": identity["brief_id"],
@@ -197,7 +239,7 @@ def snapshot_for_job(plan: Mapping[str, Any]) -> dict:
 
 
 def _legacy_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
-    if not isinstance(slot, int) or not 1 <= slot <= SLOT_COUNT or len(plan["slots"]) != SLOT_COUNT:
+    if not isinstance(slot, int) or not 1 <= slot <= len(plan["slots"]) or len(plan["slots"]) not in (LEGACY_SLOT_COUNT, SLOT_COUNT):
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     spec = plan["slots"][slot - 1]
     payload = {
@@ -242,10 +284,11 @@ def prompt_for_slot(
             "creative_v3_visual_profile_invalid",
             "The requested Stage 1 rendering profile is unsupported.",
         )
-    if not isinstance(slot, int) or not 1 <= slot <= SLOT_COUNT or len(plan["slots"]) != SLOT_COUNT:
+    if not isinstance(slot, int) or not 1 <= slot <= len(plan["slots"]) or len(plan["slots"]) not in (LEGACY_SLOT_COUNT, SLOT_COUNT):
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     spec = plan["slots"][slot - 1]
-    palette_name, palette_colors = THREAD_PALETTES[slot - 1]
+    nine_slots = plan["identity"]["schema_version"] == SCHEMA
+    palette_name, palette_colors = (NINE_THREAD_PALETTES if nine_slots else THREAD_PALETTES)[slot - 1]
     # Previous V2 runs must stay reproducible. New V3 jobs remove text outlines,
     # even when an already-stored Creative Brief explicitly requests a border.
     if visual_profile == VISUAL_PROFILE:
@@ -284,7 +327,8 @@ def prompt_for_slot(
         "design_direction": spec["concept"],
         "mode": spec["mode"],
         "variant": spec["variant"],
-        "variant_recipe": COLOR_VARIANTS[0 if spec["variant"] == "A" else 1],
+        "variant_recipe": (spec["variant_recipe"] if nine_slots
+                           else COLOR_VARIANTS[0 if spec["variant"] == "A" else 1]),
         "embroidery_color_direction": {
             "visual_profile": visual_profile,
             "palette_family": palette_name,
@@ -324,7 +368,11 @@ def prompt_for_slot(
         "creative_twist uses a clearly readable semantic interaction; explore uses an original "
         "expressive illustration-letter relationship. Distinct A/B variants must change "
         "composition and hierarchy, not simply recolor identical text. "
-        "ARTWORK FIT: Designed as a richly stitched master intended for later adaptation "
+        + ("For the nine-design plan, the four Creative Twist artworks MUST show "
+           "four different meaningful interactions, and the four Explore artworks MUST show "
+           "four independently designed experimental compositions. No duplicated layouts. "
+           if nine_slots else "")
+        + "ARTWORK FIT: Designed as a richly stitched master intended for later adaptation "
         "to a Valucap 8869 front crown, so retain comfortable counters, readable lettering "
         "and manageable visual complexity, without sacrificing colorful visual interest. "
         "This is NOT a cap or product mockup: output a genuine native transparent RGBA PNG "
@@ -337,4 +385,10 @@ def prompt_for_slot(
         "Apply the multicolor thread family and rich realistic fibers above. "
         "Make this visual result distinctive in composition, not merely recolored."
         + final_outline_policy
+        + (" NINE-DESIGN BATCH DIRECTIVE: This is one independent output within "
+           "a nine-design Stage 1 batch (1 Typography-First, 4 Creative Twist, "
+           "4 Explore). Older Skill notes that mention a six-slot batch or only "
+           "A/B variants describe a retired batch size. Follow THIS slot's "
+           "specific A/B/C/D direction and produce exactly one PNG."
+           if nine_slots else "")
     )

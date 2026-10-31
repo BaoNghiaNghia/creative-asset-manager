@@ -155,7 +155,7 @@ def reject_legacy_stage1_generation(settings) -> None:
         raise KeywordImageError(
             "stage1_legacy_generation_retired",
             "Stage 1 Google Fonts and legacy Skills are retired. "
-            "Open the Creative Brief and use its six-design ImageGen V3 action.",
+            "Open the Creative Brief and use its nine-design ImageGen V3 action.",
             410,
         )
 
@@ -438,7 +438,7 @@ class KeywordImageService:
         if not regenerate and job is not None:
             raise KeywordImageError(
                 "creative_v3_generate_existing",
-                "This keyword already has a Stage 1 job. Use Regenerate for a fresh six-design batch.", 409,
+                "This keyword already has a Stage 1 job. Use Regenerate for a fresh nine-design batch.", 409,
             )
         if regenerate and job is None:
             raise KeywordImageError(
@@ -465,7 +465,7 @@ class KeywordImageService:
                 keyword_text=keyword.keyword, skill_source="local", skill_id=None,
                 skill_name=SKILL, skill_version=None,
                 skill_bundle_sha256=skill_hash,
-                prompt_text="Creative Brief V1, three modes, two original image variants each.",
+                prompt_text="Creative Brief V1: 1 Typography-First, 4 Creative Twist, 4 Explore artworks.",
                 status="queued", retry_count=0, created_by_user_id=user_id,
             )
             self.session.add(job)
@@ -484,7 +484,7 @@ class KeywordImageService:
             job.skill_name = SKILL
             job.skill_version = None
             job.skill_bundle_sha256 = skill_hash
-            job.prompt_text = "Creative Brief V1, three modes, two original image variants each."
+            job.prompt_text = "Creative Brief V1: 1 Typography-First, 4 Creative Twist, 4 Explore artworks."
             job.status = "queued"
             job.retry_count = 0
             job.font_plan_json = None
@@ -521,8 +521,8 @@ class KeywordImageService:
         A fresh Regenerate instead creates a different ProcessingJob ID.
         """
         from app.modules.realistic_review_ugc.creative_v3_generation import (
-            SKILL, CONTRACT, SLOT_COUNT, enabled, resolve_plan, verify_snapshot,
-            image_provider, CreativeV3Error,
+            SKILL, CONTRACT, SLOT_COUNT, LEGACY_SLOT_COUNT, LEGACY_SCHEMA,
+            enabled, resolve_plan, verify_snapshot, image_provider, CreativeV3Error,
         )
         if not enabled(self.settings, tenant_id):
             raise KeywordImageError(
@@ -552,7 +552,9 @@ class KeywordImageService:
         snapshot = payload.get("creative_v3")
         if (not isinstance(snapshot, dict) or payload.get("upload_only")
                 or payload.get("replace_outputs")
-                or payload.get("expected_output_count") != SLOT_COUNT):
+                or payload.get("expected_output_count") not in (SLOT_COUNT, LEGACY_SLOT_COUNT)
+                or (snapshot.get("schema_version") == LEGACY_SCHEMA) !=
+                    (payload.get("expected_output_count") == LEGACY_SLOT_COUNT)):
             raise KeywordImageError(
                 "creative_v3_retry_payload_invalid",
                 "The original V3 generation snapshot is unavailable. Use Regenerate.", 409,
@@ -572,7 +574,10 @@ class KeywordImageService:
                 "The Creative Brief revision changed. Review it and Regenerate.", 409,
             )
         try:
-            plan = resolve_plan(self.session, tenant_id=tenant_id, keyword_id=keyword_id)
+            plan = resolve_plan(
+                self.session, tenant_id=tenant_id, keyword_id=keyword_id,
+                schema_version=snapshot.get("schema_version"),
+            )
             verify_snapshot(plan, snapshot)
         except CreativeV3Error as exc:
             raise KeywordImageError(
@@ -958,7 +963,7 @@ class KeywordImageService:
                     and processing and processing.status == "failed"
                     and not processing.cancellation_requested
                     and isinstance((processing.payload_json or {}).get("creative_v3"), dict)
-                    and (processing.payload_json or {}).get("expected_output_count") == 6
+                    and (processing.payload_json or {}).get("expected_output_count") in (6, 9)
                     and not (processing.payload_json or {}).get("upload_only")
                     and not (processing.payload_json or {}).get("replace_outputs")
                     and int((processing.payload_json or {}).get("manual_retry_count") or 0) < 3
@@ -1543,10 +1548,13 @@ class KeywordImageGenerateHandler:
                         return resolve_plan(
                             brief_session, tenant_id=context.job.tenant_id,
                             keyword_id=job.keyword_id,
+                            schema_version=creative_v3_snapshot.get("schema_version"),
                         )
 
                 try:
                     current_plan = live_plan()
+                    if len(current_plan["slots"]) != output_count:
+                        raise CreativeV3Error("creative_v3_slot_count_changed", "Pinned Stage 1 output count changed.")
                     verify_snapshot(current_plan, creative_v3_snapshot)
                     if current_plan["keyword_exact"] != keyword_text:
                         raise CreativeV3Error("creative_v3_source_changed", "Exact keyword changed.")

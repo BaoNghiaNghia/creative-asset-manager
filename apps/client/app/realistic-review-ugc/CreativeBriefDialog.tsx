@@ -30,9 +30,9 @@ const CONCEPT_MODES: Record<KeywordCreativeConcept["mode"], {
 };
 
 const ANALYSIS_STEPS = [
-  { number: "01", title: "Typography-First", description: "Clear, familiar lettering that reads instantly" },
-  { number: "02", title: "Creative Twist", description: "One meaningful interaction with the quote" },
-  { number: "03", title: "Explore", description: "An unexpected visual approach worth testing" },
+  { number: "01", title: "Typography-First · 1 design", description: "Clear, familiar lettering that reads instantly" },
+  { number: "02", title: "Creative Twist · 4 designs", description: "Four different meaning-led interactions, not recolors" },
+  { number: "03", title: "Explore · 4 designs", description: "Four experimental layouts and stitch directions" },
 ];
 
 function ConceptField({ title, children }: { title: string; children: string }) {
@@ -80,7 +80,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   useEffect(() => {
     const controller = new AbortController();
     void getCreativeV3GenerationStatus(controller.signal).then(result => {
-      if (!controller.signal.aborted) setV3Available(result.available && result.output_count === 6);
+      if (!controller.signal.aborted) setV3Available(result.available && result.output_count === 9);
     }).catch(() => { if (!controller.signal.aborted) setV3Available(false); });
     return () => controller.abort();
   }, []);
@@ -275,7 +275,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
             <aside className="rrugc-creative-brief-preview" aria-label="Creative Brief analysis outline">
               <div className="rrugc-creative-brief-preview-header">
                 <span>WHAT YOU'LL GET</span>
-                <strong>3 distinct concept routes</strong>
+                <strong>9 designs · 3 creative routes</strong>
               </div>
               <div className="rrugc-creative-brief-preview-list">
                 {ANALYSIS_STEPS.map((item, index) => <div key={item.number} className="rrugc-creative-brief-preview-item">
@@ -319,7 +319,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
               <div className="rrugc-creative-brief-section-heading">
                 <div><span className="rrugc-creative-brief-section-tag">02 / CONCEPT DIRECTIONS</span>
                   <h3>Choose a design direction</h3></div>
-                <span>{brief.concepts.length} concepts · Select to compare</span>
+                <span>{brief.concepts.length} routes · 9 designs (1 / 4 / 4) · Select to compare</span>
               </div>
               <div className="rrugc-creative-brief-workspace">
                 <div className="rrugc-creative-brief-proposals" role="group" aria-label="Select a concept">
@@ -397,16 +397,16 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
             {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
               <div>
                 <strong>Creative Engine V3 · Embroidery masters</strong>
-                <p>{hasExistingStage1Job ? "Regenerate a completely new six-design V3 batch without reusing previous images." : "Generate 6 transparent Stage 1 embroidery artworks: 2 variants for each of the 3 concepts."} Existing Output History is preserved.</p>
+                <p>{hasExistingStage1Job ? "Regenerate a completely new 9-design V3 batch without reusing previous images." : "Generate 9 transparent Stage 1 embroidery artworks: 1 Typography-First · 4 Creative Twist · 4 Explore."} Existing Output History is preserved.</p>
                 <small>Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
               </div>
               <button type="button" className="rrugc-creative-brief-primary"
                 onClick={() => void generateImages()}
                 disabled={imageBusy || v3Queued || stage1Busy || !detail?.updated_at}>
                 <RrugcActionIcon name="sparkles" />
-                {v3Queued ? "6 images queued" : stage1Busy ? "Stage 1 job active" : imageBusy ? "Adding to queue…" : hasExistingStage1Job ? confirmImageRegenerate ? "Confirm new six-design batch" : "Regenerate 6 designs" : "Generate 6 embroidery designs"}
+                {v3Queued ? "9 images queued" : stage1Busy ? "Stage 1 job active" : imageBusy ? "Adding to queue…" : hasExistingStage1Job ? confirmImageRegenerate ? "Confirm new nine-design batch" : "Regenerate 9 designs" : "Generate 9 embroidery designs"}
               </button>
-              {confirmImageRegenerate && !v3Queued && <p role="status" className="rrugc-creative-v3-queued">Confirm again to create six fresh designs. The previous images remain available in Output History.</p>}
+              {confirmImageRegenerate && !v3Queued && <p role="status" className="rrugc-creative-v3-queued">Confirm again to create nine fresh designs. The previous images remain available in Output History.</p>}
               {v3Queued && <p role="status" className="rrugc-creative-v3-queued">Job queued in Stage 1. You can close this brief and follow its progress in the keyword row.</p>}
             </section>}
           </>}

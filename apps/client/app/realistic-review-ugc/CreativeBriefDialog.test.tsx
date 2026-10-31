@@ -82,7 +82,7 @@ beforeEach(() => {
   onClose = vi.fn();
   vi.mocked(generateKeywordCreativeBrief).mockResolvedValue({} as never);
   vi.mocked(getCreativeV3GenerationStatus).mockResolvedValue({
-    available: false, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+    available: false, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
   });
   vi.mocked(regenerateCreativeV3Stage1Images).mockResolvedValue({
     keyword_id: keywordId, job_id: "job-1", processing_job_id: "new-processing-id",
@@ -90,7 +90,7 @@ beforeEach(() => {
   });
   vi.mocked(generateCreativeV3Stage1Images).mockResolvedValue({
     keyword_id: keywordId, job_id: "job-1", status: "queued",
-    queued: true, expected_output_count: 6,
+    queued: true, expected_output_count: 9,
   });
 });
 
@@ -108,7 +108,10 @@ describe("Creative Brief V1 modal redesign", () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("CREATIVE DICTATOR");
     expect(dialog?.textContent).toContain("A stronger idea starts with the meaning.");
-    expect(dialog?.textContent).toContain("3 distinct concept routes");
+    expect(dialog?.textContent).toContain("9 designs · 3 creative routes");
+    expect(dialog?.textContent).toContain("Typography-First · 1 design");
+    expect(dialog?.textContent).toContain("Creative Twist · 4 designs");
+    expect(dialog?.textContent).toContain("Explore · 4 designs");
     expect(dialog?.textContent).toContain("Stage 1 images and Output History remain unchanged.");
     expect(document.querySelectorAll(".rrugc-creative-brief-preview-item")).toHaveLength(3);
     await act(async () => {
@@ -228,13 +231,13 @@ describe("Creative Brief V1 modal redesign", () => {
 
   it("requires two explicit clicks and uses Regenerate for a keyword with existing Stage 1 history", async () => {
     vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
-      available: true, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
     });
     await renderDialog(makeDetail("completed", true), true);
     const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
-    expect(button?.textContent).toContain("Regenerate 6 designs");
+    expect(button?.textContent).toContain("Regenerate 9 designs");
     await act(async () => { button?.click(); await Promise.resolve(); });
-    expect(button?.textContent).toContain("Confirm new six-design batch");
+    expect(button?.textContent).toContain("Confirm new nine-design batch");
     expect(regenerateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
@@ -242,18 +245,18 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(button?.disabled).toBe(true);
   });
 
-  it("queues all six V1-grounded embroidery slots only on a direct user click", async () => {
+  it("queues nine 1/4/4 embroidery slots only on a direct user click", async () => {
     vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
-      available: true, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
     });
     await renderDialog(makeDetail("completed", true));
     const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
-    expect(button?.textContent).toContain("Generate 6 embroidery designs");
+    expect(button?.textContent).toContain("Generate 9 embroidery designs");
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
-    expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("6 images queued");
+    expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("9 images queued");
     expect(button?.disabled).toBe(true);
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
   });

@@ -292,9 +292,9 @@ export function KeywordImageRowControls({
         className={"rrugc-keyword-result-action is-primary is-" + primaryAction}
         onClick={event => primaryAction === "generate" ? onRun("generate") : askConfirm(primaryAction, event.currentTarget)}
         disabled={actionDisabled}
-        title={primaryAction === "generate" ? "Generate six designs from Creative Brief V3"
+        title={primaryAction === "generate" ? "Generate 9 designs from Creative Brief V3"
           : primaryAction === "retry" ? "Retry the failed V3 attempt using saved checkpoints"
-            : "Regenerate six fresh V3 designs; previous outputs stay in history"}
+            : "Regenerate 9 fresh V3 designs; previous outputs stay in history"}
         aria-label={(primaryAction === "generate" ? "Generate " : primaryAction === "retry" ? "Retry " : "Regenerate ") + row.keyword}>
         <KeywordActionGlyph kind={primaryAction} />
         <span className="rrugc-keyword-action-label">{primaryAction === "generate" ? "Generate" : primaryAction === "retry" ? "Retry" : "Regenerate"}</span>
@@ -346,11 +346,11 @@ export function KeywordImageRowControls({
         <section className="rrugc-keyword-regenerate-dialog" role="dialog" aria-modal="true"
           aria-labelledby="rrugc-regenerate-title" aria-describedby="rrugc-regenerate-description">
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind={confirmAction} /></div>
-          <h2 id="rrugc-regenerate-title">{confirmAction === "retry" ? "Retry failed V3 attempt?" : "Regenerate six new designs?"}</h2>
+          <h2 id="rrugc-regenerate-title">{confirmAction === "retry" ? "Retry failed V3 attempt?" : "Regenerate 9 new designs?"}</h2>
           <p id="rrugc-regenerate-description">
             <strong>{row.keyword}</strong> — {confirmAction === "retry"
               ? "Continue the same failed Creative Brief V3 attempt. Valid PNG checkpoints and already uploaded images will be reused, so completed slots will not be generated again."
-              : "Start a brand-new Creative Brief V3 batch (3 concepts × 2 variants). No images from the previous attempt will be reused."}
+              : "Start a brand-new Creative Brief V3 batch (1 Typography-First + 4 Creative Twist + 4 Explore). No images from the previous attempt will be reused."}
             {" "}All existing Stage 1 images and Output History stay protected.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
@@ -472,7 +472,7 @@ export function KeywordImageStage({
     if (!jobsActive) return;
     const controller = new AbortController();
     void getCreativeV3GenerationStatus(controller.signal)
-      .then(result => { if (!controller.signal.aborted) setCreativeV3Ready(result.available && result.output_count === 6); })
+      .then(result => { if (!controller.signal.aborted) setCreativeV3Ready(result.available && result.output_count === 9); })
       .catch(() => { if (!controller.signal.aborted) setCreativeV3Ready(false); });
     return () => controller.abort();
   }, [jobsActive]);
@@ -576,7 +576,7 @@ export function KeywordImageStage({
       // The backend enforces this as well, including for stale clients and
       // requests sent directly to the former Stage 1 endpoints.
       const capability = await getCreativeV3GenerationStatus();
-      if (!capability.available || capability.output_count !== 6) {
+      if (!capability.available || capability.output_count !== 9) {
         throw new Error("Creative Brief V3 ImageGen is unavailable. No legacy Skill was run.");
       }
       setCreativeV3Ready(true);
@@ -586,14 +586,14 @@ export function KeywordImageStage({
       if (outcome === "images_queued") {
         setMessage((action === "retry"
           ? "V3 Retry queued: continuing the failed attempt and reusing verified checkpoints for "
-          : action === "regenerate" ? "Fresh six-design V3 regeneration queued for "
-            : "Creative Brief V3 six-design generation queued for ") + row.keyword
+          : action === "regenerate" ? "Fresh nine-design V3 regeneration queued for "
+            : "Creative Brief V3 nine-design generation queued for ") + row.keyword
           + ". Previous Output History remains protected.");
       } else {
         setBriefTarget({ id: row.keyword_id, keyword: row.keyword, hasJob: Boolean(row.job_id), jobStatus: row.status });
         setMessage(outcome === "brief_queued"
-          ? "Creative Brief analysis queued for " + row.keyword + ". Open the brief to generate six images once ready."
-          : "Creative Brief analysis is in progress for " + row.keyword + ". Generate six images when analysis completes.");
+          ? "Creative Brief analysis queued for " + row.keyword + ". Open the brief to generate nine images once ready."
+          : "Creative Brief analysis is in progress for " + row.keyword + ". Generate nine images when analysis completes.");
       }
       await refresh();
     } catch (reason) {
@@ -611,7 +611,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : stageView === "ideas" ? "STAGE 1 / TYPOGRAPHY IDEAS" : "STAGE 1 / STYLE LAB"}
       title={showKeywordJobs ? "Generate images from used keywords" : stageView === "ideas" ? "Typography Ideas Library" : "Balanced Typography Style Lab"}
-      description={showKeywordJobs ? "Generate six original artwork designs per keyword from its Creative Brief: three directions, two variants each. Legacy Google Fonts generation is retired."
+      description={showKeywordJobs ? "Generate nine original artwork designs per keyword from its Creative Brief: 1 Typography-First, 4 Creative Twist, 4 Explore. Legacy Google Fonts generation is retired."
         : stageView === "ideas" ? "Explore, upload and review typography references before using them in new keyword designs."
           : "Explore original vector drafts with approved Style DNA. No AI generation or job is created."}
       actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
@@ -671,7 +671,7 @@ export function KeywordImageStage({
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>Meaning-first artwork · 3 concepts × 2 variants · transparent PNG · historical outputs are preserved.</span>
+        <span>Meaning-first artwork · 9 designs (1 Typography-First · 4 Creative Twist · 4 Explore) · transparent PNG · historical outputs are preserved.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
@@ -729,7 +729,9 @@ export function KeywordImageStage({
                     : "Meaning-first Creative Brief V3"}>{row.job_id && row.skill_name !== "creative-brief-v3"
                       ? "Legacy output" : "Creative Brief V3"}</span>
                   <small>{row.job_id && row.skill_name !== "creative-brief-v3"
-                    ? "Archived · Regenerate with V3" : row.status === "not_run" ? "Next run" : "3 concepts × 2 variants"}</small>
+                    ? "Archived · Regenerate with V3" : row.status === "not_run" ? "Next run"
+                    : row.expected_output_count === 6 && row.job_id ? "6 designs · prior batch"
+                    : "9 designs · 1 / 4 / 4"}</small>
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
                   <Stage1JobStatusBadge row={row} />

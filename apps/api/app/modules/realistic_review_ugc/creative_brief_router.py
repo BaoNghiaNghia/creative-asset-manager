@@ -45,10 +45,11 @@ def creative_v3_generate(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
-    """Explicit, revision-bound six-image run using the existing Stage 1 queue."""
+    """Explicit, revision-bound nine-image run using the existing Stage 1 queue."""
     from app.modules.realistic_review_ugc.keyword_images import (
         KeywordImageError, KeywordImageService,
     )
+    from app.modules.realistic_review_ugc.creative_v3_generation import SLOT_COUNT
     try:
         job = KeywordImageService(session, get_settings()).queue_creative_v3(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
@@ -57,7 +58,7 @@ def creative_v3_generate(
         )
         return {"keyword_id": keyword_id, "job_id": job.id,
                 "status": job.status, "queued": True,
-                "engine": "creative-v3", "expected_output_count": 6}
+                "engine": "creative-v3", "expected_output_count": SLOT_COUNT}
     except KeywordImageError as exc:
         session.rollback()
         raise HTTPException(status_code=exc.status_code, detail={
@@ -76,8 +77,9 @@ def creative_v3_regenerate(
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
-    """Explicit fresh six-image run, independent of all prior checkpoints."""
+    """Explicit fresh nine-image run, independent of all prior checkpoints."""
     from app.modules.realistic_review_ugc.keyword_images import KeywordImageError, KeywordImageService
+    from app.modules.realistic_review_ugc.creative_v3_generation import SLOT_COUNT
     if body.confirm_regenerate is not True:
         raise HTTPException(status_code=422, detail="Confirm Regenerate before creating a new V3 batch.")
     try:
@@ -92,7 +94,7 @@ def creative_v3_regenerate(
             "keyword_id": keyword_id, "job_id": job.id,
             "processing_job_id": job.processing_job_id,
             "status": job.status, "queued": True, "action": "regenerate",
-            "engine": "creative-v3", "expected_output_count": 6,
+            "engine": "creative-v3", "expected_output_count": SLOT_COUNT,
         }
     except KeywordImageError as exc:
         session.rollback()
@@ -124,11 +126,14 @@ def creative_v3_retry(
             expected_brief_updated_at=body.expected_brief_updated_at,
             expected_processing_job_id=body.expected_processing_job_id,
         )
+        from app.modules.processing.model import ProcessingJobModel
+        processing = session.get(ProcessingJobModel, job.processing_job_id)
         return {
             "keyword_id": keyword_id, "job_id": job.id,
             "processing_job_id": job.processing_job_id,
             "status": job.status, "queued": True, "action": "retry",
-            "engine": "creative-v3", "expected_output_count": 6,
+            "engine": "creative-v3", "expected_output_count":
+                (processing.payload_json or {}).get("expected_output_count", 6) if processing else 6,
         }
     except KeywordImageError as exc:
         session.rollback()

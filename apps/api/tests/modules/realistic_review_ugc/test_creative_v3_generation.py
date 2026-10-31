@@ -1,4 +1,4 @@
-"""Creative Brief V1 -> real Stage 1 ImageGen gates and 6-slot contracts."""
+"""Creative Brief V1 -> 9-image generation with backwards-compatible 6-image snapshots."""
 import asyncio
 import json
 from pathlib import Path
@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
 from app.modules.realistic_review_ugc.creative_v3_generation import (
-    SCHEMA, SKILL, CONTRACT, VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE,
-    LEGACY_VISUAL_PROFILE,
-    THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
+    SCHEMA, LEGACY_SCHEMA, SLOT_COUNT, LEGACY_SLOT_COUNT, SKILL, CONTRACT,
+    VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
+    THREAD_PALETTES, NINE_THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.creative_v3_runner import _checked_png
@@ -68,12 +68,15 @@ def settings(on=True):
 def test_mode_to_slot_contract_and_real_prompt_directions():
     data = plan()
     assert [s["mode"] for s in data["slots"]] == [
-        "safe", "safe", "creative_twist", "creative_twist", "explore", "explore",
+        "safe", *["creative_twist"] * 4, *["explore"] * 4,
     ]
-    assert [s["variant"] for s in data["slots"]] == ["A","B","A","B","A","B"]
+    assert [s["variant"] for s in data["slots"]] == [
+        "A", "A", "B", "C", "D", "A", "B", "C", "D",
+    ]
+    assert SLOT_COUNT == 9
     assert data["fingerprint"] == plan()["fingerprint"]
-    assert all("CREATIVE DICTATOR" in prompt_for_slot(data, i) for i in range(1, 7))
-    for i in range(1, 7):
+    assert all("CREATIVE DICTATOR" in prompt_for_slot(data, i) for i in range(1, 10))
+    for i in range(1, 10):
         prompt = prompt_for_slot(data, i)
         assert '"creative_hook": "Hook ' + data["slots"][i-1]["mode"] in prompt
         assert "authentic" not in prompt or "satin" in prompt
@@ -92,7 +95,7 @@ def test_mode_to_slot_contract_and_real_prompt_directions():
 def test_exact_unicode_punctuation_preserved(word):
     data = plan(word)
     assert data["keyword_exact"] == word
-    assert all(word in prompt_for_slot(data, i) for i in range(1, 7))
+    assert all(word in prompt_for_slot(data, i) for i in range(1, 10))
 
 
 def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
@@ -104,10 +107,10 @@ def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
         c["embroidery_plan"] = "Dùng một màu chỉ, ưu tiên thêu phẳng."
     data = _brief_plan(keyword="CREATIVE DICTATOR", brief_json=old,
                        prompt_version=PROMPT_VERSION, brief_id="old-brief")
-    prompts = [prompt_for_slot(data, i) for i in range(1, 7)]
-    assert len(set(prompts)) == 6
-    assert len({family for family, _ in THREAD_PALETTES}) == 6
-    assert len({colors for _, colors in THREAD_PALETTES}) == 6
+    prompts = [prompt_for_slot(data, i) for i in range(1, 10)]
+    assert len(set(prompts)) == 9
+    assert len({family for family, _ in NINE_THREAD_PALETTES}) == 9
+    assert len({colors for _, colors in NINE_THREAD_PALETTES}) == 9
     for i, prompt in enumerate(prompts):
         assert "CREATIVE DICTATOR" in prompt
         assert "Dùng một màu chỉ" in prompt  # original data remains untouched
@@ -119,15 +122,12 @@ def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
         assert "No cream/ivory/white/black contrasting outline" in prompt
         assert "accent/outline hues" not in prompt
         assert "Use contrasting embroidered outlines" not in prompt
-        assert THREAD_PALETTES[i][0] in prompt
-        assert THREAD_PALETTES[i][1] in prompt
+        assert NINE_THREAD_PALETTES[i][0] in prompt
+        assert NINE_THREAD_PALETTES[i][1] in prompt
         assert "no white canvas" in prompt
         assert "FINAL ART DIRECTION" in prompt
         assert '"exact_phrase": "CREATIVE DICTATOR"' in prompt
-        if i % 2 == 0:
-            assert "Version A: prioritize immediate readability" in prompt
-        else:
-            assert "Version B: materially change composition" in prompt
+        assert data["slots"][i]["variant_recipe"] in prompt
 
 
 def test_no_outline_profile_supersedes_explicit_outline_in_stored_brief():
@@ -138,7 +138,7 @@ def test_no_outline_profile_supersedes_explicit_outline_in_stored_brief():
         keyword="Will travel for disco", brief_json=old,
         prompt_version=PROMPT_VERSION, brief_id="existing-outline-brief",
     )
-    for slot in range(1, 7):
+    for slot in range(1, 10):
         prompt = prompt_for_slot(data, slot)
         assert "Thêu viền trắng quanh từng chữ" in prompt  # immutable source DATA
         assert "FINAL NO-TEXT-OUTLINE POLICY (OVERRIDES ALL OLDER BRIEF DATA)" in prompt
@@ -188,6 +188,28 @@ def test_snapshot_changes_with_source_and_keyword_and_cannot_be_forged():
         verify_snapshot(plan("CREATIVE DICTATORS"), snapshot)
     with pytest.raises(CreativeV3Error):
         verify_snapshot(data, {**snapshot, "source_sha256": "0" * 64})
+
+
+def test_legacy_six_slot_snapshot_remains_retriable_without_changing_old_contract():
+    old = _brief_plan(
+        keyword="CREATIVE DICTATOR", brief_json=brief(), prompt_version=PROMPT_VERSION,
+        brief_id="brief-a", schema_version=LEGACY_SCHEMA,
+    )
+    assert old["identity"]["schema_version"] == LEGACY_SCHEMA
+    assert len(old["slots"]) == LEGACY_SLOT_COUNT == 6
+    assert [s["mode"] for s in old["slots"]] == [
+        "safe", "safe", "creative_twist", "creative_twist", "explore", "explore"
+    ]
+    assert [s["variant"] for s in old["slots"]] == ["A", "B", "A", "B", "A", "B"]
+    old_snapshot = snapshot_for_job(old)
+    verify_snapshot(old, old_snapshot)
+    assert len({prompt_for_slot(old, i) for i in range(1, 7)}) == 6
+    assert "Version A: prioritize immediate readability" in prompt_for_slot(old, 1)
+    # An existing six-design processing job must not silently become nine.
+    with pytest.raises(CreativeV3Error):
+        verify_snapshot(plan(), old_snapshot)
+    with pytest.raises(CreativeV3Error):
+        verify_snapshot(old, snapshot_for_job(plan()))
 
 
 def test_feature_gate_requires_every_explicit_condition():
@@ -253,7 +275,7 @@ def test_v3_generated_image_contract_cannot_be_misrepresented_as_png_spelling_pr
     assert data["image_spelling_verified"] is False
     assert data["stage2_handoff_performed"] is False
 
-def test_native_six_slot_worker_creates_six_unique_g5_finals(tmp_path, monkeypatch):
+def test_native_nine_slot_worker_creates_nine_unique_g5_finals(tmp_path, monkeypatch):
     import asyncio
     from contextlib import contextmanager
     from app.modules.image_generation.providers import GeneratedImageResult
@@ -304,8 +326,8 @@ def test_native_six_slot_worker_creates_six_unique_g5_finals(tmp_path, monkeypat
         CODEX_IMAGE_BINARY="codex", CODEX_IMAGE_TIMEOUT_SECONDS=60, CODEX_IMAGE_MODEL="")
     result = asyncio.run(generate_six(context=fake_context, settings=config,
         plan=plan_data, snapshot=source, revalidate=lambda: plan_data))
-    assert len(calls) == 6
-    assert len(result.output_files) == 6
+    assert len(calls) == 9
+    assert len(result.output_files) == 9
     assert all(file.filename == f"output/final/design_{i:02}.png"
                for i, file in enumerate(result.output_files, start=1))
     assert result.provider_metadata["image_spelling_verified"] is False
@@ -313,7 +335,7 @@ def test_native_six_slot_worker_creates_six_unique_g5_finals(tmp_path, monkeypat
     # Re-entry with the same verified checkpoints must never issue paid calls.
     result_again = asyncio.run(generate_six(context=fake_context, settings=config,
         plan=plan_data, snapshot=source, revalidate=lambda: plan_data))
-    assert len(result_again.output_files) == 6 and len(calls) == 6
+    assert len(result_again.output_files) == 9 and len(calls) == 9
 
 
 def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1(tmp_path, monkeypatch):
@@ -381,7 +403,7 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
                 expected_brief_updated_at=brief_row.updated_at.isoformat())
             processing = session.get(ProcessingJobModel, result.processing_job_id)
             assert result.status == "queued"
-            assert processing.payload_json["expected_output_count"] == 6
+            assert processing.payload_json["expected_output_count"] == 9
             assert processing.payload_json["creative_v3"]["provider"] == "codex"
             assert processing.provider_key == "codex"
             assert processing.payload_json["creative_v3"]["visual_profile"] == VISUAL_PROFILE
@@ -492,6 +514,21 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
                 expected_brief_updated_at=revision,
             )
             attempt = session.get(ProcessingJobModel, job.processing_job_id)
+            # Simulate a previously queued six-image V3 job that survived
+            # this nine-image release. Retry must keep six, Regenerate nine.
+            original_plan = _brief_plan(
+                keyword=word, brief_json=brief(word), brief_id=source.id,
+                prompt_version=PROMPT_VERSION, schema_version=LEGACY_SCHEMA,
+            )
+            attempt.payload_json = {
+                **attempt.payload_json,
+                "expected_output_count": LEGACY_SLOT_COUNT,
+                "creative_v3": {
+                    **snapshot_for_job(original_plan),
+                    "provider": "codex",
+                    "provider_sha256": "a" * 64,
+                },
+            }
             original_id = attempt.id
             first_snapshot = dict(attempt.payload_json["creative_v3"])
             job.status = "failed"
@@ -524,6 +561,7 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
             assert attempt.attempt_count == 0
             assert attempt.payload_json["manual_retry_count"] == 1
             assert attempt.payload_json["creative_v3"] == first_snapshot
+            assert attempt.payload_json["expected_output_count"] == LEGACY_SLOT_COUNT
             assert session.query(ProcessingJobModel).count() == 1
             assert session.query(RrugcImageOutputVersionModel).count() == 1
             with pytest.raises(KeywordImageError) as duplicate:
@@ -547,7 +585,9 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
             assert session.query(RrugcImageOutputVersionModel).count() == 1
             assert new.output_remote_file_id == "older-published-design"
             next_processing = session.get(ProcessingJobModel, new.processing_job_id)
-            assert next_processing.payload_json["creative_v3"] == first_snapshot
+            assert next_processing.payload_json["creative_v3"] != first_snapshot
+            assert next_processing.payload_json["creative_v3"]["schema_version"] == SCHEMA
+            assert next_processing.payload_json["expected_output_count"] == SLOT_COUNT
             assert next_processing.payload_json.get("replace_outputs") is None
 
             # A new V3 run can no longer Retry the retired failed processing ID.
@@ -561,7 +601,7 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
         engine.dispose()
 
 
-def test_native_v3_worker_creates_six_verified_distinct_private_files(tmp_path, monkeypatch):
+def test_native_v3_worker_creates_nine_verified_distinct_private_files(tmp_path, monkeypatch):
     from contextlib import contextmanager
     from app.modules.realistic_review_ugc import creative_v3_runner as worker
 
@@ -616,15 +656,15 @@ def test_native_v3_worker_creates_six_verified_distinct_private_files(tmp_path, 
         context=ctx, settings=cfg, plan=src, snapshot=snapshot_for_job(src),
         revalidate=lambda: src,
     ))
-    assert len(result.output_files) == 6
-    assert len(generated_prompts) == 6
-    assert len(set(generated_prompts)) == 6
+    assert len(result.output_files) == 9
+    assert len(generated_prompts) == 9
+    assert len(set(generated_prompts)) == 9
     assert all("MULTICOLOR THREAD DIRECTIVE" in p for p in generated_prompts)
-    assert len(cleaned) == 6
+    assert len(cleaned) == 9
     assert all(sha256(open(item.path, "rb").read()).hexdigest()
                for item in result.output_files)
     assert [item.filename for item in result.output_files] == [
-        f"output/final/design_{number:02}.png" for number in range(1, 7)
+        f"output/final/design_{number:02}.png" for number in range(1, 10)
     ]
     assert result.provider_metadata["image_spelling_verified"] is False
     # A later regenerate uses a different ProcessingJob ID and cannot reuse

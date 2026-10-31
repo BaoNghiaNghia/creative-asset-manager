@@ -1,9 +1,9 @@
-"""Native ImageGen six-slot adapter for explicitly queued Creative Brief V3.
+"""Native ImageGen nine-slot adapter with resume support for legacy six-slot V3.
 
 Reuses the existing Stage 1 worker and output upload/history pipeline. Each
 slot is an independent native image with verified cache provenance; no
 deterministic faux-embroidery fallback, automatic publishing to Stage 2 or OCR
-claims. A partial six-slot batch remains private until all files pass G5 QA.
+claims. A partial batch remains private until all files pass G5 QA.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping
 from app.modules.image_generation.providers import GeneratedImageFile, GeneratedImageResult
 from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
 from app.modules.realistic_review_ugc.creative_v3_generation import (
-    CONTRACT, SKILL, SLOT_COUNT, LEGACY_VISUAL_PROFILE,
+    CONTRACT, SKILL, SLOT_COUNT, LEGACY_SLOT_COUNT, LEGACY_VISUAL_PROFILE,
     CreativeV3Error, enabled, prompt_for_slot, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
@@ -71,7 +71,7 @@ async def generate_six(
     plan: Mapping[str, Any], snapshot: Mapping[str, Any],
     revalidate: Callable[[], Mapping[str, Any]],
 ) -> GeneratedImageResult:
-    """Only the live six-plan with the pinned source snapshot may execute.
+    """Only a live nine- or legacy six-plan with pinned source may execute.
 
     The caller has already checked authorization, job type and the explicit
     server opt-in; we also check at every paid provider boundary.
@@ -80,8 +80,9 @@ async def generate_six(
     if not enabled(settings, tenant_id):
         raise _fail("creative_v3_disabled", "Creative Engine V3 ImageGen is not enabled.")
     verify_snapshot(plan, snapshot)
-    if len(plan["slots"]) != SLOT_COUNT:
-        raise _fail("creative_v3_slots_invalid", "Expected six Creative Brief V1 variants.")
+    count = len(plan["slots"])
+    if count not in (LEGACY_SLOT_COUNT, SLOT_COUNT):
+        raise _fail("creative_v3_slots_invalid", "Invalid Creative Brief V3 output count.")
     # Processing job ID isolates new V3 attempts from the keyword's existing
     # legacy Stage 1 checkpoints. Never silently relabel old images as V3.
     # Each ProcessingJob ID has an isolated workspace. Regeneration reuses
@@ -102,7 +103,7 @@ async def generate_six(
             session.commit()
             context.logger.info("rrugc_creative_v3_native_dispatch", extra={
                 "job_id": context.job.id, "tenant_id": tenant_id, "account_id": account_id,
-                "slots": SLOT_COUNT,
+                "slots": count,
             })
             native_runner = CodexImageGenRunner(CodexImageRunnerConfig(
                 binary=binary, codex_home=home,
@@ -114,7 +115,7 @@ async def generate_six(
                 expected_output_count=1,
                 execution_log_id=context.job.id,
             ))
-            for slot in range(1, SLOT_COUNT + 1):
+            for slot in range(1, count + 1):
                 if context.is_cancelled:
                     raise _fail("creative_v3_cancelled", "User cancelled Creative V3 generation.")
                 if not enabled(settings, tenant_id):
@@ -176,8 +177,8 @@ async def generate_six(
                     mime_type="image/png",
                 ))
     verify_snapshot(revalidate(), snapshot)
-    if len(outputs) != SLOT_COUNT or len(seen) != SLOT_COUNT:
-        raise _fail("creative_v3_six_outputs_required", "All six distinct images are required.")
+    if len(outputs) != count or len(seen) != count:
+        raise _fail("creative_v3_outputs_required", f"All {count} distinct images are required.")
     return GeneratedImageResult(
         provider="codex", model=str(settings.CODEX_IMAGE_MODEL).strip() or None,
         image_bytes=b"", mime_type="image/png",
