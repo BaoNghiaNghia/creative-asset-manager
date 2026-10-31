@@ -950,6 +950,7 @@ class KeywordImageRowResponse(BaseModel):
     source_image_url: str | None = None
     status: Literal["not_run", "queued", "running", "completed", "failed"]
     job_id: str | None = None
+    processing_job_id: str | None = None
     skill_name: str | None = None
     skill_version: str | None = None
     retry_count: int = 0

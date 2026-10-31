@@ -309,9 +309,16 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             result.output_remote_file_id = "prior-stage1-drive-image"
             processing.status = "completed"
             session.commit()
+            with pytest.raises(KeywordImageError) as old_generate:
+                svc.queue_creative_v3(
+                    tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
+                    expected_brief_updated_at=brief_row.updated_at.isoformat(),
+                )
+            assert old_generate.value.code == "creative_v3_generate_existing"
             next_job = svc.queue_creative_v3(
                 tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
-                expected_brief_updated_at=brief_row.updated_at.isoformat())
+                expected_brief_updated_at=brief_row.updated_at.isoformat(),
+                regenerate=True)
             assert next_job.id == result.id
             assert next_job.output_remote_file_id == "prior-stage1-drive-image"
             assert next_job.processing_job_id != processing.id
@@ -320,6 +327,136 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             assert fresh.payload_json.get("replace_outputs") is None
     finally:
         engine.dispose()
+
+def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_path, monkeypatch):
+    """Retry must not repeat uploaded/checkpointed slots; Regenerate always starts fresh."""
+    from app.modules.processing.model import ProcessingJobModel
+    from app.modules.processing.repository import ProcessingRepository
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageError, KeywordImageService
+    from app.modules.realistic_review_ugc.model import RrugcKeywordImageJobModel, RrugcImageOutputVersionModel
+
+    engine = create_engine("sqlite://")
+    for table in (RrugcKeywordVolumeModel.__table__, RrugcKeywordCreativeBriefModel.__table__,
+                  RrugcKeywordImageJobModel.__table__, ProcessingJobModel.__table__,
+                  RrugcImageOutputVersionModel.__table__):
+        table.create(engine)
+    try:
+        with Session(engine) as session:
+            word = "CREATIVE DICTATOR"
+            kw = RrugcKeywordVolumeModel(
+                id=str(uuid4()), tenant_id="tenant-a", keyword=word,
+                keyword_normalized=word.lower(), picked=True, search_volume=3)
+            source = RrugcKeywordCreativeBriefModel(
+                id=str(uuid4()), tenant_id="tenant-a", keyword_id=kw.id,
+                keyword_sha256=sha256(word.encode()).hexdigest(),
+                prompt_version=PROMPT_VERSION, status="completed", brief_json=brief(word),
+            )
+            session.add_all((kw, source))
+            session.commit()
+
+            def create_job(repo, *, tenant_id, job_type, entity_type, entity_id,
+                           idempotency_key, payload, **kwargs):
+                created = ProcessingJobModel(
+                    id=str(uuid4()), tenant_id=tenant_id, job_type=job_type,
+                    entity_type=entity_type, entity_id=entity_id,
+                    idempotency_key=idempotency_key, payload_json=payload,
+                    priority=kwargs.get("priority", 20), max_attempts=1,
+                    provider_key="codex", provider_scope="ai", status="pending",
+                )
+                session.add(created)
+                session.flush()
+                return created
+
+            monkeypatch.setattr(ProcessingRepository, "create_job", create_job)
+            monkeypatch.setattr(
+                "app.modules.realistic_review_ugc.keyword_images.load_codex_skill_manifest",
+                lambda *_args: SimpleNamespace(workflows=(CONTRACT,)),
+            )
+            monkeypatch.setattr(
+                "app.modules.realistic_review_ugc.keyword_images.installed_stage2_skill_sha256",
+                lambda *_args, **_kwargs: "a" * 64,
+            )
+            config = SimpleNamespace(**vars(settings()), CODEX_IMAGE_HOME=str(tmp_path))
+            service = KeywordImageService(session, config)
+            revision = source.updated_at.isoformat()
+            with pytest.raises(KeywordImageError, match="No previous"):
+                service.queue_creative_v3(
+                    tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
+                    expected_brief_updated_at=revision, regenerate=True,
+                )
+            job = service.queue_creative_v3(
+                tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
+                expected_brief_updated_at=revision,
+            )
+            attempt = session.get(ProcessingJobModel, job.processing_job_id)
+            original_id = attempt.id
+            first_snapshot = dict(attempt.payload_json["creative_v3"])
+            job.status = "failed"
+            job.output_remote_file_id = "older-published-design"
+            job.last_error_code = "codex_image_timeout"
+            attempt.status = "failed"
+            attempt.attempt_count = 1
+            attempt.last_error_code = "codex_image_timeout"
+            session.add(RrugcImageOutputVersionModel(
+                id=str(uuid4()), tenant_id="tenant-a", stage="stage1", job_id=job.id,
+                version=1, remote_file_id="already-uploaded-slot",
+                processing_job_id=attempt.id, output_name="output/final/design_01.png",
+            ))
+            session.commit()
+
+            with pytest.raises(KeywordImageError) as wrong:
+                service.retry_creative_v3(
+                    tenant_id="tenant-a", keyword_id=kw.id,
+                    expected_brief_updated_at=revision, expected_processing_job_id=str(uuid4()),
+                )
+            assert wrong.value.code == "creative_v3_retry_not_failed"
+            resumed = service.retry_creative_v3(
+                tenant_id="tenant-a", keyword_id=kw.id,
+                expected_brief_updated_at=revision, expected_processing_job_id=original_id,
+            )
+            assert resumed.processing_job_id == original_id
+            assert resumed.status == "queued"
+            assert resumed.output_remote_file_id == "older-published-design"
+            assert attempt.status == "pending"
+            assert attempt.attempt_count == 0
+            assert attempt.payload_json["manual_retry_count"] == 1
+            assert attempt.payload_json["creative_v3"] == first_snapshot
+            assert session.query(ProcessingJobModel).count() == 1
+            assert session.query(RrugcImageOutputVersionModel).count() == 1
+            with pytest.raises(KeywordImageError) as duplicate:
+                service.retry_creative_v3(
+                    tenant_id="tenant-a", keyword_id=kw.id,
+                    expected_brief_updated_at=revision, expected_processing_job_id=original_id,
+                )
+            assert duplicate.value.code == "creative_v3_retry_not_failed"
+
+            # This same logical keyword can regenerate a NEW batch only after
+            # processing ends. Never reuse the previous ProcessingJob ID.
+            attempt.status = "failed"
+            resumed.status = "failed"
+            session.commit()
+            new = service.queue_creative_v3(
+                tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
+                expected_brief_updated_at=revision, regenerate=True,
+            )
+            assert new.processing_job_id != original_id
+            assert session.query(ProcessingJobModel).count() == 2
+            assert session.query(RrugcImageOutputVersionModel).count() == 1
+            assert new.output_remote_file_id == "older-published-design"
+            next_processing = session.get(ProcessingJobModel, new.processing_job_id)
+            assert next_processing.payload_json["creative_v3"] == first_snapshot
+            assert next_processing.payload_json.get("replace_outputs") is None
+
+            # A new V3 run can no longer Retry the retired failed processing ID.
+            with pytest.raises(KeywordImageError) as stale:
+                service.retry_creative_v3(
+                    tenant_id="tenant-a", keyword_id=kw.id,
+                    expected_brief_updated_at=revision, expected_processing_job_id=original_id,
+                )
+            assert stale.value.code == "creative_v3_retry_not_failed"
+    finally:
+        engine.dispose()
+
 
 def test_native_v3_worker_creates_six_verified_distinct_private_files(tmp_path, monkeypatch):
     from contextlib import contextmanager

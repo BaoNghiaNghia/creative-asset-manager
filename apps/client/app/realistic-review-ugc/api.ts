@@ -331,6 +331,24 @@ export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefU
     { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt }) },
   );
 
+export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string) =>
+  request<{ keyword_id: string; job_id: string; processing_job_id: string; queued: boolean; action: "regenerate" }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-regenerate",
+    { method: "POST", body: JSON.stringify({
+      expected_brief_updated_at: expectedBriefUpdatedAt, confirm_regenerate: true,
+    }) },
+  );
+
+export const retryCreativeV3Stage1Images = (
+  keywordId: string, expectedBriefUpdatedAt: string, expectedProcessingJobId: string,
+) => request<{ keyword_id: string; job_id: string; processing_job_id: string; queued: boolean; action: "retry" }>(
+  "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-retry",
+  { method: "POST", body: JSON.stringify({
+    expected_brief_updated_at: expectedBriefUpdatedAt,
+    expected_processing_job_id: expectedProcessingJobId, confirm_retry: true,
+  }) },
+);
+
 export const getKeywordCreativeBrief = (keywordId: string, signal?: AbortSignal) =>
   request<import("./types").KeywordCreativeBriefDetail>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId),

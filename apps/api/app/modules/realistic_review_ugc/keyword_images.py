@@ -377,7 +377,7 @@ class KeywordImageService:
 
     def queue_creative_v3(
         self, *, tenant_id: str, user_id: str, keyword_id: str,
-        expected_brief_updated_at: str,
+        expected_brief_updated_at: str, regenerate: bool = False,
     ) -> RrugcKeywordImageJobModel:
         """Explicit Stage 1 action: 3 Creative Brief V1 concepts x 2 variants.
 
@@ -422,9 +422,25 @@ class KeywordImageService:
         if keyword is None or keyword.keyword != plan["keyword_exact"]:
             raise KeywordImageError("creative_v3_keyword_changed", "Picked keyword changed after Creative Brief analysis.", 409)
         job = self._job(tenant_id, keyword_id)
+        if not regenerate and job is not None:
+            raise KeywordImageError(
+                "creative_v3_generate_existing",
+                "This keyword already has a Stage 1 job. Use Regenerate for a fresh six-design batch.", 409,
+            )
+        if regenerate and job is None:
+            raise KeywordImageError(
+                "creative_v3_regenerate_requires_job",
+                "No previous Stage 1 job exists. Use Generate instead.", 409,
+            )
         if job is not None:
             active_processing = (self.session.get(ProcessingJobModel, job.processing_job_id)
                                  if job.processing_job_id else None)
+            if (regenerate and job.status not in ("completed", "failed")
+                    and effective_status(job, active_processing) != "failed"):
+                raise KeywordImageError(
+                    "creative_v3_regenerate_not_terminal",
+                    "Regenerate is available only after the previous run finishes.", 409,
+                )
             if (job.status in ("queued", "running") or
                     (active_processing and active_processing.status in ("pending", "processing"))):
                 raise KeywordImageError(
@@ -477,6 +493,117 @@ class KeywordImageService:
                 "provider_sha256": skill_hash,
             },
         }
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
+    def retry_creative_v3(
+        self, *, tenant_id: str, keyword_id: str,
+        expected_brief_updated_at: str, expected_processing_job_id: str,
+    ) -> RrugcKeywordImageJobModel:
+        """Resume the failed V3 processing attempt, not a new ImageGen batch.
+
+        The *same* ProcessingJob ID preserves verified per-slot PNG checkpoints
+        and idempotent Drive uploads. Never retry a legacy Google Fonts job.
+        A fresh Regenerate instead creates a different ProcessingJob ID.
+        """
+        from app.modules.realistic_review_ugc.creative_v3_generation import (
+            SKILL, CONTRACT, SLOT_COUNT, enabled, resolve_plan, verify_snapshot,
+            image_provider, CreativeV3Error,
+        )
+        if not enabled(self.settings, tenant_id):
+            raise KeywordImageError(
+                "creative_v3_disabled", "Creative Brief V3 ImageGen is unavailable.", 404,
+            )
+        job = self._job(tenant_id, keyword_id)
+        if job is None or job.skill_name != SKILL or not job.processing_job_id:
+            raise KeywordImageError(
+                "creative_v3_retry_requires_v3",
+                "Only a failed Creative Brief V3 run can be retried. Use Regenerate for legacy outputs.", 409,
+            )
+        processing = self.session.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.id == job.processing_job_id,
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.entity_id == job.id,
+            ProcessingJobModel.job_type == JOB_TYPE,
+        ).with_for_update())
+        if (processing is None or job.processing_job_id != expected_processing_job_id
+                or processing.status != "failed" or
+                effective_status(job, processing) != "failed"
+                or processing.cancellation_requested):
+            raise KeywordImageError(
+                "creative_v3_retry_not_failed",
+                "The selected V3 attempt is no longer failed. Refresh Stage 1.", 409,
+            )
+        payload = dict(processing.payload_json or {})
+        snapshot = payload.get("creative_v3")
+        if (not isinstance(snapshot, dict) or payload.get("upload_only")
+                or payload.get("replace_outputs")
+                or payload.get("expected_output_count") != SLOT_COUNT):
+            raise KeywordImageError(
+                "creative_v3_retry_payload_invalid",
+                "The original V3 generation snapshot is unavailable. Use Regenerate.", 409,
+            )
+        if int(payload.get("manual_retry_count") or 0) >= 3:
+            raise KeywordImageError(
+                "creative_v3_retry_limit_reached",
+                "This V3 attempt has reached three manual retries. Use Regenerate for a fresh batch.", 409,
+            )
+        source = self.session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.tenant_id == tenant_id,
+            RrugcKeywordCreativeBriefModel.keyword_id == keyword_id,
+        ))
+        if (source is None or source.updated_at.isoformat() != expected_brief_updated_at):
+            raise KeywordImageError(
+                "creative_v3_retry_brief_changed",
+                "The Creative Brief revision changed. Review it and Regenerate.", 409,
+            )
+        try:
+            plan = resolve_plan(self.session, tenant_id=tenant_id, keyword_id=keyword_id)
+            verify_snapshot(plan, snapshot)
+        except CreativeV3Error as exc:
+            raise KeywordImageError(
+                "creative_v3_retry_source_changed",
+                "The original Creative Brief is no longer valid. Review and Regenerate.", 409,
+            ) from exc
+        if (snapshot.get("provider") != "codex" or image_provider(self.settings) != "codex"
+                or not job.skill_bundle_sha256
+                or snapshot.get("provider_sha256") != job.skill_bundle_sha256):
+            raise KeywordImageError(
+                "creative_v3_retry_provider_changed",
+                "The original V3 image provider changed. Use Regenerate.", 409,
+            )
+        manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
+        if not manifest or CONTRACT not in manifest.workflows or skill_hash != job.skill_bundle_sha256:
+            raise KeywordImageError(
+                "creative_v3_retry_skill_changed",
+                "The original V3 Skill changed. Use Regenerate to pin the current version.", 409,
+            )
+
+        # Re-arm the terminal processing row instead of cloning it. This keeps
+        # the per-processing checkpoint folder and Drive asset identity intact.
+        from datetime import datetime, timezone
+        processing.status = "pending"
+        processing.attempt_count = 0
+        processing.processing_duration_ms = 0
+        processing.next_attempt_at = datetime.now(timezone.utc)
+        processing.claimed_by = None
+        processing.claimed_at = None
+        processing.lease_expires_at = None
+        processing.completed_at = None
+        processing.last_error_code = None
+        processing.last_error_message = None
+        processing.payload_json = {
+            **payload, "manual_retry_count": int(payload.get("manual_retry_count") or 0) + 1,
+        }
+        job.status = "queued"
+        job.retry_count = 0
+        job.started_at = None
+        job.completed_at = None
+        job.provider_request_id = None
+        job.last_error_code = None
+        job.last_error_message = None
         self.session.commit()
         self.session.refresh(job)
         return job
@@ -806,6 +933,7 @@ class KeywordImageService:
                 "three_month_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "three_month_change_pct"),
                 "yoy_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "yoy_change_pct"),
                 "status": state, "job_id": job.id if job else None,
+                "processing_job_id": job.processing_job_id if job else None,
                 "skill_name": job.skill_name if job else None,
                 "skill_version": job.skill_version if job else None,
                 "retry_count": job.retry_count if job else 0,

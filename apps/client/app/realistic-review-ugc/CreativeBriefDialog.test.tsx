@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CreativeBriefDialog } from "./CreativeBriefDialog";
-import { generateKeywordCreativeBrief, getKeywordCreativeBrief, getCreativeV3GenerationStatus, generateCreativeV3Stage1Images } from "./api";
+import { generateKeywordCreativeBrief, getKeywordCreativeBrief, getCreativeV3GenerationStatus, generateCreativeV3Stage1Images, regenerateCreativeV3Stage1Images } from "./api";
 import type { KeywordCreativeBriefDetail } from "./types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,6 +15,7 @@ vi.mock("./api", async importOriginal => ({
   generateKeywordCreativeBrief: vi.fn(),
   getCreativeV3GenerationStatus: vi.fn(),
   generateCreativeV3Stage1Images: vi.fn(),
+  regenerateCreativeV3Stage1Images: vi.fn(),
 }));
 
 const keyword = "CREATIVE DICTATOR";
@@ -60,7 +61,7 @@ let root: Root | undefined;
 let host: HTMLDivElement | undefined;
 let onClose = vi.fn();
 
-async function renderDialog(detail: KeywordCreativeBriefDetail) {
+async function renderDialog(detail: KeywordCreativeBriefDetail, hasExistingStage1Job = false) {
   vi.mocked(getKeywordCreativeBrief).mockResolvedValue(detail);
   host = document.createElement("div");
   const opener = document.createElement("button");
@@ -69,7 +70,8 @@ async function renderDialog(detail: KeywordCreativeBriefDetail) {
   opener.focus();
   root = createRoot(host);
   await act(async () => root?.render(
-    <CreativeBriefDialog keywordId={keywordId} keyword={keyword} onClose={onClose} />,
+    <CreativeBriefDialog keywordId={keywordId} keyword={keyword} onClose={onClose}
+      hasExistingStage1Job={hasExistingStage1Job} />,
   ));
   await act(async () => { await Promise.resolve(); });
   return opener;
@@ -81,6 +83,10 @@ beforeEach(() => {
   vi.mocked(generateKeywordCreativeBrief).mockResolvedValue({} as never);
   vi.mocked(getCreativeV3GenerationStatus).mockResolvedValue({
     available: false, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+  });
+  vi.mocked(regenerateCreativeV3Stage1Images).mockResolvedValue({
+    keyword_id: keywordId, job_id: "job-1", processing_job_id: "new-processing-id",
+    queued: true, action: "regenerate",
   });
   vi.mocked(generateCreativeV3Stage1Images).mockResolvedValue({
     keyword_id: keywordId, job_id: "job-1", status: "queued",
@@ -204,6 +210,22 @@ describe("Creative Brief V1 modal redesign", () => {
     await renderDialog(makeDetail("completed", true));
     expect(document.querySelector(".rrugc-creative-v3-generate")).toBeNull();
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+  });
+
+  it("requires two explicit clicks and uses Regenerate for a keyword with existing Stage 1 history", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3/stage1-six-v1", output_count: 6,
+    });
+    await renderDialog(makeDetail("completed", true), true);
+    const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
+    expect(button?.textContent).toContain("Regenerate 6 designs");
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(button?.textContent).toContain("Confirm new six-design batch");
+    expect(regenerateCreativeV3Stage1Images).not.toHaveBeenCalled();
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
+    expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+    expect(button?.disabled).toBe(true);
   });
 
   it("queues all six V1-grounded embroidery slots only on a direct user click", async () => {

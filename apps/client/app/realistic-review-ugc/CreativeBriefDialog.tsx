@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   generateKeywordCreativeBrief, getKeywordCreativeBrief,
-  getCreativeV3GenerationStatus, generateCreativeV3Stage1Images,
+  getCreativeV3GenerationStatus, generateCreativeV3Stage1Images, regenerateCreativeV3Stage1Images,
 } from "./api";
 import { RrugcActionIcon } from "./RrugcActionIcon";
 import type { KeywordCreativeBriefDetail, KeywordCreativeConcept } from "./types";
@@ -42,10 +42,12 @@ function ConceptField({ title, children }: { title: string; children: string }) 
   </div>;
 }
 
-export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
+export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingStage1Job = false, stage1Status = "not_run" }: {
   keywordId: string;
   keyword: string;
   onClose: () => void;
+  hasExistingStage1Job?: boolean;
+  stage1Status?: "not_run" | "queued" | "running" | "completed" | "failed";
 }) {
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
   const [selected, setSelected] = useState(1);
@@ -55,6 +57,8 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
   const [v3Available, setV3Available] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [v3Queued, setV3Queued] = useState(false);
+  const [confirmImageRegenerate, setConfirmImageRegenerate] = useState(false);
+  const stage1Busy = stage1Status === "queued" || stage1Status === "running";
   const [showStrategyDetails, setShowStrategyDetails] = useState(false);
   const [showConceptDetails, setShowConceptDetails] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
@@ -127,7 +131,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
   };
 
   const generateImages = async () => {
-    if (!v3Available || imageBusy || v3Queued || !detail?.brief || !detail.updated_at) return;
+    if (!v3Available || imageBusy || v3Queued || stage1Busy || !detail?.brief || !detail.updated_at) return;
     if (detail.brief.keyword_exact !== keyword) {
       setError("The original keyword changed. Reopen the Creative Brief before generating.");
       return;
@@ -135,7 +139,12 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
     setImageBusy(true);
     setError("");
     try {
-      await generateCreativeV3Stage1Images(keywordId, detail.updated_at);
+      if (hasExistingStage1Job) {
+        if (!confirmImageRegenerate) { setConfirmImageRegenerate(true); return; }
+        await regenerateCreativeV3Stage1Images(keywordId, detail.updated_at);
+      } else {
+        await generateCreativeV3Stage1Images(keywordId, detail.updated_at);
+      }
       setV3Queued(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not queue embroidery generation.");
@@ -363,15 +372,16 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
             {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
               <div>
                 <strong>Creative Engine V3 · Embroidery masters</strong>
-                <p>Generate 6 transparent Stage 1 embroidery artworks from this completed brief: 2 original variations for each of the 3 concepts. Existing Output History is preserved.</p>
+                <p>{hasExistingStage1Job ? "Regenerate a completely new six-design V3 batch without reusing previous images." : "Generate 6 transparent Stage 1 embroidery artworks: 2 variants for each of the 3 concepts."} Existing Output History is preserved.</p>
                 <small>Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
               </div>
               <button type="button" className="rrugc-creative-brief-primary"
                 onClick={() => void generateImages()}
-                disabled={imageBusy || v3Queued || !detail?.updated_at}>
+                disabled={imageBusy || v3Queued || stage1Busy || !detail?.updated_at}>
                 <RrugcActionIcon name="sparkles" />
-                {v3Queued ? "6 images queued" : imageBusy ? "Adding to queue…" : "Generate 6 embroidery designs"}
+                {v3Queued ? "6 images queued" : stage1Busy ? "Stage 1 job active" : imageBusy ? "Adding to queue…" : hasExistingStage1Job ? confirmImageRegenerate ? "Confirm new six-design batch" : "Regenerate 6 designs" : "Generate 6 embroidery designs"}
               </button>
+              {confirmImageRegenerate && !v3Queued && <p role="status" className="rrugc-creative-v3-queued">Confirm again to create six fresh designs. The previous images remain available in Output History.</p>}
               {v3Queued && <p role="status" className="rrugc-creative-v3-queued">Job queued in Stage 1. You can close this brief and follow its progress in the keyword row.</p>}
             </section>}
           </>}

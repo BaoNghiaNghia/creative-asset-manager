@@ -281,6 +281,7 @@ export type KeywordImageRow = {
   source_image_url: string | null;
   status: KeywordImageStatus;
   job_id: string | null;
+  processing_job_id?: string | null;
   skill_name: string | null;
   skill_version: string | null;
   retry_count: number;

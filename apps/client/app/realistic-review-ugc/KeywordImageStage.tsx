@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { backfillKeywordCreativeBriefs, getKeywordAnalysisDetail, getCreativeV3GenerationStatus, listKeywordImages, publishAvailableKeywordImages } from "./api";
-import { queueStage1CreativeBriefRun } from "./stage1CreativeBriefRun";
+import { queueStage1CreativeBriefRun, type Stage1ImageAction } from "./stage1CreativeBriefRun";
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { formatRelativeDateTime } from "./RelativeDateTime";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
@@ -93,30 +93,29 @@ export function KeywordImageRowControls({
   row: KeywordImageRow;
   busy: boolean;
   canGenerate: boolean;
-  onRun: () => void;
+  onRun: (action: Stage1ImageAction) => void;
   onPublishAvailable?: () => void;
   onLogs: () => void;
   showPreview?: boolean;
 }) {
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
-  const regenerateButtonRef = useRef<HTMLButtonElement>(null);
+  const [confirmAction, setConfirmAction] = useState<"retry" | "regenerate" | null>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
 
-  const regenerate = row.status === "completed" || row.status === "failed";
-  const generate = row.status === "not_run";
-  const runnable = regenerate || generate;
-  const runLabel = regenerate ? "Retry" : "Redesign Qoutes";
-  const runDisabled = busy || !canGenerate;
-  const runTitle = !canGenerate ? "Creative Brief V3 ImageGen is unavailable" : busy ? "Queueing…" : regenerate ? "Retry six designs from Creative Brief V3" : "Generate six Creative Brief V3 embroidery designs";
+  const initial = row.status === "not_run";
+  const terminal = row.status === "completed" || row.status === "failed";
+  const canRetryFailedV3 = row.status === "failed"
+    && row.skill_name === "creative-brief-v3" && Boolean(row.processing_job_id);
+  const actionDisabled = busy || !canGenerate;
 
   useEffect(() => {
-    if (!confirmRegenerate) return;
+    if (!confirmAction) return;
     cancelButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setConfirmRegenerate(false);
+        setConfirmAction(null);
       } else if (event.key === "Tab") {
         if (event.shiftKey && document.activeElement === cancelButtonRef.current) {
           event.preventDefault();
@@ -130,31 +129,48 @@ export function KeywordImageRowControls({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      regenerateButtonRef.current?.focus();
+      triggerButtonRef.current?.focus();
     };
-  }, [confirmRegenerate]);
+  }, [confirmAction]);
+
+  const askConfirm = (action: "retry" | "regenerate", button: HTMLButtonElement) => {
+    triggerButtonRef.current = button;
+    setConfirmAction(action);
+  };
 
   return <div className="rrugc-keyword-result-cell" aria-busy={busy}>
     {showPreview && <div className="rrugc-keyword-result-media">
-    {row.output_url
-      ? <a className="rrugc-keyword-result-preview is-available" href={row.output_url} target="_blank" rel="noreferrer"
-          title={"View output for " + row.keyword} aria-label={"View generated output for " + row.keyword}>
-          <img src={row.output_url + "?thumbnail=true"} alt={row.keyword + " generated output"} loading="lazy" />
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 5h5v5M19 5l-8 8"/></svg>
-        </a>
-      : <span className="rrugc-keyword-result-preview is-empty" role="img" aria-label="No generated output yet" title="No output yet">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
-        </span>}
-    <span className="rrugc-keyword-result-caption">{row.saved_output_count > 0
-      ? `${row.saved_output_count.toLocaleString()} image${row.saved_output_count === 1 ? "" : "s"} saved${row.status === "failed" ? " · partial" : ""}`
-      : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
+      {row.output_url
+        ? <a className="rrugc-keyword-result-preview is-available" href={row.output_url} target="_blank" rel="noreferrer"
+            title={"View output for " + row.keyword} aria-label={"View generated output for " + row.keyword}>
+            <img src={row.output_url + "?thumbnail=true"} alt={row.keyword + " generated output"} loading="lazy" />
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 5h5v5M19 5l-8 8"/></svg>
+          </a>
+        : <span className="rrugc-keyword-result-preview is-empty" role="img" aria-label="No generated output yet" title="No output yet">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3.5 2.5-2.5 4 4"/></svg>
+          </span>}
+      <span className="rrugc-keyword-result-caption">{row.saved_output_count > 0
+        ? `${row.saved_output_count.toLocaleString()} image${row.saved_output_count === 1 ? "" : "s"} saved${row.status === "failed" ? " · partial" : ""}`
+        : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
-      {runnable && <button type="button" className={"rrugc-keyword-result-action is-" + (regenerate ? "retry" : "generate")}
-        ref={regenerateButtonRef} onClick={() => regenerate ? setConfirmRegenerate(true) : onRun()}
-        disabled={runDisabled} title={runTitle} aria-label={runLabel + " " + row.keyword}>
-        <KeywordActionGlyph kind={regenerate ? "retry" : "generate"} />
-        <span className="rrugc-keyword-action-label">{runLabel}</span>
+      {initial && <button type="button" className="rrugc-keyword-result-action is-generate"
+        onClick={() => onRun("generate")} disabled={actionDisabled}
+        title={actionDisabled ? "Creative Brief V3 is unavailable" : "Generate six designs from Creative Brief V3"}
+        aria-label={"Generate " + row.keyword}>
+        <KeywordActionGlyph kind="generate" /><span className="rrugc-keyword-action-label">Generate</span>
+      </button>}
+      {canRetryFailedV3 && <button type="button" className="rrugc-keyword-result-action is-retry"
+        onClick={event => askConfirm("retry", event.currentTarget)} disabled={actionDisabled}
+        title="Retry the same failed V3 attempt; reuse verified checkpoints and uploaded assets"
+        aria-label={"Retry " + row.keyword}>
+        <KeywordActionGlyph kind="retry" /><span className="rrugc-keyword-action-label">Retry</span>
+      </button>}
+      {terminal && <button type="button" className="rrugc-keyword-result-action is-regenerate"
+        onClick={event => askConfirm("regenerate", event.currentTarget)} disabled={actionDisabled}
+        title="Regenerate: create six fresh V3 designs; keep all previous Output History"
+        aria-label={"Regenerate " + row.keyword}>
+        <KeywordActionGlyph kind="regenerate" /><span className="rrugc-keyword-action-label">Regenerate</span>
       </button>}
       {row.partial_publish_available && onPublishAvailable && <button type="button" className="rrugc-keyword-result-action is-generate"
         onClick={onPublishAvailable} disabled={busy}
@@ -177,25 +193,27 @@ export function KeywordImageRowControls({
         {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}
       </span>}
     </div>
-    {confirmRegenerate && regenerate && createPortal(
+    {confirmAction && createPortal(
       <div className="rrugc-keyword-regenerate-backdrop" onMouseDown={event => {
-        if (event.target === event.currentTarget) setConfirmRegenerate(false);
+        if (event.target === event.currentTarget) setConfirmAction(null);
       }}>
         <section className="rrugc-keyword-regenerate-dialog" role="dialog" aria-modal="true"
           aria-labelledby="rrugc-regenerate-title" aria-describedby="rrugc-regenerate-description">
-          <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
-          <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
+          <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind={confirmAction} /></div>
+          <h2 id="rrugc-regenerate-title">{confirmAction === "retry" ? "Retry failed V3 attempt?" : "Regenerate six new designs?"}</h2>
           <p id="rrugc-regenerate-description">
-            Retry <strong>{row.keyword}</strong>? Generate six original transparent embroidery designs
-            using its Creative Brief V3 (three concepts, two variants each). Existing Stage 1
-            images stay in Output History; failed or incomplete replacements never erase them.
+            <strong>{row.keyword}</strong> — {confirmAction === "retry"
+              ? "Continue the same failed Creative Brief V3 attempt. Valid PNG checkpoints and already uploaded images will be reused, so completed slots will not be generated again."
+              : "Start a brand-new Creative Brief V3 batch (3 concepts × 2 variants). No images from the previous attempt will be reused."}
+            {" "}All existing Stage 1 images and Output History stay protected.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
-            <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
+            <button ref={cancelButtonRef} type="button" onClick={() => setConfirmAction(null)}>Cancel</button>
             <button ref={acceptButtonRef} type="button" className="is-accept" onClick={() => {
-              setConfirmRegenerate(false);
-              onRun();
-            }}>Accept</button>
+              const action = confirmAction;
+              setConfirmAction(null);
+              onRun(action);
+            }}>{confirmAction === "retry" ? "Retry failed run" : "Regenerate"}</button>
           </div>
         </section>
       </div>, document.body,
@@ -235,7 +253,7 @@ export function KeywordImageStage({
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [versionsJob, setVersionsJob] = useState<{ jobId: string; title: string; initialVersion?: number } | null>(null);
   const [pickedModalOpen, setPickedModalOpen] = useState(false);
-  const [briefTarget, setBriefTarget] = useState<{ id: string; keyword: string } | null>(null);
+  const [briefTarget, setBriefTarget] = useState<{ id: string; keyword: string; hasJob: boolean; jobStatus: KeywordImageStatus } | null>(null);
   const [briefBatchRunning, setBriefBatchRunning] = useState(false);
   const [creativeV3Ready, setCreativeV3Ready] = useState(false);
   const [pickedDesignOverrides, setPickedDesignOverrides] = useState<Record<string, Record<number, boolean>>>({});
@@ -402,7 +420,7 @@ export function KeywordImageStage({
     }
   };
 
-  const runOne = async (row: KeywordImageRow) => {
+  const runOne = async (row: KeywordImageRow, action: Stage1ImageAction) => {
     if (workingIds.has(row.keyword_id)) return;
     setWorkingIds(current => new Set(current).add(row.keyword_id));
     setError("");
@@ -416,12 +434,17 @@ export function KeywordImageStage({
         throw new Error("Creative Brief V3 ImageGen is unavailable. No legacy Skill was run.");
       }
       setCreativeV3Ready(true);
-      const outcome = await queueStage1CreativeBriefRun(row.keyword_id, row.keyword);
+      const outcome = await queueStage1CreativeBriefRun(
+        row.keyword_id, row.keyword, action, row.processing_job_id,
+      );
       if (outcome === "images_queued") {
-        setMessage("Creative Brief V3 queued for " + row.keyword
-          + ": 3 concepts × 2 variants. Previous Output History remains protected.");
+        setMessage((action === "retry"
+          ? "V3 Retry queued: continuing the failed attempt and reusing verified checkpoints for "
+          : action === "regenerate" ? "Fresh six-design V3 regeneration queued for "
+            : "Creative Brief V3 six-design generation queued for ") + row.keyword
+          + ". Previous Output History remains protected.");
       } else {
-        setBriefTarget({ id: row.keyword_id, keyword: row.keyword });
+        setBriefTarget({ id: row.keyword_id, keyword: row.keyword, hasJob: Boolean(row.job_id), jobStatus: row.status });
         setMessage(outcome === "brief_queued"
           ? "Creative Brief analysis queued for " + row.keyword + ". Open the brief to generate six images once ready."
           : "Creative Brief analysis is in progress for " + row.keyword + ". Generate six images when analysis completes.");
@@ -538,7 +561,7 @@ export function KeywordImageStage({
                 <td className="rrugc-keyword-gen-trend"><KeywordTrendChart item={row} onOpen={() => setKeywordDetailTarget({ id: row.keyword_id, keyword: row.keyword })} /></td>
                 <td className="rrugc-keyword-gen-volume">{row.search_volume.toLocaleString("en-US")}</td>
                 <td className="rrugc-creative-brief-cell">
-                  <button type="button" onClick={() => setBriefTarget({ id: row.keyword_id, keyword: row.keyword })}
+                  <button type="button" onClick={() => setBriefTarget({ id: row.keyword_id, keyword: row.keyword, hasJob: Boolean(row.job_id), jobStatus: row.status })}
                     title={"View Creative Brief for " + row.keyword}
                     aria-label={"View Creative Brief for " + row.keyword}>
                     <strong>{row.creative_brief?.status === "completed"
@@ -560,7 +583,7 @@ export function KeywordImageStage({
                     : "Meaning-first Creative Brief V3"}>{row.job_id && row.skill_name !== "creative-brief-v3"
                       ? "Legacy output" : "Creative Brief V3"}</span>
                   <small>{row.job_id && row.skill_name !== "creative-brief-v3"
-                    ? "Archived · retry uses V3" : row.status === "not_run" ? "Next run" : "3 concepts × 2 variants"}</small>
+                    ? "Archived · Regenerate with V3" : row.status === "not_run" ? "Next run" : "3 concepts × 2 variants"}</small>
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
                   <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{row.status === "completed" && row.error_code === "stage1_partial_output" ? "Partial" : STATUS_LABEL[row.status]}</span>
@@ -590,7 +613,7 @@ export function KeywordImageStage({
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={creativeV3Ready} showPreview={false}
-                    onRun={() => void runOne(row)}
+                    onRun={action => void runOne(row, action)}
                     onPublishAvailable={() => void publishAvailable(row)}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
                   {ideasAccess && <button type="button" className="typography-style-lab-open"
@@ -615,7 +638,9 @@ export function KeywordImageStage({
         <label>Rows <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} aria-label="Stage 1 rows per page">{PAGE_SIZES.map(size => <option key={size}>{size}</option>)}</select></label>
       </div>
     </footer>
-    {briefTarget && <CreativeBriefDialog key={briefTarget.id} keywordId={briefTarget.id} keyword={briefTarget.keyword} onClose={() => setBriefTarget(null)} />}
+    {briefTarget && <CreativeBriefDialog key={briefTarget.id} keywordId={briefTarget.id} keyword={briefTarget.keyword}
+      hasExistingStage1Job={briefTarget.hasJob} stage1Status={briefTarget.jobStatus}
+      onClose={() => setBriefTarget(null)} />}
     {logJobId && <SkillJobLogDialog stage="stage1" jobId={logJobId} onClose={() => setLogJobId(null)} />}
     {versionsJob && <GenerationOutputVersionsDialog stage="stage1" jobId={versionsJob.jobId} title={versionsJob.title}
       initialVersion={versionsJob.initialVersion} onClose={() => setVersionsJob(null)}

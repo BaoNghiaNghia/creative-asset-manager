@@ -65,6 +65,78 @@ def creative_v3_generate(
         }) from exc
 
 
+class CreativeV3RegenerateRequest(CreativeV3GenerateRequest):
+    confirm_regenerate: bool
+
+
+@router.post("/{keyword_id}/v3-regenerate", status_code=202)
+def creative_v3_regenerate(
+    keyword_id: str,
+    body: CreativeV3RegenerateRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Explicit fresh six-image run, independent of all prior checkpoints."""
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageError, KeywordImageService
+    if body.confirm_regenerate is not True:
+        raise HTTPException(status_code=422, detail="Confirm Regenerate before creating a new V3 batch.")
+    try:
+        job = KeywordImageService(session, get_settings()).queue_creative_v3(
+            tenant_id=principal.active_tenant_id,
+            user_id=principal.user_id,
+            keyword_id=keyword_id,
+            expected_brief_updated_at=body.expected_brief_updated_at,
+            regenerate=True,
+        )
+        return {
+            "keyword_id": keyword_id, "job_id": job.id,
+            "processing_job_id": job.processing_job_id,
+            "status": job.status, "queued": True, "action": "regenerate",
+            "engine": "creative-v3", "expected_output_count": 6,
+        }
+    except KeywordImageError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail={
+            "code": exc.code, "message": exc.message,
+        }) from exc
+
+
+class CreativeV3RetryRequest(CreativeV3GenerateRequest):
+    expected_processing_job_id: str = Field(min_length=36, max_length=36)
+    confirm_retry: bool
+
+
+@router.post("/{keyword_id}/v3-retry", status_code=202)
+def creative_v3_retry(
+    keyword_id: str,
+    body: CreativeV3RetryRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Resume a failed V3 ProcessingJob ID, preserving its verified checkpoints."""
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageError, KeywordImageService
+    if body.confirm_retry is not True:
+        raise HTTPException(status_code=422, detail="Confirm Retry before resuming a V3 attempt.")
+    try:
+        job = KeywordImageService(session, get_settings()).retry_creative_v3(
+            tenant_id=principal.active_tenant_id,
+            keyword_id=keyword_id,
+            expected_brief_updated_at=body.expected_brief_updated_at,
+            expected_processing_job_id=body.expected_processing_job_id,
+        )
+        return {
+            "keyword_id": keyword_id, "job_id": job.id,
+            "processing_job_id": job.processing_job_id,
+            "status": job.status, "queued": True, "action": "retry",
+            "engine": "creative-v3", "expected_output_count": 6,
+        }
+    except KeywordImageError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail={
+            "code": exc.code, "message": exc.message,
+        }) from exc
+
+
 @router.get("/{keyword_id}/v3-preview")
 def creative_engine_v3_preview(
     keyword_id: str,
