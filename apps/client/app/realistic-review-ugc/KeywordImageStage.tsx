@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { backfillKeywordCreativeBriefs, createKeywordImage, getKeywordAnalysisDetail, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { backfillKeywordCreativeBriefs, createKeywordImage, getKeywordAnalysisDetail, getCreativeV3GenerationStatus, getCreativeV3PreviewStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { queueStage1CreativeBriefRun } from "./stage1CreativeBriefRun";
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { formatRelativeDateTime } from "./RelativeDateTime";
 import { TypographyIdeasPage } from "./typography/TypographyIdeasPage";
@@ -95,11 +96,12 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true,
+  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true, briefGeneration = false,
 }: {
   row: KeywordImageRow;
   busy: boolean;
   canGenerate: boolean;
+  briefGeneration?: boolean;
   onRun: () => void;
   onPublishAvailable?: () => void;
   onLogs: () => void;
@@ -115,7 +117,7 @@ export function KeywordImageRowControls({
   const runnable = regenerate || generate;
   const runLabel = regenerate ? "Retry" : "Redesign Qoutes";
   const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? "Create a new version (1–6 verified designs; confirmation required)" : "Redesign Qoutes";
+  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? (briefGeneration ? "Create six designs from Creative Brief (confirmation required)" : "Create a new version (1–6 verified designs; confirmation required)") : (briefGeneration ? "Generate six Creative Brief embroidery designs" : "Redesign Qoutes");
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -193,8 +195,10 @@ export function KeywordImageRowControls({
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
           <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
           <p id="rrugc-regenerate-description">
-            Retry <strong>{row.keyword}</strong>? The system will attempt up to six designs and save genuine completed image edits, even if fewer than six succeed.
-            Previous Stage 1 images remain protected; incomplete replacement runs do not delete old files.
+            Retry <strong>{row.keyword}</strong>? {briefGeneration
+              ? "Generate six distinct transparent embroidery designs from its completed Creative Brief (3 concepts × 2 variants). Each image must pass technical QA before the new batch is published."
+              : "The system will attempt up to six designs and save genuine completed image edits, even if fewer than six succeed."}
+            {" "}Previous Stage 1 images remain protected; incomplete replacement runs do not delete old files.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
@@ -244,6 +248,7 @@ export function KeywordImageStage({
   const [pickedModalOpen, setPickedModalOpen] = useState(false);
   const [briefTarget, setBriefTarget] = useState<{ id: string; keyword: string } | null>(null);
   const [briefBatchRunning, setBriefBatchRunning] = useState(false);
+  const [creativeV3Ready, setCreativeV3Ready] = useState(false);
   const [pickedDesignOverrides, setPickedDesignOverrides] = useState<Record<string, Record<number, boolean>>>({});
   const [keywordDetailTarget, setKeywordDetailTarget] = useState<{ id: string; keyword: string } | null>(null);
   const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
@@ -315,6 +320,15 @@ export function KeywordImageStage({
     const timer = window.setTimeout(() => { setDebouncedQuery(query.trim()); setPage(1); }, 250);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    if (!jobsActive) return;
+    const controller = new AbortController();
+    void getCreativeV3GenerationStatus(controller.signal)
+      .then(result => { if (!controller.signal.aborted) setCreativeV3Ready(result.available && result.output_count === 6); })
+      .catch(() => { if (!controller.signal.aborted) setCreativeV3Ready(false); });
+    return () => controller.abort();
+  }, [jobsActive]);
 
   useEffect(() => {
     if (!jobsActive) return;
@@ -447,20 +461,42 @@ export function KeywordImageStage({
 
   const runOne = async (row: KeywordImageRow) => {
     if (workingIds.has(row.keyword_id)) return;
-    if (row.status === "not_run" && !selectedSkillInput) {
-      setError("Select a synced, ready Skill before generating.");
-      return;
-    }
     setWorkingIds(current => new Set(current).add(row.keyword_id));
     setError("");
     setMessage("");
     try {
-      if (row.status === "completed" || row.status === "failed") {
-        await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
-        setMessage("Retry queued for " + row.keyword + ". Existing images stay protected; up to six verified edits can be published.");
-      } else if (row.status === "not_run" && selectedSkillInput) {
-        const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
-        setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
+      // Probe at click time: a stale UI or a revoked canary must never silently
+      // turn a Creative Brief retry into a legacy keyword-only generation.
+      const capability = await getCreativeV3GenerationStatus();
+      if (capability.available) {
+        if (capability.output_count !== 6) {
+          throw new Error("Creative Brief ImageGen contract mismatch. No images were queued.");
+        }
+        setCreativeV3Ready(true);
+        const outcome = await queueStage1CreativeBriefRun(row.keyword_id, row.keyword);
+        if (outcome === "images_queued") {
+          setMessage("Creative Brief ImageGen queued for " + row.keyword
+            + ": 3 concepts × 2 variants. Previous Output History remains protected.");
+        } else {
+          setBriefTarget({ id: row.keyword_id, keyword: row.keyword });
+          setMessage(outcome === "brief_queued"
+            ? "Creative Brief analysis queued for " + row.keyword + ". Review the brief and generate the six artworks when ready."
+            : "Creative Brief analysis is in progress for " + row.keyword + ". Generate the six artworks when the analysis completes.");
+        }
+      } else {
+        const preview = await getCreativeV3PreviewStatus();
+        if (preview.available) {
+          throw new Error("Creative Brief ImageGen is not enabled for this workspace. No legacy generation was started.");
+        }
+        // Non-canary tenants retain their existing selected-Skill workflow.
+        if (!selectedSkillInput) throw new Error("Select a synced, ready Skill before generating.");
+        if (row.status === "completed" || row.status === "failed") {
+          await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
+          setMessage("Retry queued for " + row.keyword + ". Existing images stay protected; up to six verified edits can be published.");
+        } else if (row.status === "not_run") {
+          const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
+          setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
+        }
       }
       await refresh();
     } catch (reason) {
@@ -657,7 +693,7 @@ export function KeywordImageStage({
                   pickedOverrides={row.job_id ? pickedDesignOverrides[row.job_id] : undefined}
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
-                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill)} showPreview={false}
+                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill) || creativeV3Ready} briefGeneration={creativeV3Ready} showPreview={false}
                     onRun={() => void runOne(row)}
                     onPublishAvailable={() => void publishAvailable(row)}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />

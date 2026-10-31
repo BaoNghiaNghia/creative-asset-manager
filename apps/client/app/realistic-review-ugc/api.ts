@@ -320,6 +320,11 @@ export const listKeywordImages = (
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
 
+export const getCreativeV3PreviewStatus = (signal?: AbortSignal) =>
+  request<{ available: boolean; schema_version: string }>(
+    "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/status", { signal },
+  );
+
 export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
   request<{ available: boolean; schema_version: string; output_count: number }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status", { signal },
