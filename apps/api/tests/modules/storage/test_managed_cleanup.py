@@ -283,6 +283,67 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.session.expire_all()
         self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
 
+    async def test_completed_pipeline_parked_search_index_job_does_not_block_cleanup(self) -> None:
+        row = self._record()
+        row_id = row.id
+        self._analysis()
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-legacy-search-parked",
+            origin_type="source_asset", origin_id="source-search-parked",
+            asset_id=self.asset.id, state="completed",
+        ))
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="search_index_sync", entity_type="asset",
+            entity_id=self.asset.id, idempotency_key="cleanup-search-parked",
+            payload_json={}, status="pending",
+            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        ))
+        self.session.commit()
+        provider = FakeManagedStorage()
+        result = await self._service(provider).execute(tenant_id="tenant-a")
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(provider.deleted, ["managed-only-id"])
+        self.session.expire_all()
+        self.assertIsNone(self.session.get(AssetStorageObjectModel, row_id))
+
+    async def test_parked_search_index_job_still_protects_unfinished_pipeline(self) -> None:
+        row = self._record()
+        self._analysis()
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-search-not-finished",
+            origin_type="source_asset", origin_id="source-search-not-finished",
+            asset_id=self.asset.id, state="search_pending",
+        ))
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="search_index_sync", entity_type="asset",
+            entity_id=self.asset.id, idempotency_key="cleanup-search-incomplete",
+            payload_json={}, status="pending",
+            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        ))
+        self.session.commit()
+        result = await self._service(FakeManagedStorage()).execute(tenant_id="tenant-a")
+        self.assertEqual(result.skipped_active, 1)
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
+    async def test_due_search_index_job_still_protects_completed_pipeline(self) -> None:
+        row = self._record()
+        self._analysis()
+        self.session.add(AssetPipelineModel(
+            tenant_id="tenant-a", correlation_id="cleanup-due-search",
+            origin_type="source_asset", origin_id="source-due-search",
+            asset_id=self.asset.id, state="completed",
+        ))
+        self.session.add(ProcessingJobModel(
+            tenant_id="tenant-a", job_type="search_index_sync", entity_type="asset",
+            entity_id=self.asset.id, idempotency_key="cleanup-search-due",
+            payload_json={}, status="pending",
+            next_attempt_at=datetime.now(timezone.utc),
+        ))
+        self.session.commit()
+        result = await self._service(FakeManagedStorage()).execute(tenant_id="tenant-a")
+        self.assertEqual(result.skipped_active, 1)
+        self.assertIsNotNone(self.session.get(AssetStorageObjectModel, row.id))
+
     async def test_legacy_asset_visual_index_job_stays_protective_without_completed_pipeline(self) -> None:
         row = self._record()
         self._analysis()

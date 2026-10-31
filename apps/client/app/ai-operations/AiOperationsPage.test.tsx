@@ -234,6 +234,10 @@ describe("AI Operations tab-scoped loading", () => {
     for (const tab of ["visual-search", "creative-pipeline", "configuration"] as const) {
       expect(dashboardPlan(tab, "image")).toEqual({ primary: [], secondary: [] });
     }
+    // Pipeline does not request unused today/media aggregates; a failed
+    // secondary request used to show a misleading red timeout.
+    expect(dashboardPlan("pipeline", "image")).toEqual({ primary: ["pipeline"], secondary: [] });
+    expect(dashboardPlan("pipeline", "video")).toEqual({ primary: ["media"], secondary: [] });
     expect(dashboardPlan("processing", "image")).toEqual({ primary: ["jobs"], secondary: ["failures", "usage"] });
     expect(dashboardPlan("processing", "video")).toEqual({ primary: ["media"], secondary: [] });
     expect(dashboardPlan("cost", "image")).toEqual({ primary: ["usage"], secondary: ["summary"] });

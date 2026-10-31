@@ -65,7 +65,13 @@ export const emptyDashboard = (page = 1): AiOpsDashboardData => ({
 export function dashboardPlan(tab: AiOpsTab, media: "image" | "video"): {
   primary: DashboardField[]; secondary: DashboardField[];
 } {
-  if (tab === "pipeline") return { primary: ["pipeline"], secondary: media === "image" ? ["media", "today"] : ["media"] };
+  // The image pipeline renders only the logical-asset snapshot. Previously
+  // it also loaded the expensive media dashboard and today's AI summary,
+  // despite displaying neither, surfacing a red timeout on an otherwise
+  // successful Pipeline page. Video uses its media dashboard directly.
+  if (tab === "pipeline") return media === "video"
+    ? { primary: ["media"], secondary: [] }
+    : { primary: ["pipeline"], secondary: [] };
   if (tab === "overview") return media === "video"
     ? { primary: ["media"], secondary: [] }
     : { primary: ["summary"], secondary: ["today", "month", "daily", "providers", "failures"] };
@@ -714,9 +720,9 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDe
   deferDetails?: boolean;
 }) {
   const [queueOpen, setQueueOpen] = useState(false);
+  if (media === "video" && mediaDashboard) return <VideoPipelineOverview dashboard={mediaDashboard} onPage={onVideoPage} onOpenVideo={onOpenVideo} />;
   if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
   if (pipeline === null) return <DashboardState kind="empty" label="Chưa có hoạt động pipeline cho workspace này" />;
-  if (media === "video" && mediaDashboard) return <VideoPipelineOverview dashboard={mediaDashboard} onPage={onVideoPage} onOpenVideo={onOpenVideo} />;
   const scan = pipeline.latest_source_sync;
   const active = pipeline.active_job;
   const needsAttentionStages = pipeline.stages.filter(stage => stage.needs_attention_assets > 0 || stage.processing_assets > 0 || stage.queued_assets > 0 || stage.waiting_assets > 0);

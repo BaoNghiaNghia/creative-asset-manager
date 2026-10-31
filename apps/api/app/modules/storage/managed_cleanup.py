@@ -287,7 +287,20 @@ class ManagedStorageCleanupService:
                 completed_pipeline_exists
                 and job.entity_id == record.asset_id
                 and job.entity_type == "asset"
-                and job.job_type == "visual_index_sync"
+                and (
+                    job.job_type == "visual_index_sync"
+                    or (
+                        # These legacy search-index repair jobs were
+                        # intentionally parked until 2099 during the index
+                        # migration. They only read search metadata, not the
+                        # managed image binary, and cannot keep completed
+                        # staging objects alive indefinitely.
+                        job.job_type == "search_index_sync"
+                        and job.status == JobStatus.PENDING.value
+                        and job.next_attempt_at is not None
+                        and _utc(job.next_attempt_at).year >= 2099
+                    )
+                )
             )
             for job in jobs
         )
