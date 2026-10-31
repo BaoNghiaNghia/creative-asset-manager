@@ -29,7 +29,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from app.modules.ai_operations.credentials import CreativeAiCredentialRepository
 from app.modules.explorer.cache import CachedThumbnail, thumbnail_cache
 from app.modules.realistic_review_ugc.output_image_sanitizer import (
-    MAX_PREVIEW_BYTES, stage1_png_thumbnail_bytes,
+    MAX_PREVIEW_BYTES, stage1_png_thumbnail_bytes, stage1_webp_thumbnail_bytes,
 )
 from app.modules.realistic_review_ugc.stage1_fabric import thread_preview_bytes
 from app.modules.realistic_review_ugc.image_cache_policy import (
@@ -2869,6 +2869,7 @@ async def _original_png_thumbnail_response(
     size_pixels: int,
     cache_control: str,
     etag: str | None = None,
+    preview_format: str = "png",
 ) -> Response | None:
     """Resize the original source PNG without flattening its transparency.
 
@@ -2881,7 +2882,7 @@ async def _original_png_thumbnail_response(
         return None
     cache_key = (
         tenant_id, cache_namespace, remote_file_id,
-        f"source-alpha-v2:{cache_revision}:{size_pixels}",
+        f"source-alpha-v2:{cache_revision}:{size_pixels}:{preview_format}",
     )
 
     async def load_original_thumbnail() -> CachedThumbnail:
@@ -2902,10 +2903,13 @@ async def _original_png_thumbnail_response(
                     if len(content) > MAX_PREVIEW_BYTES:
                         raise ValueError("Stage 1 source PNG exceeds preview limit")
                 thumbnail_bytes = await run_in_threadpool(
-                    stage1_png_thumbnail_bytes, bytes(content), size_pixels,
+                    stage1_webp_thumbnail_bytes if preview_format == "webp" else stage1_png_thumbnail_bytes,
+                    bytes(content), size_pixels,
                 )
                 return CachedThumbnail(
-                    content=thumbnail_bytes, content_type="image/png", headers=(),
+                    content=thumbnail_bytes,
+                    content_type="image/webp" if preview_format == "webp" else "image/png",
+                    headers=(),
                 )
             finally:
                 await stream.close()
@@ -5381,6 +5385,7 @@ async def get_generation_output_version(
     download: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
     artwork: str | None = Query(default=None, max_length=64),
+    preview_format: str = Query(default="png", pattern="^(png|webp)$"),
     v: str | None = Query(default=None, max_length=256),
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
@@ -5406,12 +5411,19 @@ async def get_generation_output_version(
     # fabric). Only cap-placement widgets request ephemeral thread geometry.
     stage1_png = stage == "stage1" and str(content_type or "").lower().split(";")[0] == "image/png"
     thread_preview = stage1_png and artwork == "stage1-thread-geometry-v1" and not download
+    preview_revision = remote_id
+    if thread_preview:
+        preview_revision += ":stage1-thread-geometry-v1"
+    elif stage1_png:
+        # A PNG and WebP rendition must never share an HTTP validator.
+        preview_revision += ":stage1-source-alpha-v2:" + (
+            "webp" if preview_format == "webp" else "png"
+        )
     session.close()
     if thumbnail and not download:
         not_modified, etag, cache_control = _rrugc_conditional_preview(
             tenant_id=principal.active_tenant_id, remote_file_id=remote_id,
-            size=size, revision=remote_id + (":stage1-thread-geometry-v1" if thread_preview else
-                                            ":stage1-source-alpha-v2" if stage1_png else ""),
+            size=size, revision=preview_revision,
             requested_version=v,
             if_none_match=if_none_match,
         )
@@ -5438,6 +5450,7 @@ async def get_generation_output_version(
                 cache_revision=str(version), remote_file_id=remote_id,
                 size_bytes=size_bytes, size_pixels=size,
                 cache_control=cache_control, etag=etag,
+                preview_format="webp" if preview_format == "webp" else "png",
             )
         else:
             compact = await _managed_drive_thumbnail_response(

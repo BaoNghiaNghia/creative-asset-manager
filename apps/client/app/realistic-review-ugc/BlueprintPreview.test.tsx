@@ -75,6 +75,9 @@ describe("Blueprint 8869 official stock and embroidery", () => {
       .toBe("/official/white-black/side.jpg");
     const artwork = front.querySelector<HTMLImageElement>(".rrugc-blueprint-selected-design img")!;
     expect(artwork.getAttribute("src")).toContain("artwork=stage1-thread-geometry-v1");
+    expect(artwork.getAttribute("src")).toContain("thumbnail=true&size=1024");
+    const thumb = host.querySelector<HTMLImageElement>(".rrugc-blueprint-design-choice img")!;
+    expect(thumb.getAttribute("src")).toContain("thumbnail=true&size=224&preview_format=webp");
     expect(artwork.style.width).toBe("100%");
     expect(artwork.style.height).toBe("100%");
     expect(artwork.style.opacity).not.toBe("0");
@@ -152,6 +155,11 @@ describe("Blueprint 8869 official stock and embroidery", () => {
       .toContain("prior atlas hoop calibration not applied");
     await act(async () => host.querySelector<HTMLElement>(".rrugc-blueprint-front-open-detail")!.click());
     expect(document.querySelector(".rrugc-blueprint-detail-dialog")).not.toBeNull();
+    const detailArt = document.querySelector<HTMLImageElement>(".rrugc-blueprint-detail-image .rrugc-blueprint-selected-design img")!;
+    expect(detailArt.getAttribute("src")).toContain("artwork=stage1-thread-geometry-v1");
+    // Until the on-demand high-res composite resolves, the detail viewer
+    // shows the existing fast preview rather than a blank canvas.
+    expect(detailArt.getAttribute("src")).toContain("thumbnail=true");
     const closeButton = document.querySelector<HTMLButtonElement>('button[aria-label="Close front embroidery detail"]')!;
     await act(async () => closeButton.click());
     expect(document.querySelector(".rrugc-blueprint-detail-dialog")).toBeNull();

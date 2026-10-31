@@ -5,6 +5,7 @@ import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { BlueprintPreview } from "./BlueprintPreview";
 import { Stage1OutputLightbox } from "./Stage1OutputLightbox";
+import { stage1OutputThumbnailUrl } from "./outputThumbnail";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import "./Stage1ProductDesignSelection.css";
 
@@ -185,8 +186,9 @@ export function GenerationOutputVersionsDialog({
         rel={stage === "stage1" ? undefined : "noreferrer"}
         onClick={stage === "stage1" ? event => { event.preventDefault(); setLightboxVersion(version.version); } : undefined}
         title={"Open version " + version.version}>
-        <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400" + (stage === "stage1" ? "&artwork=stage1-source-alpha-v2" : "")} rootMargin="260px 0px"
-          alt={"Output version " + version.version} loading="lazy" />
+        <DeferredImage src={stage === "stage1" ? stage1OutputThumbnailUrl(version.url, 288)
+          : version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400"}
+          rootMargin="140px 0px" alt={"Output version " + version.version} loading="lazy" />
       </a>
       {stage !== "stage1" && <div className="rrugc-version-card-meta">
         <small>{new Date(version.created_at).toLocaleString()}</small>

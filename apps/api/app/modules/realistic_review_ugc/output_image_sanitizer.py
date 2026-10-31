@@ -15,11 +15,21 @@ MAX_PREVIEW_PIXELS = 12_000_000
 
 
 def stage1_png_thumbnail_bytes(original_bytes: bytes, size_pixels: int) -> bytes:
-    """Resize the original PNG to a bounding square, preserving aspect/alpha.
+    """Lossless PNG preview with original alpha and aspect ratio."""
+    return _stage1_thumbnail_bytes(original_bytes, size_pixels, output_format="PNG")
 
-    Raises ValueError on untrusted, oversized or unsupported inputs, allowing
-    the endpoint to stream the original instead of producing a damaged preview.
-    No matte removal, RGB flattening, or background compositing is performed.
+
+def stage1_webp_thumbnail_bytes(original_bytes: bytes, size_pixels: int) -> bytes:
+    """Small WebP preview only; never change the master PNG or its alpha."""
+    return _stage1_thumbnail_bytes(original_bytes, size_pixels, output_format="WEBP")
+
+
+def _stage1_thumbnail_bytes(original_bytes: bytes, size_pixels: int, *, output_format: str) -> bytes:
+    """Resize existing PNG pixels only, without matte removal or fabrication.
+
+    Reject malformed/oversized sources; the caller can stream the original.
+    The lossy WebP variant is exclusively for small UI tiles, not embroidery
+    geometry, full-size inspection, or downloads.
     """
     if not original_bytes or len(original_bytes) > MAX_PREVIEW_BYTES:
         raise ValueError("Stage 1 original exceeds the thumbnail byte limit")
@@ -43,7 +53,12 @@ def stage1_png_thumbnail_bytes(original_bytes: bytes, size_pixels: int) -> bytes
                 preview = original.convert("RGBA" if has_alpha else "RGB")
             preview.thumbnail((size_pixels, size_pixels), Image.Resampling.LANCZOS)
             output = BytesIO()
-            preview.save(output, format="PNG", optimize=True)
+            if output_format == "WEBP":
+                # WebP preserves RGBA transparency and typically reduces gallery
+                # transfer size significantly versus a full-color PNG thumbnail.
+                preview.save(output, format="WEBP", quality=80, method=4, exact=True)
+            else:
+                preview.save(output, format="PNG", optimize=True)
             return output.getvalue()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Stage 1 original PNG cannot be decoded") from exc

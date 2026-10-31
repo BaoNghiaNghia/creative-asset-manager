@@ -5,7 +5,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from app.modules.realistic_review_ugc.output_image_sanitizer import (
-    MAX_PREVIEW_BYTES, stage1_png_thumbnail_bytes,
+    MAX_PREVIEW_BYTES, stage1_png_thumbnail_bytes, stage1_webp_thumbnail_bytes,
 )
 
 
@@ -63,3 +63,29 @@ def test_invalid_and_oversized_inputs_fail_without_fabricating_preview():
     Image.new("RGB", (50, 30), "black").save(not_png, "JPEG")
     with pytest.raises(ValueError):
         stage1_png_thumbnail_bytes(not_png.getvalue(), 256)
+
+def test_webp_thumbnail_is_small_keeps_alpha_and_original_ratio():
+    original = sample_png()
+    compact = stage1_webp_thumbnail_bytes(original, 256)
+    assert len(compact) < len(stage1_png_thumbnail_bytes(original, 256))
+    with Image.open(BytesIO(compact)) as image:
+        assert image.format == "WEBP"
+        assert image.size == (256, 128)
+        assert image.mode == "RGBA"
+        assert image.getpixel((0, 0))[3] == 0
+        assert image.getpixel((50, 35))[3] == 255
+        # Lossy thumbnails may deviate slightly; original download remains exact.
+        color = image.getpixel((50, 35))
+        assert abs(color[0] - 36) < 25
+        assert abs(color[1] - 80) < 25
+        assert abs(color[2] - 176) < 25
+
+
+def test_webp_thumbnail_never_makes_opaque_black_transparent():
+    original = sample_png("RGB")
+    compact = stage1_webp_thumbnail_bytes(original, 256)
+    with Image.open(BytesIO(compact)) as image:
+        assert image.format == "WEBP"
+        assert image.mode == "RGB"
+        assert image.size == (256, 128)
+        assert image.getpixel((0, 0)) == (0, 0, 0)

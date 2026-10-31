@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import type { GenerationOutputVersion, HatStockCatalog } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { BlueprintSmoothImage, prefetchBlueprintImage } from "./BlueprintSmoothImage";
+import { stage1OutputThumbnailUrl } from "./outputThumbnail";
 import { hideBlueprintLens, moveBlueprintLens } from "./BlueprintMagnifier";
 import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { BlueprintViewZoom } from "./BlueprintViewZoom";
@@ -66,11 +67,6 @@ export function blueprintNavigate(
 
 function designName(version: GenerationOutputVersion) {
   return version.output_name?.split(/[\\/]/).filter(Boolean).pop() || "Design " + version.version;
-}
-
-function thumbnailUrl(url: string, size: number) {
-  // Stage 1 gallery displays the opaque embroidery-on-fabric photograph.
-  return url + (url.includes("?") ? "&" : "?") + "thumbnail=true&size=" + size;
 }
 
 type DragAxis = "horizontal" | "vertical" | "both";
@@ -179,9 +175,14 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const sideHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "side");
   // Only the cap canvas requests ephemeral stitch geometry. The thumbnail,
   // original and downloaded Stage 1 design stay RGB embroidery-on-fabric.
-  const activeDesignSrc = activeDesign ? activeDesign.url
+  // Keep the routine cap compositor at preview resolution. Only the zoom
+  // dialog requests full geometry, retaining high-frequency stitches on demand.
+  const fullDesignSrc = activeDesign ? activeDesign.url
     + (activeDesign.url.includes("?") ? "&" : "?")
     + "artwork=stage1-thread-geometry-v1" : "";
+  const activeDesignSrc = activeDesign ? activeDesign.url
+    + (activeDesign.url.includes("?") ? "&" : "?")
+    + "thumbnail=true&size=1024&artwork=stage1-thread-geometry-v1" : "";
   // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.
@@ -207,26 +208,17 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
     }
   }, [versions.length, synchronizedColors.length]);
 
-  // Warm the active preview and the two nearest choices; schedule neighbors after
-  // the active image so fast drag/key navigation can reuse decoded browser images.
+  // Avoid speculative Drive work: the visible 224px cards already lazy-load
+  // their own WebP thumbnails. Warm only one adjacent factory hat photograph
+  // after the selected front/side have had a chance to finish.
   useEffect(() => {
-    if (!activeDesign) return;
-    prefetchBlueprintImage(frontHatSrc);
-    prefetchBlueprintImage(sideHatSrc);
-    prefetchBlueprintImage(thumbnailUrl(activeDesign.url, 512));
+    if (!activeDesign || !stockCatalog) return;
     const timer = window.setTimeout(() => {
-      for (const offset of [-2, -1, 1, 2]) {
-        const color = synchronizedColors[selectedColorIndex + offset];
-        if (color) {
-          prefetchBlueprintImage(blueprintHatPhoto(color.id, stockCatalog, "front"));
-          prefetchBlueprintImage(blueprintHatPhoto(color.id, stockCatalog, "side"));
-        }
-        const design = versions[selectedDesign + offset];
-        if (design) prefetchBlueprintImage(thumbnailUrl(design.url, 512));
-      }
-    }, 80);
+      const next = synchronizedColors[selectedColorIndex + 1] ?? synchronizedColors[selectedColorIndex - 1];
+      if (next) prefetchBlueprintImage(blueprintHatPhoto(next.id, stockCatalog, "front"));
+    }, 350);
     return () => window.clearTimeout(timer);
-  }, [activeColor.id, activeDesign?.url, selectedColorIndex, selectedDesign, versions, frontHatSrc, sideHatSrc, stockCatalog]);
+  }, [activeDesign?.version, selectedColorIndex, stockCatalog]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -323,7 +315,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                 aria-pressed={isActive} aria-label={"Select design " + designName(design)}
                 onClick={() => setDesignIndex(index)}>
                 <span className="rrugc-blueprint-design-caption">DESIGN {index + 1}{isActive ? " · ACTIVE" : ""}</span>
-                <DeferredImage src={thumbnailUrl(design.url, 240)} rootMargin="180px" alt="" draggable={false} loading="lazy" decoding="async"/>
+                <DeferredImage src={stage1OutputThumbnailUrl(design.url, 224)} rootMargin="100px"
+                  alt="" draggable={false} loading="lazy" decoding="async"/>
                 <strong title={designName(design)}>{designName(design)}</strong>
               </button>
               {onToggleStage2Selection && <button type="button"
@@ -534,7 +527,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
       <span>{synchronizedColors.length} synchronized 8869 colorways · Verified Front/Side stock pairs · Thread color by hat</span>
     </div>
     {frontDetailOpen && <BlueprintFrontDetailModal
-      hatSrc={frontHatSrc} designSrc={activeDesignSrc} compositedSrc={tintedFrontSrc}
+      hatSrc={frontHatSrc} designSrc={fullDesignSrc} compositedSrc={tintedFrontSrc}
       threadMode={threadMode} colorId={activeColor.id} colorLabel={activeColor.label}
       designLabel={designName(activeDesign)} designSize={frontDesignSize}
       guides={guides} placement={placement}

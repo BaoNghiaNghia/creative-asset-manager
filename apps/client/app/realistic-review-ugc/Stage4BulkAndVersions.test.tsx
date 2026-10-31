@@ -277,6 +277,14 @@ describe("Version history comparison", () => {
       .find(button => button.textContent?.includes("Masonry"))!;
     await act(async () => masonryButton.click());
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
+    const tiles = host.querySelectorAll<HTMLImageElement>(".rrugc-version-compare-card img");
+    expect(tiles).toHaveLength(37);
+    // DeferredImage assigns src only to near-viewport tiles; the rest stay
+    // unrequested, preserving bandwidth as the masonry gallery scrolls.
+    const requested = [...tiles].filter(tile => tile.getAttribute("src"));
+    expect(requested.length).toBeGreaterThan(0);
+    expect(requested.every(tile => tile.getAttribute("src")!.includes("thumbnail=true&size=288&preview_format=webp"))).toBe(true);
+    expect([...tiles].every(tile => tile.getAttribute("loading") === "lazy")).toBe(true);
     expect(host.querySelectorAll(".rrugc-version-download")).toHaveLength(37);
     expect(host.querySelector<HTMLAnchorElement>(".rrugc-version-download")?.getAttribute("href")).toContain("?download=true");
     expect(host.querySelector<HTMLAnchorElement>(".rrugc-version-download-all")?.getAttribute("href")).toBe("/api/v1/realistic-review-ugc/generation-jobs/stage1/stage1-job/outputs/archive");

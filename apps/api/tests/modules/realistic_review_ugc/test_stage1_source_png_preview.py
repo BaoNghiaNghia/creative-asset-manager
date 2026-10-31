@@ -54,7 +54,8 @@ class Storage:
 
 
 def run_request(monkeypatch, *, thumbnail=False, download=False, stage="stage1",
-                storage=None, remote_file_id="source-only-test-unique", artwork=None, source_bytes=None):
+                storage=None, remote_file_id="source-only-test-unique", artwork=None, source_bytes=None,
+                preview_format="png"):
     source = source_bytes if source_bytes is not None else source_png()
     storage = storage or Storage(source)
     session = Session()
@@ -69,7 +70,8 @@ def run_request(monkeypatch, *, thumbnail=False, download=False, stage="stage1",
     async def request():
         return await module.get_generation_output_version(
             stage, "stage1-job", 7, thumbnail=thumbnail, download=download,
-            size=400, v=None, artwork=artwork, if_none_match=None, session=session,
+            size=400, v=None, artwork=artwork, preview_format=preview_format,
+            if_none_match=None, session=session,
             principal=SimpleNamespace(active_tenant_id="stage1-source-tenant"),
         )
     return asyncio.run(request()), session, storage, source
@@ -102,6 +104,38 @@ def test_stage1_thumbnail_is_derived_from_original_and_not_drive_thumbnail(monke
         assert image.getpixel((0, 0))[3] == 0
         assert image.getpixel((100, 65)) == (38, 82, 177, 255)
         assert image.getpixel((115, 94)) == (0, 0, 0, 255)
+
+
+
+def test_stage1_webp_preview_uses_original_alpha_with_lean_bytes(monkeypatch):
+    original = source_png()
+    response, session, storage, _ = run_request(
+        monkeypatch, thumbnail=True, preview_format="webp",
+        remote_file_id="webp-source-epoch-241",
+    )
+    assert isinstance(response, Response)
+    assert response.media_type == "image/webp"
+    assert session.closed and storage.opened == 1
+    assert response.headers["etag"]
+    assert response.headers["vary"] == "Cookie"
+    with Image.open(BytesIO(response.body)) as image:
+        assert image.format == "WEBP"
+        assert image.mode == "RGBA"
+        assert image.size == (400, 200)
+        assert image.getpixel((0, 0))[3] == 0
+        assert image.getpixel((120, 100))[3] == 255
+
+    png, _, png_storage, _ = run_request(
+        monkeypatch, thumbnail=True, remote_file_id="webp-source-epoch-241",
+    )
+    assert png.media_type == "image/png"
+    assert png.headers["etag"] != response.headers["etag"]
+    assert png_storage.opened == 1
+    assert len(response.body) < len(png.body)
+    full, _, _, _ = run_request(
+        monkeypatch, remote_file_id="webp-source-epoch-241",
+    )
+    assert drain_stream(full) == original
 
 
 def test_full_stage1_image_and_download_are_the_identical_original_bytes(monkeypatch):
