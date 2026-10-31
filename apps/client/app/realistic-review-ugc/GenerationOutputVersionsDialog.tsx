@@ -159,7 +159,12 @@ export function GenerationOutputVersionsDialog({
       ref={version.version === initialVersion ? openedVersionRef : undefined}
       className={"rrugc-version-compare-card" + (version.version === initialVersion ? " is-focused-version" : "") + (stage === "stage1" && version.selected_for_products_stage2 ? " is-stage2-starred" : "")}>
       <div className="rrugc-version-card-heading">
-        <strong title={version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
+        <strong title={stage === "stage1"
+          ? [version.output_name || "Version " + version.version,
+            new Date(version.created_at).toLocaleString(),
+            version.width && version.height ? version.width + "×" + version.height : null,
+          ].filter(Boolean).join(" · ")
+          : version.output_name || undefined}>{version.output_name ? version.output_name.split("/").pop() : version.output_role === "design_concepts" ? "10 Concepts + Hero" : version.output_role === "colorways" ? "13 Hat Colorways" : "Version " + version.version}</strong>
         {stage === "stage1" ? <button type="button"
           className={"rrugc-version-stage2-star" + (version.selected_for_products_stage2 ? " is-starred" : "")}
           aria-label={(version.selected_for_products_stage2 ? "Remove design from Products Stage 2: " : "Star design for Products Stage 2: ") + (version.output_name?.split("/").pop() || "Design " + version.version)}
@@ -183,16 +188,11 @@ export function GenerationOutputVersionsDialog({
         <DeferredImage src={version.url + (version.url.includes("?") ? "&" : "?") + "thumbnail=true&size=400" + (stage === "stage1" ? "&artwork=stage1-source-alpha-v2" : "")} rootMargin="260px 0px"
           alt={"Output version " + version.version} loading="lazy" />
       </a>
-      <div className="rrugc-version-card-meta">
+      {stage !== "stage1" && <div className="rrugc-version-card-meta">
         <small>{new Date(version.created_at).toLocaleString()}</small>
         {version.width && version.height && <small>{version.width}×{version.height}</small>}
         {version.output_name && <small title={version.output_name}>v{version.version} · {version.output_name}</small>}
-        {stage === "stage1" && version.font_info && <div className="rrugc-version-font-report">
-          <strong>Font: {version.font_info.font_name}</strong>
-          <small>{version.font_info.font_style} · {version.font_info.layout_name}</small>
-          <small>Font source · {version.font_info.font_license}</small>
-        </div>}
-      </div>
+      </div>}
       <div className="rrugc-version-download-actions">
         <a className="rrugc-version-full-link" href={version.url}
           target={stage === "stage1" ? undefined : "_blank"}

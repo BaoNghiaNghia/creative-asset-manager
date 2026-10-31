@@ -25,3 +25,41 @@
   margin:5px 13px;padding:9px 12px;border:1px solid #f5b0b0;border-radius:7px;
   background:#fff5f5;color:#9a2626;font-size:11px;font-weight:600;
 }
+/* Stage 1 Output History cards: artwork + pick + view + download.
+   Filename hover retains date, resolution and source path without clutter. */
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-grid article.rrugc-version-compare-card{
+  gap:7px;
+  padding:8px;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-card-heading{
+  min-width:0;
+  min-height:28px;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-card-heading strong{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-stage2-star{
+  width:28px;
+  height:28px;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-grid:not(.is-masonry) article>a.rrugc-version-image-link{
+  height:auto;
+  min-height:0;
+  aspect-ratio:16 / 10;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-download-actions{
+  flex-wrap:nowrap;
+  gap:6px;
+  min-height:28px;
+}
+.rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-full-link{
+  white-space:nowrap;
+}
+@media(max-width:520px){
+  .rrugc-output-version-dialog.is-stage1-artwork .rrugc-version-download-actions{
+    flex-wrap:wrap;
+  }
+}

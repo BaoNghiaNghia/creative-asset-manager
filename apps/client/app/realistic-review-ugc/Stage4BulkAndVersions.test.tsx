@@ -147,6 +147,61 @@ describe("Version history comparison", () => {
     await act(async () => root.unmount());
   });
 
+  it("keeps Stage 1 history cards minimal with star, view and download but no Font report", async () => {
+    vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
+      job_id: "compact-design-job", stage: "stage1",
+      versions: [{
+        version: 6, output_name: "v18-output/final/design_06.png",
+        url: "/api/v1/outputs/6", created_at: "2026-10-31T09:23:38Z",
+        width: 2048, height: 1024,
+        selected_for_products_stage2: true,
+        font_info: {
+          font_name: "Old Google Font", font_style: "Bold", layout_name: "Center",
+          font_source: "google_fonts", font_url: "https://fonts.example.org",
+          font_license: "SIL OFL", font_status: "legacy",
+        },
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<GenerationOutputVersionsDialog
+        stage="stage1" jobId="compact-design-job" title="CREATIVE DICTATOR"
+        onClose={() => undefined} />));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      await act(async () => host.querySelector<HTMLButtonElement>(
+        '.rrugc-version-layout-toggle button[title^="Display all"]',
+      )!.click());
+      const card = host.querySelector<HTMLElement>(".rrugc-version-compare-card")!;
+      expect(card).not.toBeNull();
+      expect(card.querySelector(".rrugc-version-card-meta")).toBeNull();
+      expect(card.querySelector(".rrugc-version-font-report")).toBeNull();
+      expect(card.textContent).not.toContain("Font");
+      expect(card.textContent).not.toContain("SIL OFL");
+      expect(card.textContent).toContain("design_06.png");
+      expect(card.querySelector(".rrugc-version-card-heading strong")?.getAttribute("title"))
+        .toContain("2048×1024");
+      const star = card.querySelector<HTMLButtonElement>(".rrugc-version-stage2-star")!;
+      expect(star.getAttribute("aria-pressed")).toBe("true");
+      expect(card.querySelector<HTMLAnchorElement>(".rrugc-version-download")?.getAttribute("href"))
+        .toBe("/api/v1/outputs/6?download=true");
+      const view = card.querySelector<HTMLAnchorElement>(".rrugc-version-full-link")!;
+      expect(view.textContent).toBe("View full image");
+      await act(async () => view.click());
+      expect(host.querySelector(".rrugc-stage1-lightbox")).not.toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>(
+        ".rrugc-stage1-lightbox [aria-label='Close full image']",
+      )?.click());
+      await act(async () => star.click());
+      expect(selectStage1ProductDesign).toHaveBeenCalledWith("compact-design-job", 6, false);
+      expect(star.getAttribute("aria-pressed")).toBe("false");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("opens Stage 1 full-size artwork inside CAM and keeps original download intact", async () => {
     vi.mocked(listGenerationOutputVersions).mockResolvedValueOnce({
       job_id: "stage1-lightbox-job", stage: "stage1",
@@ -237,7 +292,7 @@ describe("Version history comparison", () => {
     expect(host.querySelector(".rrugc-version-grid.is-masonry")).not.toBeNull();
     expect(host.querySelectorAll(".rrugc-version-compare-card")).toHaveLength(37);
     expect(host.textContent).toContain("37 saved images");
-    expect(host.textContent).toContain("concept_37");
+    expect(host.querySelector('.rrugc-version-card-heading strong[title*="concept_37"]')).not.toBeNull();
     const blueprint = [...host.querySelectorAll<HTMLButtonElement>(".rrugc-version-layout-toggle button")]
       .find(button => button.textContent?.includes("Blueprint"))!;
     expect(blueprint).toBeDefined();
