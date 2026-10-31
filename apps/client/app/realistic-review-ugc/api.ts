@@ -320,11 +320,6 @@ export const listKeywordImages = (
   return request<KeywordImagePage>("/api/v1/realistic-review-ugc/keyword-images?" + params.toString(), { signal });
 };
 
-export const getCreativeV3PreviewStatus = (signal?: AbortSignal) =>
-  request<{ available: boolean; schema_version: string }>(
-    "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/status", { signal },
-  );
-
 export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
   request<{ available: boolean; schema_version: string; output_count: number }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status", { signal },
@@ -365,48 +360,6 @@ export const getKeywordImageJobStatus = (jobId: string, signal?: AbortSignal) =>
     "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId) + "/status",
     { signal },
   );
-
-export const createManualKeywordImage = (keyword: string, skill: Stage2SkillSelection) =>
-  request<{ created: boolean; keyword_id: string; job_id: string; status: string }>(
-    "/api/v1/realistic-review-ugc/keyword-images/manual",
-    { method: "POST", body: JSON.stringify({
-      keyword,
-      skill_source: skill.source,
-      skill_id: skill.skill_id,
-      skill_name: skill.skill_name,
-      skill_version: skill.skill_version,
-    }) },
-  );
-
-export const createKeywordImage = (
-  keywordId: string,
-  skill: Stage2SkillSelection,
-  prompt?: string,
-) => request<{ created: boolean; job_id: string; status: string }>(
-  "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId),
-  { method: "POST", body: JSON.stringify({
-    skill_source: skill.source, skill_id: skill.skill_id,
-    skill_name: skill.skill_name, skill_version: skill.skill_version,
-    ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
-  }) },
-);
-
-
-export const queueAllKeywordImages = (skill: Stage2SkillSelection, signal?: AbortSignal) =>
-  request<{ queued: number; remaining: number }>(
-    "/api/v1/realistic-review-ugc/keyword-images/batch?limit=50",
-    { method: "POST", signal, body: JSON.stringify({
-      skill_source: skill.source, skill_id: skill.skill_id,
-      skill_name: skill.skill_name, skill_version: skill.skill_version,
-    }) },
-  );
-
-export const retryKeywordImage = (keywordId: string) =>
-  request<{ job_id: string; status: string }>(
-    "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/retry",
-    { method: "POST", body: JSON.stringify({ confirm_replace_outputs: true }) },
-  );
-
 
 export const resolveStage0KeywordMetrics = (keyword: string) =>
   request<{ requested: number; provider_requested: number; cached: number }>(
@@ -994,11 +947,6 @@ export const publishAvailableKeywordImages = (keywordId: string) =>
     { method: "POST" },
   );
 
-export const regenerateKeywordImage = (keywordId: string, skill?: Stage2SkillSelection | null) =>
-  request<{ job_id: string; status: string }>(
-    "/api/v1/realistic-review-ugc/keyword-images/" + encodeURIComponent(keywordId) + "/regenerate",
-    { method: "POST", body: JSON.stringify({ ...(skill || {}), confirm_replace_outputs: true }) },
-  );
 export const regenerateColorwayJob = (jobId: string) =>
   request<{ job_id: string; status: string }>(
     "/api/v1/realistic-review-ugc/colorways/" + encodeURIComponent(jobId) + "/regenerate",

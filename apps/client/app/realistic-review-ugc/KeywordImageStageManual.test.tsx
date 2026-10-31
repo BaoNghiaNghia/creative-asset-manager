@@ -3,12 +3,28 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { createManualKeywordImage, getKeywordAnalysisDetail, getKeywordImageJobStatus, listKeywordImages, listStage2Skills } from "./api";
+import { getKeywordAnalysisDetail, getKeywordImageJobStatus, getCreativeV3GenerationStatus, generateCreativeV3Stage1Images, getKeywordCreativeBrief, listKeywordImages, listStage2Skills } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("./api", async importOriginal => ({
   ...(await importOriginal<typeof import("./api")>()),
+  getCreativeV3GenerationStatus: vi.fn(async () => ({
+    available: true, output_count: 6, schema_version: "creative-v3",
+  })),
+  getKeywordCreativeBrief: vi.fn(async (id: string) => ({
+    keyword_id: id, keyword: "BEACH PLEASE", status: "completed",
+    updated_at: "2026-10-31T08:00:00+07:00", prompt_version: "meaning-first-v1",
+    error_code: null, brief: {
+      keyword_exact: "BEACH PLEASE", strategy: "", meaning_emotion: "",
+      target_audience: "", purchase_motivation: "", creative_hook: "",
+      concepts: [{ mode: "safe" }, { mode: "creative_twist" }, { mode: "explore" }],
+    },
+  })),
+  generateCreativeV3Stage1Images: vi.fn(async () => ({
+    queued: true, keyword_id: "key-1", job_id: "v3-job-1", status: "queued",
+    engine: "creative-v3", expected_output_count: 6,
+  })),
   listStage2Skills: vi.fn(async () => ({
     stage_defaults: { stage1: "local:redesign-8869-v3" },
     items: [{ source: "local", skill_id: null, skill_name: "redesign-8869-v3",
@@ -26,9 +42,6 @@ vi.mock("./api", async importOriginal => ({
   listKeywordImages: vi.fn(async () => ({
     total: 0, page: 1, page_size: 20, items: [],
     overview: { not_run: 0, queued: 0, running: 0, completed: 0, failed: 0 },
-  })),
-  createManualKeywordImage: vi.fn(async () => ({
-    created: true, keyword_id: "manual-1", job_id: "job-1", status: "queued",
   })),
   getHatStockCatalog: vi.fn(async () => ({ can_sync: false, colors: {
     "white-black": { revision: "fixture-1", views: {
@@ -52,7 +65,7 @@ vi.mock("./api", async importOriginal => ({
 afterEach(() => document.body.replaceChildren());
 
 describe("Stage 1 Products without the manual keyword artwork bar", () => {
-  it("hides the entire manual keyword creator, retaining Generate all unused and the keyword jobs table", async () => {
+  it("hides legacy generation and retains Creative Brief analysis and the keyword jobs table", async () => {
     vi.mocked(listKeywordImages).mockResolvedValueOnce({
       page: 1, page_size: 20, total: 1,
       overview: { not_run: 1, queued: 0, running: 0, completed: 0, failed: 0 },
@@ -77,11 +90,11 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     expect(host.textContent).not.toContain("Create artwork from a keyword");
     expect(host.textContent).not.toContain("Stage 1 requires the Six Designs Skill");
     expect(host.textContent).not.toContain("Enter keyword or quote");
-    expect(host.querySelector(".rrugc-keyword-gen-actions")?.textContent).toContain("Generate all unused");
+    expect(host.querySelector(".rrugc-keyword-gen-actions")?.textContent).toContain("Analyze briefs");
+    expect(host.querySelector(".rrugc-keyword-gen-actions")?.textContent).not.toContain("Generate all unused");
     expect(host.querySelector(".rrugc-keyword-gen-stats")).not.toBeNull();
     expect(host.querySelector(".rrugc-keyword-gen-table")).not.toBeNull();
     expect(host.textContent).toContain("BEACH PLEASE");
-    expect(createManualKeywordImage).not.toHaveBeenCalled();
     expect(getKeywordImageJobStatus).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
@@ -220,6 +233,43 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     await act(async () => root.unmount());
   });
 
+  it("routes the Retry button only to the completed Creative Brief V3, never to legacy Skills", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValue({
+      available: true, schema_version: "creative-v3", output_count: 6,
+    });
+    vi.mocked(listKeywordImages).mockResolvedValue({
+      page: 1, page_size: 20, total: 1,
+      overview: { not_run: 0, queued: 0, running: 0, completed: 1, failed: 0 },
+      items: [{
+        keyword_id: "key-1", keyword: "BEACH PLEASE", search_volume: 100,
+        source_image_url: null, status: "completed", job_id: "job-1",
+        skill_name: "concept-short-v1", skill_version: null, retry_count: 0,
+        saved_output_count: 6, attempt_count: 1, max_attempts: 1,
+        error_code: null, error_message: null, output_url: "/api/v1/image/5",
+        updated_at: null, creative_brief: { status: "completed", concept_count: 3 },
+      }],
+    } as never);
+    const host=document.createElement("div");
+    document.body.append(host);
+    const root=createRoot(host);
+    await act(async () => root.render(
+      <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+    ));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const engine=host.querySelector(".rrugc-keyword-gen-skill-cell");
+    expect(engine?.textContent).toContain("Legacy output");
+    expect(engine?.textContent).toContain("retry uses V3");
+    const retry=host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]');
+    expect(retry?.disabled).toBe(false);
+    await act(async () => retry?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(getKeywordCreativeBrief).toHaveBeenCalledWith("key-1");
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith("key-1", "2026-10-31T08:00:00+07:00");
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("renders Output slider and Actions as independent table columns", async () => {
     vi.mocked(listKeywordImages).mockResolvedValueOnce({
       page: 1, page_size: 20, total: 1,
@@ -240,11 +290,13 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Creative Brief", "Generation skill", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Creative Brief", "Generation engine", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
     expect(cells).toHaveLength(11);
     expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
     expect(cells[3].textContent).toContain("Not analyzed");
+    expect(cells[4].textContent).toContain("Legacy output");
+    expect(cells[4].textContent).toContain("retry uses V3");
     expect(cells[6].textContent).toBe("—");
     expect(cells[7].textContent).toBe("—");
     expect(cells[8].textContent).toBe("—");

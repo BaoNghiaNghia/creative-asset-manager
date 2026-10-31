@@ -17,6 +17,16 @@ from app.modules.realistic_review_ugc.model import (
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig
 
 
+@pytest.fixture(autouse=True)
+def historical_legacy_contracts_enabled(monkeypatch):
+    """Historical engine regression tests explicitly opt into retired behavior.
+
+    Production defaults OFF; retirement is separately tested in
+    test_stage1_legacy_retirement.py. This fixture cannot enable live queues.
+    """
+    monkeypatch.setattr(get_settings(), "RRUGC_STAGE1_LEGACY_GENERATION_ENABLED", True)
+
+
 @pytest.fixture()
 def db():
     engine = create_engine("sqlite://")

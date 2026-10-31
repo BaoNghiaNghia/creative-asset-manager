@@ -98,7 +98,7 @@ describe("Stage 1 Typography V2 feature gating and non-destructive navigation", 
     expect(host.querySelector("[data-testid=typography-stage1-subnav]")).not.toBeNull();
     expect(host.querySelector(".rrugc-keyword-gen-table")).not.toBeNull();
     expect(host.textContent).toContain("BEACH BABE");
-    expect(host.textContent).toContain("Generate all unused");
+    expect(host.textContent).toContain("Analyze briefs");
     expect(host.textContent).not.toContain("Style Lab · Later");
   });
 
@@ -120,7 +120,7 @@ describe("Stage 1 Typography V2 feature gating and non-destructive navigation", 
     await click(nav?.querySelectorAll("button")[0] ?? null);
     expect(host.querySelector(".typography-keyword-jobs-shell")?.hasAttribute("hidden")).toBe(false);
     expect(host.querySelector(".rrugc-keyword-gen-table")).toBe(table);
-    expect(host.textContent).toContain("Generate all unused");
+    expect(host.textContent).toContain("Analyze briefs");
     expect(new URLSearchParams(window.location.search).has("view")).toBe(false);
   });
 

@@ -2,16 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { formatKeywordJobDuration, formatKeywordJobFinishedAt, formatStage0PickedAt, isKeywordArtworkSkill, KeywordImageRowControls } from "./KeywordImageStage";
-import type { KeywordImageRow, Stage2Skill } from "./types";
-
-const keyword = {
-  source: "local", skill_id: null, skill_name: "gatorhats-keyword-embroidery",
-  display_name: "GatorHats Keyword Embroidery", description: "",
-  default_version: null, latest_version: null, local_version: null,
-  synced_version: null, ready: true, keyword_artwork_ready: true,
-  sync_state: "ready", version_options: [],
-} satisfies Stage2Skill;
+import { formatKeywordJobDuration, formatKeywordJobFinishedAt, formatStage0PickedAt, KeywordImageRowControls } from "./KeywordImageStage";
+import type { KeywordImageRow } from "./types";
 
 describe("Stage 0 picked date formatting", () => {
   it("uses the same 24h relative display as Finished at", () => {
@@ -61,13 +53,6 @@ describe("Stage 1 Finished at relative time", () => {
   });
 });
 
-describe("Stage 1 keyword skill selection", () => {
-  it("accepts only ready Stage 1 six-design workflows advertised by the backend", () => {
-    expect(isKeywordArtworkSkill({ ...keyword, skill_name: "gatorhats-stage1-six-designs" })).toBe(true);
-    expect(isKeywordArtworkSkill({ ...keyword, skill_name: "hanh-redesign-8869-ver-4", keyword_artwork_ready: false })).toBe(false);
-    expect(isKeywordArtworkSkill({ ...keyword, ready: false })).toBe(false);
-  });
-});
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -94,7 +79,7 @@ describe("Stage 1 compact output and action controls", () => {
     expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(2);
     const button = (label: string) => host.querySelector<HTMLButtonElement>('button[aria-label="' + label + '"]')!;
     expect(host.querySelector<HTMLAnchorElement>('a[aria-label="View generated output for BEACH PLEASE"]')?.href).toBe("https://cdn.example.test/output.png");
-    expect(button("Retry BEACH PLEASE").title).toContain("1–6 verified designs");
+    expect(button("Retry BEACH PLEASE").title).toContain("Creative Brief V3");
     expect(button("Retry BEACH PLEASE").classList.contains("is-retry")).toBe(true);
     expect(button("View all generated images for BEACH PLEASE")).toBeNull();
     expect(button("View logs for BEACH PLEASE").title).toBe("View job logs");
@@ -161,10 +146,10 @@ describe("Stage 1 compact output and action controls", () => {
     expect(host.querySelector<HTMLButtonElement>('button[aria-label="View all generated images for BEACH PLEASE"]')).toBeNull();
     await act(async () => render({ ...outputRow, status: "failed", output_url: null, saved_output_count: 2, upload_recovery_available: true }, true));
     const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]');
-    expect(retry?.title).toContain("1–6 verified designs");
+    expect(retry?.title).toContain("Creative Brief V3");
     await act(async () => retry?.click());
     expect(run).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected; incomplete replacement runs do not delete old files");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Existing Stage 1");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(2);
     await act(async () => render({ ...outputRow, status: "queued", output_url: null, saved_output_count: 0 }, true, true));
@@ -223,7 +208,7 @@ describe("Stage 1 zero-output recovery", () => {
     expect(action).not.toBeNull();
     await act(async () => action?.click());
     expect(run).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("remain protected; incomplete replacement runs do not delete old files");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Existing Stage 1");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());

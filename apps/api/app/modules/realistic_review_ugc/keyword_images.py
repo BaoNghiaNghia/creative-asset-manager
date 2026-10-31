@@ -133,6 +133,26 @@ STAGE1_RETRYABLE_STORAGE_CODES = frozenset({
     "managed_storage_temporarily_unavailable", "managed_storage_network_error",
     "keyword_image_storage_invalid",
 })
+def legacy_stage1_generation_allowed(settings) -> bool:
+    """Explicit, default-off gate for pre-Creative-Brief Stage 1 artwork engines.
+
+    Historical output records and upload-only recovery remain readable.
+    This gate is checked both at queue time and just before worker execution,
+    so stale clients, batch routes and old pending jobs cannot generate fonts.
+    """
+    return getattr(settings, "RRUGC_STAGE1_LEGACY_GENERATION_ENABLED", False) is True
+
+
+def reject_legacy_stage1_generation(settings) -> None:
+    if not legacy_stage1_generation_allowed(settings):
+        raise KeywordImageError(
+            "stage1_legacy_generation_retired",
+            "Stage 1 Google Fonts and legacy Skills are retired. "
+            "Open the Creative Brief and use its six-design ImageGen V3 action.",
+            410,
+        )
+
+
 DEFAULT_SKILL = "gatorhats-typography-concepts"
 LOCAL_TYPOGRAPHY_SKILL = "gatorhats-typography-concepts"
 
@@ -300,6 +320,7 @@ class KeywordImageService:
         skill_name: str | None = None, skill_version: str | None = None,
         prompt: str | None = None,
     ) -> tuple[RrugcKeywordImageJobModel, bool]:
+        reject_legacy_stage1_generation(self.settings)
         keyword = self.session.scalar(select(RrugcKeywordVolumeModel).where(
             RrugcKeywordVolumeModel.id == keyword_id,
             RrugcKeywordVolumeModel.tenant_id == tenant_id,
@@ -470,6 +491,7 @@ class KeywordImageService:
         Store the input as a separately tagged manual keyword, preserving the
         Stage 0 search-volume record and reusing the durable generation pipeline.
         """
+        reject_legacy_stage1_generation(self.settings)
         if any(ord(char) < 32 and char not in (" ", "\t") for char in text):
             raise KeywordImageError("keyword_image_manual_invalid", "Keyword contains invalid characters.", 422)
         value = " ".join(text.strip().split())
@@ -502,6 +524,7 @@ class KeywordImageService:
         skill_source: str | None = None, skill_id: str | None = None,
         skill_name: str | None = None, skill_version: str | None = None,
     ) -> RrugcKeywordImageJobModel:
+        reject_legacy_stage1_generation(self.settings)
         job = self._job(tenant_id, keyword_id)
         if job is None:
             raise KeywordImageError("keyword_image_job_not_found", "No generation job exists.", 404)
@@ -1146,6 +1169,19 @@ class KeywordImageGenerateHandler:
                 return JobHandlerResult.non_retryable("keyword_image_job_missing", "Generation job missing.")
             if job.status == "completed":
                 return JobHandlerResult.completed()
+            if (not is_creative_v3 and not context.job.payload.get("upload_only")
+                    and not legacy_stage1_generation_allowed(settings)):
+                # A queued legacy job must never start another Google Fonts
+                # render after cutover. Keep all previously published assets.
+                job.status = "failed"
+                job.last_error_code = "stage1_legacy_generation_retired"
+                job.last_error_message = (
+                    "Legacy Stage 1 generation retired; retry with Creative Brief V3."
+                )
+                session.commit()
+                return JobHandlerResult.non_retryable(
+                    "stage1_legacy_generation_retired", job.last_error_message,
+                )
             if not context.job.payload.get("upload_only") and is_creative_v3:
                 from app.modules.realistic_review_ugc.creative_v3_generation import (
                     SKILL as V3_SKILL, CONTRACT as V3_CONTRACT, enabled as v3_enabled,

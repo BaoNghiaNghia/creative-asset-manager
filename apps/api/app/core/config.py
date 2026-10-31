@@ -235,6 +235,10 @@ class Settings(BaseSettings):
     # Unknown values intentionally disable generation rather than using API.
     CREATIVE_ENGINE_V3_IMAGE_PROVIDER: str = "codex"
     CODEX_IMAGE_TIMEOUT_SECONDS: int = 900
+    # Stage 1 uses meaning-first Creative Brief V3 exclusively for new artwork.
+    # Old Google Fonts/keyword Skills are retained only for historical records
+    # and the upload of already generated PNGs; never create another legacy run.
+    RRUGC_STAGE1_LEGACY_GENERATION_ENABLED: bool = False
     RRUGC_STAGE1_EXPECTED_OUTPUT_COUNT: int = 6
     # Typography V2 is additive and invisible until the gated pilot is approved.
     # Empty canary list means disabled for all tenants even when the global

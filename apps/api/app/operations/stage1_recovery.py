@@ -27,6 +27,7 @@ from app.modules.realistic_review_ugc.keyword_images import (
     KeywordImageError, KeywordImageGenerateHandler, KeywordImageService,
     STAGE1_AUTO_RETRY_DELAYS_SECONDS, STAGE1_SAFE_ZERO_OUTPUT_CODES,
     STAGE1_PARTIAL_RECOVERY_CODES, STAGE1_RETRYABLE_STORAGE_CODES, DEFAULT_SKILL,
+    legacy_stage1_generation_allowed,
 )
 from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageProviderError, load_codex_skill_manifest
 from app.modules.realistic_review_ugc.stage2_skills import (
@@ -166,6 +167,10 @@ def requeue_missing_upload_artwork(
             ).with_for_update(skip_locked=True)
         )
         if job is None or int(job.retry_count or 0) >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS):
+            return False
+        if not legacy_stage1_generation_allowed(settings):
+            # Never recreate missing Google Fonts artwork after the cutover.
+            # Upload-only recovery with intact finals is handled separately.
             return False
         old = session.get(ProcessingJobModel, job.processing_job_id) if job.processing_job_id else None
         if old is not None and old.status not in {"failed", "completed"}:
@@ -372,6 +377,9 @@ def recover_failed(*, limit: int, dry_run: bool = False) -> dict[str, int]:
                     )
                 continue
             if job.output_remote_file_id and code not in REPLACE_CODES:
+                result["skipped"] += 1
+                continue
+            if not legacy_stage1_generation_allowed(settings):
                 result["skipped"] += 1
                 continue
             if not refresh_job_skill(session, job, settings):

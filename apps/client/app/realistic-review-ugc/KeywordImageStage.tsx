@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { backfillKeywordCreativeBriefs, createKeywordImage, getKeywordAnalysisDetail, getCreativeV3GenerationStatus, getCreativeV3PreviewStatus, listKeywordImages, listStage2Skills, queueAllKeywordImages, regenerateKeywordImage, publishAvailableKeywordImages } from "./api";
+import { backfillKeywordCreativeBriefs, getKeywordAnalysisDetail, getCreativeV3GenerationStatus, listKeywordImages, publishAvailableKeywordImages } from "./api";
 import { queueStage1CreativeBriefRun } from "./stage1CreativeBriefRun";
 import { getTypographyStatus, listTypographyReferences } from "./typography/api";
 import { formatRelativeDateTime } from "./RelativeDateTime";
@@ -19,7 +19,7 @@ import { KeywordImageOutputSlider } from "./KeywordImageOutputSlider";
 import { PickedDesignModal } from "./PickedDesignModal";
 import { CreativeBriefDialog } from "./CreativeBriefDialog";
 import { KeywordDetailModal, KeywordTrendChart } from "./KeywordAnalysisTable";
-import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume, Stage2Skill, Stage2SkillCatalog, Stage2SkillSelection } from "./types";
+import type { KeywordImagePage, KeywordImageRow, KeywordImageStatus, KeywordVolume } from "./types";
 import "./KeywordImageStage.css";
 
 const PAGE_SIZES = [20, 50, 100] as const;
@@ -78,14 +78,6 @@ const EMPTY: KeywordImagePage = {
   overview: { not_run: 0, queued: 0, running: 0, completed: 0, failed: 0 },
 };
 
-export function isKeywordArtworkSkill(skill: Stage2Skill): boolean {
-  return skill.ready && skill.keyword_artwork_ready;
-}
-
-function skillKey(skill: Pick<Stage2Skill, "source" | "skill_id" | "skill_name">): string {
-  return [skill.source, skill.skill_id || skill.skill_name].join(":");
-}
-
 type KeywordActionIcon = "generate" | "regenerate" | "retry" | "versions" | "logs";
 
 function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
@@ -96,12 +88,11 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true, briefGeneration = false,
+  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true,
 }: {
   row: KeywordImageRow;
   busy: boolean;
   canGenerate: boolean;
-  briefGeneration?: boolean;
   onRun: () => void;
   onPublishAvailable?: () => void;
   onLogs: () => void;
@@ -116,8 +107,8 @@ export function KeywordImageRowControls({
   const generate = row.status === "not_run";
   const runnable = regenerate || generate;
   const runLabel = regenerate ? "Retry" : "Redesign Qoutes";
-  const runDisabled = busy || (generate && !canGenerate);
-  const runTitle = generate && !canGenerate ? "Choose an enabled generation Skill" : busy ? "Queueing…" : regenerate ? (briefGeneration ? "Create six designs from Creative Brief (confirmation required)" : "Create a new version (1–6 verified designs; confirmation required)") : (briefGeneration ? "Generate six Creative Brief embroidery designs" : "Redesign Qoutes");
+  const runDisabled = busy || !canGenerate;
+  const runTitle = !canGenerate ? "Creative Brief V3 ImageGen is unavailable" : busy ? "Queueing…" : regenerate ? "Retry six designs from Creative Brief V3" : "Generate six Creative Brief V3 embroidery designs";
 
   useEffect(() => {
     if (!confirmRegenerate) return;
@@ -195,10 +186,9 @@ export function KeywordImageRowControls({
           <div className="rrugc-keyword-regenerate-icon"><KeywordActionGlyph kind="regenerate" /></div>
           <h2 id="rrugc-regenerate-title">Replace Stage 1 images?</h2>
           <p id="rrugc-regenerate-description">
-            Retry <strong>{row.keyword}</strong>? {briefGeneration
-              ? "Generate six distinct transparent embroidery designs from its completed Creative Brief (3 concepts × 2 variants). Each image must pass technical QA before the new batch is published."
-              : "The system will attempt up to six designs and save genuine completed image edits, even if fewer than six succeed."}
-            {" "}Previous Stage 1 images remain protected; incomplete replacement runs do not delete old files.
+            Retry <strong>{row.keyword}</strong>? Generate six original transparent embroidery designs
+            using its Creative Brief V3 (three concepts, two variants each). Existing Stage 1
+            images stay in Output History; failed or incomplete replacements never erase them.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">
             <button ref={cancelButtonRef} type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button>
@@ -215,7 +205,6 @@ export function KeywordImageRowControls({
 
 export function KeywordImageStage({
   active,
-  skillCatalogRevision,
 }: {
   active: boolean;
   skillCatalogRevision: number;
@@ -254,12 +243,6 @@ export function KeywordImageStage({
   const [keywordDetail, setKeywordDetail] = useState<KeywordVolume | null>(null);
   const [keywordDetailLoading, setKeywordDetailLoading] = useState(false);
   const [keywordDetailError, setKeywordDetailError] = useState("");
-  const [allQueued, setAllQueued] = useState(0);
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [catalog, setCatalog] = useState<Stage2SkillCatalog | null>(null);
-  const [catalogLoading, setCatalogLoading] = useState(true);
-  const [selectedSkillKey, setSelectedSkillKey] = useState("");
-  const bulkAbortRef = useRef<AbortController | null>(null);
   const [stageView, setStageView] = useState<TypographyStageView>(() => {
     const view = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : "";
     return view === "ideas" || view === "style-lab" ? view : "jobs";
@@ -329,43 +312,6 @@ export function KeywordImageStage({
       .catch(() => { if (!controller.signal.aborted) setCreativeV3Ready(false); });
     return () => controller.abort();
   }, [jobsActive]);
-
-  useEffect(() => {
-    if (!jobsActive) return;
-    const controller = new AbortController();
-    setCatalogLoading(true);
-    void listStage2Skills(false, controller.signal)
-      .then(value => {
-        if (!controller.signal.aborted) {
-          setCatalog(value);
-          const preferred = value.items.find(item => skillKey(item) === (value.stage_defaults?.prod_s1 ?? value.stage_defaults?.stage1) && isKeywordArtworkSkill(item))
-            || value.items.find(item => isKeywordArtworkSkill(item));
-          if (preferred) setSelectedSkillKey(skillKey(preferred));
-        }
-      })
-      .catch(reason => {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load Skills.");
-      })
-      .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
-    return () => controller.abort();
-  }, [jobsActive, skillCatalogRevision]);
-
-  // Respect the stage default; any ready image-generation Skill can receive
-  // Stage 1's keyword-only prompt, including skills with bundled references.
-  const readySkills = useMemo(() => (catalog?.items || [])
-    .filter(item => isKeywordArtworkSkill(item)), [catalog]);
-  useEffect(() => {
-    if (readySkills.length === 0) return;
-    if (!readySkills.some(item => skillKey(item) === selectedSkillKey)) {
-      setSelectedSkillKey(skillKey(readySkills[0]));
-    }
-  }, [readySkills, selectedSkillKey]);
-  const selectedSkill = readySkills.find(item => skillKey(item) === selectedSkillKey) || null;
-  const selectedSkillInput: Stage2SkillSelection | null = selectedSkill ? {
-    source: selectedSkill.source, skill_id: selectedSkill.skill_id,
-    skill_name: selectedSkill.skill_name,
-    skill_version: selectedSkill.synced_version || selectedSkill.default_version || selectedSkill.local_version || null,
-  } : null;
 
   const refresh = (signal?: AbortSignal) => listKeywordImages(
     { page, pageSize, query: debouncedQuery, status, sortBy, sortDirection }, signal,
@@ -440,9 +386,6 @@ export function KeywordImageStage({
     return () => controller.abort();
   }, [keywordDetailTarget]);
 
-  // Stopping a batch stops only future queue requests; durable jobs already queued continue.
-  useEffect(() => () => bulkAbortRef.current?.abort(), []);
-
   const publishAvailable = async (row: KeywordImageRow) => {
     if (workingIds.has(row.keyword_id) || !row.partial_publish_available) return;
     setWorkingIds(current => new Set(current).add(row.keyword_id));
@@ -465,77 +408,29 @@ export function KeywordImageStage({
     setError("");
     setMessage("");
     try {
-      // Probe at click time: a stale UI or a revoked canary must never silently
-      // turn a Creative Brief retry into a legacy keyword-only generation.
+      // Never fall back to the retired Google Fonts / keyword-only Skills.
+      // The backend enforces this as well, including for stale clients and
+      // requests sent directly to the former Stage 1 endpoints.
       const capability = await getCreativeV3GenerationStatus();
-      if (capability.available) {
-        if (capability.output_count !== 6) {
-          throw new Error("Creative Brief ImageGen contract mismatch. No images were queued.");
-        }
-        setCreativeV3Ready(true);
-        const outcome = await queueStage1CreativeBriefRun(row.keyword_id, row.keyword);
-        if (outcome === "images_queued") {
-          setMessage("Creative Brief ImageGen queued for " + row.keyword
-            + ": 3 concepts × 2 variants. Previous Output History remains protected.");
-        } else {
-          setBriefTarget({ id: row.keyword_id, keyword: row.keyword });
-          setMessage(outcome === "brief_queued"
-            ? "Creative Brief analysis queued for " + row.keyword + ". Review the brief and generate the six artworks when ready."
-            : "Creative Brief analysis is in progress for " + row.keyword + ". Generate the six artworks when the analysis completes.");
-        }
+      if (!capability.available || capability.output_count !== 6) {
+        throw new Error("Creative Brief V3 ImageGen is unavailable. No legacy Skill was run.");
+      }
+      setCreativeV3Ready(true);
+      const outcome = await queueStage1CreativeBriefRun(row.keyword_id, row.keyword);
+      if (outcome === "images_queued") {
+        setMessage("Creative Brief V3 queued for " + row.keyword
+          + ": 3 concepts × 2 variants. Previous Output History remains protected.");
       } else {
-        const preview = await getCreativeV3PreviewStatus();
-        if (preview.available) {
-          throw new Error("Creative Brief ImageGen is not enabled for this workspace. No legacy generation was started.");
-        }
-        // Non-canary tenants retain their existing selected-Skill workflow.
-        if (!selectedSkillInput) throw new Error("Select a synced, ready Skill before generating.");
-        if (row.status === "completed" || row.status === "failed") {
-          await regenerateKeywordImage(row.keyword_id, selectedSkillInput);
-          setMessage("Retry queued for " + row.keyword + ". Existing images stay protected; up to six verified edits can be published.");
-        } else if (row.status === "not_run") {
-          const result = await createKeywordImage(row.keyword_id, selectedSkillInput);
-          setMessage((result.created ? "Generation queued" : "Job already exists") + " for " + row.keyword + ".");
-        }
+        setBriefTarget({ id: row.keyword_id, keyword: row.keyword });
+        setMessage(outcome === "brief_queued"
+          ? "Creative Brief analysis queued for " + row.keyword + ". Open the brief to generate six images once ready."
+          : "Creative Brief analysis is in progress for " + row.keyword + ". Generate six images when analysis completes.");
       }
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to queue generation.");
+      setError(reason instanceof Error ? reason.message : "Unable to queue Creative Brief V3.");
     } finally {
       setWorkingIds(current => { const next = new Set(current); next.delete(row.keyword_id); return next; });
-    }
-  };
-
-  const queueAll = async () => {
-    if (!selectedSkillInput || bulkRunning) {
-      if (!selectedSkillInput) setError("Choose an enabled image-generation Skill before generating.");
-      return;
-    }
-    const controller = new AbortController();
-    bulkAbortRef.current = controller;
-    setBulkRunning(true);
-    setAllQueued(0);
-    setError("");
-    setMessage("");
-    let total = 0;
-    try {
-      // Server batches at most 50 rows and idempotently excludes existing jobs.
-      // Repeat until every currently Used keyword has a durable queued job.
-      while (!controller.signal.aborted) {
-        const result = await queueAllKeywordImages(selectedSkillInput, controller.signal);
-        total += result.queued;
-        setAllQueued(total);
-        if (!result.remaining || !result.queued) break;
-      }
-      setMessage(controller.signal.aborted
-        ? "Stopped queueing. " + total + " jobs already queued will continue running."
-        : total + " keyword generation" + (total === 1 ? "" : "s") + " queued. Skills run asynchronously on the worker.");
-      if (active) await refresh();
-    } catch (reason) {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Batch queueing failed.");
-    } finally {
-      if (bulkAbortRef.current === controller) bulkAbortRef.current = null;
-      setBulkRunning(false);
     }
   };
 
@@ -547,7 +442,7 @@ export function KeywordImageStage({
     <RrugcStageHeader
       kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : stageView === "ideas" ? "STAGE 1 / TYPOGRAPHY IDEAS" : "STAGE 1 / STYLE LAB"}
       title={showKeywordJobs ? "Generate images from used keywords" : stageView === "ideas" ? "Typography Ideas Library" : "Balanced Typography Style Lab"}
-      description={showKeywordJobs ? "Generate up to six embroidery concepts per keyword. Publish genuine completed edits, even when some concepts fail."
+      description={showKeywordJobs ? "Generate six original artwork designs per keyword from its Creative Brief: three directions, two variants each. Legacy Google Fonts generation is retired."
         : stageView === "ideas" ? "Explore, upload and review typography references before using them in new keyword designs."
           : "Explore original vector drafts with approved Style DNA. No AI generation or job is created."}
       actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
@@ -560,9 +455,6 @@ export function KeywordImageStage({
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search used keywords…" />
         </label>
-        {bulkRunning
-          ? <button type="button" className="rrugc-keyword-gen-stop rrugc-icon-action" onClick={() => bulkAbortRef.current?.abort()}><RrugcActionIcon name="stop" />Stop queueing ({allQueued})</button>
-          : <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action" onClick={() => void queueAll()} disabled={!selectedSkill || catalogLoading}><RrugcActionIcon name="sparkles" />Generate all unused</button>}
         <button type="button" className="rrugc-keyword-gen-primary rrugc-icon-action"
           disabled={briefBatchRunning} onClick={() => {
             setBriefBatchRunning(true);
@@ -606,11 +498,11 @@ export function KeywordImageStage({
     {pickedModalOpen && <PickedDesignModal onClose={() => setPickedModalOpen(false)} onUnpick={(jobId, version) => setPickedDesignOverrides(current => ({ ...current, [jobId]: { ...current[jobId], [version]: false } }))} />}
     <ActionMessageToast message={error} tone="error" />
     <ActionMessageToast message={message} />
-    {catalog && !readySkills.length && !catalogLoading && <p className="rrugc-keyword-gen-hint" role="alert">No enabled image-generation Skills are available. Install or enable a Skill in Manage Skills.</p>}
+    {!creativeV3Ready && <p className="rrugc-keyword-gen-hint" role="status">Creative Brief V3 is the only Stage 1 generation engine. ImageGen is unavailable for this workspace until enabled.</p>}
     <div className="rrugc-keyword-gen-list-heading">
       <div className="rrugc-keyword-gen-list-title">
         <strong>Keyword jobs</strong>
-        <span>Configurable final image count per job · draft previews saved as compact WebP in <a href="https://drive.google.com/drive/folders/1HNV_9BbJohoB5hKsGxpj8owNF7jG-5SB" target="_blank" rel="noreferrer">Drive Temp <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M13 5h6v6m0-6-9 9"/><path d="M19 13v6H5V5h6"/></svg></a> · automatically deleted after 48h. Partial designs are preserved, retried within a bounded budget, and Drive cleanup runs after safe publish.</span>
+        <span>Meaning-first artwork · 3 concepts × 2 variants · transparent PNG · historical outputs are preserved.</span>
       </div>
       <span className="rrugc-keyword-gen-list-count">{first}–{last} of {data.total.toLocaleString()} jobs</span>
     </div>
@@ -621,7 +513,7 @@ export function KeywordImageStage({
           <th>Trend</th>
           <Stage1SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Creative Brief</th>
-          <th>Generation skill</th><th>Job status</th>
+          <th>Generation engine</th><th>Job status</th>
           {pickedSortSupported
             ? <Stage1SortHeader column="picked_at" label="Picked date" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
             : <th title="Sorting by picked date will be available after the Stage 1 API upgrade">Picked date</th>}
@@ -663,8 +555,12 @@ export function KeywordImageStage({
                   </button>
                 </td>
                 <td><div className="rrugc-keyword-gen-skill-cell">
-                  <span className="rrugc-keyword-gen-skill-name" title={row.skill_name || selectedSkill?.display_name || ""}>{row.skill_name || selectedSkill?.display_name || "Choose Skill"}</span>
-                  {row.status === "not_run" ? <small>Next run</small> : row.skill_version ? <small>v{row.skill_version}</small> : null}
+                  <span className="rrugc-keyword-gen-skill-name" title={row.skill_name && row.skill_name !== "creative-brief-v3"
+                    ? "Historical output · retired engine: " + row.skill_name
+                    : "Meaning-first Creative Brief V3"}>{row.job_id && row.skill_name !== "creative-brief-v3"
+                      ? "Legacy output" : "Creative Brief V3"}</span>
+                  <small>{row.job_id && row.skill_name !== "creative-brief-v3"
+                    ? "Archived · retry uses V3" : row.status === "not_run" ? "Next run" : "3 concepts × 2 variants"}</small>
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
                   <span className={"rrugc-keyword-gen-badge status-" + row.status}><i />{row.status === "completed" && row.error_code === "stage1_partial_output" ? "Partial" : STATUS_LABEL[row.status]}</span>
@@ -693,7 +589,7 @@ export function KeywordImageStage({
                   pickedOverrides={row.job_id ? pickedDesignOverrides[row.job_id] : undefined}
                   onOpenVersion={version => { if (row.job_id) setVersionsJob({ jobId: row.job_id, title: row.keyword, initialVersion: version }); }} /></td>
                 <td className="rrugc-keyword-gen-result">
-                  <KeywordImageRowControls row={row} busy={busy} canGenerate={Boolean(selectedSkill) || creativeV3Ready} briefGeneration={creativeV3Ready} showPreview={false}
+                  <KeywordImageRowControls row={row} busy={busy} canGenerate={creativeV3Ready} showPreview={false}
                     onRun={() => void runOne(row)}
                     onPublishAvailable={() => void publishAvailable(row)}
                     onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
