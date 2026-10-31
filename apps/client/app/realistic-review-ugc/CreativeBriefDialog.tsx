@@ -52,6 +52,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
   const [selected, setSelected] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [priorityRequested, setPriorityRequested] = useState(false);
   const [error, setError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [v3Available, setV3Available] = useState(false);
@@ -125,6 +126,22 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
       setRefreshToken(value => value + 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not queue analysis.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const prioritizeQueued = async () => {
+    if (busy || priorityRequested || detail?.status !== "queued") return;
+    setBusy(true);
+    setError("");
+    try {
+      // Server promotes the same queued job; no duplicate or extra Codex call.
+      await generateKeywordCreativeBrief(keywordId);
+      setPriorityRequested(true);
+      setRefreshToken(value => value + 1);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not prioritize this brief.");
     } finally {
       setBusy(false);
     }
@@ -232,11 +249,19 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                     : "Explore what the quote really communicates, who it resonates with, and how it can become compelling embroidery."}
               </p>
 
-              {generating ? <div className="rrugc-creative-brief-progress" role="status">
-                <span className="rrugc-creative-brief-progress-indicator" aria-hidden="true" />
-                <div><strong>{detail.status === "queued" ? "Waiting for a Codex worker" : "Codex is analyzing the keyword"}</strong>
-                  <small>No images are being generated.</small></div>
-              </div> : <>
+              {generating ? <>
+                <div className="rrugc-creative-brief-progress" role="status">
+                  <span className="rrugc-creative-brief-progress-indicator" aria-hidden="true" />
+                  <div><strong>{detail.status === "queued" ? "Waiting for a Codex worker" : "Codex is analyzing the keyword"}</strong>
+                    <small>No images are being generated.</small></div>
+                </div>
+                {detail.status === "queued" && <button type="button"
+                  className="rrugc-creative-brief-prioritize" onClick={() => void prioritizeQueued()}
+                  disabled={busy || priorityRequested}
+                  title="Move this existing queued analysis ahead of background backfill; no duplicate job is created">
+                  {busy ? "Prioritizing…" : priorityRequested ? "Priority requested ✓" : "Prioritize this keyword"}
+                </button>}
+              </> : <>
                 <button type="button" className="rrugc-creative-brief-primary" onClick={() => void analyze()} disabled={busy}>
                   <RrugcActionIcon name={failed ? "refresh" : "sparkles"} />
                   {busy ? "Adding to queue…" : failed ? "Retry analysis" : "Analyze keyword"}

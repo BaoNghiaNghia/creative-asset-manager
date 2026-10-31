@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.realistic_review_ugc.creative_brief_service import (
-    get_brief, get_v3_preview, queue_brief, queue_picked_backfill, v3_enabled,
+    INTERACTIVE_BRIEF_PRIORITY, get_brief, get_v3_preview, queue_brief, queue_picked_backfill, v3_enabled,
 )
 
 router = APIRouter(prefix="/keyword-creative-briefs", tags=["creative-brief"])
@@ -200,6 +200,7 @@ def creative_brief_generate(
         status, queued = queue_brief(
             session, tenant_id=principal.active_tenant_id,
             keyword_id=keyword_id, settings=get_settings(), retry=True,
+            priority=INTERACTIVE_BRIEF_PRIORITY,
         )
         session.commit()
     except LookupError as exc:

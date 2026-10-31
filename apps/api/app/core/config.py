@@ -225,6 +225,9 @@ class Settings(BaseSettings):
     RRUGC_CREATIVE_BRIEF_ENABLED: bool = True
     RRUGC_CREATIVE_BRIEF_MODEL: str = ""
     RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS: int = 180
+    # Bound Codex text-only analysis across image workers (legacy: 1 slot).
+    # A value of 1 is an immediate operational fallback for provider pressure.
+    RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY: int = 2
     # Creative Engine V3 P1 read-only bridge: requires explicit tenant canary.
     # Disabled by default; never enables a worker, image generation or handoff.
     CREATIVE_ENGINE_V3_ENABLED: bool = False

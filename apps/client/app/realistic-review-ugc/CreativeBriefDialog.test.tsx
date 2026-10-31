@@ -128,6 +128,20 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
   });
 
+  it("prioritizes an existing queued brief without creating a duplicate analysis", async () => {
+    await renderDialog(makeDetail("queued"));
+    const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-brief-prioritize");
+    expect(button?.textContent).toContain("Prioritize this keyword");
+    expect(document.querySelector(".rrugc-creative-brief-progress")?.textContent).toContain("Waiting for a Codex worker");
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(generateKeywordCreativeBrief).toHaveBeenCalledOnce();
+    expect(generateKeywordCreativeBrief).toHaveBeenCalledWith(keywordId);
+    expect(button?.textContent).toContain("Priority requested");
+    expect(button?.disabled).toBe(true);
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(generateKeywordCreativeBrief).toHaveBeenCalledOnce();
+  });
+
   it("shows retry on a failed brief and does not hide the three-step explanation", async () => {
     await renderDialog(makeDetail("failed"));
     expect(document.querySelector(".rrugc-creative-brief-status")?.textContent).toContain("Needs retry");

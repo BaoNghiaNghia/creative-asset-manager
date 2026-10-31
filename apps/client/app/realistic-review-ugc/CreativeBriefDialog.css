@@ -768,3 +768,21 @@
     transition: none !important;
   }
 }
+/* Explicit priority for one already-queued brief; never queues a duplicate. */
+.rrugc-creative-brief-prioritize {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 9px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #c9d9ef;
+  border-radius: 8px;
+  background: #f4f8ff;
+  color: #315a9b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rrugc-creative-brief-prioritize:hover:not(:disabled) { background:#e8f0ff; }
+.rrugc-creative-brief-prioritize:focus-visible { outline:2px solid #5184d3; outline-offset:2px; }
+.rrugc-creative-brief-prioritize:disabled { opacity:.68; cursor:default; }

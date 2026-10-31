@@ -1,10 +1,11 @@
+import fcntl
 from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.domain.processing.handlers import JobHandlerResult
+from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerResult
 from app.modules.realistic_review_ugc.creative_brief import CreativeBrief
 from app.modules.realistic_review_ugc.creative_brief_service import (
     CreativeBriefGenerateHandler, queue_brief,
@@ -77,3 +78,45 @@ def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
         assert stored.brief_json["keyword_exact"] == keyword
         assert len(stored.brief_json["concepts"]) == 3
         assert stored.completed_at is not None
+
+def test_creative_brief_can_use_second_shared_codex_slot_when_first_is_busy(monkeypatch, tmp_path):
+    settings = SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True,
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+        RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY=2,
+    )
+    handler = CreativeBriefGenerateHandler(settings)
+    calls = []
+    monkeypatch.setattr(handler, "_execute_locked", lambda _context: (calls.append(1), JobHandlerResult.completed())[1])
+    context = SimpleNamespace(is_cancelled=False)
+    first_lock = tmp_path / ".creative-brief.lock"
+    second_lock = tmp_path / ".creative-brief.slot-1.lock"
+    with first_lock.open("a+b") as first:
+        fcntl.flock(first.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert handler(context) == JobHandlerResult.completed()
+        assert second_lock.exists()
+        with second_lock.open("a+b") as second:
+            fcntl.flock(second.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            blocked = handler(context)
+            assert isinstance(blocked, DeferredJobOutcome)
+            assert blocked.reason_code == "creative_brief_busy"
+            assert len(calls) == 1
+            fcntl.flock(second.fileno(), fcntl.LOCK_UN)
+        fcntl.flock(first.fileno(), fcntl.LOCK_UN)
+    assert handler(context) == JobHandlerResult.completed()
+    assert len(calls) == 2
+
+
+def test_creative_brief_respects_single_slot_fallback(monkeypatch, tmp_path):
+    settings = SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True,
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+        RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY=1,
+    )
+    handler = CreativeBriefGenerateHandler(settings)
+    monkeypatch.setattr(handler, "_execute_locked", lambda _context: JobHandlerResult.completed())
+    context = SimpleNamespace(is_cancelled=False)
+    with (tmp_path / ".creative-brief.lock").open("a+b") as first:
+        fcntl.flock(first.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert isinstance(handler(context), DeferredJobOutcome)
+        assert not (tmp_path / ".creative-brief.slot-1.lock").exists()

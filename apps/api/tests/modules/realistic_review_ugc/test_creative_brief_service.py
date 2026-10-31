@@ -6,8 +6,9 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.creative_brief_service import (
-    PROMPT_VERSION, brief_summary, get_brief, queue_brief, queue_picked_backfill,
+    JOB_TYPE, INTERACTIVE_BRIEF_PRIORITY, PROMPT_VERSION, brief_summary, get_brief, queue_brief, queue_picked_backfill,
 )
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
 )
@@ -18,6 +19,7 @@ def db(monkeypatch):
     engine = create_engine("sqlite://")
     RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcKeywordCreativeBriefModel.__table__.create(engine)
+    ProcessingJobModel.__table__.create(engine)
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.creative_brief_service.ProcessingRepository.create_job",
         lambda _self, **_kwargs: SimpleNamespace(id=str(uuid4())),
@@ -135,3 +137,59 @@ def test_brief_summary_never_invents_data(db):
     assert summary["status"] == "queued"
     assert summary["concept_count"] == 0
     assert summary["creative_hook"] is None
+
+def test_explicit_queued_brief_gets_priority_without_duplicate_job(db):
+    row = insert_keyword(db, word="NEW PICKED KEYWORD")
+    state, created = queue_brief(db, tenant_id="tenant-a", keyword_id=row.id, settings=settings())
+    assert (state, created) == ("queued", True)
+    db.commit()
+    brief = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == row.id,
+    ))
+    task_id = brief.processing_job_id
+    db.add(ProcessingJobModel(
+        id=task_id, tenant_id="tenant-a", job_type=JOB_TYPE,
+        entity_type="rrugc_keyword_creative_brief", entity_id=brief.id,
+        idempotency_key="brief-queued", payload_json={}, priority=5,
+        status="pending", max_attempts=2,
+    ))
+    db.commit()
+    state, created = queue_brief(
+        db, tenant_id="tenant-a", keyword_id=row.id, settings=settings(),
+        retry=True, priority=INTERACTIVE_BRIEF_PRIORITY,
+    )
+    db.commit()
+    assert (state, created) == ("queued", False)
+    assert db.get(ProcessingJobModel, task_id).priority == INTERACTIVE_BRIEF_PRIORITY
+    assert db.scalar(select(RrugcKeywordCreativeBriefModel.processing_job_id).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == row.id,
+    )) == task_id
+    # No second background/interactive click can create a duplicate job.
+    assert queue_brief(db, tenant_id="tenant-a", keyword_id=row.id, settings=settings(), retry=True, priority=INTERACTIVE_BRIEF_PRIORITY) == ("queued", False)
+
+
+def test_interactive_priority_never_changes_running_or_completed_brief_jobs(db):
+    for initial_status in ("running", "completed"):
+        keyword = insert_keyword(db, word="PRIORITY " + initial_status)
+        queue_brief(db, tenant_id="tenant-a", keyword_id=keyword.id, settings=settings())
+        db.commit()
+        brief = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.keyword_id == keyword.id,
+        ))
+        task_id = brief.processing_job_id
+        brief.status = initial_status
+        db.add(ProcessingJobModel(
+            id=task_id, tenant_id="tenant-a", job_type=JOB_TYPE,
+            entity_type="rrugc_keyword_creative_brief", entity_id=brief.id,
+            idempotency_key="brief-" + initial_status, payload_json={}, priority=5,
+            status="processing" if initial_status == "running" else "completed",
+            max_attempts=2,
+        ))
+        db.commit()
+        state, created = queue_brief(
+            db, tenant_id="tenant-a", keyword_id=keyword.id, settings=settings(),
+            retry=True, priority=INTERACTIVE_BRIEF_PRIORITY,
+        )
+        db.commit()
+        assert (state, created) == (initial_status, False)
+        assert db.get(ProcessingJobModel, task_id).priority == 5

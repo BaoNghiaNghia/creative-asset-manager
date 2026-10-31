@@ -13,12 +13,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.processing.repository import ProcessingRepository
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.creative_brief import CreativeBrief, generate_brief
 from app.modules.realistic_review_ugc.creative_engine_v3 import SCHEMA_VERSION as V3_SCHEMA, build_v3_preview
 from app.modules.realistic_review_ugc.model import (
@@ -27,6 +28,7 @@ from app.modules.realistic_review_ugc.model import (
 
 PROMPT_VERSION = "meaning-first-v1"
 JOB_TYPE = "rrugc_creative_brief_generate"
+INTERACTIVE_BRIEF_PRIORITY = 65  # above general aged 50 / Stage 1 queued 51
 
 
 def v3_enabled(settings: Settings, tenant_id: str) -> bool:
@@ -127,6 +129,20 @@ def queue_brief(
     ).with_for_update())
     if row and row.keyword_sha256 == digest and row.prompt_version == PROMPT_VERSION:
         if row.status in ("queued", "running", "completed") or not retry:
+            # An explicit user click should run ahead of the background backfill.
+            # Promote only an existing pending job: no duplicate generation and
+            # no mutation of running, completed or other-tenant jobs.
+            if row.status == "queued" and priority >= INTERACTIVE_BRIEF_PRIORITY and row.processing_job_id:
+                session.execute(
+                    update(ProcessingJobModel)
+                    .where(
+                        ProcessingJobModel.id == row.processing_job_id,
+                        ProcessingJobModel.tenant_id == tenant_id,
+                        ProcessingJobModel.job_type == JOB_TYPE,
+                        ProcessingJobModel.status.in_(("pending", "retry")),
+                        ProcessingJobModel.priority < priority,
+                    ).values(priority=priority).execution_options(synchronize_session=False)
+                )
             return row.status, False
     if row is None:
         row = RrugcKeywordCreativeBriefModel(
@@ -197,25 +213,30 @@ class CreativeBriefGenerateHandler:
         if not self.settings.RRUGC_CREATIVE_BRIEF_ENABLED:
             return JobHandlerResult.non_retryable("creative_brief_disabled", "Creative Brief is disabled.")
 
-        # Three image workers may claim simultaneously. A non-blocking global
-        # file lock keeps Codex text-only jobs single-flight on this VPS.
-        # The staging root is shared by all systemd worker instances; /tmp may
-        # be service-private, so it cannot provide a cross-worker lock.
-        lock_path = Path(self.settings.IMAGE_GENERATION_STAGING_ROOT) / ".creative-brief.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+b") as lock:
-            try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return DeferredJobOutcome(
-                    reason_code="creative_brief_busy",
-                    reason_message="Another Creative Brief is running.",
-                    retry_at=_utcnow() + timedelta(seconds=30),
-                )
-            try:
-                return self._execute_locked(context)
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        # Use two bounded, cross-process Codex text slots rather than a
+        # single global lock for hundreds of picked keywords. Keep the original
+        # lock path as slot zero so an overlapping older worker remains safe.
+        # This is file-lock coordination only: no new worker or DB schema.
+        # Never use /tmp: systemd may give each worker a private /tmp.
+        lock_root = Path(self.settings.IMAGE_GENERATION_STAGING_ROOT)
+        lock_root.mkdir(parents=True, exist_ok=True)
+        limit = max(1, min(2, int(getattr(self.settings, "RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY", 1))))
+        for slot in range(limit):
+            lock_path = lock_root / (".creative-brief.lock" if slot == 0 else ".creative-brief.slot-1.lock")
+            with lock_path.open("a+b") as lock:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                try:
+                    return self._execute_locked(context)
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        return DeferredJobOutcome(
+            reason_code="creative_brief_busy",
+            reason_message="Both Creative Brief Codex slots are busy; retry later.",
+            retry_at=_utcnow() + timedelta(seconds=60),
+        )
 
     def _set_status(self, context: JobHandlerContext, state: str, error_code: str | None = None) -> None:
         with context.dependencies.session_factory() as session:
