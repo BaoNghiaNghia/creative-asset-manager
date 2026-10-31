@@ -243,3 +243,26 @@ def test_v4_rejects_wide_shadow_halo(material):
     with pytest.raises(Slot1EmbroideryQAError, match="shadow halo"):
         finish_slot1_refinement(v4, png(Image.fromarray(
             np.uint8(np.clip(candidate, 0, 255)), "RGB")))
+
+
+def test_lite_clips_ai_halo_then_checks_real_saved_pixels(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT, contact_width_px=2)
+    candidate = np.array(Image.open(BytesIO(refined_candidate(lite))), dtype=np.int16)
+    glyph = np.asarray(lite.thread_mask) > 127
+    near = cv2.dilate(np.uint8(glyph), np.ones((7, 7), np.uint8)).astype(bool) & ~glyph
+    candidate[near] -= 65
+    edited = png(Image.fromarray(np.uint8(np.clip(candidate, 0, 255)), "RGB"))
+    final = np.asarray(Image.open(BytesIO(
+        finish_slot1_refinement(lite, edited, clip_raw_halo=True))))
+    original = np.asarray(lite.stock)
+    permitted = np.asarray(lite.edit_mask) > 0
+    assert np.array_equal(final[~permitted], original[~permitted])
+    contact = near & permitted & (np.asarray(lite.thread_mask) == 0)
+    assert np.any(contact)
+    depression = original[contact].astype(np.int16) - final[contact].astype(np.int16)
+    assert np.max(depression) <= 8
+    assert np.min(depression) >= 0
+    assert np.any(final[glyph] != original[glyph])

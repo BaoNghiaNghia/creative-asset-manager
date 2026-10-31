@@ -1413,7 +1413,9 @@ class EcommerceGenerateHandler:
         output_mime = generated.mime_type
         if slot1_material is not None:
             try:
-                output_bytes = finish_slot1_refinement(slot1_material, generated.image_bytes)
+                output_bytes = finish_slot1_refinement(
+                    slot1_material, generated.image_bytes, clip_raw_halo=is_lite,
+                )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
                     _lite_slot1_qa_error_code(exc) if is_lite else "ecommerce_slot1_material_qa_failed",

@@ -175,7 +175,9 @@ def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Ima
     raise Slot1EmbroideryQAError("Image edit changed aspect ratio and cannot be aligned safely.")
 
 
-def finish_slot1_refinement(material: Slot1MaterialPass, generated_bytes: bytes) -> bytes:
+def finish_slot1_refinement(
+    material: Slot1MaterialPass, generated_bytes: bytes, *, clip_raw_halo: bool = False,
+) -> bytes:
     """Use AI-created thread material, clipped to exact original Stage 1 glyph alpha.
 
     Refuse identity/no-op edits, incorrect pigment, missing design or fake flat
@@ -248,7 +250,11 @@ def finish_slot1_refinement(material: Slot1MaterialPass, generated_bytes: bytes)
     far &= field
     if np.count_nonzero(near) > 40 and np.count_nonzero(far) > 40:
         darkening = np.mean(stock - candidate, axis=2)
-        if float(np.median(darkening[near]) - np.median(darkening[far])) > 29:
+        if (float(np.median(darkening[near]) - np.median(darkening[far])) > 29
+                and not clip_raw_halo):
+            # V4 keeps its original strict raw-photo rejection.
+            # Lite may rescue only the actual AI fibers: the final protected
+            # silhouette + 2px contact band remove the outside dark halo.
             raise Slot1EmbroideryQAError("AI edit has a thick embossed shadow halo.")
 
     # Pigment correction is bounded and global. Keep AI fibers, lighting and
@@ -285,6 +291,12 @@ def finish_slot1_refinement(material: Slot1MaterialPass, generated_bytes: bytes)
     result[~editable] = original[~editable]
     if not np.array_equal(result[~editable], original[~editable]):
         raise Slot1EmbroideryQAError("Image edit modified protected stock pixels.")
+    if clip_raw_halo and np.count_nonzero(near) > 40 and np.count_nonzero(far) > 40:
+        # Evaluate the ACTUAL saved composite, never raw AI halo that has
+        # already been discarded. 2px contact shading is capped at 8 levels.
+        final_darkening = np.mean(stock - result.astype(np.float32), axis=2)
+        if float(np.median(final_darkening[near]) - np.median(final_darkening[far])) > 12:
+            raise Slot1EmbroideryQAError("Final embroidery retains an embossed shadow halo.")
     final_luma = cv2.cvtColor(result, cv2.COLOR_RGB2GRAY).astype(np.float32)
     final_high = final_luma - cv2.GaussianBlur(final_luma, (0, 0), 1.15)
     if float(np.std(final_high[core])) < 3.0:
