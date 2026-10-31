@@ -2,7 +2,7 @@
 
 **Cập nhật:** 2026-10-31
 **Phạm vi:** GatorHats Products / Stage 2 / `prod_s2_ec1` (Front Ecommerce).
-**Trạng thái:** ĐÃ TỐI GIẢN TÀI LIỆU; CHƯA CÀI ĐẶT LITE V1 / CHƯA BẬT TRÊN PRODUCTION.
+**Trạng thái:** Lite V1 đã commit và deploy backend vào production (ff5a70658); 46/46 targeted tests đạt. Chưa kích hoạt Skill default và chưa có native end-to-end image smoke đạt; thao tác activate và chạy smoke dưới tài khoản creative-assets bị lớp an toàn của công cụ điều khiển VPS chặn. Đường v4 hiện tại vẫn là mặc định.
 **Production đã đối chiếu:** release `23b3a505a` ngày 2026-10-31, source `main` cùng revision.
 
 ## 1. Điều đã có; không xây lại
@@ -11,7 +11,7 @@
 - Slot 1 đã có **official 8869 front stock**, placement, pigment-only guide, edit mask và `build_slot1_material_pass()`.
 - Có `CodexImageGenRunner.generate_from_references()` qua Codex CLI / built-in `$imagegen`; worker, queue, storage, retries, history, các downstream Slots 2–7 đã có.
 - Có `finish_slot1_refinement()`: QA màu, geometry, thread texture/halo, contact band 2px và hard restore pixel stock ngoài mask.
-- **Chưa có trong production:** Pass A tạo macro độc lập và Pass B **thực sự tiêu thụ** macro đó. Code hiện dùng **một** `generate_from_references()` cho Slot 1; không được coi v4 là 2-pass.
+- **Đã có trong backend production:** đường Lite mới chạy một `generate_from_references()` điều phối hai native ImageGen calls và kiểm chứng hash riêng của macro/final. **Chưa có smoke provider thật:** chưa được phép khẳng định Pass B đã edit thành công từ macro trên production. Job v4 cũ vẫn chỉ chạy một lượt.
 - **Mask hiện là ảnh tham chiếu cho model**, không phải tham số native inpaint mask. Bảo toàn stock được thực thi ở backend sau khi tạo.
 
 ## 2. Quyết định mới: 1 phiên Codex, 2 lượt ImageGen tuần tự
@@ -98,9 +98,10 @@ Không tự mở rộng prompt ở `ecommerce_pipeline.py` với `VIEW_PROMPTS` 
 1. Triển khai Skill Lite + nhánh Stage 2 nhỏ + kiểm chứng output A/B và metadata; chạy targeted tests, không đổi database/UI.
 2. Dùng **một job Stage 1 đã chọn** để smoke qua Codex/ImageGen thật; xem macro, final và hình gốc. Nếu đạt, pin Skill Lite làm lựa chọn mặc định cho **job Slot 1 mới**; nếu lỗi, giữ v4 hiện tại, không xuất bản kết quả lỗi. Dọn workspace job an toàn.
 
-**Trạng thái hiện tại:** bước 1 và live smoke **chưa thực hiện**. Tài liệu này là contract triển khai đã rút gọn, không phải bằng chứng đã deploy hay đã giảm chi phí.
+**Kiểm tra thực tế ngày 2026-10-31:** backend `ff5a70658` deploy thành công, API + 4 image worker + video + visual đã đạt health. `13` Lite/pinning tests và `33` Slot1/Runner/Ecommerce regression tests đều đạt. Production `previous=23b3a505a` giữ rollback. Main có thêm wrapper `ec8ceaff7` để chạy `bash scripts/cam-activate-slot1-threadtransfer-lite.sh --apply|--rollback`. Lần `--check` cho biết registry Lite chưa được ghi (registration xảy ra trong `--apply`), tuy nhiên `--apply` và live Codex smoke ở tài khoản service bị chính sách an toàn của công cụ chặn. Không bypass/đổi account đặc quyền. **Không có output thật Lite nào đã được xác minh, không khẳng định hoàn tất.** Job v4/historical outputs vẫn nguyên trạng.
 
 ## Changelog
 
 - 2026-10-30: kế hoạch Fast-Track cũ (2 sessions, module orchestration, flag, ROI).
-- 2026-10-31: audit `main` + live release; chuyển sang Lite: **1 session / 2 image calls / 1 Skill / existing mask+QA / no new infrastructure**, không can thiệp production ở bước tài liệu.
+- 2026-10-31: audit `main` + live release; chuyển sang Lite: **1 session / 2 image calls / 1 Skill / existing mask+QA / no new infrastructure**.
+- 2026-10-31: `ff5a70658` triển khai backend + Skill Lite, 46 targeted tests đạt; wrapper kích hoạt `ec8ceaff7` trên `main`; default chưa được đổi do chặn quyền runtime. Temporary smoke files đã xóa.
