@@ -2,8 +2,8 @@
 
 **Cập nhật:** 2026-10-31
 **Phạm vi:** GatorHats Products / Stage 2 / `prod_s2_ec1` (Front Ecommerce).
-**Trạng thái:** Lite V1 đã commit và deploy backend vào production (ff5a70658); 46/46 targeted tests đạt. Chưa kích hoạt Skill default và chưa có native end-to-end image smoke đạt; thao tác activate và chạy smoke dưới tài khoản creative-assets bị lớp an toàn của công cụ điều khiển VPS chặn. Đường v4 hiện tại vẫn là mặc định.
-**Production đã đối chiếu:** release `23b3a505a` ngày 2026-10-31, source `main` cùng revision.
+**Trạng thái:** ĐÃ DEPLOY VÀ KÍCH HOẠT LITE V1 CHO JOB SLOT 1 MỚI. Backend commit `b86676ded`, 50/50 targeted tests đạt; một job thật Stage 1 (`design_05.png`) hoàn tất với `threadtransfer-lite-v1`, native_passes=2, output_version=1 và QA backend đạt. Skill v4 vẫn có thể khôi phục làm default mà không thay đổi các job cũ. Chưa xác nhận nghiệm thu thẩm mỹ trực quan của output.
+**Production đã đối chiếu:** backend release `b86676ded` ngày 2026-10-31, rollback backend `be01ab549`; default Slot 1 là `gatorhats-8869-slot1-threadtransfer-lite-v1`. Source `main` đã push cùng code triển khai.
 
 ## 1. Điều đã có; không xây lại
 
@@ -11,7 +11,7 @@
 - Slot 1 đã có **official 8869 front stock**, placement, pigment-only guide, edit mask và `build_slot1_material_pass()`.
 - Có `CodexImageGenRunner.generate_from_references()` qua Codex CLI / built-in `$imagegen`; worker, queue, storage, retries, history, các downstream Slots 2–7 đã có.
 - Có `finish_slot1_refinement()`: QA màu, geometry, thread texture/halo, contact band 2px và hard restore pixel stock ngoài mask.
-- **Đã có trong backend production:** đường Lite mới chạy một `generate_from_references()` điều phối hai native ImageGen calls và kiểm chứng hash riêng của macro/final. **Chưa có smoke provider thật:** chưa được phép khẳng định Pass B đã edit thành công từ macro trên production. Job v4 cũ vẫn chỉ chạy một lượt.
+- **Đã xác minh qua production pilot:** đường Lite dùng một `generate_from_references()` điều phối hai native ImageGen calls, kiểm chứng hash macro/final riêng biệt trước cleanup, sau đó composite/QA bảo vệ stock và ghi output version. Job v4 cũ vẫn pin v4 và không bị sửa.
 - **Mask hiện là ảnh tham chiếu cho model**, không phải tham số native inpaint mask. Bảo toàn stock được thực thi ở backend sau khi tạo.
 
 ## 2. Quyết định mới: 1 phiên Codex, 2 lượt ImageGen tuần tự
@@ -98,10 +98,10 @@ Không tự mở rộng prompt ở `ecommerce_pipeline.py` với `VIEW_PROMPTS` 
 1. Triển khai Skill Lite + nhánh Stage 2 nhỏ + kiểm chứng output A/B và metadata; chạy targeted tests, không đổi database/UI.
 2. Dùng **một job Stage 1 đã chọn** để smoke qua Codex/ImageGen thật; xem macro, final và hình gốc. Nếu đạt, pin Skill Lite làm lựa chọn mặc định cho **job Slot 1 mới**; nếu lỗi, giữ v4 hiện tại, không xuất bản kết quả lỗi. Dọn workspace job an toàn.
 
-**Kiểm tra thực tế ngày 2026-10-31:** backend `ff5a70658` deploy thành công, API + 4 image worker + video + visual đã đạt health. `13` Lite/pinning tests và `33` Slot1/Runner/Ecommerce regression tests đều đạt. Production `previous=23b3a505a` giữ rollback. Main có thêm wrapper `ec8ceaff7` để chạy `bash scripts/cam-activate-slot1-threadtransfer-lite.sh --apply|--rollback`. Lần `--check` cho biết registry Lite chưa được ghi (registration xảy ra trong `--apply`), tuy nhiên `--apply` và live Codex smoke ở tài khoản service bị chính sách an toàn của công cụ chặn. Không bypass/đổi account đặc quyền. **Không có output thật Lite nào đã được xác minh, không khẳng định hoàn tất.** Job v4/historical outputs vẫn nguyên trạng.
+**Kiểm tra thực tế ngày 2026-10-31:** sửa discovery/registry bằng `dc72760aa`; xử lý ràng buộc layout và mã QA bằng `be01ab549`; xử lý halo trung gian của Lite bằng `b86676ded`. Production smoke dùng một source thật `design_05.png`, job `0035f3bb-15aa-457c-8559-492d222dfbe4`. Hai lần thử trước lần lượt gặp lỗi QA tổng quát và `ecommerce_slot1_qa_emboss_halo`; lần thử thứ ba hoàn tất (`completed`, output_version=1, `threadtransfer-lite-v1`, `native_passes=2`, attempt=1/1). Đã bật lại Lite làm default sau khi job thành công, xác nhận qua `--check`. Test release `50 passed`; API, image/video/visual healthy; disk 86% used và backend previous=`be01ab549`. **Hạn chế còn lại:** QA backend không đồng nghĩa đã nghiệm thu trực quan ảnh cuối. Operator có thể xem output trong Stage 2 và dùng nút Pick/Regenerate khi cần.
 
 ## Changelog
 
 - 2026-10-30: kế hoạch Fast-Track cũ (2 sessions, module orchestration, flag, ROI).
 - 2026-10-31: audit `main` + live release; chuyển sang Lite: **1 session / 2 image calls / 1 Skill / existing mask+QA / no new infrastructure**.
-- 2026-10-31: `ff5a70658` triển khai backend + Skill Lite, 46 targeted tests đạt; wrapper kích hoạt `ec8ceaff7` trên `main`; default chưa được đổi do chặn quyền runtime. Temporary smoke files đã xóa.
+- 2026-10-31: `ff5a70658` triển khai backend + Skill Lite; `ec8ceaff7` thêm wrapper kích hoạt. `dc72760aa` sửa phát hiện Skill cho tenant cũ. `be01ab549` tăng fidelity prompt/mã QA. `b86676ded` sửa hậu xử lý halo, thêm test. 50/50 tests đạt; production pilot hoàn tất; Lite đã kích hoạt; các temporary smoke files đã xóa.
