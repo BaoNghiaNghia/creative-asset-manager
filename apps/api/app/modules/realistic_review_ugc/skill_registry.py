@@ -347,7 +347,13 @@ def ensure_skill_registry(
     existing = {(row.source, row.skill_name) for row in rows}
     added = False
     for name, manifest in _local_manifests(settings).items():
-        if not name.startswith("gatorhats-8869-ecommerce-") or ("local", name) in existing:
+        # Only explicitly bundled product Skills are auto-discovered for
+        # existing tenants; Lite is Slot 1's separately versioned successor.
+        is_product_skill = (
+            name.startswith("gatorhats-8869-ecommerce-")
+            or name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
+        )
+        if not is_product_skill or ("local", name) in existing:
             continue
         item = _local_item(settings, manifest)
         if item is None or not item.ready:
