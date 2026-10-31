@@ -117,6 +117,9 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
   // immediately overwrite a just-committed human review.
   const busyRef = useRef(busy);
   const selectedRef = useRef(selected);
+  // An in-flight list response may predate a human vote. Never overwrite
+  // confirmed approval/rejection with that stale server snapshot.
+  const feedbackRevisionRef = useRef(0);
   useEffect(() => {
     busyRef.current = busy;
     selectedRef.current = selected;
@@ -134,10 +137,13 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
     const refresh = async () => {
       if (inflight) return;
       inflight = true;
+      const feedbackRevision = feedbackRevisionRef.current;
       setLoading(true);
       try {
         const next = await listCapStackImages({ page, pageSize, q: debouncedQuery, label, capsCount: count, visionStatus: "all" });
-        if (mounted) { setData(next); setError(""); }
+        if (mounted && feedbackRevision === feedbackRevisionRef.current && !busyRef.current) {
+          setData(next); setError("");
+        }
       } catch (reason) {
         if (mounted) setError(reason instanceof Error ? reason.message : "Cap Stack Library could not load.");
       } finally {
@@ -154,6 +160,8 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
 
   async function updateImage(image: CapStackImage, body: { label?: "good" | "bad" | "ai" | "clear"; caps_count?: number }) {
     if (busy) return;
+    feedbackRevisionRef.current += 1;
+    busyRef.current = image.id;
     setBusy(image.id);
     try {
       const updated = await setCapStackImageFeedback(image.id, body);
@@ -181,7 +189,7 @@ export function CapStackScoutStage({ active }: { active: boolean }) {
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save Cap Stack feedback.");
-    } finally { setBusy(""); }
+    } finally { busyRef.current = ""; setBusy(""); }
   }
 
   async function retryVision(image: CapStackImage) {

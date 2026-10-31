@@ -24,9 +24,10 @@ from urllib.parse import quote_plus, urlsplit
 from uuid import uuid4
 
 import httpx
+from cap_stack_feedback import CapStackFeedbackFilter
 
 
-CLIENT_VERSION = "rrugc-scout-v56"
+CLIENT_VERSION = "rrugc-scout-v57-feedback-memory"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -2794,6 +2795,18 @@ async def scan_auto_run(
         search_queries = [str(task["query"])]
 
     await client.heartbeat("busy", run_id=run_id)
+    negative_memory = (
+        CapStackFeedbackFilter(task) if task.get("scout_type") == "cap_stack" else None
+    )
+    if negative_memory:
+        await negative_memory.prepare()
+        scout_debug_event(
+            "cap_stack_feedback_memory_ready",
+            campaign_id=campaign_id,
+            rejected=len(negative_memory.bad_pins),
+            visual_fingerprints=len(negative_memory.hashes),
+            search_queries=search_queries,
+        )
     last_heartbeat = time.monotonic()
 
     async def heartbeat_if_due(*, force: bool = False) -> None:
@@ -2844,16 +2857,21 @@ async def scan_auto_run(
                 and pinimg_asset_key(row.image_url) not in persistent_seen_assets
             )
         ]
+        rejected_related = [
+            row for row in unseen_related
+            if negative_memory and negative_memory.quickly_rejected(row)
+        ]
+        eligible_related = [
+            row for row in unseen_related if row not in rejected_related
+        ]
         filtered_related = [
-            row
-            for row in unseen_related
-            if synthetic_metadata_reason(row) is not None
+            row for row in eligible_related if synthetic_metadata_reason(row) is not None
         ]
         fresh_related, related_metadata_filtered = quality_prefilter(
-            unseen_related
+            eligible_related
         )
-        if filtered_related:
-            remember_history(filtered_related)
+        if filtered_related or rejected_related:
+            remember_history([*filtered_related, *rejected_related])
 
         related_budget = max(0, target - pipeline_count)
         selected_related = fresh_related[:related_budget]
@@ -2917,6 +2935,12 @@ async def scan_auto_run(
                     videos=len(known_videos),
                     retryable=len(unresolved_chunk) - len(known_videos),
                 )
+            if negative_memory and resolved_chunk:
+                resolved_chunk, rejected_feedback = await negative_memory.filter_resolved(resolved_chunk)
+                if rejected_feedback:
+                    remember_history(rejected_feedback)
+                    scout_debug_event("cap_stack_feedback_filtered",
+                        lane="related_seed", excluded=len(rejected_feedback), campaign_id=campaign_id)
             if not resolved_chunk:
                 scout_debug_event(
                     "candidate_submit_skipped_empty",
@@ -3138,13 +3162,17 @@ async def scan_auto_run(
                 stagnant_batches += 1
             else:
                 stagnant_batches = 0
-            filtered_rows = [
+            rejected_rows = [
                 row for row in unseen
-                if synthetic_metadata_reason(row) is not None
+                if negative_memory and negative_memory.quickly_rejected(row)
             ]
-            fresh, metadata_filtered = quality_prefilter(unseen)
-            if filtered_rows:
-                remember_history(filtered_rows)
+            eligible_rows = [row for row in unseen if row not in rejected_rows]
+            filtered_rows = [
+                row for row in eligible_rows if synthetic_metadata_reason(row) is not None
+            ]
+            fresh, metadata_filtered = quality_prefilter(eligible_rows)
+            if filtered_rows or rejected_rows:
+                remember_history([*filtered_rows, *rejected_rows])
             scout_debug_event(
                 "pinterest_batch_inspected",
                 campaign_id=str(task["campaign_id"]),
@@ -3279,6 +3307,13 @@ async def scan_auto_run(
                         + "/"
                         + str(len(resolved_chunk))
                     )
+                if negative_memory and resolved_chunk:
+                    resolved_chunk, rejected_feedback = await negative_memory.filter_resolved(resolved_chunk)
+                    if rejected_feedback:
+                        remember_history(rejected_feedback)
+                        scout_debug_event("cap_stack_feedback_filtered",
+                            lane="keyword", source_query=raw_query,
+                            excluded=len(rejected_feedback), campaign_id=campaign_id)
                 if not resolved_chunk:
                     scout_debug_event(
                         "candidate_submit_skipped_empty",

@@ -289,3 +289,86 @@ def test_feedback_rejects_cross_tenant_and_count_outside_2_to_6(session):
     approved = r.set_cap_stack_feedback(entry["id"], r.FeedbackRequest(label="good", caps_count=6), session, user())
     assert approved["manual_label"] == "good"
     assert approved["manual_caps_count"] == 6
+
+
+def test_feedback_changes_future_search_families_without_leaking_tenants(session):
+    baseline = r.cap_stack_learning_queries(session, "tenant-a")
+    assert baseline[0] == "Cap Stack" and len(set(baseline)) == 4
+    for idx in range(8):
+        for label, description, query, suffix in (
+            ("good", "vintage retro embroidered caps stacked on wooden table", "Cap Stack", "good"),
+            ("bad", "trucker mesh hats in a product display", "stacked trucker hats", "bad"),
+        ):
+            number = 50000 + idx * 2 + (label == "bad")
+            session.add(RrugcCapStackImageModel(
+                id=f"{suffix}-{idx}", tenant_id="tenant-a", pin_key=str(number),
+                pin_url=f"https://www.pinterest.com/pin/{number}/",
+                image_url=f"https://i.pinimg.com/736x/{number}.jpg",
+                manual_label=label, source_query=query,
+                alt_text=description, visual_summary=description,
+                reviewed_at=r.utc_now(), caps_detected=3, count_status="ready",
+            ))
+    session.commit()
+    queries = r.cap_stack_learning_queries(session, "tenant-a")
+    assert queries[0] == "Cap Stack" and len(set(queries)) == 4
+    assert "stacked trucker hats" not in queries
+    assert any("vintage" in q or "embroidered" in q or "wooden" in q for q in queries)
+    assert queries != baseline
+    assert r.cap_stack_learning_queries(session, "tenant-b")[1:3] == [
+        "baseball cap stack", "stacked trucker hats",
+    ]
+
+
+def test_claim_includes_approved_and_rejected_feedback_for_current_tenant(session):
+    r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
+    for label, tenant, number in (("good", "tenant-a", 70001),
+                                  ("bad", "tenant-a", 70002),
+                                  ("ai", "tenant-a", 70003),
+                                  ("bad", "tenant-b", 70004)):
+        session.add(RrugcCapStackImageModel(
+            id=str(number), tenant_id=tenant, pin_key=str(number),
+            pin_url=f"https://www.pinterest.com/pin/{number}/",
+            image_url=f"https://i.pinimg.com/736x/{number}.jpg",
+            manual_label=label, manual_caps_count=3, reviewed_at=r.utc_now(),
+        ))
+    session.commit()
+    task = claim(session)
+    assert [row["pin_url"] for row in task["related_seeds"]] == [
+        "https://www.pinterest.com/pin/70001/",
+    ]
+    assert {row["label"] for row in task["rejected_seeds"]} == {"bad", "ai"}
+    assert all("70004" not in row["image_url"] for row in task["rejected_seeds"])
+    r.set_cap_stack_feedback("70002", r.FeedbackRequest(label="clear"), session, user())
+    control = session.get(RrugcCapStackControlModel, "tenant-a")
+    control.lease_agent_id = control.lease_run_id = control.lease_expires_at = None
+    control.next_scan_at = None
+    session.commit()
+    assert [row["label"] for row in claim(session)["rejected_seeds"]] == ["ai"]
+
+
+def test_rejected_pinterest_image_is_blocked_when_reposted_under_new_pin(session):
+    r.set_cap_stack_settings(r.SettingsRequest(enabled=True), session, user())
+    run = claim(session)["run"]["id"]
+    r.submit_cap_stack("agent-one", run, candidate(11010), "Bearer test", session)
+    old = session.query(RrugcCapStackImageModel).one()
+    r.set_cap_stack_feedback(old.id, r.FeedbackRequest(label="bad"), session, user())
+    repost = r.ScoutCandidate(
+        pin_url="https://www.pinterest.com/pin/11011/",
+        image_url="https://i.pinimg.com/originals/11010.jpg",
+        alt_text="Reposted rejected image",
+    )
+    new = r.ScoutCandidate(
+        pin_url="https://www.pinterest.com/pin/11012/",
+        image_url="https://i.pinimg.com/736x/other.jpg", alt_text="Valid new stack",
+    )
+    result = r.submit_cap_stack("agent-one", run,
+        r.ScoutBatch(items=[repost, new], source_query="Cap Stack"), "Bearer test", session)
+    assert result["feedback_excluded"] == 1 and result["created"] == 1
+    assert session.query(RrugcCapStackImageModel).count() == 2
+    r.set_cap_stack_feedback(old.id, r.FeedbackRequest(label="clear"), session, user())
+    again = r.submit_cap_stack("agent-one", run,
+        r.ScoutBatch(items=[repost], source_query="Cap Stack"), "Bearer test", session)
+    assert again["created"] == 1 and again["feedback_excluded"] == 0
+    assert r.pinimg_asset_key("https://i.pinimg.com/originals/11010.jpg") == (
+        r.pinimg_asset_key("https://i.pinimg.com/236x/11010.jpg")
+    )

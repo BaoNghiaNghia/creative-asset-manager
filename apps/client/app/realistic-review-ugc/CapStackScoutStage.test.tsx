@@ -22,6 +22,39 @@ const sample: api.CapStackPage = {
 };
 
 describe("Cap Stack Scout Stage 1", () => {
+
+  it("does not let an in-flight polling response undo a newly saved rejection", async () => {
+    const ready = { ...sample.items[0], caps_detected: 3, count_status: "ready" as const };
+    const page = { ...sample, items: [ready] };
+    let resolveStale!: (value: api.CapStackPage) => void;
+    const fetches = vi.spyOn(api, "listCapStackImages");
+    fetches.mockResolvedValueOnce(page);
+    fetches.mockImplementationOnce(() => new Promise(resolve => { resolveStale = resolve; }));
+    vi.spyOn(api, "setCapStackImageFeedback").mockImplementation(async (_id, body) => ({
+      ...ready, manual_label: body.label === "bad" ? "bad" : null,
+    }));
+    let poll: (() => void) | undefined;
+    vi.spyOn(window, "setInterval").mockImplementation((callback, delay) => {
+      if (delay === 15000 && typeof callback === "function") poll = callback as () => void;
+      return 999 as unknown as ReturnType<typeof setInterval>;
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<CapStackScoutStage active />); await Promise.resolve(); });
+    expect(poll).toBeDefined();
+    await act(async () => { poll!(); await Promise.resolve(); });
+    expect(fetches).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".rrugc-cap-stack-card .rrugc-cap-stack-votes button.bad")!.click();
+      await Promise.resolve();
+    });
+    expect(host.querySelector(".rrugc-cap-stack-card.label-bad")).not.toBeNull();
+    await act(async () => { resolveStale(page); await Promise.resolve(); });
+    expect(host.querySelector(".rrugc-cap-stack-card.label-bad")).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("loads a shared library with unknown counts, feedback and server enable/disable", async () => {
     vi.spyOn(api, "listCapStackImages").mockResolvedValue(sample);
     const settings = vi.spyOn(api, "setCapStackEnabled").mockResolvedValue({ enabled: true });

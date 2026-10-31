@@ -31,7 +31,28 @@ READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
 LANE_TARGET = 12
 LEASE_MINUTES = 45
-SCOUT_SEARCHES = ("Cap Stack", "baseball cap stack", "stacked trucker hats", "pile of baseball caps")
+# Search alternatives must genuinely change between leases as human votes arrive.
+# Keep Cap Stack as the canonical anchor, but never keep searching only its
+# original four synonyms after the user approves/rejects references.
+SCOUT_SEARCHES = (
+    "Cap Stack", "baseball cap stack", "stacked trucker hats",
+    "pile of baseball caps", "two baseball caps stacked",
+    "three baseball caps stacked", "vintage baseball caps stacked",
+    "embroidered baseball caps stack", "colorful baseball hats pile",
+    "snapback baseball caps stacked", "stack of hats on wooden table",
+    "stacked baseball caps on shelf", "retro baseball caps stack",
+    "baseball cap pile studio photograph",
+)
+SCOUT_STYLES = {
+    "vintage": ("vintage", "retro", "washed", "distressed"),
+    "embroidered": ("embroider", "stitched", "embroidery", "logo"),
+    "colorful": ("colorful", "colourful", "bright", "multicolor", "multi color"),
+    "snapback": ("snapback", "flat brim"),
+    "trucker": ("trucker", "mesh"),
+    "wooden": ("wood", "wooden", "tabletop"),
+    "shelf": ("shelf", "rack", "display"),
+    "studio": ("studio", "isolated", "white background"),
+}
 
 
 def utc_now() -> datetime:
@@ -60,6 +81,19 @@ def validate_image_url(url: str) -> None:
         raise HTTPException(422, "Pinterest pinimg HTTPS image required.")
     if parts.username or parts.password or parts.port or not parts.path:
         raise HTTPException(422, "Unexpected Pinterest image URL.")
+
+
+def pinimg_asset_key(url: str) -> str:
+    """Compare the same Pin image across 236x/736x/originals and different Pin IDs."""
+    parsed = urlsplit(str(url or ""))
+    if parsed.scheme != "https" or (parsed.hostname or "").casefold().rstrip(".") not in {
+        "i.pinimg.com", "pinimg.com",
+    }:
+        return ""
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and re.fullmatch(r"(?:originals|[0-9]+x(?:[0-9]+)?(?:_[A-Za-z0-9]+)?)", parts[0], flags=re.I):
+        parts = parts[1:]
+    return "/".join(parts).casefold()
 
 
 def get_control(session: Session, tenant: str, *, lock: bool = False):
@@ -282,28 +316,58 @@ def retry_cap_stack_vision(
     return {"image": image_dict(row), "vision_queued": queued}
 
 
+def _cap_stack_style_words(text: str | None) -> set[str]:
+    lowered = str(text or "").casefold()
+    return {
+        style for style, keywords in SCOUT_STYLES.items()
+        if any(term in lowered for term in keywords)
+    }
+
+
 def cap_stack_learning_queries(session: Session, tenant: str) -> list[str]:
-    """Score keyword families by human feedback, keeping exploration alive."""
-    votes: dict[str, list[int]] = {query.casefold(): [0, 0] for query in SCOUT_SEARCHES}
+    """Choose distinct queries from *both* positive and negative image votes.
+
+    Previous implementation always sent the same four search strings: sorting
+    all four cannot teach Pinterest what to stop discovering.
+    """
     rows = list(session.execute(select(
-        RrugcCapStackImageModel.source_query, RrugcCapStackImageModel.manual_label
+        RrugcCapStackImageModel.source_query,
+        RrugcCapStackImageModel.manual_label,
+        RrugcCapStackImageModel.alt_text,
+        RrugcCapStackImageModel.visual_summary,
     ).where(
         RrugcCapStackImageModel.tenant_id == tenant,
         RrugcCapStackImageModel.manual_label.in_(("good", "bad", "ai")),
     ).order_by(RrugcCapStackImageModel.reviewed_at.desc()).limit(1500)))
-    for source_query, label in rows:
-        key = str(source_query or "").strip().casefold()
-        if key in votes:
-            votes[key][0 if label == "good" else 1] += 1
-    ranked = sorted(SCOUT_SEARCHES, key=lambda query: (
-        (votes[query.casefold()][0] + 1) /
-        (sum(votes[query.casefold()]) + 3)
-        - votes[query.casefold()][1] * .008
-    ), reverse=True)
-    # Stable first keyword anchors the user-requested origin. Remaining
-    # queries learn from approval yield; protected 20% exploration slot.
-    trailing = [q for q in ranked if q != "Cap Stack"]
-    return ["Cap Stack"] + trailing[:3]
+    source_votes: dict[str, list[int]] = {}
+    style_votes: dict[str, list[int]] = {}
+    for source, label, alt, summary in rows:
+        index = 0 if label == "good" else 1
+        source_votes.setdefault(str(source or "").strip().casefold(), [0, 0])[index] += 1
+        for style in _cap_stack_style_words(" ".join((alt or "", summary or ""))):
+            style_votes.setdefault(style, [0, 0])[index] += 1
+
+    def value(query: str) -> float:
+        positive, negative = source_votes.get(query.casefold(), [0, 0])
+        score = (positive + 1) / (positive + negative + 2)
+        for style in _cap_stack_style_words(query):
+            good, bad = style_votes.get(style, [0, 0])
+            # Mild priors prevent one reject from eliminating a category;
+            # repeated rejection pushes that style to the bottom.
+            score += (good * .12 - bad * .18) / (good + bad + 2)
+        return score
+
+    ranked = sorted(
+        (q for q in SCOUT_SEARCHES if q != "Cap Stack"),
+        key=lambda q: (-value(q), SCOUT_SEARCHES.index(q)),
+    )
+    # Two exploitation queries plus a deterministic daily exploration slot.
+    # Even with no votes, the discovery families rotate instead of repeating
+    # the same four Pinterest searches forever.
+    best = ranked[:2]
+    unexplored = [q for q in SCOUT_SEARCHES[1:] if q not in best]
+    rotation = (utc_now().date().toordinal() + sum(tenant.encode("utf-8"))) % len(unexplored)
+    return ["Cap Stack", *best, unexplored[rotation]]
 
 
 def control_for_run(session: Session, tenant: str, agent_id: str, run_id: str):
@@ -339,6 +403,12 @@ def claim_cap_stack(
         RrugcCapStackImageModel.tenant_id == agent.tenant_id,
         RrugcCapStackImageModel.manual_label == "good",
     ).order_by(RrugcCapStackImageModel.reviewed_at.desc()).limit(8)))
+    # Historical rejects automatically become an exclusion memory for the
+    # NEXT claim, without requiring the user to vote on the same images again.
+    rejected_rows = list(session.scalars(select(RrugcCapStackImageModel).where(
+        RrugcCapStackImageModel.tenant_id == agent.tenant_id,
+        RrugcCapStackImageModel.manual_label.in_(("bad", "ai")),
+    ).order_by(RrugcCapStackImageModel.reviewed_at.desc()).limit(120)))
     return {
         "run": {"id": control.lease_run_id}, "campaign_id": "cap-stack-shared", "scout_type": "cap_stack",
         "query": "Cap Stack", "search_queries": cap_stack_learning_queries(session, agent.tenant_id),
@@ -347,6 +417,10 @@ def claim_cap_stack(
         "known_pin_urls": rows,
         "related_seeds": [{"pin_url": row.pin_url, "image_url": row.image_url,
                             "alt_text": row.alt_text} for row in seed_rows],
+        "rejected_seeds": [{"pin_url": row.pin_url, "image_url": row.image_url,
+                            "alt_text": row.alt_text,
+                            "visual_summary": row.visual_summary,
+                            "label": row.manual_label} for row in rejected_rows],
     }
 
 
@@ -373,6 +447,20 @@ def submit_cap_stack(
     control = control_for_run(session, agent.tenant_id, agent_id, run_id)
     created = 0
     existing = 0
+    feedback_excluded = 0
+    # Protect even older Scout clients that do not understand rejected_seeds.
+    # This rejects the SAME image re-pinned under a different numeric Pin ID,
+    # including 236x/736x/originals CDN renditions. Tenant-scoped and bounded
+    # by existing human-rejected rows, not a full image-library scan.
+    rejected_assets = {
+        pinimg_asset_key(url) for url in session.scalars(select(
+            RrugcCapStackImageModel.image_url,
+        ).where(
+            RrugcCapStackImageModel.tenant_id == agent.tenant_id,
+            RrugcCapStackImageModel.manual_label.in_(("bad", "ai")),
+        ))
+    }
+    rejected_assets.discard("")
     seen_keys: set[str] = set()
     for item in body.items:
         key = pin_key(item.pin_url)
@@ -387,6 +475,9 @@ def submit_cap_stack(
         )):
             existing += 1
             continue
+        if pinimg_asset_key(item.image_url) in rejected_assets:
+            feedback_excluded += 1
+            continue
         session.add(RrugcCapStackImageModel(
             id=str(uuid4()), tenant_id=agent.tenant_id,
             pin_key=key, pin_url=item.pin_url, image_url=item.image_url,
@@ -400,7 +491,8 @@ def submit_cap_stack(
     queued = enqueue_cap_stack_pending(session, agent.tenant_id)
     session.commit()
     return {
-        "created": created, "existing": existing, "vision_queued": queued, "progress": control.run_created,
+        "created": created, "existing": existing, "feedback_excluded": feedback_excluded,
+        "vision_queued": queued, "progress": control.run_created,
         "pipeline_count": control.run_created, "target_count": LANE_TARGET,
         "campaign_status": "running" if control.run_created < LANE_TARGET else "complete",
     }
