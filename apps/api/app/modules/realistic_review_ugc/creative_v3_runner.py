@@ -16,7 +16,8 @@ from typing import Any, Callable, Mapping
 from app.modules.image_generation.providers import GeneratedImageFile, GeneratedImageResult
 from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
 from app.modules.realistic_review_ugc.creative_v3_generation import (
-    CONTRACT, SKILL, SLOT_COUNT, CreativeV3Error, enabled, prompt_for_slot, verify_snapshot,
+    CONTRACT, SKILL, SLOT_COUNT, LEGACY_VISUAL_PROFILE,
+    CreativeV3Error, enabled, prompt_for_slot, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
     TypographyPilotError, fit_native_on_stage1_canvas, _store_new,
@@ -133,7 +134,10 @@ async def generate_six(
                     try:
                         result = await native_runner.generate_from_references(
                             attempt_id=attempt_id, person=None, references=[],
-                            prompt=prompt_for_slot(plan, slot),
+                            prompt=prompt_for_slot(
+                                plan, slot,
+                                visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
+                            ),
                         )
                         native = result.image_bytes
                         native_hash = hashlib.sha256(native).hexdigest()

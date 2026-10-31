@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
 from app.modules.realistic_review_ugc.creative_v3_generation import (
-    SCHEMA, SKILL, CONTRACT, CreativeV3Error, _brief_plan, enabled,
+    SCHEMA, SKILL, CONTRACT, VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
+    THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.creative_v3_runner import _checked_png
@@ -91,6 +92,56 @@ def test_exact_unicode_punctuation_preserved(word):
     data = plan(word)
     assert data["keyword_exact"] == word
     assert all(word in prompt_for_slot(data, i) for i in range(1, 7))
+
+
+def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
+    old = brief()
+    for c in old["concepts"]:
+        # This is precisely the production issue: V1 concept data can say
+        # monochrome, even when colorful multi-thread satin art is wanted.
+        c["description"] = "Giữ chỉ xanh trên tất cả chữ."
+        c["embroidery_plan"] = "Dùng một màu chỉ, ưu tiên thêu phẳng."
+    data = _brief_plan(keyword="CREATIVE DICTATOR", brief_json=old,
+                       prompt_version=PROMPT_VERSION, brief_id="old-brief")
+    prompts = [prompt_for_slot(data, i) for i in range(1, 7)]
+    assert len(set(prompts)) == 6
+    assert len({family for family, _ in THREAD_PALETTES}) == 6
+    assert len({colors for _, colors in THREAD_PALETTES}) == 6
+    for i, prompt in enumerate(prompts):
+        assert "CREATIVE DICTATOR" in prompt
+        assert "Dùng một màu chỉ" in prompt  # original data remains untouched
+        assert "MULTICOLOR THREAD DIRECTIVE" in prompt
+        assert "THREE to FIVE distinctly colored" in prompt
+        assert "uniform blue/navy/cobalt" in prompt
+        assert "realistic stitch-edge depth" in prompt
+        assert THREAD_PALETTES[i][0] in prompt
+        assert THREAD_PALETTES[i][1] in prompt
+        assert "no white canvas" in prompt
+        assert "FINAL ART DIRECTION" in prompt
+        assert '"exact_phrase": "CREATIVE DICTATOR"' in prompt
+        if i % 2 == 0:
+            assert "Version A: prioritize immediate readability" in prompt
+        else:
+            assert "Version B: materially change composition" in prompt
+
+
+def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
+    data = plan()
+    old = snapshot_for_job(data)
+    assert old["visual_profile"] == VISUAL_PROFILE
+    legacy = dict(old)
+    legacy.pop("visual_profile")
+    verify_snapshot(data, legacy)
+    old_prompt = prompt_for_slot(data, 1, visual_profile=LEGACY_VISUAL_PROFILE)
+    new_prompt = prompt_for_slot(data, 1, visual_profile=VISUAL_PROFILE)
+    assert "Flat low-profile Valucap 8869 front-crown embroidery" in old_prompt
+    assert "MULTICOLOR THREAD DIRECTIVE" not in old_prompt
+    assert "MULTICOLOR THREAD DIRECTIVE" in new_prompt
+    assert old_prompt != new_prompt
+    with pytest.raises(CreativeV3Error):
+        verify_snapshot(data, {**old, "visual_profile": "unknown"})
+    with pytest.raises(CreativeV3Error):
+        prompt_for_slot(data, 1, visual_profile="unknown")
 
 
 def test_snapshot_changes_with_source_and_keyword_and_cannot_be_forged():
@@ -303,6 +354,7 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             assert processing.payload_json["expected_output_count"] == 6
             assert processing.payload_json["creative_v3"]["provider"] == "codex"
             assert processing.provider_key == "codex"
+            assert processing.payload_json["creative_v3"]["visual_profile"] == VISUAL_PROFILE
             assert processing.payload_json["creative_v3"]["source_sha256"]
             # A malformed on-disk Skill must surface as a bounded API error
             # instead of an uncaught ASGI 500 and must not enqueue a job.
@@ -537,6 +589,7 @@ def test_native_v3_worker_creates_six_verified_distinct_private_files(tmp_path, 
     assert len(result.output_files) == 6
     assert len(generated_prompts) == 6
     assert len(set(generated_prompts)) == 6
+    assert all("MULTICOLOR THREAD DIRECTIVE" in p for p in generated_prompts)
     assert len(cleaned) == 6
     assert all(sha256(open(item.path, "rb").read()).hexdigest()
                for item in result.output_files)
