@@ -117,6 +117,13 @@ STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
     # Zero-output rate limits and unknown provider failures never auto-spend.
     "creative_v3_api_rate_limited", "creative_v3_api_transient",
 })
+# Native V3 failures found in production logs. The CLI may omit final.png or
+# ImageGen may return a non-alpha image. Retry only this same verified V3
+# ProcessingJob, with its existing G5 PNG checkpoints; never relax native QA.
+STAGE1_V3_NATIVE_RECOVERY_CODES = frozenset({
+    "creative_v3_native_png_missing", "creative_v3_native_png_rejected",
+    "creative_v3_alpha_or_canvas_rejected", "creative_v3_duplicate_image",
+})
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
 # Six separate typography masters can legitimately take longer than the
@@ -946,6 +953,16 @@ class KeywordImageService:
                 "yoy_change_pct": stage1_keyword_percentage(keyword.provider_raw_json, "yoy_change_pct"),
                 "status": state, "job_id": job.id if job else None,
                 "processing_job_id": job.processing_job_id if job else None,
+                "v3_retry_eligible": bool(
+                    job and state == "failed" and job.skill_name == "creative-brief-v3"
+                    and processing and processing.status == "failed"
+                    and not processing.cancellation_requested
+                    and isinstance((processing.payload_json or {}).get("creative_v3"), dict)
+                    and (processing.payload_json or {}).get("expected_output_count") == 6
+                    and not (processing.payload_json or {}).get("upload_only")
+                    and not (processing.payload_json or {}).get("replace_outputs")
+                    and int((processing.payload_json or {}).get("manual_retry_count") or 0) < 3
+                ),
                 "skill_name": job.skill_name if job else None,
                 "skill_version": job.skill_version if job else None,
                 "retry_count": job.retry_count if job else 0,
@@ -1007,6 +1024,9 @@ class KeywordImageGenerateHandler:
             self._fail(context, exc.code, str(exc))
             return JobHandlerResult.non_retryable(exc.code, str(exc))
         except StorageProviderError as exc:
+            recovery = self._defer_v3_upload_failure(context, exc)
+            if recovery is not None:
+                return recovery
             self._fail(context, exc.code, str(exc))
             return JobHandlerResult.non_retryable(exc.code, str(exc))
         except Exception:
@@ -1018,29 +1038,97 @@ class KeywordImageGenerateHandler:
     def _defer_safe_zero_output(
         self, context: JobHandlerContext, error: CodexImageProviderError,
     ) -> DeferredJobOutcome | None:
-        """Retry only proven no-image runs. No duplicate imagegen calls on partial outputs.
+        """Retry bounded native V3 failures without losing G5 PNG checkpoints.
 
-        Uses the existing durable processing defer queue rather than creating a
-        new job or requiring the user to keep the Stage 1 page open.
+        Original zero-image/no-tool recovery remains unchanged for legacy
+        jobs. V3 native failures get ONE retry if no slot was saved; 1..5
+        technically valid native checkpoints may use the normal three-step
+        budget. Authentication, entitlement, changed sources, unsafe paths,
+        unverified provenance and revoked feature gates remain terminal.
         """
         if context.is_cancelled:
             return None
+        payload = getattr(context.job, "payload", {}) or {}
+        is_v3 = isinstance(payload.get("creative_v3"), dict)
+        v3_native = is_v3 and error.code in STAGE1_V3_NATIVE_RECOVERY_CODES
+        zero_native = False
         if error.code not in STAGE1_SAFE_ZERO_OUTPUT_CODES:
-            if error.code not in STAGE1_PARTIAL_RECOVERY_CODES:
+            if error.code not in STAGE1_PARTIAL_RECOVERY_CODES and not v3_native:
                 return None
             settings = self.settings or get_settings()
-            if getattr(context.job, "payload", {}).get("creative_v3"):
-                from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
+            if is_v3:
+                from app.modules.realistic_review_ugc.creative_v3_runner import (
+                    _checked_png, _job_directory,
+                )
                 workspace = _job_directory(
-                    settings, tenant_id=context.job.tenant_id, processing_id=context.job.id,
+                    settings, tenant_id=context.job.tenant_id,
+                    processing_id=context.job.id,
                 )
             else:
                 workspace = (Path(settings.IMAGE_GENERATION_STAGING_ROOT).resolve()
                              / "codex" / context.job.entity_id)
-            expected_count = int(getattr(context.job, "payload", {}).get("expected_output_count", 6))
+            expected_count = int(payload.get("expected_output_count", 6))
             missing = CodexImageGenRunner.stage1_missing_final_numbers(workspace, expected_count)
-            if missing is None or not (0 < len(missing) < expected_count):
+            if missing is None or not missing:
                 return None
+            if len(missing) == expected_count:
+                if not v3_native:
+                    return None
+                zero_native = True
+            if is_v3:
+                # Never retry on altered/duplicate/invalid persisted finals.
+                seen: set[str] = set()
+                for index in range(1, expected_count + 1):
+                    if index in missing:
+                        continue
+                    try:
+                        digest, _qa = _checked_png(
+                            (workspace / "output" / "final" /
+                             f"design_{index:02}.png").read_bytes(), seen,
+                        )
+                    except (CodexImageProviderError, OSError, ValueError):
+                        return None
+                    seen.add(digest)
+        return self._schedule_auto_recovery(context, error, zero_v3_native=zero_native)
+
+    def _defer_v3_upload_failure(
+        self, context: JobHandlerContext, error: StorageProviderError,
+    ) -> DeferredJobOutcome | None:
+        """Retry only transient V3 Drive failures with all six genuine finals.
+
+        Resuming the SAME processing ID skips all six native image calls,
+        reuses already uploaded version checkpoints and retries missing writes.
+        No automatic fallback to paid Image API, no regeneration of art.
+        """
+        payload = getattr(context.job, "payload", {}) or {}
+        if (context.is_cancelled or not error.retryable
+                or not isinstance(payload.get("creative_v3"), dict)):
+            return None
+        from app.modules.realistic_review_ugc.creative_v3_runner import (
+            _checked_png, _job_directory,
+        )
+        settings = self.settings or get_settings()
+        workspace = _job_directory(
+            settings, tenant_id=context.job.tenant_id,
+            processing_id=context.job.id,
+        )
+        if CodexImageGenRunner.stage1_missing_final_numbers(workspace, 6) != ():
+            return None
+        seen: set[str] = set()
+        for index in range(1, 7):
+            try:
+                digest, _qa = _checked_png(
+                    (workspace / "output" / "final" /
+                     f"design_{index:02}.png").read_bytes(), seen,
+                )
+            except (CodexImageProviderError, OSError, ValueError):
+                return None
+            seen.add(digest)
+        return self._schedule_auto_recovery(context, error)
+
+    def _schedule_auto_recovery(
+        self, context: JobHandlerContext, error, *, zero_v3_native: bool = False,
+    ) -> DeferredJobOutcome | None:
         with context.dependencies.session_factory() as session:
             job = session.scalar(select(RrugcKeywordImageJobModel).where(
                 RrugcKeywordImageJobModel.tenant_id == context.job.tenant_id,
@@ -1049,10 +1137,12 @@ class KeywordImageGenerateHandler:
             if job is None or job.status == "completed":
                 return None
             recovery_count = max(0, int(job.retry_count or 0))
-            if recovery_count >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS):
+            if (recovery_count >= len(STAGE1_AUTO_RETRY_DELAYS_SECONDS)
+                    or (zero_v3_native and recovery_count >= 1)):
                 return None
-            # Do not retry behind a successful/published image pointer.
-            if job.output_remote_file_id and not getattr(context.job, "payload", {}).get("creative_v3"):
+            payload = getattr(context.job, "payload", {}) or {}
+            if (job.output_remote_file_id
+                    and not isinstance(payload.get("creative_v3"), dict)):
                 return None
             delay = STAGE1_AUTO_RETRY_DELAYS_SECONDS[recovery_count]
             job.retry_count = recovery_count + 1
@@ -1590,7 +1680,8 @@ class KeywordImageGenerateHandler:
             # never become reusable checkpoints.
             missing = runner.stage1_missing_final_numbers(workspace, output_count)
             recoverable = (not is_creative_v3 or exc.code in
-                           STAGE1_PARTIAL_RECOVERY_CODES)
+                           STAGE1_PARTIAL_RECOVERY_CODES
+                           or exc.code in STAGE1_V3_NATIVE_RECOVERY_CODES)
             preserve_finals = (
                 recoverable and missing is not None and
                 0 < len(missing) < output_count

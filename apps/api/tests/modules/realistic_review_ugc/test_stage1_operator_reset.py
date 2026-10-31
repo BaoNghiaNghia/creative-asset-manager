@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageService
 from app.modules.realistic_review_ugc.model import (
-    RrugcImageOutputVersionModel, RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
+    RrugcImageOutputVersionModel, RrugcKeywordCreativeBriefModel,
+    RrugcKeywordImageJobModel, RrugcKeywordVolumeModel,
 )
 from app.operations.reset_stage1_keyword_outputs import TARGETS, inspect_candidates, reset_candidates, verify_reset
 
@@ -19,6 +20,7 @@ def db():
     engine = create_engine("sqlite://")
     for table in (
         RrugcKeywordVolumeModel.__table__,
+        RrugcKeywordCreativeBriefModel.__table__,
         RrugcKeywordImageJobModel.__table__,
         RrugcImageOutputVersionModel.__table__,
         ProcessingJobModel.__table__,

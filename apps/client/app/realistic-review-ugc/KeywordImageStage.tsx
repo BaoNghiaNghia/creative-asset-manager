@@ -198,7 +198,8 @@ export function KeywordImageRowControls({
   const initial = row.status === "not_run";
   const terminal = row.status === "completed" || row.status === "failed";
   const canRetryFailedV3 = row.status === "failed"
-    && row.skill_name === "creative-brief-v3" && Boolean(row.processing_job_id);
+    && row.skill_name === "creative-brief-v3" && Boolean(row.processing_job_id)
+    && row.v3_retry_eligible !== false;
   const actionDisabled = busy || !canGenerate;
   // One primary action per row; alternative generation and utility actions stay in More.
   const primaryAction: Stage1ImageAction | null = initial ? "generate" : canRetryFailedV3 ? "retry" : terminal ? "regenerate" : null;

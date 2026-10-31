@@ -480,7 +480,9 @@ def _assert_concept_short_plan(workspace: Path) -> None:
 
 
 
-def _native_imagegen_digests(runtime_home: Path) -> frozenset[str]:
+def _native_imagegen_digests(
+    runtime_home: Path, *, promote_single_to: Path | None = None,
+) -> frozenset[str]:
     """Fingerprint native Codex images before per-job cache cleanup.
 
     Codex CLI 0.159.x can omit image_generation events in JSONL even
@@ -491,6 +493,7 @@ def _native_imagegen_digests(runtime_home: Path) -> frozenset[str]:
     if not cache.is_dir() or cache.is_symlink():
         return frozenset()
     result: set[str] = set()
+    native_paths: list[Path] = []
     checked = 0
     uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
     # Native Codex uses generated_images/<thread-uuid>/exec-<image-uuid>.png.
@@ -516,8 +519,27 @@ def _native_imagegen_digests(runtime_home: Path) -> frozenset[str]:
                     if image.format != "PNG" or min(image.size) < 512:
                         continue
                 result.add(hashlib.sha256(path.read_bytes()).hexdigest())
+                native_paths.append(path)
             except (OSError, ValueError, Image.DecompressionBombError):
                 continue
+    # V3's ONLY safe missing-final recovery: one verifiable native image in
+    # THIS job's isolated, initially empty Codex cache. An atomic hard link
+    # preserves exact bytes and hash; neither PIL nor a second ImageGen call
+    # is involved. Never guess among multiple native results or overwrite a
+    # Codex-written final (including invalid/symlinked files).
+    if promote_single_to is not None and len(native_paths) == 1:
+        target = runtime_home.parent / "output" / "final.png"
+        if (promote_single_to == target and target.parent.is_dir()
+                and not target.parent.is_symlink()
+                and not target.exists() and not target.is_symlink()):
+            try:
+                os.link(native_paths[0], target, follow_symlinks=False)
+                _cleanup_logger.info("creative_v3_single_native_final_promoted")
+            except OSError as exc:
+                _cleanup_logger.warning(
+                    "creative_v3_native_promotion_failed error_type=%s",
+                    type(exc).__name__,
+                )
     return frozenset(result)
 
 def _distinct_imagegen_calls(stdout: str) -> int:
@@ -939,7 +961,14 @@ class CodexImageGenRunner:
                         # Snapshot the isolated native tool results before
                         # removing intermediates. JSONL can omit built-in
                         # image_gen events despite a successful invocation.
-                        native_image_digests = _native_imagegen_digests(execution_home)
+                        native_image_digests = _native_imagegen_digests(
+                            execution_home,
+                            promote_single_to=(
+                                output_dir / "final.png"
+                                if self.config.output_contract == "creative_v3_single_slot"
+                                and process.returncode == 0 else None
+                            ),
+                        )
                         shutil.rmtree(transient)
                 except OSError as exc:
                     _cleanup_logger.warning(

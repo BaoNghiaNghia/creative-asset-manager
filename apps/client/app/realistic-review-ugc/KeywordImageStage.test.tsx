@@ -126,6 +126,33 @@ describe("Stage 1 compact output and action controls", () => {
     host.remove();
   });
 
+  it("uses Regenerate when the failed V3 ProcessingJob has exhausted manual retries", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const run = vi.fn();
+    const exhausted: KeywordImageRow = {
+      ...outputRow, status: "failed", skill_name: "creative-brief-v3",
+      processing_job_id: "123e4567-e89b-12d3-a456-426614174000",
+      v3_retry_eligible: false, retry_count: 3,
+    };
+    try {
+      await act(async () => root.render(<KeywordImageRowControls
+        row={exhausted} busy={false} canGenerate onRun={run} onLogs={() => undefined} />));
+      expect(host.querySelector('button[aria-label="Retry BEACH PLEASE"]')).toBeNull();
+      const regenerate = host.querySelector<HTMLButtonElement>('button[aria-label="Regenerate BEACH PLEASE"]');
+      expect(regenerate).not.toBeNull();
+      await act(async () => regenerate?.click());
+      expect(run).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain("brand-new");
+      await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
+      expect(run).toHaveBeenCalledWith("regenerate");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("shows both Retry and Regenerate only for a failed V3 attempt", async () => {
     const row: KeywordImageRow = {
       ...outputRow,

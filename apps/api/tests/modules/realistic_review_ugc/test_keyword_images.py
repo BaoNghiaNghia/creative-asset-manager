@@ -1138,3 +1138,159 @@ def test_retry_legacy_preview_only_is_also_removed(db):
     asyncio.run(KeywordImageGenerateHandler()._delete_previous_stage1_outputs(context, Storage()))
     assert deleted == ["legacy-remote"]
     assert not db.query(RrugcImageOutputVersionModel).filter_by(job_id="legacy-preview-job").count()
+
+
+def _v3_retry_context(db, tmp_path, *, external_preview=None):
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from uuid import uuid4
+    from sqlalchemy.orm import Session
+    from app.modules.realistic_review_ugc.keyword_images import KeywordImageGenerateHandler
+    from app.modules.realistic_review_ugc.creative_v3_runner import _job_directory
+
+    kw = keyword(db, "v3-recovery-" + str(uuid4())[:8], "tenant-v3", picked=True)
+    row = RrugcKeywordImageJobModel(
+        id=str(uuid4()), tenant_id=kw.tenant_id, keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name="creative-brief-v3",
+        prompt_text="Original V3 artwork", status="running",
+        output_remote_file_id=external_preview, created_by_user_id="actor",
+    )
+    db.add(row)
+    db.commit()
+    settings = __import__("types").SimpleNamespace(IMAGE_GENERATION_STAGING_ROOT=str(tmp_path))
+    processing_id = str(uuid4())
+    workspace = _job_directory(settings, tenant_id=kw.tenant_id, processing_id=processing_id)
+    logs = []
+    context = SimpleNamespace(
+        job=SimpleNamespace(
+            id=processing_id, entity_id=row.id, tenant_id=row.tenant_id,
+            payload={"creative_v3": {"provider": "codex"}, "expected_output_count": 6},
+        ),
+        dependencies=SimpleNamespace(session_factory=lambda: Session(db.bind)),
+        is_cancelled=False,
+        logger=SimpleNamespace(warning=lambda event, **kwargs: logs.append((event, kwargs))),
+    )
+    return KeywordImageGenerateHandler(settings), context, row, workspace, logs
+
+
+def _saved_v3_png(path, color):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (2048, 1024), (0, 0, 0, 0))
+    ImageDraw.Draw(img).rectangle((350, 230, 1040, 640), fill=color)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path, "PNG")
+
+
+def test_v3_missing_native_png_retries_once_only_when_zero_final_exists(db, tmp_path):
+    from app.providers.ai.codex_image import CodexImageProviderError
+    handler, ctx, row, workspace, logs = _v3_retry_context(db, tmp_path)
+    bad = CodexImageProviderError("creative_v3_native_png_missing", "No final", retryable=False)
+    first = handler._defer_safe_zero_output(ctx, bad)
+    assert first is not None and first.reason_code == bad.code
+    db.expire_all()
+    assert db.get(RrugcKeywordImageJobModel, row.id).retry_count == 1
+    assert db.get(RrugcKeywordImageJobModel, row.id).status == "queued"
+    assert handler._defer_safe_zero_output(ctx, bad) is None
+    assert not (workspace / "output" / "final").exists()
+    assert len(logs) == 1
+
+
+def test_v3_partial_native_recovery_keeps_valid_checkpoints_and_respects_budget(db, tmp_path):
+    from hashlib import sha256
+    from app.providers.ai.codex_image import CodexImageProviderError
+    handler, ctx, row, workspace, logs = _v3_retry_context(db, tmp_path, external_preview="published-old-output")
+    first = workspace / "output" / "final" / "design_01.png"
+    _saved_v3_png(first, (20, 40, 190, 255))
+    digest = sha256(first.read_bytes()).hexdigest()
+    bad = CodexImageProviderError("creative_v3_native_png_rejected", "Native alpha invalid", retryable=False)
+    for index in range(3):
+        result = handler._defer_safe_zero_output(ctx, bad)
+        assert result is not None, f"Recovery {index + 1}"
+        assert first.is_file() and sha256(first.read_bytes()).hexdigest() == digest
+    assert handler._defer_safe_zero_output(ctx, bad) is None
+    db.expire_all()
+    saved = db.get(RrugcKeywordImageJobModel, row.id)
+    assert saved.status == "queued"
+    assert saved.retry_count == 3
+    assert saved.output_remote_file_id == "published-old-output"
+    assert len(logs) == 3
+
+
+def test_v3_recovery_never_reuses_invalid_or_duplicate_native_checkpoints(db, tmp_path):
+    from app.providers.ai.codex_image import CodexImageProviderError
+    handler, ctx, row, workspace, _ = _v3_retry_context(db, tmp_path)
+    first = workspace / "output" / "final" / "design_01.png"
+    _saved_v3_png(first, (20, 40, 190, 255))
+    second = first.parent / "design_02.png"
+    second.write_bytes(first.read_bytes())
+    failure = CodexImageProviderError("creative_v3_native_png_rejected", "Invalid", retryable=False)
+    assert handler._defer_safe_zero_output(ctx, failure) is None
+    second.unlink()
+    first.write_bytes(b"not a valid png")
+    assert handler._defer_safe_zero_output(ctx, failure) is None
+    assert handler._defer_safe_zero_output(
+        ctx, CodexImageProviderError("creative_v3_native_unverified", "Invalid provenance", retryable=False),
+    ) is None
+    db.expire_all()
+    assert db.get(RrugcKeywordImageJobModel, row.id).retry_count == 0
+
+
+def test_v3_storage_recovery_reuses_six_native_finals_without_imagegen(db, tmp_path):
+    from hashlib import sha256
+    from app.domain.providers.contracts import StorageProviderError
+    handler, ctx, row, workspace, _ = _v3_retry_context(db, tmp_path, external_preview="published-older")
+    final = workspace / "output" / "final"
+    for index in range(1, 7):
+        _saved_v3_png(final / f"design_{index:02}.png",
+                      (index * 26, 56, 140, 255))
+    digests = [sha256((final / f"design_{i:02}.png").read_bytes()).hexdigest()
+               for i in range(1, 7)]
+    transient = StorageProviderError("Drive timed out", retryable=True,
+                                     code="managed_storage_network_error")
+    outcome = handler._defer_v3_upload_failure(ctx, transient)
+    assert outcome is not None and outcome.reason_code == "managed_storage_network_error"
+    assert [sha256((final / f"design_{i:02}.png").read_bytes()).hexdigest()
+            for i in range(1, 7)] == digests
+    db.expire_all()
+    saved = db.get(RrugcKeywordImageJobModel, row.id)
+    assert saved.status == "queued" and saved.retry_count == 1
+    assert saved.output_remote_file_id == "published-older"
+    assert handler._defer_v3_upload_failure(
+        ctx, StorageProviderError("Forbidden", retryable=False, code="managed_storage_permission_denied"),
+    ) is None
+
+def test_stage1_v3_retry_eligible_only_for_unexhausted_failed_attempt(db):
+    from uuid import uuid4
+    kw = keyword(db, "retry-eligibility", "tenant-a", picked=True)
+    processing_id = str(uuid4())
+    job = RrugcKeywordImageJobModel(
+        id=str(uuid4()), tenant_id="tenant-a", keyword_id=kw.id,
+        keyword_text=kw.keyword, skill_source="local", skill_name="creative-brief-v3",
+        prompt_text="Meaning-first", status="failed", created_by_user_id="actor",
+        processing_job_id=processing_id, last_error_code="creative_v3_native_png_missing",
+    )
+    processing = ProcessingJobModel(
+        id=processing_id, tenant_id="tenant-a",
+        job_type="rrugc_keyword_image_generate", entity_type="rrugc_keyword_image_job",
+        entity_id=job.id, status="failed", max_attempts=1,
+        idempotency_key="v3-eligibility", payload_json={
+            "expected_output_count": 6,
+            "creative_v3": {"provider": "codex"},
+            "manual_retry_count": 2,
+        },
+    )
+    db.add_all([job, processing])
+    db.commit()
+    def eligible():
+        return KeywordImageService(db).list_used(tenant_id="tenant-a", page=1, page_size=20)["items"][0]["v3_retry_eligible"]
+    assert eligible() is True
+    processing.payload_json = {**processing.payload_json, "manual_retry_count": 3}
+    db.commit()
+    assert eligible() is False
+    processing.payload_json = {**processing.payload_json, "manual_retry_count": 1, "upload_only": True}
+    db.commit()
+    assert eligible() is False
+    processing.payload_json = {**processing.payload_json, "upload_only": False}
+    job.skill_name = "concept-short-v1"
+    db.commit()
+    assert eligible() is False
