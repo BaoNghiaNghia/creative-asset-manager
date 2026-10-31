@@ -775,7 +775,7 @@ class AiOperationsApiTest(unittest.TestCase):
                           side_effect=AssertionError("history must be deferred")), \
              patch.object(PipelineOperationsRepository, "_recent_assets",
                           side_effect=AssertionError("recent page must be deferred")):
-            response = self.get("/api/v1/admin/ai-operations/pipeline?include_recent=false&include_attempts=false")
+            response = self.get("/api/v1/admin/ai-operations/pipeline", include_recent=False, include_attempts=False)
         self.assertEqual(response.status_code, 200, response.text)
         summary = response.json()
         self.assertEqual(summary["recent_assets"]["items"], [])
@@ -783,7 +783,7 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertGreaterEqual(summary["overall"]["supported_assets"], 1)
         self.assertEqual(sum(item["total_attempts"] for item in summary["stages"]), 0)
         # Each panel has its own authorized, independently cached endpoint.
-        recent = self.get("/api/v1/admin/ai-operations/pipeline/recent?recent_page=1&recent_page_size=25")
+        recent = self.get("/api/v1/admin/ai-operations/pipeline/recent", recent_page=1, recent_page_size=25)
         self.assertEqual(recent.status_code, 200, recent.text)
         self.assertGreaterEqual(recent.json()["total"], 1)
         self.assertEqual(recent.json()["page"], 1)
@@ -804,7 +804,7 @@ class AiOperationsApiTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200, response.text)
         # Invalid query sizes do not consume DB resources.
         self.assertEqual(
-            self.get("/api/v1/admin/ai-operations/pipeline/recent?recent_page_size=5000").status_code,
+            self.get("/api/v1/admin/ai-operations/pipeline/recent", recent_page_size=5000).status_code,
             422,
         )
 
