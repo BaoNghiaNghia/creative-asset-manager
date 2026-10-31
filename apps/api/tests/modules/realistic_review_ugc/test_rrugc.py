@@ -91,6 +91,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcGenerationAttemptModel,
     RrugcKeywordVolumeModel,
+    RrugcKeywordCreativeBriefModel,
     RrugcKeywordImageJobModel,
     RrugcImageOutputVersionModel,
     RrugcKeywordAgentOriginModel,
@@ -204,6 +205,7 @@ def database():
     RrugcSourcePlanModel.__table__.create(engine)
     RrugcProductsRunAllModel.__table__.create(engine)
     RrugcKeywordVolumeModel.__table__.create(engine)
+    RrugcKeywordCreativeBriefModel.__table__.create(engine)
     RrugcKeywordImageJobModel.__table__.create(engine)
     RrugcImageOutputVersionModel.__table__.create(engine)
     RrugcKeywordAgentOriginModel.__table__.create(engine)
@@ -650,6 +652,34 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
     assert picked.status_code == 200
     assert picked.json()["picked"] is True
     assert picked.json()["picked_at"] is not None
+
+    # Selecting Stage 0 queues ONLY its tenant-scoped text Creative Brief.
+    # Repeated selection keeps both the picked date and the original job.
+    with database() as session:
+        brief = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.tenant_id == "tenant-a",
+            RrugcKeywordCreativeBriefModel.keyword_id == unused.json()["items"][0]["id"],
+        ))
+        assert brief is not None and brief.status == "queued"
+        processing = session.get(ProcessingJobModel, brief.processing_job_id)
+        assert processing is not None
+        assert processing.job_type == "rrugc_creative_brief_generate"
+        assert processing.priority == 20  # New Stage 0 picks outrank backfill priority 5.
+        initial_id = processing.id
+    repeated = api.patch(
+        f"/api/v1/realistic-review-ugc/keyword-analysis/{unused.json()['items'][0]['id']}/pick",
+        json={"picked": True},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["picked_at"] == picked.json()["picked_at"]
+    with database() as session:
+        brief = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.keyword_id == unused.json()["items"][0]["id"],
+        ))
+        assert brief.processing_job_id == initial_id
+        assert session.query(ProcessingJobModel).filter(
+            ProcessingJobModel.job_type == "rrugc_creative_brief_generate",
+        ).count() == 1
 
     no_unused = api.get(
         "/api/v1/realistic-review-ugc/keyword-analysis",

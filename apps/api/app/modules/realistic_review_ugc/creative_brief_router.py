@@ -174,6 +174,7 @@ def creative_brief_detail(
 def creative_brief_backfill(
     limit: int = Query(default=500, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    retry_failed: bool = Query(default=False),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -182,6 +183,7 @@ def creative_brief_backfill(
     result = queue_picked_backfill(
         session, tenant_id=principal.active_tenant_id,
         limit=limit, offset=offset, settings=get_settings(),
+        retry_failed=retry_failed,
     )
     return result
 

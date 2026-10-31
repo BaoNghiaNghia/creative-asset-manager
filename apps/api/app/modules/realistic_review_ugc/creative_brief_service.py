@@ -108,6 +108,7 @@ def get_brief(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
 def queue_brief(
     session: Session, *, tenant_id: str, keyword_id: str,
     settings: Settings | None = None, retry: bool = False,
+    priority: int = 5,
 ) -> tuple[str, bool]:
     settings = settings or get_settings()
     if not settings.RRUGC_CREATIVE_BRIEF_ENABLED:
@@ -116,7 +117,7 @@ def queue_brief(
         RrugcKeywordVolumeModel.tenant_id == tenant_id,
         RrugcKeywordVolumeModel.id == keyword_id,
         RrugcKeywordVolumeModel.picked.is_(True),
-    ))
+    ).with_for_update())
     if keyword is None:
         raise LookupError("picked keyword not found")
     digest = _digest(keyword.keyword)
@@ -151,7 +152,7 @@ def queue_brief(
         entity_id=row.id,
         idempotency_key=f"creative-brief:{row.id}:{PROMPT_VERSION}:{uuid4().hex}",
         payload={"keyword_id":keyword_id, "prompt_version": PROMPT_VERSION},
-        priority=5, max_attempts=2, provider_key=None, provider_scope=None,
+        priority=priority, max_attempts=2, provider_key=None, provider_scope=None,
     )
     row.processing_job_id = task.id
     session.flush()
@@ -160,22 +161,23 @@ def queue_brief(
 
 def queue_picked_backfill(
     session: Session, *, tenant_id: str, limit: int = 500, offset: int = 0,
-    settings: Settings | None = None,
+    settings: Settings | None = None, retry_failed: bool = False,
 ) -> dict:
     settings = settings or get_settings()
     if not 1 <= limit <= 500 or offset < 0:
         raise ValueError("invalid batch window")
-    # Read only picked rows. Skip anything already queued or completed;
-    # explicit retries are not silently performed for failed jobs.
+    # Read only picked rows. Keep completed and active briefs. Failed
+    # analyses may be retried once by an explicitly requested backfill
+    # (never by a recurring/default sweep).
     keywords = list(session.scalars(select(RrugcKeywordVolumeModel).where(
         RrugcKeywordVolumeModel.tenant_id == tenant_id,
         RrugcKeywordVolumeModel.picked.is_(True),
-    ).order_by(RrugcKeywordVolumeModel.picked_at.desc().nullslast(),
-               RrugcKeywordVolumeModel.id.asc()).offset(offset).limit(limit)))
+    ).order_by(RrugcKeywordVolumeModel.id.asc()).offset(offset).limit(limit)))
     created = 0
     for keyword in keywords:
         _status, was_created = queue_brief(
             session, tenant_id=tenant_id, keyword_id=keyword.id, settings=settings,
+            retry=retry_failed,
         )
         if was_created:
             created += 1

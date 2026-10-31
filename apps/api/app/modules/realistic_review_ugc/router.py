@@ -4429,9 +4429,26 @@ def set_keyword_analysis_pick(
     if row is None:
         raise HTTPException(status_code=404, detail="Keyword row not found.")
 
+    was_picked = bool(row.picked)
     row.picked = bool(request.picked)
-    row.picked_at = datetime.now(timezone.utc) if request.picked else None
-    row.picked_by_user_id = principal.user_id if request.picked else None
+    if row.picked and not was_picked:
+        row.picked_at = datetime.now(timezone.utc)
+        row.picked_by_user_id = principal.user_id
+    elif not row.picked:
+        row.picked_at = None
+        row.picked_by_user_id = None
+
+    # One Stage 0 Pick atomically queues its text-only Stage 1 Creative Brief.
+    # This never schedules images, and repeated Pick requests are idempotent.
+    # Keep the original picked date when the same selection is submitted again.
+    settings = get_settings()
+    if row.picked and settings.RRUGC_CREATIVE_BRIEF_ENABLED:
+        from app.modules.realistic_review_ugc.creative_brief_service import queue_brief
+        session.flush()
+        queue_brief(
+            session, tenant_id=principal.active_tenant_id,
+            keyword_id=row.id, settings=settings, priority=20,
+        )
     session.commit()
     session.refresh(row)
     return _keyword_volume_response(
