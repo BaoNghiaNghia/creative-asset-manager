@@ -200,7 +200,7 @@
 .rrugc-keyword-gen-list-title span { color: #8b98aa; font-size: 9px; line-height: 1.3; }
 .rrugc-keyword-gen-list-count { color: #8190a5; font-size: 9px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rrugc-keyword-gen-table-wrap { overflow: auto; width: 100%; border: 1px solid #e0e6ee; border-radius: 9px; background: #fff; }
-.rrugc-keyword-gen-table { width: 100%; min-width: 1260px; border-collapse: collapse; table-layout: fixed; }
+.rrugc-keyword-gen-table { width: 100%; min-width: 1810px; border-collapse: collapse; table-layout: fixed; }
 .rrugc-keyword-gen-table thead th {
   position: sticky;
   top: 0;
@@ -215,14 +215,6 @@
   text-align: left;
   text-transform: uppercase;
 }
-.rrugc-keyword-gen-table th:nth-child(1) { width: 16%; }
-.rrugc-keyword-gen-table th:nth-child(2) { width: 8%; }
-.rrugc-keyword-gen-table th:nth-child(3) { width: 12%; }
-.rrugc-keyword-gen-table th:nth-child(4) { width: 12%; }
-.rrugc-keyword-gen-table th:nth-child(5) { width: 9%; }
-.rrugc-keyword-gen-table th:nth-child(6) { width: 12%; }
-.rrugc-keyword-gen-table th:nth-child(7) { width: 19%; }
-.rrugc-keyword-gen-table th:nth-child(8) { width: 12%; }
 .rrugc-keyword-gen-table tbody tr { transition: background .12s; }
 .rrugc-keyword-gen-table tbody tr:not(:last-child) { border-bottom: 1px solid #edf1f5; }
 .rrugc-keyword-gen-table tbody tr:hover,
@@ -488,17 +480,6 @@
   justify-content: flex-start;
 }
 
-.rrugc-keyword-gen-table { min-width: 1690px; }
-.rrugc-keyword-gen-table th:nth-child(1) { width: 15%; }
-.rrugc-keyword-gen-table th:nth-child(2) { width: 10%; }
-.rrugc-keyword-gen-table th:nth-child(3) { width: 8%; }
-.rrugc-keyword-gen-table th:nth-child(4) { width: 9%; }
-.rrugc-keyword-gen-table th:nth-child(5) { width: 11%; }
-.rrugc-keyword-gen-table th:nth-child(6) { width: 10%; }
-.rrugc-keyword-gen-table th:nth-child(7) { width: 7%; }
-.rrugc-keyword-gen-table th:nth-child(8) { width: 9%; }
-.rrugc-keyword-gen-table th:nth-child(9) { width: 15%; }
-.rrugc-keyword-gen-table th:nth-child(10) { width: 6%; }
 .rrugc-keyword-gen-sort { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; cursor: pointer; }
 .rrugc-keyword-gen-sort > span:last-child { color: #8e9fb7; font-size: 13px; }
 .rrugc-keyword-gen-sort.active { color: #375e9f; }
@@ -525,7 +506,6 @@
 
 @media (max-width: 1150px) {
   .rrugc-keyword-gen-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
-  .rrugc-keyword-gen-table { min-width: 1690px; }
 }
 @media (min-width:761px) and (max-width:900px) {
   .rrugc-keyword-gen-toolbar { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
@@ -564,19 +544,24 @@
 .typography-v2-availability h3{font-size:21px;line-height:1.35;margin:8px 0}
 .typography-v2-availability p{font-size:12px;line-height:1.7;max-width:800px;color:#607792}
 .typography-v2-availability button{border:1px solid #cad9ef;border-radius:8px;background:#fff;color:#315a9b;padding:9px 13px;font-weight:750;cursor:pointer}
-/* Creative Brief adds one compact readable column; preserve the other jobs columns. */
-.rrugc-keyword-gen-table { min-width: 1950px; }
-.rrugc-keyword-gen-table th:nth-child(1) { width: 12%; }
+/* Fixed-layout table with content-sized metric columns. Remaining space goes
+   to keyword, Creative Brief and output instead of empty status/date cells.
+   Retain horizontal scrolling on phones/tablets without shrinking the text. */
+.rrugc-keyword-gen-table th:nth-child(1) { width: 15%; }
 .rrugc-keyword-gen-table th:nth-child(2) { width: 8%; }
-.rrugc-keyword-gen-table th:nth-child(3) { width: 6%; }
-.rrugc-keyword-gen-table th:nth-child(4) { width: 16%; }
+.rrugc-keyword-gen-table th:nth-child(3) { width: 64px; }
+.rrugc-keyword-gen-table th:nth-child(4) { width: 19%; }
 .rrugc-keyword-gen-table th:nth-child(5) { width: 8%; }
-.rrugc-keyword-gen-table th:nth-child(6) { width: 10%; }
-.rrugc-keyword-gen-table th:nth-child(7) { width: 9%; }
-.rrugc-keyword-gen-table th:nth-child(8) { width: 6%; }
-.rrugc-keyword-gen-table th:nth-child(9) { width: 7%; }
-.rrugc-keyword-gen-table th:nth-child(10) { width: 13%; }
-.rrugc-keyword-gen-table th:nth-child(11) { width: 5%; }
+.rrugc-keyword-gen-table th:nth-child(6) { width: 86px; }
+.rrugc-keyword-gen-table th:nth-child(7) { width: 148px; }
+.rrugc-keyword-gen-table th:nth-child(8) { width: 70px; }
+.rrugc-keyword-gen-table th:nth-child(9) { width: 8%; }
+.rrugc-keyword-gen-table th:nth-child(10) { width: 12%; }
+.rrugc-keyword-gen-table th:nth-child(11) { width: 7%; }
+.rrugc-keyword-gen-table thead th:nth-child(3),
+.rrugc-keyword-gen-table thead th:nth-child(6),
+.rrugc-keyword-gen-table thead th:nth-child(7),
+.rrugc-keyword-gen-table thead th:nth-child(8) { white-space: nowrap; }
 .rrugc-creative-brief-cell button { display: grid; gap: 3px; width: 100%; min-width: 0; padding: 4px 0; text-align: left; border: 0; background: transparent; color: #304766; cursor: pointer; }
 .rrugc-creative-brief-cell button strong { font-size: 10px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .rrugc-creative-brief-cell button small { color: #71839b; font-size: 9px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
