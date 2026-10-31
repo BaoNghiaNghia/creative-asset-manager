@@ -88,3 +88,74 @@ describe("Stage 1 job error badges", () => {
     } finally { await failed.cleanup(); }
   });
 });
+
+describe("Stage 1 badge-only status details", () => {
+  it("shows completed recovery/checkpoint progress only on badge hover or focus", async () => {
+    const ui = await mount({
+      ...baseline, retry_count: 3, auto_retry_max: 3,
+      checkpoint_count: 6, expected_output_count: 6,
+    });
+    try {
+      expect(ui.host.textContent).toBe("Completed");
+      expect(ui.host.querySelector("small")).toBeNull();
+      expect(ui.badge().getAttribute("tabindex")).toBe("0");
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      await act(async () => ui.badge().dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+      const popup = document.querySelector<HTMLElement>('[role="tooltip"]');
+      expect(popup?.textContent).toBe("Auto recovery 3/3 · 6/6 checkpoint");
+      expect(popup?.classList.contains("is-error")).toBe(false);
+      expect(ui.host.contains(popup)).toBe(false);
+      await act(async () => ui.badge().dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    } finally { await ui.cleanup(); }
+  });
+
+  it("combines Failed errors and recovery/attention checkpoints in one tooltip", async () => {
+    const ui = await mount({
+      ...baseline, status: "failed", retry_count: 3, auto_retry_max: 3,
+      checkpoint_count: 6, expected_output_count: 6,
+      error_code: "stage1_cannot_complete", error_message: "The final ImageGen pass failed.",
+    });
+    try {
+      expect(ui.host.textContent).toBe("Failed");
+      await act(async () => ui.badge().focus());
+      const popup = document.querySelector<HTMLElement>('[role="tooltip"]');
+      expect(popup?.textContent).toBe("The final ImageGen pass failed.\nNeeds attention 3/3 · 6/6 checkpoint");
+      expect(popup?.classList.contains("is-error")).toBe(true);
+      expect(ui.badge().getAttribute("aria-describedby")).toBe(popup?.id);
+      await act(async () => ui.badge().blur());
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    } finally { await ui.cleanup(); }
+  });
+
+  it("keeps queued, running and not-run messages off the table until tooltip opens", async () => {
+    const scenarios = [
+      { status: "queued" as const, message: "Waiting for worker" },
+      { status: "running" as const, message: "Running image-generation Skill" },
+      { status: "not_run" as const, message: "Ready to generate" },
+    ];
+    for (const { status, message } of scenarios) {
+      const ui = await mount({ ...baseline, status });
+      try {
+        expect(ui.host.textContent).toBe(status === "not_run" ? "Not run" : status === "queued" ? "Queued" : "Running");
+        await act(async () => ui.badge().dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+        expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(message);
+      } finally { await ui.cleanup(); }
+    }
+  });
+
+  it("keeps the scheduled retry time in the tooltip rather than under the badge", async () => {
+    const ui = await mount({
+      ...baseline, status: "queued", retry_count: 2, auto_retry_max: 3,
+      next_retry_at: "2026-10-31T09:30:00+07:00",
+    });
+    try {
+      expect(ui.host.textContent).toBe("Queued");
+      await act(async () => ui.badge().focus());
+      const tooltip = document.querySelector('[role="tooltip"]')?.textContent || "";
+      expect(tooltip).toContain("Auto recovery 2/3");
+      expect(tooltip).toContain("Next retry:");
+      expect(tooltip).toContain("Waiting for worker");
+    } finally { await ui.cleanup(); }
+  });
+});

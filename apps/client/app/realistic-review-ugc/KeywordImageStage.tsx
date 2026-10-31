@@ -74,16 +74,35 @@ const STATUS_LABEL: Record<KeywordImageStatus, string> = {
 };
 const STATUS_ORDER: KeywordImageStatus[] = ["not_run", "queued", "running", "completed", "failed"];
 /**
- * Stage 1 status details are intentionally on-demand. Keeping error text in a
- * body-level portal avoids clipping by the horizontally scrollable job table.
- * Keyboard focus exposes the same details as mouse hover.
+ * All Stage 1 job-status messages live in one on-demand badge tooltip:
+ * errors, retry progress, checkpoints and queue activity never grow table rows.
+ * The body portal avoids clipping by the scrollable table; focus mirrors hover.
  */
 export function Stage1JobStatusBadge({ row }: { row: KeywordImageRow }) {
   const partial = row.status === "completed" && row.error_code === "stage1_partial_output";
   const label = partial ? "Partial" : STATUS_LABEL[row.status];
-  const detail = partial || row.status === "failed"
-    ? row.error_message?.trim() || row.error_code?.trim() || (partial ? "Only some images were saved." : "Generation failed.")
-    : null;
+  const details: string[] = [];
+  const errorDetail = row.error_message?.trim() || row.error_code?.trim();
+  if (errorDetail) details.push(errorDetail);
+  else if (partial || row.status === "failed") {
+    details.push(partial ? "Only some images were saved." : "Generation failed.");
+  }
+  if (row.retry_count > 0) {
+    const retryMax = row.auto_retry_max ?? 3;
+    const progress = (row.status === "failed" ? "Needs attention" : "Auto recovery")
+      + " " + Math.min(row.retry_count, retryMax) + "/" + retryMax
+      + ((row.checkpoint_count ?? 0) > 0
+        ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint"
+        : "");
+    details.push(progress);
+    if (row.next_retry_at) {
+      details.push("Next retry: " + new Date(row.next_retry_at).toLocaleString());
+    }
+  }
+  if (row.status === "queued") details.push("Waiting for worker");
+  else if (row.status === "running") details.push("Running image-generation Skill");
+  else if (row.status === "not_run") details.push("Ready to generate");
+  const detail = details.join("\n") || null;
   const tooltipId = useId();
   const badgeRef = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(false);
@@ -130,7 +149,7 @@ export function Stage1JobStatusBadge({ row }: { row: KeywordImageRow }) {
       <i />{label}
     </span>
     {visible && detail && placement && createPortal(
-      <div id={tooltipId} role="tooltip" className="rrugc-keyword-gen-error-tooltip"
+      <div id={tooltipId} role="tooltip" className={"rrugc-keyword-gen-error-tooltip" + (partial || row.status === "failed" ? " is-error" : "")}
         style={{
           left: placement.left, top: placement.top,
           transform: placement.above ? "translateY(-100%)" : undefined,
@@ -713,13 +732,6 @@ export function KeywordImageStage({
                 </div></td>
                 <td><div className="rrugc-keyword-gen-status-cell">
                   <Stage1JobStatusBadge row={row} />
-                  {row.retry_count > 0 && <small className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry: " + new Date(row.next_retry_at).toLocaleString() : "Durable Stage 1 recovery"}>
-                    {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
-                    {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}
-                    {row.next_retry_at && row.status === "queued" ? " · Next " + new Date(row.next_retry_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-                  </small>}
-                  {row.status === "running" || row.status === "queued" ? <small className="rrugc-keyword-gen-attempt">{row.status === "queued" ? "Waiting for worker" : "Running image-generation Skill"}</small> : null}
-                  {row.status === "not_run" && <small className="rrugc-keyword-gen-attempt">Ready to generate</small>}
                 </div></td>
                 <td className="rrugc-keyword-gen-picked">{(() => {
                   const pickedAt = row.picked_at === undefined ? legacyPickedDates[row.keyword_id] : row.picked_at;

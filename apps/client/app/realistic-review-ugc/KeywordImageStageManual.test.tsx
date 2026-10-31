@@ -357,3 +357,40 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
   });
 
 });
+
+describe("Stage 1 Job status compact table", () => {
+  it("renders only a status badge in the table cell and keeps recovery info on hover", async () => {
+    vi.mocked(listKeywordImages).mockResolvedValueOnce({
+      page: 1, page_size: 20, total: 1,
+      overview: { not_run: 0, queued: 0, running: 0, completed: 1, failed: 0 },
+      items: [{
+        keyword_id: "recovered-1", keyword: "TEST RECOVERY", search_volume: 100,
+        source_image_url: null, status: "completed", job_id: "job-recovered-1",
+        skill_name: "creative-brief-v3", skill_version: null,
+        retry_count: 3, auto_retry_max: 3, checkpoint_count: 6, expected_output_count: 6,
+        saved_output_count: 6, attempt_count: 3, max_attempts: 3,
+        error_code: null, error_message: null, output_url: null, updated_at: null,
+      }],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(
+        <KeywordImageStage active skillCatalogRevision={0} onManageSkills={() => undefined} />,
+      ));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      const cell = host.querySelector<HTMLElement>(".rrugc-keyword-gen-table tbody tr td:nth-child(6)");
+      const badge = cell?.querySelector<HTMLElement>(".rrugc-keyword-gen-badge");
+      expect(cell?.textContent?.trim()).toBe("Completed");
+      expect(cell?.querySelector("small")).toBeNull();
+      expect(badge).not.toBeNull();
+      await act(async () => badge?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Auto recovery 3/3 · 6/6 checkpoint");
+      expect(cell?.textContent?.trim()).toBe("Completed");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
