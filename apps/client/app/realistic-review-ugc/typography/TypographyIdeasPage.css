@@ -1,5 +1,5 @@
 /* Typography V2 G2: scoped CAM Stage 1 design tokens; no global button/card overrides. */
-.typography-stage1-subnav{display:flex;align-items:center;gap:8px;min-height:40px;margin:2px 0 12px;padding:0 3px;border-bottom:1px solid #dde5f1;overflow-x:auto}
+.typography-stage1-subnav{display:flex;flex-direction:row;justify-content:flex-start;align-items:center;flex-wrap:nowrap;gap:8px;width:100%;min-width:0;box-sizing:border-box;min-height:40px;margin:2px 0 12px;padding:0 3px;border-bottom:1px solid #dde5f1;overflow-x:auto}
 .typography-stage1-subnav button{flex:none;display:flex;align-items:center;gap:7px;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 12px;background:transparent;color:#64758c;font-size:12px;font-weight:760;cursor:pointer;white-space:nowrap}
 .typography-stage1-subnav button.active{border-bottom-color:#305fe2;color:#244bba}
 .typography-stage1-subnav button span{border-radius:12px;background:#eff3ff;padding:2px 7px;font-size:10px}
