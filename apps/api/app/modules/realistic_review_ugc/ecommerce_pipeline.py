@@ -64,6 +64,23 @@ JOB_TYPE = "rrugc_ecommerce_generate"
 ECOMMERCE_INTERACTIVE_PRIORITY = 96
 MAX_MANUAL_RETRIES = 3
 
+
+def _lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
+    """Publish only fixed, non-sensitive QA reasons for two-call pilot failures."""
+    reason = {
+        "Image edit changed aspect ratio and cannot be aligned safely.": "frame_alignment",
+        "Canonical design has insufficient visible glyph area.": "missing_glyph_area",
+        "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
+        "AI edit omitted the embroidery.": "embroidery_missing",
+        "AI edit changed source embroidery hue.": "hue_shift",
+        "AI edit made no meaningful photographic refinement.": "no_refinement",
+        "AI edit still resembles flat printed lettering.": "flat_print",
+        "AI edit has a thick embossed shadow halo.": "emboss_halo",
+        "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
+    }.get(str(error), "unknown")
+    return "ecommerce_slot1_qa_" + reason
+
+
 # All NEW EC2 jobs use the actual selected-color 3/4 photo as the edit target.
 # Legacy jobs keep their pinned front+side evidence until an EXPLICIT Retry/Regenerate.
 LEGACY_EC2_STOCK_ROLES = ("stock_front", "stock_side_90")
@@ -1399,8 +1416,9 @@ class EcommerceGenerateHandler:
                 output_bytes = finish_slot1_refinement(slot1_material, generated.image_bytes)
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
-                    "ecommerce_slot1_material_qa_failed", str(exc),
-                    retryable=not is_lite,  # One human-triggered Lite retry, not another automatic 2-call cycle.
+                    _lite_slot1_qa_error_code(exc) if is_lite else "ecommerce_slot1_material_qa_failed",
+                    str(exc),
+                    retryable=not is_lite,  # No automatic repeat of both native edits.
                 ) from exc
             output_mime = "image/png"
         try:

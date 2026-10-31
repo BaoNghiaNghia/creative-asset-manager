@@ -122,7 +122,26 @@ def test_lite_prompt_does_not_stack_legacy_stage2_instructions():
     assert "exactly two" in prompt.lower()
     assert "working/thread_macro.png" in prompt
     assert "mask.png" in prompt
-    assert len(prompt) < 1000
+    assert "fine satin stitches IN PLACE" in prompt
+    assert "white padding" in prompt
+    assert len(prompt) < 1400
+
+
+def test_lite_qa_reason_codes_are_bounded_and_actionable():
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import _lite_slot1_qa_error_code
+    from app.modules.realistic_review_ugc.slot1_embroidery import Slot1EmbroideryQAError
+
+    cases = {
+        "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
+        "AI edit still resembles flat printed lettering.": "flat_print",
+        "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
+        "Image edit changed aspect ratio and cannot be aligned safely.": "frame_alignment",
+        "unexpected provider description": "unknown",
+    }
+    for message, suffix in cases.items():
+        assert _lite_slot1_qa_error_code(Slot1EmbroideryQAError(message)) == (
+            "ecommerce_slot1_qa_" + suffix
+        )
 
 
 def test_lite_manifest_matches_slot1():
