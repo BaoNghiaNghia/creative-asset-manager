@@ -269,8 +269,13 @@ def test_stage1_missing_upload_finals_restarts_only_when_no_other_artwork(db, tm
 
     monkeypatch.setattr(stage1_recovery, "SessionLocal",
                         sessionmaker(bind=db.bind, expire_on_commit=False))
+    # This test documents historical recovery behavior under explicit opt-in.
+    # Production defaults to retiring Google Fonts/legacy ImageGen entirely.
     monkeypatch.setattr(stage1_recovery, "get_settings",
-                        lambda: SimpleNamespace(IMAGE_GENERATION_STAGING_ROOT=str(tmp_path)))
+                        lambda: SimpleNamespace(
+                            IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+                            RRUGC_STAGE1_LEGACY_GENERATION_ENABLED=True,
+                        ))
     monkeypatch.setattr(stage1_recovery, "refresh_job_skill", lambda *_args: True)
     kw = keyword(db, "rebuild-failed-uploads", "tenant-a", picked=True)
     old = ProcessingJobModel(
