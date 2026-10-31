@@ -534,7 +534,7 @@ export function KeywordImageStage({
         <thead><tr>
           <Stage1SortHeader column="keyword" label="Keyword / Source" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Trend</th>
-          <Stage1SortHeader column="search_volume" label="Search volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
+          <Stage1SortHeader column="search_volume" label="Volume" sortBy={sortBy} sortDirection={sortDirection} onSort={onSort} />
           <th>Creative Brief</th>
           <th>Generation engine</th><th>Job status</th>
           {pickedSortSupported

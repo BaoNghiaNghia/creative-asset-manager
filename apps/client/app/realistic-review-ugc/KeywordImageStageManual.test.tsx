@@ -298,7 +298,7 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     ));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const headers = Array.from(host.querySelectorAll(".rrugc-keyword-gen-table th")).map(node => node.textContent?.trim());
-    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Search volume↕", "Creative Brief", "Generation engine", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
+    expect(headers).toEqual(["Keyword / Source↕", "Trend", "Volume↕", "Creative Brief", "Generation engine", "Job status", "Picked date↕", "Duration↕", "Finished at↓", "Output", "Actions"]);
     const cells = host.querySelectorAll(".rrugc-keyword-row td");
     expect(cells).toHaveLength(11);
     expect(cells[1].querySelector(".rrugc-stage0-trend")).not.toBeNull();
@@ -338,7 +338,7 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close keyword details"]')?.click());
     expect(host.querySelector('th[aria-sort="descending"]')?.textContent).toContain("Finished at");
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Search volume descending"]')?.click();
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Volume descending"]')?.click();
       await Promise.resolve(); await Promise.resolve();
     });
     expect(listKeywordImages).toHaveBeenLastCalledWith(
@@ -346,7 +346,7 @@ describe("Stage 1 Products without the manual keyword artwork bar", () => {
       expect.anything(),
     );
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Search volume ascending"]')?.click();
+      host.querySelector<HTMLButtonElement>('button[aria-label="Sort by Volume ascending"]')?.click();
       await Promise.resolve(); await Promise.resolve();
     });
     expect(listKeywordImages).toHaveBeenLastCalledWith(
