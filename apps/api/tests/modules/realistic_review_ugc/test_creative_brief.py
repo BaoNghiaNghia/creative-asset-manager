@@ -57,6 +57,9 @@ def test_new_briefs_request_meaning_driven_multicolor_stitched_artwork():
     assert "three concept palettes" in prompt
     assert "directional thread sheen" in prompt
     assert "legible letter counters" in prompt
+    assert "NEVER add a contrasting stitched" in prompt
+    assert "no second" in prompt
+    assert "contrast outlines" not in prompt
     assert "SUPPORT LIVE MUSIC HIRE LIVE MUSICIANS" in prompt
 
 

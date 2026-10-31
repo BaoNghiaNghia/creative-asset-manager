@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
 from app.modules.realistic_review_ugc.creative_v3_generation import (
-    SCHEMA, SKILL, CONTRACT, VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
+    SCHEMA, SKILL, CONTRACT, VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE,
+    LEGACY_VISUAL_PROFILE,
     THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
@@ -114,6 +115,10 @@ def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
         assert "THREE to FIVE distinctly colored" in prompt
         assert "uniform blue/navy/cobalt" in prompt
         assert "realistic stitch-edge depth" in prompt
+        assert "FINAL NO-TEXT-OUTLINE POLICY" in prompt
+        assert "No cream/ivory/white/black contrasting outline" in prompt
+        assert "accent/outline hues" not in prompt
+        assert "Use contrasting embroidered outlines" not in prompt
         assert THREAD_PALETTES[i][0] in prompt
         assert THREAD_PALETTES[i][1] in prompt
         assert "no white canvas" in prompt
@@ -123,6 +128,22 @@ def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
             assert "Version A: prioritize immediate readability" in prompt
         else:
             assert "Version B: materially change composition" in prompt
+
+
+def test_no_outline_profile_supersedes_explicit_outline_in_stored_brief():
+    old = brief("Will travel for disco")
+    for concept in old["concepts"]:
+        concept["embroidery_plan"] = "Thêu viền trắng quanh từng chữ; contrast outlines"
+    data = _brief_plan(
+        keyword="Will travel for disco", brief_json=old,
+        prompt_version=PROMPT_VERSION, brief_id="existing-outline-brief",
+    )
+    for slot in range(1, 7):
+        prompt = prompt_for_slot(data, slot)
+        assert "Thêu viền trắng quanh từng chữ" in prompt  # immutable source DATA
+        assert "FINAL NO-TEXT-OUTLINE POLICY (OVERRIDES ALL OLDER BRIEF DATA)" in prompt
+        assert "Older brief references to 'contrast outlines'" in prompt
+        assert "Do not ring each letter with separate stitches" in prompt
 
 
 def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
@@ -138,6 +159,15 @@ def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
     assert "MULTICOLOR THREAD DIRECTIVE" not in old_prompt
     assert "MULTICOLOR THREAD DIRECTIVE" in new_prompt
     assert old_prompt != new_prompt
+    # Failed/pending V2 retries retain their original visual contract rather
+    # than silently changing the prompt under already-verified image slots.
+    v2_snapshot = {**old, "visual_profile": PREVIOUS_VISUAL_PROFILE}
+    verify_snapshot(data, v2_snapshot)
+    v2_prompt = prompt_for_slot(data, 1, visual_profile=PREVIOUS_VISUAL_PROFILE)
+    assert "accent/outline hues" in v2_prompt
+    assert "Use contrasting embroidered outlines" in v2_prompt
+    assert "FINAL NO-TEXT-OUTLINE POLICY" not in v2_prompt
+    assert "FINAL NO-TEXT-OUTLINE POLICY" in new_prompt
     with pytest.raises(CreativeV3Error):
         verify_snapshot(data, {**old, "visual_profile": "unknown"})
     with pytest.raises(CreativeV3Error):

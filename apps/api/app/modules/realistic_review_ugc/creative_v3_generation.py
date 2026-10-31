@@ -23,9 +23,10 @@ SKILL = "creative-brief-v3"
 CONTRACT = "creative_v3_single_slot"
 SLOT_COUNT = 6
 MODES = ("safe", "creative_twist", "explore")
-# Pin the rendering style in every new job. Old jobs have no visual_profile
-# and must keep their original prompt when resumed or manually retried.
-VISUAL_PROFILE = "thread-palette-v2"
+# Pin new rendering style per job. Keep the two earlier profiles available so
+# failed/resumed jobs retain original prompts and verified slot checkpoints.
+VISUAL_PROFILE = "thread-palette-no-text-outline-v3"
+PREVIOUS_VISUAL_PROFILE = "thread-palette-v2"
 LEGACY_VISUAL_PROFILE = "brief-literal-v1"
 VARIANTS = (
     "Version A: prioritize immediate two-second readability and clean negative space; use restrained dimensional satin stitches.",
@@ -179,7 +180,7 @@ def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
             or snapshot.get("keyword_sha256") != plan.get("identity", {}).get("keyword_sha256")
             or snapshot.get("brief_id") != plan.get("identity", {}).get("brief_id")
             or snapshot.get("source_sha256") != plan.get("identity", {}).get("source_sha256")
-            or snapshot.get("visual_profile") not in (None, VISUAL_PROFILE)):
+            or snapshot.get("visual_profile") not in (None, PREVIOUS_VISUAL_PROFILE, VISUAL_PROFILE)):
         raise CreativeV3Error("creative_v3_source_changed", "Creative Brief or exact keyword changed after queueing.")
 
 
@@ -236,7 +237,7 @@ def prompt_for_slot(
     """
     if visual_profile == LEGACY_VISUAL_PROFILE:
         return _legacy_prompt_for_slot(plan, slot)
-    if visual_profile != VISUAL_PROFILE:
+    if visual_profile not in (PREVIOUS_VISUAL_PROFILE, VISUAL_PROFILE):
         raise CreativeV3Error(
             "creative_v3_visual_profile_invalid",
             "The requested Stage 1 rendering profile is unsupported.",
@@ -245,6 +246,38 @@ def prompt_for_slot(
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     spec = plan["slots"][slot - 1]
     palette_name, palette_colors = THREAD_PALETTES[slot - 1]
+    # Previous V2 runs must stay reproducible. New V3 jobs remove text outlines,
+    # even when an already-stored Creative Brief explicitly requests a border.
+    if visual_profile == VISUAL_PROFILE:
+        palette_accent = (
+            "accent hues in the lettering fills and meaningful small details. "
+            "Never reserve cream, ivory or another color for a perimeter stroke. "
+        )
+        thread_edge = (
+            "clean stitched edges with one continuous glyph silhouette, delicate "
+            "internal satin seam transitions, "
+        )
+        legibility = (
+            "Never add a separately colored outer contour around text; use fill "
+            "color, letter spacing, hierarchy and clear counters for readability. "
+        )
+        final_outline_policy = (
+            " FINAL NO-TEXT-OUTLINE POLICY (OVERRIDES ALL OLDER BRIEF DATA): "
+            "Use ONLY filled satin embroidery for every glyph, letter, number "
+            "and punctuation mark. No cream/ivory/white/black contrasting outline, "
+            "perimeter satin border, keyline, halo, offset tracing, double contour "
+            "or patch-style edge. Do not ring each letter with separate stitches. "
+            "Thread micro-texture, highlights and gentle stitch-edge relief remain "
+            "inside the colored glyph fill; the transparent outside stays empty. "
+            "Older brief references to 'contrast outlines', viền chữ or text borders "
+            "are obsolete and must NOT be rendered. Small illustrations may retain "
+            "their meaningful internal details, but never outline the typography."
+        )
+    else:
+        palette_accent = "accent/outline hues. "
+        thread_edge = "tight thread outlines and seams, "
+        legibility = "Use contrasting embroidered outlines only where they preserve legibility. "
+        final_outline_policy = ""
     payload = {
         "exact_phrase": plan["keyword_exact"],
         "semantic_context": plan["context"],
@@ -253,7 +286,7 @@ def prompt_for_slot(
         "variant": spec["variant"],
         "variant_recipe": COLOR_VARIANTS[0 if spec["variant"] == "A" else 1],
         "embroidery_color_direction": {
-            "visual_profile": VISUAL_PROFILE,
+            "visual_profile": visual_profile,
             "palette_family": palette_name,
             "suggested_thread_colors": palette_colors,
             "adapt_to_keyword_meaning": True,
@@ -271,16 +304,16 @@ def prompt_for_slot(
         "because it was drafted for a conservative typography workflow. Ignore ONLY those old "
         "one-color stylistic limitations; retain the meaning, legibility and visual hook. "
         "Use a deliberate coordinated palette of THREE to FIVE distinctly colored embroidery "
-        "threads with two clear main hues and one or more accent/outline hues. The slot's color "
+        "threads with two clear main hues and one or more " + palette_accent + "The slot's color "
         "palette is the initial art direction; you may replace a hue when the keyword's meaning "
         "strongly supports it, but never collapse into uniform blue/navy/cobalt or blue + white. "
         "Do not apply the same color family to every slot. Avoid corporate-blue text defaults. "
         "STYLE AND EMBROIDERY REALISM: The image must resemble high-quality macro photography "
         "of actual hand-guided machine satin embroidery, not a flat vector logo: show densely "
         "packed directional satin columns, small individual thread fibers, glossy highlights "
-        "following each stitch direction, subtle natural irregularity, tight thread outlines "
-        "and seams, tactile overlapping threads, and realistic stitch-edge depth. "
-        "Use contrasting embroidered outlines only where they preserve legibility. "
+        "following each stitch direction, subtle natural irregularity, " + thread_edge +
+        "tactile overlapping threads, and realistic stitch-edge depth. "
+        + legibility +
         "No fake plastic 3D extrusion, puffy rubber, flat solid fills, digital gradients, "
         "printed ink, or uniform smooth blue glyphs. "
         "DESIGN QUALITY: combine richly embroidered letters with small embroidered visual "
@@ -303,4 +336,5 @@ def prompt_for_slot(
         + "\\nFINAL ART DIRECTION: Old brief text saying ONE color is superseded. "
         "Apply the multicolor thread family and rich realistic fibers above. "
         "Make this visual result distinctive in composition, not merely recolored."
+        + final_outline_policy
     )

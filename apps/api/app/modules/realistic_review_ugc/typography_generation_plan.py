@@ -134,6 +134,8 @@ def build_concept_short_v2_plan(
             + overlap + " "
             "Use embroidery-realistic satin thread direction, stitch ridges and fine edge relief, "
             "not rubber/plastic extrusion or a flat printed sticker; respect thin stroke gaps. "
+            "Keep every letter as a single clean stitched fill, with no separate contrasting "
+            "outline, keyline, double contour, cream/white perimeter thread or border around text. "
             "Keep clear outer margins, avoid cropped/overlapping diacritics, and ensure all words "
             "remain legible at embroidery scale. No brands, extra slogan, decorative copied icons, "
             "watermark, border or invented lettering. Produce ONLY the finished RGBA PNG for this slot. "
