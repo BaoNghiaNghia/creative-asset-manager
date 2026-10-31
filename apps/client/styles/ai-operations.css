@@ -2599,3 +2599,113 @@
 .ops-inventory-blockers summary{cursor:pointer;font-weight:650}
 @media(max-width:700px){.ops-inventory-human-buttons button{width:100%}
   .ops-inventory-heading-actions{justify-content:flex-start}}
+
+/* Pipeline Operations V3: compact first paint with on-demand history.
+ * Scoped to this dashboard so other AI Operations tabs remain unchanged.
+ */
+.pipeline-content{gap:10px}
+.pipeline-content .pipeline-summary{grid-template-columns:repeat(5,minmax(0,1fr));gap:9px}
+.pipeline-content .pipeline-summary>article{min-height:88px;gap:4px;padding:11px 13px;border-radius:10px;box-shadow:none}
+.pipeline-content .pipeline-summary strong{font-size:25px;line-height:1.08}
+.pipeline-content .pipeline-summary article>small{font-size:10px;line-height:1.3}
+.pipeline-content .pipeline-metric-heading{gap:6px}
+.pipeline-content .pipeline-metric-heading i{width:19px;height:19px;flex:0 0 19px}
+.pipeline-content .pipeline-context-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.pipeline-content .pipeline-context-row.has-active{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pipeline-content .pipeline-context-row>.pipeline-scan-card,
+.pipeline-content .pipeline-context-row>.pipeline-active-job,
+.pipeline-content .pipeline-context-row>.pipeline-progress-summary{
+  grid-column:auto;min-height:112px;padding:12px 14px;gap:9px;box-shadow:none;border-radius:10px
+}
+.pipeline-content .pipeline-context-row>.pipeline-scan-card>div:first-child,
+.pipeline-content .pipeline-context-row>.pipeline-active-job>div:first-child,
+.pipeline-content .pipeline-context-row>.pipeline-progress-summary>div{min-height:0}
+.pipeline-content .pipeline-context-row .pipeline-context-copy h2{font-size:13px}
+.pipeline-content .pipeline-context-row .pipeline-context-copy p{font-size:10px;line-height:1.3}
+.pipeline-content .pipeline-context-row .pipeline-context-icon{width:29px;height:29px;flex-basis:29px}
+.pipeline-content .pipeline-context-row .pipeline-context-icon svg{width:20px;height:20px}
+.pipeline-content .pipeline-context-row .pipeline-scan-card dl,
+.pipeline-content .pipeline-context-row .pipeline-active-job dl{margin:0;gap:6px}
+.pipeline-content .pipeline-context-row .pipeline-progress-summary dl{margin:0;grid-template-columns:repeat(auto-fit,minmax(102px,1fr))}
+.pipeline-content .pipeline-context-row .pipeline-progress-summary dl div{padding:4px 9px}
+.pipeline-content .pipeline-context-row .pipeline-progress-summary dd{font-size:14px;margin-top:2px}
+.pipeline-content .pipeline-stage-section{padding:2px 0 0}
+.pipeline-content .pipeline-stage-section>header{align-items:center;margin-bottom:8px}
+.pipeline-content .pipeline-stage-section>header h2{font-size:15px}
+.pipeline-content .pipeline-stage-section>header p{font-size:10px}
+.pipeline-content .pipeline-stage-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.pipeline-content .pipeline-stage-grid>article{
+  display:grid;grid-template-columns:minmax(160px,.7fr) minmax(180px,.65fr) minmax(300px,1.2fr);
+  align-items:center;gap:14px;min-height:90px;padding:12px 14px;
+  border-top-width:1px;border-left:3px solid #d9e2ee;border-radius:10px;box-shadow:none
+}
+.pipeline-content .pipeline-stage-grid>article.waiting{border-left-color:#d69a2d}
+.pipeline-content .pipeline-stage-grid>article.active{border-left-color:#4b6fe5}
+.pipeline-content .pipeline-stage-grid>article.attention{border-left-color:#d35a4c}
+.pipeline-content .pipeline-stage-grid>article header{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.pipeline-content .pipeline-stage-grid>article header h2{margin:3px 0;font-size:14px}
+.pipeline-content .pipeline-stage-grid .pipeline-stage-completion{min-width:0}
+.pipeline-content .pipeline-stage-completion strong{display:block;color:#172b4d;font-size:17px;line-height:1.2;font-variant-numeric:tabular-nums}
+.pipeline-content .pipeline-stage-completion span{display:block;margin-top:2px;font-size:10px;color:#728096}
+.pipeline-content .pipeline-stage-completion .pipeline-progress{margin:6px 0 0;height:5px}
+.pipeline-content .pipeline-stage-grid dl{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
+  min-width:0;margin:0;padding:0;border-top:0
+}
+.pipeline-content .pipeline-stage-grid dt{font-size:9px}
+.pipeline-content .pipeline-stage-grid dd{font-size:14px;margin-top:3px}
+.pipeline-content .pipeline-settled-stages{padding:8px 11px;border-radius:9px}
+.pipeline-content .pipeline-queue-disclosure,
+.pipeline-content .pipeline-lazy-disclosure{
+  overflow:hidden;border:1px solid #dfe7f0;border-radius:10px;background:#fff;box-shadow:none
+}
+.pipeline-content .pipeline-queue-disclosure>summary,
+.pipeline-content .pipeline-lazy-disclosure>summary{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  min-height:52px;padding:10px 14px;cursor:pointer;list-style:none
+}
+.pipeline-content .pipeline-queue-disclosure>summary::-webkit-details-marker,
+.pipeline-content .pipeline-lazy-disclosure>summary::-webkit-details-marker{display:none}
+.pipeline-content .pipeline-queue-disclosure>summary>span:first-child,
+.pipeline-content .pipeline-lazy-disclosure>summary>span:first-child{display:flex;flex-direction:column;gap:3px}
+.pipeline-content .pipeline-queue-disclosure summary b,
+.pipeline-content .pipeline-lazy-disclosure summary b{font-size:12px;color:#273f5f}
+.pipeline-content .pipeline-queue-disclosure summary small,
+.pipeline-content .pipeline-lazy-disclosure summary small{font-size:10px;color:#8391a6}
+.pipeline-content .pipeline-queue-disclosure summary>strong,
+.pipeline-content .pipeline-disclosure-action{white-space:nowrap;font-size:11px;font-weight:750;color:#4167aa}
+.pipeline-content .pipeline-queue-disclosure[open]>summary,
+.pipeline-content .pipeline-lazy-disclosure[open]>summary{border-bottom:1px solid #ebeff5;background:#f9fbff}
+.pipeline-content .pipeline-queue-disclosure .pipeline-queue{margin:0;border:0;border-radius:0;box-shadow:none;padding:14px}
+.pipeline-content .pipeline-lazy-body{padding:12px 14px}
+.pipeline-content .pipeline-lazy-body .pipeline-recent{padding:0;border:0;box-shadow:none}
+.pipeline-content .pipeline-lazy-loading,
+.pipeline-content .pipeline-lazy-error{padding:12px;color:#64748b;font-size:12px}
+.pipeline-content .pipeline-lazy-error button{margin-left:10px;padding:5px 9px;border:1px solid #cfdef0;border-radius:7px;background:#fff;color:#3159b8}
+.pipeline-content .pipeline-attempt-diagnostics.pipeline-lazy-disclosure{box-shadow:none}
+.pipeline-content .pipeline-attempt-diagnostics .pipeline-diagnostics-content{border-top:0}
+@media(max-width:1350px){
+  .pipeline-content .pipeline-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .pipeline-content .pipeline-context-row.has-active{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pipeline-content .pipeline-context-row.has-active>.pipeline-progress-summary{grid-column:1/-1}
+}
+@media(max-width:1040px){
+  .pipeline-content .pipeline-stage-grid>article{grid-template-columns:minmax(160px,.8fr) minmax(180px,1fr)}
+  .pipeline-content .pipeline-stage-grid dl{grid-column:1/-1;border-top:1px solid #edf1f5;padding-top:8px}
+}
+@media(max-width:760px){
+  .pipeline-content .pipeline-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pipeline-content .pipeline-context-row,
+  .pipeline-content .pipeline-context-row.has-active{grid-template-columns:1fr}
+  .pipeline-content .pipeline-context-row.has-active>.pipeline-progress-summary{grid-column:auto}
+  .pipeline-content .pipeline-context-row>.pipeline-progress-summary{flex-direction:column}
+  .pipeline-content .pipeline-context-row>.pipeline-progress-summary>div{width:100%}
+  .pipeline-content .pipeline-stage-grid>article{grid-template-columns:minmax(0,1fr);gap:9px}
+  .pipeline-content .pipeline-stage-grid dl{grid-column:auto}
+}
+@media(max-width:460px){
+  .pipeline-content .pipeline-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pipeline-content .pipeline-summary>article{min-height:80px;padding:10px}
+  .pipeline-content .pipeline-summary strong{font-size:22px}
+  .pipeline-content .pipeline-stage-grid dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from collections.abc import Awaitable
+from threading import Lock
 from typing import Callable, TypeVar
 
 from app.common.cache import BoundedTTLCache
@@ -76,6 +77,12 @@ def media_dashboard_cache_key(filters: AiOperationsFilters) -> tuple[object, ...
         filters.source_provider or "",
     )
 
+# At most one expensive pipeline snapshot per stripe is built at a time.
+# Double-check the cache after taking the lock to avoid duplicate 60-second
+# full-tenant scans when multiple browser tabs refresh simultaneously.
+_PIPELINE_LOAD_LOCKS = [Lock() for _ in range(64)]
+
+
 def cached_ai_operations_read(
     name: str,
     key: tuple[object, ...],
@@ -85,14 +92,26 @@ def cached_ai_operations_read(
     cached = cache.get(key)
     if cached is not None:
         return deepcopy(cached)
-    cache._record("load")
-    try:
-        value = loader()
-    except BaseException:
-        cache._record("load_error")
-        raise
-    cache.put(key, deepcopy(value))
-    return value
+
+    def load_once() -> V:
+        # Cache could have been populated while this thread was waiting.
+        fresh = cache.get(key)
+        if fresh is not None:
+            return deepcopy(fresh)
+        cache._record("load")
+        try:
+            value = loader()
+        except BaseException:
+            cache._record("load_error")
+            raise
+        cache.put(key, deepcopy(value))
+        return value
+
+    if name == "pipeline":
+        lock = _PIPELINE_LOAD_LOCKS[hash(key) % len(_PIPELINE_LOAD_LOCKS)]
+        with lock:
+            return load_once()
+    return load_once()
 
 
 def invalidate_ai_operations(tenant_id: str | None = None) -> int:

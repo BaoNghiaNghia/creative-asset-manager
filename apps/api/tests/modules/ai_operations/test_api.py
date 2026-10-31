@@ -768,6 +768,46 @@ class AiOperationsApiTest(unittest.TestCase):
         self.assertLessEqual(download["total_logical_assets"], value["overall"]["supported_assets"])
         self.assertEqual(download["needs_attention_assets"], 0)
 
+    def test_pipeline_overview_skips_history_until_requested(self):
+        # Live summary must not scan 360k+ historical attempts or page through
+        # every source asset just because the operator opened the dashboard.
+        with patch.object(PipelineOperationsRepository, "_attempt_counts",
+                          side_effect=AssertionError("history must be deferred")), \
+             patch.object(PipelineOperationsRepository, "_recent_assets",
+                          side_effect=AssertionError("recent page must be deferred")):
+            response = self.get("/api/v1/admin/ai-operations/pipeline?include_recent=false&include_attempts=false")
+        self.assertEqual(response.status_code, 200, response.text)
+        summary = response.json()
+        self.assertEqual(summary["recent_assets"]["items"], [])
+        self.assertEqual(summary["recent_assets"]["total"], 0)
+        self.assertGreaterEqual(summary["overall"]["supported_assets"], 1)
+        self.assertEqual(sum(item["total_attempts"] for item in summary["stages"]), 0)
+        # Each panel has its own authorized, independently cached endpoint.
+        recent = self.get("/api/v1/admin/ai-operations/pipeline/recent?recent_page=1&recent_page_size=25")
+        self.assertEqual(recent.status_code, 200, recent.text)
+        self.assertGreaterEqual(recent.json()["total"], 1)
+        self.assertEqual(recent.json()["page"], 1)
+        attempts = self.get("/api/v1/admin/ai-operations/pipeline/attempts")
+        self.assertEqual(attempts.status_code, 200, attempts.text)
+        self.assertIn("asset_store", attempts.json()["stages"])
+        self.assertIn("total_attempts", attempts.json()["stages"]["asset_store"])
+        # The legacy endpoint remains backward-compatible with old clients.
+        full = self.get("/api/v1/admin/ai-operations/pipeline")
+        self.assertGreaterEqual(full.json()["recent_assets"]["total"], 1)
+
+    def test_pipeline_deferred_pages_keep_authorization(self):
+        for url in (
+            "/api/v1/admin/ai-operations/pipeline/recent",
+            "/api/v1/admin/ai-operations/pipeline/attempts",
+        ):
+            response = self.get(url)
+            self.assertEqual(response.status_code, 200, response.text)
+        # Invalid query sizes do not consume DB resources.
+        self.assertEqual(
+            self.get("/api/v1/admin/ai-operations/pipeline/recent?recent_page_size=5000").status_code,
+            422,
+        )
+
     def test_pipeline_snapshot_does_not_repeat_window_query_per_stage(self):
         with self.factory() as session:
             source_asset = session.scalar(select(SourceAssetModel).where(SourceAssetModel.tenant_id == "tenant-a"))

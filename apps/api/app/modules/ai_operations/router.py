@@ -295,13 +295,16 @@ def repair_coverage(
 
 
 def _pipeline_snapshot(
-    tenant_id: str, recent_page: int, recent_page_size: int
+    tenant_id: str, recent_page: int, recent_page_size: int,
+    include_recent: bool = True, include_attempts: bool = True,
 ):
     with SessionLocal() as session:
         return PipelineOperationsRepository(session).snapshot(
             tenant_id,
             recent_page=recent_page,
             recent_page_size=recent_page_size,
+            include_recent=include_recent,
+            include_attempts=include_attempts,
         )
 
 
@@ -311,14 +314,51 @@ def pipeline_summary(
     tenant_id: str | None = Query(default=None),
     recent_page: int = Query(default=1, ge=1),
     recent_page_size: int = Query(default=25, ge=1, le=100),
+    include_recent: bool = Query(default=True),
+    include_attempts: bool = Query(default=True),
 ):
     target = tenant_id or principal.active_tenant_id
     require_tenant_scope(principal, target)
     return cached_ai_operations_read(
         "pipeline",
-        (target, recent_page, recent_page_size),
-        lambda: _pipeline_snapshot(target, recent_page, recent_page_size),
+        (target, "summary", recent_page, recent_page_size, include_recent, include_attempts),
+        lambda: _pipeline_snapshot(target, recent_page, recent_page_size,
+                                    include_recent, include_attempts),
     )
+
+
+@router.get("/pipeline/recent")
+def pipeline_recent_assets(
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+    tenant_id: str | None = Query(default=None),
+    recent_page: int = Query(default=1, ge=1),
+    recent_page_size: int = Query(default=25, ge=1, le=100),
+):
+    """Load recent asset details only after the operator opens that panel."""
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    def load():
+        with SessionLocal() as session:
+            return PipelineOperationsRepository(session).recent_assets(
+                target, page=recent_page, page_size=recent_page_size,
+            )
+    return cached_ai_operations_read(
+        "pipeline", (target, "recent", recent_page, recent_page_size), load,
+    )
+
+
+@router.get("/pipeline/attempts")
+def pipeline_attempt_diagnostics(
+    principal: CurrentPrincipal = Depends(AI_OPERATIONS_READ),
+    tenant_id: str | None = Query(default=None),
+):
+    """Historical attempt counts; never scan this table on overview load."""
+    target = tenant_id or principal.active_tenant_id
+    require_tenant_scope(principal, target)
+    def load():
+        with SessionLocal() as session:
+            return PipelineOperationsRepository(session).attempt_diagnostics(target)
+    return cached_ai_operations_read("pipeline", (target, "attempts"), load)
 
 
 @router.get("/media-dashboard")

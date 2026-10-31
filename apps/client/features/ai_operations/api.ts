@@ -120,6 +120,23 @@ export type DashboardScopeResult = {
 // A tab asks only for the aggregates it renders. In particular, independent
 // tabs (Visual Search, Creative Pipeline, Inventory, Configuration) never
 // trigger the expensive AI Operations dashboard fan-out.
+export function fetchPipelineRecentAssets(
+  page = 1, pageSize: 25 | 50 | 100 = 25, fetcher: Fetcher = fetch, signal?: AbortSignal,
+): Promise<PipelineSnapshot["recent_assets"]> {
+  const params = new URLSearchParams({
+    recent_page: String(Math.max(1, page)), recent_page_size: String(pageSize),
+  });
+  return read("/api/v1/admin/ai-operations/pipeline/recent?" + params, fetcher, signal);
+}
+
+export function fetchPipelineAttemptDiagnostics(
+  fetcher: Fetcher = fetch, signal?: AbortSignal,
+): Promise<{ stages: Record<string, {
+  total_attempts: number; completed_attempts: number; failed_attempts: number;
+}> }> {
+  return read("/api/v1/admin/ai-operations/pipeline/attempts", fetcher, signal);
+}
+
 export async function fetchAiOperationsScope(
   filters: AiOpsFilters,
   fields: readonly DashboardField[],
@@ -155,7 +172,9 @@ export async function fetchAiOperationsScope(
     failures: `${base}/failures?${current}`,
     jobs: `${base}/jobs?${jobs}`,
     usage: `${base}/usage?${usage}`,
-    pipeline: `${base}/pipeline?recent_page=${filters.pipelinePage || 1}&recent_page_size=${filters.pipelinePageSize || 25}`,
+    // Fast first paint: defer the costly historical attempts and recent asset
+    // COUNT + page query until their respective panels are opened.
+    pipeline: `${base}/pipeline?include_recent=false&include_attempts=false`,
     media: `${base}/media-dashboard?${media}`,
   };
   const selected = [...new Set(fields)];

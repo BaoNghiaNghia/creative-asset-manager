@@ -7,6 +7,7 @@ import {
   cancelAiOperationsJob,
   fetchAiOperationsDashboard,
   fetchAiOperationsScope,
+  fetchPipelineRecentAssets, fetchPipelineAttemptDiagnostics,
   fetchAiOperationsJobQueue,
   fetchVisualSearchDiagnostics,
   filtersFromSearch,
@@ -822,6 +823,56 @@ describe("AI Operations dashboard", () => {
     expect(mediaUrl).toContain("processing_mode=batch");
     expect(mediaUrl).toContain("metadata_profile=catalog");
     expect(mediaUrl).toContain("status=failed");
+  });
+
+  it("requests only lightweight pipeline summary until users open details", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      generated_at: "2026-10-31T00:00:00Z", latest_source_sync: null,
+      overall: { supported_assets: 1, completed: 0, queued: 1, active: 0, failed: 0,
+        source_items_discovered: 1, unsupported_assets: 0, skipped: 0,
+        indexed_percentage: 0, throughput_today: 0, asset_progress: [] },
+      stages: [], active_job: null, failure_groups: [],
+      recent_assets: { page: 1, page_size: 25, total: 0, items: [] },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const response = await fetchAiOperationsScope(filters, ["pipeline"], fetcher);
+    expect(response.errors).toEqual([]);
+    const url = String(vi.mocked(fetcher).mock.calls[0][0]);
+    expect(url).toContain("include_recent=false");
+    expect(url).toContain("include_attempts=false");
+    expect(url).not.toContain("recent_page_size=");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    const recent = await fetchPipelineRecentAssets(2, 50, fetcher);
+    expect(recent).not.toBeNull();
+    const recentUrl = String(vi.mocked(fetcher).mock.calls[1][0]);
+    expect(recentUrl).toContain("/pipeline/recent?recent_page=2&recent_page_size=50");
+    await fetchPipelineAttemptDiagnostics(fetcher);
+    expect(String(vi.mocked(fetcher).mock.calls[2][0])).toContain("/pipeline/attempts");
+  });
+
+  it("renders compact pipeline without mounting historical content before disclosure opens", () => {
+    const snapshot = {
+      generated_at: "2026-10-31T00:00:00Z", latest_source_sync: null,
+      overall: { source_items_discovered: 8, supported_assets: 8, unsupported_assets: 0, completed: 6, active: 0,
+        queued: 2, failed: 0, skipped: 0, indexed_percentage: 75, throughput_today: 0,
+        asset_progress: [{ key: "indexed", count: 6 }] },
+      stages: [], active_job: null, failure_groups: [],
+      recent_assets: { page: 1, page_size: 25, total: 1, items: [{
+        asset_id: "asset-deferred", filename: "should-not-load.jpg", state: "indexed",
+        stage_statuses: {}, updated_at: "2026-10-31T00:00:00Z", error_code: null,
+      }] },
+    } as NonNullable<AiOpsDashboardData["pipeline"]>;
+    const markup = renderToStaticMarkup(<PipelineOverview pipeline={snapshot} deferDetails />);
+    expect(markup).toContain("Tài sản gần đây");
+    expect(markup).toContain("Chi tiết phân bổ hàng đợi");
+    expect(markup).toContain("Chẩn đoán lần thử");
+    expect(markup).not.toContain("should-not-load.jpg");
+    expect(markup).not.toContain("pipeline-recent-table");
+    expect(markup).not.toContain("pipeline-diagnostics-content");
+    expect(markup).not.toContain("pipeline-queue-table");
+    const legacy = renderToStaticMarkup(<PipelineOverview pipeline={snapshot} />);
+    expect(legacy).toContain("should-not-load.jpg");
+    expect(legacy).toContain("pipeline-diagnostics-content");
   });
 
   it("normalizes a pre-pagination pipeline response without crashing", () => {

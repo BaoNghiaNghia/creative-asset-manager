@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
+from time import sleep
 from dataclasses import replace
 
 from app.common.cache import BoundedTTLCache
@@ -96,3 +99,26 @@ def test_operational_cache_key_buckets_live_timestamps_but_retains_scope():
     assert cached_ai_operations_read("summary", filters_cache_key(first), load) == {"count": 1}
     assert cached_ai_operations_read("summary", filters_cache_key(shifted), load) == {"count": 1}
     assert len(calls) == 1
+
+def test_pipeline_singleflight_does_not_duplicate_concurrent_heavy_scan():
+    ai_operations_caches["pipeline"].clear()
+    start = Event()
+    guard = Lock()
+    counts = [0]
+
+    def loader():
+        with guard:
+            counts[0] += 1
+        sleep(0.08)
+        return {"ready": 42}
+
+    def one():
+        start.wait(timeout=2)
+        return cached_ai_operations_read("pipeline", ("tenant-a", "summary", False), loader)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        future = [pool.submit(one) for _ in range(4)]
+        start.set()
+        results = [item.result(timeout=5) for item in future]
+    assert results == [{"ready": 42}] * 4
+    assert counts[0] == 1

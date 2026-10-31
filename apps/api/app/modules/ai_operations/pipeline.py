@@ -113,7 +113,32 @@ class PipelineOperationsRepository:
         ).select_from(logical.join(job, and_(job.tenant_id == tenant_id, job.job_type == stage, condition))).subquery()
         return select(ranked).where(ranked.c.rn == 1).subquery()
 
-    def _stage_rows(self, tenant_id: str, logical, now: datetime) -> list[dict[str, Any]]:
+    def _attempt_counts(self, tenant_id: str) -> dict[str, tuple[int, int, int]]:
+        """Optional historical aggregation; never needed for live asset progress."""
+        job = ProcessingJobModel
+        return {
+            row.job_type: (int(row.total), int(row.completed), int(row.failed))
+            for row in self.session.execute(select(
+                job.job_type.label("job_type"), func.count(job.id).label("total"),
+                func.coalesce(func.sum(case((job.status == JobStatus.COMPLETED.value, 1), else_=0)), 0).label("completed"),
+                func.coalesce(func.sum(case((job.status == JobStatus.FAILED.value, 1), else_=0)), 0).label("failed"),
+            ).where(
+                job.tenant_id == tenant_id,
+                job.job_type.in_([key for key, _, _ in PIPELINE_STAGES]),
+            ).group_by(job.job_type))
+        }
+
+    def attempt_diagnostics(self, tenant_id: str) -> dict[str, Any]:
+        counts = self._attempt_counts(tenant_id)
+        return {
+            "stages": {key: {
+                "total_attempts": counts.get(key, (0, 0, 0))[0],
+                "completed_attempts": counts.get(key, (0, 0, 0))[1],
+                "failed_attempts": counts.get(key, (0, 0, 0))[2],
+            } for key, _, _ in PIPELINE_STAGES},
+        }
+
+    def _stage_rows(self, tenant_id: str, logical, now: datetime, *, include_attempts: bool = True) -> list[dict[str, Any]]:
         # Read pipeline state once, and rank pending-stage jobs in one query.
         # Previously each of the five stages rescanned the logical-assets CTE
         # with its own window query and attempt-count query.
@@ -161,17 +186,7 @@ class PipelineOperationsRepository:
             )
             for row in self.session.execute(select(ranked).where(ranked.c.rn == 1))
         }
-        attempt_counts = {
-            row.job_type: (row.total, row.completed, row.failed)
-            for row in self.session.execute(select(
-                job.job_type.label("job_type"), func.count(job.id).label("total"),
-                func.coalesce(func.sum(case((job.status == JobStatus.COMPLETED.value, 1), else_=0)), 0).label("completed"),
-                func.coalesce(func.sum(case((job.status == JobStatus.FAILED.value, 1), else_=0)), 0).label("failed"),
-            ).where(
-                job.tenant_id == tenant_id,
-                job.job_type.in_([key for key, _, _ in PIPELINE_STAGES]),
-            ).group_by(job.job_type))
-        }
+        attempt_counts = self._attempt_counts(tenant_id) if include_attempts else {}
         results: list[dict[str, Any]] = []
         for key, label, subtitle in PIPELINE_STAGES:
             position = _STAGE_POSITION[key]
@@ -291,11 +306,18 @@ class PipelineOperationsRepository:
             items.append({"asset_id": row["asset_id"], "filename": row["filename"] or "Untitled source asset", "mime_type": normalize_source_mime_type(row["mime_type"]), "thumbnail_url": thumbnail_url, "state": row["pipeline_state"] or "discovered", "stage_statuses": self._asset_stage_statuses(row["pipeline_state"] or "discovered"), "updated_at": row["pipeline_updated_at"] or row["source_updated_at"], "error_code": row["pipeline_error_code"], "source_type": row["source_type"], "source_username": source_account_username(row["source_metadata"], row["source_account_email"])})
         return {"page": page, "page_size": page_size, "total": total, "items": items}
 
-    def snapshot(self, tenant_id: str, *, recent_page: int = 1, recent_page_size: int = 25) -> dict[str, Any]:
+    def recent_assets(self, tenant_id: str, *, page: int = 1, page_size: int = 25) -> dict[str, Any]:
+        source_ids, _ = self._active_source_ids(tenant_id)
+        logical = self._logical_assets(tenant_id, source_ids)
+        return self._recent_assets(logical, page=max(1, page),
+                                   page_size=page_size if page_size in {25, 50, 100} else 25)
+
+    def snapshot(self, tenant_id: str, *, recent_page: int = 1, recent_page_size: int = 25,
+                 include_recent: bool = True, include_attempts: bool = True) -> dict[str, Any]:
         recent_page, recent_page_size, now = max(1, recent_page), recent_page_size if recent_page_size in {25, 50, 100} else 25, datetime.now(timezone.utc)
         source_ids, decommissioned_sources = self._active_source_ids(tenant_id)
         logical = self._logical_assets(tenant_id, source_ids)
-        stage_rows = self._stage_rows(tenant_id, logical, now)
+        stage_rows = self._stage_rows(tenant_id, logical, now, include_attempts=include_attempts)
         stages = [row["stage_summary"] for row in stage_rows if "stage_summary" in row]
         state_rows = [row for row in stage_rows if "stage" in row]
         by_asset: dict[str, list[dict[str, Any]]] = {}
@@ -343,7 +365,9 @@ class PipelineOperationsRepository:
         eligible = max(0, supported - skipped_stage)
         return {"generated_at": now, "definitions": {"snapshot": "Current logical asset state; reporting date filters never affect this endpoint.", "attempt_diagnostics": "Raw immutable processing-job attempts; diagnostics only."}, "latest_source_sync": self._latest_source_sync(tenant_id),
             "overall": {"source_items_discovered": all_active, "supported_assets": supported, "eligible_assets": eligible, "unsupported_assets": skipped["unsupported"], "completed": progress["search_ready"], "search_ready_assets": progress["search_ready"], "active": in_progress, "in_progress_assets": in_progress, "queued": queued, "queued_assets": queued, "failed": attention, "needs_attention_assets": attention, "skipped": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "skipped_assets": skipped["folders_non_images"] + skipped["unsupported"] + skipped_stage, "indexed_percentage": round(progress["search_ready"] / eligible * 100, 1) if eligible else None, "throughput_today": 0, "asset_progress": [{"key": key, "count": count} for key, count in progress.items()]},
-            "stages": stages, "active_job": self._active_job(tenant_id, now), "failure_groups": list(failures.values()), "skipped_breakdown": [{"category": key, "count": value} for key, value in skipped.items() if value], "recent_assets": self._recent_assets(logical, page=recent_page, page_size=recent_page_size),
+            "stages": stages, "active_job": self._active_job(tenant_id, now), "failure_groups": list(failures.values()), "skipped_breakdown": [{"category": key, "count": value} for key, value in skipped.items() if value], "recent_assets": (self._recent_assets(logical, page=recent_page, page_size=recent_page_size)
+                              if include_recent else {"page": recent_page, "page_size": recent_page_size,
+                                                      "total": 0, "items": []}),
             "diagnostics": {"decommissioned_sources_excluded": decommissioned_sources, "raw_attempts": {stage["key"]: {key: stage[key] for key in ("total_attempts", "completed_attempts", "failed_attempts")} for stage in stages}}}
 
     def validation_report(self, tenant_id: str) -> dict[str, Any]:

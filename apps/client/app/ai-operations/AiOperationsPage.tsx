@@ -9,7 +9,7 @@ import {
   aiOperationsExportUrl, cancelAiOperationsJob, fetchAiOperationsScope, filtersFromSearch, repairSearchCoverage, runSearchCoverageAudit,
   retryAiOperationsJob, retryAiOperationsJobsByError, searchFromFilters, fetchAiOperationsVideoDetail,
   fetchVisualSearchCoverageDashboard,
-  fetchVisualSearchDiagnostics,
+  fetchVisualSearchDiagnostics, fetchPipelineRecentAssets, fetchPipelineAttemptDiagnostics,
   type AiOpsDashboardData, type AiOpsFilters, type AiOpsJob, type AiOpsUsage, type AiOpsSearchCoverage, type PipelineSnapshot, type DashboardField,
   type VisualSearchCoverage, type VisualSearchDiagnostics, type VisualSearchSourceCoverageResponse,
 } from "../../features/ai_operations";
@@ -516,7 +516,7 @@ export function AiOperationsContent({
       <button type="button" onClick={onRetry}><OpsControlIcon name="retry" />Retry</button>
     </div>}
     {!independentTabs.some(value => value === tab) && <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} deferDetails mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : <CostUsage data={data} filters={filters} onFilters={onFilters} />}
@@ -706,12 +706,14 @@ function ScanStatusIcon({ status }: { status: string }) {
   </span>;
 }
 
-export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDelta = 0, media = "image", onMedia = () => undefined, onOpenAsset = () => undefined, onOpenVideo = () => undefined, onPage = () => undefined, onVideoPage = () => undefined }: {
+export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDelta = 0, media = "image", onMedia = () => undefined, onOpenAsset = () => undefined, onOpenVideo = () => undefined, onPage = () => undefined, onVideoPage = () => undefined, deferDetails = false }: {
   pipeline?: PipelineSnapshot | null; mediaDashboard?: AiOpsDashboardData["media"]; imageTodayDelta?: number; media?: "image" | "video"; onMedia?: (media: "image" | "video") => void;
   onOpenAsset?: (assetId: string) => void;
   onOpenVideo?: (sourceAssetId: string) => void;
   onPage?: (page: number, pageSize: 25 | 50 | 100) => void; onVideoPage?: (page: number, pageSize: 25 | 50 | 100) => void;
+  deferDetails?: boolean;
 }) {
+  const [queueOpen, setQueueOpen] = useState(false);
   if (pipeline === undefined) return <DashboardState kind="empty" label="Tổng quan pipeline chưa khả dụng cho đến khi API được cập nhật và khởi động lại." />;
   if (pipeline === null) return <DashboardState kind="empty" label="Chưa có hoạt động pipeline cho workspace này" />;
   if (media === "video" && mediaDashboard) return <VideoPipelineOverview dashboard={mediaDashboard} onPage={onVideoPage} onOpenVideo={onOpenVideo} />;
@@ -727,7 +729,7 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDe
       <PipelineMetric icon="queued" label="Đang chờ xử lý" value={pipeline.overall.queued_assets ?? pipeline.overall.queued} detail="Tài sản duy nhất đang chờ bắt đầu hoặc thử lại" tone="warning" />
       <PipelineMetric icon="attention" label="Cần xử lý" value={pipeline.overall.needs_attention_assets ?? pipeline.overall.failed} detail="Tài sản chưa hoàn tất cần can thiệp" tone="attention" />
     </section>
-    <div className="pipeline-context-row" role="group" aria-label="Latest scan and current processing">
+    <div className={"pipeline-context-row" + (active ? " has-active" : "")} role="group" aria-label="Latest scan and current processing">
       <section className="pipeline-scan-card pipeline-scan-card-compact" aria-label="Trạng thái quét Google Drive">
         <div className="pipeline-context-heading"><small>ĐỒNG BỘ GOOGLE DRIVE</small><div className="pipeline-context-main"><PipelineContextIcon kind="sync" /><div className="pipeline-context-copy"><h2>{scan ? (scan.mode === "full" ? "Lần quét toàn bộ gần nhất" : "Lần quét cập nhật gần nhất") : "Chưa có lần quét nào"}</h2>
         <p>{scan ? (scan.status === "completed" ? scan.items_seen_count.toLocaleString() + " mục trên Google Drive đã được ghi nhận. " + scan.jobs_created_count.toLocaleString() + " tác vụ xử lý đã được xếp hàng." : "Hệ thống đang quét. Đã ghi nhận " + scan.items_seen_count.toLocaleString() + " mục cho đến thời điểm này.") : "Kết nối Google Drive để hệ thống phát hiện tài sản và chuẩn bị xử lý."}</p></div></div></div>
@@ -737,16 +739,25 @@ export function PipelineOverview({ pipeline, mediaDashboard = null, imageTodayDe
     <section className="pipeline-progress-summary pipeline-progress-summary-compact" aria-label="Mức sẵn sàng của tài sản theo giai đoạn đã xác thực"><div className="pipeline-context-heading"><small>MỨC SẴN SÀNG CỦA TÀI SẢN</small><div className="pipeline-context-main"><PipelineContextIcon kind="ready" /><div className="pipeline-context-copy"><h2>Giai đoạn hoàn tất đã xác thực</h2><p>Mỗi ảnh đủ điều kiện chỉ được tính một lần.</p></div></div></div><dl>{pipeline.overall.asset_progress.filter(item => item.count > 0).map(item => <div key={item.key}><dt>{assetProgressLabel(item.key)}</dt><dd>{item.count.toLocaleString()}</dd></div>)}</dl></section>
     </div>
     {needsAttentionStages.length > 0 && <section className="pipeline-stage-section" aria-label="Các giai đoạn cần xử lý"><header><div><small>ĐIỂM CẦN LƯU Ý</small><h2>Các giai đoạn đang hoạt động</h2><p>Chỉ các giai đoạn đang chờ, đang chạy hoặc gặp lỗi mới được mở rộng.</p></div><span>{needsAttentionStages.length} giai đoạn</span></header><div className="pipeline-stage-grid">{needsAttentionStages.map(stage => { const tone = pipelineStageTone(stage, active?.job_type); return <article key={stage.key} className={tone}>
-      <header><div><small>GIAI ĐOẠN</small><h2>{pipelineStageLabel(stage.label)}</h2></div><StageStatusBadge tone={tone} /></header><p>{stage.subtitle}</p>
-      <strong>{stage.completed_assets.toLocaleString()} / {stage.total_logical_assets ? stage.total_logical_assets.toLocaleString() : "-"}</strong><span>{stage.percentage === null ? "Đang tính tiến độ" : String(stage.percentage) + "% tài sản logic đã hoàn tất"}</span><div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
+      <header><div><small>GIAI ĐOẠN</small><h2>{pipelineStageLabel(stage.label)}</h2></div><StageStatusBadge tone={tone} /></header>
+      <div className="pipeline-stage-completion">
+        <strong>{stage.completed_assets.toLocaleString()} / {stage.total_logical_assets ? stage.total_logical_assets.toLocaleString() : "-"}</strong>
+        <span>{stage.percentage === null ? "Đang tính tiến độ" : String(stage.percentage) + "% đã hoàn tất"}</span>
+        <div className={"pipeline-progress " + tone}><i style={{ width: String(stage.percentage || 0) + "%" }} /></div>
+      </div>
       <dl><div><dt>Đã xếp hàng</dt><dd>{(stage.queued_assets ?? stage.pending).toLocaleString()}</dd></div><div><dt>Đang chạy</dt><dd>{(stage.processing_assets ?? stage.processing).toLocaleString()}</dd></div><div><dt>Đang chờ</dt><dd>{(stage.waiting_assets ?? stage.waiting).toLocaleString()}</dd></div><div><dt>Cần xử lý</dt><dd>{(stage.needs_attention_assets ?? stage.failed).toLocaleString()}</dd></div></dl>
     </article>; })}</div></section>}
     {settledStages.length > 0 && <section className="pipeline-settled-stages" aria-label="Các giai đoạn đã hoàn tất"><span><i aria-hidden="true">✓</i> Giai đoạn đã hoàn tất</span><ul>{settledStages.map(stage => <li key={stage.key}><b>{pipelineStageLabel(stage.label)}</b><span>{stage.completed_assets.toLocaleString()} tài sản đã hoàn tất</span></li>)}</ul></section>}
-    <section className="pipeline-queue" aria-label="Hàng đợi pipeline hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi theo giai đoạn</h2><p>Chỉ hiển thị các giai đoạn đang xử lý, chờ hoặc cần can thiệp. Số liệu là tài sản duy nhất, không phải số lần thử.</p></div><span className="pipeline-queue-total">{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} đang chờ xử lý</span></header>{needsAttentionStages.length ? <div className="ops-table-scroll"><table className="ops-data-table pipeline-queue-table"><caption className="sr-only">Công việc hiện tại theo giai đoạn pipeline</caption><thead><tr className="pipeline-queue-groups"><th rowSpan={2}>Giai đoạn</th><th colSpan={3}>Chờ bắt đầu</th><th rowSpan={2}>Đang xử lý</th><th colSpan={2}>Kết quả</th></tr><tr><th title="Assets with a queued stage, including work waiting on a prerequisite">Đã xếp hàng</th><th title="Đã xếp hàng assets that a worker can claim now">Sẵn sàng</th><th title="Assets delayed until a scheduled retry or provider quota window">Đã lên lịch thử lại</th><th title="Assets currently held by a worker">Đang chạy</th><th>Hoàn tất</th><th>Cần xử lý</th></tr></thead><tbody>{needsAttentionStages.map(stage => <tr key={stage.key}><td><b>{pipelineStageLabel(stage.label)}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.queued_assets} tone="neutral" /></td><td><QueueCount value={stage.eligible_now_assets} tone="ready" /></td><td><QueueCount value={stage.waiting_assets} tone="waiting" /></td><td><QueueCount value={stage.processing_assets} tone="active" /></td><td><QueueCount value={stage.completed_assets} tone="complete" /></td><td><QueueCount value={stage.needs_attention_assets} tone="failed" /></td></tr>)}</tbody></table></div> : <p className="pipeline-queue-empty">{settledStages.length > 0 ? "Hiện không có giai đoạn pipeline nào cần xử lý. Các giai đoạn chỉ hoàn tất được hiển thị ở trên." : "Hiện chưa có dữ liệu hàng đợi hoặc giai đoạn hoàn tất trong phạm vi đang xem."}</p>}</section>
-    <details className="pipeline-attempt-diagnostics"><summary><span className="pipeline-diagnostics-title"><i aria-hidden="true">⌁</i><span><b>Chẩn đoán lần thử</b><small>Lịch sử kỹ thuật, không dùng để tính tiến độ tài sản</small></span></span><span className="pipeline-diagnostics-total">{pipeline.stages.reduce((total, stage) => total + stage.total_attempts, 0).toLocaleString()} lần thử</span></summary><div className="pipeline-diagnostics-content"><p>{pipeline.definitions?.attempt_diagnostics || "Số lần thử của job không dùng để tính tiến độ tài sản."}</p><ul>{pipeline.stages.map(stage => <li key={stage.key}><header><span>{pipelineStageLabel(stage.label)}</span><strong>{stage.total_attempts.toLocaleString()}<small>lần thử</small></strong></header><dl><div><dt>Hoàn tất</dt><dd>{stage.completed_attempts.toLocaleString()}</dd></div><div className={stage.failed_attempts ? "has-failures" : ""}><dt>Thất bại</dt><dd>{stage.failed_attempts.toLocaleString()}</dd></div></dl></li>)}</ul></div></details>
+    {deferDetails ? <details className="pipeline-queue-disclosure" onToggle={event => setQueueOpen(event.currentTarget.open)}>
+      <summary><span><b>Chi tiết phân bổ hàng đợi</b><small>Chỉ mở khi cần xem từng trạng thái</small></span><strong>{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} đang chờ</strong></summary>
+      {queueOpen ? <section className="pipeline-queue" aria-label="Hàng đợi pipeline hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi theo giai đoạn</h2><p>Chỉ hiển thị các giai đoạn đang xử lý, chờ hoặc cần can thiệp. Số liệu là tài sản duy nhất, không phải số lần thử.</p></div><span className="pipeline-queue-total">{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} đang chờ xử lý</span></header>{needsAttentionStages.length ? <div className="ops-table-scroll"><table className="ops-data-table pipeline-queue-table"><caption className="sr-only">Công việc hiện tại theo giai đoạn pipeline</caption><thead><tr className="pipeline-queue-groups"><th rowSpan={2}>Giai đoạn</th><th colSpan={3}>Chờ bắt đầu</th><th rowSpan={2}>Đang xử lý</th><th colSpan={2}>Kết quả</th></tr><tr><th title="Assets with a queued stage, including work waiting on a prerequisite">Đã xếp hàng</th><th title="Đã xếp hàng assets that a worker can claim now">Sẵn sàng</th><th title="Assets delayed until a scheduled retry or provider quota window">Đã lên lịch thử lại</th><th title="Assets currently held by a worker">Đang chạy</th><th>Hoàn tất</th><th>Cần xử lý</th></tr></thead><tbody>{needsAttentionStages.map(stage => <tr key={stage.key}><td><b>{pipelineStageLabel(stage.label)}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.queued_assets} tone="neutral" /></td><td><QueueCount value={stage.eligible_now_assets} tone="ready" /></td><td><QueueCount value={stage.waiting_assets} tone="waiting" /></td><td><QueueCount value={stage.processing_assets} tone="active" /></td><td><QueueCount value={stage.completed_assets} tone="complete" /></td><td><QueueCount value={stage.needs_attention_assets} tone="failed" /></td></tr>)}</tbody></table></div> : <p className="pipeline-queue-empty">{settledStages.length > 0 ? "Hiện không có giai đoạn pipeline nào cần xử lý. Các giai đoạn chỉ hoàn tất được hiển thị ở trên." : "Hiện chưa có dữ liệu hàng đợi hoặc giai đoạn hoàn tất trong phạm vi đang xem."}</p>}</section> : null}
+    </details> : <section className="pipeline-queue" aria-label="Hàng đợi pipeline hiện tại"><header><div><small>HÀNG ĐỢI TRỰC TIẾP</small><h2>Phân bổ hàng đợi theo giai đoạn</h2><p>Chỉ hiển thị các giai đoạn đang xử lý, chờ hoặc cần can thiệp. Số liệu là tài sản duy nhất, không phải số lần thử.</p></div><span className="pipeline-queue-total">{(pipeline.overall.queued_assets ?? pipeline.overall.queued).toLocaleString()} đang chờ xử lý</span></header>{needsAttentionStages.length ? <div className="ops-table-scroll"><table className="ops-data-table pipeline-queue-table"><caption className="sr-only">Công việc hiện tại theo giai đoạn pipeline</caption><thead><tr className="pipeline-queue-groups"><th rowSpan={2}>Giai đoạn</th><th colSpan={3}>Chờ bắt đầu</th><th rowSpan={2}>Đang xử lý</th><th colSpan={2}>Kết quả</th></tr><tr><th title="Assets with a queued stage, including work waiting on a prerequisite">Đã xếp hàng</th><th title="Đã xếp hàng assets that a worker can claim now">Sẵn sàng</th><th title="Assets delayed until a scheduled retry or provider quota window">Đã lên lịch thử lại</th><th title="Assets currently held by a worker">Đang chạy</th><th>Hoàn tất</th><th>Cần xử lý</th></tr></thead><tbody>{needsAttentionStages.map(stage => <tr key={stage.key}><td><b>{pipelineStageLabel(stage.label)}</b><small>{stage.subtitle}</small></td><td><QueueCount value={stage.queued_assets} tone="neutral" /></td><td><QueueCount value={stage.eligible_now_assets} tone="ready" /></td><td><QueueCount value={stage.waiting_assets} tone="waiting" /></td><td><QueueCount value={stage.processing_assets} tone="active" /></td><td><QueueCount value={stage.completed_assets} tone="complete" /></td><td><QueueCount value={stage.needs_attention_assets} tone="failed" /></td></tr>)}</tbody></table></div> : <p className="pipeline-queue-empty">{settledStages.length > 0 ? "Hiện không có giai đoạn pipeline nào cần xử lý. Các giai đoạn chỉ hoàn tất được hiển thị ở trên." : "Hiện chưa có dữ liệu hàng đợi hoặc giai đoạn hoàn tất trong phạm vi đang xem."}</p>}</section>}
+    {deferDetails ? <PipelineDeferredAttempts pipeline={pipeline} /> : <details className="pipeline-attempt-diagnostics"><summary><span className="pipeline-diagnostics-title"><i aria-hidden="true">⌁</i><span><b>Chẩn đoán lần thử</b><small>Lịch sử kỹ thuật, không dùng để tính tiến độ tài sản</small></span></span><span className="pipeline-diagnostics-total">{pipeline.stages.reduce((total, stage) => total + stage.total_attempts, 0).toLocaleString()} lần thử</span></summary><div className="pipeline-diagnostics-content"><p>{pipeline.definitions?.attempt_diagnostics || "Số lần thử của job không dùng để tính tiến độ tài sản."}</p><ul>{pipeline.stages.map(stage => <li key={stage.key}><header><span>{pipelineStageLabel(stage.label)}</span><strong>{stage.total_attempts.toLocaleString()}<small>lần thử</small></strong></header><dl><div><dt>Hoàn tất</dt><dd>{stage.completed_attempts.toLocaleString()}</dd></div><div className={stage.failed_attempts ? "has-failures" : ""}><dt>Thất bại</dt><dd>{stage.failed_attempts.toLocaleString()}</dd></div></dl></li>)}</ul></div></details>}
     {pipeline.skipped_breakdown?.length ? <details className="pipeline-exclusions"><summary><span><i aria-hidden="true">–</i><b>Dữ liệu bị loại trừ</b><small>Loại trừ vĩnh viễn; không cần thử lại</small></span><strong>{pipeline.skipped_breakdown.reduce((total, item) => total + item.count, 0).toLocaleString()}</strong></summary><p>Các bản ghi này nằm ngoài pipeline ảnh và không được tính là lỗi.</p><ul>{pipeline.skipped_breakdown.map(item => <li key={item.category}><b>{item.category === "unsupported" ? "Định dạng không hỗ trợ" : item.category.replaceAll("_", " ")}</b><span>{item.count.toLocaleString()} mục</span></li>)}</ul></details> : null}
     {pipeline.failure_groups.length > 0 && <section className="pipeline-attention"><header><div><small>CẦN XỬ LÝ</small><h2>Các vấn đề cần xử lý</h2><p>Chỉ hiển thị các vấn đề chưa được giải quyết. Mã kỹ thuật vẫn được giữ để hỗ trợ.</p></div><span>{pipeline.failure_groups.length} nhóm vấn đề</span></header><ul>{pipeline.failure_groups.map(item => <PipelineFailureCard key={item.stage + item.error_code} item={item} />)}</ul></section>}
-    <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} onOpenAsset={onOpenAsset} />
+    {deferDetails
+      ? <PipelineDeferredRecent generatedAt={pipeline.generated_at} onOpenAsset={onOpenAsset} />
+      : <PipelineRecentAssets recent={pipeline.recent_assets} onPage={onPage} onOpenAsset={onOpenAsset} />}
   </div>;
 }
 function VideoThumbnailWithDuration({ thumbnailUrl, durationMs }: { thumbnailUrl: string | null; durationMs: number | null | undefined }) {
@@ -1031,6 +1042,90 @@ function PipelineAssetFlow({ statuses }: { statuses: Record<string, string> }) {
       </li>;
     })}
   </ol>;
+}
+
+function PipelineDeferredRecent({ generatedAt, onOpenAsset }: { generatedAt: string; onOpenAsset: (assetId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const [requestVersion, setRequestVersion] = useState(0);
+  const [recent, setRecent] = useState<PipelineSnapshot["recent_assets"] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setLoading(true); setError("");
+    fetchPipelineRecentAssets(page, pageSize, fetch, controller.signal).then(data => {
+      if (!controller.signal.aborted) setRecent(data);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Không tải được tài sản.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [open, page, pageSize, generatedAt, requestVersion]);
+
+  return <details className="pipeline-lazy-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary><span><b>Tài sản gần đây</b><small>Chỉ tải danh sách khi mở · mỗi trang tối đa 100 tài sản</small></span>
+      <span className="pipeline-disclosure-action">{open ? "Thu gọn" : "Xem tài sản"}</span>
+    </summary>
+    {open && <div className="pipeline-lazy-body">
+      {loading ? <div role="status" className="pipeline-lazy-loading">Đang tải danh sách tài sản…</div> : null}
+      {error ? <div role="alert" className="pipeline-lazy-error">{error}<button type="button" onClick={() => setRequestVersion(value => value + 1)}>Thử lại</button></div> : null}
+      {!loading && !error && recent && <PipelineRecentAssets
+        recent={recent}
+        onPage={(nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); }}
+        onOpenAsset={onOpenAsset}
+      />}
+    </div>}
+  </details>;
+}
+
+function PipelineDeferredAttempts({ pipeline }: { pipeline: PipelineSnapshot }) {
+  const [open, setOpen] = useState(false);
+  const [attempts, setAttempts] = useState<Record<string, {
+    total_attempts: number; completed_attempts: number; failed_attempts: number;
+  }> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setLoading(true); setError("");
+    fetchPipelineAttemptDiagnostics(fetch, controller.signal).then(result => {
+      if (!controller.signal.aborted) setAttempts(result.stages);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Không tải được chẩn đoán.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [open, pipeline.generated_at]);
+
+  const total = attempts ? Object.values(attempts).reduce((count, item) => count + item.total_attempts, 0) : null;
+  return <details className="pipeline-attempt-diagnostics pipeline-lazy-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary><span className="pipeline-diagnostics-title"><i aria-hidden="true">⌁</i><span>
+      <b>Chẩn đoán lần thử</b><small>Chỉ tải lịch sử kỹ thuật khi mở</small></span></span>
+      <span className="pipeline-diagnostics-total">{total === null ? "Xem lịch sử" : total.toLocaleString() + " lần thử"}</span>
+    </summary>
+    {open && <div className="pipeline-diagnostics-content">
+      {loading ? <p role="status">Đang tải thống kê lịch sử…</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+      {!loading && !error && attempts && <>
+        <p>{pipeline.definitions?.attempt_diagnostics || "Số lần thử của job không dùng để tính tiến độ tài sản."}</p>
+        <ul>{pipeline.stages.map(stage => {
+          const item = attempts[stage.key] || { total_attempts: 0, completed_attempts: 0, failed_attempts: 0 };
+          return <li key={stage.key}><header><span>{pipelineStageLabel(stage.label)}</span><strong>{item.total_attempts.toLocaleString()}<small>lần thử</small></strong></header>
+            <dl><div><dt>Hoàn tất</dt><dd>{item.completed_attempts.toLocaleString()}</dd></div>
+            <div className={item.failed_attempts ? "has-failures" : ""}><dt>Thất bại</dt><dd>{item.failed_attempts.toLocaleString()}</dd></div></dl>
+          </li>;
+        })}</ul>
+      </>}
+    </div>}
+  </details>;
 }
 
 function PipelineRecentAssets({ recent, onPage, onOpenAsset }: { recent: PipelineSnapshot["recent_assets"]; onPage: (page: number, pageSize: 25 | 50 | 100) => void; onOpenAsset: (assetId: string) => void }) {
