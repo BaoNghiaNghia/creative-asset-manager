@@ -407,7 +407,13 @@ class KeywordImageService:
         provider = image_provider(self.settings)
         if provider != "codex":
             raise KeywordImageError("creative_v3_paid_api_disabled", "V3 only supports subscription-authenticated Codex CLI.", 404)
-        manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        try:
+            manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        except CodexImageProviderError as exc:
+            raise KeywordImageError(
+                "creative_v3_skill_manifest_invalid",
+                "Creative Brief V3 Skill configuration is invalid. Contact an administrator.", 503,
+            ) from exc
         if manifest is None or CONTRACT not in manifest.workflows:
             raise KeywordImageError("creative_v3_skill_missing", "Native Creative V3 ImageGen Skill is not installed.", 503)
         skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
@@ -573,7 +579,13 @@ class KeywordImageService:
                 "creative_v3_retry_provider_changed",
                 "The original V3 image provider changed. Use Regenerate.", 409,
             )
-        manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        try:
+            manifest = load_codex_skill_manifest(self.settings.CODEX_IMAGE_HOME, SKILL)
+        except CodexImageProviderError as exc:
+            raise KeywordImageError(
+                "creative_v3_skill_manifest_invalid",
+                "Creative Brief V3 Skill configuration is invalid. Contact an administrator.", 503,
+            ) from exc
         skill_hash = installed_stage2_skill_sha256(SKILL, settings=self.settings)
         if not manifest or CONTRACT not in manifest.workflows or skill_hash != job.skill_bundle_sha256:
             raise KeywordImageError(

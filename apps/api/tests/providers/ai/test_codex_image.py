@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+
+import pytest
 from io import BytesIO
 from pathlib import Path
 
@@ -10,6 +13,7 @@ from PIL import Image
 from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
 from app.providers.ai.codex_image import (
     CodexImageGenRunner,
+    CodexImageProviderError,
     CodexImageRunnerConfig,
     _classify_failure,
     list_codex_skill_manifests,
@@ -199,6 +203,57 @@ def test_codex_skill_manifest_drives_deterministic_product_and_role_matching(tmp
         product_type="Baseball Cap",
         fallback_skill=None,
     ) == manifest
+
+def test_creative_brief_v3_manifest_accepts_no_reference_inputs(tmp_path):
+    """The actual shipped text-only V3 manifest must be loadable before queueing."""
+    bundled = (
+        Path(__file__).resolve().parents[3]
+        / "managed_skills" / "creative-brief-v3" / "manifest.json"
+    )
+    skill_dir = tmp_path / "codex" / "skills" / "creative-brief-v3"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("name: creative-brief-v3", encoding="utf-8")
+    (skill_dir / "manifest.json").write_bytes(bundled.read_bytes())
+
+    manifest = load_codex_skill_manifest(tmp_path / "codex", "creative-brief-v3")
+    assert manifest is not None
+    assert manifest.max_references == 0
+    assert manifest.required_reference_roles == ()
+    assert manifest.optional_reference_roles == ()
+    assert manifest.missing_reference_roles([]) == []
+    assert manifest.workflows == ("creative_v3_single_slot",)
+    assert [item.skill_name for item in list_codex_skill_manifests(
+        tmp_path / "codex", workflow="creative_v3_single_slot",
+    )] == ["creative-brief-v3"]
+
+
+@pytest.mark.parametrize(
+    ("reference_limit", "required", "optional"),
+    [
+        (-1, [], []),
+        (33, [], []),
+        (0, ["product_front"], []),
+        (0, [], ["artwork"]),
+    ],
+)
+def test_codex_manifest_rejects_invalid_or_contradictory_reference_limits(
+    tmp_path, reference_limit, required, optional,
+):
+    skill_dir = tmp_path / "skills" / "test-text-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "skill_name": "test-text-skill",
+        "display_name": "Test references",
+        "workflows": ["creative_v3_single_slot"],
+        "product_types": ["baseball_cap"],
+        "required_reference_roles": required,
+        "optional_reference_roles": optional,
+        "max_references": reference_limit,
+    }), encoding="utf-8")
+    with pytest.raises(CodexImageProviderError) as caught:
+        load_codex_skill_manifest(tmp_path, "test-text-skill")
+    assert caught.value.code == "codex_skill_manifest_invalid"
+
 
 def test_codex_stage1_persists_only_explicit_final_deliverables(tmp_path):
     runner = CodexImageGenRunner(CodexImageRunnerConfig(output_contract="all_generated_images"))

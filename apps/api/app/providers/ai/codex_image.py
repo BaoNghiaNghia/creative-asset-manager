@@ -137,8 +137,13 @@ def load_codex_skill_manifest(
             raise ValueError("display_name is required")
         if not workflows:
             raise ValueError("workflows must not be empty")
-        if not 1 <= max_references <= 32:
-            raise ValueError("max_references must be between 1 and 32")
+        # Creative Brief V3 is intentionally text-only and takes no image
+        # references. Keep the 32-reference cap and reject zero-reference
+        # manifests that nevertheless declare reference roles.
+        if not 0 <= max_references <= 32:
+            raise ValueError("max_references must be between 0 and 32")
+        if max_references == 0 and (required_roles or optional_roles):
+            raise ValueError("zero-reference skills cannot declare reference roles")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise CodexImageProviderError(
             "codex_skill_manifest_invalid",

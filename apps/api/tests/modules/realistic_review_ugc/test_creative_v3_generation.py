@@ -1,5 +1,7 @@
 """Creative Brief V1 -> real Stage 1 ImageGen gates and 6-slot contracts."""
 import asyncio
+import json
+from pathlib import Path
 from dataclasses import replace
 from hashlib import sha256
 from io import BytesIO
@@ -272,10 +274,13 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
                 )
                 session.add(new);session.flush();return new
             monkeypatch.setattr(ProcessingRepository, "create_job", create_job)
-            monkeypatch.setattr(
-                "app.modules.realistic_review_ugc.keyword_images.load_codex_skill_manifest",
-                lambda *_args: SimpleNamespace(workflows=(CONTRACT,)),
-            )
+            # Do not mock the manifest loader: exercise the exact shipped
+            # zero-reference Creative Brief V3 Skill in the queue path.
+            skill_root = tmp_path / "skills" / SKILL
+            skill_root.mkdir(parents=True)
+            bundled = Path(__file__).resolve().parents[3] / "managed_skills" / SKILL
+            for filename in ("SKILL.md", "manifest.json"):
+                (skill_root / filename).write_bytes((bundled / filename).read_bytes())
             monkeypatch.setattr(
                 "app.modules.realistic_review_ugc.keyword_images.installed_stage2_skill_sha256",
                 lambda *_args, **_kwargs: "a"*64,
@@ -299,6 +304,22 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             assert processing.payload_json["creative_v3"]["provider"] == "codex"
             assert processing.provider_key == "codex"
             assert processing.payload_json["creative_v3"]["source_sha256"]
+            # A malformed on-disk Skill must surface as a bounded API error
+            # instead of an uncaught ASGI 500 and must not enqueue a job.
+            manifest_file = skill_root / "manifest.json"
+            good_manifest = manifest_file.read_bytes()
+            invalid = json.loads(good_manifest)
+            invalid["required_reference_roles"] = ["product_front"]
+            manifest_file.write_text(json.dumps(invalid), encoding="utf-8")
+            with pytest.raises(KeywordImageError) as invalid_skill:
+                svc.queue_creative_v3(
+                    tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
+                    expected_brief_updated_at=brief_row.updated_at.isoformat(), regenerate=True,
+                )
+            assert invalid_skill.value.code == "creative_v3_skill_manifest_invalid"
+            assert invalid_skill.value.status_code == 503
+            assert result.processing_job_id == processing.id
+            manifest_file.write_bytes(good_manifest)
             with pytest.raises(KeywordImageError):
                 svc.queue_creative_v3(
                     tenant_id="tenant-a", user_id="u", keyword_id=kw.id,
