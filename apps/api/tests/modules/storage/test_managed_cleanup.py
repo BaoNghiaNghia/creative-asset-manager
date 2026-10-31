@@ -296,7 +296,7 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
             tenant_id="tenant-a", job_type="search_index_sync", entity_type="asset",
             entity_id=self.asset.id, idempotency_key="cleanup-search-parked",
             payload_json={}, status="pending",
-            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone(timedelta(hours=7))),
         ))
         self.session.commit()
         provider = FakeManagedStorage()
@@ -318,7 +318,7 @@ class ManagedStorageCleanupServiceTest(unittest.IsolatedAsyncioTestCase):
             tenant_id="tenant-a", job_type="search_index_sync", entity_type="asset",
             entity_id=self.asset.id, idempotency_key="cleanup-search-incomplete",
             payload_json={}, status="pending",
-            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            next_attempt_at=datetime(2099, 1, 1, tzinfo=timezone(timedelta(hours=7))),
         ))
         self.session.commit()
         result = await self._service(FakeManagedStorage()).execute(tenant_id="tenant-a")

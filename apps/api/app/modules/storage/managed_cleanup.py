@@ -298,7 +298,11 @@ class ManagedStorageCleanupService:
                         job.job_type == "search_index_sync"
                         and job.status == JobStatus.PENDING.value
                         and job.next_attempt_at is not None
-                        and _utc(job.next_attempt_at).year >= 2099
+                        # Midnight 2099 in UTC+07 is Dec 31 2098 UTC.
+                        # Comparing UTC.year incorrectly leaves those
+                        # intentionally parked jobs protecting staging.
+                        and _utc(job.next_attempt_at)
+                        >= datetime(2098, 12, 31, tzinfo=UTC)
                     )
                 )
             )
