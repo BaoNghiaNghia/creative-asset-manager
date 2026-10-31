@@ -55,6 +55,8 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
   const [v3Available, setV3Available] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [v3Queued, setV3Queued] = useState(false);
+  const [showStrategyDetails, setShowStrategyDetails] = useState(false);
+  const [showConceptDetails, setShowConceptDetails] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -178,13 +180,12 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
     }}>
       <section ref={dialogRef} role="dialog" aria-modal="true"
         aria-labelledby="rrugc-creative-brief-title" tabIndex={-1}
-        onKeyDown={onDialogKeyDown} className="rrugc-creative-brief-dialog">
+        onKeyDown={onDialogKeyDown} className={"rrugc-creative-brief-dialog " + (brief ? "is-complete" : "is-pending")}>
         <header className="rrugc-creative-brief-heading">
           <div className="rrugc-creative-brief-heading-icon"><RrugcActionIcon name="sparkles" /></div>
           <div className="rrugc-creative-brief-heading-copy">
             <span className="rrugc-creative-brief-eyebrow">STAGE 1 <span aria-hidden="true">/</span> MEANING-FIRST CREATIVE BRIEF</span>
             <h2 id="rrugc-creative-brief-title">{keyword}</h2>
-            <p>Meaning and design directions for your keyword.</p>
           </div>
           <span className={"rrugc-creative-brief-status " + statusClass} role="status">
             <span className="rrugc-creative-brief-status-dot" aria-hidden="true" />{statusLabel}
@@ -256,15 +257,24 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
           </div>}
 
           {brief && <>
-            <section className="rrugc-creative-brief-summary" aria-label="Creative Brief insights">
+            <section className={"rrugc-creative-brief-summary" + (showStrategyDetails ? " expanded" : "")} aria-label="Creative Brief insights">
               <div className="rrugc-creative-brief-summary-lead">
-                <span className="rrugc-creative-brief-section-tag">01 / CREATIVE STRATEGY</span>
+                <div className="rrugc-creative-brief-summary-bar">
+                  <span className="rrugc-creative-brief-section-tag">01 / CREATIVE STRATEGY</span>
+                  <button type="button" className="rrugc-creative-brief-summary-toggle"
+                    aria-expanded={showStrategyDetails} aria-controls="rrugc-creative-brief-insights"
+                    onClick={() => setShowStrategyDetails(value => !value)}>
+                    {showStrategyDetails ? "Show less" : "View full insight"}
+                    <RrugcActionIcon name="chevron-right" />
+                  </button>
+                </div>
                 <h3>{brief.strategy}</h3>
-                <span className="rrugc-creative-brief-summary-divider" aria-hidden="true" />
-                <span className="rrugc-creative-brief-summary-label">THE CREATIVE HOOK</span>
-                <p>{brief.creative_hook}</p>
+                <div className="rrugc-creative-brief-summary-hook">
+                  <span className="rrugc-creative-brief-summary-label">CREATIVE HOOK</span>
+                  <p>{brief.creative_hook}</p>
+                </div>
               </div>
-              <dl className="rrugc-creative-brief-insights">
+              <dl className="rrugc-creative-brief-insights" id="rrugc-creative-brief-insights" hidden={!showStrategyDetails}>
                 <div><dt>Meaning &amp; emotion</dt><dd>{brief.meaning_emotion}</dd></div>
                 <div><dt>Target audience</dt><dd>{brief.target_audience}</dd></div>
                 <div><dt>Purchase motivation</dt><dd>{brief.purchase_motivation}</dd></div>
@@ -274,14 +284,14 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
             <section className="rrugc-creative-brief-routes" aria-label="Concept proposals">
               <div className="rrugc-creative-brief-section-heading">
                 <div><span className="rrugc-creative-brief-section-tag">02 / CONCEPT DIRECTIONS</span>
-                  <h3>Three ways to bring this idea to life</h3></div>
-                <span>{brief.concepts.length} directions · Select to compare</span>
+                  <h3>Choose a design direction</h3></div>
+                <span>{brief.concepts.length} concepts · Select to compare</span>
               </div>
               <div className="rrugc-creative-brief-workspace">
                 <div className="rrugc-creative-brief-proposals" role="group" aria-label="Select a concept">
                   {brief.concepts.map((item, index) => {
                     const mode = CONCEPT_MODES[item.mode];
-                    return <button type="button" key={item.mode} onClick={() => setSelected(index)}
+                    return <button type="button" key={item.mode} onClick={() => { setSelected(index); setShowConceptDetails(false); }}
                       className={"rrugc-creative-brief-proposal" + (concept === item ? " active" : "")}
                       aria-pressed={concept === item}
                       aria-label={mode.label + ": " + item.name}>
@@ -296,30 +306,49 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
                   })}
                 </div>
 
-                {concept && <article className="rrugc-creative-brief-concept" aria-live="polite">
+                {concept && <article className="rrugc-creative-brief-concept" aria-live="polite" id="rrugc-creative-brief-selected">
                   <header className="rrugc-creative-brief-concept-heading">
-                    <span className="rrugc-creative-brief-concept-eyebrow">SELECTED DIRECTION · {CONCEPT_MODES[concept.mode].label}</span>
-                    <h4>{concept.name}</h4>
+                    <div>
+                      <span className="rrugc-creative-brief-concept-eyebrow">SELECTED CONCEPT · {CONCEPT_MODES[concept.mode].number} / {CONCEPT_MODES[concept.mode].label}</span>
+                      <h4>{concept.name}</h4>
+                    </div>
                     <p>{CONCEPT_MODES[concept.mode].hint}</p>
                   </header>
+
                   <div className="rrugc-creative-brief-concept-grid">
-                    <div className="rrugc-creative-brief-detail-section">
-                      <h5><span>01</span> Visual idea</h5>
-                      <dl>
-                        <ConceptField title="Familiar format">{concept.familiar_format}</ConceptField>
-                        <ConceptField title="The twist">{concept.creative_twist}</ConceptField>
-                        <ConceptField title="Creative hook">{concept.creative_hook}</ConceptField>
-                      </dl>
-                    </div>
-                    <div className="rrugc-creative-brief-detail-section">
-                      <h5><span>02</span> Make it real</h5>
+                    <section className="rrugc-creative-brief-detail-section rrugc-creative-brief-visual-plan">
+                      <h5><span>01</span> Visual direction</h5>
+                      <p className="rrugc-creative-brief-idea">{concept.creative_twist}</p>
+                      <div className="rrugc-creative-brief-hook-line">
+                        <strong>Creative hook</strong>
+                        <p>{concept.creative_hook}</p>
+                      </div>
+                    </section>
+                    <section className="rrugc-creative-brief-detail-section rrugc-creative-brief-production-plan">
+                      <h5><span>02</span> Production plan</h5>
                       <dl>
                         <ConceptField title="Typography">{concept.typography_plan}</ConceptField>
-                        <ConceptField title="Embroidery plan">{concept.embroidery_plan}</ConceptField>
-                        <ConceptField title="2-second clarity">{concept.clarity_assessment}</ConceptField>
-                        <ConceptField title="Embroidery fit">{concept.embroidery_fit}</ConceptField>
+                        <ConceptField title="Embroidery">{concept.embroidery_plan}</ConceptField>
                       </dl>
+                    </section>
+                  </div>
+                  <div className="rrugc-creative-brief-concept-bottom">
+                    <div className="rrugc-creative-brief-readability">
+                      <strong>2-second readability</strong>
+                      <span>{concept.clarity_assessment}</span>
                     </div>
+                    <button type="button" className="rrugc-creative-brief-more"
+                      aria-expanded={showConceptDetails} aria-controls="rrugc-creative-brief-more-details"
+                      onClick={() => setShowConceptDetails(value => !value)}>
+                      {showConceptDetails ? "Hide details" : "Full design notes"}
+                      <RrugcActionIcon name="chevron-right" />
+                    </button>
+                  </div>
+                  <div className="rrugc-creative-brief-additional" id="rrugc-creative-brief-more-details" hidden={!showConceptDetails}>
+                    <dl>
+                      <ConceptField title="Familiar format">{concept.familiar_format}</ConceptField>
+                      <ConceptField title="Embroidery fit">{concept.embroidery_fit}</ConceptField>
+                    </dl>
                   </div>
                   {concept.risks.length > 0 && <div className="rrugc-creative-brief-risks">
                     <strong>Watch-outs</strong>
@@ -353,7 +382,6 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose }: {
             <span>{v3Queued ? "Stage 1 ImageGen queued · Old output history preserved" : "Brief analysis is text-only · Existing artwork unchanged"}</span>
             <span className="rrugc-creative-brief-footer-version">{detail?.prompt_version || "Meaning-First V1"}</span>
           </span>
-          <button type="button" onClick={onClose}>Close</button>
         </footer>
       </section>
     </div>, document.body,

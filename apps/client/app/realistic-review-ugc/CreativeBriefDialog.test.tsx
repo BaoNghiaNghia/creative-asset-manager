@@ -150,6 +150,38 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
   });
 
+  it("keeps the summary compact while allowing the full strategy to expand", async () => {
+    await renderDialog(makeDetail("completed", true));
+    const toggle = document.querySelector<HTMLButtonElement>(".rrugc-creative-brief-summary-toggle");
+    const insights = document.querySelector<HTMLElement>(".rrugc-creative-brief-insights");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(insights?.hidden).toBe(true);
+    await act(async () => { toggle?.click(); });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(insights?.hidden).toBe(false);
+    expect(insights?.textContent).toContain("Creative workers");
+    await act(async () => { toggle?.click(); });
+    expect(insights?.hidden).toBe(true);
+  });
+
+  it("opens optional design notes and resets the detail panel when switching concepts", async () => {
+    await renderDialog(makeDetail("completed", true));
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const more = dialog?.querySelector<HTMLButtonElement>(".rrugc-creative-brief-more");
+    const extra = dialog?.querySelector<HTMLElement>(".rrugc-creative-brief-additional");
+    expect(more?.getAttribute("aria-expanded")).toBe("false");
+    expect(extra?.hidden).toBe(true);
+    await act(async () => { more?.click(); });
+    expect(extra?.hidden).toBe(false);
+    expect(extra?.textContent).toContain("Feasible on a crown");
+    const explore = dialog?.querySelector<HTMLButtonElement>('button[aria-label="Explore: Broken Grid"]');
+    await act(async () => { explore?.click(); });
+    expect(dialog?.querySelector(".rrugc-creative-brief-more")?.getAttribute("aria-expanded")).toBe("false");
+    expect(dialog?.querySelector<HTMLElement>(".rrugc-creative-brief-additional")?.hidden).toBe(true);
+    expect(dialog?.textContent).toContain("Embroidery for Broken Grid");
+    expect(dialog?.textContent).toContain("Avoid fine lines");
+  });
+
   it("traps keyboard focus, closes on Escape and restores the former focus", async () => {
     const opener = await renderDialog(makeDetail("not_analyzed"));
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
