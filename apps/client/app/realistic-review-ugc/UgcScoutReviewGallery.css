@@ -1,6 +1,8 @@
 /* Selected Slot 6 inputs are overlaid on their original Scout thumbnails. */
-.rrugc-ugc-review-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,112px));gap:8px;margin:9px 0;align-items:start}
-.rrugc-ugc-review-tile{display:block;position:relative;aspect-ratio:1;overflow:hidden;width:100%;padding:0!important;border:1px solid #dbe4ef!important;border-radius:9px!important;background:#edf2f7!important;cursor:zoom-in!important;text-align:left}
+/* Fluid thumbnail grid: fill the entire Scout panel rather than leaving a
+   hard 112px tile track and unused space to the right. */
+.rrugc-ugc-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:8px;width:100%;min-width:0;margin:9px 0;align-items:start}
+.rrugc-ugc-review-tile{display:block;position:relative;aspect-ratio:1;overflow:hidden;width:100%;min-width:0;padding:0!important;border:1px solid #dbe4ef!important;border-radius:9px!important;background:#edf2f7!important;cursor:zoom-in!important;text-align:left}
 .rrugc-ugc-review-tile.is-pinned{border:2px solid #16815e!important;box-shadow:0 0 0 2px rgba(22,129,94,.13)}
 .rrugc-ugc-review-tile>img{display:block;width:100%;height:100%;object-fit:cover}
 .rrugc-ugc-review-tile:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
@@ -34,7 +36,7 @@
 .rrugc-ugc-review-dialog footer a{color:#285f9d;white-space:nowrap}
 .rrugc-ugc-review-error{margin:0;padding:7px 10px;border-radius:6px;background:#fff0f0;color:#b52c35;font-size:11px}
 @media(max-width:640px){
- .rrugc-ugc-review-grid{grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px}
+ .rrugc-ugc-review-grid{grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:6px}
  .rrugc-ugc-review-backdrop{padding:5px}
  .rrugc-ugc-review-dialog{padding:10px;gap:8px;max-height:calc(100dvh - 10px)}
  .rrugc-ugc-review-media{grid-template-columns:28px minmax(0,1fr) 28px;gap:3px}

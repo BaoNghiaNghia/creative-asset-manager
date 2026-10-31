@@ -664,3 +664,20 @@
 .rrugc-action-icon.is-spinning{animation:rrugc-stage2-spin 1.2s linear infinite}
 @keyframes rrugc-stage2-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.rrugc-action-icon.is-spinning{animation:none}}
+
+/* Slot 6 Scout is an image gallery, not a two-column setup form.
+   Give its references the entire detail card on wide workspaces too. */
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ugc"] .rrugc-products-photo-stage-detail.is-bundled-skill-detail{
+ grid-template-columns:minmax(0,1fr);
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ugc"] .rrugc-products-photo-stage-detail.is-bundled-skill-detail > .rrugc-products-photo-ugc-scout{
+ grid-column:1 / -1;
+ min-width:0;
+ width:100%;
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ugc"] .rrugc-products-photo-stage-detail.is-bundled-skill-detail > .rrugc-products-photo-detail-actions{
+ grid-column:1;
+ grid-row:auto;
+ flex-flow:row wrap;
+ align-items:center;
+}

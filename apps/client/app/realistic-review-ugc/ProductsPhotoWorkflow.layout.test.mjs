@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync(new URL("./ProductsPhotoWorkflow.css", import.meta.url), "utf8");
 const galleryCss = readFileSync(new URL("./AppliedHatPreview.css", import.meta.url), "utf8");
 const twoColumnCss = readFileSync(new URL("./ProductsPhotoWorkflowTwoColumns.css", import.meta.url), "utf8");
+const scoutCss = readFileSync(new URL("./UgcScoutReviewGallery.css", import.meta.url), "utf8");
 
 describe("Products Stage 2 photo workflow layout", () => {
   it("keeps Run all status and three actions on a single compact desktop toolbar", () => {
@@ -59,6 +60,19 @@ describe("Products Stage 2 photo workflow layout", () => {
     expect(actions).toContain("grid-column:2");
     expect(css).toContain("@media(max-width:900px)");
     expect(css).toContain("grid-column:1;grid-row:2;align-items:flex-start");
+  });
+
+  it("uses the full Slot 6 card for a fluid 20-reference Scout gallery", () => {
+    const slot6 = css.match(/\.rrugc-products-photo-stage-row\[data-skill="prod_s2_ugc"\] \.rrugc-products-photo-stage-detail\.is-bundled-skill-detail\{([^}]*)\}/)?.[1] ?? "";
+    const actions = css.match(/\.rrugc-products-photo-stage-row\[data-skill="prod_s2_ugc"\] \.rrugc-products-photo-stage-detail\.is-bundled-skill-detail > \.rrugc-products-photo-detail-actions\{([^}]*)\}/)?.[1] ?? "";
+    const grid = scoutCss.match(/\.rrugc-ugc-review-grid\{([^}]*)\}/)?.[1] ?? "";
+    expect(slot6).toContain("grid-template-columns:minmax(0,1fr)");
+    expect(actions).toContain("grid-row:auto");
+    expect(actions).toContain("grid-column:1");
+    expect(grid).toContain("grid-template-columns:repeat(auto-fit,minmax(136px,1fr))");
+    expect(grid).toContain("width:100%");
+    expect(grid).not.toContain("112px");
+    expect(scoutCss).toContain("repeat(auto-fit,minmax(104px,1fr))");
   });
 
   it("shows five embroidery gallery tiles while keeping responsive previews", () => {
