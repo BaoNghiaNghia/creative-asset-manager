@@ -33,13 +33,14 @@ describe("Product embroidery design gallery", () => {
     expect(html.replace(/<[^>]*>/g, "").trim()).toBe("3/4 photo not synced");
   });
 
-  it("shows the opaque fabric in the design tile and verified thread-only preview on the front", () => {
+  it("shows the alpha-preserving thread PNG in both design and front previews, not a black Drive thumbnail", () => {
     const source = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&size=128&v=rev123";
     const html = renderToStaticMarkup(<AppliedHatPreview
       designSrc={source} designName="THE ORIGINAL" revision="rev123" />);
     const original = "/api/v1/realistic-review-ugc/source-plans/plan-1/image?thumbnail=true&amp;size=384&amp;v=rev123";
     const threads = original + "&amp;artwork=stage1-thread-geometry-v1";
-    expect(html).toContain('src="' + original + '"');
+    expect(html).not.toContain('src="' + original + '"');
+    expect((html.match(/src="\/api\/v1\/realistic-review-ugc\/source-plans\/plan-1\/image\?thumbnail=true&amp;size=384&amp;v=rev123&amp;artwork=stage1-thread-geometry-v1"/g) || [])).toHaveLength(2);
     expect(html).toContain('src="' + threads + '"');
     expect(html).not.toContain("stage1-source-alpha-v2");
     expect(html).toContain('class="rrugc-applied-hat-image is-original-design"');

@@ -1,7 +1,13 @@
 /* Five distinct previews: original artwork + front, 3/4, side and back. */
 .rrugc-applied-hat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;min-width:0}
 .rrugc-applied-hat-image{position:relative;width:100%;aspect-ratio:1/1;min-width:0;overflow:hidden;box-sizing:border-box;border:1px solid #dde6f1;border-radius:10px;background:#f7f9fd}
-.rrugc-applied-hat-image>img{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+/* Fill card height while preserving each photograph's natural proportions.
+   Center images without stretching them horizontally or cropping the artwork. */
+.rrugc-applied-hat-image>img{
+  display:block;position:absolute;top:0;left:50%;
+  width:auto;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;object-position:center;transform:translateX(-50%);
+}
 .rrugc-applied-hat-image.is-original-design{background:#fff}
 .rrugc-applied-hat-image.is-original-design>img{background:transparent}
 .rrugc-applied-hat-missing{display:grid;place-items:center;width:100%;height:100%;padding:10px;box-sizing:border-box;color:#68778b;text-align:center;font-size:11px;font-weight:650;background:repeating-linear-gradient(135deg,#f7f9fd,#f7f9fd 10px,#eef2f7 10px,#eef2f7 20px)}
@@ -12,6 +18,6 @@
   --rrugc-guide-height:23.1%;
   position:relative;width:80%;height:100%;margin:auto;aspect-ratio:4/5;
 }
-.rrugc-applied-hat-stock{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.rrugc-applied-hat-stock{display:block;position:absolute;top:0;left:50%;width:auto;height:100%;max-width:100%;max-height:100%;object-fit:contain;object-position:center;transform:translateX(-50%)}
 .rrugc-applied-hat-front-frame{position:absolute;left:var(--rrugc-guide-left);top:var(--rrugc-guide-top);width:var(--rrugc-guide-width);height:var(--rrugc-guide-height);overflow:visible}
 .rrugc-applied-hat-front-artwork{position:absolute;display:block;max-width:none;max-height:none;object-fit:fill;transform:none;pointer-events:none}

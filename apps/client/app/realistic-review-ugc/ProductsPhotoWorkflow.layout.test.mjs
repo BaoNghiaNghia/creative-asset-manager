@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("./ProductsPhotoWorkflow.css", import.meta.url), "utf8");
 const galleryCss = readFileSync(new URL("./AppliedHatPreview.css", import.meta.url), "utf8");
+const selectedPreviewCss = readFileSync(new URL("./ProductsStage2SourceTree.css", import.meta.url), "utf8");
 const twoColumnCss = readFileSync(new URL("./ProductsPhotoWorkflowTwoColumns.css", import.meta.url), "utf8");
 const scoutCss = readFileSync(new URL("./UgcScoutReviewGallery.css", import.meta.url), "utf8");
 
@@ -79,6 +80,23 @@ describe("Products Stage 2 photo workflow layout", () => {
     expect(galleryCss).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(galleryCss).not.toMatch(/repeat\(3/);
     expect(css).toContain(">.rrugc-applied-hat-grid");
+  });
+
+  it("keeps five gallery images and Hat color on one horizontal line with height-filling proportional photos", () => {
+    const img = galleryCss.match(/\.rrugc-applied-hat-image>img\s*\{([^}]*)\}/)?.[1] || "";
+    expect(img).toContain("height:100%");
+    expect(img).toContain("width:auto");
+    expect(img).toContain("max-width:100%");
+    expect(img).toContain("object-fit:contain");
+    expect(img).toContain("transform:translateX(-50%)");
+    const front = galleryCss.match(/\.rrugc-applied-hat-stock\s*\{([^}]*)\}/)?.[1] || "";
+    expect(front).toContain("height:100%");
+    expect(front).toContain("width:auto");
+    expect(front).toContain("object-fit:contain");
+    expect(selectedPreviewCss).toContain("grid-template-columns:repeat(5,minmax(0,1fr))");
+    expect(selectedPreviewCss).toContain("overflow-x:auto");
+    expect(selectedPreviewCss).toMatch(/@container\s*\(max-width:680px\)\s*\{[\s\S]*?grid-template-columns:minmax\(0,1fr\) 185px;min-width:880px;/);
+    expect(selectedPreviewCss).not.toContain("grid-template-columns:minmax(0,1fr)}");
   });
 
   it("stacks all workflow controls on narrow screens without hiding outputs", () => {

@@ -4,7 +4,7 @@ import { useBlueprintArtworkFit } from "./BlueprintDesignFit";
 import { DEFAULT_FRONT_PLACEMENT, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./AppliedHatPreview.css";
 import { DeferredImage } from "./DeferredImage";
-import { productEmbroideryArtworkUrl, productFabricArtworkUrl, publicHatStockUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl, publicHatStockUrl } from "./stage2Media";
 
 const HAT_VIEWS = [
   { key: "front", label: "front" },
@@ -74,14 +74,15 @@ export function AppliedHatPreview({ designSrc, designName, revision, stockViews,
   stockViews?: HatStockViews;
   placement?: FrontPlacement;
 }) {
-  // Reuse one alpha-preserving, cached source for both the original tile and
-  // the stitched front: no black Drive matte, no duplicate original download.
+  // Both the design card and stitched front need the same authenticated,
+  // alpha-preserving PNG. Drive's generic thumbnail can flatten alpha to black.
+  // Keep the original on-screen design unmodified: thread geometry is only
+  // used as a preview source and never writes back to the saved Stage 1 asset.
   const artworkSrc = productEmbroideryArtworkUrl(designSrc);
-  const fabricPhotoSrc = productFabricArtworkUrl(designSrc);
   return <div className="rrugc-applied-hat-grid" key={revision}
     aria-label="Original embroidery design, embroidered front hat, and unembroidered three-quarter, side and back references">
     <div className="rrugc-applied-hat-image is-original-design" role="img" aria-label={`Original embroidery design: ${designName}`}>
-      <DeferredImage src={fabricPhotoSrc} alt="" aria-hidden="true" rootMargin="350px" />
+      <DeferredImage src={artworkSrc} alt="" aria-hidden="true" rootMargin="350px" />
     </div>
     {HAT_VIEWS.map(view => <HatImage key={view.key} designSrc={artworkSrc} view={view} stockViews={stockViews} placement={placement} />)}
   </div>;
