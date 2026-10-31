@@ -175,7 +175,7 @@ class CodexBriefUnavailable(RuntimeError):
 def _codex_unavailable(stderr_tail: bytes, stdout_tail: bytes) -> CodexBriefUnavailable | None:
     # Inspect the process outcome privately. Never emit CLI output: it can
     # include the keyword, prompt, bearer details, or model response.
-    diagnostic = (stderr_tail + b"\\n" + stdout_tail).decode("utf-8", "replace").casefold()
+    diagnostic = (stderr_tail + b"\n" + stdout_tail).decode("utf-8", "replace").casefold()
     if any(phrase in diagnostic for phrase in (
         "usage limit", "rate limit", "rate_limit_exceeded", "quota", "limit reached",
         "too many requests", "try again later", "429", "credits exhausted",

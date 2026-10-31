@@ -70,7 +70,7 @@ def _codex_cooldown(
             reason = failure.reason_code
             file.seek(0)
             file.truncate()
-            file.write(f"{int(retry_at.timestamp())} {reason}\\n")
+            file.write(f"{int(retry_at.timestamp())} {reason}\n")
             file.flush()
             return (retry_at, reason)
         finally:
