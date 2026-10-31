@@ -134,6 +134,8 @@ def test_lite_qa_reason_codes_are_bounded_and_actionable():
     cases = {
         "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
         "AI edit still resembles flat printed lettering.": "flat_print",
+        "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
+        "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
         "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
         "Image edit changed aspect ratio and cannot be aligned safely.": "frame_alignment",
         "unexpected provider description": "unknown",

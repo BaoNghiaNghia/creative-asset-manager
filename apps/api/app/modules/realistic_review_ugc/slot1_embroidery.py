@@ -44,15 +44,21 @@ class Slot1MaterialPass:
     guide_box: tuple[int, int, int, int]
     pigment: Image.Image
     contact_width_px: int = 0
+    edit_roi_box: tuple[int, int, int, int] | None = None
 
     def stitched_png(self) -> bytes:
         """Retain previous internal API for QA, not for publishing."""
         return _png(self.stitched)
 
     def _square(self, image: Image.Image, background: int | tuple[int, int, int]) -> Image.Image:
-        side = max(self.stock.size)
-        pad_x = (side - self.stock.width) // 2
-        pad_y = (side - self.stock.height) // 2
+        # Lite processes a real, unwarped crop of the ORIGINAL stock rather than
+        # spending the native edit resolution on a whole hat and large visor.
+        # Other Slot 1 Skills keep their original full-cap image contract.
+        if self.edit_roi_box is not None:
+            image = image.crop(self.edit_roi_box)
+        side = max(*image.size, 512 if self.edit_roi_box else 0)
+        pad_x = (side - image.width) // 2
+        pad_y = (side - image.height) // 2
         canvas = Image.new(image.mode, (side, side), background)
         canvas.paste(image, (pad_x, pad_y))
         return canvas
@@ -114,15 +120,15 @@ def _canonical_pigment(source: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 
 def build_slot1_material_pass(
     stock_bytes: bytes, artwork_bytes: bytes, placement: dict,
-    *, contact_width_px: int = 0,
+    *, contact_width_px: int = 0, localized_edit: bool = False,
 ) -> Slot1MaterialPass:
     """Create a pigment-only edit guide and immutable protection mask.
 
     NO wave/stripe, embossed fill, synthetic thread texture, repeated sample,
     shadow extrusion, or fabricated needle marks appear in this preprocessing.
     """
-    if contact_width_px not in (0, 2):
-        raise ValueError("Only legacy 0px and v4 2px contact bands are supported.")
+    if contact_width_px not in (0, 2, 3):
+        raise ValueError("Only 0px legacy, 2px v4 and 3px Lite contact bands are supported.")
     stock = _validated_rgba(stock_bytes).convert("RGB")
     if stock.width * stock.height > _MAX_PIXELS:
         raise FrontReferenceError("Stock photo exceeds Slot 1 memory limit.")
@@ -143,17 +149,32 @@ def build_slot1_material_pass(
     full_mask.paste(Image.fromarray(np.uint8(np.rint(alpha * 255)), "L"), (x, y))
     full_pigment = stock.copy()
     full_pigment.paste(Image.fromarray(np.uint8(np.clip(np.rint(pigment_rgb), 0, 255)), "RGB"), (x, y))
-    # v3 retains its original 2px protection margin. v4 grants one
-    # additional antialias/contact pixel without altering the stock elsewhere.
+    # Each mode has a tight thread/cloth contact envelope. The Lite variant
+    # permits one additional hairline pixel, NEVER a broad emboss or patch.
     raw_mask = np.asarray(full_mask, dtype=np.uint8)
-    kernel = 7 if contact_width_px else 5
+    kernel = 2 * (contact_width_px + 1) + 1 if contact_width_px else 5
     dilated = cv2.dilate(raw_mask, np.ones((kernel, kernel), np.uint8))
     left, top, right, bottom = guide_box
     allowed = np.zeros(raw_mask.shape, np.uint8)
     allowed[top:bottom, left:right] = 255
     edit_mask = Image.fromarray(cv2.bitwise_and(dilated, allowed), "L")
+    # Keep the original camera plane: simply window the true factory cap
+    # around its existing embroidery field, including nearby crown weave.
+    # The native model sees much larger stitches; the final gets pasted back
+    # into the full original frame and hard-clipped to the thread/contact mask.
+    roi = None
+    if localized_edit:
+        margin_x = max(8, round((right - left) * .08))
+        margin_y = max(12, round((bottom - top) * .35))
+        roi = (
+            max(0, left - margin_x), max(0, top - margin_y),
+            min(stock.width, right + margin_x),
+            min(stock.height, bottom + margin_y),
+        )
+        if roi[2] - roi[0] < 128 or roi[3] - roi[1] < 128:
+            raise FrontReferenceError("Slot 1 front edit crop is too small.")
     return Slot1MaterialPass(stock, stitched, full_mask, edit_mask, guide_box,
-                             full_pigment, contact_width_px)
+                             full_pigment, contact_width_px, roi)
 
 
 def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Image:
@@ -162,6 +183,24 @@ def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Ima
     stock_w, stock_h = material.stock.size
     candidate_aspect = candidate.width / candidate.height
     stock_aspect = stock_w / stock_h
+    if material.edit_roi_box is not None:
+        # ROI is a square-letterboxed crop, not a new product photograph.
+        # Model results must align to that crop; full-hat hallucinations are
+        # rejected instead of being stretched and silently accepted.
+        left, top, right, bottom = material.edit_roi_box
+        roi_w, roi_h = right - left, bottom - top
+        if abs(candidate_aspect - 1) < .025:
+            side = max(roi_w, roi_h, 512)
+            aligned = candidate.resize((side, side), Image.Resampling.LANCZOS)
+            pad_x, pad_y = (side - roi_w) // 2, (side - roi_h) // 2
+            local = aligned.crop((pad_x, pad_y, pad_x + roi_w, pad_y + roi_h))
+        elif abs(candidate_aspect - roi_w / roi_h) < .025:
+            local = candidate.resize((roi_w, roi_h), Image.Resampling.LANCZOS)
+        else:
+            raise Slot1EmbroideryQAError("Image edit changed aspect ratio and cannot be aligned safely.")
+        full = material.stock.copy()
+        full.paste(local, (left, top))
+        return full
     if candidate.size == (stock_w, stock_h):
         return candidate
     if abs(candidate_aspect - 1) < .025:
@@ -238,6 +277,30 @@ def finish_slot1_refinement(
     if float(np.std(high[core])) < max(3.2, float(np.std(high_stock[core])) * 1.1):
         raise Slot1EmbroideryQAError("AI edit still resembles flat printed lettering.")
 
+    if material.edit_roi_box is not None:
+        # A high-frequency noise overlay is NOT a photographed yarn structure.
+        # Genuine satin/fill has locally coherent directional filaments.
+        # A broad, embossed 3-D cord has too little FINE texture relative to
+        # its low-frequency repetitive ridges. Run this only on Lite ROI and
+        # erode the core so glyph borders cannot fake the material signature.
+        interior = cv2.erode(np.uint8(core), np.ones((5, 5), np.uint8)) > 0
+        if int(np.count_nonzero(interior)) > 600:
+            fine = candidate_luma - cv2.GaussianBlur(candidate_luma, (0, 0), 1.1)
+            mid = (cv2.GaussianBlur(candidate_luma, (0, 0), 1.1)
+                   - cv2.GaussianBlur(candidate_luma, (0, 0), 5.0))
+            if float(np.std(fine[interior])) < max(2.5, float(np.std(mid[interior])) * .43):
+                raise Slot1EmbroideryQAError("AI edit has oversized plastic-like stitch ridges.")
+            smooth = cv2.GaussianBlur(candidate_luma, (0, 0), .65)
+            dx = cv2.Sobel(smooth, cv2.CV_32F, 1, 0, ksize=3)
+            dy = cv2.Sobel(smooth, cv2.CV_32F, 0, 1, ksize=3)
+            xx = cv2.GaussianBlur(dx * dx, (0, 0), 2.2)
+            yy = cv2.GaussianBlur(dy * dy, (0, 0), 2.2)
+            xy = cv2.GaussianBlur(dx * dy, (0, 0), 2.2)
+            directionality = (np.sqrt((xx - yy) ** 2 + 4 * xy ** 2)
+                              / (xx + yy + 1e-5))
+            if float(np.median(directionality[interior])) < .32:
+                raise Slot1EmbroideryQAError("AI edit lacks directional satin thread fibers.")
+
     # Reject large dark emboss halos before the masked composite removes them.
     broad = np.uint8(alpha >= .5)
     near = cv2.dilate(broad, np.ones((7, 7), np.uint8)).astype(bool) & ~(broad.astype(bool))
@@ -264,8 +327,8 @@ def finish_slot1_refinement(
     effective_alpha = np.clip(alpha * .99, 0, 1)
     final = stock * (1 - effective_alpha[..., None]) + threads * effective_alpha[..., None]
     if material.contact_width_px:
-        # v4 only: preserve the actual twill, adding model-informed contact
-        # shading within two pixels beside the exact source glyph silhouette.
+        # Retain genuine weave and a tiny model-informed stitch-foot contact
+        # shadow: 2px in v4 or 3px in Lite, never a continuous black outline.
         # The upper bound prevents an embossed outline or synthetic groove.
         visible = alpha >= .50
         distance = cv2.distanceTransform(np.uint8(~visible), cv2.DIST_L2, 3)

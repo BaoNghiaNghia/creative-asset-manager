@@ -75,6 +75,8 @@ def _lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
         "AI edit changed source embroidery hue.": "hue_shift",
         "AI edit made no meaningful photographic refinement.": "no_refinement",
         "AI edit still resembles flat printed lettering.": "flat_print",
+        "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
+        "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
         "AI edit has a thick embossed shadow halo.": "emboss_halo",
         "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
     }.get(str(error), "unknown")
@@ -1223,7 +1225,8 @@ class EcommerceGenerateHandler:
                 slot1_material = build_slot1_material_pass(
                     refs[0][1], design_bytes,
                     job_front_placement(context.job.payload.get("front_placement")),
-                    contact_width_px=2 if skill_name in ("gatorhats-8869-ecommerce-front-thread-v4", "gatorhats-8869-slot1-threadtransfer-lite-v1") else 0,
+                    contact_width_px=(3 if is_lite else 2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0),
+                    localized_edit=is_lite,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
                 references.extend((
@@ -1378,9 +1381,11 @@ class EcommerceGenerateHandler:
             # Do not stack the legacy v4 view/geometry/embroidery prompt.
             prompt = (
                 "Execute ThreadTransfer Lite exactly once: Pass A creates one native "
-                "stitched macro from design_reference; Pass B image-edits the supplied "
-                "original stock target with that macro. Preserve exact glyphs, palette, "
-                "factory twill, cap shape and protected pixels. No other outputs."
+                "stitched macro from design_reference; Pass B edits the guided CROPPED "
+                "original stock crown target with that macro. Preserve exact glyphs, palette, "
+                "factory twill, cap shape and protected pixels. Fine satin yarns must "
+                "sit BELOW the apparent surface profile of thick puff embroidery, "
+                "with no broad emboss or rubber highlights. No other outputs."
             )
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
@@ -1467,6 +1472,10 @@ class EcommerceGenerateHandler:
                                        if is_lite else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
+                                    **({"material_revision": "roi-fiber-v1.1",
+                                        "native_front_roi": list(slot1_material.edit_roi_box),
+                                        "contact_width_px": slot1_material.contact_width_px}
+                                       if is_lite and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 "input_reference_snapshot": {
                                     "source_revision": row.source_revision,

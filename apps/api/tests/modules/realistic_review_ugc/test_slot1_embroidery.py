@@ -27,7 +27,13 @@ def refined_candidate(material, square=False):
         base = np.asarray(material.stitched, dtype=np.int16).copy()
         mask = np.asarray(material.thread_mask, dtype=np.uint8) > 200
     rng = np.random.default_rng(47)
-    texture = rng.normal(0, 13, mask.shape)
+    if material.edit_roi_box is not None:
+        # Realistic test-only coherent fine fibers, not random pixel noise.
+        yy, xx = np.indices(mask.shape)
+        texture = (np.sin(xx * .33 * 2 * np.pi + yy * .11 * 2 * np.pi) * 11
+                   + rng.normal(0, 2, mask.shape))
+    else:
+        texture = rng.normal(0, 13, mask.shape)
     base[mask] += np.rint(texture[mask])[:, None].astype(np.int16)
     return png(Image.fromarray(np.uint8(np.clip(base, 0, 255)), "RGB"))
 
@@ -266,3 +272,80 @@ def test_lite_clips_ai_halo_then_checks_real_saved_pixels(material):
     assert np.max(depression) <= 8
     assert np.min(depression) >= 0
     assert np.any(final[glyph] != original[glyph])
+
+def test_lite_localized_native_edit_retains_original_full_stock_and_contact_band(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art),
+        {**DEFAULT_FRONT_PLACEMENT, "design_size": 100},
+        contact_width_px=3, localized_edit=True,
+    )
+    assert lite.edit_roi_box is not None
+    x0, y0, x1, y1 = lite.edit_roi_box
+    a, b, c, d = lite.guide_box
+    assert 0 <= x0 <= a < c <= x1 <= lite.stock.width
+    assert 0 <= y0 <= b < d <= y1 <= lite.stock.height
+    assert (x1-x0) < lite.stock.width and (y1-y0) < lite.stock.height
+    target = Image.open(BytesIO(lite.model_edit_target_png()))
+    protection = Image.open(BytesIO(lite.edit_mask_png()))
+    assert target.size == protection.size == (512, 512)
+    # The genuine original fabric is still visible in the crop, not a redraw.
+    side = target.width
+    px, py = (side-(x1-x0))//2, (side-(y1-y0))//2
+    target_crop = np.asarray(target)[py:py+y1-y0, px:px+x1-x0]
+    original_crop = np.asarray(lite.stock)[y0:y1, x0:x1]
+    editable = np.asarray(lite.edit_mask)[y0:y1, x0:x1] > 0
+    assert np.array_equal(target_crop[~editable], original_crop[~editable])
+    output = finish_slot1_refinement(lite, refined_candidate(lite, square=True), clip_raw_halo=True)
+    final = np.asarray(Image.open(BytesIO(output)))
+    stock = np.asarray(lite.stock)
+    full_mask = np.asarray(lite.edit_mask) > 0
+    assert final.shape == stock.shape
+    assert np.array_equal(final[~full_mask], stock[~full_mask])
+    assert np.any(final[full_mask] != stock[full_mask])
+    assert np.array_equal(final[350:385, 477:492], stock[350:385, 477:492])
+
+
+def test_lite_roi_refuses_a_generated_whole_hat_instead_of_the_requested_crop(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True,
+    )
+    # A non-square regenerated whole-hat frame violates the crop contract.
+    with pytest.raises(Slot1EmbroideryQAError, match="aspect ratio"):
+        finish_slot1_refinement(lite, refined_candidate(lite), clip_raw_halo=True)
+
+def test_lite_rejects_random_noise_as_fake_thread_material(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True,
+    )
+    base = np.array(Image.open(BytesIO(lite.model_edit_target_png())), dtype=np.int16)
+    mask = np.array(Image.open(BytesIO(lite.edit_mask_png())), dtype=np.uint8) > 200
+    noise = np.random.default_rng(123).normal(0, 13, mask.shape)
+    base[mask] += np.rint(noise[mask])[:, None].astype(np.int16)
+    bad = png(Image.fromarray(np.uint8(np.clip(base, 0, 255)), "RGB"))
+    with pytest.raises(Slot1EmbroideryQAError, match="directional satin"):
+        finish_slot1_refinement(lite, bad, clip_raw_halo=True)
+
+
+def test_lite_rejects_coarse_fake_foam_ridges(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True,
+    )
+    base = np.array(Image.open(BytesIO(lite.model_edit_target_png())), dtype=np.int16)
+    mask = np.array(Image.open(BytesIO(lite.edit_mask_png())), dtype=np.uint8) > 200
+    yy, xx = np.indices(mask.shape)
+    bulge = 23 * np.sin((yy + xx * .05) * 2 * np.pi / 15)
+    base[mask] += np.rint(bulge[mask])[:, None].astype(np.int16)
+    bad = png(Image.fromarray(np.uint8(np.clip(base, 0, 255)), "RGB"))
+    with pytest.raises(Slot1EmbroideryQAError, match="plastic-like stitch ridges"):
+        finish_slot1_refinement(lite, bad, clip_raw_halo=True)

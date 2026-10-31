@@ -105,3 +105,12 @@ Không tự mở rộng prompt ở `ecommerce_pipeline.py` với `VIEW_PROMPTS` 
 - 2026-10-30: kế hoạch Fast-Track cũ (2 sessions, module orchestration, flag, ROI).
 - 2026-10-31: audit `main` + live release; chuyển sang Lite: **1 session / 2 image calls / 1 Skill / existing mask+QA / no new infrastructure**.
 - 2026-10-31: `ff5a70658` triển khai backend + Skill Lite; `ec8ceaff7` thêm wrapper kích hoạt. `dc72760aa` sửa phát hiện Skill cho tenant cũ. `be01ab549` tăng fidelity prompt/mã QA. `b86676ded` sửa hậu xử lý halo, thêm test. 50/50 tests đạt; production pilot hoàn tất; Lite đã kích hoạt; các temporary smoke files đã xóa.
+## 2026-10-31 — Slot 1 photographic fiber improvement (V1.1)
+
+Nguyên nhân người dùng báo output giống chữ thêu phồng hơn ảnh mẫu: Lite V1 đã chạy 2 ImageGen native nhưng Pass B chỉnh ảnh mũ toàn khung, khiến chữ chiếm tỷ lệ nhỏ trong khung 1024px. Hậu xử lý composite theo mask nguồn và QA texture chỉ dựa high-pass variance nên nhiễu ngẫu nhiên/gân to vẫn có thể bị coi là vật liệu chỉ thật. QA V1 trước đó chỉ chứng minh native provenance, không chứng minh thẩm mỹ.
+
+- Chỉ với Lite: tạo **square-letterboxed source-crown ROI** từ ảnh official stock quanh front embroidery field; role `person` được crop nguyên vẹn, không render lại. Macro/stock-reference/mask vẫn là các role cũ; 2 native calls, 1 Codex session như V1. Crop output được map/paste lại khung original trước khi kiểm tra màu và khôi phục pixel ngoài mask.
+- Tăng contact band Lite lên 3 px ở kích thước **stock gốc**, giảm nguy cơ viền thêu bị cắt sắc; giới hạn tối đa 8/255 độ tối và giữ nguyên hình vải/side logo. V4 và các Slot 2–7 không đổi.
+- QA mới yêu cầu fiber-direction coherence (chặn noise giả chỉ) và tỷ lệ chi tiết sợi mảnh so với gân to (chặn coarse artificial puff), kèm mã lỗi riêng. Bảo toàn glyph alpha, màu, stock ngoài mask và native hashes như trước.
+- Cập nhật Skill lên 1.1.0 (giữ tên Skill Lite V1 để job/provenance vẫn tương thích), metadata Output History có `material_revision=roi-fiber-v1.1` và tọa độ ROI. Không tác động file ảnh đã hoàn thành, không tự regenerate hàng loạt.
+- Test cục bộ targeted/regression: **79 passed** trước khi deploy; cần kiểm tra hình thực tế trên output mới sau khi production cập nhật. QA tự động chưa thay thế nghiệm thu thị giác người thật, và stock gốc không được thay đổi ánh sáng/bố cục theo ảnh benchmark.
