@@ -258,6 +258,25 @@ def _source_plan(session: Session, tenant_id: str, plan_id: str,
 def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage: str):
     assignment = session.get(RrugcStageSkillDefaultModel, (tenant_id, SCENE_STAGE_SLOTS.get(stage, stage)))
     selected = session.get(RrugcStage2SkillRegistryModel, assignment.registry_id) if assignment and assignment.registry_id else None
+    # Deploy installs local SKILL.md before API restart, while DB metadata may
+    # still point to the old version. Refresh ONLY the selected Slot 1 Lite
+    # registry row in the caller's transaction before pinning Retry/Regenerate.
+    # Never commit a job lock or create an unrelated Skill assignment here.
+    if (stage == "prod_s2_ec1" and selected is not None
+            and selected.tenant_id == tenant_id
+            and selected.source == "local" and selected.enabled
+            and selected.deleted_at is None
+            and selected.skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"):
+        active_hash = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
+        if active_hash and active_hash != selected.bundle_sha256:
+            from app.modules.realistic_review_ugc.stage2_skills import _local_item, _local_manifests
+            from app.modules.realistic_review_ugc.skill_registry import _upsert_catalog_item
+            manifest = _local_manifests(settings).get(selected.skill_name)
+            item = _local_item(settings, manifest) if manifest is not None else None
+            if item is None or not item.ready:
+                raise EcommerceError("ecommerce_skill_changed",
+                                     "The assigned Slot 1 Skill was replaced but is not ready.", 409)
+            _upsert_catalog_item(session, tenant_id=tenant_id, actor_id=None, item=item)
     if (not selected or selected.tenant_id != tenant_id or not selected.enabled
             or selected.deleted_at is not None or selected.validation_status != "valid"):
         raise EcommerceError("ecommerce_skill_missing",
