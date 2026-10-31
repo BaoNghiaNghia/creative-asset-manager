@@ -481,8 +481,6 @@ class KeywordVolumeResponse(BaseModel):
     scout_pin_feedback: Literal["suggested", "blocked", "neutral"] = "neutral"
     picked: bool = False
     picked_at: datetime | None = None
-    favorite: bool = False
-    favorite_at: datetime | None = None
     provider: str
     provider_account: str | None = None
     provider_customer_id: str | None = None
@@ -496,7 +494,6 @@ class KeywordVolumeResponse(BaseModel):
 class KeywordSuggestionResponse(BaseModel):
     keyword: str
     search_volume: int = 0
-    favorite: bool = False
     picked: bool = False
 
 
@@ -542,10 +539,6 @@ class KeywordVolumePickRequest(BaseModel):
     picked: bool = True
 
 
-class KeywordVolumeFavoriteRequest(BaseModel):
-    favorite: bool = True
-
-
 class KeywordVolumeResolveRequest(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=50)
     force: bool = False
@@ -587,7 +580,6 @@ class KeywordVolumeOverviewResponse(BaseModel):
     mid_tail_keywords: int = 0
     long_tail_keywords: int = 0
     picked_keywords: int = 0
-    favorite_keywords: int = 0
     suggested_keywords: int = 0
 
 

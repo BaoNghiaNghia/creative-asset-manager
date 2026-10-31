@@ -511,12 +511,11 @@ def test_keyword_analysis_suggestions_are_tenant_scoped_ranked_and_literal(api, 
     match = api.get(endpoint, params={"q": " houston  "})
     assert match.status_code == 200
     assert [row["keyword"] for row in match.json()] == [
-        "Houston Astros Trucker Hat", "Houston City Cap",
-        "HOUSTON ASTROS", "Vintage Houston Hat",
+        "Houston City Cap", "HOUSTON ASTROS",
+        "Houston Astros Trucker Hat", "Vintage Houston Hat",
         "100% Houston Hat", "Holiday_Houston Hat",
     ]
     assert all(row["search_volume"] < 999999 for row in match.json())
-    assert match.json()[0]["favorite"] is True
     assert api.get(endpoint, params={"q": "hou", "limit": 2}).json() == [
         match.json()[0], match.json()[1],
     ]
@@ -594,7 +593,6 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
         "mid_tail_keywords": 2,
         "long_tail_keywords": 0,
         "picked_keywords": 1,
-        "favorite_keywords": 0,
         "suggested_keywords": 0,
     }
     assert [row["keyword"] for row in payload["items"]] == [
@@ -782,7 +780,7 @@ def test_keyword_analysis_sort_by_platform_agent_and_trend_across_pages(api, dat
         assert result == order, (field, direction, result)
 
 
-def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_scoped(api, database):
+def test_keyword_analysis_tail_filters_and_tenant_scope(api, database):
     now = datetime(2026, 10, 7, 10, 0, tzinfo=timezone.utc)
     with database() as session:
         for keyword in (
@@ -836,40 +834,13 @@ def test_keyword_analysis_tail_filters_and_favorites_are_persisted_and_tenant_sc
     assert long.json()["total"] == 1
     target = long.json()["items"][0]
     assert target["keyword"] == "a very nice little cap"
-    assert target["favorite"] is False
     assert target["picked"] is False
-
-    favorite = api.patch(
-        f"{route}/{target['id']}/favorite",
-        json={"favorite": True},
-    )
-    assert favorite.status_code == 200
-    assert favorite.json()["favorite"] is True
-    assert favorite.json()["favorite_at"] is not None
-    assert favorite.json()["picked"] is False
-
-    favorites = api.get(route, params={"favorites_only": True, "tail": "long"})
-    assert favorites.status_code == 200
-    assert favorites.json()["total"] == 1
-    assert favorites.json()["overview"]["favorite_keywords"] == 1
-    assert favorites.json()["items"][0]["id"] == target["id"]
-    assert api.get(route, params={"favorites_only": True, "tail": "short"}).json()["total"] == 0
-    assert api.get(route, params={"favorites_only": True, "usage": "used"}).json()["total"] == 0
-
-    # Scout's future refreshes should not overwrite manual curation state.
-    repeated = api.patch(f"{route}/{target['id']}/favorite", json={"favorite": True})
-    assert repeated.status_code == 200
-    assert repeated.json()["favorite"] is True
-    assert api.patch(f"{route}/{target['id']}/favorite", json={"favorite": False}).json()["favorite"] is False
-    assert api.get(route, params={"favorites_only": True}).json()["total"] == 0
     assert api.get(route, params={"tail": "invalid"}).status_code == 422
-    assert api.patch(f"{route}/missing-id/favorite", json={"favorite": True}).status_code == 404
     with database() as session:
         tenant_b = session.scalar(
             select(RrugcKeywordVolumeModel).where(RrugcKeywordVolumeModel.tenant_id == "tenant-b")
         )
     assert tenant_b is not None
-    assert api.patch(f"{route}/{tenant_b.id}/favorite", json={"favorite": True}).status_code == 404
     assert api.get(route, params={"query": "other tenant"}).json()["total"] == 0
 
 

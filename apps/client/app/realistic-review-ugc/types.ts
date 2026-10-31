@@ -203,8 +203,6 @@ export type KeywordVolume = {
   scout_pin_feedback?: "suggested" | "blocked" | "neutral";
   picked: boolean;
   picked_at: string | null;
-  favorite: boolean;
-  favorite_at: string | null;
   provider: string;
   provider_account?: string | null;
   provider_customer_id?: string | null;
@@ -226,7 +224,6 @@ export type KeywordVolumeOverview = {
   mid_tail_keywords: number;
   long_tail_keywords: number;
   picked_keywords: number;
-  favorite_keywords: number;
   suggested_keywords: number;
 };
 

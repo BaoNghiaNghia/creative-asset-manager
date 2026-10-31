@@ -394,7 +394,6 @@ export const listKeywordAnalysis = (
     sortDirection?: KeywordAnalysisSortDirection;
     usage?: KeywordUsageFilter;
     tail?: KeywordTailFilter;
-    favoritesOnly?: boolean;
     suggestedOnly?: boolean;
   } = {},
   signal?: AbortSignal,
@@ -406,7 +405,6 @@ export const listKeywordAnalysis = (
     sort_dir: filters.sortDirection ?? "desc",
     usage: filters.usage ?? "all",
     tail: filters.tail ?? "all",
-    favorites_only: String(filters.favoritesOnly ?? false),
     suggested_only: String(filters.suggestedOnly ?? false),
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());
@@ -419,7 +417,6 @@ export const listKeywordAnalysis = (
 export type KeywordSearchSuggestion = {
   keyword: string;
   search_volume: number;
-  favorite: boolean;
   picked: boolean;
 };
 
@@ -463,12 +460,6 @@ export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
       method: "PATCH",
       body: JSON.stringify({ picked }),
     },
-  );
-
-export const setKeywordAnalysisFavorite = (keywordId: string, favorite: boolean) =>
-  request<import("./types").KeywordVolume>(
-    "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/favorite",
-    { method: "PATCH", body: JSON.stringify({ favorite }) },
   );
 
 export const listCampaigns = (signal?: AbortSignal) =>

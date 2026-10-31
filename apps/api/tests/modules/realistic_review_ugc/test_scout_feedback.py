@@ -136,7 +136,7 @@ def test_blocked_keyword_disappears_from_stage0_only_after_grace_period():
             def visible_rows():
                 return list_keyword_analysis(
                     page=1, page_size=20, query="", usage="all", tail="all",
-                    favorites_only=False, sort_by="search_volume", sort_dir="desc",
+                    sort_by="search_volume", sort_dir="desc",
                     session=session,
                     principal=SimpleNamespace(active_tenant_id="tenant-a"),
                 )
@@ -187,8 +187,7 @@ def test_stage0_trademark_sort_and_500_row_limit_are_tenant_safe():
             ))
             session.commit()
             result = list_keyword_analysis(
-                page=1, page_size=500, query="", usage="all", tail="all", favorites_only=False,
-                sort_by="trademark", sort_dir="desc", session=session,
+                page=1, page_size=500, query="", usage="all", tail="all",                 sort_by="trademark", sort_dir="desc", session=session,
                 principal=SimpleNamespace(active_tenant_id="tenant-a"),
             )
             assert result.total == 3

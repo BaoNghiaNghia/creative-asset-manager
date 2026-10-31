@@ -835,8 +835,6 @@ describe("Realistic Review UGC source-first workspace", () => {
               scout_pin_feedback: "suggested",
               picked: true,
               picked_at: "2026-10-05T11:00:00Z",
-              favorite: true,
-              favorite_at: "2026-10-05T11:00:00Z",
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
               created_at: "2026-10-01T10:00:00Z",
@@ -858,8 +856,6 @@ describe("Realistic Review UGC source-first workspace", () => {
               scout_keyword_feedback: "blocked",
               picked: false,
               picked_at: null,
-              favorite: false,
-              favorite_at: null,
               provider: "aebrowse_google_ads",
               fetched_at: "2026-10-05T10:00:00Z",
               created_at: "2026-09-30T10:00:00Z",
@@ -879,7 +875,6 @@ describe("Realistic Review UGC source-first workspace", () => {
             mid_tail_keywords: 1,
             long_tail_keywords: 1,
             picked_keywords: 1,
-            favorite_keywords: 1,
             suggested_keywords: 1,
           },
         }}
@@ -888,22 +883,18 @@ describe("Realistic Review UGC source-first workspace", () => {
         sortDirection="desc"
         usageFilter="all"
         tailFilter="all"
-        favoritesOnly={false}
         suggestedOnly={false}
         pickingIds={new Set()}
-        favoritingIds={new Set()}
         feedbackUpdatingIds={new Set()}
         onFeedbackChange={() => undefined}
         onSortChange={() => undefined}
         onUsageFilterChange={() => undefined}
         onTailFilterChange={() => undefined}
-        onFavoritesOnlyChange={() => undefined}
         onSuggestedOnlyChange={() => undefined}
         onResetAll={() => undefined}
         onOpenResearchInbox={() => undefined}
         onOpenSearchIntelligence={() => undefined}
         onPickChange={() => undefined}
-        onFavoriteChange={() => undefined}
         onPageChange={() => undefined}
         onPageSizeChange={() => undefined}
         onQueryChange={() => undefined}
@@ -922,16 +913,17 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Bad Day To Be A Hotdog hat");
     expect(markup).toContain("Đề xuất");
     expect(markup).toContain("Bỏ đề xuất");
+    expect(markup).not.toContain("rrugc-stage0-favorite-kpi");
     expect(markup).toContain("Đã đề xuất");
-    expect(markup).toContain("Đã bỏ");
-    expect(markup.match(/>Đã đề xuất</g)).toHaveLength(2);
+    expect(markup).toContain("Bỏ");
+    expect(markup.match(/>Đã đề xuất</g)).toHaveLength(1);
     expect(markup).toContain('rrugc-scout-feedback-state is-suggested');
     expect(markup).toContain('rrugc-scout-feedback-state is-blocked');
     expect(markup).toContain('rrugc-scout-feedback-control');
     expect(markup).not.toContain('aria-label="Feedback target:');
     expect(markup).not.toContain('<option value="both"');
     expect(markup).not.toContain('<option value="pin"');
-    for (const icon of ["thumbs-up", "thumbs-down", "undo", "heart", "circle-plus", "circle-check"]) {
+    for (const icon of ["thumbs-up", "thumbs-down", "undo", "circle-plus", "circle-check"]) {
       expect(markup).toContain(`data-icon="${icon}"`);
     }
     expect(markup).toContain('aria-pressed="true"');
@@ -961,7 +953,6 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("Total keywords");
     expect(markup).toContain("Keywords / Pins suggested");
     expect(markup).toContain("rrugc-stage0-suggested-kpi");
-    expect(markup).toContain("rrugc-stage0-favorite-kpi");
     expect(markup).toContain('aria-label="Keyword overview filters"');
     expect(markup).toContain("rrugc-stage0-total-kpi active");
     expect(markup).toContain('aria-pressed="true"');
@@ -984,8 +975,6 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain('aria-autocomplete="list"');
     expect(markup).not.toContain("Any volume");
     expect(markup).not.toContain('aria-label="Filter keyword volume"');
-    expect(markup).toContain('aria-label="Remove favorite: Bad Day To Be A Hotdog hat"');
-    expect(markup).toContain('aria-label="Add favorite: funny hotdog cap"');
     expect(markup).toContain('aria-label="Mark unused: Bad Day To Be A Hotdog hat"');
     expect(markup).toContain('aria-label="Pick keyword: funny hotdog cap"');
     expect(markup).toContain('data-pick-state="picked"');
@@ -1057,8 +1046,6 @@ describe("Realistic Review UGC source-first workspace", () => {
           source_pin_url: "https://www.pinterest.com/pin/987654321/",
           picked: true,
           picked_at: "2026-10-05T11:00:00Z",
-          favorite: true,
-          favorite_at: "2026-10-05T11:00:00Z",
           provider: "aebrowse_google_ads",
           provider_account: "Google Ads account",
           provider_customer_id: "1234567890",

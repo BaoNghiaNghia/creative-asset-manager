@@ -42,8 +42,8 @@ beforeEach(() => {
   mocks.suggestions.mockReset();
   mocks.identity.mockResolvedValue({ active_tenant_id: "tenant-a", user_id: "user-a" });
   mocks.suggestions.mockResolvedValue([
-    { keyword: "Houston Astros", search_volume: 4400, favorite: true, picked: false },
-    { keyword: "Blue Houston Cap", search_volume: 200, favorite: false, picked: false },
+    { keyword: "Houston Astros", search_volume: 4400, picked: false },
+    { keyword: "Blue Houston Cap", search_volume: 200, picked: false },
   ]);
 });
 afterEach(async () => {

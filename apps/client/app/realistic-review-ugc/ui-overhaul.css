@@ -2663,3 +2663,11 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
 @media(max-width:1250px){.rrugc-stage0-v2 .rrugc-stage0-heading-row{grid-template-columns:minmax(0,1fr);row-gap:12px}.rrugc-stage0-v2 .rrugc-stage0-heading-row>.rrugc-stage0-heading{max-width:none}.rrugc-stage0-v2 .rrugc-stage0-heading-row>.rrugc-stage0-unified-toolbar{justify-self:end}}
 @media(max-width:950px){.rrugc-stage0-v2 .rrugc-stage0-heading-row>.rrugc-stage0-unified-toolbar{flex-wrap:wrap}.rrugc-stage0-v2 .rrugc-stage0-heading-row .rrugc-stage0-controlbar{flex-basis:100%;order:1}.rrugc-stage0-v2 .rrugc-stage0-heading-row .rrugc-stage0-header-tools{order:2}}
 @media(max-width:620px){.rrugc-stage0-v2 .rrugc-stage0-heading-row .rrugc-stage0-controlbar{flex-wrap:wrap}.rrugc-stage0-v2 .rrugc-stage0-heading-row .rrugc-stage0-searchbox{flex-basis:100%}.rrugc-stage0-v2 .rrugc-stage0-heading-row .rrugc-stage0-main-filters{max-width:100%;overflow-x:auto}}
+/* Compact Stage 0 Scout recommendation actions. */
+.rrugc-stage0-v2 .rrugc-scout-feedback-control{min-height:22px;margin-top:3px}
+.rrugc-stage0-v2 .rrugc-scout-feedback-state{min-height:22px;padding:2px 6px;border-radius:5px;font-size:9px}
+.rrugc-stage0-v2 .rrugc-scout-feedback-actions{gap:3px}
+.rrugc-stage0-v2 .rrugc-scout-feedback-actions button{min-height:22px;height:22px;padding:2px 6px;border-radius:5px;font-size:9px;line-height:1}
+.rrugc-stage0-v2 .rrugc-scout-feedback-actions button svg{flex:0 0 11px;width:11px;height:11px}
+.rrugc-stage0-v2 .rrugc-scout-feedback-actions button.is-undo{flex:0 0 22px;width:22px;padding:0}
+.rrugc-stage0-v2 .rrugc-stage0-row-actions-v2{gap:3px}

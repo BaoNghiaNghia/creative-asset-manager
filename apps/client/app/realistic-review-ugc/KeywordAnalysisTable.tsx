@@ -185,13 +185,12 @@ function Icon({
   name,
   filled = false,
 }: {
-  name: "search" | "star" | "heart" | "badge-check" | "circle-plus" | "circle-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus" | "image";
+  name: "search" | "star" | "badge-check" | "circle-plus" | "circle-check" | "thumbs-up" | "thumbs-down" | "undo" | "chart" | "money" | "competition" | "check" | "plus" | "image";
   filled?: boolean;
 }) {
   if (name === "image") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/></svg>;
   if (name === "search") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
   if (name === "star") return <svg viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z" /></svg>;
-  if (name === "heart") return <svg data-icon="heart" viewBox="0 0 24 24" aria-hidden="true" fill={filled ? "currentColor" : "none"}><path d="M20.8 8.5c0 5.1-8.8 11.2-8.8 11.2S3.2 13.6 3.2 8.5a4.7 4.7 0 0 1 8.8-2.2 4.7 4.7 0 0 1 8.8 2.2Z" /></svg>;
   if (name === "badge-check") return <svg data-icon="badge-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.6 1.4 3-.1 1.5 2.6 2.6 1.5-.1 3L23 12l-1.4 2.6.1 3-2.6 1.5-1.5 2.6-3-.1L12 23l-2.6-1.4-3 .1-1.5-2.6-2.6-1.5.1-3L1 12l1.4-2.6-.1-3 2.6-1.5 1.5-2.6 3 .1L12 2Z" transform="translate(1.7 1.7) scale(.86)" /><path d="m8.2 12 2.5 2.5 5.1-5.2" /></svg>;
   if (name === "circle-plus") return <svg data-icon="circle-plus" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg>;
   if (name === "circle-check") return <svg data-icon="circle-check" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 2.6 2.6L16 9.5" /></svg>;
@@ -443,7 +442,6 @@ export function KeywordDetailModal({
           <h2 id="rrugc-stage0-detail-title">{item.keyword}</h2>
           <div className="rrugc-stage0-detail-badges">
             <span className={"tail-" + tailKind}>{keywordTailLabel(item.keyword)} · {wordCount} words</span>
-            <span className={item.favorite ? "is-favorite" : ""}>{item.favorite ? "★ Favorite" : "☆ Not favorite"}</span>
             <span className={item.picked ? "is-used" : ""}>{item.picked ? "Used" : "Unused"}</span>
           </div>
         </div>
@@ -673,7 +671,6 @@ export function KeywordDetailModal({
             <div><dt>Last requested</dt><dd>{formatDetailDate(item.last_requested_at)}</dd></div>
             <div><dt>Added</dt><dd>{formatDetailDate(item.created_at)}</dd></div>
             <div><dt>Updated</dt><dd>{formatDetailDate(item.updated_at)}</dd></div>
-            <div><dt>Favorite since</dt><dd>{formatDetailDate(item.favorite_at)}</dd></div>
             <div><dt>Used since</dt><dd>{formatDetailDate(item.picked_at)}</dd></div>
           </dl>
         </details>
@@ -735,23 +732,19 @@ export function KeywordAnalysisTable({
   sortDirection,
   usageFilter,
   tailFilter,
-  favoritesOnly,
   suggestedOnly,
   pickingIds,
-  favoritingIds,
   feedbackUpdatingIds,
   onFeedbackChange,
   onResolveMetrics,
   onSortChange,
   onUsageFilterChange,
   onTailFilterChange,
-  onFavoritesOnlyChange,
   onSuggestedOnlyChange,
   onResetAll,
   onOpenResearchInbox,
   onOpenSearchIntelligence,
   onPickChange,
-  onFavoriteChange,
   onPageChange,
   onPageSizeChange,
   onQueryChange,
@@ -763,23 +756,19 @@ export function KeywordAnalysisTable({
   sortDirection: KeywordAnalysisSortDirection;
   usageFilter: KeywordUsageFilter;
   tailFilter: KeywordTailFilter;
-  favoritesOnly: boolean;
   suggestedOnly: boolean;
   pickingIds: Set<string>;
-  favoritingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
   onFeedbackChange: (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) => void;
   onResolveMetrics?: (keyword: string) => Promise<void>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
-  onFavoritesOnlyChange: (value: boolean) => void;
   onSuggestedOnlyChange: (value: boolean) => void;
   onResetAll: () => void;
   onOpenResearchInbox?: () => void;
   onOpenSearchIntelligence?: () => void;
   onPickChange: (keywordId: string, picked: boolean) => void;
-  onFavoriteChange: (keywordId: string, favorite: boolean) => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onQueryChange: (query: string) => void;
@@ -789,23 +778,20 @@ export function KeywordAnalysisTable({
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
   const activeOverviewFilter =
     suggestedOnly ? "suggested"
-    : favoritesOnly ? "favorites"
-      : usageFilter === "used" ? "used"
+    : usageFilter === "used" ? "used"
         : tailFilter !== "all" ? tailFilter
           : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
   const [sourceImageOverrides, setSourceImageOverrides] = useState<Record<string, string>>({});
 
-  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "favorites" | "suggested") => {
+  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "suggested") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
     const nextTail: KeywordTailFilter =
       filter === "short" || filter === "mid" || filter === "long" ? filter : "all";
-    const nextFavoritesOnly = filter === "favorites";
     const nextSuggestedOnly = filter === "suggested";
 
     if (usageFilter !== nextUsage) onUsageFilterChange(nextUsage);
     if (tailFilter !== nextTail) onTailFilterChange(nextTail);
-    if (favoritesOnly !== nextFavoritesOnly) onFavoritesOnlyChange(nextFavoritesOnly);
     if (suggestedOnly !== nextSuggestedOnly) onSuggestedOnlyChange(nextSuggestedOnly);
   };
 
@@ -911,16 +897,6 @@ export function KeywordAnalysisTable({
         <strong>{(data.overview.suggested_keywords ?? 0).toLocaleString()}</strong>
         <small>Keywords / Pins suggested</small>
       </button>
-      <button
-        type="button"
-        className={"rrugc-stage0-kpi-card rrugc-stage0-favorite-kpi" + (activeOverviewFilter === "favorites" ? " active" : "")}
-        aria-pressed={activeOverviewFilter === "favorites"}
-        onClick={() => selectOverviewFilter("favorites")}
-      >
-        <span>Favorites</span>
-        <strong>{data.overview.favorite_keywords.toLocaleString()}</strong>
-        <small>Saved opportunities</small>
-      </button>
     </div>
 
     <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>
@@ -966,16 +942,16 @@ export function KeywordAnalysisTable({
                   </span>}
                   <div className="rrugc-scout-feedback-actions" role="group" aria-label={"Scout feedback: " + item.keyword}>
                     <button type="button" className={"is-suggested" + (feedbackStatus === "suggested" ? " active" : "")}
-                      aria-pressed={feedbackStatus === "suggested"} title={feedbackStatus === "suggested" ? "Đã đề xuất cho Scout" : "Ưu tiên khám phá keyword hoặc Pin"}
+                      aria-pressed={feedbackStatus === "suggested"} aria-label={"Đề xuất cho Scout: " + item.keyword} title={feedbackStatus === "suggested" ? "Đã đề xuất cho Scout" : "Ưu tiên khám phá keyword hoặc Pin"}
                       disabled={feedbackUpdatingIds.has(item.id)}
                       onClick={() => onFeedbackChange(item.id, "suggested", feedbackScope)}>
-                      <Icon name="thumbs-up" />{feedbackStatus === "suggested" ? "Đã đề xuất" : "Đề xuất"}
+                      <Icon name="thumbs-up" />Đề xuất
                     </button>
                     <button type="button" className={"is-blocked" + (feedbackStatus === "blocked" ? " active" : "")}
-                      aria-pressed={feedbackStatus === "blocked"} title={feedbackStatus === "blocked" ? "Đã bỏ đề xuất · Ẩn sau 10 giây" : "Không tiếp tục khám phá keyword hoặc Pin"}
+                      aria-pressed={feedbackStatus === "blocked"} aria-label={"Bỏ đề xuất cho Scout: " + item.keyword} title={feedbackStatus === "blocked" ? "Đã bỏ đề xuất · Ẩn sau 10 giây" : "Không tiếp tục khám phá keyword hoặc Pin"}
                       disabled={feedbackUpdatingIds.has(item.id)}
                       onClick={() => onFeedbackChange(item.id, "blocked", feedbackScope)}>
-                      <Icon name="thumbs-down" />{feedbackStatus === "blocked" ? "Đã bỏ" : "Bỏ đề xuất"}
+                      <Icon name="thumbs-down" />Bỏ
                     </button>
                     {hasFeedback && <button type="button" className="is-undo" aria-label={"Hoàn tác đề xuất: " + item.keyword}
                       title="Hoàn tác phản hồi" disabled={feedbackUpdatingIds.has(item.id)}
@@ -996,7 +972,6 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-created-date"><strong title={item.created_at ? new Date(item.created_at).toLocaleString() : "—"}>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
-                  <button type="button" className={"rrugc-stage0-icon-action favorite" + (item.favorite ? " active" : "")} aria-pressed={item.favorite} aria-label={(item.favorite ? "Remove favorite: " : "Add favorite: ") + item.keyword} title={item.favorite ? "Remove favorite" : "Add favorite"} disabled={favoritingIds.has(item.id)} onClick={() => onFavoriteChange(item.id, !item.favorite)}><Icon name="heart" filled={item.favorite} /></button>
                   <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} data-pick-state={item.picked ? "picked" : "unpicked"} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Đã Pick · Bấm để bỏ chọn" : "Chưa Pick · Bấm để chọn"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name={item.picked ? "circle-check" : "circle-plus"} /></button>
                 </div>
               </td>

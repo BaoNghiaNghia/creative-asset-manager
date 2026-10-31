@@ -13,7 +13,7 @@ const keyword: KeywordVolume = {
   provider: "aebrowse_google_ads", provider_account: null, fetched_at: "2026-10-10T02:00:00Z",
   source_image_url: "https://example.com/hat.jpg", source_pin_url: "https://pinterest.com/pin/123",
   source_agents: [{ agent_key: "scout:reach", agent_name: "Agent-Reach Auto Discover", platforms: ["etsy", "amazon"], evidence_count: 2, sources: [{platform: "etsy", url: "https://www.etsy.com/listing/123456", channel: "auto-discover", title: "Custom Embroidery Hat", excerpt: "Unverified listing text"}, {platform: "amazon", url: "https://www.amazon.com/dp/B012345678", channel: "auto-discover", title: "Amazon Trucker Hat", excerpt: "Detected on Amazon"}] }],
-  picked: true, picked_at: null, favorite: false, favorite_at: null,
+  picked: true, picked_at: null,
   trend: [
     { period: "2026-01", volume: 18000 },
     { period: "2026-02", volume: 20000 },
@@ -37,17 +37,17 @@ describe("Stage 0 platform source attribution", () => {
       overview: {
         total_keywords: 2, total_search_volume: 22200, high_competition: 0, zero_volume: 0,
         short_tail_keywords: 2, mid_tail_keywords: 0, long_tail_keywords: 0,
-        picked_keywords: 1, favorite_keywords: 0, suggested_keywords: 0,
+        picked_keywords: 1, suggested_keywords: 0,
       },
     };
     await act(async () => root.render(<KeywordAnalysisTable
       data={data} query="" sortBy="keyword" sortDirection="asc"
-      usageFilter="all" tailFilter="all" favoritesOnly={false} suggestedOnly={false}
-      pickingIds={new Set()} favoritingIds={new Set()} feedbackUpdatingIds={new Set()}
+      usageFilter="all" tailFilter="all" suggestedOnly={false}
+      pickingIds={new Set()} feedbackUpdatingIds={new Set()}
       onFeedbackChange={noop} onSortChange={column => { sorted.push(column); }} onUsageFilterChange={noop}
-      onTailFilterChange={noop} onFavoritesOnlyChange={noop}
+      onTailFilterChange={noop}
       onSuggestedOnlyChange={noop} onResetAll={noop}
-      onPickChange={noop} onFavoriteChange={noop}
+      onPickChange={noop}
       onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}
     />));
     const headers = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th")).map(header => header.textContent);

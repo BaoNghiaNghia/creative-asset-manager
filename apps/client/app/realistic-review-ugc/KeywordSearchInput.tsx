@@ -12,7 +12,6 @@ type Entry = {
   keyword: string;
   source: "history" | "suggestion";
   searchVolume?: number;
-  favorite?: boolean;
 };
 
 function highlighted(keyword: string, query: string): ReactNode {
@@ -94,7 +93,6 @@ export function KeywordSearchInput({
           keyword: entry.keyword,
           source: "suggestion",
           searchVolume: entry.search_volume,
-          favorite: entry.favorite,
         });
         if (result.length >= 10) break;
       }
@@ -220,7 +218,6 @@ export function KeywordSearchInput({
           >
             <span className="rrugc-stage0-suggest-icon" aria-hidden="true">{entry.source === "history" ? "↺" : "⌕"}</span>
             <span className="rrugc-stage0-suggest-text">{highlighted(entry.keyword, query)}</span>
-            {entry.favorite && <span className="rrugc-stage0-suggest-star" aria-label="Favorite">★</span>}
             {typeof entry.searchVolume === "number" && <small>{entry.searchVolume.toLocaleString()}/mo</small>}
           </button>
           {entry.source === "history" && <button

@@ -21,7 +21,6 @@ import {
   resolveStage0KeywordMetrics,
   markCandidateReferenceFeedback,
   setKeywordAnalysisPicked,
-  setKeywordAnalysisFavorite,
   setKeywordScoutFeedback,
   type ScoutFeedbackAction,
   type ScoutFeedbackScope,
@@ -73,7 +72,6 @@ const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
     mid_tail_keywords: 0,
     long_tail_keywords: 0,
     picked_keywords: 0,
-    favorite_keywords: 0,
     suggested_keywords: 0,
   },
 };
@@ -158,10 +156,8 @@ export function RealisticReviewUgcPage() {
   const [keywordSortDirection, setKeywordSortDirection] = useState<KeywordAnalysisSortDirection>("desc");
   const [keywordUsageFilter, setKeywordUsageFilter] = useState<KeywordUsageFilter>("all");
   const [keywordTailFilter, setKeywordTailFilter] = useState<KeywordTailFilter>("all");
-  const [keywordFavoritesOnly, setKeywordFavoritesOnly] = useState(false);
   const [keywordSuggestedOnly, setKeywordSuggestedOnly] = useState(false);
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
-  const [keywordFavoritingIds, setKeywordFavoritingIds] = useState<Set<string>>(new Set());
   const [keywordFeedbackIds, setKeywordFeedbackIds] = useState<Set<string>>(new Set());
   const keywordRejectTimers = useRef<Map<string, number>>(new Map());
   useEffect(() => () => {
@@ -251,7 +247,6 @@ export function RealisticReviewUgcPage() {
         sortDirection: keywordSortDirection,
         usage: keywordUsageFilter,
         tail: keywordTailFilter,
-        favoritesOnly: keywordFavoritesOnly,
         suggestedOnly: keywordSuggestedOnly,
       },
       signal,
@@ -278,27 +273,6 @@ export function RealisticReviewUgcPage() {
       setError(reason instanceof Error ? reason.message : "Unable to update keyword usage.");
     } finally {
       setKeywordPickingIds(current => {
-        const next = new Set(current);
-        next.delete(keywordId);
-        return next;
-      });
-    }
-  }
-
-  async function changeKeywordFavorite(keywordId: string, favorite: boolean) {
-    setKeywordFavoritingIds(current => new Set(current).add(keywordId));
-    setError("");
-    try {
-      const updated = await setKeywordAnalysisFavorite(keywordId, favorite);
-      setKeywordPage(current => ({
-        ...current,
-        items: current.items.map(item => item.id === updated.id ? updated : item),
-      }));
-      await refreshKeywordAnalysis();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to update keyword favorite.");
-    } finally {
-      setKeywordFavoritingIds(current => {
         const next = new Set(current);
         next.delete(keywordId);
         return next;
@@ -826,7 +800,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordFavoritesOnly, keywordSuggestedOnly]);
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordSuggestedOnly]);
 
   useEffect(() => {
     if (activeStage !== "stage0") return;
@@ -1084,7 +1058,6 @@ export function RealisticReviewUgcPage() {
             setDebouncedKeywordQuery("");
             setKeywordUsageFilter("all");
             setKeywordTailFilter("all");
-            setKeywordFavoritesOnly(false);
             setKeywordSuggestedOnly(false);
             setKeywordSortBy("created_at");
             setKeywordSortDirection("desc");
@@ -1098,10 +1071,8 @@ export function RealisticReviewUgcPage() {
             sortDirection={keywordSortDirection}
             usageFilter={keywordUsageFilter}
             tailFilter={keywordTailFilter}
-            favoritesOnly={keywordFavoritesOnly}
             suggestedOnly={keywordSuggestedOnly}
             pickingIds={keywordPickingIds}
-            favoritingIds={keywordFavoritingIds}
             feedbackUpdatingIds={keywordFeedbackIds}
             onFeedbackChange={changeKeywordFeedback}
             onResolveMetrics={refreshKeywordMetrics}
@@ -1114,16 +1085,10 @@ export function RealisticReviewUgcPage() {
               setKeywordUsageFilter(value);
             }}
             onPickChange={changeKeywordPicked}
-            onFavoriteChange={changeKeywordFavorite}
             onTailFilterChange={value => {
               setKeywordLoading(true);
               setKeywordPageNumber(1);
               setKeywordTailFilter(value);
-            }}
-            onFavoritesOnlyChange={value => {
-              setKeywordLoading(true);
-              setKeywordPageNumber(1);
-              setKeywordFavoritesOnly(value);
             }}
             onSuggestedOnlyChange={value => {
               setKeywordLoading(true);
@@ -1137,7 +1102,6 @@ export function RealisticReviewUgcPage() {
               setDebouncedKeywordQuery("");
               setKeywordUsageFilter("all");
               setKeywordTailFilter("all");
-              setKeywordFavoritesOnly(false);
               setKeywordSuggestedOnly(false);
             }}
             onPageChange={value => {

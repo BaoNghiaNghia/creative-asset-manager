@@ -167,7 +167,6 @@ from app.modules.realistic_review_ugc.schema import (
     KeywordVolumePageResponse,
     ScoutKeywordSummaryResponse,
     KeywordVolumePickRequest,
-    KeywordVolumeFavoriteRequest,
     ScoutFeedbackRequest,
     ScoutFeedbackFinishRequest,
     ScoutFeedbackLeaseRequest,
@@ -3234,8 +3233,6 @@ def _keyword_volume_response(
         scout_pin_feedback=next((feedback.get((kind, key), "neutral") for kind, key, _ in keys if kind == "pin"), "neutral"),
         picked=bool(row.picked),
         picked_at=row.picked_at,
-        favorite=bool(row.favorite),
-        favorite_at=row.favorite_at,
         provider=row.provider,
         provider_account=row.provider_account,
         provider_customer_id=row.provider_customer_id,
@@ -3921,7 +3918,6 @@ def suggest_keyword_analysis(
         )
         .order_by(
             case((prefix_match, 0), else_=1),
-            RrugcKeywordVolumeModel.favorite.desc(),
             RrugcKeywordVolumeModel.search_volume.desc(),
             RrugcKeywordVolumeModel.keyword.asc(),
             RrugcKeywordVolumeModel.id.asc(),
@@ -3932,7 +3928,6 @@ def suggest_keyword_analysis(
         KeywordSuggestionResponse(
             keyword=row.keyword,
             search_volume=int(row.search_volume or 0),
-            favorite=bool(row.favorite),
             picked=bool(row.picked),
         )
         for row in rows
@@ -3949,7 +3944,6 @@ def list_keyword_analysis(
     query: str = Query(default="", max_length=200),
     usage: str = Query(default="all", pattern="^(all|unused|used)$"),
     tail: str = Query(default="all", pattern="^(all|short|mid|long)$"),
-    favorites_only: bool = Query(default=False),
     suggested_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
@@ -4009,8 +4003,6 @@ def list_keyword_analysis(
     conditions = list(base_conditions)
     if suggested_only is True:
         conditions.append(suggested_by_feedback)
-    if favorites_only:
-        conditions.append(RrugcKeywordVolumeModel.favorite.is_(True))
 
     # Keyword ingestion normalizes whitespace, so one space separates each
     # word. Compute the bucket in SQL to filter before pagination/counting.
@@ -4123,14 +4115,6 @@ def list_keyword_analysis(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
                 *base_conditions,
                 RrugcKeywordVolumeModel.picked.is_(True),
-            )
-        ) or 0
-    )
-    favorite_keywords = int(
-        session.scalar(
-            select(func.count(RrugcKeywordVolumeModel.id)).where(
-                *base_conditions,
-                RrugcKeywordVolumeModel.favorite.is_(True),
             )
         ) or 0
     )
@@ -4308,7 +4292,6 @@ def list_keyword_analysis(
             mid_tail_keywords=mid_tail_keywords,
             long_tail_keywords=long_tail_keywords,
             picked_keywords=picked_keywords,
-            favorite_keywords=favorite_keywords,
             suggested_keywords=suggested_keywords,
         ),
     )
@@ -4449,35 +4432,6 @@ def set_keyword_analysis_pick(
             session, tenant_id=principal.active_tenant_id,
             keyword_id=row.id, settings=settings, priority=20,
         )
-    session.commit()
-    session.refresh(row)
-    return _keyword_volume_response(
-        row, statuses_for_rows(session, principal.active_tenant_id, [row]),
-    )
-
-
-@router.patch(
-    "/keyword-analysis/{keyword_id}/favorite",
-    response_model=KeywordVolumeResponse,
-)
-def set_keyword_analysis_favorite(
-    keyword_id: str,
-    request: KeywordVolumeFavoriteRequest,
-    session: Session = Depends(get_db),
-    principal: CurrentPrincipal = Depends(RUN),
-):
-    row = session.scalar(
-        select(RrugcKeywordVolumeModel).where(
-            RrugcKeywordVolumeModel.id == keyword_id,
-            RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
-        )
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="Keyword row not found.")
-
-    row.favorite = bool(request.favorite)
-    row.favorite_at = datetime.now(timezone.utc) if request.favorite else None
-    row.favorite_by_user_id = principal.user_id if request.favorite else None
     session.commit()
     session.refresh(row)
     return _keyword_volume_response(
