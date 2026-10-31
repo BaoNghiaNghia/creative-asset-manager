@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "skill_name": "gatorhats-8869-slot1-threadtransfer-lite-v1",
+  "display_name": "8869 Front - ThreadTransfer Lite V1",
+  "description": "One Codex session; one macro embroidery reference then one original-cap image edit, with existing Stage 2 QA.",
+  "workflows": [
+    "image_studio"
+  ],
+  "product_types": [
+    "hat",
+    "cap",
+    "baseball_cap"
+  ],
+  "required_reference_roles": [
+    "design_reference",
+    "unaltered_stock_reference",
+    "slot1_edit_mask"
+  ],
+  "optional_reference_roles": [],
+  "max_references": 4
+}

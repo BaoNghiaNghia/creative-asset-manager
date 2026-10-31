@@ -1,0 +1,4 @@
+interface:
+  display_name: "8869 Front - ThreadTransfer Lite V1"
+  short_description: "One macro embroidery reference, then a precise original-cap edit"
+  default_prompt: "Run ThreadTransfer Lite on the provided original cap and exact embroidery artwork."

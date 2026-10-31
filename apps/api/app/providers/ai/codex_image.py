@@ -863,6 +863,8 @@ class CodexImageGenRunner:
         ]
         if self.config.model:
             argv.extend(["--model", self.config.model])
+        if self.config.output_contract == "slot1_two_pass":
+            argv.extend(["-c", "model_reasoning_effort=low"])
         argv.append(instruction)
 
         # Stream JSONL events; the CLI can produce gigabytes of logs during
@@ -1057,6 +1059,40 @@ class CodexImageGenRunner:
         elif self.config.output_contract == "independent_concepts_v4":
             image_bytes, second_image = self._read_independent_boards(workspace)
             extra_images = (second_image,)
+        elif self.config.output_contract == "slot1_two_pass":
+            if self.config.skill_name != "gatorhats-8869-slot1-threadtransfer-lite-v1":
+                raise CodexImageProviderError(
+                    "slot1_threadtransfer_skill_mismatch", "Two-pass contract needs the pinned Lite Skill.",
+                    retryable=False,
+                )
+            macro = workspace / "working" / "thread_macro.png"
+            final = output_dir / "final.png"
+            if (macro.is_symlink() or final.is_symlink() or not macro.is_file() or not final.is_file()
+                    or not macro.resolve().is_relative_to(workspace.resolve())
+                    or not final.resolve().is_relative_to(workspace.resolve())):
+                raise CodexImageProviderError(
+                    "slot1_threadtransfer_missing_pass", "Missing native macro or final edit PNG.",
+                    retryable=False,
+                )
+            macro_bytes = self._valid_png(macro, min_size=512)
+            image_bytes = self._valid_png(final, min_size=512)
+            macro_hash = hashlib.sha256(macro_bytes).hexdigest()
+            final_hash = hashlib.sha256(image_bytes).hexdigest()
+            if (macro_hash == final_hash or len(native_image_digests) != 2
+                    or macro_hash not in native_image_digests
+                    or final_hash not in native_image_digests):
+                raise CodexImageProviderError(
+                    "slot1_threadtransfer_native_unverified",
+                    "Two distinct native ImageGen images must match both passes byte-for-byte.",
+                    retryable=False,
+                )
+            two_pass_metadata = {
+                "pipeline_version": "threadtransfer-lite-v1",
+                "native_passes": 2,
+                "macro_sha256": macro_hash,
+                "edited_sha256": final_hash,
+            }
+            extra_images = ()
         elif self.config.output_contract in ("typography_v2_single_slot", "creative_v3_single_slot"):
             # V2/V3 share the strict native-byte provenance gate: never accept a
             # fabricated file, a model's text claim, or a merely completed
@@ -1116,6 +1152,7 @@ class CodexImageGenRunner:
             provider_request_id=_request_id_from_jsonl(stdout),
             provider_metadata={
                 "skill": self.config.skill_name,
+                **(two_pass_metadata if self.config.output_contract == "slot1_two_pass" else {}),
                 **({"typography_v2_native_verified": True,
                     "native_sha256": hashlib.sha256(image_bytes).hexdigest()}
                    if self.config.output_contract in ("typography_v2_single_slot", "creative_v3_single_slot") else {}),
@@ -1735,6 +1772,20 @@ class CodexImageGenRunner:
                 "Keep assistant text brief: only report milestones and final file paths. "
                 "Write all intermediate artwork, checklists, and diagnostics to workspace files. "
                 "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
+                + extra_block
+            )
+        if self.config.output_contract == "slot1_two_pass":
+            if (self.config.skill_name != "gatorhats-8869-slot1-threadtransfer-lite-v1"
+                    or not person_name or not references):
+                raise ValueError("ThreadTransfer Lite requires the pinned Skill and reference images.")
+            return (
+                f"Use ${self.config.skill_name} with built-in $imagegen. "
+                "Exactly two native IMAGE-EDIT calls in one Codex session: "
+                "A — edit design_reference to working/thread_macro.png; "
+                "B — edit the original cap target using macro as thread material to output/final.png. "
+                f"Edit target: {person_name}. References:\n{reference_lines}\n"
+                "Copy native PNGs without re-encoding. No extra image calls, no text-to-image "
+                "substitute and no API key. Backend verifies native hashes and stock protection.\n"
                 + extra_block
             )
         output_instruction = (

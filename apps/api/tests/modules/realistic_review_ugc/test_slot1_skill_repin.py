@@ -42,6 +42,22 @@ def test_explicit_slot1_regeneration_adopts_prompt_first_v4(monkeypatch):
     assert row.skill_bundle_sha256 == "v4-pinned-hash"
 
 
+def test_explicit_slot1_regeneration_adopts_threadtransfer_lite_without_touching_history(monkeypatch):
+    row = _old_job()
+    selected = SimpleNamespace(
+        source="local", skill_id=None,
+        skill_name="gatorhats-8869-slot1-threadtransfer-lite-v1",
+        skill_version="1.0.0",
+    )
+    monkeypatch.setattr(pipeline, "_assigned_skill", lambda *args: selected)
+    monkeypatch.setattr(pipeline, "installed_stage2_skill_sha256",
+                        lambda *args, **kwargs: "lite-immutable-hash")
+    assert pipeline._repin_explicit_slot1_to_thread_v2(None, None, "tenant", row)
+    assert row.skill_name == selected.skill_name
+    assert row.skill_version == "1.0.0"
+    assert row.skill_bundle_sha256 == "lite-immutable-hash"
+
+
 def test_no_other_slot_is_rebound(monkeypatch):
     row = _old_job("prod_s2_ec2")
     monkeypatch.setattr(pipeline, "_assigned_skill",

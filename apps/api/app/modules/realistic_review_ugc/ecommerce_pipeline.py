@@ -271,7 +271,7 @@ def _repin_explicit_slot1_to_thread_v2(
     if row.stage != "prod_s2_ec1":
         return False
     selected = _assigned_skill(session, settings, tenant_id, row.stage)
-    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3", "gatorhats-8869-ecommerce-front-thread-v4"):
+    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3", "gatorhats-8869-ecommerce-front-thread-v4", "gatorhats-8869-slot1-threadtransfer-lite-v1"):
         return False
     digest = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
     if not digest:
@@ -1149,6 +1149,7 @@ class EcommerceGenerateHandler:
         # This material pass is strictly Slot 1; all other Slots retain their
         # current pinned photo/preview contract.
         slot1_material = None
+        is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
         references = []
         if stage != "prod_s2_ec4":
             design_bytes = await self._open_bytes(storage, context,
@@ -1205,7 +1206,7 @@ class EcommerceGenerateHandler:
                 slot1_material = build_slot1_material_pass(
                     refs[0][1], design_bytes,
                     job_front_placement(context.job.payload.get("front_placement")),
-                    contact_width_px=2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0,
+                    contact_width_px=2 if skill_name in ("gatorhats-8869-ecommerce-front-thread-v4", "gatorhats-8869-slot1-threadtransfer-lite-v1") else 0,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
                 references.extend((
@@ -1355,6 +1356,15 @@ class EcommerceGenerateHandler:
             "colors and hardware strictly consistent with the official reference photos. "
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
         )
+        if is_lite:
+            # One compact Codex execution owns both native image edits.
+            # Do not stack the legacy v4 view/geometry/embroidery prompt.
+            prompt = (
+                "Execute ThreadTransfer Lite exactly once: Pass A creates one native "
+                "stitched macro from design_reference; Pass B image-edits the supplied "
+                "original stock target with that macro. Preserve exact glyphs, palette, "
+                "factory twill, cap shape and protected pixels. No other outputs."
+            )
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
                                    "/var/lib/creative-asset-manager/codex"))
@@ -1367,6 +1377,7 @@ class EcommerceGenerateHandler:
                     staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT",
                                             "/var/lib/creative-asset-manager/image-generation")),
                     skill_name=skill_name,
+                    output_contract="slot1_two_pass" if is_lite else "single_png",
                     timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
                 ))
@@ -1388,7 +1399,8 @@ class EcommerceGenerateHandler:
                 output_bytes = finish_slot1_refinement(slot1_material, generated.image_bytes)
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
-                    "ecommerce_slot1_material_qa_failed", str(exc), retryable=True
+                    "ecommerce_slot1_material_qa_failed", str(exc),
+                    retryable=not is_lite,  # One human-triggered Lite retry, not another automatic 2-call cycle.
                 ) from exc
             output_mime = "image/png"
         try:
@@ -1428,7 +1440,11 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": "ai-material-localized-v3",
+                                    "version": "threadtransfer-lite-v1" if is_lite else "ai-material-localized-v3",
+                                    **({"native_passes": generated.provider_metadata["native_passes"],
+                                        "macro_sha256": generated.provider_metadata["macro_sha256"],
+                                        "edited_sha256": generated.provider_metadata["edited_sha256"]}
+                                       if is_lite else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
                                 }} if stage == "prod_s2_ec1" else {}),
