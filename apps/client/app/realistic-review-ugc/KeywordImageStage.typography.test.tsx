@@ -127,9 +127,11 @@ describe("Stage 1 Typography V2 feature gating and non-destructive navigation", 
   it("opens a selected picked keyword in preview-only Style Lab without losing the V1 table", async () => {
     await renderStage();
     const table = host.querySelector(".rrugc-keyword-gen-table");
-    const apply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply style to BEACH BABE"]');
-    expect(apply).not.toBeNull();
-    await click(apply);
+    const more = host.querySelector<HTMLButtonElement>('button[aria-label="More actions for BEACH BABE"]');
+    expect(more).not.toBeNull();
+    await click(more);
+    const preview = document.querySelector<HTMLButtonElement>('button[aria-label="Preview style for BEACH BABE"]');
+    await click(preview);
     expect(host.querySelector("[data-testid=typography-style-lab]")).not.toBeNull();
     expect(host.textContent).toContain("BEACH BABE");
     expect(host.textContent).toContain("0 ImageGen calls");

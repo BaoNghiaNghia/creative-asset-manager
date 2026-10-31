@@ -82,7 +82,9 @@ describe("Stage 1 compact output and action controls", () => {
     expect(button("Regenerate BEACH PLEASE").title).toContain("Regenerate");
     expect(button("Regenerate BEACH PLEASE").classList.contains("is-regenerate")).toBe(true);
     expect(button("View all generated images for BEACH PLEASE")).toBeNull();
-    expect(button("View logs for BEACH PLEASE").title).toBe("View job logs");
+    await act(async () => button("More actions for BEACH PLEASE").click());
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="View logs for BEACH PLEASE"]')?.title).toBe("View job logs");
+    await act(async () => button("More actions for BEACH PLEASE").click());
 
     await act(async () => button("Regenerate BEACH PLEASE").click());
     expect(run).not.toHaveBeenCalled();
@@ -96,7 +98,8 @@ describe("Stage 1 compact output and action controls", () => {
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledWith("regenerate");
     expect(document.querySelector(".rrugc-keyword-regenerate-dialog")).toBeNull();
-    await act(async () => button("View logs for BEACH PLEASE").click());
+    await act(async () => button("More actions for BEACH PLEASE").click());
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="View logs for BEACH PLEASE"]')?.click());
     expect(logs).toHaveBeenCalledOnce();
     await act(async () => root.unmount());
     host.remove();
@@ -137,16 +140,17 @@ describe("Stage 1 compact output and action controls", () => {
     const run = vi.fn();
     await act(async () => root.render(<KeywordImageRowControls
       row={row} busy={false} canGenerate onRun={run} onLogs={() => undefined} />));
-    expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(3);
+    expect(host.querySelectorAll(".rrugc-keyword-result-action")).toHaveLength(2);
     const retry = host.querySelector<HTMLButtonElement>('button[aria-label="Retry BEACH PLEASE"]');
-    const regenerate = host.querySelector<HTMLButtonElement>('button[aria-label="Regenerate BEACH PLEASE"]');
+    const more = host.querySelector<HTMLButtonElement>('button[aria-label="More actions for BEACH PLEASE"]');
     expect(retry).not.toBeNull();
-    expect(regenerate).not.toBeNull();
+    expect(more).not.toBeNull();
     await act(async () => retry?.click());
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("reused");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenCalledWith("retry");
-    await act(async () => regenerate?.click());
+    await act(async () => more?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.click());
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("brand-new");
     await act(async () => document.querySelector<HTMLButtonElement>(".rrugc-keyword-regenerate-buttons .is-accept")?.click());
     expect(run).toHaveBeenLastCalledWith("regenerate");
@@ -210,10 +214,11 @@ describe("Stage 1 zero-output recovery", () => {
       <KeywordImageRowControls row={row} busy={false} canGenerate
         onRun={run} onPublishAvailable={publish} onLogs={logs} />,
     ));
-    const action = host.querySelector<HTMLButtonElement>(
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="More actions for LAS VEGAS"]')?.click());
+    const action = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Publish 4 existing images for LAS VEGAS"]',
     );
-    expect(action?.textContent).toContain("Publish 4 images");
+    expect(action?.textContent).toContain("Publish 4 saved images");
     await act(async () => action?.click());
     expect(publish).toHaveBeenCalledTimes(1);
     expect(run).not.toHaveBeenCalled();

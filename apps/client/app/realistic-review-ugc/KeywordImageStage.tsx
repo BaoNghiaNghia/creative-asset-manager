@@ -144,9 +144,10 @@ const EMPTY: KeywordImagePage = {
   overview: { not_run: 0, queued: 0, running: 0, completed: 0, failed: 0 },
 };
 
-type KeywordActionIcon = "generate" | "regenerate" | "retry" | "versions" | "logs";
+type KeywordActionIcon = "generate" | "regenerate" | "retry" | "versions" | "logs" | "more";
 
 function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
+  if (kind === "more") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>;
   if (kind === "logs") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3h10l3 3v15H4V3h3Z"/><path d="M8 10h8M8 14h8M8 18h5"/></svg>;
   if (kind === "versions") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="7" width="13" height="13" rx="2"/><path d="M4 16V5a2 2 0 0 1 2-2h11"/></svg>;
   if (kind === "generate") return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3ZM19 17v4m-2-2h4"/></svg>;
@@ -154,7 +155,7 @@ function KeywordActionGlyph({ kind }: { kind: KeywordActionIcon }) {
 }
 
 export function KeywordImageRowControls({
-  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, showPreview = true,
+  row, busy, canGenerate, onRun, onPublishAvailable, onLogs, onPreviewStyle, showPreview = true,
 }: {
   row: KeywordImageRow;
   busy: boolean;
@@ -162,18 +163,65 @@ export function KeywordImageRowControls({
   onRun: (action: Stage1ImageAction) => void;
   onPublishAvailable?: () => void;
   onLogs: () => void;
+  onPreviewStyle?: () => void;
   showPreview?: boolean;
 }) {
   const [confirmAction, setConfirmAction] = useState<"retry" | "regenerate" | null>(null);
   const triggerButtonRef = useRef<HTMLButtonElement | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const acceptButtonRef = useRef<HTMLButtonElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuId = useId();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [morePlacement, setMorePlacement] = useState<{ left: number; top: number } | null>(null);
 
   const initial = row.status === "not_run";
   const terminal = row.status === "completed" || row.status === "failed";
   const canRetryFailedV3 = row.status === "failed"
     && row.skill_name === "creative-brief-v3" && Boolean(row.processing_job_id);
   const actionDisabled = busy || !canGenerate;
+  // One primary action per row; alternative generation and utility actions stay in More.
+  const primaryAction: Stage1ImageAction | null = initial ? "generate" : canRetryFailedV3 ? "retry" : terminal ? "regenerate" : null;
+  const hasMoreActions = canRetryFailedV3 || Boolean(row.job_id) || Boolean(onPreviewStyle) || Boolean(row.partial_publish_available && onPublishAvailable);
+  const moreActionCount = Number(canRetryFailedV3) + Number(Boolean(row.job_id)) + Number(Boolean(onPreviewStyle)) + Number(Boolean(row.partial_publish_available && onPublishAvailable));
+
+  const toggleMore = () => {
+    if (moreOpen) { setMoreOpen(false); return; }
+    const rect = moreButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 218;
+    const height = moreActionCount * 36 + 12;
+    setMorePlacement({
+      left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+      top: window.innerHeight - rect.bottom < height + 8 ? Math.max(8, rect.top - height - 6) : rect.bottom + 6,
+    });
+    setMoreOpen(true);
+  };
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    moreMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onOutside = (event: PointerEvent) => {
+      if (moreMenuRef.current?.contains(event.target as Node) || moreButtonRef.current?.contains(event.target as Node)) return;
+      setMoreOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setMoreOpen(false); moreButtonRef.current?.focus(); }
+      else if (event.key === "Tab") setMoreOpen(false);
+    };
+    const dismiss = () => setMoreOpen(false);
+    document.addEventListener("pointerdown", onOutside);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", onOutside);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [moreOpen]);
 
   useEffect(() => {
     if (!confirmAction) return;
@@ -220,45 +268,57 @@ export function KeywordImageRowControls({
         : row.output_url ? "Latest output" : row.status === "running" ? "Generating…" : row.status === "queued" ? "Waiting…" : "No output"}</span>
     </div>}
     <div className="rrugc-keyword-result-actions" role="group" aria-label={"Actions for " + row.keyword}>
-      {initial && <button type="button" className="rrugc-keyword-result-action is-generate"
-        onClick={() => onRun("generate")} disabled={actionDisabled}
-        title={actionDisabled ? "Creative Brief V3 is unavailable" : "Generate six designs from Creative Brief V3"}
-        aria-label={"Generate " + row.keyword}>
-        <KeywordActionGlyph kind="generate" /><span className="rrugc-keyword-action-label">Generate</span>
+      {primaryAction && <button type="button"
+        className={"rrugc-keyword-result-action is-primary is-" + primaryAction}
+        onClick={event => primaryAction === "generate" ? onRun("generate") : askConfirm(primaryAction, event.currentTarget)}
+        disabled={actionDisabled}
+        title={primaryAction === "generate" ? "Generate six designs from Creative Brief V3"
+          : primaryAction === "retry" ? "Retry the failed V3 attempt using saved checkpoints"
+            : "Regenerate six fresh V3 designs; previous outputs stay in history"}
+        aria-label={(primaryAction === "generate" ? "Generate " : primaryAction === "retry" ? "Retry " : "Regenerate ") + row.keyword}>
+        <KeywordActionGlyph kind={primaryAction} />
+        <span className="rrugc-keyword-action-label">{primaryAction === "generate" ? "Generate" : primaryAction === "retry" ? "Retry" : "Regenerate"}</span>
       </button>}
-      {canRetryFailedV3 && <button type="button" className="rrugc-keyword-result-action is-retry"
-        onClick={event => askConfirm("retry", event.currentTarget)} disabled={actionDisabled}
-        title="Retry the same failed V3 attempt; reuse verified checkpoints and uploaded assets"
-        aria-label={"Retry " + row.keyword}>
-        <KeywordActionGlyph kind="retry" /><span className="rrugc-keyword-action-label">Retry</span>
-      </button>}
-      {terminal && <button type="button" className="rrugc-keyword-result-action is-regenerate"
-        onClick={event => askConfirm("regenerate", event.currentTarget)} disabled={actionDisabled}
-        title="Regenerate: create six fresh V3 designs; keep all previous Output History"
-        aria-label={"Regenerate " + row.keyword}>
-        <KeywordActionGlyph kind="regenerate" /><span className="rrugc-keyword-action-label">Regenerate</span>
-      </button>}
-      {row.partial_publish_available && onPublishAvailable && <button type="button" className="rrugc-keyword-result-action is-generate"
-        onClick={onPublishAvailable} disabled={busy}
-        title="Publish only previously edited genuine images; no new AI calls or replacement"
-        aria-label={"Publish " + row.checkpoint_count + " existing images for " + row.keyword}>
-        <KeywordActionGlyph kind="generate" />
-        <span className="rrugc-keyword-action-label">Publish {row.checkpoint_count} images</span>
-      </button>}
-      {row.job_id && <button type="button" className="rrugc-keyword-result-action"
-        onClick={onLogs} title="View job logs" aria-label={"View logs for " + row.keyword}>
-        <KeywordActionGlyph kind="logs" />
-        <span className="rrugc-keyword-action-label">Logs</span>
-      </button>}
-      {(row.status === "running" || row.status === "queued") && <span className={"rrugc-keyword-result-pending status-" + row.status} title={row.status === "queued" ? "Waiting in the queue" : "Generation in progress"}>
+      {(row.status === "running" || row.status === "queued") && <span className={"rrugc-keyword-result-pending status-" + row.status} aria-label={row.status === "queued" ? "In queue" : "Processing"}>
         <span className="rrugc-keyword-pending-dot" />
         {row.status === "queued" ? "In queue" : "Processing"}
       </span>}
-      {row.retry_count > 0 && row.status !== "completed" && <span className="rrugc-keyword-auto-recovery" title={row.next_retry_at ? "Next retry " + new Date(row.next_retry_at).toLocaleString() : "Automatic recovery budget"}>
-        {row.status === "failed" ? "Needs attention" : "Auto recovery"} {Math.min(row.retry_count, row.auto_retry_max ?? 3)}/{row.auto_retry_max ?? 3}
-        {(row.checkpoint_count ?? 0) > 0 ? " · " + row.checkpoint_count + "/" + (row.expected_output_count ?? 6) + " checkpoint" : ""}
-      </span>}
+      {hasMoreActions && <button ref={moreButtonRef} type="button" className="rrugc-keyword-result-action is-more"
+        onClick={toggleMore} aria-label={"More actions for " + row.keyword} aria-haspopup="menu"
+        aria-expanded={moreOpen} aria-controls={moreOpen ? moreMenuId : undefined}
+        title="More actions"><KeywordActionGlyph kind="more" /></button>}
     </div>
+    {moreOpen && morePlacement && createPortal(
+      <div ref={moreMenuRef} id={moreMenuId} role="menu" aria-label={"More actions for " + row.keyword}
+        className="rrugc-keyword-more-menu" style={morePlacement}
+        onKeyDown={event => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+          const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+        }}>
+        {canRetryFailedV3 && <button role="menuitem" type="button" disabled={actionDisabled}
+          onClick={() => {
+            setMoreOpen(false);
+            if (moreButtonRef.current) askConfirm("regenerate", moreButtonRef.current);
+          }}><KeywordActionGlyph kind="regenerate" /> Regenerate new designs</button>}
+        {row.partial_publish_available && onPublishAvailable && <button role="menuitem" type="button" disabled={busy}
+          aria-label={"Publish " + row.checkpoint_count + " existing images for " + row.keyword}
+          onClick={() => { setMoreOpen(false); onPublishAvailable(); }}>
+          <KeywordActionGlyph kind="generate" /> Publish {row.checkpoint_count} saved images
+        </button>}
+        {row.job_id && <button role="menuitem" type="button" title="View job logs"
+          aria-label={"View logs for " + row.keyword}
+          onClick={() => { setMoreOpen(false); onLogs(); }}><KeywordActionGlyph kind="logs" /> View logs</button>}
+        {onPreviewStyle && <button role="menuitem" type="button" className="rrugc-keyword-preview-style"
+          aria-label={"Preview style for " + row.keyword}
+          title="Open preview-only Style Lab (does not modify the design or generate images)"
+          onClick={() => { setMoreOpen(false); onPreviewStyle(); }}>
+          <KeywordActionGlyph kind="versions" /> Preview style · Style Lab
+        </button>}
+      </div>, document.body,
+    )}
     {confirmAction && createPortal(
       <div className="rrugc-keyword-regenerate-backdrop" onMouseDown={event => {
         if (event.target === event.currentTarget) setConfirmAction(null);
@@ -679,13 +739,11 @@ export function KeywordImageStage({
                   <KeywordImageRowControls row={row} busy={busy} canGenerate={creativeV3Ready} showPreview={false}
                     onRun={action => void runOne(row, action)}
                     onPublishAvailable={() => void publishAvailable(row)}
-                    onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }} />
-                  {ideasAccess && <button type="button" className="typography-style-lab-open"
-                    aria-label={"Apply style to " + row.keyword}
-                    title="Open preview-only Style Lab (no image generation)"
-                    onClick={() => { setSelectedStyleKeyword({ keyword_id: row.keyword_id, keyword: row.keyword }); changeStageView("style-lab"); }}>
-                    Apply style
-                  </button>}
+                    onLogs={() => { if (row.job_id) setLogJobId(row.job_id); }}
+                    onPreviewStyle={ideasAccess ? () => {
+                      setSelectedStyleKeyword({ keyword_id: row.keyword_id, keyword: row.keyword });
+                      changeStageView("style-lab");
+                    } : undefined} />
                 </td>
               </tr>;
             })}
