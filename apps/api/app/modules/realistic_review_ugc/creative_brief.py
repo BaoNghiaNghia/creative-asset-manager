@@ -163,6 +163,47 @@ def build_prompt(keyword: str) -> str:
     )
 
 
+class CodexBriefUnavailable(RuntimeError):
+    """A recoverable Codex account/transport outage, never a broken brief."""
+
+    def __init__(self, reason_code: str, retry_seconds: int):
+        self.reason_code = reason_code
+        self.retry_seconds = retry_seconds
+        super().__init__(reason_code)
+
+
+def _codex_unavailable(stderr_tail: bytes, stdout_tail: bytes) -> CodexBriefUnavailable | None:
+    # Inspect the process outcome privately. Never emit CLI output: it can
+    # include the keyword, prompt, bearer details, or model response.
+    diagnostic = (stderr_tail + b"\\n" + stdout_tail).decode("utf-8", "replace").casefold()
+    if any(phrase in diagnostic for phrase in (
+        "usage limit", "rate limit", "rate_limit_exceeded", "quota", "limit reached",
+        "too many requests", "try again later", "429", "credits exhausted",
+        "your limit", "usage_limited", "usage cap", "resource_exhausted",
+        "out of credits",
+    )):
+        return CodexBriefUnavailable("creative_brief_codex_quota_wait", 1800)
+    if any(phrase in diagnostic for phrase in (
+        "not logged in", "login required", "authentication required",
+        "unauthorized", "sign in to", "please log in", "401 unauthorized",
+    )):
+        return CodexBriefUnavailable("creative_brief_codex_auth_wait", 3600)
+    if any(phrase in diagnostic for phrase in (
+        "connection reset", "connection refused", "timed out", "502 bad gateway",
+        "503 service unavailable", "service unavailable", "network error",
+        "error sending request", "temporary failure",
+    )):
+        return CodexBriefUnavailable("creative_brief_codex_network_wait", 900)
+    return None
+
+
+def _tail_bytes(path: Path, size: int = 8192) -> bytes:
+    with path.open("rb") as output:
+        output.seek(0, os.SEEK_END)
+        output.seek(max(0, output.tell() - size), os.SEEK_SET)
+        return output.read(size)
+
+
 async def generate_brief(
     keyword: str,
     *,
@@ -189,20 +230,37 @@ async def generate_brief(
         environment = os.environ.copy()
         if codex_home:
             environment["CODEX_HOME"] = codex_home
-        process = await asyncio.create_subprocess_exec(
-            *args, stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=environment, start_new_session=True,
-        )
-        try:
-            await asyncio.wait_for(process.wait(), timeout_seconds)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            raise TimeoutError("creative brief generation timed out") from None
-        if process.returncode != 0 or not output_path.exists():
+        # Use the existing ChatGPT/Codex subscription, never implicitly
+        # fall back to a separately billed API key.
+        for key in (
+            "OPENAI_API_KEY", "OPENAI_ORGANIZATION", "OPENAI_PROJECT",
+            "OPENAI_BASE_URL", "CODEX_API_KEY", "OPENAI_EXECUTOR_API_KEY",
+        ):
+            environment.pop(key, None)
+        # Temporary on-disk logs avoid PIPE deadlocks and unbounded memory.
+        # They are never logged or persisted after this invocation.
+        stdout_path, stderr_path = root / "stdout.log", root / "stderr.log"
+        with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
+            process = await asyncio.create_subprocess_exec(
+                *args, stdin=asyncio.subprocess.DEVNULL,
+                stdout=stdout_file, stderr=stderr_file,
+                env=environment, start_new_session=True,
+            )
+            try:
+                await asyncio.wait_for(process.wait(), timeout_seconds)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise TimeoutError("creative brief generation timed out") from None
+        if process.returncode != 0:
+            unavailable = _codex_unavailable(
+                _tail_bytes(stderr_path), _tail_bytes(stdout_path),
+            )
+            if unavailable is not None:
+                raise unavailable
             raise RuntimeError("codex text generation failed")
+        if not output_path.exists():
+            raise RuntimeError("codex text generation did not return a brief")
         if output_path.stat().st_size > 65536:
             raise ValueError("creative brief oversized")
         raw = json.loads(output_path.read_text(encoding="utf-8"))

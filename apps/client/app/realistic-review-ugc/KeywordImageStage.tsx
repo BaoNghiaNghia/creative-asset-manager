@@ -712,12 +712,15 @@ export function KeywordImageStage({
                     aria-label={"View Creative Brief for " + row.keyword}>
                     <strong>{row.creative_brief?.status === "completed"
                       ? (row.creative_brief.strategy || "Meaning-First").replaceAll("_", "-")
-                      : row.creative_brief?.status === "queued" ? "Queued"
+                      : row.creative_brief?.status === "queued"
+                        ? row.creative_brief.error_code?.startsWith("creative_brief_codex_") ? "Waiting for Codex" : "Queued"
                         : row.creative_brief?.status === "running" ? "Analyzing…"
                           : row.creative_brief?.status === "failed" ? "Retry analysis" : "Not analyzed"}</strong>
                     <small>{row.creative_brief?.status === "completed"
                       ? row.creative_brief.meaning_emotion || row.creative_brief.creative_hook
-                      : row.creative_brief?.status === "queued" ? "Waiting for Codex"
+                      : row.creative_brief?.status === "queued"
+                        ? row.creative_brief.error_code?.startsWith("creative_brief_codex_")
+                          ? "Auto retry when available" : "Waiting for worker"
                         : row.creative_brief?.status === "running" ? "Text-only Codex"
                           : "View concepts"}</small>
                     {row.creative_brief?.status === "completed" && <em>{row.creative_brief.concept_count} concepts · View</em>}

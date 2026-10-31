@@ -234,6 +234,7 @@ export type KeywordCreativeBriefSummary = {
   meaning_emotion: string | null;
   creative_hook: string | null;
   concept_count: number;
+  error_code?: string | null;
 };
 export type KeywordCreativeConcept = {
   name: string;
@@ -255,6 +256,7 @@ export type KeywordCreativeBriefDetail = {
   prompt_version: string | null;
   updated_at: string | null;
   error_code: string | null;
+  next_retry_at?: string | null;
   brief: null | {
     keyword_exact: string;
     strategy: string;

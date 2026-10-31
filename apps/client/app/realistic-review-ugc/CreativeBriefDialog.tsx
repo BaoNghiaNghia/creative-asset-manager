@@ -112,9 +112,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
           setError(reason instanceof Error ? reason.message : "Could not refresh Creative Brief.");
         }
       }
-    }, 5000);
+    }, detail?.error_code?.startsWith("creative_brief_codex_") ? 30000 : 5000);
     return () => { alive = false; controller.abort(); window.clearInterval(poll); };
-  }, [keywordId, detail?.status]);
+  }, [keywordId, detail?.status, detail?.error_code]);
 
   const analyze = async () => {
     if (busy || detail?.status === "queued" || detail?.status === "running") return;
@@ -195,8 +195,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   const concept = brief?.concepts[selected] || brief?.concepts[0];
   const generating = detail?.status === "queued" || detail?.status === "running";
   const failed = detail?.status === "failed";
+  const codexWaiting = detail?.status === "queued" && Boolean(detail.error_code?.startsWith("creative_brief_codex_"));
   const statusLabel = brief ? "Brief ready" : generating
-    ? (detail?.status === "queued" ? "In queue" : "Analyzing")
+    ? (codexWaiting ? "Waiting for Codex" : detail?.status === "queued" ? "In queue" : "Analyzing")
     : failed ? "Needs retry" : !detail ? (error ? "Unavailable" : "Loading brief") : "Ready to analyze";
   const statusClass = brief ? "ready" : generating || (!detail && !error) ? "working" : failed || (!detail && error) ? "failed" : "idle";
 
@@ -240,11 +241,13 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                 {generating ? "ANALYSIS IN PROGRESS" : failed ? "ANALYSIS NEEDS ATTENTION" : "START WITH INTENT"}
               </span>
               <h3>{generating
-                ? detail.status === "queued" ? "Your brief is in the queue." : "Turning meaning into creative directions."
+                ? codexWaiting ? "Codex is temporarily unavailable." : detail.status === "queued" ? "Your brief is in the queue." : "Turning meaning into creative directions."
                 : failed ? "The analysis didn't finish." : "A stronger idea starts with the meaning."}</h3>
               <p className="rrugc-creative-brief-pre-description">
                 {generating
-                  ? "Codex is preparing a text-only creative plan. This view updates automatically, and you can close it while the job runs."
+                  ? codexWaiting
+                    ? "The system will retry automatically once Codex quota is available. No manual Retry is needed; existing Stage 1 designs are preserved."
+                    : "Codex is preparing a text-only creative plan. This view updates automatically, and you can close it while the job runs."
                   : failed ? "Your existing artwork is safe. Retry the text-only analysis to prepare a new creative brief."
                     : "Explore what the quote really communicates, who it resonates with, and how it can become compelling embroidery."}
               </p>
@@ -252,10 +255,13 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
               {generating ? <>
                 <div className="rrugc-creative-brief-progress" role="status">
                   <span className="rrugc-creative-brief-progress-indicator" aria-hidden="true" />
-                  <div><strong>{detail.status === "queued" ? "Waiting for a Codex worker" : "Codex is analyzing the keyword"}</strong>
-                    <small>No images are being generated.</small></div>
+                  <div><strong>{codexWaiting ? "Waiting for Codex quota · automatic retry"
+                      : detail.status === "queued" ? "Waiting for a Codex worker" : "Codex is analyzing the keyword"}</strong>
+                    <small>{codexWaiting && detail.next_retry_at
+                      ? "Next automatic check: " + new Date(detail.next_retry_at).toLocaleString()
+                      : "No images are being generated."}</small></div>
                 </div>
-                {detail.status === "queued" && <button type="button"
+                {detail.status === "queued" && !codexWaiting && <button type="button"
                   className="rrugc-creative-brief-prioritize" onClick={() => void prioritizeQueued()}
                   disabled={busy || priorityRequested}
                   title="Move this existing queued analysis ahead of background backfill; no duplicate job is created">

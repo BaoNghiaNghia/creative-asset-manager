@@ -20,7 +20,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.realistic_review_ugc.creative_brief import CreativeBrief, generate_brief
+from app.modules.realistic_review_ugc.creative_brief import CodexBriefUnavailable, CreativeBrief, generate_brief
 from app.modules.realistic_review_ugc.creative_engine_v3 import SCHEMA_VERSION as V3_SCHEMA, build_v3_preview
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
@@ -29,6 +29,53 @@ from app.modules.realistic_review_ugc.model import (
 PROMPT_VERSION = "meaning-first-144-v2"
 JOB_TYPE = "rrugc_creative_brief_generate"
 INTERACTIVE_BRIEF_PRIORITY = 65  # above general aged 50 / Stage 1 queued 51
+BACKGROUND_BRIEF_PRIORITY = 51   # backfill must not starve behind storage backlog
+
+# One shared Codex login serves all image workers. After a real quota denial,
+# probe it at most every 30 minutes. The epoch-only gate survives worker
+# restarts; all durable job state remains in PostgreSQL.
+CODEX_THROTTLE_FILE = ".creative-brief-codex-throttle"
+CODEX_WAIT_CODES = frozenset({
+    "creative_brief_codex_quota_wait",
+    "creative_brief_codex_auth_wait",
+    "creative_brief_codex_network_wait",
+})
+
+
+def _codex_cooldown(
+    root: Path, *, failure: CodexBriefUnavailable | None = None,
+) -> tuple[datetime, str] | None:
+    path = root / CODEX_THROTTLE_FILE
+    with path.open("a+", encoding="ascii") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            file.seek(0)
+            words = file.read(160).split()
+            now = _utcnow()
+            try:
+                epoch = int(words[0])
+                reason = words[1]
+                # Reject corrupted or stale state; never hold work for days.
+                if reason not in CODEX_WAIT_CODES or not (
+                    now.timestamp() < epoch < now.timestamp() + 24 * 3600
+                ):
+                    raise ValueError("stale throttle")
+                active = (datetime.fromtimestamp(epoch, timezone.utc), reason)
+            except (IndexError, ValueError, OverflowError, OSError):
+                active = None
+            if failure is None:
+                return active
+            proposed = now + timedelta(seconds=max(60, min(failure.retry_seconds, 7200)))
+            retry_at = max(proposed, active[0]) if active else proposed
+            reason = failure.reason_code
+            file.seek(0)
+            file.truncate()
+            file.write(f"{int(retry_at.timestamp())} {reason}\\n")
+            file.flush()
+            return (retry_at, reason)
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
 
 
 def v3_enabled(settings: Settings, tenant_id: str) -> bool:
@@ -79,6 +126,7 @@ def brief_summary(row: RrugcKeywordCreativeBriefModel | None) -> dict | None:
         "meaning_emotion": content.get("meaning_emotion") if content else None,
         "creative_hook": content.get("creative_hook") if content else None,
         "concept_count": len(content.get("concepts") or ()) if content else 0,
+        "error_code": row.last_error_code if row.status in ("queued", "failed") else None,
     }
 
 
@@ -96,12 +144,17 @@ def get_brief(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
     ))
     stale = bool(row and (row.keyword_sha256 != _digest(keyword.keyword)
                           or row.prompt_version != PROMPT_VERSION))
+    quota_waiting = bool(row and row.status == "queued" and row.last_error_code in CODEX_WAIT_CODES)
+    next_retry = session.get(ProcessingJobModel, row.processing_job_id) if quota_waiting and row.processing_job_id else None
     return {
         "keyword_id": keyword.id,
         "keyword": keyword.keyword,
         "status": "stale" if stale else row.status if row else "not_analyzed",
         "brief": None if stale or not row or row.status != "completed" else row.brief_json,
-        "error_code": row.last_error_code if row and row.status == "failed" else None,
+        "error_code": row.last_error_code if row and (row.status == "failed" or quota_waiting) else None,
+        "next_retry_at": (next_retry.next_attempt_at.isoformat()
+                          if next_retry and next_retry.status in ("pending", "retry") and next_retry.next_attempt_at
+                          else None),
         "prompt_version": row.prompt_version if row else None,
         "updated_at": row.updated_at.isoformat() if row else None,
     }
@@ -110,7 +163,7 @@ def get_brief(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
 def queue_brief(
     session: Session, *, tenant_id: str, keyword_id: str,
     settings: Settings | None = None, retry: bool = False,
-    priority: int = 5,
+    priority: int = BACKGROUND_BRIEF_PRIORITY,
 ) -> tuple[str, bool]:
     settings = settings or get_settings()
     if not settings.RRUGC_CREATIVE_BRIEF_ENABLED:
@@ -251,6 +304,14 @@ class CreativeBriefGenerateHandler:
         # Never use /tmp: systemd may give each worker a private /tmp.
         lock_root = Path(self.settings.IMAGE_GENERATION_STAGING_ROOT)
         lock_root.mkdir(parents=True, exist_ok=True)
+        cooldown = _codex_cooldown(lock_root)
+        if cooldown is not None:
+            self._set_status(context, "queued", cooldown[1])
+            return DeferredJobOutcome(
+                reason_code=cooldown[1],
+                reason_message="Codex is temporarily unavailable; Creative Brief will resume automatically.",
+                retry_at=cooldown[0],
+            )
         limit = max(1, min(2, int(getattr(self.settings, "RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY", 1))))
         for slot in range(limit):
             lock_path = lock_root / (".creative-brief.lock" if slot == 0 else ".creative-brief.slot-1.lock")
@@ -279,6 +340,46 @@ class CreativeBriefGenerateHandler:
                 row.status = state
                 row.last_error_code = error_code
                 session.commit()
+
+    def _pause_queued_briefs(self, context: JobHandlerContext, retry_at: datetime, reason: str) -> None:
+        """Postpone due siblings in one transaction rather than probing a
+        shared exhausted account hundreds of times across four workers."""
+        with context.dependencies.session_factory() as session:
+            waiting = (
+                ProcessingJobModel.job_type == JOB_TYPE,
+                ProcessingJobModel.status.in_(("pending", "retry")),
+                ProcessingJobModel.cancellation_requested.is_(False),
+            )
+            session.execute(update(ProcessingJobModel).where(
+                *waiting,
+                (ProcessingJobModel.next_attempt_at.is_(None)
+                 | (ProcessingJobModel.next_attempt_at < retry_at)),
+            ).values(
+                next_attempt_at=retry_at,
+                last_error_code=reason,
+                last_error_message="Codex temporarily unavailable; retry scheduled automatically.",
+                updated_at=_utcnow(),
+            ).execution_options(synchronize_session=False))
+            eligible_ids = select(ProcessingJobModel.id).where(*waiting)
+            session.execute(update(RrugcKeywordCreativeBriefModel).where(
+                RrugcKeywordCreativeBriefModel.status == "queued",
+                RrugcKeywordCreativeBriefModel.processing_job_id.in_(eligible_ids),
+            ).values(last_error_code=reason).execution_options(synchronize_session=False))
+            session.commit()
+
+    def _defer_codex_failure(
+        self, context: JobHandlerContext, failure: CodexBriefUnavailable,
+    ) -> DeferredJobOutcome:
+        retry_at, reason = _codex_cooldown(
+            Path(self.settings.IMAGE_GENERATION_STAGING_ROOT), failure=failure,
+        )
+        self._set_status(context, "queued", reason)
+        self._pause_queued_briefs(context, retry_at, reason)
+        return DeferredJobOutcome(
+            reason_code=reason,
+            reason_message="Codex temporarily unavailable; retry automatically after cooldown.",
+            retry_at=retry_at,
+        )
 
     def _execute_locked(self, context: JobHandlerContext) -> JobHandlerResult:
         with context.dependencies.session_factory() as session:
@@ -312,9 +413,12 @@ class CreativeBriefGenerateHandler:
                 model=self.settings.RRUGC_CREATIVE_BRIEF_MODEL.strip() or None,
                 timeout_seconds=min(600, max(5, self.settings.RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS)),
             ))
+        except CodexBriefUnavailable as exc:
+            return self._defer_codex_failure(context, exc)
         except TimeoutError:
-            self._set_status(context, "queued", "creative_brief_timeout")
-            return JobHandlerResult.retryable("creative_brief_timeout", "Codex text generation timed out.")
+            return self._defer_codex_failure(
+                context, CodexBriefUnavailable("creative_brief_codex_network_wait", 900),
+            )
         except (RuntimeError, ValueError, OSError):
             self._set_status(context, "failed", "creative_brief_generation_failed")
             return JobHandlerResult.non_retryable(

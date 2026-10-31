@@ -1,7 +1,7 @@
 """Operator backfill for already-picked Stage 1 keywords.
 
-Runs against the configured application DB. Does not generate images or retry
-failed briefs; processing workers perform the queued text jobs later.
+Runs against the configured application DB. Does not generate images.
+Failed briefs are retried only when --retry-failed is explicitly requested.
 """
 import argparse
 import json
@@ -18,6 +18,8 @@ def main(argv=None):
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="Requeue failed current-version briefs once; quota failures then auto-defer.")
     args = parser.parse_args(argv)
     settings = get_settings()
     if not args.tenant_id.strip() or not 1 <= args.batch_size <= 500:
@@ -38,11 +40,13 @@ def main(argv=None):
             result = queue_picked_backfill(
                 session, tenant_id=args.tenant_id,
                 offset=offset, limit=args.batch_size, settings=settings,
+                retry_failed=args.retry_failed,
             )
             queued += result["queued"]
             skipped += result["skipped"]
         print(json.dumps({
             "dry_run": False, "picked_keywords": count,
+            "retry_failed": args.retry_failed,
             "queued": queued, "skipped": skipped,
         }, sort_keys=True))
     return 0

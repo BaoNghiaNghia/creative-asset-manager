@@ -145,6 +145,22 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateKeywordCreativeBrief).toHaveBeenCalledOnce();
   });
 
+  it("shows automatic Codex quota recovery instead of a manual Retry button", async () => {
+    const waiting = {
+      ...makeDetail("queued"),
+      error_code: "creative_brief_codex_quota_wait",
+      next_retry_at: "2026-11-01T02:00:00Z",
+    };
+    await renderDialog(waiting);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Codex is temporarily unavailable.");
+    expect(dialog?.textContent).toContain("The system will retry automatically");
+    expect(dialog?.textContent).toContain("Next automatic check:");
+    expect(dialog?.querySelector(".rrugc-creative-brief-primary")).toBeNull();
+    expect(dialog?.querySelector(".rrugc-creative-brief-prioritize")).toBeNull();
+    expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
+  });
+
   it("shows retry on a failed brief and does not hide the three-step explanation", async () => {
     await renderDialog(makeDetail("failed"));
     expect(document.querySelector(".rrugc-creative-brief-status")?.textContent).toContain("Needs retry");
