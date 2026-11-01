@@ -58,7 +58,7 @@ SLOT1_LEGACY_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_LEGACY_DIRECT_NAME + "|" + SLOT1_LEGACY_DIRECT_VERSION).encode("ascii")
 ).hexdigest()
 SLOT1_DIRECT_NAME = "cam-slot1-thread-reference-inpaint-v2"
-SLOT1_DIRECT_VERSION = "2.1.0"
+SLOT1_DIRECT_VERSION = "2.2.0"
 SLOT1_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_DIRECT_NAME + "|" + SLOT1_DIRECT_VERSION).encode("ascii")
 ).hexdigest()
@@ -2053,6 +2053,14 @@ class CodexImageGenRunner:
                 "individual hairline threads with low relief and discontinuous "
                 "needle-contact shadows, not thick cords, bubble lettering, "
                 "bevels, dark outlines or pasted graphics. "
+                "CRITICAL: LETTER FACES MUST BE LOW-RELIEF. Avoid any broad "
+                "left-to-right 3D lighting ramp across individual glyphs, "
+                "deep black grooves, cast shadows or specular plastic bulges. "
+                "The shine comes from separate hairline satin fibers only; "
+                "the underlying thread pigment has nearly uniform brightness "
+                "within each color region. No raised foam beneath threads. "
+                "Stitching follows the CURVED CROWN instead of floating "
+                "above or changing the original light and geometry. "
                 "Preserve exact surrounding factory fabric, seams, brim, logo "
                 "and camera/framing; do NOT generate a replacement cap. "
                 "Make EXACTLY ONE native imagegen call. Save native image "

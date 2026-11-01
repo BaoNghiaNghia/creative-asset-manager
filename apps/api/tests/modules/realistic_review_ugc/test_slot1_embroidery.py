@@ -504,3 +504,73 @@ def test_v2_rejects_thick_rope_ridges_even_when_fine_fibers_are_present():
         finish_slot1_refinement(
             material, candidate, clip_raw_halo=True, fine_thread_profile=True,
         )
+
+@pytest.mark.parametrize("bulge,passes", [(36, True), (80, False)])
+def test_v2_bounded_relief_recovery_runs_before_emboss_qa(bulge, passes):
+    cap = Image.new("RGB", (512, 640), (234, 222, 202))
+    design = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(design).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    material = build_slot1_material_pass(
+        png(cap), png(design), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    native = np.array(Image.open(BytesIO(refined_candidate(material, square=True))),
+                      dtype=np.float32)
+    edit = np.asarray(Image.open(BytesIO(material.edit_mask_png()))) > 220
+    x = np.indices(edit.shape)[1]
+    # A photographic fine-fiber pass with an excessive, smooth emboss ramp.
+    ramp = np.where(x < edit.shape[1] / 2, -bulge, bulge)
+    native[edit] += ramp[edit, None]
+    bad = png(Image.fromarray(np.uint8(np.clip(native, 0, 255)), "RGB"))
+    with pytest.raises(Slot1EmbroideryQAError, match="broad embossed lighting"):
+        finish_slot1_refinement(
+            material, bad, clip_raw_halo=True, require_raw_stock=True,
+            fine_thread_profile=False,
+        )
+    if not passes:
+        with pytest.raises(Slot1EmbroideryQAError, match="broad embossed lighting"):
+            finish_slot1_refinement(
+                material, bad, clip_raw_halo=True, require_raw_stock=True,
+                fine_thread_profile=True,
+            )
+        return
+    photo = np.asarray(Image.open(BytesIO(finish_slot1_refinement(
+        material, bad, clip_raw_halo=True, require_raw_stock=True,
+        fine_thread_profile=True,
+    ))), dtype=np.float32)
+    outside = np.asarray(material.edit_mask, dtype=np.uint8) == 0
+    core = np.asarray(material.thread_mask, dtype=np.uint8) > 220
+    assert np.array_equal(photo[outside], np.asarray(cap, dtype=np.float32)[outside])
+    diff = cv2.GaussianBlur(np.mean(
+        photo - np.asarray(material.stitched, dtype=np.float32), axis=2,
+    ), (0, 0), 7.0)
+    assert np.percentile(diff[core], 90) - np.percentile(diff[core], 10) < 24
+    gray = cv2.cvtColor(np.uint8(photo), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    assert float(np.std((gray - cv2.GaussianBlur(gray, (0, 0), 1.1))[core])) > 3.0
+
+def test_v2_preserves_three_independent_green_gold_red_thread_colors():
+    cap = Image.new("RGB", (512, 640), (234, 222, 202))
+    design = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(design)
+    colors = ((14, 87, 43), (174, 129, 20), (181, 57, 35))
+    for i, color in enumerate(colors):
+        draw.rectangle((15 + i * 137, 42, 128 + i * 137, 119), fill=(*color, 255))
+    material = build_slot1_material_pass(
+        png(cap), png(design), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    result = finish_slot1_refinement(
+        material, refined_candidate(material, square=True),
+        clip_raw_halo=True, require_raw_stock=True, fine_thread_profile=True,
+    )
+    actual = np.asarray(Image.open(BytesIO(result)), dtype=np.uint8)
+    pigment = np.asarray(material.pigment, dtype=np.uint8)
+    core = np.asarray(material.thread_mask, dtype=np.uint8) > 220
+    target_hue = cv2.cvtColor(pigment, cv2.COLOR_RGB2HSV)[:, :, 0].astype(int)
+    result_hue = cv2.cvtColor(actual, cv2.COLOR_RGB2HSV)[:, :, 0].astype(int)
+    for rgb in colors:
+        same = core & (np.max(np.abs(
+            pigment.astype(np.int16) - np.array(rgb, dtype=np.int16)), axis=2) < 25)
+        assert int(same.sum()) > 50
+        delta = np.abs(target_hue[same] - result_hue[same])
+        assert float(np.median(np.minimum(delta, 180 - delta))) < 14

@@ -393,6 +393,53 @@ def finish_slot1_refinement(
     if float(np.std(high[core])) < max(3.2, float(np.std(high_stock[core])) * 1.1):
         raise Slot1EmbroideryQAError("AI edit still resembles flat printed lettering.")
 
+    if fine_thread_profile and material.edit_roi_box is not None:
+        # IMPORTANT: normalize broad 3D lighting BEFORE the material QA below.
+        # Previously this correction ran only AFTER the emboss-rejection gate:
+        # live native Pass A/B succeeded but nearly every puff-looking Pass B
+        # was rejected before the low-frequency recovery had a chance to run.
+        #
+        # Subtract a *bounded smooth illumination field*, never fabricate
+        # photographic filaments. Preserve all strand-scale high frequencies,
+        # exact pigments, source glyph shapes and surrounding factory twill.
+        alpha_weight = np.asarray(material.thread_mask, dtype=np.float32) / 255.
+        smooth_weight = cv2.GaussianBlur(alpha_weight, (0, 0), 7.0)
+        smooth_delta = (
+            cv2.GaussianBlur((candidate_luma - guide_luma) * alpha_weight,
+                             (0, 0), 7.0)
+            / np.maximum(smooth_weight, .04)
+        )
+        pigment_hsv_local = cv2.cvtColor(
+            np.uint8(np.clip(pigment, 0, 255)), cv2.COLOR_RGB2HSV
+        )
+        # Hue groups ensure yellow/red/green strokes never inherit each
+        # other's brightness correction (source palette remains independent).
+        color_groups = (
+            pigment_hsv_local[:, :, 0].astype(np.int16) // 12
+            + 16 * (pigment_hsv_local[:, :, 1] >= 45)
+        )
+        tonal_adjustment = np.zeros(smooth_delta.shape, np.float32)
+        for group in np.unique(color_groups[core]):
+            members = core & (color_groups == group)
+            if int(np.count_nonzero(members)) < 20:
+                continue
+            center = float(np.median(smooth_delta[members]))
+            delta = smooth_delta - center
+            # Retain +/-8 levels of believable low-relief light. Cap the
+            # corrective removal at 38 levels so a drastic fake 3D face
+            # cannot be silently painted away or treated as real embroidery.
+            corrected = np.clip(
+                delta - np.clip(delta, -8., 8.), -38., 38.
+            )
+            tonal_adjustment[color_groups == group] = corrected[color_groups == group]
+        candidate = np.clip(
+            candidate - tonal_adjustment[..., None] * alpha_weight[..., None],
+            0, 255,
+        )
+        candidate_luma = cv2.cvtColor(
+            np.uint8(candidate), cv2.COLOR_RGB2GRAY
+        ).astype(np.float32)
+
     if material.edit_roi_box is not None:
         # A high-frequency noise overlay is NOT a photographed yarn structure.
         # Genuine satin/fill has locally coherent directional filaments.
@@ -469,39 +516,6 @@ def finish_slot1_refinement(
     # organic thread detail, not just a tiny highpass of it.
     color_shift = np.clip(np.median(pigment[core] - candidate[core], axis=0), -22, 22)
     threads = np.clip(candidate + color_shift[None, None, :], 0, 255)
-    if fine_thread_profile and material.edit_roi_box is not None:
-        # Prevent a broad fake 3D bulge from surviving even a model that has
-        # beautiful *fine* fibers layered over it. Remove only the slowly
-        # varying artificial bump, retaining strand-scale photographic detail
-        # and gentle low-relief light. Each independent pigment group gets
-        # its own neutral tonal baseline (no blue/green pigment remapping).
-        guide_luma = cv2.cvtColor(np.uint8(guide), cv2.COLOR_RGB2GRAY).astype(np.float32)
-        alpha_weight = np.asarray(material.thread_mask, dtype=np.float32) / 255.
-        blurred_weight = cv2.GaussianBlur(alpha_weight, (0, 0), 5.0)
-        smooth_delta = (
-            cv2.GaussianBlur((candidate_luma - guide_luma) * alpha_weight,
-                             (0, 0), 5.0)
-            / np.maximum(blurred_weight, .02)
-        )
-        pigment_rgb = np.uint8(np.clip(pigment, 0, 255))
-        pigment_hsv = cv2.cvtColor(pigment_rgb, cv2.COLOR_RGB2HSV)
-        groups = (pigment_hsv[:, :, 0].astype(np.int16) // 12
-                  + 16 * (pigment_hsv[:, :, 1] >= 45))
-        tonal_adjustment = np.zeros(smooth_delta.shape, np.float32)
-        for group in np.unique(groups[core]):
-            members = core & (groups == group)
-            if int(np.count_nonzero(members)) < 20:
-                continue
-            center = float(np.median(smooth_delta[members]))
-            # Only the LOW frequency beyond +/-10 luma counts is removed;
-            # fine thread filaments, per-color hues and real twill remain.
-            excess = smooth_delta - center
-            correction = excess - np.clip(excess, -10., 10.)
-            tonal_adjustment[groups == group] = correction[groups == group]
-        threads = np.clip(
-            threads - tonal_adjustment[..., None] * alpha_weight[..., None],
-            0, 255,
-        )
     effective_alpha = np.clip(alpha * .99, 0, 1)
     final = stock * (1 - effective_alpha[..., None]) + threads * effective_alpha[..., None]
     if material.contact_width_px:
