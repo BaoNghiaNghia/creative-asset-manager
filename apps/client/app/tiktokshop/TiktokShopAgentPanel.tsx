@@ -21,7 +21,10 @@ export function TiktokShopAgentPanel() {
     void refresh(controller.signal).catch(reason => {
       if (!controller.signal.aborted) setError(safeError(reason));
     });
-    return () => controller.abort();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh().catch(() => undefined);
+    }, 15000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, []);
 
   async function pairNew() {
@@ -39,6 +42,11 @@ export function TiktokShopAgentPanel() {
     }
   }
 
+  const needsPinterestLogin = agents.some(agent =>
+    agent.active && (agent.status === "needs_login" ||
+      /pinterest_.*login_required/.test(agent.last_error_code || "")));
+  const hasLinkedAgent = agents.some(agent => agent.active && agent.last_seen_at);
+
   const config = useMemo(() => created ? [
     "RRUGC_TIKTOKSHOP_AGENT_ID=" + created.id,
     "RRUGC_TIKTOKSHOP_SCOUT_TOKEN=" + created.agent_token,
@@ -53,7 +61,7 @@ export function TiktokShopAgentPanel() {
       </div>
       <button type="button" className="rrugc-primary rrugc-icon-action"
         onClick={() => void pairNew()} disabled={working}>
-        {working ? "Pairing…" : "Pair TikTokShop agent"}
+        {working ? "Pairing…" : hasLinkedAgent ? "Pair another agent" : "Pair TikTokShop agent"}
       </button>
     </div>
     {agents.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
@@ -62,6 +70,18 @@ export function TiktokShopAgentPanel() {
         {agent.name} · {agent.status}
       </span>)}
     </div>}
+    {needsPinterestLogin && <p role="status" style={{ marginTop: 10 }}>
+      <strong>Pinterest login required.</strong> The TikTokShop agent is paired but cannot
+      scout until its dedicated Chrome profile is signed in. On DESKTOP-3FR0LF0,
+      open <code>START_SCOUT_TIKTOKSHOP.cmd</code>, finish Pinterest sign-in in
+      the Chrome window it opens, and close that Chrome window. The agent will
+      verify the saved session automatically; do not create a new pairing.
+    </p>}
+    {agents.some(agent => agent.active && agent.status === "offline" && !agent.last_error_code)
+      && !needsPinterestLogin && <p style={{ marginTop: 10 }}>
+        An agent is offline. Start TikTokShop Scout on the Windows tool machine;
+        pairing a second agent does not start the existing one.
+      </p>}
     {error && <p role="alert" style={{ marginTop: 8 }}>{error}</p>}
     {created && <div style={{ marginTop: 12 }}>
       <strong>One-time pairing credentials — copy to Windows Scout Manager</strong>

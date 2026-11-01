@@ -8252,6 +8252,17 @@ async def sync_source_folder_plans(
         raise HTTPException(status_code=422, detail="TikTokShop colorways are not part of Scout & UGC.")
     if metadata_only and (workspace != "tiktokshop" or colorway_sources):
         raise HTTPException(status_code=422, detail="Metadata-only import is exclusive to TikTokShop.")
+    # Manual rescans share the same bounded Gemini queue as automatic sync.
+    # Repeated Scan clicks must not enqueue all imported products at once.
+    if workspace == "tiktokshop" and not metadata_only:
+        from app.modules.realistic_review_ugc.source_plan_scheduler import (
+            tiktokshop_source_analysis_budget,
+        )
+        analysis_limit = tiktokshop_source_analysis_budget(
+            session, principal.active_tenant_id
+        )
+    else:
+        analysis_limit = None
     try:
         result = await sync_source_plans(
             session,
@@ -8259,9 +8270,9 @@ async def sync_source_folder_plans(
             user_id=principal.user_id,
             root_folder_id=_source_root_for_workspace(workspace),
             # Only the dedicated TikTokShop agent may claim its campaigns.
-            # Cap manual scans to 12 Gemini context jobs to protect shared quota.
+            # Keep manual and automatic TikTokShop scans within the shared 12-job Gemini window.
             queue_analysis=not colorway_sources and not metadata_only,
-            analysis_job_limit=12 if workspace == "tiktokshop" and not metadata_only else None,
+            analysis_job_limit=analysis_limit,
             source_only=metadata_only,
         )
     except RrugcSourcePlanError as exc:

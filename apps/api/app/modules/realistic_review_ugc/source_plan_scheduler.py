@@ -5,19 +5,47 @@ import logging
 import threading
 from typing import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.modules.auth_persistence.model import OAuthConnectionModel
+from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.source_plans import (
-    RRUGC_SOURCE_ROOT_FOLDER_ID,
+    RRUGC_SOURCE_ROOT_FOLDER_ID, RRUGC_SOURCE_PLAN_JOB_TYPE,
     SourcePlanSyncResult,
     sync_source_plans,
 )
 from app.modules.storage.managed_oauth import MANAGED_STORAGE_OAUTH_PROVIDER
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+
+# A small bounded inflight window prevents TikTokShop's large Drive import
+# from swamping the shared Gemini lane or starving GatorHats analysis.
+TIKTOKSHOP_ANALYSIS_INFLIGHT_LIMIT = 12
 
 SourcePlanSyncer = Callable[..., Awaitable[SourcePlanSyncResult]]
+
+
+def tiktokshop_source_analysis_budget(session: Session, tenant_id: str) -> int:
+    """Tenant+folder scoped in-flight ceiling shared by API and scheduler."""
+    active = session.scalar(
+        select(func.count(ProcessingJobModel.id))
+        .join(
+            RrugcSourcePlanModel,
+            and_(
+                RrugcSourcePlanModel.id == ProcessingJobModel.entity_id,
+                RrugcSourcePlanModel.tenant_id == ProcessingJobModel.tenant_id,
+            ),
+        )
+        .where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == RRUGC_SOURCE_PLAN_JOB_TYPE,
+            ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+            RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        )
+    ) or 0
+    return max(0, TIKTOKSHOP_ANALYSIS_INFLIGHT_LIMIT - int(active))
 
 
 class RrugcSourcePlanSyncScheduler:
@@ -121,43 +149,59 @@ class RrugcSourcePlanSyncScheduler:
                 tenant_ids.append(row.tenant_id)
             return tuple(tenant_ids)
 
+    def _tiktokshop_analysis_budget(self, session: Session, tenant_id: str) -> int:
+        return tiktokshop_source_analysis_budget(session, tenant_id)
+
     def tick(self) -> tuple[SourcePlanSyncResult, ...]:
         if not self.enabled:
             return ()
         results: list[SourcePlanSyncResult] = []
         for tenant_id in self._tenant_ids():
-            try:
-                with self.session_factory() as session:
-                    result = asyncio.run(
-                        self.syncer(
-                            session,
-                            tenant_id=tenant_id,
-                            user_id="system:rrugc-source-auto-sync",
-                            settings=self.settings,
-                            root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            for root_folder_id in (
+                RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            ):
+                try:
+                    with self.session_factory() as session:
+                        options = {}
+                        if root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+                            budget = self._tiktokshop_analysis_budget(session, tenant_id)
+                            if not budget:
+                                continue
+                            options["analysis_job_limit"] = budget
+                        result = asyncio.run(
+                            self.syncer(
+                                session,
+                                tenant_id=tenant_id,
+                                user_id="system:rrugc-source-auto-sync",
+                                settings=self.settings,
+                                root_folder_id=root_folder_id,
+                                **options,
+                            )
                         )
+                    results.append(result)
+                    self.logger.info(
+                        "rrugc_source_auto_sync_complete",
+                        extra={
+                            "tenant_id": tenant_id,
+                            "root_folder_id": result.root_folder_id,
+                            "images_found": result.images_found,
+                            "plans_created": result.plans_created,
+                            "plans_updated": result.plans_updated,
+                            "plans_missing": result.plans_missing,
+                            "jobs_queued": result.jobs_queued,
+                            "unchanged": result.unchanged,
+                        },
                     )
-                results.append(result)
-                self.logger.info(
-                    "rrugc_source_auto_sync_complete",
-                    extra={
-                        "tenant_id": tenant_id,
-                        "root_folder_id": result.root_folder_id,
-                        "images_found": result.images_found,
-                        "plans_created": result.plans_created,
-                        "plans_updated": result.plans_updated,
-                        "plans_missing": result.plans_missing,
-                        "jobs_queued": result.jobs_queued,
-                        "unchanged": result.unchanged,
-                    },
-                )
-            except Exception as exc:
-                self.logger.exception(
-                    "rrugc_source_auto_sync_tenant_failed",
-                    extra={
-                        "tenant_id": tenant_id,
-                        "root_folder_id": RRUGC_SOURCE_ROOT_FOLDER_ID,
-                        "error_code": type(exc).__name__,
-                    },
-                )
+                except Exception as exc:
+                    # A TikTokShop outage must not stop GatorHats (or vice
+                    # versa), and a failed scan must not mark source files
+                    # missing or discard any previous analysis/output.
+                    self.logger.exception(
+                        "rrugc_source_auto_sync_tenant_failed",
+                        extra={
+                            "tenant_id": tenant_id,
+                            "root_folder_id": root_folder_id,
+                            "error_code": type(exc).__name__,
+                        },
+                    )
         return tuple(results)

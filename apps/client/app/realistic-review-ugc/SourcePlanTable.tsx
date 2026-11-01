@@ -74,6 +74,11 @@ function planTone(plan: SourcePlan): string {
 }
 
 function scoutStatusPresentation(plan: SourcePlan): { label: string; tone: string } {
+  // A discovered TikTokShop source without a campaign has not started
+  // scouting. It is NOT evidence that the Windows Scout machine is offline.
+  if (!plan.campaign_id && plan.status !== "ready") {
+    return { label: "Awaiting AI", tone: "neutral" };
+  }
   const status = plan.scout_status || "offline";
   if (
     status === "error"

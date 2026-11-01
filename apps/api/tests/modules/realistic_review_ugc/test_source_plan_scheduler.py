@@ -7,8 +7,11 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.database import Base
 from app.modules.auth_persistence.model import OAuthConnectionModel
+from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.source_plan_scheduler import (
-    RrugcSourcePlanSyncScheduler,
+    RrugcSourcePlanSyncScheduler, TIKTOKSHOP_ANALYSIS_INFLIGHT_LIMIT,
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
@@ -87,11 +90,15 @@ class RrugcSourcePlanSyncSchedulerTest(unittest.TestCase):
 
         results = scheduler.tick()
 
-        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results), 2)
+        self.assertEqual([row["root_folder_id"] for row in calls], [
+            RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ])
         self.assertEqual(results[0].images_found, 7)
         self.assertEqual(calls[0]["tenant_id"], "tenant-a")
         self.assertEqual(calls[0]["user_id"], "system:rrugc-source-auto-sync")
-        self.assertEqual(calls[0]["root_folder_id"], RRUGC_SOURCE_ROOT_FOLDER_ID)
+        self.assertNotIn("analysis_job_limit", calls[0])
+        self.assertEqual(calls[1]["analysis_job_limit"], TIKTOKSHOP_ANALYSIS_INFLIGHT_LIMIT)
         self.assertEqual(scheduler.interval_seconds, 120)
 
     def test_idle_source_scans_back_off_and_resume_after_change(self):
@@ -112,6 +119,82 @@ class RrugcSourcePlanSyncSchedulerTest(unittest.TestCase):
         )
         self.assertEqual(scheduler._next_wait_seconds((changed,)), 120)
         self.assertEqual(scheduler._next_wait_seconds(()), 120)
+
+    def test_tiktokshop_quota_counts_only_active_own_source_jobs(self):
+        """At cap, do not scan/re-enqueue; release one slot when a job finishes."""
+        with self.factory() as session:
+            for i in range(TIKTOKSHOP_ANALYSIS_INFLIGHT_LIMIT):
+                plan = RrugcSourcePlanModel(
+                    id=f"tt-{i}", tenant_id="tenant-a",
+                    root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id=f"drive-tt-{i}",
+                    source_relative_path=f"product-{i}.png",
+                    source_name=f"product-{i}.png",
+                    source_mime_type="image/png", source_revision=f"hash-{i}",
+                    created_by_user_id="test",
+                )
+                session.add(plan)
+                session.add(ProcessingJobModel(
+                    tenant_id="tenant-a", job_type="rrugc_source_plan_analyze",
+                    entity_type="rrugc_source_plan", entity_id=plan.id,
+                    idempotency_key=f"tt-{i}", provider_key="gemini",
+                    provider_scope="ai", status="retry" if i == 0 else "pending",
+                ))
+            other = RrugcSourcePlanModel(
+                id="review-other", tenant_id="tenant-a",
+                root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+                source_file_id="drive-review",
+                source_relative_path="review.png", source_name="review.png",
+                source_mime_type="image/png", source_revision="hash-review",
+                created_by_user_id="test",
+            )
+            session.add(other)
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="rrugc_source_plan_analyze",
+                entity_type="rrugc_source_plan", entity_id=other.id,
+                idempotency_key="review", status="pending",
+            ))
+            session.commit()
+
+        calls = []
+
+        async def syncer(session, **kwargs):
+            calls.append(kwargs)
+            return SourcePlanSyncResult(
+                root_folder_id=kwargs["root_folder_id"], folders_scanned=1,
+                images_found=0, plans_created=0, plans_updated=0,
+                plans_missing=0, jobs_queued=0, unchanged=0,
+            )
+
+        scheduler = RrugcSourcePlanSyncScheduler(self.factory, self.settings, syncer=syncer)
+        with self.factory() as session:
+            self.assertEqual(scheduler._tiktokshop_analysis_budget(session, "tenant-a"), 0)
+        self.assertEqual(len(scheduler.tick()), 1)
+        self.assertEqual([x["root_folder_id"] for x in calls], [RRUGC_SOURCE_ROOT_FOLDER_ID])
+        with self.factory() as session:
+            job = session.query(ProcessingJobModel).filter_by(idempotency_key="tt-0").one()
+            job.status = "completed"
+            session.commit()
+            self.assertEqual(scheduler._tiktokshop_analysis_budget(session, "tenant-a"), 1)
+        calls.clear()
+        self.assertEqual(len(scheduler.tick()), 2)
+        self.assertEqual(calls[1]["analysis_job_limit"], 1)
+
+    def test_tiktokshop_drive_outage_does_not_block_reviews(self):
+        calls = []
+
+        async def syncer(session, **kwargs):
+            calls.append(kwargs["root_folder_id"])
+            if kwargs["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+                raise RuntimeError("TikTokShop Drive temporarily unavailable")
+            return SourcePlanSyncResult(
+                root_folder_id=kwargs["root_folder_id"], folders_scanned=1,
+                images_found=0, plans_created=0, plans_updated=0,
+                plans_missing=0, jobs_queued=0, unchanged=0,
+            )
+        scheduler = RrugcSourcePlanSyncScheduler(self.factory, self.settings, syncer=syncer)
+        self.assertEqual(len(scheduler.tick()), 1)
+        self.assertEqual(calls, [RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID])
 
     def test_disabled_scheduler_does_not_scan(self):
         settings = self.settings.model_copy(
