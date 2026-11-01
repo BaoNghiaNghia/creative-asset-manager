@@ -466,6 +466,10 @@ $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
 $detailConcurrency = "1"
 Set-LocalConfigValue $ConfigPath "RRUGC_DETAIL_CONCURRENCY" "1"
 $chromeExecutable = Get-ConfigValue $config "RRUGC_CHROME_EXECUTABLE"
+# Typography login uses the installed Chrome, not the bundled Playwright
+# Chromium used by Review/Keyword/Cap Stack. Never reuse a profile created
+# by newer Google Chrome with an older Chromium binary (startup crash).
+$typographyChromeExecutable = Get-ConfigValue $config "RRUGC_TYPOGRAPHY_CHROME_EXECUTABLE"
 $configuredPython = Get-ConfigValue $config "RRUGC_PYTHON"
 
 if ([string]::IsNullOrWhiteSpace($agentId)) {
@@ -610,8 +614,8 @@ try {
         if (-not $TypographyBrowserMode) {
             $typographyArguments += "--seed-only"
         }
-        if ($TypographyBrowserMode -and -not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
-            $typographyArguments += @("--chrome-executable", $chromeExecutable)
+        if ($TypographyBrowserMode -and -not [string]::IsNullOrWhiteSpace($typographyChromeExecutable)) {
+            $typographyArguments += @("--chrome-executable", $typographyChromeExecutable)
         }
         & $python @typographyArguments
         $scoutExit = $LASTEXITCODE
