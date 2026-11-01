@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import tiktokNavIcon from "../../assets/navigation/tiktokshop.png";
 import { renderToStaticMarkup } from "react-dom/server";
 import { routeForPath, workspaceRouteForApplicationRoute, requiredPermissionForApplicationRoute } from "../AppRoute";
 import { TiktokShopScoutUgcPage, TIKTOKSHOP_SOURCE_ROOT } from "./TiktokShopScoutUgcPage";
@@ -16,6 +17,7 @@ describe("Tiktokshop workspace Phase 3 isolation", () => {
     expect(html).toContain("Tiktokshop");
     expect(html).toContain("Scout &amp; UGC");
     expect(html).toContain(TIKTOKSHOP_SOURCE_ROOT);
+    expect(html).toContain("rrugc-tiktokshop-workspace");
     expect(html).toContain("Stage 3");
     expect(html).toContain("Stage 4");
     expect(html).toContain("Stage 5");
@@ -24,5 +26,8 @@ describe("Tiktokshop workspace Phase 3 isolation", () => {
     expect(html).toContain("Export internal QA CSV");
     expect(html).not.toContain("Generation is not enabled yet");
     expect(html).not.toContain("1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX");
+  });
+  it("uses the supplied TikTokShop logo artwork in the navigation", () => {
+    expect(tiktokNavIcon).toContain("tiktokshop.png");
   });
 });

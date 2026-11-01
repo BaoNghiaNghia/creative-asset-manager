@@ -23,6 +23,7 @@ import {
 import type { SourcePlan, SourcePlanPage, Stage2Job, Stage3ReviewGroupList } from "../realistic-review-ugc/types";
 import "../realistic-review-ugc/ui-overhaul.css";
 import "../realistic-review-ugc/tablet-mobile-density.css";
+import "./tiktokshop.css";
 
 export const TIKTOKSHOP_SOURCE_ROOT = "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh";
 type TikTokStage = "stage3" | "stage4" | "stage5";
@@ -219,7 +220,7 @@ export function TiktokShopScoutUgcPage() {
     }
   }
 
-  return <main className="rrugc-shell rrugc-source-first-shell">
+  return <main className="rrugc-shell rrugc-source-first-shell rrugc-tiktokshop-workspace">
     <aside className="ops-sidebar">
       <div className="brand">
         <b><BrandIcon /></b>
@@ -259,7 +260,7 @@ export function TiktokShopScoutUgcPage() {
         <section id="tiktok-panel-stage3" role="tabpanel" aria-labelledby="tiktok-tab-stage3"
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
           <TiktokShopAgentPanel />
-          <div className="rrugc-card" style={{ padding: "12px 16px", marginBottom: 12 }}>
+          <div className="rrugc-card tiktokshop-stage-note" role="note">
             <strong>Stage 3 pilot.</strong> Scan imports only TiktokShop Drive sources
             and queues at most 12 product-context analyses each time.
             A paired TikTokShop Windows Agent receives only its own campaigns.
@@ -301,8 +302,7 @@ export function TiktokShopScoutUgcPage() {
         </section>
         <section id="tiktok-panel-stage5" role="tabpanel" aria-labelledby="tiktok-tab-stage5"
           className="rrugc-stage-panel" hidden={stage !== "stage5"}>
-          <div className="rrugc-card" style={{ padding: "12px 16px", marginBottom: 12, display: "flex",
-            gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="rrugc-card tiktokshop-stage-note tiktokshop-stage-note-actions">
             <div><strong>Internal apparel image QA only</strong>
               <p style={{ margin: "4px 0" }}>TikTokShop outputs are creative drafts, not actual customer photographs or verified buyer reviews. No fake reviewer, rating or Loox import is generated.</p>
             </div>

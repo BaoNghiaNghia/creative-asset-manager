@@ -9,7 +9,7 @@ import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
 import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
-import tiktokshopIcon from "../../assets/navigation/tiktokshop.svg";
+import tiktokshopIcon from "../../assets/navigation/tiktokshop.png";
 import { currentRrugcStage, rrugcWorkflowHref, workflowGroupForStage, RRUGC_WORKFLOW_GROUPS, type RrugcStageTab } from "../realistic-review-ugc/workflowRouting";
 import {
   AI_OPERATIONS_TABS,
