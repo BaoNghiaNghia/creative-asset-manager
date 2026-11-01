@@ -27,10 +27,13 @@ from app.modules.realistic_review_ugc.gemini_safety import (
 from app.modules.realistic_review_ugc.model import (
     RrugcStage2JobModel,
     RrugcStage3AnalysisModel,
+    RrugcSourcePlanModel,
 )
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 
 
 STAGE3_ANALYSIS_VERSION = "rrugc-stage3-ugc-v2"
+TIKTOKSHOP_STAGE5_ANALYSIS_VERSION = "tiktokshop-stage5-apparel-ugc-v1"
 STAGE3_JOB_TYPE = "rrugc_stage3_analyze"
 
 class Stage3UgcAnalysisDocument(BaseModel):
@@ -90,7 +93,35 @@ def normalize_stage3_metadata(metadata: Mapping[str, object]) -> dict[str, objec
     return normalized
 
 
-def stage3_analysis_prompt() -> str:
+def stage3_analysis_prompt(workspace: str = "gatorhats") -> str:
+    if workspace == "tiktokshop":
+        return """
+You are evaluating a generated embroidered apparel lifestyle image as an
+INTERNAL creative quality-assurance draft, not a verified customer photo.
+Return exactly one JSON object matching the supplied schema and no prose.
+
+The product is embroidered clothing (hoodie, sweatshirt, tee, shirt or sweater),
+NOT a hat/cap. Evaluate only visibly supported facts, no identity or protected
+traits. Torso-only crops are valid; a visible face is NOT required.
+- people_count / person_visible: whether someone wears the garment naturally.
+- hat_visible: true only when an actual hat appears, not required or rewarded.
+- product_visible: whether the intended garment is plainly visible.
+- embroidery_visible: whether existing stitched artwork on the garment is
+  plausibly rendered and recognizable without invented text or floating print.
+- mobile_ugc_score: candid smartphone photo feel, clothing drape, casual scene.
+- photorealism_score: realistic body/hands, garment geometry, seams, fabric
+  weave, thread relief, shadows, lighting and background continuity.
+- product_visibility_score: clear chest/back artwork placement and garment.
+- review_fit_score: internal visual-QA suitability, not testimonial credibility.
+
+Reject products with floating decals, missing garment sections, unnatural
+drape, distorted lettering, extra logos or synthetic-looking hands. Do not
+infer a customer purchased or endorsed the product. Do not create names,
+ratings, order information or first-person copy. Always set review_text=null.
+Score honestly based only on visible pixels; evidence at most six short facts.
+""".strip()
+    if workspace != "gatorhats":
+        raise ValueError("Unknown Stage 5 workspace")
     return """
 You are evaluating a generated product lifestyle image for use in a realistic UGC customer-review card.
 Return exactly one JSON object matching the supplied schema and no prose.
@@ -125,12 +156,22 @@ class Stage3Decision:
     reject_reasons: list[str]
 
 
-def evaluate_stage3(document: Stage3UgcAnalysisDocument) -> Stage3Decision:
+def evaluate_stage3(
+    document: Stage3UgcAnalysisDocument, workspace: str = "gatorhats",
+) -> Stage3Decision:
     reasons: list[str] = []
     if document.people_count < 1 or not document.person_visible:
         reasons.append("no_visible_person")
-    if not document.hat_visible and not document.product_visible:
-        reasons.append("product_not_visible")
+    if workspace == "tiktokshop":
+        if not document.product_visible:
+            reasons.append("garment_not_visible")
+        if not document.embroidery_visible:
+            reasons.append("embroidery_not_visible")
+    elif workspace == "gatorhats":
+        if not document.hat_visible and not document.product_visible:
+            reasons.append("product_not_visible")
+    else:
+        raise ValueError("Unknown Stage 5 workspace")
     # Avoid rendering low-fidelity synthetic imagery as a review-ready card.
     # Embroidery itself may be hard to read in an authentic lifestyle shot,
     # so this deliberately does not make embroidery visibility mandatory.
@@ -605,6 +646,14 @@ class RrugcStage3Service:
         # re-create them during automatic Analyze all, including a forced run.
         if row is not None and row.status == "hidden":
             return row, False
+        plan = self.session.get(RrugcSourcePlanModel, stage2_job.source_plan_id)
+        if plan is None or plan.tenant_id != tenant_id:
+            raise ValueError("Stage 5 source plan was not found.")
+        version = (
+            TIKTOKSHOP_STAGE5_ANALYSIS_VERSION
+            if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+            else STAGE3_ANALYSIS_VERSION
+        )
         created = row is None
         now = datetime.now(timezone.utc)
         if row is None:
@@ -612,7 +661,7 @@ class RrugcStage3Service:
                 tenant_id=tenant_id,
                 stage2_job_id=stage2_job.id,
                 output_content_hash=stage2_job.output_content_hash,
-                analysis_version=STAGE3_ANALYSIS_VERSION,
+                analysis_version=version,
                 analysis_revision=1,
                 status="queued",
                 queued_at=now,
@@ -622,7 +671,7 @@ class RrugcStage3Service:
         else:
             output_changed = (
                 row.output_content_hash != stage2_job.output_content_hash
-                or row.analysis_version != STAGE3_ANALYSIS_VERSION
+                or row.analysis_version != version
             )
             if not force and not output_changed and row.status in {
                 "queued",
@@ -633,7 +682,7 @@ class RrugcStage3Service:
                 return row, False
             row.analysis_revision = max(1, int(row.analysis_revision or 0) + 1)
             row.output_content_hash = stage2_job.output_content_hash
-            row.analysis_version = STAGE3_ANALYSIS_VERSION
+            row.analysis_version = version
             row.status = "queued"
             row.queued_at = now
             row.started_at = None
@@ -779,6 +828,13 @@ class RrugcStage3AnalyzeJobHandler:
                     "stage3_analysis_not_found",
                     "Stage 3 analysis source was not found.",
                 )
+            plan = session.get(RrugcSourcePlanModel, stage2.source_plan_id)
+            if plan is None or plan.tenant_id != context.job.tenant_id:
+                return JobHandlerResult.non_retryable(
+                    "stage3_source_plan_not_found", "Stage 5 product source was not found."
+                )
+            workspace = "tiktokshop" if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID else "gatorhats"
+            analysis_version = row.analysis_version
             if row.analysis_revision != revision:
                 return JobHandlerResult.completed()
             if row.status in {"ready", "rejected"}:
@@ -829,11 +885,11 @@ class RrugcStage3AnalyzeJobHandler:
             AiMetadataAnalysisInput(
                 tenant_id=context.job.tenant_id,
                 asset_id=stage2_job_id,
-                prompt=stage3_analysis_prompt(),
+                prompt=stage3_analysis_prompt(workspace),
                 image_bytes=prepared.content,
                 image_mime_type=prepared.mime_type,
                 metadata_profile="rrugc_stage3_ugc_review",
-                metadata_profile_version=STAGE3_ANALYSIS_VERSION,
+                metadata_profile_version=analysis_version,
                 image_width=prepared.width,
                 image_height=prepared.height,
                 json_schema=Stage3UgcAnalysisDocument.model_json_schema(),
@@ -847,7 +903,7 @@ class RrugcStage3AnalyzeJobHandler:
         document = Stage3UgcAnalysisDocument.model_validate(
             normalize_stage3_metadata(dict(result.metadata))
         )
-        decision = evaluate_stage3(document)
+        decision = evaluate_stage3(document, workspace)
 
         with context.dependencies.session_factory() as session:
             row = session.scalar(
@@ -872,25 +928,31 @@ class RrugcStage3AnalyzeJobHandler:
             row.scene_type = document.scene_type
             row.framing_type = document.framing_type
             row.summary = document.summary
-            row.reviewer_name = reviewer_name_for_analysis(analysis_id)
-            row.star_rating = star_rating_for_analysis(analysis_id)
-            existing_review_texts = {
-                text
-                for text in session.scalars(
-                    select(RrugcStage3AnalysisModel.review_text).where(
-                        RrugcStage3AnalysisModel.tenant_id == context.job.tenant_id,
-                        RrugcStage3AnalysisModel.id != analysis_id,
-                        RrugcStage3AnalysisModel.review_text.is_not(None),
-                    )
-                ).all()
-                if text
-            }
-            row.review_text = review_text_for_analysis(
-                document,
-                analysis_id,
-                existing_texts=existing_review_texts,
-            )
-            row.review_generated_at = datetime.now(timezone.utc)
+            if workspace == "tiktokshop":
+                # A generated image draft is not a purchaser's testimonial.
+                # Store QA scores only, without fictitious reviewer identity.
+                row.reviewer_name = None
+                row.star_rating = None
+                row.review_text = None
+                row.review_generated_at = None
+            else:
+                row.reviewer_name = reviewer_name_for_analysis(analysis_id)
+                row.star_rating = star_rating_for_analysis(analysis_id)
+                existing_review_texts = {
+                    text
+                    for text in session.scalars(
+                        select(RrugcStage3AnalysisModel.review_text).where(
+                            RrugcStage3AnalysisModel.tenant_id == context.job.tenant_id,
+                            RrugcStage3AnalysisModel.id != analysis_id,
+                            RrugcStage3AnalysisModel.review_text.is_not(None),
+                        )
+                    ).all()
+                    if text
+                }
+                row.review_text = review_text_for_analysis(
+                    document, analysis_id, existing_texts=existing_review_texts,
+                )
+                row.review_generated_at = datetime.now(timezone.utc)
             row.evidence_json = list(document.evidence)
             row.reject_reasons_json = list(decision.reject_reasons)
             row.provider = result.provider

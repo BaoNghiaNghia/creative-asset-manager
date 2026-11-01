@@ -5,7 +5,7 @@ from collections import Counter
 from sqlalchemy import case, delete, exists, func, or_, select, true
 from sqlalchemy.orm import Session
 
-from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, source_root_sql_clause
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
@@ -1612,10 +1612,16 @@ class RrugcRepository:
         tenant_id: str,
         *,
         source_plan_ids: list[str] | None = None,
+        workspace: str = "gatorhats",
         limit: int = 1000,
     ) -> list[RrugcStage2JobModel]:
-        statement = select(RrugcStage2JobModel).where(
-            RrugcStage2JobModel.tenant_id == tenant_id
+        statement = select(RrugcStage2JobModel).join(
+            RrugcSourcePlanModel,
+            RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id,
+        ).where(
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
         )
         if source_plan_ids:
             statement = statement.where(

@@ -166,6 +166,37 @@ Windows first-run manual pairing for the standalone launcher:
 - Deploy main with tests and smoke, verify API/image worker/Scout heartbeat,
   activate with a feature flag, monitor quota and disk; preserve Gator jobs.
 
+### Phase 3 implementation (2026-11-01)
+
+- Stage 4 uses dedicated `deploy/codex/skills/tiktokshop-apparel-ugc-v1`
+  (local Codex image_studio), never the Valucap 8869 default Skill. Exactly
+  1–3 approved Drive-ready references can be picked per run; the source
+  artwork/garment is authoritative. The same job/history/retry Codex worker,
+  provider quota and managed storage are reused. Generation is manual only.
+- Stage 4 API root-filtering is applied before SQL pagination/counting; all
+  source-plan writes, job retries/regenerations, before/output image URLs and
+  worker skill compatibility are server-verified. The worker saves to the
+  existing source plan's actual parent folder, not a caller-supplied folder.
+- Stage 5 lists only the current root's completed output jobs, runs an
+  apparel-specific Gemini QA version (torso/garment/fabric/embroidery, not cap
+  head/visor), and preserves editorial hiding. TikTokShop analyses do **not**
+  generate reviewer identities, ratings, fake purchases or testimonials.
+- Stage 5 TikTokShop export is restricted to internal QA CSV with private
+  image URLs; Loox public importer previews are disabled. The public photo
+  route refuses TikTokShop assets even when an output UUID is known.
+- Stage 4 UI offers source + imported Pinterest previews, selected 1–3 refs,
+  current queue status, history, Retry, Regenerate and root-aware images.
+  Stage 5 reuses the GatorHats Review grid with root-aware draft data.
+- Existing GatorHats URLs and image studio Skill remain unchanged. Manual
+  TikTokShop Windows pairing is required; there is no automatic trigger for
+  customer-facing publishing or unattended generation.
+
+Remaining live acceptance: pair a dedicated TikTokShop Agent on Windows using
+one-time credentials, verify 1–2 Drive product folders and image-import QA,
+generate one garment image, compare exact source/text/cloth details, then
+inspect Stage 5 scores and CSV before enabling volume processing. Do not
+equate passing automated tests with passing physical product fidelity QA.
+
 ## Acceptance checklist
 
 - [ ] The top-level menu opens at `/tiktokshop/scout-ugc` on desktop/mobile.
@@ -183,6 +214,8 @@ Windows first-run manual pairing for the standalone launcher:
 ## Operational continuation
 
 The standing project policy uses `main` for code and production release.
-Phase 1 is intentionally non-generating. Do not switch on Scout or Stage4/5
-automations until Phase 2/3 acceptance gates pass. Continue with claim namespace,
-Windows worker and product-aware QA rather than cloning a second backend.
+Stage 3 Scout and Stage 4 image generation are manual/pairing-gated; Stage 5
+is internal draft QA only. Do not enable unattended broad generation or public
+testimonial export until a real product/photo pilot and authorization checks
+have been completed. Continue with production smoke, Windows agent pairing,
+product fidelity review and scoped quota/disk monitoring.

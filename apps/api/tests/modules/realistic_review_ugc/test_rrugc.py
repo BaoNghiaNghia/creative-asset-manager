@@ -2689,6 +2689,132 @@ def test_tiktokshop_same_pin_does_not_inherit_gator_duplicate_rejection(database
         assert newer[0].campaign_id == campaigns["tiktokshop"].id
 
 
+def test_tiktokshop_stage4_stage5_read_hide_export_are_strictly_root_scoped(api, database):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.workspace import (
+        RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+    base = "/api/v1/realistic-review-ugc"
+    now = datetime.now(timezone.utc)
+    with database() as session:
+        ids = {}
+        for label, root in (("gatorhats", RRUGC_SOURCE_ROOT_FOLDER_ID),
+                            ("tiktokshop", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID)):
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a", user_id="user-a", name=label + " QA",
+                query="lifestyle scene", search_queries=["lifestyle scene"],
+                target_count=5, max_scroll_batches=1, auto_import=True, auto_scout=False,
+            )
+            plan = RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root,
+                source_file_id="source-" + label,
+                source_parent_folder_id="parent-" + label,
+                source_relative_path=label + "/sample.png",
+                source_name=label + ".png", source_revision="f" * 64,
+                source_mime_type="image/png", status="ready",
+                campaign_id=campaign.id, created_by_user_id="user-a",
+            )
+            session.add(plan)
+            session.flush()
+            job = RrugcStage2JobModel(
+                id=str(uuid4()), tenant_id="tenant-a", source_plan_id=plan.id,
+                campaign_id=campaign.id, source_revision=plan.source_revision,
+                skill_name=("tiktokshop-apparel-ugc-v1" if label == "tiktokshop" else "gator-skill"),
+                selected_candidate_ids_json=[], selected_reference_snapshot_json=[],
+                status="completed", idempotency_key="completed-" + label,
+                output_remote_file_id="image-" + label,
+                output_remote_folder_id="outputs-" + label,
+                created_by_user_id="user-a", completed_at=now,
+            )
+            session.add(job)
+            session.flush()
+            # A migrated or malicious pre-existing synthetic identity must never
+            # leak to TikTokShop's QA draft CSV.
+            session.add(RrugcStage3AnalysisModel(
+                tenant_id="tenant-a", stage2_job_id=job.id,
+                analysis_version="tiktokshop-stage5-apparel-ugc-v1" if label == "tiktokshop" else "rrugc-stage3-ugc-v2",
+                status="ready", reviewer_name="Do Not Export This Name",
+                star_rating=5, review_text="Not a real customer purchase",
+                final_score=0.82, summary="Valid apparel light and fabric",
+            ))
+            ids[label] = job.id
+        session.commit()
+
+    for workspace in ("gatorhats", "tiktokshop"):
+        expected = ids[workspace]
+        other = ids["gatorhats" if workspace == "tiktokshop" else "tiktokshop"]
+        qs = "?workspace=" + workspace
+        jobs = api.get(base + "/stage2-jobs" + qs)
+        assert jobs.status_code == 200
+        assert [item["id"] for item in jobs.json()] == [expected]
+        notices = api.get(base + "/stage4/completions?cursor=start&workspace=" + workspace)
+        assert notices.status_code == 200
+        assert [item["id"] for item in notices.json()["items"]] == [expected]
+        reviews = api.get(base + "/stage3/review-groups" + qs)
+        assert reviews.status_code == 200
+        assert reviews.json()["summary"]["total_images"] == 1
+        assert reviews.json()["items"][0]["images"][0]["stage2_job_id"] == expected
+        assert api.get(base + "/stage2-jobs/" + other + "/output" + qs).status_code == 404
+        assert api.get(base + "/stage2-jobs/" + other + "/reference-image" + qs).status_code == 404
+        assert api.delete(base + "/stage3/reviews/" + other + qs).status_code == 404
+
+    assert api.get(base + "/stage2-jobs?workspace=unknown").status_code == 422
+    assert api.get(base + "/stage3/review-groups?workspace=unknown").status_code == 422
+    assert api.get(base + "/stage3/reviews/export-loox?workspace=tiktokshop&format=csv").status_code == 422
+    drafts = api.get(base + "/stage3/reviews/export-loox?workspace=tiktokshop&format=internal_csv")
+    assert drafts.status_code == 200
+    assert drafts.headers["X-CAM-Review-Origin"] == "AI-generated-drafts-not-customer-testimonials"
+    assert drafts.headers["X-CAM-Export-Rows"] == "1"
+    assert ids["tiktokshop"] in drafts.text
+    assert ids["gatorhats"] not in drafts.text
+    assert "Do Not Export This Name" not in drafts.text
+    assert "Not a real customer purchase" not in drafts.text
+    assert "AI-generated internal draft" in drafts.text
+    assert api.delete(base + "/stage3/reviews/" + ids["tiktokshop"] + "?workspace=tiktokshop").status_code == 200
+    assert api.get(base + "/stage3/review-groups?workspace=tiktokshop").json()["summary"]["total_images"] == 0
+    assert api.get(base + "/stage3/review-groups").json()["summary"]["total_images"] == 1
+
+
+def test_tiktokshop_apparel_codex_skill_manifest_has_safe_image_studio_scope():
+    from app.providers.ai.codex_image import load_codex_skill_manifest
+
+    codex_home = (Path(__file__).resolve().parents[5] / "deploy" / "codex").resolve()
+    manifest = load_codex_skill_manifest(codex_home, "tiktokshop-apparel-ugc-v1")
+    assert manifest is not None
+    assert manifest.skill_name == "tiktokshop-apparel-ugc-v1"
+    assert manifest.workflows == ("image_studio",)
+    assert manifest.max_references == 4
+    assert "artwork" in manifest.required_reference_roles
+    assert "apparel" in manifest.product_types
+    assert "valucap_8869" not in manifest.product_types
+
+
+def test_tiktokshop_stage5_uses_apparel_qa_without_hat_or_fake_reviewers():
+    from app.modules.realistic_review_ugc.stage3 import (
+        Stage3UgcAnalysisDocument, evaluate_stage3, stage3_analysis_prompt,
+    )
+    from app.modules.realistic_review_ugc.stage2 import (
+        TIKTOKSHOP_APPAREL_PROMPT, TIKTOKSHOP_APPAREL_SKILL,
+    )
+    assert TIKTOKSHOP_APPAREL_SKILL == "tiktokshop-apparel-ugc-v1"
+    assert "no hat" in TIKTOKSHOP_APPAREL_PROMPT.lower()
+    prompt = stage3_analysis_prompt("tiktokshop")
+    assert "NOT a hat/cap" in prompt
+    assert "review_text=null" in prompt
+    assert "hat/cap" in stage3_analysis_prompt()
+    document = Stage3UgcAnalysisDocument(
+        people_count=1, person_visible=True, hat_visible=False,
+        product_visible=True, embroidery_visible=True,
+        mobile_ugc_score=0.86, photorealism_score=0.9,
+        product_visibility_score=0.92, review_fit_score=0.88,
+        summary="Natural sweatshirt with embroidery in a candid scene",
+    )
+    assert evaluate_stage3(document, "tiktokshop").status == "ready"
+    assert evaluate_stage3(document, "gatorhats").status == "ready"
+    no_embroidery = document.model_copy(update={"embroidery_visible": False})
+    assert "embroidery_not_visible" in evaluate_stage3(no_embroidery, "tiktokshop").reject_reasons
+
+
 def test_tiktokshop_apparel_context_skips_hat_head_crop_policy():
     from app.modules.realistic_review_ugc.analysis import (
         analysis_prompt, policy_from_campaign,
@@ -3700,7 +3826,7 @@ def test_stage4_list_joins_processing_retry_schedule_by_tenant(database, monkeyp
     )
     monkeypatch.setattr(
         RrugcRepository, "list_stage2_jobs",
-        lambda self, tenant_id, source_plan_ids=None, limit=1000: [stage4],
+        lambda self, tenant_id, source_plan_ids=None, workspace="gatorhats", limit=1000: [stage4],
     )
     with database() as session:
         session.add(ProcessingJobModel(
@@ -3713,7 +3839,7 @@ def test_stage4_list_joins_processing_retry_schedule_by_tenant(database, monkeyp
         session.commit()
         def fetch(tenant: str):
             return list_stage2_jobs(
-                source_plan_id=[], limit=100,
+                source_plan_id=[], limit=100, workspace="gatorhats",
                 session=session, principal=SimpleNamespace(
                     active_tenant_id=tenant, user_id="user-a",
                 ),

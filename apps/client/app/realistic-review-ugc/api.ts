@@ -537,19 +537,27 @@ export const archiveScoutAgent = (agentId: string) =>
     { method: "DELETE" },
   );
 
-export const listStage4Completions = (cursor?: string, signal?: AbortSignal) =>
-  request<Stage4CompletionFeed>(
-    "/api/v1/realistic-review-ugc/stage4/completions"
-    + (cursor !== undefined ? "?cursor=" + encodeURIComponent(cursor) : ""),
+export const listStage4Completions = (
+  cursor?: string, signal?: AbortSignal, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) => {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set("cursor", cursor);
+  if (workspace === "tiktokshop") params.set("workspace", workspace);
+  return request<Stage4CompletionFeed>(
+    "/api/v1/realistic-review-ugc/stage4/completions" + (params.size ? "?" + params.toString() : ""),
     { signal },
   );
+};
 
-export async function listAllStage4ActiveJobs(signal?: AbortSignal): Promise<Stage2Job[]> {
+export async function listAllStage4ActiveJobs(
+  signal?: AbortSignal, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+): Promise<Stage2Job[]> {
   const results: Stage2Job[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < 100; page += 1) {
     const params = new URLSearchParams({ limit: "200" });
     if (cursor) params.set("cursor", cursor);
+    if (workspace === "tiktokshop") params.set("workspace", workspace);
     const batch = await request<Stage2Job[]>(
       "/api/v1/realistic-review-ugc/stage4/active-jobs?" + params.toString(),
       { signal },
@@ -564,8 +572,10 @@ export async function listAllStage4ActiveJobs(signal?: AbortSignal): Promise<Sta
 export const listStage2Jobs = (
   sourcePlanIds: string[] = [],
   signal?: AbortSignal,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ) => {
   const params = new URLSearchParams({ limit: "1000" });
+  if (workspace === "tiktokshop") params.set("workspace", workspace);
   for (const sourcePlanId of Array.from(new Set(sourcePlanIds))) {
     if (sourcePlanId) params.append("source_plan_id", sourcePlanId);
   }
@@ -579,17 +589,22 @@ export const listStage3ReviewGroups = (
   signal?: AbortSignal,
   cursor?: string,
   folderPath?: string | null,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ) =>
   request<Stage3ReviewGroupList>(
     "/api/v1/realistic-review-ugc/stage3/review-groups?limit=500&page_size=250"
       + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "")
-      + (folderPath != null ? "&folder_path=" + encodeURIComponent(folderPath) : ""),
+      + (folderPath != null ? "&folder_path=" + encodeURIComponent(folderPath) : "")
+      + (workspace === "tiktokshop" ? "&workspace=tiktokshop" : ""),
     { signal },
   );
 
-export const hideStage5Review = (stage2JobId: string) =>
+export const hideStage5Review = (
+  stage2JobId: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
   request<{ hidden: boolean; stage2_job_id: string }>(
-    "/api/v1/realistic-review-ugc/stage3/reviews/" + encodeURIComponent(stage2JobId),
+    "/api/v1/realistic-review-ugc/stage3/reviews/" + encodeURIComponent(stage2JobId)
+      + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""),
     { method: "DELETE" },
   );
 
@@ -602,9 +617,11 @@ export type Stage5LooxExportResult = {
 
 export async function downloadStage5LooxReviewConcepts(
   format: "csv" | "xlsx" | "internal_csv" = "csv",
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ): Promise<Stage5LooxExportResult> {
   const response = await fetch(
-    "/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=" + format,
+    "/api/v1/realistic-review-ugc/stage3/reviews/export-loox?format=" + format
+      + (workspace === "tiktokshop" ? "&workspace=tiktokshop" : ""),
     {
       credentials: "include",
       headers: {
@@ -620,7 +637,7 @@ export async function downloadStage5LooxReviewConcepts(
     link.href = fileUrl;
     const exportedAt = new Date();
     const stamp = `${exportedAt.getFullYear()}${String(exportedAt.getMonth() + 1).padStart(2, "0")}${String(exportedAt.getDate()).padStart(2, "0")}_${String(exportedAt.getHours()).padStart(2, "0")}${String(exportedAt.getMinutes()).padStart(2, "0")}${String(exportedAt.getSeconds()).padStart(2, "0")}`;
-    link.download = format === "csv" ? `CAM_Stage5_Loox_Import_${stamp}.csv` : format === "internal_csv" ? `CAM_Stage5_Internal_Concepts_${stamp}.csv` : `CAM_Stage5_Loox_Preview_${stamp}.xlsx`;
+    link.download = workspace === "tiktokshop" ? `CAM_TikTokShop_UGC_Internal_Drafts_${stamp}.csv` : format === "csv" ? `CAM_Stage5_Loox_Import_${stamp}.csv` : format === "internal_csv" ? `CAM_Stage5_Internal_Concepts_${stamp}.csv` : `CAM_Stage5_Loox_Preview_${stamp}.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -638,9 +655,11 @@ export async function downloadStage5LooxReviewConcepts(
 export const analyzeStage3ReviewGroups = (
   folderId?: string,
   force = false,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ) =>
   request<Stage3AnalyzeResult>(
-    "/api/v1/realistic-review-ugc/stage3/review-groups/analyze",
+    "/api/v1/realistic-review-ugc/stage3/review-groups/analyze"
+      + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""),
     {
       method: "POST",
       body: JSON.stringify({
@@ -1099,11 +1118,13 @@ export const createStage2Job = (
   selectedCandidateIds: string[],
   skill: Stage2SkillSelection,
   prompt?: string,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ) =>
   request<Stage2JobCreated>(
     "/api/v1/realistic-review-ugc/source-plans/"
       + encodeURIComponent(sourcePlanId)
-      + "/stage2-jobs",
+      + "/stage2-jobs"
+      + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""),
     {
       method: "POST",
       body: JSON.stringify({
@@ -1152,17 +1173,26 @@ export const setStage4QueuePaused = (paused: boolean) =>
     method: "POST", body: JSON.stringify({ paused }),
   });
 
-export const regenerateStage4Job = (jobId: string) =>
-  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate", { method: "POST" });
+export const regenerateStage4Job = (
+  jobId: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
+  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/regenerate"
+    + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""), { method: "POST" });
 
-export const retryStage4Job = (jobId: string) =>
-  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST" });
+export const retryStage4Job = (
+  jobId: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
+  request<Stage2Job>("/api/v1/realistic-review-ugc/stage4/jobs/" + encodeURIComponent(jobId) + "/retry"
+    + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""), { method: "POST" });
 
-export const cancelStage2Jobs = (sourcePlanId: string, jobIds?: string[]) =>
+export const cancelStage2Jobs = (
+  sourcePlanId: string, jobIds?: string[], workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
   request<{ cancelled: number; job_ids: string[] }>(
     "/api/v1/realistic-review-ugc/source-plans/"
       + encodeURIComponent(sourcePlanId)
-      + "/stage2-jobs/cancel",
+      + "/stage2-jobs/cancel"
+      + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""),
     { method: "POST", ...(jobIds?.length ? { body: JSON.stringify({ job_ids: jobIds }) } : {}) },
   );
 
@@ -1178,14 +1208,20 @@ export const getRrugcMediaStorageStatus = (signal?: AbortSignal) =>
     "/api/v1/realistic-review-ugc/media-storage/status", { signal },
   );
 
-export const stage2JobOutputUrl = (jobId: string) =>
+export const stage2JobOutputUrl = (
+  jobId: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
   "/api/v1/realistic-review-ugc/stage2-jobs/"
   + encodeURIComponent(jobId)
-  + "/output";
+  + "/output"
+  + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : "");
 
-export const stage2JobOutputThumbnailUrl = (jobId: string, size = 192, revision?: string | null) =>
-  stage2JobOutputUrl(jobId)
-  + "?thumbnail=true&size="
+export const stage2JobOutputThumbnailUrl = (
+  jobId: string, size = 192, revision?: string | null,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) =>
+  stage2JobOutputUrl(jobId, workspace)
+  + (workspace === "tiktokshop" ? "&" : "?") + "thumbnail=true&size="
   + Math.min(1024, Math.max(128, Math.round(size)))
   + (revision ? "&v=" + encodeURIComponent(revision) : "");
 

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "skill_name": "tiktokshop-apparel-ugc-v1",
+  "display_name": "TikTokShop Apparel UGC Image Edit",
+  "description": "Product-aware lifestyle mockups from original embroidered apparel artwork and approved photographic references. Internal creative drafts only.",
+  "workflows": [
+    "image_studio"
+  ],
+  "product_types": [
+    "hoodie",
+    "sweatshirt",
+    "shirt",
+    "t_shirt",
+    "sweater",
+    "embroidered_apparel",
+    "apparel"
+  ],
+  "required_reference_roles": [
+    "artwork"
+  ],
+  "optional_reference_roles": [
+    "lifestyle_reference",
+    "product_photo",
+    "garment_mask",
+    "target_image"
+  ],
+  "max_references": 4
+}

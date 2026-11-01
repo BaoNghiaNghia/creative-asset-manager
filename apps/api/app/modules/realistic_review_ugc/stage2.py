@@ -35,6 +35,7 @@ from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, source_root_matches_workspace
 from app.modules.realistic_review_ugc.skill_registry import (
     assert_skill_enabled,
     ensure_skill_registry,
@@ -59,6 +60,17 @@ DEFAULT_STAGE2_SKILL = "gatorhats-8869-image-studio"
 MAX_STAGE2_REFERENCES = 3
 STAGE2_CANCEL_GRACE_SECONDS = 10
 DEFAULT_STAGE2_PROMPT = "8869 Five-Panel Twill Cap\nCenter"
+TIKTOKSHOP_APPAREL_SKILL = "tiktokshop-apparel-ugc-v1"
+TIKTOKSHOP_APPAREL_PROMPT = (
+    "Create an editorial internal UGC IMAGE DRAFT for an embroidered apparel product. "
+    "The supplied source artwork/garment is authoritative: reproduce its readable text, "
+    "logo shape, thread colors, location and scale without invention or recoloring. "
+    "Use selected lifestyle references only for candid phone-camera angle, wearer posture, "
+    "natural garment drape, lighting and scene mood, never to replace the product. "
+    "Real garment seams, collar, cuffs, fabric texture, folds and physically plausible "
+    "embroidery stitching are essential; no hat, cap, visor, detached decal, added text, "
+    "catalog copy or fictional review/testimonial. Reject uncertain source identity."
+)
 
 
 class RrugcStage2Error(RuntimeError):
@@ -138,6 +150,7 @@ class RrugcStage2Service:
         user_id: str,
         source_plan_id: str,
         selected_candidate_ids: list[str],
+        workspace: str = "gatorhats",
         skill_source: str | None = None,
         skill_id: str | None = None,
         skill_name: str | None = None,
@@ -146,10 +159,12 @@ class RrugcStage2Service:
     ) -> tuple[RrugcStage2JobModel, bool]:
         _require_stage4_storage(self.settings)
         plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
-        if plan is None or plan.tenant_id != tenant_id:
+        if plan is None or plan.tenant_id != tenant_id or not source_root_matches_workspace(
+            plan.root_folder_id, workspace,
+        ):
             raise RrugcStage2Error(
                 "stage2_source_plan_not_found",
-                "Embroidery source plan was not found.",
+                "Embroidery source plan was not found in this workspace.",
                 status_code=404,
             )
         if plan.status != "ready" or not plan.campaign_id:
@@ -202,7 +217,9 @@ class RrugcStage2Service:
                 skill_id=skill_id,
                 skill_name=skill_name,
                 skill_version=skill_version,
-                fallback_skill_name=DEFAULT_STAGE2_SKILL,
+                fallback_skill_name=(
+                    TIKTOKSHOP_APPAREL_SKILL if workspace == "tiktokshop" else DEFAULT_STAGE2_SKILL
+                ),
             )
         except Stage2SkillRegistryError as exc:
             raise RrugcStage2Error(
@@ -211,6 +228,14 @@ class RrugcStage2Service:
                 status_code=exc.status_code,
             ) from exc
         resolved_skill = resolved.skill_name
+        if workspace == "tiktokshop" and (
+            resolved_skill != TIKTOKSHOP_APPAREL_SKILL or resolved.source != "local"
+        ):
+            raise RrugcStage2Error(
+                "tiktokshop_apparel_skill_required",
+                "TikTokShop generation only accepts the dedicated apparel UGC Skill.",
+                status_code=422,
+            )
         ensure_skill_registry(
             self.session,
             tenant_id=tenant_id,
@@ -276,7 +301,13 @@ class RrugcStage2Service:
             "size_bytes": selected_source.source_size_bytes,
             "source_revision": selected_source.source_revision,
         }
-        effective_prompt = (prompt or "").strip() or DEFAULT_STAGE2_PROMPT
+        effective_prompt = (
+            TIKTOKSHOP_APPAREL_PROMPT
+            + ("\n\nAdditional operator brief (do not override source identity):\n" + prompt.strip()
+               if prompt and prompt.strip() else "")
+            if workspace == "tiktokshop"
+            else ((prompt or "").strip() or DEFAULT_STAGE2_PROMPT)
+        )
 
         snapshot: list[dict] = []
         for position, candidate_id in enumerate(ids):
@@ -394,6 +425,7 @@ class RrugcStage2Service:
 
     def regenerate_completed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
+        workspace: str = "gatorhats",
     ) -> RrugcStage2JobModel:
         """Generate from saved inputs using the latest installed version of this job skill."""
         original = self.session.scalar(select(RrugcStage2JobModel).where(
@@ -433,7 +465,9 @@ class RrugcStage2Service:
         # mutable source has been replaced, fail visibly instead of queueing
         # a job that cannot reproduce the saved input.
         plan = self.session.get(RrugcSourcePlanModel, original.source_plan_id)
-        if plan is None or plan.tenant_id != tenant_id or plan.source_revision != original.source_revision:
+        if plan is None or plan.tenant_id != tenant_id or not source_root_matches_workspace(
+            plan.root_folder_id, workspace,
+        ) or plan.source_revision != original.source_revision:
             raise RrugcStage2Error("stage4_source_changed",
                                    "The original hat source has changed; regeneration requires the saved source.", status_code=409)
         source_snapshot = dict(original.selected_source_snapshot_json or {})
@@ -462,6 +496,12 @@ class RrugcStage2Service:
             )
         except Stage2SkillRegistryError as exc:
             raise RrugcStage2Error(exc.code, exc.message, status_code=exc.status_code) from exc
+        if workspace == "tiktokshop" and current_skill.skill_name != TIKTOKSHOP_APPAREL_SKILL:
+            raise RrugcStage2Error(
+                "tiktokshop_apparel_skill_required",
+                "TikTokShop regeneration requires its dedicated apparel UGC Skill.",
+                status_code=422,
+            )
         current_bundle_sha256 = installed_stage2_skill_sha256(
             current_skill.skill_name, settings=self.settings
         )
@@ -497,6 +537,7 @@ class RrugcStage2Service:
 
     def retry_failed_job(
         self, *, tenant_id: str, user_id: str, job_id: str,
+        workspace: str = "gatorhats",
     ) -> RrugcStage2JobModel:
         """Retry saved references using the current installed Skill replacement."""
         row = self.session.scalar(select(RrugcStage2JobModel).where(
@@ -507,6 +548,16 @@ class RrugcStage2Service:
             raise RrugcStage2Error("stage4_job_not_found", "Generation job not found.", status_code=404)
         # RRUGC-run permission is enforced at the router. Same-tenant
         # operators can retry failed jobs created by other team members.
+        plan = self.session.get(RrugcSourcePlanModel, row.source_plan_id)
+        if plan is None or plan.tenant_id != tenant_id or not source_root_matches_workspace(
+            plan.root_folder_id, workspace,
+        ):
+            raise RrugcStage2Error("stage4_job_not_found", "Generation job not found in this workspace.", status_code=404)
+        if workspace == "tiktokshop" and row.skill_name != TIKTOKSHOP_APPAREL_SKILL:
+            raise RrugcStage2Error(
+                "tiktokshop_apparel_skill_required", "TikTokShop retry requires the apparel UGC Skill.",
+                status_code=422,
+            )
         _require_stage4_storage(self.settings)
         processing = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
         if row.status != "failed" and (processing is None or processing.status != "failed"):
@@ -557,9 +608,12 @@ class RrugcStage2Service:
         source_plan_id: str,
         now: datetime | None = None,
         job_ids: list[str] | None = None,
+        workspace: str = "gatorhats",
     ) -> list[RrugcStage2JobModel]:
         plan = self.session.get(RrugcSourcePlanModel, source_plan_id)
-        if plan is None or plan.tenant_id != tenant_id:
+        if plan is None or plan.tenant_id != tenant_id or not source_root_matches_workspace(
+            plan.root_folder_id, workspace,
+        ):
             raise RrugcStage2Error(
                 "stage2_source_plan_not_found",
                 "Embroidery source plan was not found.",
@@ -782,6 +836,19 @@ class RrugcStage2GenerateJobHandler:
                     row.last_error_message,
                     datetime.now(timezone.utc) + timedelta(minutes=15),
                 )
+            # Last-resort worker gate: even a stale/forged processing job
+            # must not send TikTokShop artwork through a GatorHats cap skill.
+            is_tiktokshop = plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+            if (is_tiktokshop and row.skill_name != TIKTOKSHOP_APPAREL_SKILL) or (
+                not is_tiktokshop and row.skill_name == TIKTOKSHOP_APPAREL_SKILL
+            ):
+                row.status = "failed"
+                row.last_error_code = "stage4_skill_workspace_mismatch"
+                row.last_error_message = "The generation Skill does not match its source workspace."
+                session.commit()
+                return JobHandlerResult.non_retryable(
+                    "stage4_skill_workspace_mismatch", "The generation Skill does not match its source workspace."
+                )
             try:
                 verify_stage2_skill_runtime(
                     settings=settings,
@@ -839,13 +906,14 @@ class RrugcStage2GenerateJobHandler:
                 if (
                     selected_source_plan is None
                     or selected_source_plan.tenant_id != context.job.tenant_id
+                    or selected_source_plan.root_folder_id != plan.root_folder_id
                     or selected_source_plan.source_revision
                     != str(selected_source_snapshot.get("source_revision") or "")
                 ):
                     row.status = "queued"
                     row.last_error_code = "stage2_source_changed"
                     row.last_error_message = (
-                        "The randomly selected hat input changed after this job was queued."
+                        "The selected source product changed after this job was queued."
                     )
                     session.commit()
                     return DeferredJobOutcome(
@@ -861,10 +929,13 @@ class RrugcStage2GenerateJobHandler:
                     else None
                 )
                 source_size_bytes = selected_source_snapshot.get("size_bytes")
-                source_parent_folder_id = str(
-                    selected_source_snapshot.get("remote_folder_id")
-                    or selected_source_plan.source_parent_folder_id
-                    or ""
+                source_parent_folder_id = (
+                    str(selected_source_plan.source_parent_folder_id or "")
+                    if is_tiktokshop else str(
+                        selected_source_snapshot.get("remote_folder_id")
+                        or selected_source_plan.source_parent_folder_id
+                        or ""
+                    )
                 )
                 source_input_plan_id = selected_source_plan_id
                 source_input_name = str(

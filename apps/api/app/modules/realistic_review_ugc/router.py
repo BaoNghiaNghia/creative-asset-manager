@@ -317,7 +317,9 @@ from app.modules.realistic_review_ugc.stage2 import (
 from app.modules.realistic_review_ugc.keyword_images import KeywordImageService, KeywordImageError, effective_status
 from app.modules.realistic_review_ugc.colorways import ColorwayService, ColorwayError
 from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel
-from app.modules.realistic_review_ugc.stage3 import RrugcStage3Service, STAGE3_ANALYSIS_VERSION
+from app.modules.realistic_review_ugc.stage3 import (
+    RrugcStage3Service, STAGE3_ANALYSIS_VERSION, TIKTOKSHOP_STAGE5_ANALYSIS_VERSION,
+)
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillItem,
     Stage2SkillRegistryError,
@@ -355,6 +357,7 @@ from app.modules.realistic_review_ugc.source_plans import (
     embroidery_signature,
     sync_source_plans,
 )
+from app.modules.realistic_review_ugc.workspace import source_root_sql_clause
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.google.drive import close_thumbnail_stream, open_thumbnail_stream
@@ -389,6 +392,23 @@ def _source_root_for_workspace(workspace: str) -> str:
         return TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
     raise HTTPException(status_code=422, detail="Unknown Scout & UGC workspace.")
 
+
+def _require_stage2_job_workspace(
+    session: Session, tenant_id: str, job_id: str, workspace: str,
+) -> None:
+    """Fail closed on cross-root job IDs before reading media or changing jobs."""
+    found = session.scalar(
+        select(RrugcStage2JobModel.id)
+        .join(RrugcSourcePlanModel, RrugcStage2JobModel.source_plan_id == RrugcSourcePlanModel.id)
+        .where(
+            RrugcStage2JobModel.id == job_id,
+            RrugcStage2JobModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
+        )
+    )
+    if found is None:
+        raise HTTPException(status_code=404, detail="Stage 4 job not found in this workspace.")
 
 
 def _can_manage_stage2_skills(principal: CurrentPrincipal) -> bool:
@@ -6944,6 +6964,7 @@ async def keyword_image_output(
 def list_stage4_completions(
     cursor: str | None = Query(default=None, max_length=110),
     limit: int = Query(default=100, ge=1, le=200),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -6964,11 +6985,14 @@ def list_stage4_completions(
     def token(completed_at, job_id: str) -> str:
         return completed_at.isoformat() + "|" + job_id
 
-    scope = principal.active_tenant_id + ":" + principal.user_id
+    scope = principal.active_tenant_id + ":" + principal.user_id + ":" + workspace
     if cursor is None:
         latest = session.execute(
             select(RrugcStage2JobModel.completed_at, RrugcStage2JobModel.id)
-            .where(*filters)
+            .join(RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
+            .where(*filters,
+                   RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+                   source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace))
             .order_by(RrugcStage2JobModel.completed_at.desc(), RrugcStage2JobModel.id.desc())
             .limit(1)
         ).first()
@@ -6979,7 +7003,8 @@ def list_stage4_completions(
     query = (
         select(RrugcStage2JobModel, RrugcSourcePlanModel.source_name)
         .join(RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
-        .where(*filters, RrugcSourcePlanModel.tenant_id == principal.active_tenant_id)
+        .where(*filters, RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+               source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace))
     )
     if cursor != "start":
         try:
@@ -7020,12 +7045,17 @@ def list_stage4_completions(
 def list_stage4_active_jobs(
     cursor: str | None = Query(default=None, max_length=36),
     limit: int = Query(default=200, ge=1, le=500),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     """Tenant-scoped active queue across every source group (not just the current page)."""
-    query = select(RrugcStage2JobModel).where(
+    query = select(RrugcStage2JobModel).join(
+        RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id,
+    ).where(
         RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+        source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
         RrugcStage2JobModel.status.in_(("queued", "running")),
     )
     if cursor:
@@ -7038,6 +7068,7 @@ def list_stage4_active_jobs(
 def list_stage2_jobs(
     source_plan_id: list[str] | None = Query(default=None),
     limit: int = Query(default=1000, ge=1, le=2000),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -7057,6 +7088,7 @@ def list_stage2_jobs(
     stage4_rows = RrugcRepository(session).list_stage2_jobs(
         principal.active_tenant_id,
         source_plan_ids=source_plan_ids,
+        workspace=workspace,
         limit=limit,
     )
     from app.modules.processing.model import ProcessingJobModel
@@ -7094,6 +7126,7 @@ def list_stage3_review_groups(
     page_size: int = Query(default=250, ge=1, le=500),
     cursor: str | None = Query(default=None, min_length=1, max_length=36),
     folder_path: str | None = Query(default=None, max_length=512),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -7110,6 +7143,7 @@ def list_stage3_review_groups(
         .filter(
             RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
             RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
             RrugcStage2JobModel.status == "completed",
             RrugcStage2JobModel.output_remote_file_id.is_not(None),
             RrugcStage2JobModel.output_remote_folder_id.is_not(None),
@@ -7275,20 +7309,24 @@ def list_stage3_review_groups(
                     + job.id
                     + "/output?thumbnail=true&size=512&v="
                     + remote_file_id
+                    + ("&workspace=tiktokshop" if workspace == "tiktokshop" else "")
                 ),
                 original_url=(
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
                     + job.id
                     + "/output"
+                    + ("?workspace=tiktokshop" if workspace == "tiktokshop" else "")
                 ),
                 before_url=(
                     "/api/v1/realistic-review-ugc/stage2-jobs/" + job.id + "/reference-image"
+                    + ("?workspace=tiktokshop" if workspace == "tiktokshop" else "")
                     if stage5_before_references(job) else None
                 ),
                 before_urls=[
                     "/api/v1/realistic-review-ugc/stage2-jobs/"
                     + job.id + "/reference-image?thumbnail=true&size=1024&reference_index=" + str(index)
                     + "&v=" + _reference[0]
+                    + ("&workspace=tiktokshop" if workspace == "tiktokshop" else "")
                     for index, _reference in enumerate(stage5_before_references(job))
                 ],
                 analysis_id=analysis.id if analysis else None,
@@ -7396,12 +7434,14 @@ def list_stage3_review_groups(
 @router.delete("/stage3/reviews/{stage2_job_id}")
 def hide_stage5_review(
     stage2_job_id: str,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     """Hide a review concept; preserve the Stage 4 output and its history."""
     import logging
 
+    _require_stage2_job_workspace(session, principal.active_tenant_id, stage2_job_id, workspace)
     review = session.scalar(select(RrugcStage3AnalysisModel).where(
         RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id,
         RrugcStage3AnalysisModel.stage2_job_id == stage2_job_id,
@@ -7457,6 +7497,7 @@ async def public_stage5_original_photo(
         try:
             record = session.execute(
                 select(RrugcStage2JobModel, RrugcStage3AnalysisModel)
+                .join(RrugcSourcePlanModel, RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
                 .join(
                     RrugcStage3AnalysisModel,
                     (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
@@ -7466,6 +7507,9 @@ async def public_stage5_original_photo(
                     RrugcStage2JobModel.id == job_id,
                     RrugcStage2JobModel.status == "completed",
                     RrugcStage2JobModel.output_remote_file_id.is_not(None),
+                    # TikTokShop draft concepts are never exposed as public
+                    # customer review photos, even through a guessed UUID.
+                    RrugcSourcePlanModel.root_folder_id != TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
                     RrugcStage3AnalysisModel.status == "ready",
                 )
             ).first()
@@ -7552,10 +7596,64 @@ async def public_stage5_original_photo(
 @router.get("/stage3/reviews/export-loox")
 def export_stage5_loox_review_concepts(
     format: str = Query(default="csv", pattern="^(csv|xlsx|internal_csv)$"),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
-    """Export all eligible synthetic concepts, not just the loaded UI page."""
+    """Gator Loox previews remain unchanged; TikTokShop exports drafts only."""
+    if workspace == "tiktokshop":
+        if format != "internal_csv":
+            raise HTTPException(status_code=422, detail={
+                "code": "tiktokshop_ugc_drafts_only",
+                "message": "TikTokShop has only internal image QA drafts, not verified customer reviews.",
+            })
+        import csv
+        from io import StringIO
+
+        rows = session.execute(
+            select(RrugcStage2JobModel, RrugcSourcePlanModel, RrugcStage3AnalysisModel)
+            .join(RrugcSourcePlanModel,
+                  RrugcSourcePlanModel.id == RrugcStage2JobModel.source_plan_id)
+            .outerjoin(RrugcStage3AnalysisModel,
+                       (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
+                       & (RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id))
+            .where(
+                RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+                RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+                source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
+                RrugcStage2JobModel.status == "completed",
+                RrugcStage2JobModel.output_remote_file_id.is_not(None),
+                or_(RrugcStage3AnalysisModel.id.is_(None),
+                    RrugcStage3AnalysisModel.status != "hidden"),
+            ).order_by(RrugcStage2JobModel.created_at.asc(), RrugcStage2JobModel.id.asc())
+        ).all()
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["origin", "product_folder", "design_source", "image_job_id",
+                         "analysis_status", "ugc_score", "qa_notes", "private_image_path"])
+        def _cell(value: object) -> str:
+            # Spreadsheet formula injection defense for untrusted file names / AI text.
+            result = str(value or "").replace("\r", " ").replace("\n", " ")
+            return "'" + result if result.lstrip().startswith(("=", "+", "-", "@")) else result
+        for job, plan, analysis in rows:
+            relative = str(plan.source_relative_path or "").replace("\\", "/")
+            writer.writerow([
+                "AI-generated internal draft - not a customer review",
+                _cell(relative.rsplit("/", 1)[0] if "/" in relative else ""),
+                _cell(plan.source_name), job.id,
+                analysis.status if analysis else "pending",
+                analysis.final_score if analysis and analysis.final_score is not None else "",
+                _cell(analysis.summary if analysis else ""),
+                "/api/v1/realistic-review-ugc/stage2-jobs/" + job.id + "/output?workspace=tiktokshop",
+            ])
+        return Response(content="\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={
+                            "Content-Disposition": 'attachment; filename="CAM_TikTokShop_UGC_Internal_Drafts.csv"',
+                            "Cache-Control": "private, no-store",
+                            "X-CAM-Review-Origin": "AI-generated-drafts-not-customer-testimonials",
+                            "X-CAM-Export-Rows": str(len(rows)),
+                        })
+
     from app.modules.realistic_review_ugc.loox_review_export import (
         PREFIX, build_loox_xlsx, build_loox_csv, build_internal_concept_csv,
         clean_concept_copy, loox_original_photo_url, shopify_handle_from_folder, loox_public_photo_url,
@@ -7569,6 +7667,7 @@ def export_stage5_loox_review_concepts(
             RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id,
             RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
             RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
             RrugcStage3AnalysisModel.status == "ready",
             RrugcStage2JobModel.status == "completed",
             RrugcStage2JobModel.output_remote_file_id.is_not(None),
@@ -7651,17 +7750,22 @@ def export_stage5_loox_review_concepts(
 )
 def analyze_stage3_review_groups(
     request: Stage3AnalyzeRequest,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     # Analyze only unfinished/stale outputs. A capped query over *all* outputs
     # would repeatedly select the newest 500 and starve older unprocessed ones.
-    query = session.query(RrugcStage2JobModel).outerjoin(
+    query = session.query(RrugcStage2JobModel).join(
+        RrugcSourcePlanModel, RrugcStage2JobModel.source_plan_id == RrugcSourcePlanModel.id,
+    ).outerjoin(
         RrugcStage3AnalysisModel,
         (RrugcStage3AnalysisModel.stage2_job_id == RrugcStage2JobModel.id)
         & (RrugcStage3AnalysisModel.tenant_id == principal.active_tenant_id),
     ).filter(
         RrugcStage2JobModel.tenant_id == principal.active_tenant_id,
+        RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+        source_root_sql_clause(RrugcSourcePlanModel.root_folder_id, workspace),
         RrugcStage2JobModel.status == "completed",
         RrugcStage2JobModel.output_remote_file_id.is_not(None),
         RrugcStage2JobModel.output_remote_folder_id.is_not(None),
@@ -7678,7 +7782,10 @@ def analyze_stage3_review_groups(
         query = query.filter(or_(
             RrugcStage3AnalysisModel.id.is_(None),
             RrugcStage3AnalysisModel.status.in_(("error", "failed")),
-            RrugcStage3AnalysisModel.analysis_version != STAGE3_ANALYSIS_VERSION,
+            RrugcStage3AnalysisModel.analysis_version != (
+                TIKTOKSHOP_STAGE5_ANALYSIS_VERSION if workspace == "tiktokshop"
+                else STAGE3_ANALYSIS_VERSION
+            ),
             RrugcStage3AnalysisModel.output_content_hash.is_distinct_from(
                 RrugcStage2JobModel.output_content_hash
             ),
@@ -7811,13 +7918,15 @@ def update_stage4_queue_control(
 @router.post("/stage4/jobs/{job_id}/regenerate", response_model=Stage2JobResponse, status_code=202)
 def regenerate_stage4_output(
     job_id: str,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     try:
+        _require_stage2_job_workspace(session, principal.active_tenant_id, job_id, workspace)
         row = RrugcStage2Service(session).regenerate_completed_job(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            job_id=job_id,
+            job_id=job_id, workspace=workspace,
         )
     except RrugcStage2Error as exc:
         raise HTTPException(status_code=exc.status_code,
@@ -7828,13 +7937,15 @@ def regenerate_stage4_output(
 @router.post("/stage4/jobs/{job_id}/retry", response_model=Stage2JobResponse, status_code=202)
 def retry_stage4_generation(
     job_id: str,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     try:
+        _require_stage2_job_workspace(session, principal.active_tenant_id, job_id, workspace)
         row = RrugcStage2Service(session).retry_failed_job(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
-            job_id=job_id,
+            job_id=job_id, workspace=workspace,
         )
     except RrugcStage2Error as exc:
         raise HTTPException(status_code=exc.status_code,
@@ -7850,6 +7961,7 @@ def retry_stage4_generation(
 def create_stage2_job(
     source_plan_id: str,
     request: Stage2JobCreateRequest,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -7859,6 +7971,7 @@ def create_stage2_job(
             user_id=principal.user_id,
             source_plan_id=source_plan_id,
             selected_candidate_ids=request.selected_candidate_ids,
+            workspace=workspace,
             skill_source=request.skill_source,
             skill_id=request.skill_id,
             skill_name=request.skill_name,
@@ -7883,6 +7996,7 @@ def create_stage2_job(
 def cancel_stage2_jobs(
     source_plan_id: str,
     request: Stage2JobsCancelRequest | None = None,
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -7892,6 +8006,7 @@ def cancel_stage2_jobs(
             user_id=principal.user_id,
             source_plan_id=source_plan_id,
             job_ids=request.job_ids if request else None,
+            workspace=workspace,
         )
     except RrugcStage2Error as exc:
         raise HTTPException(
@@ -7933,6 +8048,7 @@ def rrugc_media_storage_status(
 async def get_stage5_before_reference_image(
     stage2_job_id: str,
     reference_index: int = Query(default=0, ge=0, le=2),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     thumbnail: bool = Query(default=False),
     size: int = Query(default=1024, ge=128, le=1024),
     v: str | None = Query(default=None, max_length=256),
@@ -7947,6 +8063,7 @@ async def get_stage5_before_reference_image(
     """
     from app.modules.realistic_review_ugc.stage5_before_source import stage5_before_references
 
+    _require_stage2_job_workspace(session, principal.active_tenant_id, stage2_job_id, workspace)
     job = RrugcRepository(session).get_stage2_job(
         principal.active_tenant_id, stage2_job_id,
     )
@@ -8018,12 +8135,14 @@ async def get_stage5_before_reference_image(
 async def get_stage2_job_output(
     stage2_job_id: str,
     thumbnail: bool = Query(default=False),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     size: int = Query(default=192, ge=128, le=1024),
     v: str | None = Query(default=None, max_length=256),
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
+    _require_stage2_job_workspace(session, principal.active_tenant_id, stage2_job_id, workspace)
     row = RrugcRepository(session).get_stage2_job(
         principal.active_tenant_id,
         stage2_job_id,

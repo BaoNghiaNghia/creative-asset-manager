@@ -4,15 +4,23 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { SourcePlanTable } from "../realistic-review-ugc/SourcePlanTable";
 import { Stage3ReviewGroups } from "../realistic-review-ugc/Stage3ReviewGroups";
-import { RrugcStageHeader } from "../realistic-review-ugc/RrugcStageHeader";
 import { TiktokShopAgentPanel } from "./TiktokShopAgentPanel";
+import { TiktokShopStage4Panel } from "./TiktokShopStage4Panel";
 import {
+  analyzeStage3ReviewGroups,
+  createStage2Job,
+  downloadStage5LooxReviewConcepts,
+  hideStage5Review,
+  listStage2Jobs,
+  listStage3ReviewGroups,
   listSourcePlanFolders,
   listSourcePlans,
+  regenerateStage4Job,
+  retryStage4Job,
   syncSourcePlans,
   type SourcePlanFolders,
 } from "../realistic-review-ugc/api";
-import type { SourcePlanPage, Stage3ReviewGroupList } from "../realistic-review-ugc/types";
+import type { SourcePlan, SourcePlanPage, Stage2Job, Stage3ReviewGroupList } from "../realistic-review-ugc/types";
 import "../realistic-review-ugc/ui-overhaul.css";
 import "../realistic-review-ugc/tablet-mobile-density.css";
 
@@ -37,9 +45,9 @@ const EMPTY_REVIEWS: Stage3ReviewGroupList = {
 };
 
 /**
- * Phase 2: isolated agent claims and bounded Stage 3 auto-analysis.
- * Stage 4/5 remain gated until all job/skill/output reads and writes are scoped
- * server-side; NEVER show GatorHats tenant-wide jobs here.
+ * Phase 3: all Stage 4/5 reads and actions use server-enforced TikTokShop
+ * source-root isolation; never load GatorHats tenant-wide jobs here.
+ * Generated images are internal draft concepts, not real buyer testimonials.
  */
 export function TiktokShopScoutUgcPage() {
   const [stage, setStage] = useState<TikTokStage>("stage3");
@@ -53,6 +61,14 @@ export function TiktokShopScoutUgcPage() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [jobs, setJobs] = useState<Stage2Job[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsBusy, setJobsBusy] = useState(false);
+  const [reviews, setReviews] = useState<Stage3ReviewGroupList>(EMPTY_REVIEWS);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewAnalyzing, setReviewAnalyzing] = useState(false);
+  const [reviewsMoreLoading, setReviewsMoreLoading] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [result, folderResult] = await Promise.all([
@@ -79,6 +95,107 @@ export function TiktokShopScoutUgcPage() {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [refresh]);
+
+  const refreshJobs = useCallback(async (signal?: AbortSignal) => {
+    const result = await listStage2Jobs([], signal, "tiktokshop");
+    if (!signal?.aborted) setJobs(result);
+  }, []);
+
+  const refreshReviews = useCallback(async (signal?: AbortSignal) => {
+    const result = await listStage3ReviewGroups(signal, undefined, null, "tiktokshop");
+    if (!signal?.aborted) setReviews(result);
+  }, []);
+
+  useEffect(() => {
+    if (stage !== "stage4") return;
+    const controller = new AbortController();
+    setJobsLoading(true);
+    void refreshJobs(controller.signal)
+      .catch(reason => { if (!controller.signal.aborted) setError(String(reason?.message || reason)); })
+      .finally(() => { if (!controller.signal.aborted) setJobsLoading(false); });
+    return () => controller.abort();
+  }, [stage, refreshJobs]);
+
+  useEffect(() => {
+    if (stage !== "stage5") return;
+    const controller = new AbortController();
+    setReviewsLoading(true);
+    void refreshReviews(controller.signal)
+      .catch(reason => { if (!controller.signal.aborted) setError(String(reason?.message || reason)); })
+      .finally(() => { if (!controller.signal.aborted) setReviewsLoading(false); });
+    return () => controller.abort();
+  }, [stage, refreshReviews]);
+
+  const queueGeneration = async (plan: SourcePlan, ids: string[]) => {
+    setJobsBusy(true);
+    setError("");
+    try {
+      const created = await createStage2Job(plan.id, ids, {
+        source: "local", skill_id: null, skill_name: "tiktokshop-apparel-ugc-v1",
+        skill_version: null,
+      }, undefined, "tiktokshop");
+      setMessage(created.created ? "TikTokShop apparel UGC draft queued." : "Existing TikTokShop job returned.");
+      await refreshJobs();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "TikTokShop generation failed."); throw reason; }
+    finally { setJobsBusy(false); }
+  };
+
+  const updateJob = async (job: Stage2Job, action: "retry" | "regenerate") => {
+    setJobsBusy(true);
+    setError("");
+    try {
+      await (action === "retry"
+        ? retryStage4Job(job.id, "tiktokshop")
+        : regenerateStage4Job(job.id, "tiktokshop"));
+      await refreshJobs();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "TikTokShop job update failed."); throw reason; }
+    finally { setJobsBusy(false); }
+  };
+
+  const analyzeReviews = async (folderId?: string) => {
+    setReviewAnalyzing(true);
+    setError("");
+    try {
+      const result = await analyzeStage3ReviewGroups(folderId, false, "tiktokshop");
+      setReviewMessage(result.queued + " apparel draft QA jobs queued; " + result.remaining + " remaining.");
+      await refreshReviews();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "TikTokShop draft QA failed."); }
+    finally { setReviewAnalyzing(false); }
+  };
+
+  const hideReview = async (jobId: string) => {
+    setError("");
+    try {
+      await hideStage5Review(jobId, "tiktokshop");
+      await refreshReviews();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to hide draft."); throw reason; }
+  };
+
+  const loadMoreReviews = async () => {
+    if (!reviews.next_cursor || reviewsMoreLoading) return;
+    setReviewsMoreLoading(true);
+    try {
+      const result = await listStage3ReviewGroups(undefined, reviews.next_cursor, null, "tiktokshop");
+      setReviews(current => {
+        const combined = new Map(current.items.map(group => [group.folder_id, { ...group, images: [...group.images] }]));
+        for (const group of result.items) {
+          const existing = combined.get(group.folder_id);
+          if (existing) {
+            const seen = new Set(existing.images.map(image => image.stage2_job_id));
+            existing.images.push(...group.images.filter(image => !seen.has(image.stage2_job_id)));
+            existing.image_count = existing.images.length;
+          } else combined.set(group.folder_id, group);
+        }
+        return {
+          ...result,
+          items: [...combined.values()],
+          total_groups: combined.size,
+          total_images: [...combined.values()].reduce((count, group) => count + group.images.length, 0),
+        };
+      });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to load more TikTokShop drafts."); }
+    finally { setReviewsMoreLoading(false); }
+  };
 
   async function scanDrive() {
     if (syncing) return;
@@ -172,28 +289,40 @@ export function TiktokShopScoutUgcPage() {
         </section>
         <section id="tiktok-panel-stage4" role="tabpanel" aria-labelledby="tiktok-tab-stage4"
           className="rrugc-stage-panel" hidden={stage !== "stage4"}>
-          <div className="rrugc-card" style={{ padding: 20 }}>
-            <RrugcStageHeader
-              kicker="STAGE 4 · PINTEREST → IMAGE EDIT"
-              title="Image Generation"
-              description="This tab will reuse GatorHats Stage 4's grid and job controls with a TiktokShop product-aware skill and isolated jobs."
-            />
-            <p>Generation is not enabled yet. The GatorHats 8869 skill
-              must not run on TikTokShop apparel designs.</p>
-          </div>
+          <TiktokShopStage4Panel plans={page.items} jobs={jobs}
+            loading={loading || jobsLoading} busy={jobsBusy}
+            page={pageNumber} pageSize={pageSize} total={page.total}
+            onPageChange={setPageNumber}
+            onCreate={queueGeneration}
+            onRetry={job => updateJob(job, "retry")}
+            onRegenerate={job => updateJob(job, "regenerate")}
+            onRefresh={() => void refreshJobs().catch(reason =>
+              setError(reason instanceof Error ? reason.message : "Unable to refresh TikTokShop jobs."))}/>
         </section>
         <section id="tiktok-panel-stage5" role="tabpanel" aria-labelledby="tiktok-tab-stage5"
           className="rrugc-stage-panel" hidden={stage !== "stage5"}>
-          <div className="rrugc-card" style={{ padding: "12px 16px", marginBottom: 12 }}>
-            Stage 5 review controls are reserved for TikTokShop outputs only.
-            GatorHats results and Loox export are intentionally excluded.
+          <div className="rrugc-card" style={{ padding: "12px 16px", marginBottom: 12, display: "flex",
+            gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+            <div><strong>Internal apparel image QA only</strong>
+              <p style={{ margin: "4px 0" }}>TikTokShop outputs are creative drafts, not actual customer photographs or verified buyer reviews. No fake reviewer, rating or Loox import is generated.</p>
+            </div>
+            <button type="button" className="rrugc-icon-action"
+              onClick={() => void downloadStage5LooxReviewConcepts("internal_csv", "tiktokshop")
+                .catch(reason => setError(reason instanceof Error ? reason.message : "Unable to export internal QA drafts."))}>
+              Export internal QA CSV
+            </button>
           </div>
           <Stage3ReviewGroups
-            data={EMPTY_REVIEWS}
-            loading={false}
-            analyzing={false}
-            message=""
-            onAnalyze={() => undefined}
+            data={reviews}
+            loading={reviewsLoading}
+            analyzing={reviewAnalyzing}
+            message={reviewMessage}
+            onAnalyze={folderId => { void analyzeReviews(folderId); }}
+            onLoadMore={reviews.has_more ? () => void loadMoreReviews() : undefined}
+            loadingMore={reviewsMoreLoading}
+            onRefresh={() => void refreshReviews().catch(reason =>
+              setError(reason instanceof Error ? reason.message : "Unable to refresh TikTokShop QA."))}
+            onDeleteReview={hideReview}
           />
         </section>
       </div>

@@ -352,6 +352,7 @@ def ensure_skill_registry(
         is_product_skill = (
             name.startswith("gatorhats-8869-ecommerce-")
             or name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
+            or name == "tiktokshop-apparel-ugc-v1"
         )
         if not is_product_skill or ("local", name) in existing:
             continue
