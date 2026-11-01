@@ -865,12 +865,12 @@ describe("Realistic Review UGC source-first workspace", () => {
           page_size: 20,
           total: 2,
           overview: {
-            total_keywords: 2,
+            total_keywords: 4,
             total_search_volume: 4660,
             average_search_volume: 2330,
             average_cpc: 0.9275,
             high_competition: 1,
-            zero_volume: 0,
+            zero_volume: 2,
             short_tail_keywords: 0,
             mid_tail_keywords: 1,
             long_tail_keywords: 1,
@@ -951,6 +951,10 @@ describe("Realistic Review UGC source-first workspace", () => {
     for (const count of [20, 50, 100, 500]) expect(markup).toContain(`<option value="${count}"`);
     expect(markup).not.toContain('<option value="10"');
     expect(markup).toContain("Total keywords");
+    expect(markup).toContain("<span>Total keywords</span><strong>2</strong>");
+    expect(markup).toContain("<span>Zero volume</span><strong>2</strong>");
+    expect(markup).toContain('rrugc-stage0-zero-kpi');
+    expect(markup.indexOf("Keywords / Pins suggested")).toBeLessThan(markup.indexOf("Zero volume"));
     expect(markup).toContain("Keywords / Pins suggested");
     expect(markup).toContain("rrugc-stage0-suggested-kpi");
     expect(markup).toContain('aria-label="Keyword overview filters"');

@@ -774,6 +774,9 @@ export function KeywordAnalysisTable({
   onQueryChange: (query: string) => void;
 }) {
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
+  // The backend's overall count includes zero-volume rows, which are shown
+  // separately in the new KPI without changing the existing keyword table.
+  const nonZeroKeywordCount = Math.max(0, data.overview.total_keywords - data.overview.zero_volume);
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
   const activeOverviewFilter =
@@ -844,7 +847,7 @@ export function KeywordAnalysisTable({
         onClick={() => selectOverviewFilter("all")}
       >
         <span>Total keywords</span>
-        <strong>{data.overview.total_keywords.toLocaleString()}</strong>
+        <strong>{nonZeroKeywordCount.toLocaleString()}</strong>
         <small>{data.overview.total_search_volume.toLocaleString()} total monthly volume</small>
       </button>
       <button
@@ -897,6 +900,11 @@ export function KeywordAnalysisTable({
         <strong>{(data.overview.suggested_keywords ?? 0).toLocaleString()}</strong>
         <small>Keywords / Pins suggested</small>
       </button>
+      <article className="rrugc-stage0-kpi-card rrugc-stage0-zero-kpi" aria-label="Keywords with zero monthly search volume">
+        <span>Zero volume</span>
+        <strong>{data.overview.zero_volume.toLocaleString()}</strong>
+        <small>0 monthly searches</small>
+      </article>
     </div>
 
     <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>
