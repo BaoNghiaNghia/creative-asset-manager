@@ -717,6 +717,66 @@ def test_keyword_analysis_api_lists_independent_keyword_rows(api, database):
 
 
 
+def test_keyword_analysis_volume_filters_match_overview_and_paginate_in_sql(api, database):
+    """Total keyword/Zero volume cards must match filtered SQL rows across pages."""
+    now = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    entries = [
+        ("tenant-a", "ROCK ON", 1500, True, "aebrowse_google_ads"),
+        ("tenant-a", "LIVE MUSIC HIRE", 250, False, "aebrowse_google_ads"),
+        ("tenant-a", "NO DEMAND", 0, True, "aebrowse_google_ads"),
+        ("tenant-a", "NO BUYERS HERE", 0, False, "aebrowse_google_ads"),
+        ("tenant-a", "UNVERIFIED SEARCH", 0, False, "pending"),
+        ("tenant-b", "SECRET COMPETITOR", 999999, False, "aebrowse_google_ads"),
+    ]
+    with database() as session:
+        for tenant_id, keyword, volume, picked, provider in entries:
+            session.add(RrugcKeywordVolumeModel(
+                tenant_id=tenant_id,
+                keyword=keyword,
+                keyword_normalized=keyword.lower(),
+                search_volume=volume,
+                picked=picked,
+                provider=provider,
+                fetched_at=now,
+                last_requested_at=now,
+            ))
+        session.commit()
+
+    endpoint = "/api/v1/realistic-review-ugc/keyword-analysis"
+    legacy = api.get(endpoint)
+    assert legacy.status_code == 200
+    assert legacy.json()["total"] == 5  # preserve API default for other callers
+
+    nonzero = api.get(endpoint, params={"volume": "nonzero", "page_size": 1})
+    assert nonzero.status_code == 200
+    payload = nonzero.json()
+    assert payload["total"] == 2
+    assert payload["items"][0]["keyword"] == "ROCK ON"
+    assert payload["overview"]["total_keywords"] - payload["overview"]["zero_volume"] == 2
+    assert payload["overview"]["zero_volume"] == 3
+    assert payload["overview"]["total_search_volume"] == 1750
+    second = api.get(endpoint, params={"volume": "nonzero", "page": 2, "page_size": 1})
+    assert second.json()["items"][0]["keyword"] == "LIVE MUSIC HIRE"
+    third = api.get(endpoint, params={"volume": "nonzero", "page": 3, "page_size": 1})
+    assert third.json()["total"] == 2 and third.json()["items"] == []
+    assert api.get(endpoint, params={"volume": "nonzero", "usage": "used"}).json()["total"] == 1
+
+    zero = api.get(endpoint, params={"volume": "zero", "page_size": 2})
+    assert zero.status_code == 200
+    assert zero.json()["total"] == 3
+    assert len(zero.json()["items"]) == 2
+    assert all(row["search_volume"] == 0 for row in zero.json()["items"])
+    zero_page2 = api.get(endpoint, params={"volume": "zero", "page": 2, "page_size": 2})
+    assert zero_page2.json()["total"] == 3
+    assert len(zero_page2.json()["items"]) == 1
+    assert zero_page2.json()["items"][0]["search_volume"] == 0
+    assert api.get(endpoint, params={"volume": "zero", "usage": "used"}).json()["total"] == 1
+    assert api.get(endpoint, params={"volume": "zero", "tail": "mid"}).json()["total"] == 1
+    assert api.get(endpoint, params={"volume": "zero", "query": "NO"}).json()["total"] == 2
+    assert api.get(endpoint, params={"volume": "zero", "query": "ROCK"}).json()["total"] == 0
+    assert api.get(endpoint, params={"volume": "invalid"}).status_code == 422
+
+
 def test_keyword_analysis_sort_by_platform_agent_and_trend_across_pages(api, database):
     """Sort must use tenant-scoped provenance and global ranking, not current UI page."""
     from app.modules.realistic_review_ugc.keyword_agent_origins import record_keyword_agent

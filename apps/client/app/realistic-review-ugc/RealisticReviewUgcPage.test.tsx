@@ -883,6 +883,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         sortDirection="desc"
         usageFilter="all"
         tailFilter="all"
+        volumeFilter="nonzero"
         suggestedOnly={false}
         pickingIds={new Set()}
         feedbackUpdatingIds={new Set()}
@@ -890,6 +891,7 @@ describe("Realistic Review UGC source-first workspace", () => {
         onSortChange={() => undefined}
         onUsageFilterChange={() => undefined}
         onTailFilterChange={() => undefined}
+        onVolumeFilterChange={() => undefined}
         onSuggestedOnlyChange={() => undefined}
         onResetAll={() => undefined}
         onOpenResearchInbox={() => undefined}
@@ -954,6 +956,8 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("<span>Total keywords</span><strong>2</strong>");
     expect(markup).toContain("<span>Zero volume</span><strong>2</strong>");
     expect(markup).toContain('rrugc-stage0-zero-kpi');
+    expect(markup).toContain('aria-label="Show keywords with zero monthly search volume"');
+    expect(markup).toMatch(/rrugc-stage0-zero-kpi" aria-label="Show keywords with zero monthly search volume" aria-pressed="false"/);
     expect(markup.indexOf("Keywords / Pins suggested")).toBeLessThan(markup.indexOf("Zero volume"));
     expect(markup).toContain("Keywords / Pins suggested");
     expect(markup).toContain("rrugc-stage0-suggested-kpi");

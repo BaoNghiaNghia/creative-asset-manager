@@ -242,6 +242,7 @@ export const listSourcePlanFolders = (signal?: AbortSignal, workspace: "gatorhat
 export type KeywordAnalysisSortBy = "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
+export type KeywordVolumeFilter = "all" | "nonzero" | "zero";
 export type KeywordTailFilter = "all" | "short" | "mid" | "long";
 
 export const listSourcePlans = (
@@ -403,6 +404,7 @@ export const listKeywordAnalysis = (
     sortDirection?: KeywordAnalysisSortDirection;
     usage?: KeywordUsageFilter;
     tail?: KeywordTailFilter;
+    volume?: KeywordVolumeFilter;
     suggestedOnly?: boolean;
   } = {},
   signal?: AbortSignal,
@@ -414,6 +416,7 @@ export const listKeywordAnalysis = (
     sort_dir: filters.sortDirection ?? "desc",
     usage: filters.usage ?? "all",
     tail: filters.tail ?? "all",
+    volume: filters.volume ?? "all",
     suggested_only: String(filters.suggestedOnly ?? false),
   });
   if (filters.query?.trim()) params.set("query", filters.query.trim());

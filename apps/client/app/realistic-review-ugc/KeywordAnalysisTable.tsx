@@ -13,6 +13,7 @@ import type {
   KeywordAnalysisSortDirection,
   KeywordTailFilter,
   KeywordUsageFilter,
+  KeywordVolumeFilter,
   ScoutFeedbackAction,
   ScoutFeedbackScope,
 } from "./api";
@@ -732,6 +733,7 @@ export function KeywordAnalysisTable({
   sortDirection,
   usageFilter,
   tailFilter,
+  volumeFilter,
   suggestedOnly,
   pickingIds,
   feedbackUpdatingIds,
@@ -740,6 +742,7 @@ export function KeywordAnalysisTable({
   onSortChange,
   onUsageFilterChange,
   onTailFilterChange,
+  onVolumeFilterChange,
   onSuggestedOnlyChange,
   onResetAll,
   onOpenResearchInbox,
@@ -756,6 +759,7 @@ export function KeywordAnalysisTable({
   sortDirection: KeywordAnalysisSortDirection;
   usageFilter: KeywordUsageFilter;
   tailFilter: KeywordTailFilter;
+  volumeFilter: KeywordVolumeFilter;
   suggestedOnly: boolean;
   pickingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
@@ -764,6 +768,7 @@ export function KeywordAnalysisTable({
   onSortChange: (column: KeywordAnalysisSortBy) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
+  onVolumeFilterChange: (filter: KeywordVolumeFilter) => void;
   onSuggestedOnlyChange: (value: boolean) => void;
   onResetAll: () => void;
   onOpenResearchInbox?: () => void;
@@ -774,27 +779,33 @@ export function KeywordAnalysisTable({
   onQueryChange: (query: string) => void;
 }) {
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
-  // The backend's overall count includes zero-volume rows, which are shown
-  // separately in the new KPI without changing the existing keyword table.
+  // The backend overview includes both groups. The selected volume filter
+  // is applied by SQL before pagination, not by hiding rows on this page.
   const nonZeroKeywordCount = Math.max(0, data.overview.total_keywords - data.overview.zero_volume);
   const start = data.total === 0 ? 0 : (data.page - 1) * data.page_size + 1;
   const end = data.total === 0 ? 0 : Math.min(data.page * data.page_size, data.total);
   const activeOverviewFilter =
-    suggestedOnly ? "suggested"
+    volumeFilter === "zero" ? "zero"
+    : suggestedOnly ? "suggested"
     : usageFilter === "used" ? "used"
-        : tailFilter !== "all" ? tailFilter
-          : "all";
+    : tailFilter !== "all" ? tailFilter
+    : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
   const [sourceImageOverrides, setSourceImageOverrides] = useState<Record<string, string>>({});
 
-  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "suggested") => {
+  const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "suggested" | "zero") => {
     const nextUsage: KeywordUsageFilter = filter === "used" ? "used" : "all";
     const nextTail: KeywordTailFilter =
       filter === "short" || filter === "mid" || filter === "long" ? filter : "all";
+    // Total keywords excludes zero-valued rows. Other legacy KPI counts span
+    // all volumes, while Zero volume selects only exactly-zero SQL rows.
+    const nextVolume: KeywordVolumeFilter =
+      filter === "zero" ? "zero" : filter === "all" ? "nonzero" : "all";
     const nextSuggestedOnly = filter === "suggested";
 
     if (usageFilter !== nextUsage) onUsageFilterChange(nextUsage);
     if (tailFilter !== nextTail) onTailFilterChange(nextTail);
+    if (volumeFilter !== nextVolume) onVolumeFilterChange(nextVolume);
     if (suggestedOnly !== nextSuggestedOnly) onSuggestedOnlyChange(nextSuggestedOnly);
   };
 
@@ -900,11 +911,17 @@ export function KeywordAnalysisTable({
         <strong>{(data.overview.suggested_keywords ?? 0).toLocaleString()}</strong>
         <small>Keywords / Pins suggested</small>
       </button>
-      <article className="rrugc-stage0-kpi-card rrugc-stage0-zero-kpi" aria-label="Keywords with zero monthly search volume">
+      <button
+        type="button"
+        className={"rrugc-stage0-kpi-card rrugc-stage0-zero-kpi" + (activeOverviewFilter === "zero" ? " active" : "")}
+        aria-label="Show keywords with zero monthly search volume"
+        aria-pressed={activeOverviewFilter === "zero"}
+        onClick={() => selectOverviewFilter("zero")}
+      >
         <span>Zero volume</span>
         <strong>{data.overview.zero_volume.toLocaleString()}</strong>
         <small>0 monthly searches</small>
-      </article>
+      </button>
     </div>
 
     <div className="rrugc-stage0-table-wrap" role="region" aria-label="Stage 0 keyword analysis scrollable table" tabIndex={0}>

@@ -42,10 +42,11 @@ describe("Stage 0 platform source attribution", () => {
     };
     await act(async () => root.render(<KeywordAnalysisTable
       data={data} query="" sortBy="keyword" sortDirection="asc"
-      usageFilter="all" tailFilter="all" suggestedOnly={false}
+      usageFilter="all" tailFilter="all" volumeFilter="nonzero" suggestedOnly={false}
       pickingIds={new Set()} feedbackUpdatingIds={new Set()}
       onFeedbackChange={noop} onSortChange={column => { sorted.push(column); }} onUsageFilterChange={noop}
       onTailFilterChange={noop}
+      onVolumeFilterChange={noop}
       onSuggestedOnlyChange={noop} onResetAll={noop}
       onPickChange={noop}
       onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}

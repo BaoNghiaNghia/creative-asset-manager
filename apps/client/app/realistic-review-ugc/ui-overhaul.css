@@ -1765,9 +1765,9 @@ button.rrugc-image-preview{width:100%;padding:0;border:0;border-radius:0;cursor:
   color:#9a6a21;
 }
 .rrugc-stage0-kpis-restored .rrugc-stage0-suggested-kpi strong{color:#a16d22!important}
-.rrugc-stage0-kpis-restored .rrugc-stage0-zero-kpi{--rrugc-kpi-accent:#77889a;border-color:#d9e2ed!important;background:#f5f8fb!important;color:#65758b;cursor:default}
+.rrugc-stage0-kpis-restored .rrugc-stage0-zero-kpi{--rrugc-kpi-accent:#77889a;border-color:#d9e2ed!important;background:#f5f8fb!important;color:#65758b}
 .rrugc-stage0-kpis-restored .rrugc-stage0-zero-kpi strong{color:#5d7189!important}
-.rrugc-stage0-kpis-restored .rrugc-stage0-zero-kpi:hover{transform:none;border-color:#d9e2ed!important;box-shadow:none}
+.rrugc-stage0-kpis-restored .rrugc-stage0-zero-kpi.active{border-color:#77889a!important;background:#e8eef6!important}
 .rrugc-stage0-kpis-restored .rrugc-stage0-favorite-kpi{
   --rrugc-kpi-accent:#d05e9d;
   border-color:#f1c8dd!important;

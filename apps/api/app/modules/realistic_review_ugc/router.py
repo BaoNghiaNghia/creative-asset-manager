@@ -3985,6 +3985,9 @@ def list_keyword_analysis(
     query: str = Query(default="", max_length=200),
     usage: str = Query(default="all", pattern="^(all|unused|used)$"),
     tail: str = Query(default="all", pattern="^(all|short|mid|long)$"),
+    # Default remains "all" for existing API callers. Stage 0 explicitly
+    # requests nonzero or zero, filtering in SQL before count/pagination.
+    volume: str = Query(default="all", pattern="^(all|nonzero|zero)$"),
     suggested_only: bool = Query(default=False),
     sort_by: str = Query(
         default="search_volume",
@@ -4042,6 +4045,10 @@ def list_keyword_analysis(
     ).correlate(RrugcKeywordVolumeModel).exists()
 
     conditions = list(base_conditions)
+    if volume == "nonzero":
+        conditions.append(RrugcKeywordVolumeModel.search_volume > 0)
+    elif volume == "zero":
+        conditions.append(RrugcKeywordVolumeModel.search_volume == 0)
     if suggested_only is True:
         conditions.append(suggested_by_feedback)
 
@@ -4122,7 +4129,7 @@ def list_keyword_analysis(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(
                 *base_conditions,
-                RrugcKeywordVolumeModel.search_volume <= 0,
+                RrugcKeywordVolumeModel.search_volume == 0,
             )
         ) or 0
     )
