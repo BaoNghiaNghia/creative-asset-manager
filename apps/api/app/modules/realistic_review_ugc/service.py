@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,8 +39,10 @@ from app.modules.realistic_review_ugc.model import (
     RrugcAiFeedbackModel,
     RrugcCampaignModel,
     RrugcCandidateModel,
+    RrugcSourcePlanModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.reference_library import (
     REFERENCE_PROFILE_REALISTIC_PERSON_UGC,
     RrugcReferenceLibrary,
@@ -633,6 +636,13 @@ class RrugcService:
         rows: list[RrugcCandidateModel] = []
         created = 0
         existing = 0
+        # Resolve the campaign workspace exactly once for this upload batch.
+        # Never train duplicate feedback or pin history across separate roots.
+        roots = set(self.session.scalars(select(RrugcSourcePlanModel.root_folder_id).where(
+            RrugcSourcePlanModel.tenant_id == campaign.tenant_id,
+            RrugcSourcePlanModel.campaign_id == campaign.id,
+        ).distinct()))
+        workspace = "tiktokshop" if roots == {TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID} else "gatorhats"
         for item in submissions:
             if source_metadata_looks_synthetic(item.alt_text):
                 continue
@@ -659,6 +669,7 @@ class RrugcService:
                 campaign.tenant_id,
                 key,
                 exclude_campaign_id=campaign.id,
+                workspace=workspace,
             )
             if tenant_duplicate is not None:
                 duplicate_signal = {

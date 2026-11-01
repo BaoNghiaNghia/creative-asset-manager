@@ -691,11 +691,13 @@ class CampaignScoutAutomationRequest(BaseModel):
 
 class ScoutAgentCreateRequest(BaseModel):
     name: str = Field(default="Pinterest Auto Scout", min_length=1, max_length=160)
+    workspace: Literal["gatorhats", "tiktokshop"] = "gatorhats"
 
 
 class ScoutAgentResponse(BaseModel):
     id: str
     name: str
+    workspace: Literal["gatorhats", "tiktokshop"] = "gatorhats"
     status: ScoutStatus
     active: bool
     client_version: str | None = None

@@ -2,6 +2,7 @@ param(
     [switch]$SkipUpdate,
     [switch]$KeywordMode,
     [switch]$CapStackMode,
+    [switch]$TiktokShopMode,
     [switch]$TypographyMode,
     [switch]$TypographyBrowserMode
 )
@@ -17,7 +18,7 @@ $RequirementsStampPath = Join-Path $RepoRoot ".rrugc-scout-requirements.sha256"
 $ScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\scout.py"
 $KeywordScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\quote_keyword_volume.py"
 $TypographyScoutPath = Join-Path $RepoRoot "apps\rrugc_scout\typography_design_scout.py"
-if (($KeywordMode -and ($CapStackMode -or $TypographyMode)) -or ($CapStackMode -and $TypographyMode)) { throw "Scout modes are mutually exclusive." }
+if (@($KeywordMode, $CapStackMode, $TiktokShopMode, $TypographyMode).Where({ $_ }).Count -gt 1) { throw "Scout modes are mutually exclusive." }
 if ($TypographyBrowserMode -and -not $TypographyMode) { throw "TypographyBrowserMode requires TypographyMode." }
 
 function Write-Step([string]$Message) {
@@ -258,7 +259,7 @@ function Acquire-ScoutRunnerLock([string]$Mode) {
         return
     }
 
-    $safeMode = if ($Mode -in @("Keyword", "CapStack", "Typography")) { $Mode } else { "Review" }
+    $safeMode = if ($Mode -in @("Keyword", "CapStack", "TiktokShop", "Typography")) { $Mode } else { "Review" }
     $mutexName = "Local\CreativeAssetManager.RrugcScout.Runner." + $safeMode
     $script:RunnerMutex = New-Object System.Threading.Mutex($false, $mutexName)
     $acquired = $false
@@ -398,6 +399,9 @@ if (-not $SkipUpdate) {
             elseif ($CapStackMode) {
                 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -CapStackMode
             }
+            elseif ($TiktokShopMode) {
+                & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TiktokShopMode
+            }
             elseif ($TypographyMode) {
                 if ($TypographyBrowserMode) {
                     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updatedBootstrap -SkipUpdate -TypographyMode -TypographyBrowserMode
@@ -419,19 +423,27 @@ if (-not $SkipUpdate) {
 }
 
 $config = Read-LocalConfig $ConfigPath
-Complete-FirstRunPairing $ConfigPath $config
+if (-not $TiktokShopMode) {
+    Complete-FirstRunPairing $ConfigPath $config
+}
 $config = Read-LocalConfig $ConfigPath
 
 $baseUrl = Get-ConfigValue $config "RRUGC_BASE_URL" "https://creative-assets.ddns.net"
 $agentId = Get-ConfigValue $config "RRUGC_AGENT_ID"
 $token = Get-ConfigValue $config "RRUGC_SCOUT_TOKEN"
+if ($TiktokShopMode) {
+    $agentId = Get-ConfigValue $config "RRUGC_TIKTOKSHOP_AGENT_ID"
+    $token = Get-ConfigValue $config "RRUGC_TIKTOKSHOP_SCOUT_TOKEN"
+}
 $profileDir = Get-ConfigValue $config "RRUGC_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile")
 $keywordProfileDir = Get-ConfigValue $config "RRUGC_KEYWORD_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-keyword")
 $capStackProfileDir = Get-ConfigValue $config "RRUGC_CAP_STACK_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-cap-stack")
+$tiktokShopProfileDir = Get-ConfigValue $config "RRUGC_TIKTOKSHOP_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-tiktokshop")
 $typographyProfileDir = Get-ConfigValue $config "RRUGC_TYPOGRAPHY_PROFILE_DIR" (Join-Path $RepoRoot "pinterest-profile-typography")
 $profileDir = [IO.Path]::GetFullPath($profileDir).TrimEnd([char[]]"\/")
 $keywordProfileDir = [IO.Path]::GetFullPath($keywordProfileDir).TrimEnd([char[]]"\/")
 $capStackProfileDir = [IO.Path]::GetFullPath($capStackProfileDir).TrimEnd([char[]]"\/")
+$tiktokShopProfileDir = [IO.Path]::GetFullPath($tiktokShopProfileDir).TrimEnd([char[]]"\/")
 $typographyProfileDir = [IO.Path]::GetFullPath($typographyProfileDir).TrimEnd([char[]]"\/")
 $pathComparer = [StringComparer]::OrdinalIgnoreCase
 $profileSeparator = [IO.Path]::DirectorySeparatorChar
@@ -461,6 +473,13 @@ foreach ($existing in @($profileDir, $keywordProfileDir, $capStackProfileDir)) {
         Fail "Typography Design Scout Chrome profile must be separate from other Scout profiles."
     }
 }
+foreach ($existing in @($profileDir, $keywordProfileDir, $capStackProfileDir, $typographyProfileDir)) {
+    if ($pathComparer.Equals($existing, $tiktokShopProfileDir) -or
+        $tiktokShopProfileDir.StartsWith($existing + $profileSeparator, [StringComparison]::OrdinalIgnoreCase) -or
+        $existing.StartsWith($tiktokShopProfileDir + $profileSeparator, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "TikTokShop Chrome profile must be separate from all other Scout profiles."
+    }
+}
 $machineLabel = Get-ConfigValue $config "RRUGC_MACHINE_LABEL"
 $pace = Get-ConfigValue $config "RRUGC_PACE" "careful"
 $detailConcurrency = "1"
@@ -473,10 +492,10 @@ $typographyChromeExecutable = Get-ConfigValue $config "RRUGC_TYPOGRAPHY_CHROME_E
 $configuredPython = Get-ConfigValue $config "RRUGC_PYTHON"
 
 if ([string]::IsNullOrWhiteSpace($agentId)) {
-    Fail ("RRUGC_AGENT_ID is missing in " + $ConfigPath)
+    Fail ($(if ($TiktokShopMode) { "TikTokShop Scout pairing is missing. Pair it in the Manager." } else { "RRUGC_AGENT_ID is missing in " + $ConfigPath }))
 }
 if ([string]::IsNullOrWhiteSpace($token)) {
-    Fail ("RRUGC_SCOUT_TOKEN is missing in " + $ConfigPath)
+    Fail ($(if ($TiktokShopMode) { "TikTokShop Scout token is missing. Pair it in the Manager." } else { "RRUGC_SCOUT_TOKEN is missing in " + $ConfigPath }))
 }
 if ($pace -notin @("careful", "balanced")) {
     Fail "RRUGC_PACE must be careful or balanced."
@@ -497,6 +516,9 @@ if (-not (Test-Path -LiteralPath $capStackProfileDir)) {
 }
 if ($TypographyMode -and -not (Test-Path -LiteralPath $typographyProfileDir)) {
     New-Item -ItemType Directory -Path $typographyProfileDir -Force | Out-Null
+}
+if ($TiktokShopMode -and -not (Test-Path -LiteralPath $tiktokShopProfileDir)) {
+    New-Item -ItemType Directory -Path $tiktokShopProfileDir -Force | Out-Null
 }
 
 $python = ""
@@ -593,7 +615,7 @@ $shortScoutVersion = $scoutVersion -replace '^rrugc-scout-', ''
 # Keyword Scout are independent. A mode-specific runner mutex prevents only
 # accidental duplicate starts of the same Scout.
 Release-ScoutStartupLock
-$runMode = if ($KeywordMode) { "Keyword" } elseif ($CapStackMode) { "CapStack" } elseif ($TypographyMode) { "Typography" } else { "Review" }
+$runMode = if ($KeywordMode) { "Keyword" } elseif ($CapStackMode) { "CapStack" } elseif ($TiktokShopMode) { "TiktokShop" } elseif ($TypographyMode) { "Typography" } else { "Review" }
 Acquire-ScoutRunnerLock $runMode
 
 $scoutExit = 1
@@ -671,6 +693,27 @@ try {
         }
 
         & $python @keywordArguments
+        $scoutExit = $LASTEXITCODE
+    }
+    elseif ($TiktokShopMode) {
+        try { $Host.UI.RawUI.WindowTitle = "TikTokShop Scout | $shortScoutVersion | $head" } catch {}
+        Write-Step "Starting isolated TikTokShop Pinterest Scout"
+        Write-Host "Workspace: TikTokShop · independent campaigns" -ForegroundColor Green
+        Write-Host ("Pinterest profile: " + $tiktokShopProfileDir) -ForegroundColor Green
+        Write-Host "Low footprint: one reusable detail tab; careful pace" -ForegroundColor Green
+        $tiktokArguments = @(
+            $ScoutPath, "--tiktokshop-mode",
+            "--base-url", $baseUrl, "--agent-id", $agentId,
+            "--profile-dir", $tiktokShopProfileDir, "--pace", "careful",
+            "--detail-concurrency", "1"
+        )
+        if (-not [string]::IsNullOrWhiteSpace($machineLabel)) {
+            $tiktokArguments += @("--machine-label", $machineLabel)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($chromeExecutable)) {
+            $tiktokArguments += @("--chrome-executable", $chromeExecutable)
+        }
+        & $python @tiktokArguments
         $scoutExit = $LASTEXITCODE
     }
     elseif ($CapStackMode) {

@@ -5,6 +5,7 @@ import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/Worksp
 import { SourcePlanTable } from "../realistic-review-ugc/SourcePlanTable";
 import { Stage3ReviewGroups } from "../realistic-review-ugc/Stage3ReviewGroups";
 import { RrugcStageHeader } from "../realistic-review-ugc/RrugcStageHeader";
+import { TiktokShopAgentPanel } from "./TiktokShopAgentPanel";
 import {
   listSourcePlanFolders,
   listSourcePlans,
@@ -36,9 +37,9 @@ const EMPTY_REVIEWS: Stage3ReviewGroupList = {
 };
 
 /**
- * Phase 1: server-enforced Drive-root isolation and shared Stage 3/5 UI.
- * Generation and Scout claims are intentionally held until the backend assigns
- * agents/skills per workspace; NEVER show tenant-wide GatorHats jobs here.
+ * Phase 2: isolated agent claims and bounded Stage 3 auto-analysis.
+ * Stage 4/5 remain gated until all job/skill/output reads and writes are scoped
+ * server-side; NEVER show GatorHats tenant-wide jobs here.
  */
 export function TiktokShopScoutUgcPage() {
   const [stage, setStage] = useState<TikTokStage>("stage3");
@@ -89,7 +90,9 @@ export function TiktokShopScoutUgcPage() {
       setMessage(
         "TiktokShop Drive scan: " + result.images_found + " images, "
         + result.plans_created + " new, " + result.plans_updated
-        + " updated. Agent claims and generation are disabled until workspace isolation is complete.",
+        + " updated; " + result.jobs_queued
+        + " product-context analysis jobs queued (at most 12 per Scan). "
+        + "Only paired TikTokShop Scouts can claim their Pinterest campaigns.",
       );
       await refresh();
     } catch (reason) {
@@ -110,7 +113,7 @@ export function TiktokShopScoutUgcPage() {
     <section className="rrugc-main">
       <WorkspacePageHeader
         route="tiktokshop"
-        titleAddon={<span className="rrugc-page-live-pill">Isolated Drive root · Phase 1</span>}
+        titleAddon={<span className="rrugc-page-live-pill">TikTokShop · isolated Scout pilot</span>}
         actions={<div className="rrugc-global-management-actions">
           <a className="rrugc-global-management-button"
             href={"https://drive.google.com/drive/folders/" + TIKTOKSHOP_SOURCE_ROOT}
@@ -138,10 +141,11 @@ export function TiktokShopScoutUgcPage() {
         {error && <div role="alert" className="rrugc-error">{error}</div>}
         <section id="tiktok-panel-stage3" role="tabpanel" aria-labelledby="tiktok-tab-stage3"
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
+          <TiktokShopAgentPanel />
           <div className="rrugc-card" style={{ padding: "12px 16px", marginBottom: 12 }}>
-            <strong>Source scan only.</strong> Google Drive sources are scoped to TiktokShop.
-            Automatic Pinterest Scout and AI analysis are held until a dedicated
-            Windows agent can claim only TikTokShop campaigns.
+            <strong>Stage 3 pilot.</strong> Scan imports only TiktokShop Drive sources
+            and queues at most 12 product-context analyses each time.
+            A paired TikTokShop Windows Agent receives only its own campaigns.
           </div>
           <SourcePlanTable
             rootFolderId={TIKTOKSHOP_SOURCE_ROOT}

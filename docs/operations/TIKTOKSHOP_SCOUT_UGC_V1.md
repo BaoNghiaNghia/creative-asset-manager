@@ -127,6 +127,23 @@ separate Manager worker/card with:
   calls except existing CAM provider policy. Crawl public Pinterest pages
   compliant with site rate limits. No scraping private TikTokShop account data.
 
+### Phase 2 implementation (2026-11-01, code complete; release status must be verified)
+
+1. Additive migration `0191_tiktokshop_scout_agent_workspace` defaults all existing Scout Agents to `gatorhats`.
+2. Create `tiktokshop`-workspace agents through CAM → Tiktokshop → Scout & UGC → Pair TikTokShop agent. Existing Gator agents and tokens are unchanged. A one-time secret appears for copying; no secret is stored in the frontend.
+3. The backend scopes claim/lease in SQL and validates the campaign root again at heartbeat, submit and completion. Gator priority run-all claims cannot bypass TikTok.
+4. TikTokShop's manual Stage 3 Scan queues at most **12** source-plan context analysis jobs, with garment-aware source descriptions and search queries. Generated campaigns are claimable only by the TikTokShop Agent.
+5. The Scout runtime adds `--tiktokshop-mode` and rejects mispaired credentials before starting Chrome. The Windows runner accepts `-TiktokShopMode` with its own profile, runner mutex, token and logs. `START_SCOUT_TIKTOKSHOP.cmd` runs the same Python implementation without a new service.
+6. Tauri Scout Manager source adds a TikTokShop card and isolated pairing action. **Native Rust executable requires Windows Rust MSVC build, test and installer update.** The CMD launcher does not require rebuilding Tauri.
+7. Reference preference training and recently-scanned Pinterest URLs are scoped per source-root; previously approved Gator refs cannot override TikTokShop training.
+8. Stage 4 & 5 deliberately remain gated until scoped job queries, product-aware Skill and review/export filtering are implemented.
+
+Windows first-run manual pairing for the standalone launcher:
+- Open CAM → Tiktokshop → Scout & UGC → **Pair TikTokShop agent**. Copy the two env lines shown once.
+- In the existing Windows Scout checkout, open its Git-ignored `scout.local.env`, set `RRUGC_TIKTOKSHOP_AGENT_ID` and `RRUGC_TIKTOKSHOP_SCOUT_TOKEN`. Keep Gator's keys untouched.
+- Run `START_SCOUT_TIKTOKSHOP.cmd` (or the new Tauri card after installing v0.1.51). Chrome uses `pinterest-profile-tiktokshop`, not Gator's profile. Existing Pinterest login is reused; manual login only when the browser indicates it is needed.
+- Always verify claim campaign, source root, and product-specific searches before enabling unattended operation.
+
 ### Phase 3 — product-aware generation and Stage 5
 
 - Product context classifier: garment category/material, front/back graphics,

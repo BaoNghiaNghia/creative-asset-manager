@@ -514,13 +514,15 @@ export const configureCampaignScoutAutomation = (
 export const getRrugcHealth = (signal?: AbortSignal) =>
   request<RrugcHealth>("/api/v1/realistic-review-ugc/health", { signal });
 
-export const listScoutAgents = (signal?: AbortSignal) =>
-  request<ScoutAgent[]>("/api/v1/realistic-review-ugc/scout-agents", { signal });
+export const listScoutAgents = (
+  signal?: AbortSignal, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) => request<ScoutAgent[]>("/api/v1/realistic-review-ugc/scout-agents?workspace=" + workspace, { signal });
 
-export const createScoutAgent = (name: string) =>
-  request<ScoutAgentCreated>("/api/v1/realistic-review-ugc/scout-agents", {
+export const createScoutAgent = (
+  name: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+) => request<ScoutAgentCreated>("/api/v1/realistic-review-ugc/scout-agents", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, workspace }),
   });
 
 export const resetScoutAgentPairing = (agentId: string) =>

@@ -141,6 +141,8 @@ class ReferenceFilterPolicy:
     min_phone_authenticity_score: float = 0.45
     max_artistic_editorial_risk: float = 0.70
     require_head_visible: bool = True
+    # Apparel UGC can be a torso crop; a visible face is not required.
+    require_head_ratio: bool = True
     reject_headwear: bool = False
 
 
@@ -484,10 +486,11 @@ def evaluate_reference(
             return ReferenceDecision("rejected_no_person", "NO_PERSON", final_score)
         if policy.require_head_visible and not document.head_visible:
             return ReferenceDecision("rejected_head_occlusion", "HEAD_NOT_VISIBLE", final_score)
-        if document.primary_head_ratio is None:
-            return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_UNAVAILABLE", final_score)
-        if not policy.min_head_ratio <= document.primary_head_ratio <= policy.max_head_ratio:
-            return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE", final_score)
+        if policy.require_head_ratio:
+            if document.primary_head_ratio is None:
+                return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_UNAVAILABLE", final_score)
+            if not policy.min_head_ratio <= document.primary_head_ratio <= policy.max_head_ratio:
+                return ReferenceDecision("rejected_head_ratio", "HEAD_RATIO_OUT_OF_RANGE", final_score)
         if policy.reject_headwear and document.existing_headwear:
             return ReferenceDecision("rejected_existing_headwear", "EXISTING_HEADWEAR", final_score)
         if document.head_occlusion > policy.max_head_occlusion:
@@ -774,6 +777,75 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
     )
 
 
+def _apparel_analysis_prompt() -> str:
+    """Dedicated garment UGC analyzer; no contradictory hat-first directives."""
+    return """
+You are evaluating a Pinterest photo as a potential customer-style lifestyle
+reference for placing an existing embroidered apparel product. Return exactly
+one JSON object, no prose and no personal identity or demographic inference.
+
+Prefer real candid phone photos: people naturally wearing sweatshirts, hoodies,
+shirts, tees or sweaters, mirror selfies, home/cafe/street situations, ordinary
+fabric folds, realistic torso/body pose and usable front or back garment areas.
+Torso-only crops are valid; do NOT require a visible face, hat, crown or visor.
+An existing different garment may be suitable if its silhouette, seams and
+material plausibly fit the supplied product. Penalize catalog cutouts, floating
+apparel, blurred fabric, text/logos already covering the target placement,
+tiny garment details, large crowds and heavily staged editorial imagery.
+
+Judge authenticity from INDEPENDENT evidence in hands, anatomy, text/symbols,
+garment geometry, repeated fabric textures, lighting/reflections and background.
+Phone sharpening, HDR, filters, motion blur and polished light alone are
+not evidence of AI. When uncertain, lower ai_detector_confidence.
+Never transcribe or invent the source product's design onto a reference photo.
+
+Score 0..1:
+- mobile_ugc_score: ordinary, spontaneous customer-photo style
+- phone_authenticity_score: apparent everyday smartphone perspective/processing
+- artistic_editorial_risk: deliberate studio/fashion campaign staging
+- quality_score: usable focus, exposure and fabric/garment detail
+- ai_risk_score: evidence-based suspicion of synthetic imagery
+- ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
+  ai_lighting_reflection_risk, ai_background_consistency_risk: distinct faults
+- ai_detector_confidence: certainty of the visible synthetic/real assessment
+- product_fit_score: garment category, size, natural drape, sleeves, chest/back
+  region visibility and feasible embroidery placement; NOT head or hat detail
+- context_match_score: match with the supplied artwork's genuine theme or
+  activity; neutral 0.5 when the topic is unclear, do not infer protected traits
+- product_shape_score: garment silhouette, collar/cuffs/seams, fabric and drape
+  compatibility with bound product; do NOT use hat or head structure
+
+people_count is the number of people visibly present (0 for only a product).
+head_visible and primary_head_ratio may be false/null for a perfectly valid
+torso crop. smile_score and head_occlusion only describe truly visible evidence.
+existing_headwear indicates actual headwear if visible but is NOT a suitability
+requirement. hand_visible describes a visibly present hand.
+hat_held_in_hand and front_panel_visible are true only for literal visible hats.
+embroidery_visible is true if existing visible garment embroidery is readable.
+matched_variant_id/name/color must be null and color_match_score=0 unless an
+actual provided variant catalog can be reliably matched; never invent IDs.
+context_match_evidence: <=6 short visible facts.
+scene_type, framing_type, camera_angle, pose_type: short lowercase labels.
+summary: <=2 factual sentences about composition and suitability.
+Use null for unknown head ratio, not fake numerical estimates.
+
+APPAREL OVERRIDE: This is clothing, not headwear. Images are evaluated for
+garment region/placement and realism, never for hats or facial identity.
+
+Required JSON keys:
+people_count, primary_head_ratio, smile_score, head_visible, existing_headwear,
+head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_risk,
+quality_score, ai_risk_score,
+ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
+ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
+product_fit_score, hand_visible, hat_held_in_hand, front_panel_visible,
+embroidery_visible, context_match_score, context_match_evidence,
+matched_variant_id, matched_variant_name, matched_color,
+color_match_score, product_shape_score,
+scene_type, framing_type, camera_angle, pose_type, summary.
+""".strip()
+
+
 def analysis_prompt(product_context: dict | None = None) -> str:
     base = """
 You are evaluating a Pinterest lifestyle reference for a quality-first real-photo workflow.
@@ -847,6 +919,11 @@ color_match_score, product_shape_score,
 scene_type, framing_type, camera_angle, pose_type, summary.
 """.strip()
     product = dict(product_context or {})
+    apparel = str(product.get("product_type") or "").casefold() in {
+        "apparel", "hoodie", "sweatshirt", "t-shirt", "shirt", "sweater",
+    }
+    if apparel:
+        base = _apparel_analysis_prompt()
     variants = list(product.get("variants") or [])[:30]
     family_parts = [
         ("name", product.get("name")),
@@ -990,6 +1067,10 @@ async def confirm_ai_authenticity(
 
 
 def policy_from_campaign(campaign: Any) -> ReferenceFilterPolicy:
+    snapshot = dict(getattr(campaign, "product_snapshot_json", None) or {})
+    apparel = str(snapshot.get("product_type") or "").casefold() in {
+        "apparel", "hoodie", "sweatshirt", "t-shirt", "shirt", "sweater",
+    }
     return ReferenceFilterPolicy(
         min_head_ratio=float(campaign.min_head_ratio),
         max_head_ratio=float(campaign.max_head_ratio),
@@ -1008,6 +1089,7 @@ def policy_from_campaign(campaign: Any) -> ReferenceFilterPolicy:
             QUALITY_FIRST_MIN_UGC,
         ),
         min_product_fit_score=float(campaign.min_product_fit_score),
-        require_head_visible=bool(campaign.require_head_visible),
+        require_head_visible=bool(campaign.require_head_visible) and not apparel,
+        require_head_ratio=not apparel,
         reject_headwear=bool(campaign.reject_headwear),
     )

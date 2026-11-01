@@ -5,6 +5,7 @@ from collections import Counter
 from sqlalchemy import case, delete, exists, func, or_, select, true
 from sqlalchemy.orm import Session
 
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
     RrugcCandidateModel,
@@ -631,11 +632,23 @@ class RrugcRepository:
         source_key: str,
         *,
         exclude_campaign_id: str | None = None,
+        workspace: str = "gatorhats",
     ) -> RrugcCandidateModel | None:
+        # The same Pinterest reference can legitimately be used once in each
+        # independent source-root workspace. Keep the historical in-workspace
+        # duplicate guard but never reject a TikTok candidate due to Gator.
+        if workspace not in {"gatorhats", "tiktokshop"}:
+            raise ValueError("Unknown Scout workspace")
+        tiktok_source = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcCandidateModel.campaign_id,
+            RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ))
         statement = select(RrugcCandidateModel).where(
             RrugcCandidateModel.tenant_id == tenant_id,
             RrugcCandidateModel.source_key == source_key,
             RrugcCandidateModel.analyzed_at.is_not(None),
+            tiktok_source if workspace == "tiktokshop" else ~tiktok_source,
         )
         if exclude_campaign_id is not None:
             statement = statement.where(
@@ -706,13 +719,22 @@ class RrugcRepository:
         intent: str | None = None,
         legacy_campaign_id: str | None = None,
         profile_key: str | None = None,
+        workspace: str = "gatorhats",
         limit: int = 1000,
     ) -> list[tuple[str, dict | None]]:
+        tiktok_feedback = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcAiFeedbackModel.campaign_id,
+            RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ))
+        if workspace not in {"gatorhats", "tiktokshop"}:
+            raise ValueError("Unknown reference feedback workspace")
         rows = list(self.session.scalars(
             select(RrugcAiFeedbackModel)
             .where(
                 RrugcAiFeedbackModel.tenant_id == tenant_id,
                 RrugcAiFeedbackModel.label.in_(("ref_good", "ref_bad", "ref_clear")),
+                tiktok_feedback if workspace == "tiktokshop" else ~tiktok_feedback,
             )
             .order_by(
                 RrugcAiFeedbackModel.created_at.desc(),
@@ -1241,7 +1263,28 @@ class RrugcRepository:
         now,
         limit: int = 20,
         source_plan_only: bool = False,
+        workspace: str = "gatorhats",
     ) -> list[RrugcCampaignModel]:
+        # A tenant can operate multiple Scout workspaces. Scope in SQL BEFORE
+        # claiming a row (FOR UPDATE SKIP LOCKED), not after a campaign is leased.
+        tik_scoped = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+            RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ))
+        non_tik_scoped = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+            RrugcSourcePlanModel.root_folder_id != TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ))
+        if workspace == "tiktokshop":
+            workspace_scope = tik_scoped & ~non_tik_scoped
+        elif workspace == "gatorhats":
+            # Legacy manual/Product campaigns have no source-plan or use a
+            # non-Reviews Gator root; keep them claimable as before.
+            workspace_scope = ~tik_scoped
+        else:
+            raise ValueError("Unknown Scout workspace")
         source_scope = (
             exists(
                 select(RrugcSourcePlanModel.id).where(
@@ -1312,6 +1355,7 @@ class RrugcRepository:
                     RrugcCampaignModel.status == "running",
                     RrugcCampaignModel.auto_scout.is_(True),
                     source_scope,
+                    workspace_scope,
                     or_(
                         RrugcCampaignModel.scan_next_at.is_(None),
                         RrugcCampaignModel.scan_next_at <= now,

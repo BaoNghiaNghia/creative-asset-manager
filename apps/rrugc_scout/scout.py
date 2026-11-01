@@ -27,7 +27,7 @@ import httpx
 from cap_stack_feedback import CapStackFeedbackFilter
 
 
-CLIENT_VERSION = "rrugc-scout-v57-feedback-memory"
+CLIENT_VERSION = "rrugc-scout-v58-tiktokshop-isolation"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -3742,7 +3742,11 @@ def review_idle_poll_delay_seconds(
 
 async def run_agent(args: argparse.Namespace) -> None:
     profile_dir = Path(args.profile_dir).expanduser().resolve()
-    scout_kind = "cap_stack" if getattr(args, "cap_stack_mode", False) else "review"
+    scout_kind = (
+        "cap_stack" if getattr(args, "cap_stack_mode", False)
+        else "tiktokshop" if getattr(args, "tiktokshop_mode", False)
+        else "review"
+    )
     log_path = configure_scout_debug_log(profile_dir, scout_type=scout_kind)
     configure_scout_remote_log(
         base_url=args.base_url,
@@ -3770,6 +3774,20 @@ async def run_agent(args: argparse.Namespace) -> None:
         args.token,
         machine_label=machine_label,
     )
+    # The server's authenticated namespace is authoritative; do not start
+    # Chrome with incorrectly paired credentials and consume another Scout's
+    # campaigns. Existing Review and Cap Stack pairings remain Gator-only.
+    try:
+        agent = await client.heartbeat("ready")
+        actual_workspace = str(agent.get("workspace") or "gatorhats")
+        expected_workspace = "tiktokshop" if getattr(args, "tiktokshop_mode", False) else "gatorhats"
+        if actual_workspace != expected_workspace:
+            raise RuntimeError(
+                f"Scout credentials are paired to {actual_workspace}, expected {expected_workspace}."
+            )
+    except Exception:
+        await client.close()
+        raise
     playwright = None
     context = None
     page = None
@@ -4206,6 +4224,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token", default="")
     parser.add_argument("--cap-stack-mode", action="store_true",
                         help="Isolated Cap Stack shared-library Scout instead of campaign Review.")
+    parser.add_argument("--tiktokshop-mode", action="store_true",
+                        help="Dedicated TikTokShop Agent and isolated Pinterest Chrome profile.")
     parser.add_argument("--profile-dir", required=True)
     parser.add_argument("--chrome-executable", default="")
     parser.add_argument(
@@ -4266,8 +4286,10 @@ def parse_args() -> argparse.Namespace:
         parser.error("--poll-interval-seconds must be at least 2")
     if args.login_wait_seconds < 60:
         parser.error("--login-wait-seconds must be at least 60")
+    if args.cap_stack_mode and args.tiktokshop_mode:
+        parser.error("Cap Stack and TikTokShop modes cannot run together")
     if args.bootstrap_login:
-        if args.agent_id or args.campaign_id or args.base_url or args.cap_stack_mode:
+        if args.agent_id or args.campaign_id or args.base_url or args.cap_stack_mode or args.tiktokshop_mode:
             parser.error("--bootstrap-login only needs --profile-dir and optional --chrome-executable")
         return args
     if not args.base_url:
@@ -4276,6 +4298,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--agent-id or --campaign-id is required unless --bootstrap-login is used")
     if args.cap_stack_mode and not args.agent_id:
         parser.error("--cap-stack-mode requires --agent-id")
+    if args.tiktokshop_mode and not args.agent_id:
+        parser.error("--tiktokshop-mode requires --agent-id")
     args.token = resolve_token(args)
     return args
 

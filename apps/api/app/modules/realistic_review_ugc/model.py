@@ -410,6 +410,7 @@ class RrugcScoutAgentModel(Base):
     __tablename__ = "rrugc_scout_agents"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_rrugc_scout_agent_tenant_id"),
+        Index("ix_rrugc_agent_tenant_workspace_active", "tenant_id", "workspace", "active"),
         Index(
             "ix_rrugc_scout_agent_tenant_active",
             "tenant_id",
@@ -424,6 +425,9 @@ class RrugcScoutAgentModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Existing paired agents default to GatorHats; TikTokShop requires explicit pairing.
+    workspace: Mapped[str] = mapped_column(String(24), nullable=False,
+                                            default="gatorhats", server_default="gatorhats")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="offline")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     client_version: Mapped[str | None] = mapped_column(String(64))

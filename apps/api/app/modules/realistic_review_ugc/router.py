@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -1474,6 +1474,7 @@ def _scout_agent_response(row: RrugcScoutAgentModel) -> ScoutAgentResponse:
         name=row.name,
         status=effective_agent_status(row),
         active=row.active,
+        workspace=row.workspace or "gatorhats",
         client_version=row.client_version,
         machine_label=row.machine_label,
         last_error_code=row.last_error_code,
@@ -8114,9 +8115,10 @@ async def sync_source_folder_plans(
             tenant_id=principal.active_tenant_id,
             user_id=principal.user_id,
             root_folder_id=_source_root_for_workspace(workspace),
-            # Until agent claims are strictly workspace-scoped, importing source
-            # metadata must NEVER create campaigns claimable by GatorHats Scouts.
-            queue_analysis=not colorway_sources and workspace == "gatorhats",
+            # Only the dedicated TikTokShop agent may claim its campaigns.
+            # Cap manual scans to 12 Gemini context jobs to protect shared quota.
+            queue_analysis=not colorway_sources,
+            analysis_job_limit=12 if workspace == "tiktokshop" else None,
         )
     except RrugcSourcePlanError as exc:
         raise HTTPException(
@@ -9416,6 +9418,7 @@ def rrugc_health(
 )
 def list_scout_agents(
     include_archived: bool = Query(default=False),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -9425,6 +9428,7 @@ def list_scout_agents(
         for row in service.list_agents(
             tenant_id=principal.active_tenant_id,
             include_archived=include_archived,
+            workspace=workspace,
         )
     ]
 
@@ -9444,6 +9448,7 @@ def create_scout_agent(
             tenant_id=principal.active_tenant_id,
             user_id=principal.user_id,
             name=request.name,
+            workspace=request.workspace,
         )
     except RrugcError as exc:
         raise _error(exc) from exc
@@ -9644,11 +9649,18 @@ def auto_scout_agent_claim(
     # Sync tenant-wide recent Pinterest history into the local Scout before it
     # opens detail pages. The backend rejects exact tenant duplicates anyway, so
     # spending browser/Gemini time on these Pins has no value.
+    tiktok_candidate_scope = exists(select(RrugcSourcePlanModel.id).where(
+        RrugcSourcePlanModel.tenant_id == claim.campaign.tenant_id,
+        RrugcSourcePlanModel.campaign_id == RrugcCandidateModel.campaign_id,
+        RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    ))
+    tiktok_claim = source_plan is not None and source_plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
     recent_pin_rows = list(session.scalars(
         select(RrugcCandidateModel.pin_url)
         .where(
             RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
             RrugcCandidateModel.pin_url.is_not(None),
+            tiktok_candidate_scope if tiktok_claim else ~tiktok_candidate_scope,
         )
         .order_by(RrugcCandidateModel.created_at.desc())
         .limit(5000)

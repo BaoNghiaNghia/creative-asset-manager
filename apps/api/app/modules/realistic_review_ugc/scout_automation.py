@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.modules.ai_governance.rate_limit import AiModelRateLimitRepository
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.model import (
     RrugcCampaignModel,
+    RrugcSourcePlanModel,
     RrugcScoutAgentModel,
     RrugcScoutRunModel,
 )
@@ -979,13 +981,44 @@ class RrugcAutoScoutService:
         row.status = "offline"
         row.archived_at = now
 
+    def _campaign_in_agent_workspace(
+        self, agent: RrugcScoutAgentModel, campaign_id: str,
+    ) -> bool:
+        """Fail closed on mixed-root campaigns and enforce agent-specific claims."""
+        roots = set(self.session.scalars(
+            select(RrugcSourcePlanModel.root_folder_id).where(
+                RrugcSourcePlanModel.tenant_id == agent.tenant_id,
+                RrugcSourcePlanModel.campaign_id == campaign_id,
+            ).distinct()
+        ))
+        scope = agent.workspace or "gatorhats"
+        if scope == "tiktokshop":
+            return roots == {TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID}
+        if scope == "gatorhats":
+            # Preserve legacy manual and Gator Products campaigns.
+            return TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID not in roots
+        return False
+
+    def _assert_agent_campaign_workspace(
+        self, agent: RrugcScoutAgentModel, campaign_id: str,
+    ) -> None:
+        if not self._campaign_in_agent_workspace(agent, campaign_id):
+            raise RrugcError(
+                "rrugc_scout_workspace_mismatch",
+                "This Scout agent cannot access another workspace's campaign.",
+                status_code=403,
+            )
+
     def create_agent(
         self,
         *,
         tenant_id: str,
         user_id: str,
         name: str,
+        workspace: str = "gatorhats",
     ) -> tuple[RrugcScoutAgentModel, str]:
+        if workspace not in {"gatorhats", "tiktokshop"}:
+            raise RrugcError("rrugc_scout_workspace_invalid", "Invalid Scout workspace.")
         clean_name = name.strip()
         if not clean_name:
             raise RrugcError(
@@ -998,6 +1031,7 @@ class RrugcAutoScoutService:
             tenant_id=tenant_id,
             name=clean_name,
             token_hash=token_digest(raw_token),
+            workspace=workspace,
             status="offline",
             active=True,
             created_by_user_id=user_id,
@@ -1042,11 +1076,15 @@ class RrugcAutoScoutService:
         *,
         tenant_id: str,
         include_archived: bool = False,
+        workspace: str = "gatorhats",
     ) -> list[RrugcScoutAgentModel]:
-        return self.repository.list_scout_agents(
-            tenant_id,
-            include_archived=include_archived,
-        )
+        if workspace not in {"gatorhats", "tiktokshop"}:
+            raise RrugcError("rrugc_scout_workspace_invalid", "Invalid Scout workspace.")
+        return [
+            row for row in self.repository.list_scout_agents(
+                tenant_id, include_archived=include_archived,
+            ) if (row.workspace or "gatorhats") == workspace
+        ]
 
     def authenticate_agent(
         self,
@@ -1156,6 +1194,7 @@ class RrugcAutoScoutService:
                     "Scout run not found.",
                     status_code=404,
                 )
+            self._assert_agent_campaign_workspace(agent, run.campaign_id)
             if run.status in {"claimed", "running"}:
                 run.status = "running"
                 run.last_heartbeat_at = now
@@ -1196,7 +1235,10 @@ class RrugcAutoScoutService:
         keyword_gate = keyword_quote_backlog_gate(
             self.session, agent.tenant_id, pressure=analysis_pressure, now=now,
         )
-        campaigns = self.repository.list_campaigns(agent.tenant_id, limit=50)
+        campaigns = [
+            campaign for campaign in self.repository.list_campaigns(agent.tenant_id, limit=100)
+            if self._campaign_in_agent_workspace(agent, campaign.id)
+        ][:50]
         campaign_ids = [campaign.id for campaign in campaigns]
         counts_by_campaign = self.repository.campaign_usable_counts_many(
             agent.tenant_id,
@@ -1465,7 +1507,7 @@ class RrugcAutoScoutService:
         priority = (
             self.repository.priority_ugc_run_all_campaigns(
                 agent.tenant_id, now=now, limit=8,
-            ) if source_plan_only else []
+            ) if source_plan_only and (agent.workspace or "gatorhats") == "gatorhats" else []
         )
         if not priority and review_scout_soft_throttle(
             self.session, agent.tenant_id, pressure=analysis_pressure, now=now,
@@ -1484,6 +1526,7 @@ class RrugcAutoScoutService:
             yield from self.repository.claimable_campaigns(
                 agent.tenant_id, now=now, limit=25,
                 source_plan_only=source_plan_only,
+                workspace=agent.workspace or "gatorhats",
             )
 
         selected: RrugcCampaignModel | None = None
@@ -1491,6 +1534,9 @@ class RrugcAutoScoutService:
         pipeline_count = 0
         reviewed_campaign_ids: set[str] = set()
         for campaign in ordered_candidates():
+            if not self._campaign_in_agent_workspace(agent, campaign.id):
+                # Priority jobs and legacy clients cannot bypass root isolation.
+                continue
             if campaign.id in reviewed_campaign_ids:
                 continue
             reviewed_campaign_ids.add(campaign.id)
@@ -1702,6 +1748,7 @@ class RrugcAutoScoutService:
                 "Campaign not found.",
                 status_code=404,
             )
+        self._assert_agent_campaign_workspace(agent, campaign.id)
         if (
             campaign.scan_lease_run_id != run.id
             or campaign.scan_lease_agent_id != agent.id
@@ -1813,6 +1860,7 @@ class RrugcAutoScoutService:
                 "Scout run not found.",
                 status_code=404,
             )
+        self._assert_agent_campaign_workspace(agent, run.campaign_id)
         if run.status in {"completed", "needs_login", "failed", "cancelled"}:
             return run
 

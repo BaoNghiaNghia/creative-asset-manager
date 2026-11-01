@@ -48,13 +48,14 @@ from app.modules.realistic_review_ugc.product_context import (
     product_visual_binding_fingerprint,
 )
 from app.modules.realistic_review_ugc.service import RrugcService
+from app.modules.realistic_review_ugc.workspace import (
+    RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+)
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.ai.factory import build_ai_provider_registry
 from app.providers.google.drive import GoogleDriveClient
 from app.providers.google.storage import GoogleDriveAssetStorage
 
-RRUGC_SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX"
-TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID = "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh"
 RRUGC_SOURCE_TARGET_COUNT = 50
 RRUGC_SOURCE_PLAN_JOB_TYPE = "rrugc_source_plan_analyze"
 RRUGC_SOURCE_MAX_FOLDERS = 5_000
@@ -718,6 +719,7 @@ async def sync_source_plans(
     storage: GoogleDriveAssetStorage | None = None,
     drive_client_factory: Callable[[str], GoogleDriveClient] = GoogleDriveClient,
     queue_analysis: bool = True,
+    analysis_job_limit: int | None = None,
 ) -> SourcePlanSyncResult:
     settings = settings or get_settings()
     storage_provider = storage or build_managed_storage_provider(settings)
@@ -842,6 +844,12 @@ async def sync_source_plans(
         if not should_queue:
             unchanged += 1
             continue
+        # TikTokShop imports can contain thousands of products: bound each
+        # explicit Scan to a small number of expensive Gemini context jobs.
+        # Remaining plans retain their source and are eligible next Scan.
+        if analysis_job_limit is not None and queued >= analysis_job_limit:
+            unchanged += 1
+            continue
 
         if (
             not is_new
@@ -939,15 +947,28 @@ async def sync_source_plans(
 def _synthetic_product_snapshot(plan: RrugcSourcePlanModel) -> dict[str, Any]:
     folder = str(PurePosixPath(plan.source_relative_path).parent)
     folder_note = "" if folder in {"", "."} else f" Source folder: {folder}."
+    apparel = plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    label = (folder + " " + plan.source_name).casefold()
+    garment = (
+        "hoodie" if "hoodie" in label
+        else "sweatshirt" if "sweatshirt" in label or "sweater" in label
+        else "t-shirt" if "t-shirt" in label or "tee" in label
+        else "apparel"
+    ) if apparel else "cap"
+    description = (
+        "Actual embroidered garment or apparel source photograph. "
+        "Find authentic customer-style lifestyle photos showing natural clothing fit, "
+        "fabric folds and the embroidery's visible placement. Use garment-centered scenes."
+        if apparel else "Source image for a personalized embroidered hat."
+    )
     return {
         "id": f"rrugc-source:{plan.source_file_id}",
         "revision": int(plan.analysis_revision or 0),
         "name": PurePosixPath(plan.source_name).stem[:200] or plan.source_name[:200],
-        "product_type": "cap",
-        "source_category": "embroidered hat",
+        "product_type": garment,
+        "source_category": ("embroidered apparel" if apparel else "embroidered hat"),
         "source_description": (
-            "Source image for a personalized embroidered hat."
-            + folder_note
+            description + folder_note
             + " Infer Pinterest lifestyle context primarily from the visible embroidery/artwork."
         )[:1000],
     }
@@ -1194,6 +1215,18 @@ class RrugcSourcePlanAnalyzeJobHandler:
             reference_snapshot=reference_snapshot,
         )
         anchors = _search_anchors(profile)
+        if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+            # Context queries must describe garments, never borrowed hat scenes.
+            anchors = [value for value in anchors
+                       if not re.search(r"\b(hats?|caps?|trucker|visor|brim)\b",
+                                        value, flags=re.IGNORECASE)]
+            garment = product_snapshot["product_type"]
+            visible_words = " ".join(visual_context.get("embroidery_text") or [])[:80].strip()
+            anchors = list(dict.fromkeys([
+                *(anchors[:1]),
+                f"{visible_words} embroidered {garment} casual mirror selfie phone photo".strip(),
+                f"embroidered {garment} candid customer lifestyle photo natural light",
+            ]))[:3]
         queries = build_campaign_search_queries(
             name=product_snapshot["name"],
             queries=anchors,
@@ -1235,6 +1268,7 @@ class RrugcSourcePlanAnalyzeJobHandler:
                     select(RrugcSourcePlanModel)
                     .where(
                         RrugcSourcePlanModel.tenant_id == context.job.tenant_id,
+                        RrugcSourcePlanModel.root_folder_id == plan.root_folder_id,
                         RrugcSourcePlanModel.embroidery_signature == signature,
                         RrugcSourcePlanModel.id != plan.id,
                         RrugcSourcePlanModel.campaign_id.is_not(None),

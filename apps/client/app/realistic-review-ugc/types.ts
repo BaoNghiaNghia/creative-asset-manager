@@ -634,6 +634,7 @@ export type SourcePlanSyncResult = {
 export type ScoutAgent = {
   id: string;
   name: string;
+  workspace?: "gatorhats" | "tiktokshop";
   status: "offline" | "ready" | "busy" | "needs_login" | "error";
   active: boolean;
   client_version: string | null;

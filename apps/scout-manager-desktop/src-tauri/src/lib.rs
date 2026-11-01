@@ -37,6 +37,7 @@ struct ModeInfo {
 #[serde(rename_all = "camelCase")]
 struct Dashboard {
     manager_version: String,
+    tiktokshop_paired: bool,
     version: String,
     commit: String,
     update_state: String,
@@ -139,8 +140,8 @@ struct OperationsSummary {
 }
 
 // Typography is manually triggered and completes once; never entered by Run automation.
-const AUTOMATIC_SCOUT_MODES: [&str; 3] = ["review", "keyword", "cap_stack"];
-const MANAGED_SCOUT_MODES: [&str; 4] = ["review", "keyword", "cap_stack", "typography"];
+const AUTOMATIC_SCOUT_MODES: [&str; 4] = ["review", "keyword", "cap_stack", "tiktokshop"];
+const MANAGED_SCOUT_MODES: [&str; 5] = ["review", "keyword", "cap_stack", "tiktokshop", "typography"];
 
 fn typography_one_shot_state(exit: Option<i32>, log: &str) -> (&'static str, Option<&'static str>) {
     // Logs append across runs; a previous run's login message is not evidence
@@ -278,6 +279,13 @@ fn is_paired(repo: &Path) -> bool {
         .iter()
         .all(|key| entries.iter().any(|(k, v)| k == key && !v.is_empty()))
 }
+
+fn is_tiktokshop_paired(repo: &Path) -> bool {
+    let entries = config_values(repo);
+    ["RRUGC_TIKTOKSHOP_AGENT_ID", "RRUGC_TIKTOKSHOP_SCOUT_TOKEN"]
+        .iter()
+        .all(|key| entries.iter().any(|(k, v)| k == key && !v.is_empty()))
+}
 fn execute_git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let mut process = Command::new("git");
     process.arg("-C").arg(repo).args(args);
@@ -397,7 +405,7 @@ impl Controller {
         Ok(Self {
             repo,
             log_root,
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("typography")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("tiktokshop"), Scout::new("typography")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             #[cfg(windows)]
             manager_lock: winjob::ManagerLock::acquire()?,
@@ -454,9 +462,18 @@ impl Controller {
             .map_err(|_| "Scout controller unavailable".into())
     }
     fn launch(&self, scout: &mut Scout) -> Result<(), String> {
-        if !is_paired(&self.repo) {
+        let paired = if scout.name == "tiktokshop" {
+            is_tiktokshop_paired(&self.repo)
+        } else {
+            is_paired(&self.repo)
+        };
+        if !paired {
             scout.state = "Pairing required".into();
-            return Err("Pairing required. Set your Scout Agent ID and token.".into());
+            return Err(if scout.name == "tiktokshop" {
+                "Pair TikTokShop Agent ID and token before starting this Scout."
+            } else {
+                "Pairing required. Set your Scout Agent ID and token."
+            }.into());
         }
         if scout.child.is_some() {
             return Ok(());
@@ -485,6 +502,8 @@ impl Controller {
             process.arg("-KeywordMode");
         } else if name == "cap_stack" {
             process.arg("-CapStackMode");
+        } else if name == "tiktokshop" {
+            process.arg("-TiktokShopMode");
         } else if name == "typography" {
             // Single smart action: Stage 0 source intake and fresh Pinterest
             // discovery if the dedicated browser session is available.
@@ -562,7 +581,7 @@ impl Controller {
         if self.updating.load(Ordering::SeqCst) {
             return Err("Source update is in progress.".into());
         }
-        if mode != "typography" && (command == "start" || command == "restart")
+        if mode != "typography" && mode != "tiktokshop" && (command == "start" || command == "restart")
             && !self.automation_enabled.load(Ordering::SeqCst) {
             return Err("Click Run automation before starting an individual Scout.".into());
         }
@@ -630,6 +649,10 @@ impl Controller {
                 if let Ok(mut status) = self.update_state.lock() { *status = "Auto update active".into(); }
                 let mut errors = Vec::new();
                 for m in AUTOMATIC_SCOUT_MODES {
+                    // An unpaired TikTokShop lane never blocks existing Scouts.
+                    if m == "tiktokshop" && !is_tiktokshop_paired(&self.repo) {
+                        continue;
+                    }
                     if let Err(error) = self.control(m, "start") {
                         errors.push(error);
                     }
@@ -798,6 +821,7 @@ impl Controller {
                 .map(|s| s.clone())
                 .unwrap_or_default(),
             paired: is_paired(&self.repo),
+            tiktokshop_paired: is_tiktokshop_paired(&self.repo),
             updating: self.updating.load(Ordering::SeqCst),
             controller_available: self.owns_manager_lock(),
             automation_enabled: self.automation_enabled.load(Ordering::SeqCst),
@@ -1583,7 +1607,7 @@ fn log_tail(
     mode: String,
     max_lines: usize,
 ) -> Result<String, String> {
-    if mode != "review" && mode != "keyword" && mode != "cap_stack" && mode != "typography" && mode != "branding_dna" {
+    if mode != "review" && mode != "keyword" && mode != "cap_stack" && mode != "tiktokshop" && mode != "typography" && mode != "branding_dna" {
         return Err("Unknown log source.".into());
     }
     if mode == "branding_dna" {
@@ -1735,6 +1759,45 @@ fn save_pairing(
     }
     Ok(())
 }
+#[tauri::command]
+fn save_tiktokshop_pairing(
+    state: tauri::State<'_, Arc<Controller>>,
+    agent_id: String,
+    token: String,
+) -> Result<(), String> {
+    state.require_manager_lock()?;
+    if state.lock_modes()?.iter().any(|mode| mode.name == "tiktokshop" && mode.child.is_some()) {
+        return Err("Stop TikTokShop Scout before replacing its credentials.".into());
+    }
+    if agent_id.is_empty() || agent_id.len() > 128 ||
+        !agent_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid TikTokShop Agent ID.".into());
+    }
+    if token.is_empty() || token.len() > 1024 ||
+        token.chars().any(|c| c == '\n' || c == '\r' || c == '\0') {
+        return Err("TikTokShop agent token is required.".into());
+    }
+    // Preserve the Gator/Keyword credentials and all other user settings.
+    // Neither token nor its contents are returned in UI status or logs.
+    let file = state.repo.join("scout.local.env");
+    let mut lines = fs::read_to_string(&file).unwrap_or_default()
+        .lines()
+        .filter(|line| !line.trim().starts_with("RRUGC_TIKTOKSHOP_AGENT_ID=")
+            && !line.trim().starts_with("RRUGC_TIKTOKSHOP_SCOUT_TOKEN="))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    lines.push(format!("RRUGC_TIKTOKSHOP_AGENT_ID={agent_id}"));
+    lines.push(format!("RRUGC_TIKTOKSHOP_SCOUT_TOKEN={token}"));
+    let pending = file.with_extension("tiktokshop.pending");
+    fs::write(&pending, lines.join("\n") + "\n")
+        .map_err(|_| "Unable to prepare TikTokShop pairing.".to_owned())?;
+    if fs::rename(&pending, &file).is_err() {
+        let _ = fs::remove_file(&pending);
+        return Err("Unable to save TikTokShop pairing. Existing credentials are unchanged.".into());
+    }
+    Ok(())
+}
+
 pub fn run() {
     let startup = match startup::parse_args(std::env::args_os().skip(1)) {
         Ok(action) => action,
@@ -1861,6 +1924,7 @@ pub fn run() {
             set_chrome_minimized,
             check_update,
             save_pairing,
+            save_tiktokshop_pairing,
             quit_manager
         ])
         .run(tauri::generate_context!())
@@ -1971,7 +2035,7 @@ mod tests {
     }
     #[test]
     fn no_automatic_typography_discovery_without_operator_action() {
-        assert_eq!(AUTOMATIC_SCOUT_MODES, ["review", "keyword", "cap_stack"]);
+        assert_eq!(AUTOMATIC_SCOUT_MODES, ["review", "keyword", "cap_stack", "tiktokshop"]);
         assert!(MANAGED_SCOUT_MODES.contains(&"typography"));
         assert!(!AUTOMATIC_SCOUT_MODES.contains(&"typography"));
         let one_shot = Scout::new("typography");
@@ -2042,7 +2106,7 @@ mod tests {
             // fixture on that exact path conversion route.
             repo: shell_friendly_path(scratch.canonicalize().unwrap()),
             log_root: logs.clone(),
-            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("typography")]),
+            modes: Mutex::new(vec![Scout::new("review"), Scout::new("keyword"), Scout::new("cap_stack"), Scout::new("tiktokshop"), Scout::new("typography")]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
             manager_lock: None,
             update_state: Mutex::new("fixture".into()),

@@ -2566,9 +2566,166 @@ def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeyp
     assert response.status_code == 200
     assert response.json()["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
     assert calls[0]["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
-    assert calls[0]["queue_analysis"] is False
+    assert calls[0]["queue_analysis"] is True
+    assert calls[0]["analysis_job_limit"] == 12
     assert api.post(base + "/source-plans/sync?workspace=tiktokshop&colorway_sources=true").status_code == 422
 
+
+
+def test_tiktokshop_scout_claims_are_isolated_from_gatorhats(database):
+    from app.modules.realistic_review_ugc.source_plans import (
+        RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+
+    with database() as session:
+        ids = {}
+        for workspace, root in (
+            ("gatorhats", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("tiktokshop", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID),
+        ):
+            campaign, _token = RrugcService(session).create_campaign(
+                tenant_id="tenant-a", user_id="user-a",
+                name=workspace + " candidate photos",
+                query="candid phone photo " + workspace,
+                search_queries=["candid phone photo " + workspace],
+                target_count=20, max_scroll_batches=3,
+                auto_import=True, auto_scout=True, scan_interval_seconds=120,
+            )
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root,
+                source_file_id="source-" + workspace,
+                source_parent_folder_id="product-" + workspace,
+                source_relative_path=workspace + "/source.png",
+                source_name="source.png", source_mime_type="image/png",
+                source_revision=workspace + "-revision",
+                status="ready", campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ))
+            ids[workspace] = campaign.id
+        session.commit()
+        scout = RrugcAutoScoutService(session)
+        gator, gator_token = scout.create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="Legacy GatorHats agent",
+        )
+        tik, tik_token = scout.create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="TikTokShop Windows Scout", workspace="tiktokshop",
+        )
+        assert gator.workspace == "gatorhats"
+        assert tik.workspace == "tiktokshop"
+        assert [row.id for row in scout.list_agents(tenant_id="tenant-a", workspace="tiktokshop")] == [tik.id]
+        gator_claim = scout.claim(agent_id=gator.id, raw_token=gator_token,
+                                  client_version="rrugc-scout-v58-tiktokshop-isolation")
+        tik_claim = scout.claim(agent_id=tik.id, raw_token=tik_token,
+                                client_version="rrugc-scout-v58-tiktokshop-isolation")
+        assert gator_claim is not None and gator_claim.campaign.id == ids["gatorhats"]
+        assert tik_claim is not None and tik_claim.campaign.id == ids["tiktokshop"]
+        # A mistaken source relink cannot authorize subsequent candidate uploads
+        # or run completion for a previously leased campaign.
+        source = session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.campaign_id == ids["tiktokshop"],
+        ))
+        assert source is not None
+        source.root_folder_id = RRUGC_SOURCE_ROOT_FOLDER_ID
+        session.commit()
+        with pytest.raises(RrugcError) as err:
+            scout.submit_candidates(agent_id=tik.id, raw_token=tik_token,
+                                    run_id=tik_claim.run.id, submissions=[])
+        assert err.value.status_code == 403
+
+
+def test_tiktokshop_same_pin_does_not_inherit_gator_duplicate_rejection(database):
+    from datetime import datetime, timezone
+    from app.modules.realistic_review_ugc.workspace import (
+        RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+
+    with database() as session:
+        campaigns = {}
+        for workspace, root in (
+            ("gatorhats", RRUGC_SOURCE_ROOT_FOLDER_ID),
+            ("tiktokshop", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID),
+        ):
+            campaign, _ = RrugcService(session).create_campaign(
+                tenant_id="tenant-a", user_id="user-a",
+                name=workspace + " same-pin", query="embroidered product",
+                search_queries=["embroidered product"], target_count=4,
+                max_scroll_batches=2, auto_import=False,
+                auto_scout=False,
+            )
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root,
+                source_file_id="source-" + workspace,
+                source_parent_folder_id="folder-" + workspace,
+                source_relative_path=workspace + "/design.png",
+                source_name="design.png", source_mime_type="image/png",
+                source_revision="rev-" + workspace,
+                status="ready", campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ))
+            campaigns[workspace] = campaign
+        session.commit()
+        item = CandidateSubmission(
+            pin_url="https://www.pinterest.com/pin/4523412345/",
+            image_url="https://i.pinimg.com/736x/a/b/c.jpg",
+            alt_text="casual embroidered style",
+        )
+        service = RrugcService(session)
+        rows, created, existing = service.ingest_candidates(
+            campaign=campaigns["gatorhats"], submissions=[item],
+        )
+        assert (created, existing) == (1, 0)
+        rows[0].analyzed_at = datetime.now(timezone.utc)
+        rows[0].status = "approved"
+        session.commit()
+
+        newer, created, existing = service.ingest_candidates(
+            campaign=campaigns["tiktokshop"], submissions=[item],
+        )
+        assert (created, existing) == (1, 0)
+        assert len(newer) == 1
+        assert newer[0].status != "rejected_duplicate"
+        assert newer[0].campaign_id == campaigns["tiktokshop"].id
+
+
+def test_tiktokshop_apparel_context_skips_hat_head_crop_policy():
+    from app.modules.realistic_review_ugc.analysis import (
+        analysis_prompt, policy_from_campaign,
+    )
+    from app.modules.realistic_review_ugc.source_plans import (
+        TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, _synthetic_product_snapshot,
+    )
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
+
+    source = RrugcSourcePlanModel(
+        tenant_id="tenant-a", root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        source_file_id="hoodie-image",
+        source_parent_folder_id="garment-folder",
+        source_name="embroidery.png",
+        source_relative_path="Merry Christmas Hoodie/embroidery.png",
+        source_mime_type="image/png", source_revision="abc",
+        created_by_user_id="user-a",
+    )
+    snapshot = _synthetic_product_snapshot(source)
+    assert snapshot["product_type"] == "hoodie"
+    assert "hat" not in snapshot["source_description"].casefold()
+    assert "cap" not in snapshot["source_description"].casefold()
+    prompt = analysis_prompt(snapshot)
+    assert "APPAREL OVERRIDE" in prompt
+    assert "clothing, not headwear" in prompt
+
+    mock_campaign = SimpleNamespace(
+        product_snapshot_json=snapshot, min_head_ratio=0.18, max_head_ratio=0.7,
+        min_smile_score=0, max_head_occlusion=0.65,
+        max_ai_risk_score=0.15, min_quality_score=0.6,
+        min_ugc_score=0.55, min_product_fit_score=0.55,
+        require_head_visible=True, reject_headwear=False,
+    )
+    policy = policy_from_campaign(mock_campaign)
+    assert not policy.require_head_visible
+    assert not policy.require_head_ratio
 
 def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database):
     from uuid import uuid4

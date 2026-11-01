@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 
 import httpx
 from pydantic import ValidationError
+from sqlalchemy import select
+
+from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import (
@@ -268,11 +272,17 @@ class RrugcCandidateAnalyzeJobHandler:
                 queries=list(campaign.search_queries_json or [campaign.query]),
                 product_snapshot=campaign.product_snapshot_json,
             )
+            tiktok_plan = session.scalar(select(RrugcSourcePlanModel.id).where(
+                RrugcSourcePlanModel.tenant_id == context.job.tenant_id,
+                RrugcSourcePlanModel.campaign_id == campaign.id,
+                RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            ).limit(1))
             reference_preference_model = build_reference_preference_model(
                 repository.reference_feedback_training_rows(
                     context.job.tenant_id,
                     intent=learning_intent,
                     legacy_campaign_id=campaign.id,
+                    workspace="tiktokshop" if tiktok_plan else "gatorhats",
                 )
             )
             reference_preference_scope = "intent"

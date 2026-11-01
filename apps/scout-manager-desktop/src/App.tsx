@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { BrandingDnaPilotCard } from "./BrandingDnaPilotCard";
 import { Activity, CircleAlert, CirclePause, CirclePlay, Cloud, Clock3, MonitorDown, MonitorUp, FileText, Layers3, LockKeyhole, Pause, Play, RefreshCcw, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 
-type ModeName = "review" | "keyword" | "cap_stack" | "typography";
+type ModeName = "review" | "keyword" | "cap_stack" | "tiktokshop" | "typography";
 type ModeInfo = { mode: ModeName; state: string; pid: number | null; desired: boolean; restarts: number; lastError: string | null };
 type KeywordSummary = { total_keywords: number; added_24h: number; added_7d: number; analysis_pending: number; analysis_oldest_wait_seconds: number; analysis_backpressure_active: boolean; keyword_fair_share_limited: boolean; keyword_next_slot_seconds: number; gemini_backup_keys_configured: number; last_created_at: string | null; last_updated_at: string | null; fetched_at: string };
 type OperationsSummary = {
@@ -33,11 +33,12 @@ type OperationsSummary = {
   auto_discover?: { state: string; total_evidence: number; pending_review: number; last_seen_at: string | null };
   fetched_at: string;
 };
-type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; chromeMinimized: boolean; modes: ModeInfo[] };
-const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, updating: false, controllerAvailable: true, automationEnabled: false, chromeMinimized: false, modes: [
+type Dashboard = { managerVersion: string; version: string; commit: string; updateState: string; paired: boolean; tiktokshopPaired: boolean; updating: boolean; controllerAvailable: boolean; automationEnabled: boolean; chromeMinimized: boolean; modes: ModeInfo[] };
+const EMPTY: Dashboard = { managerVersion: "—", version: "Checking…", commit: "—", updateState: "Connecting to runtime", paired: false, tiktokshopPaired: false, updating: false, controllerAvailable: true, automationEnabled: false, chromeMinimized: false, modes: [
   { mode: "review", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "keyword", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "cap_stack", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
+  { mode: "tiktokshop", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
   { mode: "typography", state: "Stopped", pid: null, desired: false, restarts: 0, lastError: null },
 ] };
 const isNative = typeof window !== "undefined" && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
@@ -147,6 +148,61 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
   </article>;
 }
 
+/** Dedicated TikTokShop Windows lane; never copies or displays GatorHats tokens. */
+function TiktokShopScoutCard({ info, paired, busy, automationEnabled, onAction, onSave }: {
+  info: ModeInfo; paired: boolean; busy: boolean; automationEnabled: boolean;
+  onAction: (command: "start" | "stop" | "restart", mode: ModeName) => void;
+  onSave: (agentId: string, token: string) => Promise<boolean>;
+}) {
+  const [agentId, setAgentId] = useState("");
+  const [token, setToken] = useState("");
+  const [editing, setEditing] = useState(false);
+  const running = info.state === "Running";
+  const canRun = !busy && paired;
+  return <article className="scout-card" data-testid="tiktokshop-scout-card">
+    <div className="scout-top">
+      <div className="scout-identity">
+        <div className="mode-icon"><Search size={24}/></div>
+        <div><h2>TikTokShop Scout</h2><p>Stage 3 · garment and apparel UGC references</p></div>
+      </div>
+      <span className={"status-pill " + (running ? "success" : "neutral")}>
+        <span className="status-dot"/>{info.state}
+      </span>
+    </div>
+    <div className="scout-compact-kpis">
+      <span>Workspace <strong>TikTokShop</strong></span>
+      <span>Pairing <strong>{paired ? "Saved" : "Required"}</strong></span>
+      <span>Profile <strong>Separate</strong></span>
+    </div>
+    <p className="scout-jobs-foot">Only TikTokShop Drive campaigns. Separate Chrome profile, PIN history, lease, restart and log. GatorHats runs unchanged.</p>
+    <div className="card-actions">
+      <button type="button" className="button secondary slim" disabled={!canRun}
+        onClick={() => onAction(info.desired ? "stop" : "start", "tiktokshop")}>
+        {info.desired ? <Pause size={16}/> : <Play size={16}/>} {info.desired ? "Pause" : "Start"}
+      </button>
+      <button type="button" className="button secondary slim" disabled={!canRun}
+        onClick={() => onAction("restart", "tiktokshop")}><RotateCcw size={16}/> Restart</button>
+      <button type="button" className="button secondary slim" disabled={busy || running}
+        onClick={() => setEditing(current => !current)}><LockKeyhole size={16}/> Pair agent</button>
+    </div>
+    {info.lastError && <div className="inline-error"><CircleAlert size={15}/><span>{info.lastError}</span></div>}
+    {editing && <form className="scout-advanced" onSubmit={event => {
+      event.preventDefault();
+      if (!agentId.trim() || !token.trim()) return;
+      void onSave(agentId.trim(), token).then(ok => {
+        if (ok) { setAgentId(""); setToken(""); setEditing(false); }
+      });
+    }}>
+      <p>Copy the one-time Agent ID and token from CAM → Tiktokshop → Scout &amp; UGC. These stay only in the ignored Windows `scout.local.env`.</p>
+      <label>Agent ID <input value={agentId} onChange={event => setAgentId(event.target.value)}
+        autoComplete="off" placeholder="TikTokShop Agent ID" required /></label>
+      <label>Token <input type="password" value={token} onChange={event => setToken(event.target.value)}
+        autoComplete="new-password" placeholder="One-time secret" required /></label>
+      <button type="submit" className="button primary slim" disabled={busy || !agentId.trim() || !token}>Save separate pairing</button>
+    </form>}
+  </article>;
+}
+
 export function TypographyScoutCard({ info, busy, onAction, onLogin }: {
   info: ModeInfo; busy: boolean;
   onAction: (command: "start" | "stop", mode: ModeName) => void;
@@ -251,11 +307,12 @@ export default function App() {
   const review = state.modes.find(m => m.mode === "review") ?? EMPTY.modes[0];
   const keyword = state.modes.find(m => m.mode === "keyword") ?? EMPTY.modes[1];
   const capStack = state.modes.find(m => m.mode === "cap_stack") ?? EMPTY.modes[2];
-  const typography = state.modes.find(m => m.mode === "typography") ?? EMPTY.modes[3];
+  const tiktokshop = state.modes.find(m => m.mode === "tiktokshop") ?? EMPTY.modes[3];
+  const typography = state.modes.find(m => m.mode === "typography") ?? EMPTY.modes[4];
   const controlBlocked = busy || !isNative || !state.controllerAvailable;
   return <main><div className="shell">
     <header className="top">
-      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated Review, Keyword and Cap Stack scouting, one-shot Typography Ideas, and a CAM-connected Branding DNA Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
+      <div className="heading"><div className="eyebrow">CREATIVE ASSET MANAGER / AUTOMATION</div><div className="product-title"><h1>RRUGC Scout Manager</h1><span className="manager-version" title="Installed Windows desktop app version">Manager v{state.managerVersion}</span></div><p>Automated Review, Keyword, Cap Stack and isolated TikTokShop scouting, one-shot Typography Ideas, and a CAM-connected Branding DNA Agent.</p><div className="submeta"><span><Clock3 size={13}/> Updates only while automation runs</span><span className="tiny-separator"/><span>Scout <strong>{state.version}</strong></span><span className="tiny-separator"/><span>Commit <strong>{state.commit}</strong></span></div></div>
       <div className="toolbar">
         <button className="button primary" disabled={controlBlocked} onClick={() => void act("control_all", { command: "start" })}><CirclePlay size={18}/> Run automation</button>
         <button className="button secondary" disabled={controlBlocked || !state.automationEnabled} onClick={() => void act("control_all", { command: "stop" })}><CirclePause size={18}/> Pause</button>
@@ -274,6 +331,9 @@ export default function App() {
       <Card info={review} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
+      <TiktokShopScoutCard info={tiktokshop} paired={Boolean(state.tiktokshopPaired)} busy={controlBlocked}
+        automationEnabled={state.automationEnabled} onAction={onMode}
+        onSave={async (agentId, token) => act("save_tiktokshop_pairing", { agentId, token })}/>
       <TypographyScoutCard info={typography} busy={controlBlocked} onAction={onMode} onLogin={() => void act("typography_login")}/>
     </section>
     <BrandingDnaPilotCard nativeAvailable={isNative} controllerAvailable={state.controllerAvailable} managerBusy={busy||state.updating}/>
