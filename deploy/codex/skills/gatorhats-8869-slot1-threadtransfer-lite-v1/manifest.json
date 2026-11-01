@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "skill_name": "gatorhats-8869-slot1-threadtransfer-lite-v1",
-  "display_name": "8869 Front - ThreadTransfer Lite V1.2",
-  "description": "One Codex session; close-up fiber macro plus original-stock crown ROI image edit with directionality and low-loft QA.",
+  "display_name": "8869 Front - Original-Stock Inpaint V1.3",
+  "description": "One Codex session, two real native image edits: macro stitches, then original-unprinted-cap inpaint using a separate exact-position design guide.",
   "workflows": [
     "image_studio"
   ],
@@ -14,7 +14,8 @@
   "required_reference_roles": [
     "design_reference",
     "unaltered_stock_reference",
-    "slot1_edit_mask"
+    "slot1_edit_mask",
+    "slot1_layout_guide"
   ],
   "optional_reference_roles": [],
   "max_references": 4

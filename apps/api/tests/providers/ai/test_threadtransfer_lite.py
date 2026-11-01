@@ -85,7 +85,7 @@ def test_lite_native_two_image_contract(tmp_path, monkeypatch, mode, expected_er
         ReferenceImageInput(image=PreparedImage(
             image_bytes=png("tan"), mime_type="image/png", width=600, height=600
         ), role=role, label=role) for role in (
-            "design_reference", "unaltered_stock_reference", "slot1_edit_mask",
+            "design_reference", "unaltered_stock_reference", "slot1_edit_mask", "slot1_layout_guide",
         )
     ]
     coro = runner.generate_from_references(
@@ -116,15 +116,17 @@ def test_lite_prompt_does_not_stack_legacy_stage2_instructions():
         skill_name=SKILL, output_contract="slot1_two_pass"
     ))
     prompt = runner._prompt(person_name="person.png",
-        references=[("design_reference", "design.png"), ("slot1_edit_mask", "mask.png")],
+        references=[("design_reference", "design.png"), ("slot1_edit_mask", "mask.png"), ("slot1_layout_guide", "layout.png")],
         user_prompt="Keep exact design.")
     assert "Use $" + SKILL in prompt
     assert "exactly two" in prompt.lower()
     assert "working/thread_macro.png" in prompt
     assert "mask.png" in prompt
-    assert "fine satin stitches IN PLACE" in prompt
+    assert "ORIGINAL UNPRINTED" in prompt
+    assert "slot1_layout_guide" in prompt
+    assert "sole IMAGE-EDIT TARGET" in prompt
     assert "white padding" in prompt
-    assert len(prompt) < 1400
+    assert len(prompt) < 1850
 
 
 def test_lite_qa_reason_codes_are_bounded_and_actionable():
@@ -135,6 +137,7 @@ def test_lite_qa_reason_codes_are_bounded_and_actionable():
 
     cases = {
         "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
+        "AI edit lost or displaced a source glyph.": "glyph_alignment",
         "AI edit still resembles flat printed lettering.": "flat_print",
         "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
         "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
@@ -154,7 +157,7 @@ def test_lite_manifest_matches_slot1():
     manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["skill_name"] == SKILL
     assert manifest["required_reference_roles"] == [
-        "design_reference", "unaltered_stock_reference", "slot1_edit_mask",
+        "design_reference", "unaltered_stock_reference", "slot1_edit_mask", "slot1_layout_guide",
     ]
     text = (path / "SKILL.md").read_text(encoding="utf-8")
     assert "working/thread_macro.png" in text

@@ -1235,6 +1235,7 @@ class EcommerceGenerateHandler:
                     clean_soft_shadow=is_lite,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
+                edit_canvas_width, edit_canvas_height = slot1_material.edit_canvas_size
                 references.extend((
                     ReferenceImageInput(
                         image=_prepared_image(refs[0][1]), role="unaltered_stock_reference",
@@ -1242,11 +1243,19 @@ class EcommerceGenerateHandler:
                     ReferenceImageInput(
                         image=PreparedImage(
                             image_bytes=edit_mask_bytes, mime_type="image/png",
-                            width=max(slot1_material.stock.size), height=max(slot1_material.stock.size),
+                            width=edit_canvas_width, height=edit_canvas_height,
                         ),
                         role="slot1_edit_mask",
-                        label="white = the exact thread region plus a hairline stitch contact band in v4; black = protected stock"),
+                        label="white = existing glyph silhouette plus up to 3px stitch-foot contact; black = protected original stock"),
                 ))
+                if is_lite:
+                    layout_bytes = slot1_material.placement_guide_png()
+                    references.append(ReferenceImageInput(
+                        image=PreparedImage(image_bytes=layout_bytes, mime_type="image/png",
+                                            width=edit_canvas_width, height=edit_canvas_height),
+                        role="slot1_layout_guide",
+                        label="exact locked text, layout, pigments and position on this same crop; REFERENCE ONLY, never edit this flat guide",
+                    ))
             elif preview_bytes:
                 references.append(ReferenceImageInput(
                     image=_prepared_image(preview_bytes), role="embroidered_front_preview",
@@ -1309,7 +1318,8 @@ class EcommerceGenerateHandler:
         # Immutable official stock is addressed by its hash, not a transient browser preview.
         base = (PreparedImage(
             image_bytes=slot1_material.model_edit_target_png(), mime_type="image/png",
-            width=max(slot1_material.stock.size), height=max(slot1_material.stock.size),
+            width=slot1_material.edit_canvas_size[0],
+            height=slot1_material.edit_canvas_size[1],
         ) if slot1_material is not None else _prepared_image(refs[0][1]))
         if front_image:
             references.append(ReferenceImageInput(
@@ -1383,15 +1393,22 @@ class EcommerceGenerateHandler:
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
         )
         if is_lite:
-            # One compact Codex execution owns both native image edits.
-            # Do not stack the legacy v4 view/geometry/embroidery prompt.
+            # Actual fabric-first two-pass EDIT; person is the UNPRINTED
+            # original cap ROI. The separate guide freezes text layout/colors.
+            # No legacy v4 prompt stacking or synthetic underlay as target.
             prompt = (
-                "Execute ThreadTransfer Lite exactly once: Pass A creates one native "
-                "stitched macro from design_reference; Pass B edits the guided CROPPED "
-                "original stock crown target with that macro. Preserve exact glyphs, palette, "
-                "factory twill, cap shape and protected pixels. Fine satin yarns must "
-                "sit BELOW the apparent surface profile of thick puff embroidery, "
-                "with no broad emboss or rubber highlights. No other outputs."
+                "ThreadTransfer Lite, two native IMAGE-EDIT calls only. "
+                "Pass A: edit design_reference into a realistic close-up of that EXACT "
+                "typography sewn directly onto neutral twill, with directional fine "
+                "satin and tatami yarn. Pass B: INPAINT embroidery onto person, "
+                "the UNPRINTED original factory cap crown crop. The role "
+                "slot1_layout_guide is an exact spatial/color stencil reference "
+                "and must NEVER be used as the edit target. Transfer only A's "
+                "yarn material, not its fabric or letter geometry; use the "
+                "original stock twill and curved lighting from person. "
+                "No changed cap pixels outside slot1_edit_mask, extra letters, "
+                "flat paint, hard outline, foam, rubber or 3D emboss. "
+                "Preserve all original words/colors/position. Two images, no extras."
             )
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
@@ -1478,8 +1495,11 @@ class EcommerceGenerateHandler:
                                        if is_lite else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
-                                    **({"material_revision": "roi-fiber-v1.2-anti-emboss",
+                                    **({"material_revision": "roi-original-stock-inpaint-v1.3",
+                                        "edit_target": "original_unprinted_stock",
+                                        "layout_role": "slot1_layout_guide",
                                         "native_front_roi": list(slot1_material.edit_roi_box),
+                                        "edit_canvas_size": list(slot1_material.edit_canvas_size),
                                         "contact_width_px": slot1_material.contact_width_px}
                                        if is_lite and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),

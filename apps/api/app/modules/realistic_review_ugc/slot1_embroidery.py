@@ -37,6 +37,7 @@ def lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
         "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
         "AI edit omitted the embroidery.": "embroidery_missing",
         "AI edit changed source embroidery hue.": "hue_shift",
+        "AI edit lost or displaced a source glyph.": "glyph_alignment",
         "AI edit made no meaningful photographic refinement.": "no_refinement",
         "AI edit still resembles flat printed lettering.": "flat_print",
         "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
@@ -69,6 +70,15 @@ class Slot1MaterialPass:
         """Retain previous internal API for QA, not for publishing."""
         return _png(self.stitched)
 
+    @property
+    def edit_canvas_size(self) -> tuple[int, int]:
+        if self.edit_roi_box is None:
+            side = max(self.stock.size)
+        else:
+            left, top, right, bottom = self.edit_roi_box
+            side = max(right - left, bottom - top, 512)
+        return side, side
+
     def _square(self, image: Image.Image, background: int | tuple[int, int, int]) -> Image.Image:
         # Lite processes a real, unwarped crop of the ORIGINAL stock rather than
         # spending the native edit resolution on a whole hat and large visor.
@@ -83,7 +93,17 @@ class Slot1MaterialPass:
         return canvas
 
     def model_edit_target_png(self) -> bytes:
-        """Square letterbox, so square imagegen outputs need no geometric distortion."""
+        """Lite: inpaint the ACTUAL blank factory crown, never pigment-painted letters.
+
+        Legacy non-ROI v3/v4 jobs keep their pinned pigment edit target. In
+        Lite the placement guide is a separate reference so imagegen adds
+        thread onto original twill instead of embossing flat typography.
+        """
+        target = self.stock if self.edit_roi_box is not None else self.stitched
+        return _png(self._square(target, (255, 255, 255)))
+
+    def placement_guide_png(self) -> bytes:
+        """Exact source typography/color/position reference, NOT an edit target."""
         return _png(self._square(self.stitched, (255, 255, 255)))
 
     def edit_mask_png(self) -> bytes:
@@ -301,6 +321,28 @@ def finish_slot1_refinement(
         raise Slot1EmbroideryQAError("AI edit did not preserve the canonical design/thread colors.")
     if float(np.mean(np.abs(observed))) < 10:
         raise Slot1EmbroideryQAError("AI edit omitted the embroidery.")
+
+    if material.edit_roi_box is not None:
+        # A correct global color score can hide a missing character: one line
+        # can be beautifully re-embroidered while the next gets erased or
+        # displaced. Validate the major connected glyph/stroke components
+        # against the ORIGINAL design's mask, before protected compositing.
+        # Omit near-stock-color strokes where relative contrast is unreliable.
+        intended_full = pigment - stock
+        intended_energy = np.sum(intended_full * intended_full, axis=2)
+        meaningful = core & (intended_energy >= 40 ** 2)
+        nlabels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            np.uint8(meaningful), 8)
+        coverage_gain = np.sum((candidate - stock) * intended_full, axis=2) / (
+            intended_energy + 1e-4)
+        minimum_glyph = max(32, round(np.count_nonzero(meaningful) * .008))
+        for component in range(1, nlabels):
+            if int(stats[component, cv2.CC_STAT_AREA]) < minimum_glyph:
+                continue
+            pixels = labels == component
+            if float(np.mean(coverage_gain[pixels] >= .34)) < .68:
+                raise Slot1EmbroideryQAError(
+                    "AI edit lost or displaced a source glyph.")
 
     candidate_hsv = cv2.cvtColor(np.uint8(np.clip(candidate, 0, 255)), cv2.COLOR_RGB2HSV)
     pigment_hsv = cv2.cvtColor(np.uint8(np.clip(pigment, 0, 255)), cv2.COLOR_RGB2HSV)

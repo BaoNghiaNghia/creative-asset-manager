@@ -21,7 +21,8 @@ def png(image):
 def refined_candidate(material, square=False):
     """A test-only stand-in for an AI edit with newly resolved yarn fibers."""
     if square:
-        base = np.array(Image.open(BytesIO(material.model_edit_target_png())), dtype=np.int16)
+        # Test candidate simulates the ADDED final yarn, not the blank target.
+        base = np.array(Image.open(BytesIO(material.placement_guide_png())), dtype=np.int16)
         mask = np.array(Image.open(BytesIO(material.edit_mask_png())), dtype=np.uint8) > 200
     else:
         base = np.asarray(material.stitched, dtype=np.int16).copy()
@@ -288,15 +289,20 @@ def test_lite_localized_native_edit_retains_original_full_stock_and_contact_band
     assert 0 <= y0 <= b < d <= y1 <= lite.stock.height
     assert (x1-x0) < lite.stock.width and (y1-y0) < lite.stock.height
     target = Image.open(BytesIO(lite.model_edit_target_png()))
+    guide = Image.open(BytesIO(lite.placement_guide_png()))
     protection = Image.open(BytesIO(lite.edit_mask_png()))
-    assert target.size == protection.size == (512, 512)
-    # The genuine original fabric is still visible in the crop, not a redraw.
+    assert target.size == guide.size == protection.size == lite.edit_canvas_size == (512, 512)
+    # An ACTUAL inpaint target is blank factory twill even beneath letters.
+    # The pigment map is separate, registered to exactly the same pixels.
     side = target.width
     px, py = (side-(x1-x0))//2, (side-(y1-y0))//2
     target_crop = np.asarray(target)[py:py+y1-y0, px:px+x1-x0]
     original_crop = np.asarray(lite.stock)[y0:y1, x0:x1]
     editable = np.asarray(lite.edit_mask)[y0:y1, x0:x1] > 0
-    assert np.array_equal(target_crop[~editable], original_crop[~editable])
+    assert np.array_equal(target_crop, original_crop)
+    guide_crop = np.asarray(guide)[py:py+y1-y0, px:px+x1-x0]
+    assert np.array_equal(guide_crop[~editable], original_crop[~editable])
+    assert np.count_nonzero(np.any(guide_crop[editable] != original_crop[editable], axis=1)) > 100
     output = finish_slot1_refinement(lite, refined_candidate(lite, square=True), clip_raw_halo=True)
     final = np.asarray(Image.open(BytesIO(output)))
     stock = np.asarray(lite.stock)
@@ -305,6 +311,35 @@ def test_lite_localized_native_edit_retains_original_full_stock_and_contact_band
     assert np.array_equal(final[~full_mask], stock[~full_mask])
     assert np.any(final[full_mask] != stock[full_mask])
     assert np.array_equal(final[350:385, 477:492], stock[350:385, 477:492])
+
+
+def test_lite_fails_closed_when_one_embroidery_glyph_is_missing():
+    stock = Image.new("RGB", (512, 640), (232, 219, 203))
+    art = Image.new("RGBA", (480, 220), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(art)
+    draw.rectangle((25, 45, 190, 158), fill=(18, 58, 182, 255))
+    draw.rectangle((284, 45, 450, 158), fill=(18, 58, 182, 255))
+    lite = build_slot1_material_pass(
+        png(stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True,
+    )
+    candidate = np.asarray(Image.open(BytesIO(
+        refined_candidate(lite, square=True))), dtype=np.uint8).copy()
+    target = np.asarray(Image.open(BytesIO(lite.model_edit_target_png())))
+    guide = np.asarray(Image.open(BytesIO(lite.placement_guide_png())))
+    visible = np.uint8(np.mean(np.abs(
+        guide.astype(np.float32) - target.astype(np.float32)), axis=2) > 20)
+    nlabels, labels, stats, _ = cv2.connectedComponentsWithStats(visible, 8)
+    assert nlabels >= 3
+    areas = [(int(stats[i, cv2.CC_STAT_AREA]), i) for i in range(1, nlabels)]
+    area, missing_label = max(areas)
+    assert area > 100
+    candidate[labels == missing_label] = target[labels == missing_label]
+    # Global color fidelity may still pass due the other matching character;
+    # per-component QA must reject the erased half of the typography.
+    with pytest.raises(Slot1EmbroideryQAError, match="lost or displaced"):
+        finish_slot1_refinement(
+            lite, png(Image.fromarray(candidate, "RGB")), clip_raw_halo=True)
 
 
 def test_lite_roi_refuses_a_generated_whole_hat_instead_of_the_requested_crop(material):
@@ -325,7 +360,7 @@ def test_lite_rejects_random_noise_as_fake_thread_material(material):
         png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
         contact_width_px=3, localized_edit=True,
     )
-    base = np.array(Image.open(BytesIO(lite.model_edit_target_png())), dtype=np.int16)
+    base = np.array(Image.open(BytesIO(lite.placement_guide_png())), dtype=np.int16)
     mask = np.array(Image.open(BytesIO(lite.edit_mask_png())), dtype=np.uint8) > 200
     noise = np.random.default_rng(123).normal(0, 13, mask.shape)
     base[mask] += np.rint(noise[mask])[:, None].astype(np.int16)
@@ -383,7 +418,7 @@ def test_lite_rejects_coarse_fake_foam_ridges(material):
         png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
         contact_width_px=3, localized_edit=True,
     )
-    base = np.array(Image.open(BytesIO(lite.model_edit_target_png())), dtype=np.int16)
+    base = np.array(Image.open(BytesIO(lite.placement_guide_png())), dtype=np.int16)
     mask = np.array(Image.open(BytesIO(lite.edit_mask_png())), dtype=np.uint8) > 200
     yy, xx = np.indices(mask.shape)
     bulge = 23 * np.sin((yy + xx * .05) * 2 * np.pi / 15)

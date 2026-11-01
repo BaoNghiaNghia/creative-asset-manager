@@ -115,3 +115,46 @@ Nguyên nhân người dùng báo output giống chữ thêu phồng hơn ảnh 
 - Cập nhật Skill lên 1.1.0 (giữ tên Skill Lite V1 để job/provenance vẫn tương thích), metadata Output History có `material_revision=roi-fiber-v1.1` và tọa độ ROI. Không tác động file ảnh đã hoàn thành, không tự regenerate hàng loạt.
 - Test cục bộ targeted/regression: **79 passed** trước khi deploy; cần kiểm tra hình thực tế trên output mới sau khi production cập nhật. QA tự động chưa thay thế nghiệm thu thị giác người thật, và stock gốc không được thay đổi ánh sáng/bố cục theo ảnh benchmark.
 - Production verification for V1.1: deployment `da22a7e08` completed and API/4 image workers healthy; Codex skill filesystem version is 1.1.0. Since a registry row can remain pinned to 1.0.0 after deploy, Slot 1 Skill selection now performs one targeted, transaction-scoped registry update when the installed bundle digest differs. It does not create an extra image job or commit an Ecommerce row lock. The next explicit Regenerate/Retry will automatically pin the new installed Skill revision. Existing job history and completed assets stay unchanged.
+
+
+## 2026-11-01 — ThreadTransfer Lite V1.3: original-stock photo inpaint
+
+**Cause identified from the user's before/after examples:** Existing Lite V1.2
+performed two verified native image edits, but in Pass B the edit TARGET was
+already a flat pigment composited over the cap. The model was asked to convert
+paint into thread; this can create inflated emboss/rubber highlights. The guide
+was also hard-clipped to the canonical silhouette at save time, leaving the
+physical stitch foot/cloth interaction underrepresented. A native ImageGen
+reference-mask image is not a provider-enforced inpaint mask.
+
+**Scoped remedy (Slot 1 Lite only):**
+
+1. Pass A remains a native edit of original artwork into a photographed
+   embroidery material macro on neutral twill. Its native SHA is verified.
+2. Pass B edits the **original unprinted cap crown ROI** as `person` instead
+   of the pigment-painted cap. A newly separated, identically cropped
+   `slot1_layout_guide` reference carries the immutable Stage 1 text, palette
+   and placement. The same `slot1_edit_mask` reference still indicates the
+   intended stitch/contact pixels. Native ImageGen is instructed to create
+   stitches DIRECTLY on actual twill, guided by the macro texture.
+3. Exact canvas dimensions are declared on each input (the old ROI reference
+   metadata could advertise full-cap dimensions for a smaller edit crop).
+4. Backend verifies major letter components against intended colored geometry
+   to reject partially missing/displaced lettering, then composites AI fibers
+   within the original canonical alpha with a maximum 3px low-contrast
+   stitch-foot contact band. Original pixels outside the edit region are copied
+   unchanged. No fake synthesized yarn textures are used.
+5. Output History identifies `material_revision=roi-original-stock-inpaint-v1.3`,
+   `edit_target=original_unprinted_stock`, and the exact canvas/ROI values.
+   Legacy v4, other Slots and previously stored outputs are unchanged. The
+   existing default Lite Skill auto-refresh on explicit Retry/Regenerate
+   repins the new version and SHA; queued old jobs keep their original pin.
+
+**Limitations / acceptance:** `slot1_edit_mask` is a photo reference for the
+native model, not a true API-level inpainting mask. Stock-pixel protection is
+enforced by the deterministic postprocessor. Unit/integration tests verify
+geometry, color, per-glyph coverage, authenticity-of-native-file hashes and
+legacy compatibility; these checks do **not** prove the final embroidery
+matches the user's sample photograph aesthetically. A real newly generated
+Slot 1 output needs manual visual confirmation before marking V1.3 as
+appearance-accepted. Two image edits per new Lite output remain required.

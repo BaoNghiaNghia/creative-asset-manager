@@ -75,12 +75,13 @@ def test_all_multi_hat_and_ugc_shots_receive_calibrated_front_master():
         FRONT_PREVIEW_STAGES)
 
 
-@pytest.mark.parametrize("stage", [
-    "prod_s2_ec1",
-    "prod_s2_mh_1", "prod_s2_mh_2", "prod_s2_mh_3",
-    "prod_s2_ugc_1", "prod_s2_ugc_2", "prod_s2_ugc_3",
+@pytest.mark.parametrize("stage,front_lite", [
+    ("prod_s2_ec1", False),
+    ("prod_s2_ec1", True),
+    ("prod_s2_mh_1", False), ("prod_s2_mh_2", False), ("prod_s2_mh_3", False),
+    ("prod_s2_ugc_1", False), ("prod_s2_ugc_2", False), ("prod_s2_ugc_3", False),
 ])
-def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch, stage):
+def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch, stage, front_lite):
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool,
                            connect_args={"check_same_thread": False})
@@ -103,7 +104,9 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             id=job_id, tenant_id="tenant-1", source_plan_id="source-plan",
             source_revision="rev-1", stage=stage,
             stock_sha256=stock_digest, skill_source="local",
-            skill_name="sample-ecommerce-image", skill_bundle_sha256="1"*64,
+            skill_name=("gatorhats-8869-slot1-threadtransfer-lite-v1"
+                        if front_lite else "sample-ecommerce-image"),
+            skill_bundle_sha256="1"*64,
             created_by_user_id="operator", status="queued", processing_job_id=process_id,
         ))
         session.commit()
@@ -156,15 +159,38 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                 mask_ref = next(r for r in references if r.role == "slot1_edit_mask")
                 with Image.open(BytesIO(mask_ref.image.image_bytes)) as mask_image:
                     selected = np.asarray(mask_image.convert("L")) > 180
-                with Image.open(BytesIO(person.image_bytes)) as original:
-                    candidate = np.asarray(original.convert("RGB"), dtype=np.int16).copy()
-                rng = np.random.default_rng(15)
-                fibers = rng.normal(0, 13, selected.shape)
+                if front_lite:
+                    # A real inpaint adds yarn to a BLANK original target.
+                    # Fake the edited result using the separate placement
+                    # reference and coherent directional fibers, never the
+                    # edit-target's unprinted stock pixels.
+                    layout_ref = next(r for r in references if r.role == "slot1_layout_guide")
+                    with Image.open(BytesIO(person.image_bytes)) as blank:
+                        original = np.asarray(blank.convert("RGB"), dtype=np.uint8)
+                    with Image.open(BytesIO(layout_ref.image.image_bytes)) as layout:
+                        candidate = np.asarray(layout.convert("RGB"), dtype=np.int16).copy()
+                    assert original.shape == candidate.shape
+                    assert np.count_nonzero(
+                        np.any(candidate[selected] != original[selected], axis=1)) > 50
+                    assert np.array_equal(candidate[~selected], original[~selected])
+                    yy, xx = np.indices(selected.shape)
+                    rng = np.random.default_rng(15)
+                    fibers = np.sin(xx * 2.12 + yy * .69) * 11 + rng.normal(0, 2, selected.shape)
+                else:
+                    with Image.open(BytesIO(person.image_bytes)) as original:
+                        candidate = np.asarray(original.convert("RGB"), dtype=np.int16).copy()
+                    rng = np.random.default_rng(15)
+                    fibers = rng.normal(0, 13, selected.shape)
                 candidate[selected] += np.rint(fibers[selected])[:, None].astype(np.int16)
                 stream = BytesIO()
                 Image.fromarray(np.uint8(np.clip(candidate, 0, 255)), "RGB").save(stream, format="PNG")
                 image_data = stream.getvalue()
-            return SimpleNamespace(image_bytes=image_data, mime_type="image/png")
+            return SimpleNamespace(
+                image_bytes=image_data, mime_type="image/png",
+                provider_metadata={"native_passes": 2,
+                                   "macro_sha256": "a"*64,
+                                   "edited_sha256": "b"*64},
+            )
 
         def cleanup_attempt(self, attempt_id):
             pass
@@ -224,14 +250,25 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     )
     if stage == "prod_s2_ec1":
         assert calls[0]["references"][2].role == "slot1_edit_mask"
-        assert "white of slot1_edit_mask" in calls[0]["prompt"]
         assert calls[0]["person"].mime_type == "image/png"
         assert all(ref.role != "embroidered_front_preview"
                    for ref in calls[0]["references"])
+        if front_lite:
+            assert calls[0]["references"][3].role == "slot1_layout_guide"
+            assert calls[0]["person"].width == calls[0]["references"][2].image.width
+            assert calls[0]["person"].width == calls[0]["references"][3].image.width
+            assert "UNPRINTED original factory cap" in calls[0]["prompt"]
+            assert "slot1_layout_guide" in calls[0]["prompt"]
+        else:
+            assert "white of slot1_edit_mask" in calls[0]["prompt"]
     assert len(calls[0]["references"]) >= 2
-    if stage == "prod_s2_ec1":
-        assert "FRONT high" in calls[0]["prompt"]
+    if front_lite:
+        assert "FRONT high" not in calls[0]["prompt"]
+        assert "canonical-design-direct-thread-v4" not in calls[0]["prompt"]
     else:
-        assert "calibrated" in calls[0]["prompt"].lower()
-    assert "canonical-design-direct-thread-v4" in calls[0]["prompt"]
-    assert "PRE-SAVE VISUAL QUALITY CHECK" in calls[0]["prompt"]
+        if stage == "prod_s2_ec1":
+            assert "FRONT high" in calls[0]["prompt"]
+        else:
+            assert "calibrated" in calls[0]["prompt"].lower()
+        assert "canonical-design-direct-thread-v4" in calls[0]["prompt"]
+        assert "PRE-SAVE VISUAL QUALITY CHECK" in calls[0]["prompt"]
