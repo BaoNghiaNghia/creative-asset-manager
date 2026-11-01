@@ -30,7 +30,8 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel,
     RrugcStage2JobModel,
 )
-from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
+from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile, account_home
+from app.modules.realistic_review_ugc.codex_profile_circuit import cooldown_remaining, note_failure, note_success
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.providers.storage.unconfigured import UnconfiguredAssetStorageProvider
@@ -972,21 +973,35 @@ class RrugcStage2GenerateJobHandler:
                         )
                     )
                     try:
-                        result = await runner.generate_from_references(
-                            attempt_id=job_id,
-                            person=source,
-                            references=reference_inputs,
-                            prompt=generation_prompt,
-                        )
+                        try:
+                            result = await runner.generate_from_references(
+                                attempt_id=job_id,
+                                person=source,
+                                references=reference_inputs,
+                                prompt=generation_prompt,
+                            )
+                        except CodexImageProviderError as exc:
+                            remaining = note_failure(selected_home, exc.code)
+                            context.logger.warning(
+                                "rrugc_stage4_codex_profile_failure",
+                                extra={"account_id": _account_id, "error_code": exc.code,
+                                       "cooldown_seconds": remaining},
+                            )
+                            raise
+                        else:
+                            note_success(selected_home)
                     finally:
                         runner.cleanup_attempt(job_id)
             except CodexAccountPoolBusy:
                 self._mark_failure(context, "codex_account_pool_busy",
-                                   "All enabled Codex profiles are busy.", deferred=True)
+                                   "All enabled Codex profiles are busy or cooling down.", deferred=True)
+                remaining = cooldown_remaining(
+                    str(account_home("account-2", primary_home))
+                )
                 return DeferredJobOutcome(
                     "codex_account_pool_busy",
-                    "All enabled Codex worker profiles are busy.",
-                    datetime.now(timezone.utc) + timedelta(seconds=60),
+                    "All eligible Codex worker profiles are busy or cooling down.",
+                    datetime.now(timezone.utc) + timedelta(seconds=max(300, remaining + 30)),
                 )
 
         try:

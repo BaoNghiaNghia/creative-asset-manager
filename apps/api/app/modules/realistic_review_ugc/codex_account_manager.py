@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import RrugcCodexAccountConfigModel
+from app.modules.realistic_review_ugc.codex_profile_circuit import cooldown_remaining
 from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 
 PROFILE_IDS = ("account-1", "account-2")
@@ -44,11 +45,15 @@ def acquire_worker_profile(
     # Prefer authenticated secondary capacity, falling back to the original profile.
     candidates.sort(key=lambda row: row.account_id != "account-2")
     for record in candidates:
+        home = account_home(record.account_id, primary_home)
+        # Check cooldown BEFORE the external CLI auth probe. A blocked
+        # account should not incur expensive login-status calls per queued job.
+        if stage == "stage4" and cooldown_remaining(str(home)) > 0:
+            continue
         if record.account_id == "account-2" and auth_status(
             record.account_id, primary_home, binary
         ) != "connected":
             continue
-        home = account_home(record.account_id, primary_home)
         if skill_name and record.account_id == "account-2":
             skill_dir = home / "skills" / skill_name
             if not (skill_dir / "SKILL.md").is_file():
