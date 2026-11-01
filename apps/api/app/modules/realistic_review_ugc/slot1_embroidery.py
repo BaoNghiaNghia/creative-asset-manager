@@ -29,6 +29,25 @@ class Slot1EmbroideryQAError(ValueError):
     """Model output is not a verified photo-edit; do not publish it."""
 
 
+def lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
+    """Use fixed, non-sensitive reason codes for material QA failures."""
+    reason = {
+        "Image edit changed aspect ratio and cannot be aligned safely.": "frame_alignment",
+        "Canonical design has insufficient visible glyph area.": "missing_glyph_area",
+        "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
+        "AI edit omitted the embroidery.": "embroidery_missing",
+        "AI edit changed source embroidery hue.": "hue_shift",
+        "AI edit made no meaningful photographic refinement.": "no_refinement",
+        "AI edit still resembles flat printed lettering.": "flat_print",
+        "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
+        "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
+        "AI edit has a thick embossed shadow halo.": "emboss_halo",
+        "AI edit has broad embossed lighting across the glyphs.": "emboss_lighting",
+        "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
+    }.get(str(error), "unknown")
+    return "ecommerce_slot1_qa_" + reason
+
+
 def _png(image: Image.Image) -> bytes:
     out = BytesIO()
     image.save(out, format="PNG", optimize=True)
@@ -71,10 +90,38 @@ class Slot1MaterialPass:
         return _png(self._square(self.edit_mask, 0))
 
 
+def _remove_translucent_drop_shadow(artwork: Image.Image) -> Image.Image:
+    """Strip only detached, soft neutral graphic shadows from the input PNG.
+
+    A pixel must be translucent, neutral/dark, and several pixels away from
+    every opaque glyph before it can be removed. Actual colored or opaque
+    letters, anti-aliased edges, decorative marks and thread pigments stay.
+    """
+    rgba = np.asarray(artwork.convert("RGBA"), dtype=np.uint8).copy()
+    opacity = rgba[:, :, 3]
+    solid = opacity >= 220
+    if int(np.count_nonzero(solid)) < 64:
+        return artwork
+    distance = cv2.distanceTransform(np.uint8(~solid), cv2.DIST_L2, 3)
+    hsv = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2HSV)
+    stray_shadow = (
+        (opacity > 0) & (opacity < 205) & (distance > 3.0)
+        & (hsv[:, :, 1] < 95) & (hsv[:, :, 2] < 210)
+    )
+    if not np.any(stray_shadow):
+        return artwork
+    rgba[stray_shadow, 3] = 0
+    return Image.fromarray(rgba, "RGBA")
+
+
 def _fitted_artwork(
-    stock: Image.Image, source: bytes, placement: dict,
+    stock: Image.Image, source: bytes, placement: dict, *,
+    clean_soft_shadow: bool = False,
 ) -> tuple[Image.Image, tuple[int, int], tuple[int, int, int, int]]:
-    artwork = _visible_artwork(_validated_rgba(source))
+    artwork = _validated_rgba(source)
+    if clean_soft_shadow:
+        artwork = _remove_translucent_drop_shadow(artwork)
+    artwork = _visible_artwork(artwork)
     params = validate_front_placement({
         key: placement.get(key, value)
         for key, value in DEFAULT_FRONT_PLACEMENT.items()
@@ -121,6 +168,7 @@ def _canonical_pigment(source: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 def build_slot1_material_pass(
     stock_bytes: bytes, artwork_bytes: bytes, placement: dict,
     *, contact_width_px: int = 0, localized_edit: bool = False,
+    clean_soft_shadow: bool = False,
 ) -> Slot1MaterialPass:
     """Create a pigment-only edit guide and immutable protection mask.
 
@@ -132,7 +180,8 @@ def build_slot1_material_pass(
     stock = _validated_rgba(stock_bytes).convert("RGB")
     if stock.width * stock.height > _MAX_PIXELS:
         raise FrontReferenceError("Stock photo exceeds Slot 1 memory limit.")
-    artwork, (x, y), guide_box = _fitted_artwork(stock, artwork_bytes, placement)
+    artwork, (x, y), guide_box = _fitted_artwork(
+        stock, artwork_bytes, placement, clean_soft_shadow=clean_soft_shadow)
     source = np.asarray(artwork, dtype=np.float32)
     alpha = source[:, :, 3] / 255.0
     if float(np.max(alpha)) < .1:
@@ -285,6 +334,23 @@ def finish_slot1_refinement(
         # erode the core so glyph borders cannot fake the material signature.
         interior = cv2.erode(np.uint8(core), np.ones((5, 5), np.uint8)) > 0
         if int(np.count_nonzero(interior)) > 600:
+            # A double-edited, embossed image can contain real-looking fine
+            # fibers AND an oversized smooth 3-D lighting ramp underneath.
+            # Previous QA inspected fibers but never checked broad material
+            # lighting against the pigment-only canonical guide.
+            delta_luma = candidate_luma - guide_luma
+            alpha_weight = np.asarray(material.thread_mask, dtype=np.float32) / 255.
+            broad_weight = cv2.GaussianBlur(alpha_weight, (0, 0), 7)
+            broad_delta = cv2.GaussianBlur(
+                delta_luma * alpha_weight, (0, 0), 7
+            ) / np.maximum(broad_weight, .05)
+            broad_levels = broad_delta[interior]
+            if (float(np.percentile(broad_levels, 90) -
+                      np.percentile(broad_levels, 10)) > 48
+                    and float(np.mean(np.abs(
+                        broad_levels - np.median(broad_levels)) > 25)) > .15):
+                raise Slot1EmbroideryQAError(
+                    "AI edit has broad embossed lighting across the glyphs.")
             fine = candidate_luma - cv2.GaussianBlur(candidate_luma, (0, 0), 1.1)
             mid = (cv2.GaussianBlur(candidate_luma, (0, 0), 1.1)
                    - cv2.GaussianBlur(candidate_luma, (0, 0), 5.0))

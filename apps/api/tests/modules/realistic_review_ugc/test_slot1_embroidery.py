@@ -334,6 +334,48 @@ def test_lite_rejects_random_noise_as_fake_thread_material(material):
         finish_slot1_refinement(lite, bad, clip_raw_halo=True)
 
 
+
+
+def test_lite_removes_only_distant_translucent_graphic_shadow():
+    from app.modules.realistic_review_ugc.slot1_embroidery import (
+        _remove_translucent_drop_shadow,
+    )
+
+    art = Image.new("RGBA", (240, 130), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(art)
+    # Shadow under the letter is offset far enough to become a fake
+    # cast-shadow on the cap if mistakenly treated as a thread stencil.
+    draw.rectangle((45, 28, 199, 100), fill=(68, 68, 68, 105))
+    draw.rectangle((30, 15, 180, 80), fill=(133, 30, 19, 255))
+    draw.rectangle((6, 106, 24, 123), fill=(12, 18, 21, 255))
+    result = np.asarray(_remove_translucent_drop_shadow(art))
+    assert result[90, 190, 3] == 0  # Far soft cast shadow, not a glyph.
+    assert result[45, 75, 3] == 255  # Opaque colored lettering unchanged.
+    assert tuple(result[45, 75, :3]) == (133, 30, 19)
+    assert result[111, 15, 3] == 255  # Real opaque dark marks survive.
+    assert result[81, 181, 3] > 0  # Sub-pixel border immediately beside glyph.
+
+
+def test_lite_rejects_broad_beveled_lighting_even_with_fine_fibers(material):
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((20, 35, 395, 120), fill=(12, 55, 176, 255))
+    lite = build_slot1_material_pass(
+        png(material.stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    # The edit contains legitimate high-frequency yarn (from refined_candidate)
+    # plus a broad low-frequency 3-D face ramp. The old QA only inspected the
+    # yarn frequency and accepted this swollen/embossed appearance.
+    raw = np.array(Image.open(BytesIO(
+        refined_candidate(lite, square=True))), dtype=np.int16)
+    edit = np.array(Image.open(BytesIO(lite.edit_mask_png())), dtype=np.uint8) > 220
+    _, xx = np.indices(edit.shape)
+    ramp = np.where(xx < edit.shape[1] / 2, -47, 47)
+    raw[edit] += ramp[edit, None]
+    bad = png(Image.fromarray(np.uint8(np.clip(raw, 0, 255)), "RGB"))
+    with pytest.raises(Slot1EmbroideryQAError, match="broad embossed lighting"):
+        finish_slot1_refinement(lite, bad, clip_raw_halo=True)
+
 def test_lite_rejects_coarse_fake_foam_ridges(material):
     art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
     ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))

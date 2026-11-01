@@ -31,6 +31,7 @@ from app.modules.realistic_review_ugc.front_placement import (
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
 from app.modules.realistic_review_ugc.slot1_embroidery import (
     Slot1EmbroideryQAError, build_slot1_material_pass, finish_slot1_refinement,
+    lite_slot1_qa_error_code,
 )
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
@@ -65,22 +66,7 @@ ECOMMERCE_INTERACTIVE_PRIORITY = 96
 MAX_MANUAL_RETRIES = 3
 
 
-def _lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
-    """Publish only fixed, non-sensitive QA reasons for two-call pilot failures."""
-    reason = {
-        "Image edit changed aspect ratio and cannot be aligned safely.": "frame_alignment",
-        "Canonical design has insufficient visible glyph area.": "missing_glyph_area",
-        "AI edit did not preserve the canonical design/thread colors.": "design_fidelity",
-        "AI edit omitted the embroidery.": "embroidery_missing",
-        "AI edit changed source embroidery hue.": "hue_shift",
-        "AI edit made no meaningful photographic refinement.": "no_refinement",
-        "AI edit still resembles flat printed lettering.": "flat_print",
-        "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
-        "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
-        "AI edit has a thick embossed shadow halo.": "emboss_halo",
-        "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
-    }.get(str(error), "unknown")
-    return "ecommerce_slot1_qa_" + reason
+_lite_slot1_qa_error_code = lite_slot1_qa_error_code
 
 
 # All NEW EC2 jobs use the actual selected-color 3/4 photo as the edit target.
@@ -1246,6 +1232,7 @@ class EcommerceGenerateHandler:
                     job_front_placement(context.job.payload.get("front_placement")),
                     contact_width_px=(3 if is_lite else 2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0),
                     localized_edit=is_lite,
+                    clean_soft_shadow=is_lite,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
                 references.extend((
@@ -1491,7 +1478,7 @@ class EcommerceGenerateHandler:
                                        if is_lite else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
-                                    **({"material_revision": "roi-fiber-v1.1",
+                                    **({"material_revision": "roi-fiber-v1.2-anti-emboss",
                                         "native_front_roi": list(slot1_material.edit_roi_box),
                                         "contact_width_px": slot1_material.contact_width_px}
                                        if is_lite and slot1_material.edit_roi_box else {}),
