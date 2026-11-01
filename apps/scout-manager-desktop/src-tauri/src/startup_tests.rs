@@ -54,6 +54,9 @@ impl Fixture {
                 Scout::new("review"),
                 Scout::new("keyword"),
                 Scout::new("cap_stack"),
+                // Present in real Manager even when there is no TikTokShop pairing.
+                // Startup must skip the unpaired lane without changing Review Scouts.
+                Scout::new("tiktokshop"),
                 Scout::new("typography"),
             ]),
             branding_pilot: Mutex::new(branding_pilot::BrandPilot::new()),
@@ -173,6 +176,9 @@ fn explicit_startup_starts_all_three_once_and_stop_reaps_owned_processes() {
     assert_eq!(ids.len(), 3);
     let typography = fixture.controller.lock_modes().unwrap();
     assert!(typography.iter().find(|mode| mode.name == "typography").unwrap().child.is_none());
+    let tiktokshop = typography.iter().find(|mode| mode.name == "tiktokshop").unwrap();
+    assert!(tiktokshop.child.is_none() && !tiktokshop.desired,
+            "Unpaired TikTokShop must never start when existing Scout automation starts");
     drop(typography);
     let handles = fixture.process_handles();
     fixture.controller.apply_startup(StartAutomation).unwrap();
