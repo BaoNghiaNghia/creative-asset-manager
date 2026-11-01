@@ -349,6 +349,7 @@ from app.modules.realistic_review_ugc.output_downloads import (
 )
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
+    TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
     RrugcSourcePlanError,
     embroidery_signature,
@@ -378,6 +379,16 @@ router.include_router(hat_stock_router)
 router.include_router(creative_brief_router)
 READ = require_permission("realistic_review_ugc.read")
 RUN = require_permission("realistic_review_ugc.run")
+
+
+def _source_root_for_workspace(workspace: str) -> str:
+    """Server-owned root allowlist; clients cannot supply arbitrary Drive IDs."""
+    if workspace == "gatorhats":
+        return RRUGC_SOURCE_ROOT_FOLDER_ID
+    if workspace == "tiktokshop":
+        return TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    raise HTTPException(status_code=422, detail="Unknown Scout & UGC workspace.")
+
 
 
 def _can_manage_stage2_skills(principal: CurrentPrincipal) -> bool:
@@ -3382,6 +3393,7 @@ def _rrugc_source_folder(relative_path: str) -> str:
 
 @router.get("/source-plans/folders")
 def get_source_plan_folders(
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
@@ -3392,7 +3404,7 @@ def get_source_plan_folders(
     """
     rows = list(session.scalars(select(RrugcSourcePlanModel).where(
         RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
-        RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+        RrugcSourcePlanModel.root_folder_id == _source_root_for_workspace(workspace),
         ~func.lower(RrugcSourcePlanModel.source_name).startswith("embroidery_", autoescape=True),
     )))
     groups = _group_source_plan_rows(rows)
@@ -3461,10 +3473,14 @@ def get_source_plans(
     folder_path: str | None = Query(default=None, max_length=512),
     colorway_sources: bool = False,
     colorway_workflow: str = Query(default="reviews", pattern="^(products|reviews)$"),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(READ),
 ):
     from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    if workspace == "tiktokshop" and colorway_sources:
+        raise HTTPException(status_code=422, detail="TikTokShop colorways are not part of Scout & UGC.")
+    source_root = _source_root_for_workspace(workspace)
     # Scope in SQL before pagination/stats, rather than materializing every
     # tenant source and filtering later when there are tens of thousands.
     plan_query = select(RrugcSourcePlanModel).where(
@@ -3476,7 +3492,7 @@ def get_source_plans(
         )
     elif colorway_sources:
         plan_query = plan_query.where(
-            RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+            RrugcSourcePlanModel.root_folder_id == source_root,
             func.lower(RrugcSourcePlanModel.source_name).startswith("embroidery_", autoescape=True),
         )
     else:
@@ -3485,7 +3501,7 @@ def get_source_plans(
         # via colorway_sources=true for Reviews Stage 2 (13 colorways).
         # SQL filtering happens before grouping, KPI totals and pagination.
         plan_query = plan_query.where(
-            RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID,
+            RrugcSourcePlanModel.root_folder_id == source_root,
             ~func.lower(RrugcSourcePlanModel.source_name).startswith(
                 "embroidery_", autoescape=True,
             ),
@@ -3518,7 +3534,7 @@ def get_source_plans(
     else:
         # Stage 1 selections are synthetic source plans and must not leak into
         # the Pinterest discovery/review pipeline.
-        all_plans = [row for row in all_plans if row.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID]
+        all_plans = [row for row in all_plans if row.root_folder_id == source_root]
     product_keywords = (
         _products_stage1_source_keywords(session, principal.active_tenant_id, all_plans)
         if colorway_sources and colorway_workflow == "products" else {}
@@ -8086,15 +8102,21 @@ async def get_stage2_job_output(
 @router.post("/source-plans/sync", response_model=SourcePlanSyncResponse)
 async def sync_source_folder_plans(
     colorway_sources: bool = Query(default=False),
+    workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
+    if workspace == "tiktokshop" and colorway_sources:
+        raise HTTPException(status_code=422, detail="TikTokShop colorways are not part of Scout & UGC.")
     try:
         result = await sync_source_plans(
             session,
             tenant_id=principal.active_tenant_id,
             user_id=principal.user_id,
-            queue_analysis=not colorway_sources,
+            root_folder_id=_source_root_for_workspace(workspace),
+            # Until agent claims are strictly workspace-scoped, importing source
+            # metadata must NEVER create campaigns claimable by GatorHats Scouts.
+            queue_analysis=not colorway_sources and workspace == "gatorhats",
         )
     except RrugcSourcePlanError as exc:
         raise HTTPException(

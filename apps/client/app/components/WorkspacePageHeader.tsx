@@ -38,6 +38,11 @@ export const WORKSPACE_PAGE_HEADERS: Record<WorkspaceRoute, WorkspacePageHeaderD
     title: "Realistic Review UGC",
     description: "Scan Pinterest with a local authenticated Browser Scout and save references into CAM Managed Google Drive.",
   },
+  tiktokshop: {
+    eyebrow: "TikTokShop · Scout & UGC",
+    title: "Scout & UGC",
+    description: "Independent TikTokShop source library and UGC workspace.",
+  },
   queue: {
     eyebrow: "Operations",
     title: "Job Queue",

@@ -237,8 +237,8 @@ export type SourcePlanFolders = {
   folders: Array<{ path: string; group_count: number; image_count: number }>;
   total_groups: number;
 };
-export const listSourcePlanFolders = (signal?: AbortSignal) =>
-  request<SourcePlanFolders>("/api/v1/realistic-review-ugc/source-plans/folders", { signal });
+export const listSourcePlanFolders = (signal?: AbortSignal, workspace: "gatorhats" | "tiktokshop" = "gatorhats") =>
+  request<SourcePlanFolders>("/api/v1/realistic-review-ugc/source-plans/folders?workspace=" + workspace, { signal });
 export type KeywordAnalysisSortBy = "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
@@ -256,6 +256,7 @@ export const listSourcePlans = (
     folderPath?: string | null;
     colorwaySources?: boolean;
     colorwayWorkflow?: "products" | "reviews";
+    workspace?: "gatorhats" | "tiktokshop";
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -264,6 +265,7 @@ export const listSourcePlans = (
     page_size: String(filters.pageSize ?? 20),
     sort_by: filters.sortBy ?? "source",
     sort_dir: filters.sortDirection ?? "asc",
+    workspace: filters.workspace ?? "gatorhats",
   });
   if (filters.query?.trim()) params.set("q", filters.query.trim());
   if (filters.stage2Only) params.set("stage2_only", "true");
@@ -279,8 +281,8 @@ export const listSourcePlans = (
   );
 };
 
-export const syncSourcePlans = (colorwayOnly = false) =>
-  request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync" + (colorwayOnly ? "?colorway_sources=true" : ""), {
+export const syncSourcePlans = (colorwayOnly = false, workspace: "gatorhats" | "tiktokshop" = "gatorhats") =>
+  request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync?workspace=" + workspace + (colorwayOnly ? "&colorway_sources=true" : ""), {
     method: "POST",
   });
 

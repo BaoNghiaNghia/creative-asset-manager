@@ -9,6 +9,7 @@ import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
 import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
+import tiktokshopIcon from "../../assets/navigation/tiktokshop.svg";
 import { currentRrugcStage, rrugcWorkflowHref, workflowGroupForStage, RRUGC_WORKFLOW_GROUPS, type RrugcStageTab } from "../realistic-review-ugc/workflowRouting";
 import {
   AI_OPERATIONS_TABS,
@@ -16,7 +17,7 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
-export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-dna" | "queue" | "generation" | "realistic-review-ugc" | "review-board" | "access";
+export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-dna" | "queue" | "generation" | "realistic-review-ugc" | "tiktokshop" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) =>
   permissions.includes("public_review.read")
@@ -49,6 +50,7 @@ const navigationIconSources: Record<WorkspaceRoute, string> = {
   queue: jobQueueIcon,
   generation: videoGenerationIcon,
   "realistic-review-ugc": realisticReviewUgcIcon,
+  tiktokshop: tiktokshopIcon,
   "review-board": reviewBoardIcon,
   access: accessManagementIcon,
 };
@@ -80,6 +82,7 @@ export function WorkspaceNavigation({
   const [resolvedAccess, setResolvedAccess] = useState<{ permissions: readonly string[]; navigationModules: readonly string[] | null } | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(active === "operations");
   const [rrugcOpen, setRrugcOpen] = useState(active === "realistic-review-ugc");
+  const [tiktokOpen, setTiktokOpen] = useState(active === "tiktokshop");
   const selectedRrugcGroup = workflowGroupForStage(rrugcStage ?? currentRrugcStage());
 
   useEffect(() => {
@@ -105,6 +108,7 @@ export function WorkspaceNavigation({
   useEffect(() => {
     if (active === "operations") setOperationsOpen(true);
     if (active === "realistic-review-ugc") setRrugcOpen(true);
+    if (active === "tiktokshop") setTiktokOpen(true);
   }, [active]);
 
   const effectivePermissions = permissions ?? resolvedAccess?.permissions;
@@ -116,6 +120,9 @@ export function WorkspaceNavigation({
   const canViewBranding = granted("branding-dna") && allowed("ai_operations.read");
   const canViewInventory = granted("inventory") && allowed("inventory.read");
   const canViewRrugc = granted("realistic-review-ugc") && allowed("realistic_review_ugc.read");
+  // Alias the existing UGC navbar grant until TikTokShop has a dedicated RBAC module.
+  const canViewTiktokshop = (granted("tiktokshop") || granted("realistic-review-ugc"))
+    && allowed("realistic_review_ugc.read");
   const canViewAccess = granted("access") && allowed("tenant_members.read");
 
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [
@@ -129,6 +136,9 @@ export function WorkspaceNavigation({
     ...(canViewBranding ? [{ id: "branding-dna" as const, href: "/branding-dna", label: "Branding DNA" }] : []),
     ...(canViewRrugc ? [
       { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "Realistic Review UGC" },
+    ] : []),
+    ...(canViewTiktokshop ? [
+      { id: "tiktokshop" as const, href: "/tiktokshop/scout-ugc", label: "Tiktokshop" },
     ] : []),
     ...(granted("queue") && allowed("ai_operations.read") ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },
@@ -215,6 +225,33 @@ export function WorkspaceNavigation({
           </a>;
         })}
       </div> : null}
+    </div> : item.id === "tiktokshop" ? <div key={item.id} className={"workspace-nav-group" + (active === item.id ? " active" : "")}>
+      <div className="workspace-nav-group-row">
+        <a href={item.href} className={active === item.id ? "active" : undefined}
+          aria-current={active === item.id ? "page" : undefined}>
+          <WorkspaceNavigationIcon name={item.id} /><span>{item.label}</span>
+        </a>
+        <button type="button" className="workspace-nav-expander"
+          aria-label={(tiktokOpen ? "Collapse" : "Expand") + " Tiktokshop navigation"}
+          aria-expanded={tiktokOpen} aria-controls="workspace-tiktokshop-submenu"
+          onClick={() => setTiktokOpen(value => !value)}>
+          <svg className="workspace-nav-expander-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="m5.5 7.5 4.5 4.5 4.5-4.5" />
+          </svg>
+        </button>
+      </div>
+      {tiktokOpen && <div id="workspace-tiktokshop-submenu"
+        className="workspace-nav-submenu workspace-nav-rrugc-submenu" aria-label="Tiktokshop sections">
+        <a href="/tiktokshop/scout-ugc" className={active === "tiktokshop" ? "active" : undefined}
+          aria-current={active === "tiktokshop" ? "location" : undefined} data-tiktok-workflow="scout-ugc">
+          <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+            aria-hidden="true">
+            <path d="M4 8h16v12H4zM9 8V5h6v3M9 13l2 2 4-4"/>
+          </svg>
+          <span>Scout &amp; UGC</span>
+        </a>
+      </div>}
     </div> : <a key={item.id} href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
       <WorkspaceNavigationIcon name={item.id} />
       <span>{item.label}</span>

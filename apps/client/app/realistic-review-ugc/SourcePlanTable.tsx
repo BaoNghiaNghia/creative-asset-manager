@@ -534,6 +534,8 @@ function SourcePlanSkeletonRows({ count }: { count: number }) {
 
 export function SourcePlanTable({
   plans,
+  rootFolderId = SOURCE_ROOT_FOLDER_ID,
+  scoutEnabled = true,
   folderData = null,
   selectedFolderPath = null,
   onFolderSelect = () => undefined,
@@ -557,6 +559,8 @@ export function SourcePlanTable({
   onSetReferenceFeedback = () => undefined,
 }: {
   plans: SourcePlan[];
+  rootFolderId?: string;
+  scoutEnabled?: boolean;
   folderData?: SourcePlanFolders | null;
   selectedFolderPath?: string | null;
   onFolderSelect?: (path: string | null) => void;
@@ -603,10 +607,12 @@ export function SourcePlanTable({
       className="rrugc-source-plans-heading"
       kicker="STAGE 3 · DRIVE → AI CONTEXT → PINTEREST"
       title="Embroidery source → Pinterest refs"
-      description="New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool."
+      description={scoutEnabled
+        ? "New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool."
+        : "TikTokShop Drive source library. Automatic Pinterest Scout, analysis and generation stay off until workspace-isolated agents are configured."}
       actions={<div className="rrugc-source-plan-heading-actions">
-        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />Auto scan on</span>
-        <span className="rrugc-source-root" title={SOURCE_ROOT_FOLDER_ID}>Drive · {SOURCE_ROOT_FOLDER_ID}</span>
+        <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{scoutEnabled ? "Auto scan on" : "Manual source scan"}</span>
+        <span className="rrugc-source-root" title={rootFolderId}>Drive · {rootFolderId}</span>
         <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}><RrugcActionIcon name={syncing ? "refresh" : "scan"} />{syncing ? "Scanning…" : "Scan now"}</button>
       </div>}
     />

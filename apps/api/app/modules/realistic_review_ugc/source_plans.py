@@ -54,6 +54,7 @@ from app.providers.google.drive import GoogleDriveClient
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 RRUGC_SOURCE_ROOT_FOLDER_ID = "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX"
+TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID = "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh"
 RRUGC_SOURCE_TARGET_COUNT = 50
 RRUGC_SOURCE_PLAN_JOB_TYPE = "rrugc_source_plan_analyze"
 RRUGC_SOURCE_MAX_FOLDERS = 5_000

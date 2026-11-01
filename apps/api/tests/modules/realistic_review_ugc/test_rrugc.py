@@ -2513,6 +2513,63 @@ def test_stage5_review_copy_refresh_preserves_editorial_and_image_metadata(datab
         assert refresh_existing_review_copy(session, apply=True)["rewritten"] == 0
 
 
+
+def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeypatch):
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc.source_plans import (
+        RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+
+    with database() as session:
+        for root, file_id, label in (
+            (RRUGC_SOURCE_ROOT_FOLDER_ID, "gator-product", "GatorOnly.png"),
+            (TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, "tiktok-apparel", "TikTokOnly.png"),
+        ):
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root,
+                source_file_id=file_id,
+                source_parent_folder_id="product-folder",
+                source_name=label,
+                source_relative_path="Product/" + label,
+                source_mime_type="image/png",
+                source_revision="rev-" + file_id,
+                status="ready",
+                created_by_user_id="user-a",
+            ))
+        session.commit()
+
+    base = "/api/v1/realistic-review-ugc"
+    for workspace, expected in (("gatorhats", "GatorOnly.png"),
+                                ("tiktokshop", "TikTokOnly.png")):
+        response = api.get(base + "/source-plans?workspace=" + workspace)
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+        assert response.json()["items"][0]["source_name"] == expected
+        folders = api.get(base + "/source-plans/folders?workspace=" + workspace)
+        assert folders.status_code == 200
+        assert folders.json()["total_groups"] == 1
+    assert api.get(base + "/source-plans?workspace=unknown").status_code == 422
+    assert api.get(base + "/source-plans?workspace=tiktokshop&colorway_sources=true").status_code == 422
+
+    calls = []
+    async def fake_sync(_session, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            root_folder_id=kwargs["root_folder_id"], target_count=50,
+            folders_scanned=1, images_found=1, plans_created=0, plans_updated=0,
+            plans_missing=0, jobs_queued=0, unchanged=1,
+        )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.router.sync_source_plans", fake_sync,
+    )
+    response = api.post(base + "/source-plans/sync?workspace=tiktokshop")
+    assert response.status_code == 200
+    assert response.json()["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    assert calls[0]["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    assert calls[0]["queue_analysis"] is False
+    assert api.post(base + "/source-plans/sync?workspace=tiktokshop&colorway_sources=true").status_code == 422
+
+
 def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database):
     from uuid import uuid4
     from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
