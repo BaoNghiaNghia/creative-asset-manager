@@ -149,8 +149,8 @@ function Card({ info, version, commit, busy, automationEnabled, keywordSummary, 
 }
 
 /** Dedicated TikTokShop Windows lane; never copies or displays GatorHats tokens. */
-function TiktokShopScoutCard({ info, paired, busy, automationEnabled, onAction, onSave }: {
-  info: ModeInfo; paired: boolean; busy: boolean; automationEnabled: boolean;
+function TiktokShopScoutCard({ info, paired, busy, onAction, onSave }: {
+  info: ModeInfo; paired: boolean; busy: boolean;
   onAction: (command: "start" | "stop" | "restart", mode: ModeName) => void;
   onSave: (agentId: string, token: string) => Promise<boolean>;
 }) {
@@ -332,7 +332,7 @@ export default function App() {
       <Card info={keyword} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} keywordSummary={keywordSummary} keywordError={keywordError} operations={operations} operationsError={operationsError} onAction={onMode}/>
       <Card info={capStack} version={state.version} commit={state.commit} busy={controlBlocked} automationEnabled={state.automationEnabled} onAction={onMode}/>
       <TiktokShopScoutCard info={tiktokshop} paired={Boolean(state.tiktokshopPaired)} busy={controlBlocked}
-        automationEnabled={state.automationEnabled} onAction={onMode}
+        onAction={onMode}
         onSave={async (agentId, token) => act("save_tiktokshop_pairing", { agentId, token })}/>
       <TypographyScoutCard info={typography} busy={controlBlocked} onAction={onMode} onLogin={() => void act("typography_login")}/>
     </section>
