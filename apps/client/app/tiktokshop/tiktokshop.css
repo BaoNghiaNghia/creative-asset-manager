@@ -54,3 +54,31 @@
     padding-inline: 10px;
   }
 }
+/* Match Realistic Review UGC's Settings modal without full-width cards. */
+.rrugc-tiktokshop-workspace .tiktokshop-settings-modal {
+  width: min(760px, calc(100vw - 32px));
+}
+.rrugc-tiktokshop-workspace .tiktokshop-settings-modal .tiktokshop-stage-note {
+  display: block;
+  margin: 0;
+  padding: 14px 16px;
+  line-height: 1.5;
+}
+.rrugc-tiktokshop-workspace .tiktokshop-settings-modal .tiktokshop-stage-note p {
+  margin: 6px 0 0;
+  color: #5d6c80;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rrugc-tiktokshop-workspace .tiktokshop-settings-modal .rrugc-source-auto-badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .rrugc-tiktokshop-workspace .tiktokshop-settings-modal {
+    width: calc(100vw - 16px);
+  }
+  .rrugc-tiktokshop-workspace .tiktokshop-settings-modal .tiktokshop-stage-note {
+    padding: 11px 12px;
+  }
+}

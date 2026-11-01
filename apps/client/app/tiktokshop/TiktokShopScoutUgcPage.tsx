@@ -4,7 +4,7 @@ import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { SourcePlanTable } from "../realistic-review-ugc/SourcePlanTable";
 import { Stage3ReviewGroups } from "../realistic-review-ugc/Stage3ReviewGroups";
-import { TiktokShopAgentPanel } from "./TiktokShopAgentPanel";
+import { TiktokShopSettingsModal } from "./TiktokShopSettingsModal";
 import { TiktokShopStage4Panel } from "./TiktokShopStage4Panel";
 import {
   analyzeStage3ReviewGroups,
@@ -52,6 +52,12 @@ const EMPTY_REVIEWS: Stage3ReviewGroupList = {
  */
 export function TiktokShopScoutUgcPage() {
   const [stage, setStage] = useState<TikTokStage>("stage3");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    settingsButtonRef.current?.focus();
+  }, []);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [query, setQuery] = useState("");
@@ -260,6 +266,15 @@ export function TiktokShopScoutUgcPage() {
         route="tiktokshop"
         titleAddon={<span className="rrugc-page-live-pill">TikTokShop · isolated Scout pilot</span>}
         actions={<div className="rrugc-global-management-actions">
+          <button type="button" ref={settingsButtonRef}
+            className="rrugc-global-management-button"
+            aria-haspopup="dialog" aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen(true)}
+          ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+              <circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2"/>
+            </svg>Settings</button>
           <a className="rrugc-global-management-button"
             href={"https://drive.google.com/drive/folders/" + TIKTOKSHOP_SOURCE_ROOT}
             target="_blank" rel="noreferrer">TiktokShop Drive</a>
@@ -286,12 +301,6 @@ export function TiktokShopScoutUgcPage() {
         {error && <div role="alert" className="rrugc-error">{error}</div>}
         <section id="tiktok-panel-stage3" role="tabpanel" aria-labelledby="tiktok-tab-stage3"
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
-          <TiktokShopAgentPanel />
-          <div className="rrugc-card tiktokshop-stage-note" role="note">
-            <strong>Stage 3 · TikTokShop Drive.</strong> Source photos are indexed automatically
-            on first open, without AI jobs. Scan now queues at most 12 product-context
-            analyses; a paired TikTokShop Windows Agent receives only its own campaigns.
-          </div>
           <SourcePlanTable
             rootFolderId={TIKTOKSHOP_SOURCE_ROOT}
             scoutEnabled={false}
@@ -354,5 +363,6 @@ export function TiktokShopScoutUgcPage() {
         </section>
       </div>
     </section>
+    <TiktokShopSettingsModal open={settingsOpen} onClose={closeSettings} />
   </main>;
 }
