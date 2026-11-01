@@ -165,48 +165,57 @@ async def discover_source_images(
             status_code=409,
         )
     folders_scanned = 0
+    # TikTokShop typically stores one image per product folder. Scanning every
+    # folder serially can exceed the frontend proxy timeout. Four concurrent
+    # Drive listing calls keep latency low without triggering a large burst.
     while queue:
-        folder_id, relative_folder = queue.popleft()
-        if folder_id in seen_folders:
-            continue
-        seen_folders.add(folder_id)
-        folders_scanned += 1
-        if folders_scanned > RRUGC_SOURCE_MAX_FOLDERS:
-            raise RrugcSourcePlanError(
-                "rrugc_source_folder_limit",
-                "The Realistic Review UGC source tree exceeds the safe folder scan limit.",
-                status_code=409,
-            )
-
-        for child in await drive.children(folder_id):
-            child_path = f"{relative_folder}/{child.name}"
-            if child.kind == "folder":
-                if child.id not in seen_folders:
-                    queue.append((child.id, child_path))
+        batch: list[tuple[str, str]] = []
+        while queue and len(batch) < 4:
+            folder_id, relative_folder = queue.popleft()
+            if folder_id in seen_folders:
                 continue
-            if not _is_source_image(child):
-                continue
-            rows.append(
-                SourceImage(
-                    file_id=child.id,
-                    parent_folder_id=folder_id,
-                    relative_path=child_path,
-                    name=child.name,
-                    mime_type=child.mime_type or "application/octet-stream",
-                    size_bytes=child.size,
-                    width=child.image_width,
-                    height=child.image_height,
-                    modified_at=child.modified_at,
-                    web_url=child.web_url,
-                    revision=_source_revision(child),
-                )
-            )
-            if len(rows) > RRUGC_SOURCE_MAX_IMAGES:
+            seen_folders.add(folder_id)
+            folders_scanned += 1
+            if folders_scanned > RRUGC_SOURCE_MAX_FOLDERS:
                 raise RrugcSourcePlanError(
-                    "rrugc_source_image_limit",
-                    "The Realistic Review UGC source tree exceeds the safe image scan limit.",
+                    "rrugc_source_folder_limit",
+                    "The Realistic Review UGC source tree exceeds the safe folder scan limit.",
                     status_code=409,
                 )
+            batch.append((folder_id, relative_folder))
+        if not batch:
+            continue
+        child_pages = await asyncio.gather(*(drive.children(folder_id) for folder_id, _ in batch))
+        for (folder_id, relative_folder), children in zip(batch, child_pages, strict=True):
+            for child in children:
+                child_path = f"{relative_folder}/{child.name}"
+                if child.kind == "folder":
+                    if child.id not in seen_folders:
+                        queue.append((child.id, child_path))
+                    continue
+                if not _is_source_image(child):
+                    continue
+                rows.append(
+                    SourceImage(
+                        file_id=child.id,
+                        parent_folder_id=folder_id,
+                        relative_path=child_path,
+                        name=child.name,
+                        mime_type=child.mime_type or "application/octet-stream",
+                        size_bytes=child.size,
+                        width=child.image_width,
+                        height=child.image_height,
+                        modified_at=child.modified_at,
+                        web_url=child.web_url,
+                        revision=_source_revision(child),
+                    )
+                )
+                if len(rows) > RRUGC_SOURCE_MAX_IMAGES:
+                    raise RrugcSourcePlanError(
+                        "rrugc_source_image_limit",
+                        "The Realistic Review UGC source tree exceeds the safe image scan limit.",
+                        status_code=409,
+                    )
 
     rows.sort(key=lambda item: (item.relative_path.casefold(), item.file_id))
     return rows, folders_scanned
@@ -720,7 +729,10 @@ async def sync_source_plans(
     drive_client_factory: Callable[[str], GoogleDriveClient] = GoogleDriveClient,
     queue_analysis: bool = True,
     analysis_job_limit: int | None = None,
+    source_only: bool = False,
 ) -> SourcePlanSyncResult:
+    if source_only and queue_analysis:
+        raise ValueError("Source-only import cannot enqueue analysis jobs.")
     settings = settings or get_settings()
     storage_provider = storage or build_managed_storage_provider(settings)
     if not isinstance(storage_provider, GoogleDriveAssetStorage):
@@ -769,7 +781,8 @@ async def sync_source_plans(
             else {}
         )
         requires_context_upgrade = (
-            plan is not None
+            queue_analysis
+            and plan is not None
             and plan.status == "ready"
             and bool(existing_visual_context)
             and str(existing_visual_context.get("version") or "") != PRODUCT_VISUAL_CONTEXT_VERSION
@@ -791,7 +804,7 @@ async def sync_source_plans(
                 source_revision=image.revision,
                 analysis_revision=1,
                 target_count=RRUGC_SOURCE_TARGET_COUNT,
-                status="queued" if queue_analysis else "ready",
+                status="queued" if queue_analysis else ("discovered" if source_only else "ready"),
                 created_by_user_id=user_id,
             )
             session.add(plan)
@@ -811,7 +824,7 @@ async def sync_source_plans(
             if previous_revision != image.revision:
                 plan.source_revision = image.revision
                 plan.analysis_revision = max(1, int(plan.analysis_revision or 0) + 1)
-                plan.status = "queued"
+                plan.status = "discovered" if source_only else "queued"
                 plan.last_error_code = None
                 plan.visual_context_json = None
                 plan.embroidery_signature = None
@@ -832,11 +845,11 @@ async def sync_source_plans(
             is_new
             or previous_revision != image.revision
             or not plan.campaign_id
-            or plan.status in {"failed", "missing", "retry", "queued"}
+            or plan.status in {"failed", "missing", "retry", "queued", "discovered"}
         )
         if not queue_analysis:
             if plan.status == "missing":
-                plan.status = "ready"
+                plan.status = "discovered" if source_only else "ready"
                 plan.last_error_code = None
             if not is_new and previous_revision == image.revision:
                 unchanged += 1

@@ -8222,12 +8222,15 @@ async def get_stage2_job_output(
 @router.post("/source-plans/sync", response_model=SourcePlanSyncResponse)
 async def sync_source_folder_plans(
     colorway_sources: bool = Query(default=False),
+    metadata_only: bool = Query(default=False),
     workspace: str = Query(default="gatorhats", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
     if workspace == "tiktokshop" and colorway_sources:
         raise HTTPException(status_code=422, detail="TikTokShop colorways are not part of Scout & UGC.")
+    if metadata_only and (workspace != "tiktokshop" or colorway_sources):
+        raise HTTPException(status_code=422, detail="Metadata-only import is exclusive to TikTokShop.")
     try:
         result = await sync_source_plans(
             session,
@@ -8236,8 +8239,9 @@ async def sync_source_folder_plans(
             root_folder_id=_source_root_for_workspace(workspace),
             # Only the dedicated TikTokShop agent may claim its campaigns.
             # Cap manual scans to 12 Gemini context jobs to protect shared quota.
-            queue_analysis=not colorway_sources,
-            analysis_job_limit=12 if workspace == "tiktokshop" else None,
+            queue_analysis=not colorway_sources and not metadata_only,
+            analysis_job_limit=12 if workspace == "tiktokshop" and not metadata_only else None,
+            source_only=metadata_only,
         )
     except RrugcSourcePlanError as exc:
         raise HTTPException(

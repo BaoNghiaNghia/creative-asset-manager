@@ -105,6 +105,18 @@ class FakeDrive:
         return list(self.rows.get(parent_id, []))
 
 
+class FakeTikTokDrive(FakeDrive):
+    def __init__(self, _token: str = "token"):
+        from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+        super().__init__(_token)
+        self.root = node(TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, "TiktokShop", "folder")
+        self.rows[TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID] = self.rows.pop(RRUGC_SOURCE_ROOT_FOLDER_ID)
+
+    async def get(self, item_id: str):
+        assert item_id == self.root.id
+        return self.root
+
+
 class FakeDriveMissingTeacher(FakeDrive):
     def __init__(self, _token: str = "token"):
         super().__init__(_token)
@@ -674,6 +686,7 @@ def test_source_plan_list_hides_negative_and_ai_refs_and_excludes_them_from_usab
         session.commit()
 
         page = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q=None,
@@ -769,6 +782,7 @@ def test_source_plan_list_groups_shared_campaign_when_signatures_drift():
         session.commit()
 
         page = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q=None,
@@ -811,21 +825,21 @@ def test_reviews_source_tree_is_unpaginated_and_folder_filter_is_exact():
             ))
         session.commit()
         principal = SimpleNamespace(active_tenant_id="tenant-a")
-        tree = get_source_plan_folders(session=session, principal=principal)
+        tree = get_source_plan_folders(workspace="gatorhats", session=session, principal=principal)
         assert tree["total_groups"] == 3
         counts = {item["path"]: (item["group_count"], item["image_count"]) for item in tree["folders"]}
         assert counts == {"Hats/A": (1, 2), "Hats/AB": (1, 1), "Other": (1, 1)}
         # Folder filters happen before pagination (same for Stage 3 and 4).
-        chosen = get_source_plans(page=1, page_size=1, q=None, folder_path="Hats/A",
+        chosen = get_source_plans(workspace="gatorhats", page=1, page_size=1, q=None, folder_path="Hats/A",
                                   session=session, principal=principal)
         assert chosen.total == 1
         assert chosen.items[0].embroidery_group_size == 2
         # A prefix with a similar spelling must not be included.
-        sibling = get_source_plans(page=1, page_size=5, q=None, folder_path="Hats/AB",
+        sibling = get_source_plans(workspace="gatorhats", page=1, page_size=5, q=None, folder_path="Hats/AB",
                                    session=session, principal=principal)
         assert sibling.total == 1
         assert sibling.items[0].source_relative_path.startswith("Hats/AB/")
-        parent = get_source_plans(page=1, page_size=1, q=None, folder_path="Hats",
+        parent = get_source_plans(workspace="gatorhats", page=1, page_size=1, q=None, folder_path="Hats",
                                   session=session, principal=principal)
         assert parent.total == 2
 
@@ -898,6 +912,7 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         principal = SimpleNamespace(active_tenant_id="tenant-a")
 
         page = get_source_plans(
+            workspace="gatorhats",
             page=2,
             page_size=1,
             q=None,
@@ -917,6 +932,7 @@ def test_source_plan_list_is_server_paginated_and_searchable():
         ]
 
         search = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q="teacher",
@@ -968,6 +984,7 @@ def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_paginati
 
         principal = SimpleNamespace(active_tenant_id="tenant-a")
         page = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=1,
             q=None,
@@ -984,6 +1001,7 @@ def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_paginati
 
         for query in ("embroidery_", "hotdog"):
             filtered = get_source_plans(
+            workspace="gatorhats",
                 page=1,
                 page_size=20,
                 q=query,
@@ -994,6 +1012,7 @@ def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_paginati
 
         # An explicit prefix cannot reintroduce the excluded Stage 3 sources.
         prefixed = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q=None,
@@ -1006,6 +1025,7 @@ def test_source_plan_list_filters_embroidery_prefix_before_grouping_and_paginati
 
         # Stage 2 Reviews needs these same embroidery assets for colorways.
         colorways = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q=None,
@@ -1093,6 +1113,7 @@ def test_source_plan_list_stage2_only_filters_before_pagination():
         principal = SimpleNamespace(active_tenant_id="tenant-a")
 
         first_page = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=1,
             q=None,
@@ -1110,6 +1131,7 @@ def test_source_plan_list_stage2_only_filters_before_pagination():
         ]
 
         second_page = get_source_plans(
+            workspace="gatorhats",
             page=2,
             page_size=1,
             q=None,
@@ -1194,6 +1216,7 @@ def test_source_plan_list_supports_server_side_sorting_before_pagination():
         principal = SimpleNamespace(active_tenant_id="tenant-a")
 
         by_group_size = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=1,
             q=None,
@@ -1207,6 +1230,7 @@ def test_source_plan_list_supports_server_side_sorting_before_pagination():
         assert by_group_size.items[0].embroidery_group_size == 2
 
         by_source_desc = get_source_plans(
+            workspace="gatorhats",
             page=1,
             page_size=20,
             q=None,
@@ -1283,6 +1307,49 @@ def test_sync_source_plans_creates_one_fifty_ref_plan_per_source_image_idempoten
         assert second.unchanged == 4
         assert len(list(session.scalars(select(RrugcSourcePlanModel)))) == 4
         assert len(list(session.scalars(select(ProcessingJobModel)))) == 4
+
+
+def test_tiktokshop_metadata_only_import_creates_photos_without_analysis_jobs():
+    """First load indexes Drive photos only; manual Scan later queues Gemini."""
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+
+    factory = make_database()
+    with factory() as session:
+        first = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            storage=FakeStorage.__new__(FakeStorage),
+            drive_client_factory=FakeTikTokDrive,
+            queue_analysis=False, source_only=True,
+        ))
+        assert first.images_found == 4
+        assert first.jobs_queued == 0
+        rows = list(session.scalars(select(RrugcSourcePlanModel)))
+        assert len(rows) == 4
+        assert all(p.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID for p in rows)
+        assert {p.status for p in rows} == {"discovered"}
+        assert session.scalars(select(ProcessingJobModel)).first() is None
+
+        second = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            storage=FakeStorage.__new__(FakeStorage),
+            drive_client_factory=FakeTikTokDrive,
+            queue_analysis=False, source_only=True,
+        ))
+        assert second.plans_created == 0 and second.jobs_queued == 0
+        assert len(list(session.scalars(select(RrugcSourcePlanModel)))) == 4
+
+        manual = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            storage=FakeStorage.__new__(FakeStorage),
+            drive_client_factory=FakeTikTokDrive,
+            analysis_job_limit=2,
+        ))
+        assert manual.jobs_queued == 2
+        assert sum(1 for p in session.scalars(select(RrugcSourcePlanModel))
+                   if p.status == "queued") == 2
 
 
 def test_sync_source_plans_tombstones_missing_source_without_deleting_history_identity():
@@ -1601,6 +1668,7 @@ def test_reviews_stage2_embroidery_page_size_supports_500_rows_without_losing_gr
 
         def list_page(page_number: int, size: int):
             return get_source_plans(
+            workspace="gatorhats",
                 page=page_number,
                 page_size=size,
                 q=None,
@@ -1635,12 +1703,14 @@ def test_source_scan_indexes_root_and_nested_jpg_png_without_gemini_jobs():
         assert first.jobs_queued == 0
         assert session.scalar(select(func.count(ProcessingJobModel.id))) == 0
         page = get_source_plans(
+            workspace="gatorhats",
             page=1, page_size=20, q=None, sort_by="source", sort_dir="asc",
             colorway_sources=True, session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),
         )
         assert page.total == 0  # Non-embroidery images are not Reviews Stage 2 designs.
         pinterest_page = get_source_plans(
+            workspace="gatorhats",
             page=1, page_size=20, q=None, session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),
         )
@@ -1678,6 +1748,7 @@ def test_reviews_stage2_only_uses_prefixed_image_files_not_scout_campaign():
             ))
         session.commit()
         page = get_source_plans(
+            workspace="gatorhats",
             page=1, page_size=20, q=None, sort_by="source", sort_dir="asc",
             colorway_sources=True, colorway_workflow="reviews", session=session,
             principal=SimpleNamespace(active_tenant_id="tenant-a"),

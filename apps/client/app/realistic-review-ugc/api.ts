@@ -281,8 +281,15 @@ export const listSourcePlans = (
   );
 };
 
-export const syncSourcePlans = (colorwayOnly = false, workspace: "gatorhats" | "tiktokshop" = "gatorhats") =>
-  request<SourcePlanSyncResult>("/api/v1/realistic-review-ugc/source-plans/sync?workspace=" + workspace + (colorwayOnly ? "&colorway_sources=true" : ""), {
+export const syncSourcePlans = (
+  colorwayOnly = false,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
+  metadataOnly = false,
+) =>
+  request<SourcePlanSyncResult>(
+    "/api/v1/realistic-review-ugc/source-plans/sync?workspace=" + workspace
+    + (colorwayOnly ? "&colorway_sources=true" : "")
+    + (metadataOnly ? "&metadata_only=true" : ""), {
     method: "POST",
   });
 

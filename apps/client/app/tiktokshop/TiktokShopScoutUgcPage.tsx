@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -60,6 +60,7 @@ export function TiktokShopScoutUgcPage() {
   const [folders, setFolders] = useState<SourcePlanFolders | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const autoSourceImportAttempted = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [jobs, setJobs] = useState<Stage2Job[]>([]);
@@ -82,6 +83,7 @@ export function TiktokShopScoutUgcPage() {
     if (signal?.aborted) return;
     setPage(result);
     setFolders(folderResult);
+    return result;
   }, [pageNumber, pageSize, query, folderPath]);
 
   useEffect(() => {
@@ -96,6 +98,31 @@ export function TiktokShopScoutUgcPage() {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [refresh]);
+
+  // A fresh TikTokShop workspace has no DB source plans until a Drive sync.
+  // Import file metadata once when the unfiltered Stage 3 is first opened.
+  // Never start Gemini, Pinterest Scout or image-generation jobs automatically.
+  useEffect(() => {
+    if (autoSourceImportAttempted.current || loading || syncing || error
+      || page.total !== 0 || pageNumber !== 1 || query.trim() || folderPath) return;
+    autoSourceImportAttempted.current = true;
+    setSyncing(true);
+    void (async () => {
+      try {
+        const result = await syncSourcePlans(false, "tiktokshop", true);
+        setMessage("TikTokShop Drive: imported " + result.images_found
+          + " source photos from " + result.folders_scanned
+          + " folders. No AI analysis jobs were started.");
+        await refresh();
+      } catch (reason) {
+        setError(reason instanceof Error
+          ? "Cannot import TikTokShop Drive photos: " + reason.message
+          : "Cannot import TikTokShop Drive photos. Check Managed Storage access.");
+      } finally {
+        setSyncing(false);
+      }
+    })();
+  }, [loading, syncing, error, page.total, pageNumber, query, folderPath, refresh]);
 
   const refreshJobs = useCallback(async (signal?: AbortSignal) => {
     const result = await listStage2Jobs([], signal, "tiktokshop");
@@ -261,9 +288,9 @@ export function TiktokShopScoutUgcPage() {
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
           <TiktokShopAgentPanel />
           <div className="rrugc-card tiktokshop-stage-note" role="note">
-            <strong>Stage 3 pilot.</strong> Scan imports only TiktokShop Drive sources
-            and queues at most 12 product-context analyses each time.
-            A paired TikTokShop Windows Agent receives only its own campaigns.
+            <strong>Stage 3 · TikTokShop Drive.</strong> Source photos are indexed automatically
+            on first open, without AI jobs. Scan now queues at most 12 product-context
+            analyses; a paired TikTokShop Windows Agent receives only its own campaigns.
           </div>
           <SourcePlanTable
             rootFolderId={TIKTOKSHOP_SOURCE_ROOT}
@@ -281,7 +308,7 @@ export function TiktokShopScoutUgcPage() {
             query={query}
             onQueryChange={value => { setQuery(value); setPageNumber(1); }}
             syncing={syncing}
-            loading={loading}
+            loading={loading || syncing}
             message={message}
             onSync={() => void scanDrive()}
             onPageChange={setPageNumber}

@@ -2568,6 +2568,14 @@ def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeyp
     assert calls[0]["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
     assert calls[0]["queue_analysis"] is True
     assert calls[0]["analysis_job_limit"] == 12
+    assert calls[0]["source_only"] is False
+    metadata = api.post(base + "/source-plans/sync?workspace=tiktokshop&metadata_only=true")
+    assert metadata.status_code == 200
+    assert calls[1]["root_folder_id"] == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    assert calls[1]["queue_analysis"] is False
+    assert calls[1]["source_only"] is True
+    assert calls[1]["analysis_job_limit"] is None
+    assert api.post(base + "/source-plans/sync?workspace=gatorhats&metadata_only=true").status_code == 422
     assert api.post(base + "/source-plans/sync?workspace=tiktokshop&colorway_sources=true").status_code == 422
 
 

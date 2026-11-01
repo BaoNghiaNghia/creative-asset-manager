@@ -18,6 +18,8 @@ describe("Tiktokshop workspace Phase 3 isolation", () => {
     expect(html).toContain("Scout &amp; UGC");
     expect(html).toContain(TIKTOKSHOP_SOURCE_ROOT);
     expect(html).toContain("rrugc-tiktokshop-workspace");
+    expect(html).toContain("TiktokShop Drive");
+    expect(html).toContain("Source photos are indexed automatically");
     expect(html).toContain("Stage 3");
     expect(html).toContain("Stage 4");
     expect(html).toContain("Stage 5");
