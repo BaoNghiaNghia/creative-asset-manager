@@ -9,7 +9,8 @@ import re
 import signal
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
@@ -57,7 +58,7 @@ SLOT1_LEGACY_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_LEGACY_DIRECT_NAME + "|" + SLOT1_LEGACY_DIRECT_VERSION).encode("ascii")
 ).hexdigest()
 SLOT1_DIRECT_NAME = "cam-slot1-thread-reference-inpaint-v2"
-SLOT1_DIRECT_VERSION = "2.0.0"
+SLOT1_DIRECT_VERSION = "2.1.0"
 SLOT1_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_DIRECT_NAME + "|" + SLOT1_DIRECT_VERSION).encode("ascii")
 ).hexdigest()
@@ -537,8 +538,8 @@ def _native_imagegen_digests(
                 native_paths.append(path)
             except (OSError, ValueError, Image.DecompressionBombError):
                 continue
-    # V3's ONLY safe missing-final recovery: one verifiable native image in
-    # THIS job's isolated, initially empty Codex cache. An atomic hard link
+    # Safe missing-final recovery for single-image contracts: exactly one
+    # verifiable native image from THIS initially empty private Codex cache. An atomic hard link
     # preserves exact bytes and hash; neither PIL nor a second ImageGen call
     # is involved. Never guess among multiple native results or overwrite a
     # Codex-written final (including invalid/symlinked files).
@@ -549,7 +550,7 @@ def _native_imagegen_digests(
                 and not target.exists() and not target.is_symlink()):
             try:
                 os.link(native_paths[0], target, follow_symlinks=False)
-                _cleanup_logger.info("creative_v3_single_native_final_promoted")
+                _cleanup_logger.info("single_native_imagegen_final_promoted")
             except OSError as exc:
                 _cleanup_logger.warning(
                     "creative_v3_native_promotion_failed error_type=%s",
@@ -708,8 +709,9 @@ class CodexImageGenRunner:
             return "Codex CLI is not installed."
         if ((self.config.output_contract == "slot1_direct_inpaint"
              and self.config.skill_name == SLOT1_LEGACY_DIRECT_NAME)
-            or (self.config.output_contract == "slot1_reference_inpaint_v2"
-                and self.config.skill_name == SLOT1_DIRECT_NAME)):
+            or (self.config.output_contract in (
+                "slot1_reference_inpaint_v2", "slot1_v2_material_single", "slot1_v2_cap_single"
+            ) and self.config.skill_name == SLOT1_DIRECT_NAME)):
             return None
         skill = self._skill_path()
         if not skill.is_file():
@@ -751,6 +753,102 @@ class CodexImageGenRunner:
             found.add(expected[path.name])
         return tuple(sorted(set(range(1, expected_count + 1)) - found))
 
+    async def _generate_slot1_two_isolated_passes(
+        self, *, attempt_id: str, person: PreparedImage | None,
+        references: list[ReferenceImageInput], prompt: str,
+    ) -> GeneratedImageResult:
+        """Two native tool calls in two separate Codex executions.
+
+        Asking one agent to perform two long edits gave a successful CLI exit
+        without the required two file outputs in production. Serialize each
+        independently verified image; the second execution cannot begin
+        without the first native PNG. Both attempts have unique per-job homes,
+        separate empty native caches and hardlink-only native promotion.
+        """
+        if (self.config.skill_name != SLOT1_DIRECT_NAME or person is None
+                or len(references) != 3 or
+                {item.role for item in references} != {
+                    "design_reference", "slot1_layout_guide", "slot1_edit_mask"}):
+            raise CodexImageProviderError(
+                "slot1_v2_contract_invalid",
+                "Slot 1 V2 requires blank stock, source design, exact guide and edit mask.",
+            )
+        if (not attempt_id or attempt_id in {".", ".."}
+                or "/" in attempt_id or '\\' in attempt_id):
+            raise CodexImageProviderError(
+                "slot1_v2_attempt_invalid", "Invalid isolated job identity.",
+            )
+        ref_by_role = {item.role: item for item in references}
+        macro_runner = CodexImageGenRunner(replace(
+            self.config, output_contract="slot1_v2_material_single",
+        ))
+        photo_runner = CodexImageGenRunner(replace(
+            self.config, output_contract="slot1_v2_cap_single",
+        ))
+        macro_attempt = attempt_id + "-thread-reference"
+        photo_attempt = attempt_id + "-stock-inpaint"
+        try:
+            material = await macro_runner.generate_from_references(
+                attempt_id=macro_attempt,
+                person=ref_by_role["design_reference"].image,
+                references=[ref_by_role["design_reference"]],
+                prompt=prompt,
+            )
+            material_sha = hashlib.sha256(material.image_bytes).hexdigest()
+            if material.provider_metadata.get("native_sha256") != material_sha:
+                raise CodexImageProviderError(
+                    "slot1_v2_material_native_unverified",
+                    "Photographic thread reference lacks native ImageGen provenance.",
+                )
+            strand_image = Image.open(BytesIO(material.image_bytes))
+            try:
+                strand_image.load()
+                material_size = strand_image.size
+            finally:
+                strand_image.close()
+            reference = ReferenceImageInput(
+                image=PreparedImage(
+                    image_bytes=material.image_bytes, mime_type="image/png",
+                    width=material_size[0], height=material_size[1],
+                ),
+                role="slot1_thread_material_reference",
+                label="verified photographic low-profile satin threads; transfer MATERIAL only, never its canvas, text position or background",
+            )
+            photo = await photo_runner.generate_from_references(
+                attempt_id=photo_attempt,
+                person=person,
+                references=[*references, reference],
+                prompt=prompt,
+            )
+            photo_sha = hashlib.sha256(photo.image_bytes).hexdigest()
+            if photo.provider_metadata.get("native_sha256") != photo_sha:
+                raise CodexImageProviderError(
+                    "slot1_v2_cap_native_unverified",
+                    "Cap edit lacks byte-exact native ImageGen provenance.",
+                )
+            if material_sha == photo_sha:
+                raise CodexImageProviderError(
+                    "slot1_v2_identical_passes",
+                    "Material reference and edited factory cap cannot be the same image.",
+                )
+            return GeneratedImageResult(
+                provider="codex", model=self.config.model,
+                image_bytes=photo.image_bytes, mime_type="image/png",
+                provider_request_id=photo.provider_request_id,
+                provider_metadata={
+                    "skill": SLOT1_DIRECT_NAME,
+                    "pipeline_version": SLOT1_DIRECT_NAME,
+                    "native_passes": 2,
+                    "reference_sha256": material_sha,
+                    "edited_sha256": photo_sha,
+                    "reference_target": "sewn_fine_thread_macro",
+                    "edit_target": "unaltered_factory_crown",
+                },
+            )
+        finally:
+            macro_runner.cleanup_attempt(macro_attempt)
+            photo_runner.cleanup_attempt(photo_attempt)
+
     async def generate_from_references(
         self,
         *,
@@ -760,6 +858,14 @@ class CodexImageGenRunner:
         prompt: str,
         resume_missing_numbers: tuple[int, ...] | None = None,
     ) -> GeneratedImageResult:
+        if self.config.output_contract == "slot1_reference_inpaint_v2":
+            if resume_missing_numbers is not None:
+                raise CodexImageProviderError(
+                    "slot1_v2_resume_invalid", "Slot 1 V2 does not use Stage 1 checkpoints.",
+                )
+            return await self._generate_slot1_two_isolated_passes(
+                attempt_id=attempt_id, person=person, references=references, prompt=prompt,
+            )
         if not _SAFE_SKILL_RE.fullmatch(self.config.skill_name):
             raise CodexImageProviderError(
                 "codex_image_skill_invalid",
@@ -779,8 +885,9 @@ class CodexImageGenRunner:
         is_slot1_direct = (
             (self.config.output_contract == "slot1_direct_inpaint"
              and self.config.skill_name == SLOT1_LEGACY_DIRECT_NAME)
-            or (self.config.output_contract == "slot1_reference_inpaint_v2"
-                and self.config.skill_name == SLOT1_DIRECT_NAME)
+            or (self.config.output_contract in (
+                "slot1_v2_material_single", "slot1_v2_cap_single",
+            ) and self.config.skill_name == SLOT1_DIRECT_NAME)
         )
         if not is_slot1_direct and not skill_path.is_file():
             raise CodexImageProviderError(
@@ -912,12 +1019,14 @@ class CodexImageGenRunner:
         if self.config.model:
             argv.extend(["--model", self.config.model])
         if self.config.output_contract in (
-            "slot1_two_pass", "slot1_direct_inpaint", "slot1_reference_inpaint_v2",
+            "slot1_two_pass", "slot1_direct_inpaint",
+            "slot1_v2_material_single", "slot1_v2_cap_single",
         ):
             # The second native pass must be conditioned on viewing the
             # completed first pass. Avoid the single-edit low-effort setting.
-            effort = ("medium" if self.config.output_contract == "slot1_reference_inpaint_v2"
-                      else "low")
+            effort = ("medium" if self.config.output_contract in (
+                "slot1_v2_material_single", "slot1_v2_cap_single"
+            ) else "low")
             argv.extend(["-c", f"model_reasoning_effort={effort}"])
         argv.append(instruction)
 
@@ -997,8 +1106,10 @@ class CodexImageGenRunner:
                             execution_home,
                             promote_single_to=(
                                 output_dir / "final.png"
-                                if self.config.output_contract == "creative_v3_single_slot"
-                                and process.returncode == 0 else None
+                                if self.config.output_contract in (
+                                    "creative_v3_single_slot", "slot1_v2_material_single",
+                                    "slot1_v2_cap_single",
+                                ) and process.returncode == 0 else None
                             ),
                         )
                         shutil.rmtree(transient)
@@ -1147,45 +1258,31 @@ class CodexImageGenRunner:
                 "edited_sha256": digest,
             }
             extra_images = ()
-        elif self.config.output_contract == "slot1_reference_inpaint_v2":
-            # No skill invocation, no simulated texture and no API fallback.
-            # Pass A generates a *photographed yarn reference*; Pass B edits
-            # the ORIGINAL blank cap. Both bytes must be from the isolated
-            # native imagegen cache of this Codex job.
-            if self.config.skill_name != SLOT1_DIRECT_NAME:
+        elif self.config.output_contract in (
+            "slot1_v2_material_single", "slot1_v2_cap_single",
+        ):
+            # Each isolated invocation must yield exactly ONE native image.
+            # If Codex did not copy its cache PNG to final, the single native
+            # result is safely hardlinked there before deleting the cache.
+            is_material = self.config.output_contract == "slot1_v2_material_single"
+            path = output_dir / "final.png"
+            if path.is_symlink() or not path.is_file():
                 raise CodexImageProviderError(
-                    "slot1_v2_contract_invalid", "Incorrect built-in Slot 1 workflow.",
+                    "slot1_v2_material_native_missing" if is_material
+                    else "slot1_v2_cap_native_missing",
+                    "Native ImageGen did not create a single verified photo.",
                     retryable=False,
                 )
-            macro = workspace / "working" / "thread_reference.png"
-            final = output_dir / "final.png"
-            if any(path.is_symlink() or not path.is_file()
-                   or not path.resolve().is_relative_to(workspace.resolve())
-                   for path in (macro, final)):
+            image_bytes = self._valid_png(path, min_size=512)
+            digest = hashlib.sha256(image_bytes).hexdigest()
+            if len(native_image_digests) != 1 or digest not in native_image_digests:
                 raise CodexImageProviderError(
-                    "slot1_v2_reference_or_edit_missing",
-                    "Both the real-thread reference and cap photo edit are required.",
+                    "slot1_v2_material_native_unverified" if is_material
+                    else "slot1_v2_cap_native_unverified",
+                    "Image is not the exact sole native ImageGen result.",
                     retryable=False,
                 )
-            macro_bytes = self._valid_png(macro, min_size=512)
-            image_bytes = self._valid_png(final, min_size=512)
-            macro_hash = hashlib.sha256(macro_bytes).hexdigest()
-            final_hash = hashlib.sha256(image_bytes).hexdigest()
-            if (macro_hash == final_hash or len(native_image_digests) != 2
-                    or {macro_hash, final_hash} != native_image_digests):
-                raise CodexImageProviderError(
-                    "slot1_v2_native_unverified",
-                    "Slot 1 needs exactly two distinct byte-verified native image edits.",
-                    retryable=False,
-                )
-            reference_metadata = {
-                "pipeline_version": SLOT1_DIRECT_NAME,
-                "native_passes": 2,
-                "reference_sha256": macro_hash,
-                "edited_sha256": final_hash,
-                "reference_target": "sewn_fine_thread_macro",
-                "edit_target": "unaltered_factory_crown",
-            }
+            native_metadata = {"native_sha256": digest}
             extra_images = ()
         elif self.config.output_contract == "slot1_two_pass":
             if self.config.skill_name != "gatorhats-8869-slot1-threadtransfer-lite-v1":
@@ -1282,7 +1379,9 @@ class CodexImageGenRunner:
                 "skill": self.config.skill_name,
                 **(two_pass_metadata if self.config.output_contract == "slot1_two_pass" else {}),
                 **(direct_metadata if self.config.output_contract == "slot1_direct_inpaint" else {}),
-                **(reference_metadata if self.config.output_contract == "slot1_reference_inpaint_v2" else {}),
+                **(native_metadata if self.config.output_contract in (
+                    "slot1_v2_material_single", "slot1_v2_cap_single",
+                ) else {}),
                 **({"typography_v2_native_verified": True,
                     "native_sha256": hashlib.sha256(image_bytes).hexdigest()}
                    if self.config.output_contract in ("typography_v2_single_slot", "creative_v3_single_slot") else {}),
@@ -1904,46 +2003,63 @@ class CodexImageGenRunner:
                 "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
                 + extra_block
             )
-        if self.config.output_contract == "slot1_reference_inpaint_v2":
-            if (self.config.skill_name != SLOT1_DIRECT_NAME
-                    or not person_name or
-                    {role for role, _ in references} != {
-                        "design_reference", "slot1_layout_guide", "slot1_edit_mask"}):
-                raise ValueError("Slot 1 v2 requires only the original blank stock and three references.")
+        if self.config.output_contract == "slot1_v2_material_single":
+            if (self.config.skill_name != SLOT1_DIRECT_NAME or not person_name
+                    or {role for role, _ in references} != {"design_reference"}):
+                raise ValueError("Slot 1 V2 material edit requires the exact design PNG.")
             return (
-                "BUILT-IN STAGE 2 FRONT THREAD-REFERENCE INPAINT V2. "
-                "Call actual native $imagegen IMAGE-EDIT EXACTLY TWICE. "
-                "No custom Skill, text-to-image hat, raster faux-stitch or extra previews.\n"
-                f"Read the source art and role-labeled images first: {reference_lines}\n"
-                "PASS A: IMAGE-EDIT design_reference into working/thread_reference.png: "
-                "a close-up photograph of that EXACT complete lettering physically "
-                "machine embroidered on clean pale tightly woven cotton twill. "
-                "Show minute separate 40wt machine-thread filaments (60wt for tiny strokes), narrow low-profile satin "
-                "across each stroke and dense fine tatami fill on wide letter interiors. "
-                "Fiber grooves must be hairline and directional, not fat cord strips. "
-                "Preserve every word, line, color and glyph. NO foam/puff, carved bevel, "
-                "thick glossy rubber, dark extruded border or sticker. "
-                "This is a temporary MATERIAL benchmark, not a hat or final output.\n"
-                f"PASS B: IMAGE-EDIT {person_name} as the ONLY target. This file is a "
-                "real ORIGINAL UNPRINTED factory cap crown crop. Inspect both "
-                "thread_reference.png and the original photo. "
-                "Transfer ONLY A's fine strand material, stitch direction and gentle "
-                "thread light response; DO NOT copy A's cloth, camera, dimensions, "
-                "letter positioning or extra wording. "
-                "Use slot1_layout_guide for EXACT typography, pigments, line breaks, "
-                "size and position. slot1_edit_mask is a visual placement reference "
-                "(NOT a true provider mask); black means original stock must not move. "
-                "Sew the existing art into the ORIGINAL fabric, fitting its curvature, "
-                "twill weave, local shadows, lighting and perspective. "
-                "The result is LOW-RELIEF embroidery: individual very fine strands with "
-                "tiny discontinuous contact shadows, never fat ridges, raised bubble "
-                "letters or a dark embossed outline. Preserve the cap's crown, factory "
-                "side logo, bill, seams and all unedited pixels. "
-                "NO replacement cap, change of camera, resized artwork or text retyping. "
-                "Copy the unchanged native PASS B PNG to output/final.png. "
-                "Copy the unchanged native PASS A PNG to working/thread_reference.png. "
-                "If either edit fails, STOP; do not fabricate or publish a fake image. "
-                "Do not use API-key-backed providers.\n"
+                "STAGE 2 SLOT 1: NATIVE IMAGEGEN PASS A OF TWO SEPARATE EXECUTIONS. "
+                "Use actual built-in $imagegen in IMAGE-EDIT mode NOW, once only. "
+                f"First view IMAGE-EDIT TARGET {person_name} and the matching "
+                f"role-labelled design_reference {reference_lines}. "
+                "Produce a sharply photographed real machine-embroidery macro "
+                "of the SAME EXACT design on light cream woven cotton twill. "
+                "Preserve all text, line breaks, lettering geometry, independent "
+                "thread colors and arrangement. Show fine 40wt satin filaments, "
+                "smaller 60wt details and dense low-relief tatami fills. "
+                "Photograph individual narrow silk-like yarn strands and short, "
+                "directional highlights, NOT puffy foam, broad striped rubber "
+                "cords, extruded bevel, heavy drop shadows, plastic or print. "
+                "You are making the stitch MATERIAL reference only; not a hat. "
+                "Make EXACTLY ONE native imagegen call. Save its unmodified PNG "
+                "at output/final.png if available. The worker can recover the "
+                "sole untouched native image cache if it is not copied. "
+                "Do not render with Python, do not use a custom Skill, API-key "
+                "backup, fabricated PNG or extra generations. "
+                + extra_block
+            )
+        if self.config.output_contract == "slot1_v2_cap_single":
+            if (self.config.skill_name != SLOT1_DIRECT_NAME or not person_name
+                    or {role for role, _ in references} != {
+                        "design_reference", "slot1_edit_mask",
+                        "slot1_layout_guide", "slot1_thread_material_reference"}):
+                raise ValueError("Slot 1 V2 cap edit needs four trusted inputs.")
+            return (
+                "STAGE 2 SLOT 1: NATIVE IMAGEGEN PASS B OF TWO SEPARATE EXECUTIONS. "
+                "PASS A finished and was byte-verified before this execution. "
+                "Call actual built-in $imagegen in IMAGE-EDIT mode ONCE. "
+                f"First view IMAGE-EDIT TARGET {person_name}: the ORIGINAL "
+                "UNPRINTED factory 8869 crown crop, not a simulated hat. "
+                f"Also view the four exact aligned references: {reference_lines}. "
+                "Only transfer the strand-scale satin/tatami fiber MATERIAL "
+                "and low-profile luminosity from slot1_thread_material_reference. "
+                "DO NOT transfer reference fabric, word placement or camera. "
+                "Use slot1_layout_guide to reproduce EVERY original glyph, "
+                "line break, layout, spacing, size and color from Stage 1. "
+                "The slot1_edit_mask is a placement reference, NOT a true "
+                "provider-native mask; its black area must stay original. "
+                "Gently sew the original artwork ONTO THE PHOTO'S ORIGINAL "
+                "CURVED TWILL, honoring panel geometry and its light. Fine "
+                "individual hairline threads with low relief and discontinuous "
+                "needle-contact shadows, not thick cords, bubble lettering, "
+                "bevels, dark outlines or pasted graphics. "
+                "Preserve exact surrounding factory fabric, seams, brim, logo "
+                "and camera/framing; do NOT generate a replacement cap. "
+                "Make EXACTLY ONE native imagegen call. Save native image "
+                "unchanged to output/final.png if possible; the worker will "
+                "recover the sole native result if Codex does not copy it. "
+                "No text-only completion, Python filters, extra generation, "
+                "Custom Skill or paid API fallback. "
                 + extra_block
             )
         if self.config.output_contract == "slot1_direct_inpaint":

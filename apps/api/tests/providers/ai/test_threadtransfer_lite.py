@@ -246,24 +246,29 @@ def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch
 
 
 
-@pytest.mark.parametrize("mode,error_code", [
-    ("native", None),
-    ("missing_macro", "slot1_v2_reference_or_edit_missing"),
-    ("missing_final", "slot1_v2_reference_or_edit_missing"),
-    ("wrong_macro", "slot1_v2_native_unverified"),
-    ("wrong_final", "slot1_v2_native_unverified"),
-    ("duplicate_native", "slot1_v2_native_unverified"),
-    ("extra_native", "slot1_v2_native_unverified"),
+@pytest.mark.parametrize("mode,expected_error,expected_runs", [
+    ("native", None, 2),
+    ("missing_macro", "slot1_v2_material_native_missing", 1),
+    ("missing_final", "slot1_v2_cap_native_missing", 2),
+    ("wrong_macro", "slot1_v2_material_native_unverified", 1),
+    ("wrong_final", "slot1_v2_cap_native_unverified", 2),
+    ("extra_macro", "slot1_v2_material_native_unverified", 1),
+    ("extra_native", "slot1_v2_cap_native_unverified", 2),
+    ("duplicate_native", "slot1_v2_identical_passes", 2),
 ])
-def test_builtin_slot1_v2_requires_two_distinct_native_edits(
-    tmp_path, monkeypatch, mode, error_code,
+def test_builtin_slot1_v2_serializes_two_verified_single_image_edits(
+    tmp_path, monkeypatch, mode, expected_error, expected_runs,
 ):
-    """V2 requires a real material pass and then the actual cap photo edit."""
+    """Production failure: a single multi-edit prompt returned zero files.
+
+    Each pass now has its own verified native cache, own Codex invocation and
+    hard-link promotion; Pass B cannot start if Pass A has no authentic image.
+    """
     home = tmp_path / "bare-home"
     home.mkdir()
     reference = png("blue")
     edited = png("green")
-    captured = {}
+    calls = []
 
     class FakeProcess:
         returncode = 0
@@ -274,32 +279,39 @@ def test_builtin_slot1_v2_requires_two_distinct_native_edits(
             self.stdout.feed_eof()
             self.stderr = asyncio.StreamReader()
             self.stderr.feed_eof()
-            workspace = Path(captured["workspace"])
+            invocation = calls[-1]
+            workspace = Path(invocation["workspace"])
+            stage = invocation["stage"]
             folder = workspace / ".codex-runtime" / "generated_images" / str(UUID(int=11))
             folder.mkdir(parents=True)
-            files = [reference, edited]
-            if mode == "duplicate_native":
-                files = [edited]
-            if mode == "extra_native":
-                files.append(png("red"))
-            for index, data in enumerate(files):
-                (folder / f"exec-{UUID(int=index + 1)}.png").write_bytes(data)
-            (workspace / "working").mkdir()
-            if mode != "missing_macro":
-                (workspace / "working" / "thread_reference.png").write_bytes(
-                    png("red") if mode == "wrong_macro" else reference
-                )
-            if mode != "missing_final":
+            if stage == "material" and mode != "missing_macro":
+                native = [reference]
+                if mode == "extra_macro":
+                    native.append(png("yellow"))
+            elif stage == "cap" and mode != "missing_final":
+                native = [reference if mode == "duplicate_native" else edited]
+                if mode == "extra_native":
+                    native.append(png("red"))
+            else:
+                native = []
+            for i, image in enumerate(native, start=1):
+                (folder / f"exec-{UUID(int=i)}.png").write_bytes(image)
+            if mode in ("wrong_macro", "extra_macro") and stage == "material":
                 (workspace / "output" / "final.png").write_bytes(
-                    png("yellow") if mode == "wrong_final" else edited
+                    png("purple") if mode == "wrong_macro" else reference
+                )
+            if mode in ("wrong_final", "extra_native") and stage == "cap":
+                (workspace / "output" / "final.png").write_bytes(
+                    png("purple") if mode == "wrong_final" else edited
                 )
 
         async def wait(self):
             return 0
 
     async def launch(*args, **kwargs):
-        captured["args"] = args
-        captured["workspace"] = args[args.index("-C") + 1]
+        workspace = Path(args[args.index("-C") + 1])
+        stage = "material" if workspace.name.endswith("-thread-reference") else "cap"
+        calls.append({"workspace": str(workspace), "stage": stage, "args": args})
         return FakeProcess()
 
     monkeypatch.setattr("app.providers.ai.codex_image.shutil.which",
@@ -316,29 +328,32 @@ def test_builtin_slot1_v2_requires_two_distinct_native_edits(
             image_bytes=png("tan"), mime_type="image/png", width=600, height=600,
         ), role=role, label=role
     ) for role in ("design_reference", "slot1_layout_guide", "slot1_edit_mask")]
-    run = runner.generate_from_references(
+    request = runner.generate_from_references(
         attempt_id="v2-smoke", person=PreparedImage(
             image_bytes=png("white"), mime_type="image/png", width=600, height=600,
-        ), references=refs, prompt="Thin real satin stitching.",
+        ), references=refs, prompt="Photographic low-relief fine satin.",
     )
-    if error_code:
-        with pytest.raises(CodexImageProviderError) as error:
-            asyncio.run(run)
-        assert error.value.code == error_code
+    if expected_error:
+        with pytest.raises(CodexImageProviderError) as exc:
+            asyncio.run(request)
+        assert exc.value.code == expected_error
     else:
-        result = asyncio.run(run)
+        result = asyncio.run(request)
         assert result.image_bytes == edited
         assert result.provider_metadata["pipeline_version"] == SLOT1_DIRECT_NAME
         assert result.provider_metadata["native_passes"] == 2
         assert result.provider_metadata["reference_sha256"] != result.provider_metadata["edited_sha256"]
-    prompt = captured["args"][-1]
-    assert "model_reasoning_effort=medium" in captured["args"]
-    assert "IMAGE-EDIT EXACTLY TWICE" in prompt
-    assert "PASS A" in prompt and "PASS B" in prompt
-    assert "working/thread_reference.png" in prompt
-    assert "ORIGINAL UNPRINTED" in prompt
-    assert "very fine strands" in prompt
-    assert "slot1_edit_mask" in prompt and "slot1_layout_guide" in prompt
-    assert "not a true provider mask" in prompt.lower()
-    assert "Use $cam-slot1" not in prompt
-    assert not (Path(captured["workspace"]) / ".codex-runtime" / "generated_images").exists()
+    assert len(calls) == expected_runs
+    assert calls[0]["stage"] == "material"
+    assert "model_reasoning_effort=medium" in calls[0]["args"]
+    assert "40wt satin filaments" in calls[0]["args"][-1]
+    assert "Make EXACTLY ONE native imagegen call" in calls[0]["args"][-1]
+    if len(calls) == 2:
+        assert calls[1]["stage"] == "cap"
+        assert "model_reasoning_effort=medium" in calls[1]["args"]
+        assert "ORIGINAL UNPRINTED" in calls[1]["args"][-1]
+        assert "slot1_thread_material_reference" in calls[1]["args"][-1]
+        assert "Make EXACTLY ONE native imagegen call" in calls[1]["args"][-1]
+    for call in calls:
+        assert not Path(call["workspace"]).exists(), "Intermediate/reference cache must be cleaned"
+    assert not (tmp_path / "staging" / "codex" / "v2-smoke").exists()
