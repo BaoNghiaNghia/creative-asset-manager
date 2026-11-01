@@ -459,3 +459,48 @@ def test_direct_inpaint_fails_if_raw_provider_redraws_original_hat():
             material, png(Image.fromarray(altered, "RGB")),
             clip_raw_halo=True, require_raw_stock=True,
         )
+
+def test_v2_fine_thread_profile_keeps_original_cap_and_real_yarn():
+    stock = Image.new("RGB", (512, 640), (234, 222, 202))
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    material = build_slot1_material_pass(
+        png(stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    output = finish_slot1_refinement(
+        material, refined_candidate(material, square=True),
+        clip_raw_halo=True, require_raw_stock=True, fine_thread_profile=True,
+    )
+    edited = np.asarray(Image.open(BytesIO(output)))
+    original = np.asarray(material.stock)
+    mask = np.asarray(material.edit_mask, dtype=np.uint8) > 0
+    core = np.asarray(material.thread_mask, dtype=np.uint8) > 200
+    assert np.array_equal(edited[~mask], original[~mask])
+    assert np.mean(np.abs(edited[core].astype(float)-original[core].astype(float))) > 18
+
+
+def test_v2_rejects_thick_rope_ridges_even_when_fine_fibers_are_present():
+    stock = Image.new("RGB", (512, 640), (234, 222, 202))
+    art = Image.new("RGBA", (420, 160), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((30, 40, 390, 115), fill=(12, 55, 176, 255))
+    material = build_slot1_material_pass(
+        png(stock), png(art), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    raw = np.array(Image.open(BytesIO(refined_candidate(material, square=True))),
+                   dtype=np.float32)
+    mask = np.asarray(Image.open(BytesIO(material.edit_mask_png()))) > 220
+    yy, xx = np.indices(mask.shape)
+    # Smooth thick cords: the old profile accepted this material despite
+    # its visibly coarse 7-pixel ridges. V2 must reject it.
+    rope = np.sin((xx * .91 + yy * .09) * 2 * np.pi / 7.0) * 60
+    raw[mask] += rope[mask, None]
+    candidate = png(Image.fromarray(np.uint8(np.clip(raw, 0, 255)), "RGB"))
+    assert finish_slot1_refinement(
+        material, candidate, clip_raw_halo=True, fine_thread_profile=False,
+    ), "Historical material QA incorrectly accepted these fat cords"
+    with pytest.raises(Slot1EmbroideryQAError, match="cord-like satin ridges"):
+        finish_slot1_refinement(
+            material, candidate, clip_raw_halo=True, fine_thread_profile=True,
+        )

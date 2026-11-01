@@ -6365,7 +6365,7 @@ def ecommerce_input_readiness(
     slots = []
     for shot in SHOTS:
         if shot.stage == "prod_s2_ec1":
-            # Built-in direct edit does not require a local Skill assignment.
+            # Built-in two-pass reference/photo edit needs no uploaded Skill.
             skill_ready = True
         else:
             assignment = session.get(
@@ -6382,7 +6382,7 @@ def ecommerce_input_readiness(
             shot.stage, assets, worker_ready=worker_ready, skill_ready=skill_ready,
         )
         if shot.stage == "prod_s2_ec1":
-            entry["pipeline"] = "direct-inpaint-v1"
+            entry["pipeline"] = "thread-reference-inpaint-v2"
             entry["custom_skill_required"] = False
         slots.append(entry)
     return {

@@ -103,7 +103,8 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
     const builtIn = host.querySelector('[data-stage2-slot="prod_s2_ec1"]');
-    expect(builtIn?.textContent).toContain("Direct Inpaint");
+    expect(builtIn?.textContent).toContain("Thread Inpaint V2");
+    expect(builtIn?.textContent).toContain("2 ImageGen edits");
     expect(builtIn?.textContent).toContain("no Skill ZIP");
     expect(builtIn?.querySelector("select")).toBeNull();
     await openLibrary(host);

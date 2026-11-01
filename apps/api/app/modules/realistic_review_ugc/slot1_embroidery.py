@@ -43,6 +43,7 @@ def lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
         "AI edit still resembles flat printed lettering.": "flat_print",
         "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
         "AI edit has oversized plastic-like stitch ridges.": "coarse_ridges",
+        "AI edit still has thick cord-like satin ridges.": "thick_stitch_ridges",
         "AI edit has a thick embossed shadow halo.": "emboss_halo",
         "AI edit has broad embossed lighting across the glyphs.": "emboss_lighting",
         "Final embroidery lacks photographic thread detail.": "missing_thread_detail",
@@ -287,6 +288,7 @@ def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Ima
 def finish_slot1_refinement(
     material: Slot1MaterialPass, generated_bytes: bytes, *, clip_raw_halo: bool = False,
     require_raw_stock: bool = False,
+    fine_thread_profile: bool = False,
 ) -> bytes:
     """Use AI-created thread material, clipped to exact original Stage 1 glyph alpha.
 
@@ -432,6 +434,18 @@ def finish_slot1_refinement(
             if float(np.median(directionality[interior])) < .32:
                 raise Slot1EmbroideryQAError("AI edit lacks directional satin thread fibers.")
 
+            if fine_thread_profile:
+                # Real fine satin has many narrow filaments and only small,
+                # low-amplitude cross-stitch relief. A giant cord/puff also
+                # exhibits directional fibers, so older QA could approve it.
+                # Inspect only eroded canonical glyph INTERIORS: edges and
+                # printed artwork outlines must never count as stitches.
+                mid_p95 = float(np.percentile(np.abs(mid[interior]), 95))
+                fine_p95 = float(np.percentile(np.abs(fine[interior]), 95))
+                if mid_p95 > 48.0 and mid_p95 > fine_p95 * 1.48:
+                    raise Slot1EmbroideryQAError(
+                        "AI edit still has thick cord-like satin ridges.")
+
     # Reject large dark emboss halos before the masked composite removes them.
     broad = np.uint8(alpha >= .5)
     near = cv2.dilate(broad, np.ones((7, 7), np.uint8)).astype(bool) & ~(broad.astype(bool))
@@ -455,6 +469,39 @@ def finish_slot1_refinement(
     # organic thread detail, not just a tiny highpass of it.
     color_shift = np.clip(np.median(pigment[core] - candidate[core], axis=0), -22, 22)
     threads = np.clip(candidate + color_shift[None, None, :], 0, 255)
+    if fine_thread_profile and material.edit_roi_box is not None:
+        # Prevent a broad fake 3D bulge from surviving even a model that has
+        # beautiful *fine* fibers layered over it. Remove only the slowly
+        # varying artificial bump, retaining strand-scale photographic detail
+        # and gentle low-relief light. Each independent pigment group gets
+        # its own neutral tonal baseline (no blue/green pigment remapping).
+        guide_luma = cv2.cvtColor(np.uint8(guide), cv2.COLOR_RGB2GRAY).astype(np.float32)
+        alpha_weight = np.asarray(material.thread_mask, dtype=np.float32) / 255.
+        blurred_weight = cv2.GaussianBlur(alpha_weight, (0, 0), 5.0)
+        smooth_delta = (
+            cv2.GaussianBlur((candidate_luma - guide_luma) * alpha_weight,
+                             (0, 0), 5.0)
+            / np.maximum(blurred_weight, .02)
+        )
+        pigment_rgb = np.uint8(np.clip(pigment, 0, 255))
+        pigment_hsv = cv2.cvtColor(pigment_rgb, cv2.COLOR_RGB2HSV)
+        groups = (pigment_hsv[:, :, 0].astype(np.int16) // 12
+                  + 16 * (pigment_hsv[:, :, 1] >= 45))
+        tonal_adjustment = np.zeros(smooth_delta.shape, np.float32)
+        for group in np.unique(groups[core]):
+            members = core & (groups == group)
+            if int(np.count_nonzero(members)) < 20:
+                continue
+            center = float(np.median(smooth_delta[members]))
+            # Only the LOW frequency beyond +/-10 luma counts is removed;
+            # fine thread filaments, per-color hues and real twill remain.
+            excess = smooth_delta - center
+            correction = excess - np.clip(excess, -10., 10.)
+            tonal_adjustment[groups == group] = correction[groups == group]
+        threads = np.clip(
+            threads - tonal_adjustment[..., None] * alpha_weight[..., None],
+            0, 255,
+        )
     effective_alpha = np.clip(alpha * .99, 0, 1)
     final = stock * (1 - effective_alpha[..., None]) + threads * effective_alpha[..., None]
     if material.contact_width_px:

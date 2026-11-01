@@ -61,6 +61,8 @@ from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
     SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
+    SLOT1_LEGACY_DIRECT_NAME, SLOT1_LEGACY_DIRECT_VERSION,
+    SLOT1_LEGACY_DIRECT_SHA256,
 )
 
 JOB_TYPE = "rrugc_ecommerce_generate"
@@ -1128,11 +1130,17 @@ class EcommerceGenerateHandler:
             is_direct_job = (
                 row.stage == "prod_s2_ec1"
                 and row.skill_source == "internal"
-                and row.skill_name == SLOT1_DIRECT_NAME
+                and row.skill_name in {SLOT1_DIRECT_NAME, SLOT1_LEGACY_DIRECT_NAME}
             )
             if is_direct_job:
-                if (row.skill_version != SLOT1_DIRECT_VERSION
-                        or row.skill_bundle_sha256 != SLOT1_DIRECT_SHA256):
+                # Running and previously queued v1 jobs retain their exact
+                # pinned contract; explicit Retry/Regenerate adopts v2.
+                expected = (
+                    (SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256)
+                    if row.skill_name == SLOT1_DIRECT_NAME
+                    else (SLOT1_LEGACY_DIRECT_VERSION, SLOT1_LEGACY_DIRECT_SHA256)
+                )
+                if (row.skill_version, row.skill_bundle_sha256) != expected:
                     raise EcommerceError("ecommerce_pipeline_changed", "Slot 1 built-in version changed.")
             else:
                 # Preserve old queued two-pass and legacy jobs with their
@@ -1178,7 +1186,9 @@ class EcommerceGenerateHandler:
         # current pinned photo/preview contract.
         slot1_material = None
         is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
-        is_direct = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
+        is_reference = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
+        is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
+        is_direct = is_reference or is_direct_legacy
         references = []
         if stage != "prod_s2_ec4":
             design_bytes = await self._open_bytes(storage, context,
@@ -1416,9 +1426,13 @@ class EcommerceGenerateHandler:
                 "flat paint, hard outline, foam, rubber or 3D emboss. "
                 "Preserve all original words/colors/position. Two images, no extras."
             )
-        if is_direct:
-            # No SKILL.md, stacked v4 text, two-pass macro or extra model plan.
-            # One actual source photo edit with fixed canonical references.
+        if is_reference:
+            # Built-in, skill-free two-step workflow. A is a fine material photo;
+            # B is the actual edit of the original unprinted factory crown.
+            prompt = "Slot 1 built-in fine-thread reference then original-stock inpaint."
+        elif is_direct_legacy:
+            # Preserve the earlier pinned single-edit behavior only for
+            # already-queued v1 jobs; do not silently upgrade in flight.
             prompt = "Slot 1 built-in direct embroidery photo edit; protect unaltered stock."
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
@@ -1432,7 +1446,8 @@ class EcommerceGenerateHandler:
                     staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT",
                                             "/var/lib/creative-asset-manager/image-generation")),
                     skill_name=skill_name,
-                    output_contract=("slot1_direct_inpaint" if is_direct else
+                    output_contract=("slot1_reference_inpaint_v2" if is_reference else
+                                     "slot1_direct_inpaint" if is_direct_legacy else
                                      "slot1_two_pass" if is_lite else "single_png"),
                     timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
@@ -1456,6 +1471,7 @@ class EcommerceGenerateHandler:
                     slot1_material, generated.image_bytes,
                     clip_raw_halo=is_lite or is_direct,
                     require_raw_stock=is_direct,
+                    fine_thread_profile=is_reference,
                 )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
@@ -1501,18 +1517,22 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": ("direct-inpaint-v1" if is_direct else
+                                    "version": ("thread-reference-inpaint-v2" if is_reference else
+                                                "direct-inpaint-v1" if is_direct_legacy else
                                                 "threadtransfer-lite-v1" if is_lite else
                                                 "ai-material-localized-v3"),
                                     **({"native_passes": generated.provider_metadata["native_passes"],
                                         "edited_sha256": generated.provider_metadata["edited_sha256"],
                                         **({"macro_sha256": generated.provider_metadata["macro_sha256"]}
-                                           if is_lite else {})}
+                                           if is_lite else {}),
+                                        **({"reference_sha256": generated.provider_metadata["reference_sha256"]}
+                                           if is_reference else {})}
                                        if is_lite or is_direct else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
-                                    **({"material_revision": ("single-native-edit-v1" if is_direct
-                                                               else "roi-original-stock-inpaint-v1.3"),
+                                    **({"material_revision": ("fine-thread-reference-v2" if is_reference else
+                                                               "single-native-edit-v1" if is_direct_legacy else
+                                                               "roi-original-stock-inpaint-v1.3"),
                                         "edit_target": "original_unprinted_stock",
                                         "layout_role": "slot1_layout_guide",
                                         "native_front_roi": list(slot1_material.edit_roi_box),

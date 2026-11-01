@@ -3,7 +3,7 @@ import type { RrugcWorkflowGroup } from "./workflowRouting";
 /** One Skill per Ecommerce image, plus one per Multi-hat, UGC, and colorway group.
  * Photo workers remain gated; these rows configure Skill assignments only. */
 export const PRODUCT_STAGE2_SKILL_SLOTS = [
-  { key: "prod_s2_ec1", title: "Slot 1", label: "Front · Direct Inpaint", detail: "Built-in image edit · 1 generation · no custom Skill", expectedSkill: null, active: true },
+  { key: "prod_s2_ec1", title: "Slot 1", label: "Front · Thread Inpaint V2", detail: "Built-in · 2 native ImageGen edits: fine thread reference → original cap inpaint · no custom Skill", expectedSkill: null, active: true },
   { key: "prod_s2_ec2", title: "Skill 2", label: "Ecommerce · Image 02", detail: "Front Right 3/4 · 1 photo output", expectedSkill: null, active: true },
   { key: "prod_s2_ec3", title: "Skill 3", label: "Ecommerce · Image 03", detail: "Right Side · 1 photo output", expectedSkill: null, active: true },
   { key: "prod_s2_ec4", title: "Skill 4", label: "Ecommerce · Image 04", detail: "Back High · 1 photo output", expectedSkill: null, active: true },

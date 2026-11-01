@@ -414,10 +414,10 @@ export function SkillManagerModal({
                 return <div key={slot.key} className="rrugc-workflow-skill-slot" data-stage2-slot="prod_s2_ec1">
                   <span className="rrugc-stage-default-label">
                     <span className="rrugc-stage-default-icon is-prod_s2_ec1"><SkillIcon name="image" size={15} /></span>
-                    <span><strong>Slot 1</strong><small>Front · Direct Inpaint</small></span>
+                    <span><strong>Slot 1</strong><small>Front · Thread Inpaint V2</small></span>
                   </span>
-                  <strong className="rrugc-skill-slot-note">Built-in · 1 ImageGen edit · no Skill ZIP</strong>
-                  <small className="rrugc-skill-slot-note">Original 8869 stock + exact design + edit area. Historical Skills remain in the library for old outputs.</small>
+                  <strong className="rrugc-skill-slot-note">Built-in · 2 ImageGen edits · no Skill ZIP</strong>
+                  <small className="rrugc-skill-slot-note">1: Real fine-thread reference. 2: Inpaint original 8869 crown. Reject puff/emboss and preserve all original stock outside stitches.</small>
                 </div>;
               }
               const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);

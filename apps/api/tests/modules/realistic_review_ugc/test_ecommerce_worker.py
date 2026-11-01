@@ -79,6 +79,7 @@ def test_all_multi_hat_and_ugc_shots_receive_calibrated_front_master():
     ("prod_s2_ec1", "legacy"),
     ("prod_s2_ec1", "lite"),
     ("prod_s2_ec1", "direct"),
+    ("prod_s2_ec1", "direct_v1"),
     ("prod_s2_mh_1", "other"), ("prod_s2_mh_2", "other"),
     ("prod_s2_mh_3", "other"), ("prod_s2_ugc_1", "other"),
     ("prod_s2_ugc_2", "other"), ("prod_s2_ugc_3", "other"),
@@ -106,12 +107,15 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             id=job_id, tenant_id="tenant-1", source_plan_id="source-plan",
             source_revision="rev-1", stage=stage,
             stock_sha256=stock_digest,
-            skill_source="internal" if front_mode == "direct" else "local",
+            skill_source="internal" if front_mode in ("direct", "direct_v1") else "local",
             skill_name=(pipeline.SLOT1_DIRECT_NAME if front_mode == "direct"
+                        else pipeline.SLOT1_LEGACY_DIRECT_NAME if front_mode == "direct_v1"
                         else "gatorhats-8869-slot1-threadtransfer-lite-v1"
                         if front_mode == "lite" else "sample-ecommerce-image"),
-            skill_version=pipeline.SLOT1_DIRECT_VERSION if front_mode == "direct" else None,
+            skill_version=(pipeline.SLOT1_DIRECT_VERSION if front_mode == "direct"
+                           else pipeline.SLOT1_LEGACY_DIRECT_VERSION if front_mode == "direct_v1" else None),
             skill_bundle_sha256=(pipeline.SLOT1_DIRECT_SHA256 if front_mode == "direct"
+                                 else pipeline.SLOT1_LEGACY_DIRECT_SHA256 if front_mode == "direct_v1"
                                  else "1"*64),
             created_by_user_id="operator", status="queued", processing_job_id=process_id,
         ))
@@ -158,14 +162,15 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             self.config = config
 
         async def generate_from_references(self, *, person, references, prompt, **kwargs):
-            calls.append({"references": references, "prompt": prompt, "person": person})
+            calls.append({"references": references, "prompt": prompt, "person": person,
+                          "contract": self.config.output_contract})
             image_data = _image()
             if stage == "prod_s2_ec1":
                 import numpy as np
                 mask_ref = next(r for r in references if r.role == "slot1_edit_mask")
                 with Image.open(BytesIO(mask_ref.image.image_bytes)) as mask_image:
                     selected = np.asarray(mask_image.convert("L")) > 180
-                if front_mode in ("lite", "direct"):
+                if front_mode in ("lite", "direct", "direct_v1"):
                     # A real inpaint adds yarn to a BLANK original target.
                     # Fake the edited result using the separate placement
                     # reference and coherent directional fibers, never the
@@ -193,8 +198,9 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                 image_data = stream.getvalue()
             return SimpleNamespace(
                 image_bytes=image_data, mime_type="image/png",
-                provider_metadata={"native_passes": 1 if front_mode == "direct" else 2,
+                provider_metadata={"native_passes": 1 if front_mode == "direct_v1" else 2,
                                    "macro_sha256": "a"*64,
+                                   "reference_sha256": "c"*64,
                                    "edited_sha256": "b"*64},
             )
 
@@ -251,33 +257,37 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     assert len(calls) == 1
     assert calls[0]["references"][0].role == "design_reference"
     assert calls[0]["references"][1].role == (
-        "slot1_edit_mask" if front_mode == "direct" else
+        "slot1_edit_mask" if front_mode in ("direct", "direct_v1") else
         "unaltered_stock_reference" if stage == "prod_s2_ec1"
         else "embroidered_front_preview"
     )
     if stage == "prod_s2_ec1":
-        assert calls[0]["references"][1 if front_mode == "direct" else 2].role == "slot1_edit_mask"
+        assert calls[0]["references"][1 if front_mode in ("direct", "direct_v1") else 2].role == "slot1_edit_mask"
         assert calls[0]["person"].mime_type == "image/png"
         assert all(ref.role != "embroidered_front_preview"
                    for ref in calls[0]["references"])
-        if front_mode in ("lite", "direct"):
-            layout_index = 2 if front_mode == "direct" else 3
-            mask_index = 1 if front_mode == "direct" else 2
+        if front_mode in ("lite", "direct", "direct_v1"):
+            layout_index = 2 if front_mode in ("direct", "direct_v1") else 3
+            mask_index = 1 if front_mode in ("direct", "direct_v1") else 2
             assert calls[0]["references"][layout_index].role == "slot1_layout_guide"
             assert calls[0]["person"].width == calls[0]["references"][mask_index].image.width
             assert calls[0]["person"].width == calls[0]["references"][layout_index].image.width
             if front_mode == "lite":
                 assert "UNPRINTED original factory cap" in calls[0]["prompt"]
+            elif front_mode == "direct":
+                assert calls[0]["prompt"].startswith("Slot 1 built-in fine-thread reference")
+                assert calls[0]["contract"] == "slot1_reference_inpaint_v2"
             else:
                 assert calls[0]["prompt"].startswith("Slot 1 built-in direct")
+                assert calls[0]["contract"] == "slot1_direct_inpaint"
             assert "slot1_layout_guide" in calls[0]["references"][layout_index].role
         else:
             assert "white of slot1_edit_mask" in calls[0]["prompt"]
     assert len(calls[0]["references"]) >= 2
-    if front_mode == "direct":
+    if front_mode in ("direct", "direct_v1"):
         assert calls[0]["references"][1].role == "slot1_edit_mask"
         assert len(calls[0]["references"]) == 3
-    if front_mode in ("lite", "direct"):
+    if front_mode in ("lite", "direct", "direct_v1"):
         assert "FRONT high" not in calls[0]["prompt"]
         assert "canonical-design-direct-thread-v4" not in calls[0]["prompt"]
     else:

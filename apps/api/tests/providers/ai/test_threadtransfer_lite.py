@@ -13,7 +13,7 @@ from PIL import Image
 from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageProviderError, CodexImageRunnerConfig,
-    SLOT1_DIRECT_NAME,
+    SLOT1_DIRECT_NAME, SLOT1_LEGACY_DIRECT_NAME,
 )
 
 SKILL = "gatorhats-8869-slot1-threadtransfer-lite-v1"
@@ -213,7 +213,7 @@ def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch
     monkeypatch.setattr("app.providers.ai.codex_image.asyncio.create_subprocess_exec", launch)
     runner = CodexImageGenRunner(CodexImageRunnerConfig(
         codex_home=str(home), staging_root=str(tmp_path / "staging"),
-        skill_name=SLOT1_DIRECT_NAME, output_contract="slot1_direct_inpaint",
+        skill_name=SLOT1_LEGACY_DIRECT_NAME, output_contract="slot1_direct_inpaint",
         timeout_seconds=30,
     ))
     assert runner.capability_reason() is None
@@ -234,7 +234,7 @@ def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch
         result = asyncio.run(run)
         assert result.image_bytes == native_png
         assert result.provider_metadata["native_passes"] == 1
-        assert result.provider_metadata["pipeline_version"] == SLOT1_DIRECT_NAME
+        assert result.provider_metadata["pipeline_version"] == SLOT1_LEGACY_DIRECT_NAME
         assert "macro_sha256" not in result.provider_metadata
     instruction = captured["args"][-1]
     assert "Exactly ONE" in instruction
@@ -242,4 +242,103 @@ def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch
     assert "slot1_layout_guide" in instruction
     assert "Use $cam-slot1" not in instruction
     assert "thread_macro.png" not in instruction
+    assert not (Path(captured["workspace"]) / ".codex-runtime" / "generated_images").exists()
+
+
+
+@pytest.mark.parametrize("mode,error_code", [
+    ("native", None),
+    ("missing_macro", "slot1_v2_reference_or_edit_missing"),
+    ("missing_final", "slot1_v2_reference_or_edit_missing"),
+    ("wrong_macro", "slot1_v2_native_unverified"),
+    ("wrong_final", "slot1_v2_native_unverified"),
+    ("duplicate_native", "slot1_v2_native_unverified"),
+    ("extra_native", "slot1_v2_native_unverified"),
+])
+def test_builtin_slot1_v2_requires_two_distinct_native_edits(
+    tmp_path, monkeypatch, mode, error_code,
+):
+    """V2 requires a real material pass and then the actual cap photo edit."""
+    home = tmp_path / "bare-home"
+    home.mkdir()
+    reference = png("blue")
+    edited = png("green")
+    captured = {}
+
+    class FakeProcess:
+        returncode = 0
+
+        def __init__(self):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b'{"type":"thread.started","thread_id":"v2"}\n')
+            self.stdout.feed_eof()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_eof()
+            workspace = Path(captured["workspace"])
+            folder = workspace / ".codex-runtime" / "generated_images" / str(UUID(int=11))
+            folder.mkdir(parents=True)
+            files = [reference, edited]
+            if mode == "duplicate_native":
+                files = [edited]
+            if mode == "extra_native":
+                files.append(png("red"))
+            for index, data in enumerate(files):
+                (folder / f"exec-{UUID(int=index + 1)}.png").write_bytes(data)
+            (workspace / "working").mkdir()
+            if mode != "missing_macro":
+                (workspace / "working" / "thread_reference.png").write_bytes(
+                    png("red") if mode == "wrong_macro" else reference
+                )
+            if mode != "missing_final":
+                (workspace / "output" / "final.png").write_bytes(
+                    png("yellow") if mode == "wrong_final" else edited
+                )
+
+        async def wait(self):
+            return 0
+
+    async def launch(*args, **kwargs):
+        captured["args"] = args
+        captured["workspace"] = args[args.index("-C") + 1]
+        return FakeProcess()
+
+    monkeypatch.setattr("app.providers.ai.codex_image.shutil.which",
+                        lambda _: "/usr/bin/codex")
+    monkeypatch.setattr("app.providers.ai.codex_image.asyncio.create_subprocess_exec", launch)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        codex_home=str(home), staging_root=str(tmp_path / "staging"),
+        skill_name=SLOT1_DIRECT_NAME, output_contract="slot1_reference_inpaint_v2",
+        timeout_seconds=30,
+    ))
+    assert runner.capability_reason() is None
+    refs = [ReferenceImageInput(
+        image=PreparedImage(
+            image_bytes=png("tan"), mime_type="image/png", width=600, height=600,
+        ), role=role, label=role
+    ) for role in ("design_reference", "slot1_layout_guide", "slot1_edit_mask")]
+    run = runner.generate_from_references(
+        attempt_id="v2-smoke", person=PreparedImage(
+            image_bytes=png("white"), mime_type="image/png", width=600, height=600,
+        ), references=refs, prompt="Thin real satin stitching.",
+    )
+    if error_code:
+        with pytest.raises(CodexImageProviderError) as error:
+            asyncio.run(run)
+        assert error.value.code == error_code
+    else:
+        result = asyncio.run(run)
+        assert result.image_bytes == edited
+        assert result.provider_metadata["pipeline_version"] == SLOT1_DIRECT_NAME
+        assert result.provider_metadata["native_passes"] == 2
+        assert result.provider_metadata["reference_sha256"] != result.provider_metadata["edited_sha256"]
+    prompt = captured["args"][-1]
+    assert "model_reasoning_effort=medium" in captured["args"]
+    assert "IMAGE-EDIT EXACTLY TWICE" in prompt
+    assert "PASS A" in prompt and "PASS B" in prompt
+    assert "working/thread_reference.png" in prompt
+    assert "ORIGINAL UNPRINTED" in prompt
+    assert "very fine strands" in prompt
+    assert "slot1_edit_mask" in prompt and "slot1_layout_guide" in prompt
+    assert "not a true provider mask" in prompt.lower()
+    assert "Use $cam-slot1" not in prompt
     assert not (Path(captured["workspace"]) / ".codex-runtime" / "generated_images").exists()
