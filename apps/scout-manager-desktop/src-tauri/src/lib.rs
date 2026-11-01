@@ -148,6 +148,8 @@ fn typography_one_shot_state(exit: Option<i32>, log: &str) -> (&'static str, Opt
     let latest = log.rsplit("==> Starting one-shot Typography Design Scout")
         .next().unwrap_or(log);
     match exit {
+        Some(0) if latest.contains("LIVE_PINTEREST_PROFILE_BUSY") =>
+            ("Pinterest window open", Some("Close only the dedicated Typography Chrome window before fresh discovery; Stage 0 imports were preserved.")),
         Some(0) if latest.contains("LIVE_PINTEREST_BROWSER_UNAVAILABLE") =>
             ("Pinterest browser unavailable", Some("Stage 0 import can still run. Close the dedicated Typography Chrome window before fresh discovery.")),
         Some(0) if latest.contains("LIVE_PINTEREST_LOGIN_REQUIRED") =>
@@ -172,6 +174,7 @@ struct Scout {
     desired: bool,
     restarts: u32,
     started_at: Option<Instant>,
+    run_log_offset: u64,
     next_try: Instant,
     state: String,
     last_error: Option<String>,
@@ -186,6 +189,7 @@ impl Scout {
             desired: false,
             restarts: 0,
             started_at: None,
+            run_log_offset: 0,
             next_try: Instant::now(),
             state: "Stopped".into(),
             last_error: None,
@@ -331,6 +335,9 @@ fn log_file(root: &Path, mode: &str) -> PathBuf {
     root.join(format!("{}.stdout.log", mode))
 }
 fn file_tail(path: &Path, lines: usize) -> String {
+    file_tail_from(path, lines, 0)
+}
+fn file_tail_from(path: &Path, lines: usize, run_start: u64) -> String {
     let Ok(mut f) = File::open(path) else {
         return String::new();
     };
@@ -338,7 +345,13 @@ fn file_tail(path: &Path, lines: usize) -> String {
         return String::new();
     };
     let length = meta.len();
-    let start = length.saturating_sub(128 * 1024);
+    // Evaluate diagnostics only from the process that just exited. Otherwise
+    // an old duplicate-run message can mask a different current failure.
+    let start = if run_start <= length {
+        run_start.max(length.saturating_sub(128 * 1024))
+    } else {
+        length.saturating_sub(128 * 1024)
+    };
     if f.seek(SeekFrom::Start(start)).is_err() {
         return String::new();
     }
@@ -451,6 +464,7 @@ impl Controller {
         let path = self.repo.join("scripts/start_scout_auto_update.ps1");
         let name = scout.name;
         let output = open_log(&log_file(&self.log_root, name))?;
+        let run_log_offset = output.metadata().map(|m| m.len()).unwrap_or(0);
         let errors = open_log(&self.log_root.join(format!("{}.stderr.log", name)))?;
         let mut process = Command::new("powershell.exe");
         process
@@ -494,6 +508,7 @@ impl Controller {
         }
         scout.child = Some(child);
         scout.started_at = Some(Instant::now());
+        scout.run_log_offset = run_log_offset;
         scout.state = "Running".into();
         scout.last_error = None;
         Ok(())
@@ -701,7 +716,7 @@ impl Controller {
                             scout.state = "Stopped".into();
                             continue;
                         }
-                        let tail = file_tail(&log_file(&self.log_root, scout.name), 30);
+                        let tail = file_tail_from(&log_file(&self.log_root, scout.name), 30, scout.run_log_offset);
                         if status.code() == Some(70)
                             || tail.contains("credentials were rejected")
                             || tail.contains("401 Unauthorized")
@@ -709,6 +724,15 @@ impl Controller {
                             scout.desired = false;
                             scout.state = "Pairing required".into();
                             scout.last_error = Some("Check Scout pairing credentials.".into());
+                            continue;
+                        }
+                        // Another operator-owned launcher may already hold the
+                        // mode mutex. Never retry-spam or stop that live runner.
+                        if tail.contains("Scout is already running.") {
+                            scout.desired = false;
+                            scout.restarts = 0;
+                            scout.state = "Running in another launcher".into();
+                            scout.last_error = Some("Close the existing Scout launcher before starting this mode from Manager.".into());
                             continue;
                         }
                         scout.restarts += 1;
@@ -1979,6 +2003,22 @@ mod tests {
     fn no_external_path_in_log_name() {
         let root = Path::new("C:/logs");
         assert_eq!(log_file(root, "review"), root.join("review.stdout.log"));
+    }
+
+    #[test]
+    fn duplicate_runner_message_only_counts_for_the_current_launch() {
+        let folder = std::env::temp_dir().join(format!("cam-scout-log-scope-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let log = folder.join("cap_stack.stdout.log");
+        let old = "[ERROR] CapStack Scout is already running.\n";
+        fs::write(&log, old).unwrap();
+        let started_at = fs::metadata(&log).unwrap().len();
+        assert_eq!(file_tail_from(&log, 30, started_at), "");
+        fs::write(&log, format!("{old}[ERROR] Other scout failure.\n")).unwrap();
+        assert!(!file_tail_from(&log, 30, started_at).contains("Scout is already running."));
+        fs::write(&log, format!("{old}[ERROR] CapStack Scout is already running.\n")).unwrap();
+        assert!(file_tail_from(&log, 30, started_at).contains("Scout is already running."));
+        fs::remove_dir_all(folder).unwrap();
     }
 
     #[cfg(windows)]

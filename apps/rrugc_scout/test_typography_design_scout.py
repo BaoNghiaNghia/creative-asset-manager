@@ -70,6 +70,82 @@ class PickedSourceBootstrapTests(unittest.TestCase):
                                 asyncio.run(scout(options))
                 self.assertFalse(pinterest_login_ready(options.profile_dir))
 
+    def test_headless_fallback_runs_when_isolated_profile_is_free(self):
+        class FakeContext:
+            pages = [object()]
+            async def close(self):
+                pass
+
+        class FakePlaywright:
+            async def stop(self):
+                pass
+
+        original_client = httpx.AsyncClient
+        def respond(request):
+            if request.method == "GET" and request.url.path.endswith("/keywords"):
+                return httpx.Response(200, json={
+                    "keywords": [{"id": "k1", "keyword": "ADVENTURE AWAITS"}],
+                    "pending_sources": [],
+                })
+            raise AssertionError("Unexpected request")
+
+        def mock_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(respond)
+            return original_client(*args, **kwargs)
+
+        attempts = []
+        async def launch(args):
+            attempts.append(args.headless)
+            if not args.headless:
+                raise RuntimeError("headed Chrome unavailable")
+            return FakePlaywright(), FakeContext()
+
+        with tempfile.TemporaryDirectory() as temp:
+            options = SimpleNamespace(
+                base_url="https://cam.example", agent_id="agent-a", keyword_limit=3,
+                execute=True, seed_only=False, max_images=8,
+                profile_dir=Path(temp) / "typography-profile",
+                headless=False, chrome_executable="",
+            )
+            with patch.dict(os.environ, {"RRUGC_SCOUT_TOKEN": "test-token"}, clear=False):
+                with patch("typography_design_scout.httpx.AsyncClient", side_effect=mock_client):
+                    with patch("typography_design_scout._windows_profile_owners", return_value=((), ())):
+                        with patch("typography_design_scout.launch_context", side_effect=launch):
+                            with patch("typography_design_scout.scan_one_query", return_value=[]):
+                                result = asyncio.run(scout(options))
+            self.assertEqual(attempts, [False, True])
+            self.assertNotIn("browser_status", result)
+            self.assertEqual(result["new_search_candidates"], 0)
+
+    def test_occupied_typography_profile_is_preserved(self):
+        original_client = httpx.AsyncClient
+        def respond(request):
+            if request.method == "GET" and request.url.path.endswith("/keywords"):
+                return httpx.Response(200, json={
+                    "keywords": [{"id": "k1", "keyword": "ADVENTURE AWAITS"}],
+                    "pending_sources": [],
+                })
+            raise AssertionError("Unexpected request")
+
+        def mock_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(respond)
+            return original_client(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp:
+            options = SimpleNamespace(
+                base_url="https://cam.example", agent_id="agent-a", keyword_limit=3,
+                execute=True, seed_only=False, max_images=8,
+                profile_dir=Path(temp) / "typography-profile",
+                headless=False, chrome_executable="",
+            )
+            with patch.dict(os.environ, {"RRUGC_SCOUT_TOKEN": "test-token"}, clear=False):
+                with patch("typography_design_scout.httpx.AsyncClient", side_effect=mock_client):
+                    with patch("typography_design_scout._windows_profile_owners", return_value=((1234,), ())):
+                        with patch("typography_design_scout.launch_context") as launch:
+                            result = asyncio.run(scout(options))
+                            launch.assert_not_called()
+            self.assertEqual(result["browser_status"], "busy")
+
     def test_seed_only_reuses_agent_scoped_pinterest_source_without_chrome(self):
         events = []
         source_pin = "https://www.pinterest.com/pin/123456789012345/"

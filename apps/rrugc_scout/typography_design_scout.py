@@ -18,7 +18,7 @@ import httpx
 
 from scout import (
     ScoutProfileLock, access_gate, allowed_image, extract_visible,
-    guard_pinterest_response, launch_context,
+    guard_pinterest_response, launch_context, _windows_profile_owners,
     mark_pinterest_login_ready, clear_pinterest_login_ready,
 )
 
@@ -199,6 +199,15 @@ async def scout(args: argparse.Namespace) -> dict:
             if args.seed_only or counts["created"] + counts["duplicate"] >= args.max_images:
                 return counts
 
+            # Preserve a separately opened sign-in window. Launching the
+            # existing recovery path against a live browser would close it.
+            owners = _windows_profile_owners(args.profile_dir)
+            if owners is not None and owners[0]:
+                print("LIVE_PINTEREST_PROFILE_BUSY: close the dedicated Typography "
+                      "Chrome window before fresh discovery. Stage 0 import is preserved.")
+                counts["browser_status"] = "busy"
+                return counts
+
             # Independent fresh Pinterest search uses only its own isolated
             # profile, never another Scout's session or user browser cookies.
             lock = ScoutProfileLock(args.profile_dir)
@@ -211,17 +220,27 @@ async def scout(args: argparse.Namespace) -> dict:
                         chrome_executable=args.chrome_executable,
                     ))
                 except Exception:
-                    # A dedicated Chrome profile may not launch in a noninteractive
-                    # Windows session or when Chromium/Chrome conflicts with
-                    # existing profile ownership. Keep Stage 0 candidates and
-                    # never turn a successful import into a failed whole run.
-                    # Do not print raw Playwright stderr (may contain local paths).
-                    print("LIVE_PINTEREST_BROWSER_UNAVAILABLE: isolated Chrome failed "
-                          "to start. Stage 0 candidate import is preserved. "
-                          "Close only the Typography Chrome window and try fresh "
-                          "Pinterest discovery after manual sign-in.")
-                    counts["browser_status"] = "unavailable"
-                    return counts
+                    # Windows may run this tool in a noninteractive desktop
+                    # session where headed Chrome closes immediately. Try one
+                    # headless launch, but only if no other process owns this
+                    # exact isolated profile. Never close anyone's browser.
+                    owners = _windows_profile_owners(args.profile_dir)
+                    if not args.headless and owners == ((), ()):
+                        try:
+                            playwright, context = await launch_context(SimpleNamespace(
+                                profile_dir=args.profile_dir, headless=True,
+                                chrome_executable=args.chrome_executable,
+                            ))
+                            print("LIVE_PINTEREST_HEADLESS_FALLBACK: recovered isolated browser.")
+                        except Exception:
+                            context = None
+                    if context is None:
+                        # Keep Stage 0 imports; never log raw browser paths,
+                        # cookies, credentials, or Playwright diagnostics.
+                        print("LIVE_PINTEREST_BROWSER_UNAVAILABLE: isolated Chrome failed "
+                              "to start; Stage 0 candidate import is preserved.")
+                        counts["browser_status"] = "unavailable"
+                        return counts
                 page = context.pages[0] if context.pages else await context.new_page()
                 for row in selected:
                     for query in search_queries(str(row["keyword"])):
