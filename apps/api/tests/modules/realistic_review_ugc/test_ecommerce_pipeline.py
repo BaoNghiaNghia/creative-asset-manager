@@ -111,3 +111,22 @@ def test_job_serialization_and_failure_does_not_mutate_status_unexpectedly():
     assert row.stage == "prod_s2_ec1"
     assert row.source_revision == "revision"
     assert row.status == "queued"
+
+
+def test_slot1_custom_skill_assignment_is_readonly(monkeypatch):
+    """The legacy default remains archived; the API must not promise it is used."""
+    import pytest
+    from fastapi import HTTPException
+    from app.modules.realistic_review_ugc import router as r
+    from app.modules.realistic_review_ugc.schema import StageSkillDefaultRequest
+
+    monkeypatch.setattr(r, "_require_stage2_skill_admin", lambda principal: None)
+    with pytest.raises(HTTPException) as caught:
+        r.update_stage_skill_default(
+            "prod_s2_ec1",
+            StageSkillDefaultRequest(registry_id=None),
+            session=None,
+            principal=SimpleNamespace(active_tenant_id="tenant-a", user_id="owner"),
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "slot1_builtin_pipeline"

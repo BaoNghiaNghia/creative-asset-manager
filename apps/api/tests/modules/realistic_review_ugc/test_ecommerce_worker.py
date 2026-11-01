@@ -75,13 +75,15 @@ def test_all_multi_hat_and_ugc_shots_receive_calibrated_front_master():
         FRONT_PREVIEW_STAGES)
 
 
-@pytest.mark.parametrize("stage,front_lite", [
-    ("prod_s2_ec1", False),
-    ("prod_s2_ec1", True),
-    ("prod_s2_mh_1", False), ("prod_s2_mh_2", False), ("prod_s2_mh_3", False),
-    ("prod_s2_ugc_1", False), ("prod_s2_ugc_2", False), ("prod_s2_ugc_3", False),
+@pytest.mark.parametrize("stage,front_mode", [
+    ("prod_s2_ec1", "legacy"),
+    ("prod_s2_ec1", "lite"),
+    ("prod_s2_ec1", "direct"),
+    ("prod_s2_mh_1", "other"), ("prod_s2_mh_2", "other"),
+    ("prod_s2_mh_3", "other"), ("prod_s2_ugc_1", "other"),
+    ("prod_s2_ugc_2", "other"), ("prod_s2_ugc_3", "other"),
 ])
-def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch, stage, front_lite):
+def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypatch, stage, front_mode):
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     engine = create_engine("sqlite+pysqlite:///:memory:", poolclass=StaticPool,
                            connect_args={"check_same_thread": False})
@@ -103,10 +105,14 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         session.add(RrugcEcommerceJobModel(
             id=job_id, tenant_id="tenant-1", source_plan_id="source-plan",
             source_revision="rev-1", stage=stage,
-            stock_sha256=stock_digest, skill_source="local",
-            skill_name=("gatorhats-8869-slot1-threadtransfer-lite-v1"
-                        if front_lite else "sample-ecommerce-image"),
-            skill_bundle_sha256="1"*64,
+            stock_sha256=stock_digest,
+            skill_source="internal" if front_mode == "direct" else "local",
+            skill_name=(pipeline.SLOT1_DIRECT_NAME if front_mode == "direct"
+                        else "gatorhats-8869-slot1-threadtransfer-lite-v1"
+                        if front_mode == "lite" else "sample-ecommerce-image"),
+            skill_version=pipeline.SLOT1_DIRECT_VERSION if front_mode == "direct" else None,
+            skill_bundle_sha256=(pipeline.SLOT1_DIRECT_SHA256 if front_mode == "direct"
+                                 else "1"*64),
             created_by_user_id="operator", status="queued", processing_job_id=process_id,
         ))
         session.commit()
@@ -159,7 +165,7 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                 mask_ref = next(r for r in references if r.role == "slot1_edit_mask")
                 with Image.open(BytesIO(mask_ref.image.image_bytes)) as mask_image:
                     selected = np.asarray(mask_image.convert("L")) > 180
-                if front_lite:
+                if front_mode in ("lite", "direct"):
                     # A real inpaint adds yarn to a BLANK original target.
                     # Fake the edited result using the separate placement
                     # reference and coherent directional fibers, never the
@@ -187,7 +193,7 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                 image_data = stream.getvalue()
             return SimpleNamespace(
                 image_bytes=image_data, mime_type="image/png",
-                provider_metadata={"native_passes": 2,
+                provider_metadata={"native_passes": 1 if front_mode == "direct" else 2,
                                    "macro_sha256": "a"*64,
                                    "edited_sha256": "b"*64},
             )
@@ -245,24 +251,33 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
     assert len(calls) == 1
     assert calls[0]["references"][0].role == "design_reference"
     assert calls[0]["references"][1].role == (
+        "slot1_edit_mask" if front_mode == "direct" else
         "unaltered_stock_reference" if stage == "prod_s2_ec1"
         else "embroidered_front_preview"
     )
     if stage == "prod_s2_ec1":
-        assert calls[0]["references"][2].role == "slot1_edit_mask"
+        assert calls[0]["references"][1 if front_mode == "direct" else 2].role == "slot1_edit_mask"
         assert calls[0]["person"].mime_type == "image/png"
         assert all(ref.role != "embroidered_front_preview"
                    for ref in calls[0]["references"])
-        if front_lite:
-            assert calls[0]["references"][3].role == "slot1_layout_guide"
-            assert calls[0]["person"].width == calls[0]["references"][2].image.width
-            assert calls[0]["person"].width == calls[0]["references"][3].image.width
-            assert "UNPRINTED original factory cap" in calls[0]["prompt"]
-            assert "slot1_layout_guide" in calls[0]["prompt"]
+        if front_mode in ("lite", "direct"):
+            layout_index = 2 if front_mode == "direct" else 3
+            mask_index = 1 if front_mode == "direct" else 2
+            assert calls[0]["references"][layout_index].role == "slot1_layout_guide"
+            assert calls[0]["person"].width == calls[0]["references"][mask_index].image.width
+            assert calls[0]["person"].width == calls[0]["references"][layout_index].image.width
+            if front_mode == "lite":
+                assert "UNPRINTED original factory cap" in calls[0]["prompt"]
+            else:
+                assert calls[0]["prompt"].startswith("Slot 1 built-in direct")
+            assert "slot1_layout_guide" in calls[0]["references"][layout_index].role
         else:
             assert "white of slot1_edit_mask" in calls[0]["prompt"]
     assert len(calls[0]["references"]) >= 2
-    if front_lite:
+    if front_mode == "direct":
+        assert calls[0]["references"][1].role == "slot1_edit_mask"
+        assert len(calls[0]["references"]) == 3
+    if front_mode in ("lite", "direct"):
         assert "FRONT high" not in calls[0]["prompt"]
         assert "canonical-design-direct-thread-v4" not in calls[0]["prompt"]
     else:

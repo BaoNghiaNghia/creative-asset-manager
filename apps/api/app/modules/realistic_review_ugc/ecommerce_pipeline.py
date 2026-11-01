@@ -58,12 +58,30 @@ from app.modules.realistic_review_ugc.stage2_skills import (
     verify_stage2_skill_runtime, installed_stage2_skill_sha256,
 )
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled
-from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError
+from app.providers.ai.codex_image import (
+    CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
+    SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
+)
 
 JOB_TYPE = "rrugc_ecommerce_generate"
 # Reserve an interactive lane above bulk index backlog, without bypassing policies.
 ECOMMERCE_INTERACTIVE_PRIORITY = 96
 MAX_MANUAL_RETRIES = 3
+
+
+def _slot1_direct_selection():
+    """Slot 1's internal photo edit replaces custom Skills for NEW jobs only."""
+    from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
+    return ResolvedStage2Skill(
+        source="internal", skill_id=None,
+        skill_name=SLOT1_DIRECT_NAME, skill_version=SLOT1_DIRECT_VERSION,
+    )
+
+
+def _skill_snapshot_sha(skill, settings):
+    return (SLOT1_DIRECT_SHA256 if skill.skill_name == SLOT1_DIRECT_NAME
+            and skill.source == "internal"
+            else installed_stage2_skill_sha256(skill.skill_name, settings=settings))
 
 
 _lite_slot1_qa_error_code = lite_slot1_qa_error_code
@@ -244,25 +262,6 @@ def _source_plan(session: Session, tenant_id: str, plan_id: str,
 def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage: str):
     assignment = session.get(RrugcStageSkillDefaultModel, (tenant_id, SCENE_STAGE_SLOTS.get(stage, stage)))
     selected = session.get(RrugcStage2SkillRegistryModel, assignment.registry_id) if assignment and assignment.registry_id else None
-    # Deploy installs local SKILL.md before API restart, while DB metadata may
-    # still point to the old version. Refresh ONLY the selected Slot 1 Lite
-    # registry row in the caller's transaction before pinning Retry/Regenerate.
-    # Never commit a job lock or create an unrelated Skill assignment here.
-    if (stage == "prod_s2_ec1" and selected is not None
-            and selected.tenant_id == tenant_id
-            and selected.source == "local" and selected.enabled
-            and selected.deleted_at is None
-            and selected.skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"):
-        active_hash = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
-        if active_hash and active_hash != selected.bundle_sha256:
-            from app.modules.realistic_review_ugc.stage2_skills import _local_item, _local_manifests
-            from app.modules.realistic_review_ugc.skill_registry import _upsert_catalog_item
-            manifest = _local_manifests(settings).get(selected.skill_name)
-            item = _local_item(settings, manifest) if manifest is not None else None
-            if item is None or not item.ready:
-                raise EcommerceError("ecommerce_skill_changed",
-                                     "The assigned Slot 1 Skill was replaced but is not ready.", 409)
-            _upsert_catalog_item(session, tenant_id=tenant_id, actor_id=None, item=item)
     if (not selected or selected.tenant_id != tenant_id or not selected.enabled
             or selected.deleted_at is not None or selected.validation_status != "valid"):
         raise EcommerceError("ecommerce_skill_missing",
@@ -284,28 +283,20 @@ def _assigned_skill(session: Session, settings: Settings, tenant_id: str, stage:
         raise EcommerceError(exc.code, exc.message, exc.status_code) from exc
 
 
-def _repin_explicit_slot1_to_thread_v2(
-    session: Session, settings: Settings, tenant_id: str, row: RrugcEcommerceJobModel,
-) -> bool:
-    """Only user-triggered Retry/Regenerate may adopt the new Slot 1 default.
+def _repin_slot1_direct(row: RrugcEcommerceJobModel) -> bool:
+    """Explicit Slot 1 Retry/Regenerate selects the built-in edit, never a ZIP.
 
-    Old queued/running jobs keep their pinned Skill, and old stored output
-    versions retain their original provenance. No other Ecommerce slot changes.
+    Running/queued jobs keep their pinned previous provider and contract.
+    Historical output versions are immutable.
     """
     if row.stage != "prod_s2_ec1":
         return False
-    selected = _assigned_skill(session, settings, tenant_id, row.stage)
-    if selected.skill_name not in ("gatorhats-8869-ecommerce-front-thread-v2", "gatorhats-8869-ecommerce-front-thread-v3", "gatorhats-8869-ecommerce-front-thread-v4", "gatorhats-8869-slot1-threadtransfer-lite-v1"):
-        return False
-    digest = installed_stage2_skill_sha256(selected.skill_name, settings=settings)
-    if not digest:
-        raise EcommerceError("ecommerce_skill_missing",
-                             "The assigned Slot 1 thread Skill is not installed.", 409)
+    selected = _slot1_direct_selection()
     row.skill_source = selected.source
     row.skill_id = selected.skill_id
     row.skill_name = selected.skill_name
     row.skill_version = selected.skill_version
-    row.skill_bundle_sha256 = digest
+    row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
     return True
 
 
@@ -421,7 +412,8 @@ class EcommerceService:
             raise EcommerceError("ecommerce_execution_disabled", "Image generation is disabled.", 503)
         plan = _source_plan(self.session, tenant_id, source_plan_id, lock=True)
         _refs, stock_digest = _stock_refs(self.settings, stage, color_key)
-        skill = _assigned_skill(self.session, self.settings, tenant_id, stage)
+        skill = (_slot1_direct_selection() if stage == "prod_s2_ec1"
+                 else _assigned_skill(self.session, self.settings, tenant_id, stage))
         front = _front_job(self.session, plan, color_key) if stage in ("prod_s2_ec2", "prod_s2_ec3") else None
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -480,7 +472,7 @@ class EcommerceService:
             skill_source=skill.source,
             skill_id=skill.skill_id, skill_name=skill.skill_name,
             skill_version=skill.skill_version,
-            skill_bundle_sha256=installed_stage2_skill_sha256(skill.skill_name, settings=self.settings),
+            skill_bundle_sha256=_skill_snapshot_sha(skill, self.settings),
             created_by_user_id=user_id, status="queued",
         )
         self.session.add(row)
@@ -809,7 +801,9 @@ class EcommerceService:
         _rebind_ec2_stock_for_explicit_action(self.settings, row)
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
             raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front reference is missing.")
-        if row.last_error_code == "ecommerce_skill_changed":
+        if row.stage == "prod_s2_ec1":
+            _repin_slot1_direct(row)
+        elif row.last_error_code == "ecommerce_skill_changed":
             selected = _assigned_skill(self.session, self.settings, tenant_id, row.stage)
             row.skill_source = selected.source
             row.skill_id = selected.skill_id
@@ -817,8 +811,6 @@ class EcommerceService:
             row.skill_version = selected.skill_version
             row.skill_bundle_sha256 = installed_stage2_skill_sha256(
                 selected.skill_name, settings=self.settings)
-        elif row.stage == "prod_s2_ec1":
-            _repin_explicit_slot1_to_thread_v2(self.session, self.settings, tenant_id, row)
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
@@ -892,7 +884,7 @@ class EcommerceService:
             row.front_preview_size_bytes = front.front_preview_size_bytes
             row.front_preview_design_sha256 = front.front_preview_design_sha256
         if row.stage == "prod_s2_ec1":
-            _repin_explicit_slot1_to_thread_v2(self.session, self.settings, tenant_id, row)
+            _repin_slot1_direct(row)
             # Explicit regeneration consumes the current calibration, not an
             # outdated persisted front overlay. Saved output versions are intact.
             row.front_preview_remote_file_id = None
@@ -1133,11 +1125,23 @@ class EcommerceGenerateHandler:
             plan = _source_plan(session, context.job.tenant_id, row.source_plan_id)
             if plan.source_revision != row.source_revision:
                 raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
-            verify_stage2_skill_runtime(settings=settings, skill_source=row.skill_source,
-                                        skill_id=row.skill_id, skill_name=row.skill_name,
-                                        skill_version=row.skill_version)
-            if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
-                raise EcommerceError("ecommerce_skill_changed", "Selected Skill revision changed.")
+            is_direct_job = (
+                row.stage == "prod_s2_ec1"
+                and row.skill_source == "internal"
+                and row.skill_name == SLOT1_DIRECT_NAME
+            )
+            if is_direct_job:
+                if (row.skill_version != SLOT1_DIRECT_VERSION
+                        or row.skill_bundle_sha256 != SLOT1_DIRECT_SHA256):
+                    raise EcommerceError("ecommerce_pipeline_changed", "Slot 1 built-in version changed.")
+            else:
+                # Preserve old queued two-pass and legacy jobs with their
+                # historical pinned Skill; never switch one mid-flight.
+                verify_stage2_skill_runtime(settings=settings, skill_source=row.skill_source,
+                                            skill_id=row.skill_id, skill_name=row.skill_name,
+                                            skill_version=row.skill_version)
+                if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
+                    raise EcommerceError("ecommerce_skill_changed", "Selected Skill revision changed.")
             refs, legacy_three_quarter = _pinned_stock_refs(
                 settings, row.stage, row.color_key, row.stock_sha256)
             multihat_colors: list[str] = []
@@ -1174,6 +1178,7 @@ class EcommerceGenerateHandler:
         # current pinned photo/preview contract.
         slot1_material = None
         is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
+        is_direct = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
             design_bytes = await self._open_bytes(storage, context,
@@ -1230,25 +1235,26 @@ class EcommerceGenerateHandler:
                 slot1_material = build_slot1_material_pass(
                     refs[0][1], design_bytes,
                     job_front_placement(context.job.payload.get("front_placement")),
-                    contact_width_px=(3 if is_lite else 2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0),
-                    localized_edit=is_lite,
-                    clean_soft_shadow=is_lite,
+                    contact_width_px=(3 if is_lite or is_direct else 2 if skill_name == "gatorhats-8869-ecommerce-front-thread-v4" else 0),
+                    localized_edit=is_lite or is_direct,
+                    clean_soft_shadow=is_lite or is_direct,
                 )
                 edit_mask_bytes = slot1_material.edit_mask_png()
                 edit_canvas_width, edit_canvas_height = slot1_material.edit_canvas_size
-                references.extend((
-                    ReferenceImageInput(
+                if not is_direct:
+                    references.append(ReferenceImageInput(
                         image=_prepared_image(refs[0][1]), role="unaltered_stock_reference",
-                        label="exact fabric, lighting and factory logo; never repaint outside edit mask"),
-                    ReferenceImageInput(
+                        label="exact fabric, lighting and factory logo; never repaint outside edit mask",
+                    ))
+                references.append(ReferenceImageInput(
                         image=PreparedImage(
                             image_bytes=edit_mask_bytes, mime_type="image/png",
                             width=edit_canvas_width, height=edit_canvas_height,
                         ),
                         role="slot1_edit_mask",
-                        label="white = existing glyph silhouette plus up to 3px stitch-foot contact; black = protected original stock"),
+                        label="white = existing glyph silhouette plus up to 3px stitch-foot contact; black = protected original stock",
                 ))
-                if is_lite:
+                if is_lite or is_direct:
                     layout_bytes = slot1_material.placement_guide_png()
                     references.append(ReferenceImageInput(
                         image=PreparedImage(image_bytes=layout_bytes, mime_type="image/png",
@@ -1410,19 +1416,24 @@ class EcommerceGenerateHandler:
                 "flat paint, hard outline, foam, rubber or 3D emboss. "
                 "Preserve all original words/colors/position. Two images, no extras."
             )
+        if is_direct:
+            # No SKILL.md, stacked v4 text, two-pass macro or extra model plan.
+            # One actual source photo edit with fixed canonical references.
+            prompt = "Slot 1 built-in direct embroidery photo edit; protect unaltered stock."
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
                                    "/var/lib/creative-asset-manager/codex"))
         with context.dependencies.session_factory() as pool_session:
             with acquire_worker_profile(pool_session, context.job.tenant_id, "stage2",
-                                         primary_home, binary, skill_name) as (account_id, selected_home):
+                                         primary_home, binary, None if is_direct else skill_name) as (account_id, selected_home):
                 pool_session.commit()
                 runner = CodexImageGenRunner(CodexImageRunnerConfig(
                     binary=binary, codex_home=selected_home,
                     staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT",
                                             "/var/lib/creative-asset-manager/image-generation")),
                     skill_name=skill_name,
-                    output_contract="slot1_two_pass" if is_lite else "single_png",
+                    output_contract=("slot1_direct_inpaint" if is_direct else
+                                     "slot1_two_pass" if is_lite else "single_png"),
                     timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
                 ))
@@ -1442,13 +1453,15 @@ class EcommerceGenerateHandler:
         if slot1_material is not None:
             try:
                 output_bytes = finish_slot1_refinement(
-                    slot1_material, generated.image_bytes, clip_raw_halo=is_lite,
+                    slot1_material, generated.image_bytes,
+                    clip_raw_halo=is_lite or is_direct,
+                    require_raw_stock=is_direct,
                 )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
-                    _lite_slot1_qa_error_code(exc) if is_lite else "ecommerce_slot1_material_qa_failed",
+                    _lite_slot1_qa_error_code(exc) if is_lite or is_direct else "ecommerce_slot1_material_qa_failed",
                     str(exc),
-                    retryable=not is_lite,  # No automatic repeat of both native edits.
+                    retryable=not (is_lite or is_direct),  # Do not spend native image calls retrying visual QA.
                 ) from exc
             output_mime = "image/png"
         try:
@@ -1488,20 +1501,24 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": "threadtransfer-lite-v1" if is_lite else "ai-material-localized-v3",
+                                    "version": ("direct-inpaint-v1" if is_direct else
+                                                "threadtransfer-lite-v1" if is_lite else
+                                                "ai-material-localized-v3"),
                                     **({"native_passes": generated.provider_metadata["native_passes"],
-                                        "macro_sha256": generated.provider_metadata["macro_sha256"],
-                                        "edited_sha256": generated.provider_metadata["edited_sha256"]}
-                                       if is_lite else {}),
+                                        "edited_sha256": generated.provider_metadata["edited_sha256"],
+                                        **({"macro_sha256": generated.provider_metadata["macro_sha256"]}
+                                           if is_lite else {})}
+                                       if is_lite or is_direct else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
-                                    **({"material_revision": "roi-original-stock-inpaint-v1.3",
+                                    **({"material_revision": ("single-native-edit-v1" if is_direct
+                                                               else "roi-original-stock-inpaint-v1.3"),
                                         "edit_target": "original_unprinted_stock",
                                         "layout_role": "slot1_layout_guide",
                                         "native_front_roi": list(slot1_material.edit_roi_box),
                                         "edit_canvas_size": list(slot1_material.edit_canvas_size),
                                         "contact_width_px": slot1_material.contact_width_px}
-                                       if is_lite and slot1_material.edit_roi_box else {}),
+                                       if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 "input_reference_snapshot": {
                                     "source_revision": row.source_revision,

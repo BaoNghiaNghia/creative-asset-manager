@@ -5549,6 +5549,12 @@ def update_stage_skill_default(
     principal: CurrentPrincipal = Depends(READ),
 ):
     _require_stage2_skill_admin(principal)
+    if stage == "prod_s2_ec1":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "slot1_builtin_pipeline",
+                    "message": "Products Stage 2 Slot 1 runs built-in Direct Inpaint; custom Skill assignments are archived only."},
+        )
     try:
         defaults = set_stage_skill_default(session, tenant_id=principal.active_tenant_id,
                                            actor_id=principal.user_id, stage=stage,
@@ -6358,19 +6364,27 @@ def ecommerce_input_readiness(
         pass
     slots = []
     for shot in SHOTS:
-        assignment = session.get(
-            RrugcStageSkillDefaultModel, (principal.active_tenant_id, shot.stage))
-        skill = session.get(
-            RrugcStage2SkillRegistryModel, assignment.registry_id
-        ) if assignment and assignment.registry_id else None
-        skill_ready = bool(
-            skill and skill.tenant_id == principal.active_tenant_id
-            and skill.enabled and skill.deleted_at is None
-            and skill.validation_status == "valid" and skill.skill_name
-        )
-        slots.append(build_execution_preflight(
+        if shot.stage == "prod_s2_ec1":
+            # Built-in direct edit does not require a local Skill assignment.
+            skill_ready = True
+        else:
+            assignment = session.get(
+                RrugcStageSkillDefaultModel, (principal.active_tenant_id, shot.stage))
+            skill = session.get(
+                RrugcStage2SkillRegistryModel, assignment.registry_id
+            ) if assignment and assignment.registry_id else None
+            skill_ready = bool(
+                skill and skill.tenant_id == principal.active_tenant_id
+                and skill.enabled and skill.deleted_at is None
+                and skill.validation_status == "valid" and skill.skill_name
+            )
+        entry = build_execution_preflight(
             shot.stage, assets, worker_ready=worker_ready, skill_ready=skill_ready,
-        ))
+        )
+        if shot.stage == "prod_s2_ec1":
+            entry["pipeline"] = "direct-inpaint-v1"
+            entry["custom_skill_required"] = False
+        slots.append(entry)
     return {
         "source_plan_id": plan.id,
         "source_revision": plan.source_revision,

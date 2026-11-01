@@ -38,6 +38,7 @@ def lite_slot1_qa_error_code(error: Slot1EmbroideryQAError) -> str:
         "AI edit omitted the embroidery.": "embroidery_missing",
         "AI edit changed source embroidery hue.": "hue_shift",
         "AI edit lost or displaced a source glyph.": "glyph_alignment",
+        "AI edit redrew original stock fabric outside embroidery.": "stock_drift",
         "AI edit made no meaningful photographic refinement.": "no_refinement",
         "AI edit still resembles flat printed lettering.": "flat_print",
         "AI edit lacks directional satin thread fibers.": "non_directional_fibers",
@@ -285,6 +286,7 @@ def _align_candidate(material: Slot1MaterialPass, raw: Image.Image) -> Image.Ima
 
 def finish_slot1_refinement(
     material: Slot1MaterialPass, generated_bytes: bytes, *, clip_raw_halo: bool = False,
+    require_raw_stock: bool = False,
 ) -> bytes:
     """Use AI-created thread material, clipped to exact original Stage 1 glyph alpha.
 
@@ -307,6 +309,27 @@ def finish_slot1_refinement(
     pigment = np.asarray(material.pigment, dtype=np.float32)
     alpha = np.asarray(material.thread_mask, dtype=np.float32) / 255.0
     core = alpha >= .82
+    if require_raw_stock:
+        # A text-to-image replacement can match the glyph colors and pass
+        # the composite checks even while recreating the whole cap. Require
+        # photographic fidelity of the unedited crown BEFORE restoring
+        # protected pixels. Focus on crown ROI, not padded model margins.
+        if material.edit_roi_box is None:
+            raise Slot1EmbroideryQAError(
+                "Image edit redrew original stock fabric outside embroidery.")
+        x0, y0, x1, y1 = material.edit_roi_box
+        outside = np.asarray(material.edit_mask, dtype=np.uint8) == 0
+        region = np.zeros(outside.shape, dtype=bool)
+        region[y0:y1, x0:x1] = True
+        sample = outside & region
+        if int(np.count_nonzero(sample)) < 400:
+            raise Slot1EmbroideryQAError(
+                "Image edit redrew original stock fabric outside embroidery.")
+        drift = np.mean(np.abs(candidate - stock), axis=2)[sample]
+        # Allow subtle image-edit resampling, not reconstructed hat weave.
+        if float(np.median(drift)) > 16 or float(np.percentile(drift, 90)) > 38:
+            raise Slot1EmbroideryQAError(
+                "AI edit redrew original stock fabric outside embroidery.")
     if int(np.count_nonzero(core)) < 24:
         raise Slot1EmbroideryQAError("Canonical design has insufficient visible glyph area.")
 

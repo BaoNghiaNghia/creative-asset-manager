@@ -13,6 +13,7 @@ from PIL import Image
 from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageProviderError, CodexImageRunnerConfig,
+    SLOT1_DIRECT_NAME,
 )
 
 SKILL = "gatorhats-8869-slot1-threadtransfer-lite-v1"
@@ -162,3 +163,83 @@ def test_lite_manifest_matches_slot1():
     text = (path / "SKILL.md").read_text(encoding="utf-8")
     assert "working/thread_macro.png" in text
     assert "output/final.png" in text
+
+
+
+@pytest.mark.parametrize("mode,code", [
+    ("native", None),
+    ("missing", "slot1_direct_output_missing"),
+    ("fake_png", "slot1_direct_native_unverified"),
+    ("extra_image", "slot1_direct_native_unverified"),
+])
+def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch, mode, code):
+    """No SKILL.md required. Exactly one authentic native edit is accepted."""
+    home = tmp_path / "bare-codex-home"
+    home.mkdir()
+    native_png = png("blue")
+    captured = {}
+
+    class FakeProcess:
+        returncode = 0
+
+        def __init__(self):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b'{"type":"thread.started","thread_id":"direct"}\n')
+            self.stdout.feed_eof()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_eof()
+            workspace = Path(captured["workspace"])
+            generated = (workspace / ".codex-runtime" / "generated_images" /
+                         str(UUID(int=11)))
+            generated.mkdir(parents=True)
+            (generated / f"exec-{UUID(int=1)}.png").write_bytes(native_png)
+            if mode == "extra_image":
+                (generated / f"exec-{UUID(int=2)}.png").write_bytes(png("green"))
+            if mode != "missing":
+                (workspace / "output" / "final.png").write_bytes(
+                    png("red") if mode == "fake_png" else native_png
+                )
+
+        async def wait(self):
+            return 0
+
+    async def launch(*args, **kwargs):
+        captured["args"] = args
+        captured["workspace"] = args[args.index("-C") + 1]
+        return FakeProcess()
+
+    monkeypatch.setattr("app.providers.ai.codex_image.shutil.which",
+                        lambda _: "/usr/bin/codex")
+    monkeypatch.setattr("app.providers.ai.codex_image.asyncio.create_subprocess_exec", launch)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        codex_home=str(home), staging_root=str(tmp_path / "staging"),
+        skill_name=SLOT1_DIRECT_NAME, output_contract="slot1_direct_inpaint",
+        timeout_seconds=30,
+    ))
+    assert runner.capability_reason() is None
+    roles = ("design_reference", "slot1_layout_guide", "slot1_edit_mask")
+    refs = [ReferenceImageInput(image=PreparedImage(
+        image_bytes=png("white"), mime_type="image/png", width=600, height=600),
+        role=role, label=role) for role in roles]
+    run = runner.generate_from_references(
+        attempt_id="direct-smoke", person=PreparedImage(
+            image_bytes=png("tan"), mime_type="image/png", width=600, height=600),
+        references=refs, prompt="Direct native inpaint.",
+    )
+    if code:
+        with pytest.raises(CodexImageProviderError) as error:
+            asyncio.run(run)
+        assert error.value.code == code
+    else:
+        result = asyncio.run(run)
+        assert result.image_bytes == native_png
+        assert result.provider_metadata["native_passes"] == 1
+        assert result.provider_metadata["pipeline_version"] == SLOT1_DIRECT_NAME
+        assert "macro_sha256" not in result.provider_metadata
+    instruction = captured["args"][-1]
+    assert "Exactly ONE" in instruction
+    assert "IMAGE-EDIT" in instruction
+    assert "slot1_layout_guide" in instruction
+    assert "Use $cam-slot1" not in instruction
+    assert "thread_macro.png" not in instruction
+    assert not (Path(captured["workspace"]) / ".codex-runtime" / "generated_images").exists()

@@ -426,3 +426,36 @@ def test_lite_rejects_coarse_fake_foam_ridges(material):
     bad = png(Image.fromarray(np.uint8(np.clip(base, 0, 255)), "RGB"))
     with pytest.raises(Slot1EmbroideryQAError, match="plastic-like stitch ridges"):
         finish_slot1_refinement(lite, bad, clip_raw_halo=True)
+
+
+
+def test_direct_inpaint_fails_if_raw_provider_redraws_original_hat():
+    """Protected-pixel restoration cannot hide a regenerated fake cap."""
+    original = Image.new("RGB", (512, 640), (233, 221, 203))
+    design = Image.new("RGBA", (400, 180), (0, 0, 0, 0))
+    ImageDraw.Draw(design).rectangle((40, 50, 350, 120), fill=(15, 60, 183, 255))
+    from app.modules.realistic_review_ugc.front_placement import DEFAULT_FRONT_PLACEMENT
+    material = build_slot1_material_pass(
+        png(original), png(design), DEFAULT_FRONT_PLACEMENT,
+        contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+    )
+    valid = refined_candidate(material, square=True)
+    # A source-faithful native candidate is not rejected by the stock-drift
+    # gate before the subsequent existing thread QA.
+    assert finish_slot1_refinement(
+        material, valid, clip_raw_halo=True, require_raw_stock=True
+    )
+    altered = np.asarray(Image.open(BytesIO(valid)), dtype=np.uint8).copy()
+    mask = np.asarray(Image.open(BytesIO(material.edit_mask_png()))) > 0
+    roi = material.edit_roi_box
+    assert roi is not None
+    side = altered.shape[0]
+    px, py = (side - (roi[2] - roi[0])) // 2, (side - (roi[3] - roi[1])) // 2
+    inside = np.zeros(mask.shape, bool)
+    inside[py:py + roi[3] - roi[1], px:px + roi[2] - roi[0]] = True
+    altered[inside & ~mask] = (176, 155, 131)
+    with pytest.raises(Slot1EmbroideryQAError, match="redrew original stock"):
+        finish_slot1_refinement(
+            material, png(Image.fromarray(altered, "RGB")),
+            clip_raw_halo=True, require_raw_stock=True,
+        )

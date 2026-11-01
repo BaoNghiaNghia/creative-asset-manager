@@ -102,6 +102,10 @@ describe("SkillManagerModal compact redesign", () => {
     expect(host.querySelector(".rrugc-skill-summary-role")?.textContent).toBe("Manage access");
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
+    const builtIn = host.querySelector('[data-stage2-slot="prod_s2_ec1"]');
+    expect(builtIn?.textContent).toContain("Direct Inpaint");
+    expect(builtIn?.textContent).toContain("no Skill ZIP");
+    expect(builtIn?.querySelector("select")).toBeNull();
     await openLibrary(host);
     expect(host.querySelectorAll(".rrugc-skill-card")).toHaveLength(2);
     expect(host.querySelectorAll(".rrugc-skill-delete-icon")).toHaveLength(2);
@@ -437,7 +441,9 @@ describe("GatorHats workflow-specific Skill Manager", () => {
     expect(host.querySelector('#rrugc-skill-tab-products')?.getAttribute('aria-selected')).toBe('true');
     expect(host.querySelectorAll("[data-stage2-slot]")).toHaveLength(7);
     expect(host.textContent).toContain("Assignment only · Photo worker not enabled");
-    for (const image of ["Image 01", "Image 02", "Image 03", "Image 04"]) {
+    expect(host.querySelector('[data-stage2-slot="prod_s2_ec1"]')?.textContent).toContain("Built-in");
+    expect(host.querySelector('[data-stage2-slot="prod_s2_ec1"] select')).toBeNull();
+    for (const image of ["Image 02", "Image 03", "Image 04"]) {
       expect(host.textContent).toContain("Ecommerce · " + image);
     }
     expect(host.textContent).toContain("Skill 5");

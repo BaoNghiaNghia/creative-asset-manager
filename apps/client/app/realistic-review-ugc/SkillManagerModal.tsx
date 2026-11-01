@@ -407,9 +407,19 @@ export function SkillManagerModal({
           })}
         </div>
         {scopedWorkflow === "products" && <>
-          <p className="rrugc-skill-slot-section-title">Stage 2 · 7 independent Skills · 23 existing outputs</p>
+          <p className="rrugc-skill-slot-section-title">Stage 2 · 1 built-in Front + 6 configurable Skill slots</p>
           <div className="rrugc-stage-default-grid is-workflow-scoped is-seven">
             {PRODUCT_STAGE2_SKILL_SLOTS.map(slot => {
+              if (slot.key === "prod_s2_ec1") {
+                return <div key={slot.key} className="rrugc-workflow-skill-slot" data-stage2-slot="prod_s2_ec1">
+                  <span className="rrugc-stage-default-label">
+                    <span className="rrugc-stage-default-icon is-prod_s2_ec1"><SkillIcon name="image" size={15} /></span>
+                    <span><strong>Slot 1</strong><small>Front · Direct Inpaint</small></span>
+                  </span>
+                  <strong className="rrugc-skill-slot-note">Built-in · 1 ImageGen edit · no Skill ZIP</strong>
+                  <small className="rrugc-skill-slot-note">Original 8869 stock + exact design + edit area. Historical Skills remain in the library for old outputs.</small>
+                </div>;
+              }
               const chosen = skillDefaultForStage(registry.stage_defaults, slot.key);
               const matching = registry.items.find(item => [item.source, item.skill_id || item.skill_name].join(":") === chosen);
               const singleImage = slot.key.startsWith("prod_s2_ec");
@@ -568,6 +578,7 @@ export function SkillManagerModal({
           const expanded = expandedIds.has(item.id);
           const noteValue = noteDrafts[item.id] ?? item.note ?? "";
           const stages = skillSlots.filter(slot =>
+            slot.key !== "prod_s2_ec1" &&
             skillDefaultForStage(registry.stage_defaults, slot.key as WorkflowSkillStage) ===
             [item.source, item.skill_id || item.skill_name].join(":"),
           ).map(slot => [slot.key, slot.title + " · " + slot.label] as const);

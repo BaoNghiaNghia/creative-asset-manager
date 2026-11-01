@@ -158,3 +158,43 @@ legacy compatibility; these checks do **not** prove the final embroidery
 matches the user's sample photograph aesthetically. A real newly generated
 Slot 1 output needs manual visual confirmation before marking V1.3 as
 appearance-accepted. Two image edits per new Lite output remain required.
+
+
+## 2026-11-01 — Slot 1 Direct Inpaint V1: retire custom Skill dependency
+
+**Audit:** Production default was still the Lite v1.3.0 local Skill, with
+multiple old Front Skills enabled in the shared registry. Two native image
+edits were technically proven, but no convincing evidence that the macro
+improved front-fabric realism. A role image for a mask is *not* a native
+provider-enforced inpaint mask, and a composite QA can mask an AI-generated
+replacement photograph. The number of custom Skill configurations and prompts
+increases the chance of unexpected precedence and inconsistent Retry behavior.
+
+**Simplified new/default path for Stage 2 Slot 1 only:**
+
+- Internal version marker `cam-slot1-direct-inpaint-v1`, SHA-pinned with
+  `skill_source=internal`. It is not a Codex SKILL.md or external registry
+  assignment. New queue and explicit Retry/Regenerate use it automatically.
+- Input: one original unprinted factory cap ROI as the actual native edit
+  target; reference inputs are the original Stage 1 design, aligned layout and
+  edit-mask reference. Mask is not claimed as a native provider-enforced mask.
+- ONE native ImageGen IMAGE-EDIT call in one Codex exec, using a short built-in
+  instruction. The Codex runner requires the original native PNG SHA and
+  exactly one native generated image; it rejects fake/coded final images.
+  No macro, two-pass chain, user-installed Skill ZIP or text-to-image fallback.
+- Existing output history, original cap pixels outside the mask, and the
+  original Stage 1 typography/colors/placement remain protected. The post-QA
+  also rejects a model that repaints the raw factory stock outside the mask.
+- Historical queued jobs still use their originally pinned Skill and workflow.
+  This is intentional for backwards compatibility; the old registry rows and
+  SKILL.md bundles are not deleted (doing so would break running/queued jobs).
+  Other Stages and Slots continue using their own Skills as before.
+- UI Manage Skills indicates Slot 1 is built-in and does not present a custom
+  Skill selector. The API refuses future changes to the obsolete Slot 1
+  default. No new database table or migration.
+
+**Acceptance caveat:** Tests verify prompt contract, original-stock input,
+native image provenance, spatial protection, historical behavior and QA, but
+do not prove the edited embroidery meets photographic aesthetic expectations.
+A newly generated real Slot 1 example must be visually inspected before
+calling the new appearance production-accepted.
