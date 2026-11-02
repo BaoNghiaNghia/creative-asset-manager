@@ -112,9 +112,9 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                         else pipeline.SLOT1_LEGACY_DIRECT_NAME if front_mode == "direct_v1"
                         else "gatorhats-8869-slot1-threadtransfer-lite-v1"
                         if front_mode == "lite" else "sample-ecommerce-image"),
-            skill_version=(pipeline.SLOT1_DIRECT_VERSION if front_mode == "direct"
+            skill_version=(pipeline.SLOT1_DIRECT_PREVIOUS_VERSION if front_mode == "direct"
                            else pipeline.SLOT1_LEGACY_DIRECT_VERSION if front_mode == "direct_v1" else None),
-            skill_bundle_sha256=(pipeline.SLOT1_DIRECT_SHA256 if front_mode == "direct"
+            skill_bundle_sha256=(pipeline.SLOT1_DIRECT_PREVIOUS_SHA256 if front_mode == "direct"
                                  else pipeline.SLOT1_LEGACY_DIRECT_SHA256 if front_mode == "direct_v1"
                                  else "1"*64),
             created_by_user_id="operator", status="queued", processing_job_id=process_id,

@@ -6242,6 +6242,22 @@ def retry_ecommerce_job(
                             detail={"code": exc.code, "message": exc.message}) from exc
 
 
+@router.post("/products-stage2/ecommerce/jobs/{job_id}/retry-inpaint", status_code=202)
+def retry_ecommerce_inpaint(
+    job_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.ecommerce_pipeline import EcommerceError, EcommerceService
+    try:
+        return EcommerceService(session).retry_inpaint(
+            tenant_id=principal.active_tenant_id, job_id=job_id)
+    except EcommerceError as exc:
+        session.rollback()
+        raise HTTPException(status_code=exc.status_code,
+                            detail={"code": exc.code, "message": exc.message}) from exc
+
+
 @router.post("/products-stage2/ecommerce/jobs/{job_id}/regenerate", status_code=202)
 def regenerate_ecommerce_job(
     job_id: str,
@@ -6275,6 +6291,14 @@ def ecommerce_output_versions(
     return [{
         "version": item["version"], "created_at": item["created_at"],
         "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{job_id}/output?version={item['version']}",
+        "embroidery_reference_url": (
+            f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{job_id}/output?kind=embroidery_reference&version={item['version']}"
+            if (row.stage == "prod_s2_ec1"
+                and isinstance(item.get("font_info"), dict)
+                and isinstance(item["font_info"].get("slot1_embroidery_pipeline"), dict)
+                and item["font_info"]["slot1_embroidery_pipeline"].get("thread_material_asset"))
+            else None
+        ),
         "width": item["width"], "height": item["height"],
     } for item in output_versions(session, tenant_id=principal.active_tenant_id,
                                   stage="ecommerce", job=row)]
@@ -6314,6 +6338,7 @@ def ecommerce_job_logs(
 async def ecommerce_job_output(
     job_id: str,
     version: int | None = Query(default=None, ge=1),
+    kind: Literal["front", "embroidery_reference"] = Query(default="front"),
     thumbnail: bool = Query(default=False),
     size: int = Query(default=256, ge=128, le=1024),
     v: str | None = Query(default=None, max_length=256),
@@ -6331,7 +6356,20 @@ async def ecommerce_job_output(
     if row is None:
         raise HTTPException(status_code=404, detail="Ecommerce job not found")
     remote_id, mime, size_bytes = (
-        row.output_remote_file_id, row.output_content_type, row.output_size_bytes)
+        (row.front_preview_remote_file_id, row.front_preview_content_type,
+         row.front_preview_size_bytes)
+        if (kind == "embroidery_reference"
+            and row.stage == "prod_s2_ec1"
+            and row.skill_name == "cam-slot1-thread-reference-inpaint-v2"
+            and row.front_preview_content_type == "image/png"
+            and row.front_preview_design_sha256)
+        else (row.output_remote_file_id, row.output_content_type, row.output_size_bytes)
+    )
+    if kind == "embroidery_reference" and (
+        row.stage != "prod_s2_ec1"
+        or row.skill_name != "cam-slot1-thread-reference-inpaint-v2"
+    ):
+        raise HTTPException(status_code=404, detail="Embroidery Reference not available for this job")
     if version is not None:
         saved = session.scalar(select(RrugcImageOutputVersionModel).where(
             RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
@@ -6341,7 +6379,15 @@ async def ecommerce_job_output(
         ))
         if saved is None:
             raise HTTPException(status_code=404, detail="Ecommerce output version not found")
-        remote_id, mime, size_bytes = saved.remote_file_id, saved.content_type, saved.size_bytes
+        if kind == "embroidery_reference":
+            meta = saved.font_info_json or {}
+            pipeline = (meta.get("slot1_embroidery_pipeline") or {}
+                        if isinstance(meta, dict) else {})
+            remote_id = pipeline.get("thread_material_asset") if isinstance(pipeline, dict) else None
+            mime = "image/png"
+            size_bytes = None
+        else:
+            remote_id, mime, size_bytes = saved.remote_file_id, saved.content_type, saved.size_bytes
     if not remote_id:
         raise HTTPException(status_code=409, detail="Ecommerce output not ready")
     # Keep media authorization tenant-scoped before evaluating the revision.
@@ -6376,7 +6422,8 @@ async def ecommerce_job_output(
     try:
         stream = await storage.open_asset(OpenStoredAssetInput(
             tenant_id=principal.active_tenant_id,
-            asset_id="rrugc-ecommerce:" + job_id,
+            asset_id=("rrugc-ecommerce-thread-material:" + job_id
+                      if kind == "embroidery_reference" else "rrugc-ecommerce:" + job_id),
             remote_file_id=remote_id, content_type=mime, size_bytes=size_bytes,
         ))
     except StorageProviderError as exc:

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
-import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getEcommerceRunAllStatus, type EcommerceRunAllResult, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
+import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, retryEcommerceInpaint, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getEcommerceRunAllStatus, type EcommerceRunAllResult, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
 import "./MultiHatSceneReferences.css";
 import "./stage2-loading.css";
 import "./ProductsPhotoWorkflowTwoColumns.css";
 import "./ProductsPhotoWorkflowMetaLayout.css";
+import "./Slot1TwoOutputs.css";
 import { DeferredImage } from "./DeferredImage";
 import { stage2BackgroundRequests } from "./stage2RequestQueue";
 import { publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
@@ -312,6 +313,21 @@ export function ProductsPhotoWorkflow({
     }
   }
 
+  async function invokeInpaintRetry(job: EcommerceJob) {
+    if (!sourcePlanId || busyStage) return;
+    setBusyStage(job.stage);
+    setJobActionError("");
+    try {
+      await retryEcommerceInpaint(job.id);
+      await onEcommerceJobChange?.();
+    } catch (reason) {
+      setJobActionError(reason instanceof Error ? reason.message : "Could not retry front inpaint.");
+      setExpandedStep(job.stage);
+    } finally {
+      setBusyStage(null);
+    }
+  }
+
   async function invokeScene(slot: "prod_s2_mh" | "prod_s2_ugc") {
     if (!sourcePlanId || busyStage) return;
     setBusyStage(slot);
@@ -355,7 +371,14 @@ export function ProductsPhotoWorkflow({
       status: job?.status || "pending",
     };
   });
+  const slot1Output = jobs.find(item => item.stage === "prod_s2_ec1");
   const allOutputItems: PhotoOutputItem[] = [
+    {
+      key: "prod_s2_ec1:reference",
+      label: "Slot 1 · Embroidery Reference",
+      status: slot1Output?.embroidery_reference_url ? "completed" : slot1Output?.status || "pending",
+      src: slot1Output?.embroidery_reference_url || null,
+    },
     ...PHOTO_STEPS.flatMap(step => step.shots.map(shot => {
       const job = jobs.find(item => item.stage === (step.shots.length === 1 ? step.key : step.key + "_" + (shot.number - step.shots[0].number + 1)));
       const status: PhotoOutputItem["status"] = job?.status || "pending";
@@ -541,7 +564,28 @@ export function ProductsPhotoWorkflow({
             <div><strong>{configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
-            {step.shots.map((shot, shotIndex) => {
+            {isBuiltInFront && [
+              { key: "prod_s2_ec1:reference", label: "Embroidery Reference", url: shotJob?.embroidery_reference_url },
+              { key: "prod_s2_ec1:0", label: "After Inpaint · Front Cap",
+                url: shotJob?.status === "completed" ? shotJob.output_url : null },
+            ].map(output => output.url
+              ? <button type="button" key={output.key}
+                  className="rrugc-products-photo-empty-shot rrugc-products-photo-slot1-output is-completed"
+                  onClick={() => setOutputGallery({
+                    title: "Slot 1 · Embroidery Reference → After Inpaint",
+                    items: allOutputItems,
+                    initialIndex: allOutputItems.findIndex(item => item.key === output.key),
+                  })} aria-label={"Open " + output.label + " output"}>
+                  <DeferredImage src={stage2ThumbnailUrl(output.url, 256)}
+                    alt={output.label} rootMargin="260px" />
+                  <span className="rrugc-slot1-output-label">{output.label}</span>
+                </button>
+              : <span key={output.key} className="rrugc-products-photo-empty-shot rrugc-products-photo-slot1-output"
+                  title={output.label + " · Not generated"}>
+                  <HatSlotIcon />
+                  <span className="rrugc-slot1-output-label">{output.label}</span>
+                </span>)}
+            {!isBuiltInFront && step.shots.map((shot, shotIndex) => {
               const photo = isEcommerce ? shotJob : sceneJobs.find(job => job.stage === step.key + "_" + (shotIndex + 1));
               return photo?.output_url && photo.status === "completed"
                 ? <button type="button" key={shot.number} className="rrugc-products-photo-empty-shot is-completed"
@@ -590,6 +634,36 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>Inputs are verified on the server. Skill 2 edits the pinned 3/4 stock photograph directly; it never synthesizes the cap angle from front/side. A completed Front output is required for design continuity.</small>
             </div>}
+            {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
+              aria-label="Slot 1 generated outputs">
+              <strong>Outputs · Embroidery Reference → After Inpaint</strong>
+              <div className="rrugc-products-photo-slot1-output-grid">
+                {[
+                  { key: "prod_s2_ec1:reference", label: "1. Embroidery Reference",
+                    src: shotJob?.embroidery_reference_url },
+                  { key: "prod_s2_ec1:0", label: "2. After Inpaint · Front Cap",
+                    src: shotJob?.status === "completed" ? shotJob.output_url : null },
+                ].map(output => <div className="rrugc-products-photo-slot1-detail-output"
+                    key={output.key}>
+                  {output.src
+                    ? <button type="button" aria-label={"View " + output.label}
+                        onClick={() => setOutputGallery({
+                          title: "Slot 1 · Embroidery Reference → After Inpaint",
+                          items: allOutputItems,
+                          initialIndex: allOutputItems.findIndex(item => item.key === output.key),
+                        })}>
+                        <DeferredImage src={stage2ThumbnailUrl(output.src, 512)}
+                          alt={output.label} rootMargin="320px" />
+                      </button>
+                    : <div className="rrugc-products-photo-slot1-output-placeholder">
+                        <HatSlotIcon />
+                        <small>{output.key.endsWith("reference") ? "Waiting for Pass A" : "Waiting for Pass B"}</small>
+                      </div>}
+                  <small>{output.label}</small>
+                </div>)}
+              </div>
+              <small>Pass A is saved independently. Retry inpaint reuses it; Full regenerate creates a new reference and cap.</small>
+            </section>}
             {step.key === "prod_s2_mh" && <section aria-label="Pinned Multi-hat Cap Stack references" className="rrugc-products-photo-ugc-scout">
               <strong>Cap Stack Scout · {multiHatReferences.length}/20 references</strong>
               <p>Automatically samples verified 3-hat and 4-hat photos from GatorHats Reviews Stage 1 when you press Run. Each embroidery design gets an independent random set; all three outputs share its pinned selection.</p>
@@ -643,12 +717,17 @@ export function ProductsPhotoWorkflow({
             </div>}
             <div className="rrugc-products-photo-detail-actions">
             {isEcommerce && !isBuiltInPhoto && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
-            {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
-              onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
+            {shotJob && (!isBuiltInFront || !shotJob.embroidery_reference_url)
+              && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
+                onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
+            {isBuiltInFront && shotJob?.embroidery_reference_url
+              && (shotJob.status === "completed" || shotJob.status === "failed")
+              && <button type="button" disabled={!!busyStage}
+                onClick={() => void invokeInpaintRetry(shotJob)}>Retry inpaint · keep reference</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}
             {shotJob?.output_url && <button type="button" onClick={() => void showEcommerceVersions(shotJob.id)}>Versions</button>}
             {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
-              onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
+              onClick={() => void invokeEcommerce(step.key, shotJob, true)}>{isBuiltInFront ? "Full regenerate · both images" : "Regenerate"}</button>}
             {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
             {!isEcommerce && !state?.ready && <small>Worker or Skill must be ready before running.</small>}
             </div>
@@ -663,8 +742,12 @@ export function ProductsPhotoWorkflow({
             </div>}
             {shotJob && versionsFor === shotJob.id && <div className="rrugc-products-photo-execution-log">
               <strong>Saved output versions</strong>
-              {versions.map(version => <a key={version.version} href={version.output_url}
-                target="_blank" rel="noopener noreferrer">Version {version.version}</a>)}
+              {versions.map(version => <div key={version.version} className="rrugc-products-photo-version-pair">
+                <span>Version {version.version}</span>
+                {version.embroidery_reference_url && <a href={version.embroidery_reference_url}
+                  target="_blank" rel="noopener noreferrer">Embroidery Reference</a>}
+                <a href={version.output_url} target="_blank" rel="noopener noreferrer">After Inpaint · Front Cap</a>
+              </div>)}
             </div>}
           </div>}
         </div>;

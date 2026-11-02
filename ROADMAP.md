@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-02 — GatorHats Products Slot 1 two-output V2.3
+
+- [x] Checkpoint verified photographic Embroidery Reference before editing front stock.
+- [x] Display persistent Embroidery Reference plus front cap after inpaint, including failed/partial state and output version history.
+- [x] Retry inpaint without new material ImageGen, Full Regenerate creates both images, preserve V2.2 job identity/version compatibility.
+- [x] Tenant-scoped original/thumbnail URLs and basic backend/frontend tests.
+- [ ] Inspect representative live inpaint output closely for low relief and panel curvature after a user-triggered regenerate.
+
+Runbook: `docs/operations/CAM_SLOT1_EMBROIDERY_REFERENCE_INPAINT_V23.md`.
+
+
 ## 2026-11-02 — TikTokShop full source and reference replay
 
 - [x] Reuse existing source V5 upgrade and 12-job inflight budget for all 66 source photos.

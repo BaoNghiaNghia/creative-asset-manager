@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import httpx
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -62,6 +63,7 @@ from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
     SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
+    SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256,
     SLOT1_LEGACY_DIRECT_NAME, SLOT1_LEGACY_DIRECT_VERSION,
     SLOT1_LEGACY_DIRECT_SHA256,
 )
@@ -295,6 +297,12 @@ def _repin_slot1_direct(row: RrugcEcommerceJobModel) -> bool:
     if row.stage != "prod_s2_ec1":
         return False
     selected = _slot1_direct_selection()
+    if row.skill_name != SLOT1_DIRECT_NAME:
+        # An older flat input overlay is NOT a real photographic Pass A.
+        row.front_preview_remote_file_id = None
+        row.front_preview_content_type = None
+        row.front_preview_size_bytes = None
+        row.front_preview_design_sha256 = None
     row.skill_source = selected.source
     row.skill_id = selected.skill_id
     row.skill_name = selected.skill_name
@@ -388,7 +396,7 @@ class EcommerceService:
 
     def _enqueue(self, row: RrugcEcommerceJobModel, *, scout_reference=None, multihat_references=None,
                  multihat_colorways=None, multihat_colorway_hashes=None,
-                 front_placement=None) -> None:
+                 front_placement=None, regenerate_material_reference: bool = False) -> None:
         count = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
@@ -399,6 +407,8 @@ class EcommerceService:
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
             payload={
                 "ecommerce_job_id": row.id,
+                **({"regenerate_material_reference": True}
+                   if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
                 **({"thread_material_pipeline": "v1"} if (
                     row.stage in {"prod_s2_ec2", "prod_s2_ec3"} and row.skill_source == "internal"
                     or row.stage in SCENE_STAGE_SLOTS and row.front_reference_remote_file_id
@@ -933,13 +943,9 @@ class EcommerceService:
             row.skill_source, row.skill_id = selected.source, None
             row.skill_name, row.skill_version = selected.skill_name, selected.skill_version
             row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
-        if row.stage == "prod_s2_ec1":
-            # Explicit regeneration consumes the current calibration, not an
-            # outdated persisted front overlay. Saved output versions are intact.
-            row.front_preview_remote_file_id = None
-            row.front_preview_content_type = None
-            row.front_preview_size_bytes = None
-            row.front_preview_design_sha256 = None
+        # Keep the prior Slot 1 reference visible while a new Pass A is being
+        # made. The verified checkpoint replaces it ONLY after Drive storage;
+        # previous front/reference versions remain immutable.
         # Keep the original pinned Skill for all other slots. An explicit
         # Slot 1 regeneration alone can intentionally adopt True Thread v2;
         # the previous output version and its original Skill SHA remain saved.
@@ -985,9 +991,48 @@ class EcommerceService:
         self._enqueue(row, multihat_references=multihat_references,
                       multihat_colorways=multihat_colorways,
                       multihat_colorway_hashes=multihat_colorway_hashes,
-                      front_placement=pin_front_placement(self.session, tenant_id, plan.source_revision))
+                      front_placement=pin_front_placement(self.session, tenant_id, plan.source_revision),
+                      regenerate_material_reference=row.stage == "prod_s2_ec1")
         self.session.commit()
         return {"job_id": row.id, "status": row.status}
+
+    def retry_inpaint(self, *, tenant_id: str, job_id: str) -> dict:
+        """Explicit Pass B only, even for a previously completed front photo.
+
+        Historical version records and the already-pinned Pass A are untouched.
+        This endpoint does not create any new material-reference ImageGen calls.
+        """
+        row = self.session.scalar(select(RrugcEcommerceJobModel).where(
+            RrugcEcommerceJobModel.tenant_id == tenant_id,
+            RrugcEcommerceJobModel.id == job_id,
+            RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+        ).with_for_update())
+        if row is None:
+            raise EcommerceError("ecommerce_job_not_found", "Front Ecommerce job not found.", 404)
+        current = (self.session.get(ProcessingJobModel, row.processing_job_id)
+                   if row.processing_job_id else None)
+        if _effective_status(row, current) not in ("completed", "failed"):
+            raise EcommerceError("ecommerce_inpaint_retry_unavailable",
+                                 "Wait until the current front edit completes.")
+        plan = _source_plan(self.session, tenant_id, row.source_plan_id, lock=True)
+        if plan.source_revision != row.source_revision:
+            raise EcommerceError("ecommerce_source_changed", "Embroidery artwork revision changed.")
+        if (row.skill_name != SLOT1_DIRECT_NAME
+                or not row.front_preview_remote_file_id
+                or row.front_preview_content_type != "image/png"
+                or not row.front_preview_design_sha256):
+            raise EcommerceError("ecommerce_thread_reference_missing",
+                                 "Generate the Embroidery Reference before retrying inpaint.")
+        _repin_slot1_direct(row)
+        row.status = "queued"
+        row.retry_count = 0 if current and current.status == "completed" else row.retry_count + 1
+        row.started_at = row.completed_at = None
+        row.last_error_code = row.last_error_message = None
+        previous_placement = (current.payload_json or {}).get("front_placement") if current else None
+        self._enqueue(row, front_placement=previous_placement)
+        self.session.commit()
+        return {"job_id": row.id, "status": row.status,
+                "embroidery_reference_reused": True}
 
     def list(self, *, tenant_id: str, source_ids: list[str]) -> list[dict]:
         ids = list(dict.fromkeys(source_ids))
@@ -1014,6 +1059,13 @@ class EcommerceService:
             "error_code": row.last_error_code or (processing.last_error_code if processing else None),
             "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{row.id}/output"
                           if row.output_remote_file_id else None,
+            "embroidery_reference_url": (
+                f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{row.id}/output?kind=embroidery_reference"
+                if (row.stage == "prod_s2_ec1" and row.skill_name == SLOT1_DIRECT_NAME
+                    and row.front_preview_remote_file_id
+                    and row.front_preview_content_type == "image/png"
+                    and row.front_preview_design_sha256) else None
+            ),
             "skill_name": row.skill_name,
             "scene_reference": (processing.payload_json or {}).get("scout_reference")
                 if processing and row.stage in SCENE_GROUPS["prod_s2_ugc"] else None,
@@ -1148,6 +1200,121 @@ class EcommerceGenerateHandler:
             await stream.close()
         return bytes(chunks)
 
+    async def _checkpointed_slot1_generate(
+        self, *, context: JobHandlerContext, storage, runner: CodexImageGenRunner,
+        person: PreparedImage, references: list[ReferenceImageInput], prompt: str,
+        source_revision: str, design_sha: str, folder_id: str | None,
+        preview_remote_id: str | None, preview_mime: str | None,
+        preview_size: int | None, preview_design_sha: str | None,
+    ) -> tuple[GeneratedImageResult, str, int]:
+        """Save native Pass A before Pass B, and reuse it on inpaint retries."""
+        material_bytes: bytes | None = None
+        material_remote_id = preview_remote_id
+        force_new = context.job.payload.get("regenerate_material_reference") is True
+        if material_remote_id and not force_new and preview_design_sha == design_sha:
+            material_bytes = await self._open_bytes(
+                storage, context, "rrugc-ecommerce-thread-material:" + context.job.entity_id,
+                material_remote_id, preview_mime, preview_size,
+            )
+        if material_bytes is None:
+            material_runner = CodexImageGenRunner(replace(
+                runner.config, output_contract="slot1_v2_material_single",
+            ))
+            try:
+                material = await material_runner.generate_from_references(
+                    attempt_id=context.job.entity_id + "-thread-reference",
+                    person=next(ref.image for ref in references if ref.role == "design_reference"),
+                    references=[], prompt=prompt,
+                )
+            finally:
+                material_runner.cleanup_attempt(context.job.entity_id + "-thread-reference")
+            material_bytes = material.image_bytes
+            material_sha = hashlib.sha256(material_bytes).hexdigest()
+            if (material.provider_metadata.get("native_sha256") != material_sha
+                    or material_sha == design_sha):
+                raise EcommerceError("ecommerce_thread_material_unverified",
+                                     "Embroidery Reference must be a distinct verified native ImageGen output.")
+        material_hash = hashlib.sha256(material_bytes).hexdigest()
+        if len(material_bytes) > MAX_REFERENCE_BYTES:
+            raise EcommerceError("ecommerce_thread_material_invalid", "Embroidery Reference exceeds the asset limit.")
+        try:
+            with Image.open(BytesIO(material_bytes)) as macro:
+                if (macro.format != "PNG" or min(macro.size) < 512
+                        or macro.width * macro.height > MAX_REFERENCE_PIXELS):
+                    raise ValueError("Invalid macro image geometry.")
+                macro.verify()
+            with Image.open(BytesIO(material_bytes)) as macro:
+                macro_width, macro_height = macro.size
+        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            raise EcommerceError("ecommerce_thread_material_invalid",
+                                 "Embroidery Reference is not a verified PNG image.") from exc
+
+        if material_remote_id is None or force_new or preview_design_sha != design_sha:
+            stored = await storage.store_asset(StoreAssetInput(
+                tenant_id=context.job.tenant_id,
+                content_hash=material_hash, body=_bytes_body(material_bytes),
+                asset_id="rrugc-ecommerce-thread-material:" + context.job.entity_id,
+                content_type="image/png", size_bytes=len(material_bytes),
+                filename="embroidery_reference_" + context.job.entity_id
+                         + "_" + material_hash[:12] + ".png",
+                destination_folder_id=folder_id or None,
+            ))
+            if not stored.remote_file_id:
+                raise StorageProviderError("Embroidery Reference was not stored.",
+                                           retryable=True, code="ecommerce_thread_material_storage_failed")
+            material_remote_id = stored.remote_file_id
+            with context.dependencies.session_factory() as session:
+                pinned = session.scalar(select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.tenant_id == context.job.tenant_id,
+                    RrugcEcommerceJobModel.id == context.job.entity_id,
+                ).with_for_update())
+                if pinned is None or pinned.source_revision != source_revision:
+                    raise EcommerceError("ecommerce_source_changed",
+                                         "Cannot checkpoint a reference for a different design.")
+                pinned.front_preview_remote_file_id = material_remote_id
+                pinned.front_preview_content_type = "image/png"
+                pinned.front_preview_size_bytes = len(material_bytes)
+                pinned.front_preview_design_sha256 = design_sha
+                session.commit()
+
+        material_ref = ReferenceImageInput(
+            image=PreparedImage(image_bytes=material_bytes, mime_type="image/png",
+                                width=macro_width, height=macro_height),
+            role="slot1_thread_material_reference",
+            label="Exact native Embroidery Reference saved as independent Pass A output; "
+                  "copy fine yarn strand material ONLY, not its background or letter position.",
+        )
+        cap_runner = CodexImageGenRunner(replace(
+            runner.config, output_contract="slot1_v2_cap_single",
+        ))
+        try:
+            photo = await cap_runner.generate_from_references(
+                attempt_id=context.job.entity_id + "-stock-inpaint", person=person,
+                references=[*references, material_ref],
+                prompt=prompt + " REUSE the supplied, already-saved Embroidery Reference. "
+                       "No second embroidery-material generation. Sew threads close to "
+                       "the curved real front crown; avoid oversized or puffy yarn ridges.",
+            )
+        finally:
+            cap_runner.cleanup_attempt(context.job.entity_id + "-stock-inpaint")
+        photo_sha = hashlib.sha256(photo.image_bytes).hexdigest()
+        if (photo.provider_metadata.get("native_sha256") != photo_sha
+                or photo_sha == material_hash):
+            raise EcommerceError("ecommerce_front_inpaint_unverified",
+                                 "Final cap must be a distinct verified native ImageGen edit.")
+        return GeneratedImageResult(
+            provider="codex", model=photo.model, image_bytes=photo.image_bytes,
+            mime_type="image/png", provider_request_id=photo.provider_request_id,
+            provider_metadata={
+                "skill": SLOT1_DIRECT_NAME, "native_passes": 2,
+                "reference_sha256": material_hash, "edited_sha256": photo_sha,
+                "reference_asset_id": material_remote_id,
+                "reference_reused": not (force_new or preview_remote_id is None
+                                        or preview_design_sha != design_sha),
+                "edit_target": "unaltered_factory_crown",
+            },
+        ), material_remote_id, len(material_bytes)
+
     async def _execute(self, context: JobHandlerContext):
         if (context.job.job_type != JOB_TYPE or
                 context.job.payload.get("ecommerce_job_id") != context.job.entity_id):
@@ -1183,11 +1350,12 @@ class EcommerceGenerateHandler:
                 # Running and previously queued v1 jobs retain their exact
                 # pinned contract; explicit Retry/Regenerate adopts v2.
                 expected = (
-                    (SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256)
+                    {(SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256),
+                     (SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256)}
                     if row.skill_name == SLOT1_DIRECT_NAME
-                    else (SLOT1_LEGACY_DIRECT_VERSION, SLOT1_LEGACY_DIRECT_SHA256)
+                    else {(SLOT1_LEGACY_DIRECT_VERSION, SLOT1_LEGACY_DIRECT_SHA256)}
                 )
-                if (row.skill_version, row.skill_bundle_sha256) != expected:
+                if (row.skill_version, row.skill_bundle_sha256) not in expected:
                     raise EcommerceError("ecommerce_pipeline_changed", "Slot 1 built-in version changed.")
             else:
                 # Preserve old queued two-pass and legacy jobs with their
@@ -1227,6 +1395,7 @@ class EcommerceGenerateHandler:
             preview_mime = row.front_preview_content_type
             preview_size = row.front_preview_size_bytes
             preview_design_sha = row.front_preview_design_sha256
+            pinned_reference_version = row.skill_version
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             session.commit()
@@ -1236,6 +1405,7 @@ class EcommerceGenerateHandler:
         slot1_material = None
         is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
         is_reference = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
+        checkpointed_reference = is_reference and pinned_reference_version == SLOT1_DIRECT_VERSION
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
         material_transfer = context.job.payload.get("thread_material_pipeline") == "v1"
@@ -1503,6 +1673,8 @@ class EcommerceGenerateHandler:
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
                                    "/var/lib/creative-asset-manager/codex"))
+        material_reference_remote_id: str | None = None
+        material_reference_bytes: bytes | None = None
         if builtin_back:
             with Image.open(BytesIO(refs[0][1])) as unprinted_back:
                 back_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(unprinted_back.format)
@@ -1530,10 +1702,23 @@ class EcommerceGenerateHandler:
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
                 ))
                 try:
-                    generated = await runner.generate_from_references(
-                        attempt_id=context.job.entity_id, person=base, references=references,
-                        prompt=prompt,
-                    )
+                    if checkpointed_reference:
+                        generated, material_reference_remote_id, _material_size = (
+                            await self._checkpointed_slot1_generate(
+                                context=context, storage=storage, runner=runner,
+                                person=base, references=references, prompt=prompt,
+                                source_revision=plan.source_revision,
+                                design_sha=design_sha, folder_id=folder_id,
+                                preview_remote_id=preview_remote_id,
+                                preview_mime=preview_mime, preview_size=preview_size,
+                                preview_design_sha=preview_design_sha,
+                            )
+                        )
+                    else:
+                        generated = await runner.generate_from_references(
+                            attempt_id=context.job.entity_id, person=base,
+                            references=references, prompt=prompt,
+                        )
                 finally:
                     runner.cleanup_attempt(context.job.entity_id)
                 if material_transfer and stage in SCENE_STAGE_SLOTS:
@@ -1624,11 +1809,9 @@ class EcommerceGenerateHandler:
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
             raise RrugcGenerationHandlerError("ecommerce_output_invalid",
                             "Generated photo did not pass basic validation.", retryable=True) from exc
-        # Persist the verified high-resolution Pass A once. Future slots
-        # pin this exact asset, not a low-resolution crop or painted preview.
-        material_reference_remote_id = None
-        material_reference_bytes = None
-        if is_reference:
+        # V2.3 saves Pass A before Pass B; old pinned V2.2 jobs still
+        # return two images together and use the historical completion path.
+        if is_reference and not checkpointed_reference:
             if len(generated.additional_images) != 1:
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Native Slot 1 material was not returned.")
@@ -1673,10 +1856,9 @@ class EcommerceGenerateHandler:
             ).with_for_update())
             if row is None:
                 return JobHandlerResult.non_retryable("ecommerce_job_not_found", "Job missing.")
-            if material_reference_remote_id:
-                # Historical field is empty for V2 and only used as a durable
-                # internal macro handle; distinguish from legacy flat preview
-                # using the internal skill name and pinned pipeline snapshot.
+            if material_reference_remote_id and not checkpointed_reference:
+                # Historical V2.2 completion: V2.3 already pinned the durable
+                # Pass A checkpoint before calling Pass B.
                 row.front_preview_remote_file_id = material_reference_remote_id
                 row.front_preview_content_type = "image/png"
                 row.front_preview_size_bytes = len(material_reference_bytes)
@@ -1687,7 +1869,9 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": ("thread-reference-inpaint-v2" if is_reference else
+                                    "version": ("thread-reference-inpaint-v2.3-checkpointed"
+                                                if checkpointed_reference else
+                                                "thread-reference-inpaint-v2" if is_reference else
                                                 "direct-inpaint-v1" if is_direct_legacy else
                                                 "threadtransfer-lite-v1" if is_lite else
                                                 "ai-material-localized-v3"),

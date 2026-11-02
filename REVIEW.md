@@ -1,3 +1,10 @@
+## 2026-11-02 — Slot 1 Embroidery Reference + Front Cap V2.3
+
+- GatorHats Products Stage 2 Slot 1: expose two first-class outputs — saved ImageGen Embroidery Reference and After Inpaint original-front cap — in the card, Details, output gallery and per-version history. The existing "THIS IS MY COWBOY HAT" V2.2 job already has both saved so no extra generation is needed to display the pair.
+- Checkpoint Pass A to managed storage and the Ecommerce job before executing Pass B. Inpaint Retry reuses the exact saved macro without another Pass A call; Full Regenerate always calls both passes and retains prior versions. Already-queued V2.2 jobs stay pinned to their old byte-provenance contract.
+- Add tenant-scoped reference media route, retry-inpaint endpoint and labels; no new database columns, migrations, API-key use, changes outside Slot 1, or automatic reruns. Low-profile thread QA and original-factory stock mask protection remain mandatory.
+- Tests and deployment: `docs/operations/CAM_SLOT1_EMBROIDERY_REFERENCE_INPAINT_V23.md`. Visual model realism must be verified separately against actual photographic refs; two-pass provenance alone does not guarantee photographic quality.
+
 ## 2026-11-02 — TikTokShop full placement-aware Scout replay
 
 - 66 TikTokShop source images in the production audit; 11 already V5 and 55 queued/retrying V4. Leave existing V5 contexts intact; use the 12-job source Gemini budget to upgrade the remaining V4 sources.

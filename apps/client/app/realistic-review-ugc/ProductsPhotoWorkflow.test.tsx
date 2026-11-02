@@ -67,15 +67,51 @@ describe("Products Stage 2 photo workflow", () => {
         status: "completed", retry_count: 0, attempt_count: 1,
         error_code: null, output_url: "/hat-output.png", skill_name: "ecommerce-01",
       }]} />);
-    expect(html).toContain('class="rrugc-products-photo-empty-shot is-completed"');
-    expect(html).toContain('aria-label="Open Front High Ecommerce output"');
+    expect(html).toContain("Open After Inpaint · Front Cap output");
+    expect(html).toContain("Embroidery Reference");
     expect(html).toContain("rrugc-deferred-img");
-    expect((html.match(/class="rrugc-products-photo-empty-shot is-completed"/g) ?? []).length).toBe(1);
-    expect((html.match(/class="rrugc-products-photo-empty-shot"/g) ?? []).length).toBe(9);
+    expect((html.match(/rrugc-products-photo-slot1-output is-completed/g) ?? []).length).toBe(1);
+    expect(html).toContain('title="Embroidery Reference · Not generated"');
     expect(html).toContain('title="Front Right 3/4 · Not generated"');
   });
 
-  it("shows seven configurable skill rows with 10 photo placeholders and 12 colors", () => {
+  it("shows the persisted Embroidery Reference while Pass B is running", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="Cowboy Hat.png"
+      readiness={null} ecommerceJobs={[{
+        id: "front-1", source_plan_id: "source", stage: "prod_s2_ec1",
+        status: "running", retry_count: 0, attempt_count: 1,
+        error_code: null, output_url: null,
+        embroidery_reference_url: "/api/ref/embroidery-reference.png",
+        skill_name: "cam-slot1-thread-reference-inpaint-v2",
+      }]} />);
+    expect(html).toContain('aria-label="Open Embroidery Reference output"');
+    expect(html).toContain('alt="Embroidery Reference"');
+    expect(html).toContain("After Inpaint · Front Cap");
+    expect(html).toContain('title="After Inpaint · Front Cap · Not generated"');
+  });
+
+  it("shows both Slot 1 images after completion and retains the reference after retry failure", () => {
+    const base = {
+      id: "front-2", source_plan_id: "source", stage: "prod_s2_ec1",
+      retry_count: 0, attempt_count: 1, error_code: null,
+      embroidery_reference_url: "/api/ref/photo.png",
+      skill_name: "cam-slot1-thread-reference-inpaint-v2",
+    };
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="Cowboy Hat.png"
+      readiness={null} ecommerceJobs={[{
+        ...base, status: "completed", output_url: "/api/front/photo.png",
+      }]} />);
+    expect(html).toContain('aria-label="Open Embroidery Reference output"');
+    expect(html).toContain('aria-label="Open After Inpaint · Front Cap output"');
+    const failed = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="Cowboy Hat.png"
+      readiness={null} ecommerceJobs={[{
+        ...base, status: "failed", output_url: null,
+      }]} />);
+    expect(failed).toContain('aria-label="Open Embroidery Reference output"');
+    expect(failed).toContain("After Inpaint · Front Cap · Not generated");
+  });
+
+  it("shows seven skill rows, with two Slot 1 outputs and 12 colors", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design_01.png" readiness={null} />);
     expect(html).toContain("Ecommerce · Image 01");
     expect(html).toContain("Ecommerce · Image 02");
@@ -99,12 +135,12 @@ describe("Products Stage 2 photo workflow", () => {
     expect((html.match(/class="rrugc-products-photo-duration"/g) || []).length).toBe(7);
     expect(html).not.toContain(">Last updated:");
     expect(html).not.toContain(">Duration:");
-    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
+    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(11);
     for (const slot of ["prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_mh", "prod_s2_ugc", "colorway"]) {
       expect(html).toContain('data-skill="' + slot + '"');
     }
     expect(html).toContain("Pipeline 7");
-    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(10);
+    expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(11);
     expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(12);
     expect(html).not.toContain("Completed · 10/10");
   });

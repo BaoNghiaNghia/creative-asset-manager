@@ -1,0 +1,54 @@
+
+/* Slot 1 has TWO first-class outputs, not a hidden material input and one cap.
+   Keep both thumbnails accessible even when other Ecommerce strips collapse. */
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"]{
+  grid-template-columns:minmax(150px,215px) minmax(0,1fr) max-content;
+  grid-template-areas:"title skill controls" "outputs outputs outputs";
+  row-gap:7px;
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-output-strip{
+  display:flex;justify-content:flex-start;gap:10px;overflow-x:auto;padding:3px 0 5px;
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-slot1-output{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:132px;height:104px;flex:0 0 132px;padding:3px;
+  border:1px solid #d7e2ee;background:#f8fbff;overflow:hidden;
+  color:#47617e;cursor:pointer;
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-slot1-output>img{
+  flex:1;width:100%;min-height:0;object-fit:contain;
+}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-slot1-output:not(.is-completed){
+  border-style:dashed;cursor:default;
+}
+.rrugc-slot1-output-label{font-size:10px;font-weight:750;line-height:1.3;white-space:nowrap;
+  color:#34547c;padding:2px 0 0}
+.rrugc-products-photo-slot1-details{grid-column:1/-1;display:grid;gap:9px;
+  border:1px solid #dbe5f1;background:#f9fbff;padding:12px;border-radius:9px}
+.rrugc-products-photo-slot1-output-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.rrugc-products-photo-slot1-detail-output{display:grid;gap:5px;min-width:0}
+.rrugc-products-photo-slot1-detail-output>button,
+.rrugc-products-photo-slot1-output-placeholder{
+  display:grid;place-items:center;width:100%;height:155px;min-height:100px;
+  padding:6px;border:1px solid #d9e3ef;border-radius:8px;background:#fff;
+  overflow:hidden;cursor:zoom-in;
+}
+.rrugc-products-photo-slot1-detail-output>button img{
+  width:100%;height:100%;object-fit:contain;
+}
+.rrugc-products-photo-slot1-output-placeholder{cursor:default;gap:4px;color:#8396aa}
+.rrugc-products-photo-slot1-output-placeholder svg{width:24px;height:24px}
+.rrugc-products-photo-slot1-detail-output>small{font-size:10px!important;font-weight:750;color:#526b8b!important}
+.rrugc-products-photo-version-pair{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+@media(max-width:760px){
+  .rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"]{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"title" "skill" "controls" "outputs";
+  }
+  .rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-slot1-output{
+    width:118px;flex-basis:118px;
+  }
+  .rrugc-products-photo-slot1-output-grid{gap:7px}
+  .rrugc-products-photo-slot1-detail-output>button,
+  .rrugc-products-photo-slot1-output-placeholder{height:115px}
+}

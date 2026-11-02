@@ -745,7 +745,9 @@ export type EcommerceJob = {
   id: string; source_plan_id: string; stage: string; color_key?: string;
   status: "queued" | "running" | "completed" | "failed";
   retry_count: number; attempt_count: number; error_code: string | null;
-  output_url: string | null; skill_name: string;
+  output_url: string | null;
+  embroidery_reference_url?: string | null;
+  skill_name: string;
   scene_reference?: { candidate_id: string; image_url: string } | null;
   scene_references?: Array<{ image_id: string; image_url: string; pin_url: string; caps_count: 3 | 4 }>;
   scene_colorways?: Array<{ key: string; label: string }>;
@@ -760,6 +762,7 @@ export type EcommerceJobLogs = {
 };
 export type EcommerceOutputVersion = {
   version: number; created_at: string; output_url: string;
+  embroidery_reference_url?: string | null;
   width: number | null; height: number | null;
 };
 export type UgcScoutItem = { id: string; image_url: string; pin_url: string | null; score: number | null; status: string; manual_label?: "good" | null };
@@ -828,6 +831,12 @@ export const retryEcommerceJob = (jobId: string) =>
     ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/retry",
     { method: "POST" },
   );
+export const retryEcommerceInpaint = (jobId: string) =>
+  request<{ job_id: string; status: string; embroidery_reference_reused: boolean }>(
+    ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/retry-inpaint",
+    { method: "POST", body: "{}" },
+  );
+
 export const regenerateEcommerceJob = (jobId: string) =>
   request<{ job_id: string; status: string }>(
     ECOMMERCE_PATH + "/jobs/" + encodeURIComponent(jobId) + "/regenerate",
