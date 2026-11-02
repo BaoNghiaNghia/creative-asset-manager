@@ -105,7 +105,8 @@ def test_front_placement_is_pinned_for_new_job_and_regenerate_uses_updated_setti
     session.commit()
     service.regenerate(tenant_id="tenant-001", job_id=job.id)
     assert job.output_remote_file_id == "old-image-stays-saved"
-    assert job.front_preview_remote_file_id is None
+    # The old reference remains visible until the new native reference is saved.
+    assert job.front_preview_remote_file_id == "old-preview"
     latest = session.get(ProcessingJobModel, job.processing_job_id)
     assert latest.payload_json["front_placement"] == {**newer, "design_size": 100}
 

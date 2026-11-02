@@ -321,7 +321,7 @@ export function ProductsPhotoWorkflow({
       await retryEcommerceInpaint(job.id);
       await onEcommerceJobChange?.();
     } catch (reason) {
-      setJobActionError(reason instanceof Error ? reason.message : "Could not retry front inpaint.");
+      setJobActionError(reason instanceof Error ? reason.message : "Could not retry ThreadTransfer placement.");
       setExpandedStep(job.stage);
     } finally {
       setBusyStage(null);
@@ -452,7 +452,7 @@ export function ProductsPhotoWorkflow({
     : colorPhase === "failed" ? "Failed" : colorPhase === "ready"
       ? complete ? "Continue" : "Run" : "Not ready";
 
-  return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
+  return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-slot photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
     <div className="rrugc-products-photo-stage-list is-two-column">
       {(() => {
@@ -465,7 +465,7 @@ export function ProductsPhotoWorkflow({
         const isBuiltInFront = step.key === "prod_s2_ec1";
         const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
-          ? "Built-in · Embroidery Reference → Inpaint"
+          ? "ThreadTransfer V1 · Raster placement"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
           : isBuiltInPhoto ? "Built-in · Satin Thread Inpaint" : configured || step.skillName;
         const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
@@ -492,7 +492,8 @@ export function ProductsPhotoWorkflow({
           && !busyStage && !sceneComplete
           && sceneJobs.every(job => !["queued", "running"].includes(job.status));
 
-        // Slot 1 uses the built-in two-pass runner, not an assigned Skill ZIP.
+        // Slot 1 is local ThreadTransfer after its saved Embroidery Reference;
+        // no custom Skill ZIP and no ImageGen call on placement retries.
         const runnable = isEcommerce && Boolean(hasRequiredEngine && slotInputs?.ready && sourcePlanId)
           && !busyStage && !shotJob;
         const bundleMissing = !isEcommerce && Boolean(state && !state.bundle_installed);
@@ -511,9 +512,11 @@ export function ProductsPhotoWorkflow({
         const sceneRunning = sceneJobs.some(job => job.status === "running");
         const sceneQueued = sceneJobs.some(job => job.status === "queued");
         const sceneFailed = sceneJobs.some(job => job.status === "failed");
-        const canRetry = isEcommerce
-          ? shotJob?.status === "failed" && shotJob.retry_count < 3
-          : sceneFailed && sceneRunnable;
+        const canRetry = isBuiltInFront && shotJob?.embroidery_reference_url
+          ? shotJob?.status === "failed"
+          : isEcommerce
+            ? shotJob?.status === "failed" && shotJob.retry_count < 3
+            : sceneFailed && sceneRunnable;
         const checking = Boolean(hasRequiredEngine && (isEcommerce ? !slotInputs : !state));
         const blockLabel = !hasRequiredEngine ? "Needs skill" : !colorAvailable ? "No stock"
           : isEcommerce && slotInputs?.status === "missing_inputs" ? "Missing inputs"
@@ -532,9 +535,11 @@ export function ProductsPhotoWorkflow({
           && shotJob?.error_code === "codex_account_pool_busy";
         const actionLabel = phase === "completed" ? "Complete"
           : phase === "queueing" ? "Queueing…" : phase === "running" ? "Running"
-          : phase === "queued" ? (waitingCodex ? "Waiting Codex" : "Queued") : phase === "retry" ? "Retry"
+          : phase === "queued" ? (waitingCodex ? "Waiting Codex" : "Queued")
+          : phase === "retry" ? (isBuiltInFront && shotJob?.embroidery_reference_url ? "Retry Placement" : "Retry")
           : phase === "failed" ? "Failed" : phase === "ready"
-            ? sceneJobs.some(job => job.status === "completed") ? "Continue" : "Run"
+            ? isBuiltInFront ? "Apply to Cap"
+              : sceneJobs.some(job => job.status === "completed") ? "Continue" : "Run"
           : phase === "checking" ? "Checking…" : blockLabel;
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key} data-state={phase}>
           <div className="rrugc-products-photo-stage-controls">
@@ -549,6 +554,8 @@ export function ProductsPhotoWorkflow({
               onClick={() => {
                 if (sceneRunnable) void invokeScene(step.key as "prod_s2_mh" | "prod_s2_ugc");
                 else if (runnable) void invokeEcommerce(step.key);
+                else if (canRetry && isBuiltInFront && shotJob?.embroidery_reference_url)
+                  void invokeInpaintRetry(shotJob);
                 else if (canRetry && isEcommerce && shotJob) void invokeEcommerce(step.key, shotJob);
               }} />
             <button type="button" className="rrugc-products-photo-detail-toggle"
@@ -561,12 +568,12 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
-            <div><strong>{configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
+            <div><strong>{isBuiltInFront ? "ThreadTransfer · Front Cap" : configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{isBuiltInFront ? "Reference + Cap Front" : configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
             {isBuiltInFront && [
               { key: "prod_s2_ec1:reference", label: "Embroidery Reference", url: shotJob?.embroidery_reference_url },
-              { key: "prod_s2_ec1:0", label: "After Inpaint · Front Cap",
+              { key: "prod_s2_ec1:0", label: "Cap Front · ThreadTransfer",
                 url: shotJob?.status === "completed" ? shotJob.output_url : null },
             ].map(output => output.url
               ? <button type="button" key={output.key}
@@ -600,7 +607,7 @@ export function ProductsPhotoWorkflow({
             })}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
-            <span>{isBuiltInPhoto ? "Pipeline " + (index + 1) : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
+            <span>{isBuiltInFront ? "Method" : isBuiltInPhoto ? "Pipeline " + (index + 1) : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
           <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
               <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
             </time>
@@ -636,12 +643,12 @@ export function ProductsPhotoWorkflow({
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
-              <strong>Outputs · Embroidery Reference → After Inpaint</strong>
+              <strong>Outputs · Embroidery Reference → Cap Front</strong>
               <div className="rrugc-products-photo-slot1-output-grid">
                 {[
                   { key: "prod_s2_ec1:reference", label: "1. Embroidery Reference",
                     src: shotJob?.embroidery_reference_url },
-                  { key: "prod_s2_ec1:0", label: "2. After Inpaint · Front Cap",
+                  { key: "prod_s2_ec1:0", label: "2. Cap Front · ThreadTransfer",
                     src: shotJob?.status === "completed" ? shotJob.output_url : null },
                 ].map(output => <div className="rrugc-products-photo-slot1-detail-output"
                     key={output.key}>
@@ -657,12 +664,12 @@ export function ProductsPhotoWorkflow({
                       </button>
                     : <div className="rrugc-products-photo-slot1-output-placeholder">
                         <HatSlotIcon />
-                        <small>{output.key.endsWith("reference") ? "Waiting for Pass A" : "Waiting for Pass B"}</small>
+                        <small>{output.key.endsWith("reference") ? "Waiting for reference" : "Waiting for transfer"}</small>
                       </div>}
                   <small>{output.label}</small>
                 </div>)}
               </div>
-              <small>Pass A is saved independently. Retry inpaint reuses it; Full regenerate creates a new reference and cap.</small>
+              <small>Reference is saved once. Retry Placement reuses the same reference, transfers yarn locally onto the original factory cap and leaves all stock pixels outside the embroidery field unchanged. No second ImageGen call.</small>
             </section>}
             {step.key === "prod_s2_mh" && <section aria-label="Pinned Multi-hat Cap Stack references" className="rrugc-products-photo-ugc-scout">
               <strong>Cap Stack Scout · {multiHatReferences.length}/20 references</strong>
@@ -708,7 +715,7 @@ export function ProductsPhotoWorkflow({
             {isEcommerce && <div className="rrugc-products-photo-detail-info">
               <strong>{skillName}</strong>
               <p>{isBuiltInFront
-                ? "Pass A creates a photographic fine-thread embroidery reference; Pass B inpaints its thread material onto the original factory cap. No custom Skill ZIP is used. Original stock outside the embroidery remains unchanged."
+                ? "ThreadTransfer V1: save a photographic Embroidery Reference once; extract only its yarn pixels and composite locally onto the unedited factory cap crown. No Skill ZIP and no image-generation call for Retry Placement."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto
@@ -723,11 +730,11 @@ export function ProductsPhotoWorkflow({
             {isBuiltInFront && shotJob?.embroidery_reference_url
               && (shotJob.status === "completed" || shotJob.status === "failed")
               && <button type="button" disabled={!!busyStage}
-                onClick={() => void invokeInpaintRetry(shotJob)}>Retry inpaint · keep reference</button>}
+                onClick={() => void invokeInpaintRetry(shotJob)}>Retry Placement · keep reference</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}
             {shotJob?.output_url && <button type="button" onClick={() => void showEcommerceVersions(shotJob.id)}>Versions</button>}
-            {shotJob?.status === "completed" && <button type="button" disabled={!!busyStage}
-              onClick={() => void invokeEcommerce(step.key, shotJob, true)}>{isBuiltInFront ? "Full regenerate · both images" : "Regenerate"}</button>}
+            {shotJob?.status === "completed" && !isBuiltInFront && <button type="button" disabled={!!busyStage}
+              onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate</button>}
             {!shotJob && isEcommerce && <small>Logs available after the first job is queued</small>}
             {!isEcommerce && !state?.ready && <small>Worker or Skill must be ready before running.</small>}
             </div>
@@ -746,7 +753,7 @@ export function ProductsPhotoWorkflow({
                 <span>Version {version.version}</span>
                 {version.embroidery_reference_url && <a href={version.embroidery_reference_url}
                   target="_blank" rel="noopener noreferrer">Embroidery Reference</a>}
-                <a href={version.output_url} target="_blank" rel="noopener noreferrer">After Inpaint · Front Cap</a>
+                <a href={version.output_url} target="_blank" rel="noopener noreferrer">Cap Front</a>
               </div>)}
             </div>}
           </div>}

@@ -45,6 +45,8 @@ from app.modules.realistic_review_ugc.stage2_skills import (
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
     SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
+    SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256,
+    SLOT1_DIRECT_CHECKPOINTED_VERSION, SLOT1_DIRECT_CHECKPOINTED_SHA256,
 )
 from app.modules.image_generation.providers import PreparedImage, GeneratedImageResult
 from app.modules.realistic_review_ugc.slot1_embroidery import (
@@ -516,7 +518,12 @@ class ColorwayGenerateHandler:
                                and row.skill_source == "internal"
                                and row.skill_name == SLOT1_DIRECT_NAME)
             if builtin_product:
-                if (row.skill_version, row.skill_bundle_sha256) != (SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256):
+                pinned = (row.skill_version, row.skill_bundle_sha256)
+                if pinned not in {
+                    (SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256),
+                    (SLOT1_DIRECT_CHECKPOINTED_VERSION, SLOT1_DIRECT_CHECKPOINTED_SHA256),
+                    (SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256),
+                }:
                     raise ColorwayError("colorway_inpaint_version_changed", "Pinned built-in pipeline changed.")
             else:
                 verify_stage2_skill_runtime(settings=settings, skill_source=row.skill_source,

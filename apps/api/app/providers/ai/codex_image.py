@@ -58,13 +58,17 @@ SLOT1_LEGACY_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_LEGACY_DIRECT_NAME + "|" + SLOT1_LEGACY_DIRECT_VERSION).encode("ascii")
 ).hexdigest()
 SLOT1_DIRECT_NAME = "cam-slot1-thread-reference-inpaint-v2"
-# V2.3 checkpoints native Pass A to Managed Storage BEFORE Pass B. Retain
-# the previous pinned revision so already-queued V2.2 jobs finish unchanged.
+# V2.4 uses deterministic ThreadTransfer for the saved Embroidery Reference.
+# Keep both historical V2.2 and V2.3 contracts for already queued jobs.
 SLOT1_DIRECT_PREVIOUS_VERSION = "2.2.0"
 SLOT1_DIRECT_PREVIOUS_SHA256 = hashlib.sha256(
     (SLOT1_DIRECT_NAME + "|" + SLOT1_DIRECT_PREVIOUS_VERSION).encode("ascii")
 ).hexdigest()
-SLOT1_DIRECT_VERSION = "2.3.0"
+SLOT1_DIRECT_CHECKPOINTED_VERSION = "2.3.0"
+SLOT1_DIRECT_CHECKPOINTED_SHA256 = hashlib.sha256(
+    (SLOT1_DIRECT_NAME + "|" + SLOT1_DIRECT_CHECKPOINTED_VERSION).encode("ascii")
+).hexdigest()
+SLOT1_DIRECT_VERSION = "2.4.0"
 SLOT1_DIRECT_SHA256 = hashlib.sha256(
     (SLOT1_DIRECT_NAME + "|" + SLOT1_DIRECT_VERSION).encode("ascii")
 ).hexdigest()

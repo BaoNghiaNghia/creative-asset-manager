@@ -90,10 +90,10 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     expect(runButton(1).disabled).toBe(false);
     expect(runButton(1).className).toContain("is-ready");
     const slot = host.querySelector<HTMLElement>('[data-skill="prod_s2_ec1"]')!;
-    expect(slot.textContent).toContain("Built-in · Embroidery Reference");
+    expect(slot.textContent).toContain("ThreadTransfer V1 · Raster placement");
     expect(slot.textContent).not.toContain("Needs skill");
     await act(async () => slot.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-toggle")!.click());
-    expect(slot.textContent).toContain("Pass A creates a photographic fine-thread embroidery reference");
+    expect(slot.textContent).toContain("ThreadTransfer V1: save a photographic Embroidery Reference once");
     expect(Array.from(slot.querySelectorAll("button")).some(button => button.textContent?.includes("Manage skill"))).toBe(false);
     await act(async () => runButton(1).click());
     expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec1", "natural-charcoal");

@@ -67,7 +67,7 @@ describe("Products Stage 2 photo workflow", () => {
         status: "completed", retry_count: 0, attempt_count: 1,
         error_code: null, output_url: "/hat-output.png", skill_name: "ecommerce-01",
       }]} />);
-    expect(html).toContain("Open After Inpaint · Front Cap output");
+    expect(html).toContain("Open Cap Front · ThreadTransfer output");
     expect(html).toContain("Embroidery Reference");
     expect(html).toContain("rrugc-deferred-img");
     expect((html.match(/rrugc-products-photo-slot1-output is-completed/g) ?? []).length).toBe(1);
@@ -86,8 +86,8 @@ describe("Products Stage 2 photo workflow", () => {
       }]} />);
     expect(html).toContain('aria-label="Open Embroidery Reference output"');
     expect(html).toContain('alt="Embroidery Reference"');
-    expect(html).toContain("After Inpaint · Front Cap");
-    expect(html).toContain('title="After Inpaint · Front Cap · Not generated"');
+    expect(html).toContain("Cap Front · ThreadTransfer");
+    expect(html).toContain('title="Cap Front · ThreadTransfer · Not generated"');
   });
 
   it("shows both Slot 1 images after completion and retains the reference after retry failure", () => {
@@ -102,13 +102,13 @@ describe("Products Stage 2 photo workflow", () => {
         ...base, status: "completed", output_url: "/api/front/photo.png",
       }]} />);
     expect(html).toContain('aria-label="Open Embroidery Reference output"');
-    expect(html).toContain('aria-label="Open After Inpaint · Front Cap output"');
+    expect(html).toContain('aria-label="Open Cap Front · ThreadTransfer output"');
     const failed = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="Cowboy Hat.png"
       readiness={null} ecommerceJobs={[{
         ...base, status: "failed", output_url: null,
       }]} />);
     expect(failed).toContain('aria-label="Open Embroidery Reference output"');
-    expect(failed).toContain("After Inpaint · Front Cap · Not generated");
+    expect(failed).toContain("Cap Front · ThreadTransfer · Not generated");
   });
 
   it("shows seven skill rows, with two Slot 1 outputs and 12 colors", () => {
@@ -120,7 +120,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("Multi-hat");
     expect(html).toContain("UGC");
     expect(html).toContain("12 Hat Colors");
-    expect(html).toContain("Seven-skill photo workflow for design_01.png");
+    expect(html).toContain("Seven-slot photo workflow for design_01.png");
     expect(html).not.toContain("<strong>7 skill slots");
     expect(html).not.toContain("<small>Skills 1–4: Ecommerce Images 01–04");
     expect(html).not.toContain("Skills 1–4: Ecommerce Images 01–04");
@@ -177,8 +177,9 @@ describe("Products Stage 2 photo workflow", () => {
         prod_s2_mh: "multihat-v2",
         prod_s2_ugc: "ugc-v3",
       }} />);
-    expect(html).toContain("Built-in · Embroidery Reference → Inpaint");
-    expect(html).toContain("Pipeline 1");
+    expect(html).toContain("ThreadTransfer V1 · Raster placement");
+    expect(html).toContain("ThreadTransfer V1 · Raster placement");
+    expect(html).toContain("Method");
     expect(html).not.toContain("ecommerce-image-01");
     expect(html).not.toContain("ecommerce-image-02");
     expect(html).not.toContain("ecommerce-image-03");

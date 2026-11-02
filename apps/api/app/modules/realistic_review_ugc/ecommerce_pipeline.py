@@ -35,6 +35,7 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
     lite_slot1_qa_error_code,
 )
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
+from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -64,6 +65,7 @@ from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
     SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
     SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256,
+    SLOT1_DIRECT_CHECKPOINTED_VERSION, SLOT1_DIRECT_CHECKPOINTED_SHA256,
     SLOT1_LEGACY_DIRECT_NAME, SLOT1_LEGACY_DIRECT_VERSION,
     SLOT1_LEGACY_DIRECT_SHA256,
 )
@@ -997,10 +999,11 @@ class EcommerceService:
         return {"job_id": row.id, "status": row.status}
 
     def retry_inpaint(self, *, tenant_id: str, job_id: str) -> dict:
-        """Explicit Pass B only, even for a previously completed front photo.
+        """Retry ThreadTransfer placement using the pinned Embroidery Reference.
 
-        Historical version records and the already-pinned Pass A are untouched.
-        This endpoint does not create any new material-reference ImageGen calls.
+        Historical versions are immutable. Newly queued V2.4 jobs composite
+        locally without any ImageGen or Codex lease; older in-flight jobs keep
+        their pinned contract. This never regenerates reference material.
         """
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -1028,8 +1031,10 @@ class EcommerceService:
         row.retry_count = 0 if current and current.status == "completed" else row.retry_count + 1
         row.started_at = row.completed_at = None
         row.last_error_code = row.last_error_message = None
-        previous_placement = (current.payload_json or {}).get("front_placement") if current else None
-        self._enqueue(row, front_placement=previous_placement)
+        # Retry Placement uses the latest approved geometry / design-size
+        # calibration. The historical completed version keeps its old snapshot.
+        placement = pin_front_placement(self.session, tenant_id, plan.source_revision)
+        self._enqueue(row, front_placement=placement)
         self.session.commit()
         return {"job_id": row.id, "status": row.status,
                 "embroidery_reference_reused": True}
@@ -1201,22 +1206,34 @@ class EcommerceGenerateHandler:
         return bytes(chunks)
 
     async def _checkpointed_slot1_generate(
-        self, *, context: JobHandlerContext, storage, runner: CodexImageGenRunner,
+        self, *, context: JobHandlerContext, storage, runner: CodexImageGenRunner | None,
         person: PreparedImage, references: list[ReferenceImageInput], prompt: str,
         source_revision: str, design_sha: str, folder_id: str | None,
         preview_remote_id: str | None, preview_mime: str | None,
         preview_size: int | None, preview_design_sha: str | None,
+        transfer_material=None, transfer_design_size: int = 100,
     ) -> tuple[GeneratedImageResult, str, int]:
-        """Save native Pass A before Pass B, and reuse it on inpaint retries."""
+        """Checkpoint native Embroidery Reference, then run local V2.4 transfer.
+
+        Pinned V2.3 jobs retain their historical native Pass B contract.
+        """
         material_bytes: bytes | None = None
         material_remote_id = preview_remote_id
         force_new = context.job.payload.get("regenerate_material_reference") is True
+        if (transfer_material is not None and material_remote_id
+                and not force_new and preview_design_sha != design_sha):
+            # Never silently regenerate a reference on a pure placement Retry.
+            raise EcommerceError("ecommerce_design_changed",
+                                 "Pinned Embroidery Reference is for another design revision.")
         if material_remote_id and not force_new and preview_design_sha == design_sha:
             material_bytes = await self._open_bytes(
                 storage, context, "rrugc-ecommerce-thread-material:" + context.job.entity_id,
                 material_remote_id, preview_mime, preview_size,
             )
         if material_bytes is None:
+            if runner is None:
+                raise EcommerceError("ecommerce_thread_reference_missing",
+                                     "Saved Embroidery Reference is unavailable.")
             material_runner = CodexImageGenRunner(replace(
                 runner.config, output_contract="slot1_v2_material_single",
             ))
@@ -1276,6 +1293,38 @@ class EcommerceGenerateHandler:
                 pinned.front_preview_size_bytes = len(material_bytes)
                 pinned.front_preview_design_sha256 = design_sha
                 session.commit()
+
+        if transfer_material is not None:
+            # ThreadTransfer V1: reuse native photographic fibers as a raster
+            # layer; NO second ImageGen call, no changed factory cap pixels.
+            try:
+                transferred = composite_reference_on_cap(
+                    transfer_material, material_bytes, design_size=transfer_design_size,
+                )
+            except Slot1EmbroideryQAError as exc:
+                # A failed layer extraction cannot be fixed by repeating the
+                # same native call; keep the already-pinned macro for review.
+                raise RrugcGenerationHandlerError(
+                    _lite_slot1_qa_error_code(exc), str(exc), retryable=False,
+                ) from exc
+            photo_sha = hashlib.sha256(transferred.output_png).hexdigest()
+            reused = not (force_new or preview_remote_id is None
+                          or preview_design_sha != design_sha)
+            return GeneratedImageResult(
+                provider="codex", model=None,
+                image_bytes=transferred.output_png, mime_type="image/png",
+                provider_metadata={
+                    "skill": SLOT1_DIRECT_NAME, "native_passes": 0 if reused else 1,
+                    "reference_sha256": material_hash, "edited_sha256": photo_sha,
+                    "reference_asset_id": material_remote_id,
+                    "reference_reused": reused,
+                    "edit_target": "original_factory_crown_raster",
+                    "transfer_engine": "threadtransfer-v1",
+                    "thread_layer_sha256": transferred.thread_layer_sha256,
+                    "extracted_thread_pixels": transferred.extracted_pixels,
+                    "transfer_box": list(transferred.target_box),
+                },
+            ), material_remote_id, len(material_bytes)
 
         material_ref = ReferenceImageInput(
             image=PreparedImage(image_bytes=material_bytes, mime_type="image/png",
@@ -1351,7 +1400,8 @@ class EcommerceGenerateHandler:
                 # pinned contract; explicit Retry/Regenerate adopts v2.
                 expected = (
                     {(SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256),
-                     (SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256)}
+                     (SLOT1_DIRECT_PREVIOUS_VERSION, SLOT1_DIRECT_PREVIOUS_SHA256),
+                     (SLOT1_DIRECT_CHECKPOINTED_VERSION, SLOT1_DIRECT_CHECKPOINTED_SHA256)}
                     if row.skill_name == SLOT1_DIRECT_NAME
                     else {(SLOT1_LEGACY_DIRECT_VERSION, SLOT1_LEGACY_DIRECT_SHA256)}
                 )
@@ -1405,7 +1455,10 @@ class EcommerceGenerateHandler:
         slot1_material = None
         is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
         is_reference = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
-        checkpointed_reference = is_reference and pinned_reference_version == SLOT1_DIRECT_VERSION
+        checkpointed_reference = is_reference and pinned_reference_version in {
+            SLOT1_DIRECT_VERSION, SLOT1_DIRECT_CHECKPOINTED_VERSION,
+        }
+        is_threadtransfer = is_reference and pinned_reference_version == SLOT1_DIRECT_VERSION
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
         material_transfer = context.job.payload.get("thread_material_pipeline") == "v1"
@@ -1662,9 +1715,14 @@ class EcommerceGenerateHandler:
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Native Pass A macro is missing from pinned Slot 1.")
             prompt = "Built-in original factory stock inpaint using pinned native Slot 1 thread material."
-        if is_reference:
-            # Built-in, skill-free two-step workflow. A is a fine material photo;
-            # B is the actual edit of the original unprinted factory crown.
+        if is_threadtransfer:
+            prompt = ("Generate a faithful photographic close-up of the selected typography "
+                      "embroidered with fine yarn on neutral fabric. EXACT spelling, color "
+                      "and letter arrangement; no graphic frame or photo labels. "
+                      "This is the only native ImageGen call. ThreadTransfer will locally "
+                      "separate the yarn from the fabric and composite onto original cap.")
+        elif is_reference:
+            # Historical queued V2.3 jobs keep their native two-step workflow.
             prompt = "Slot 1 built-in fine-thread reference then original-stock inpaint."
         elif is_direct_legacy:
             # Preserve the earlier pinned single-edit behavior only for
@@ -1675,7 +1733,26 @@ class EcommerceGenerateHandler:
                                    "/var/lib/creative-asset-manager/codex"))
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
-        if builtin_back:
+        if (is_threadtransfer and preview_remote_id
+                and preview_design_sha == design_sha
+                and context.job.payload.get("regenerate_material_reference") is not True):
+            # Saved reference is sufficient. Do not even acquire a Codex
+            # account/lease for Retry or a completed-job reapplication.
+            generated, material_reference_remote_id, _material_size = (
+                await self._checkpointed_slot1_generate(
+                    context=context, storage=storage, runner=None,
+                    person=base, references=references, prompt=prompt,
+                    source_revision=plan.source_revision,
+                    design_sha=design_sha, folder_id=folder_id,
+                    preview_remote_id=preview_remote_id, preview_mime=preview_mime,
+                    preview_size=preview_size, preview_design_sha=preview_design_sha,
+                    transfer_material=slot1_material,
+                    transfer_design_size=job_front_placement(
+                        context.job.payload.get("front_placement")
+                    ).get("design_size", 100),
+                )
+            )
+        elif builtin_back:
             with Image.open(BytesIO(refs[0][1])) as unprinted_back:
                 back_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(unprinted_back.format)
             if not back_mime:
@@ -1712,6 +1789,10 @@ class EcommerceGenerateHandler:
                                 preview_remote_id=preview_remote_id,
                                 preview_mime=preview_mime, preview_size=preview_size,
                                 preview_design_sha=preview_design_sha,
+                                transfer_material=slot1_material if is_threadtransfer else None,
+                                transfer_design_size=job_front_placement(
+                                    context.job.payload.get("front_placement")
+                                ).get("design_size", 100),
                             )
                         )
                     else:
@@ -1765,9 +1846,9 @@ class EcommerceGenerateHandler:
                         )
                     finally:
                         scene_refiner.cleanup_attempt(context.job.entity_id + "-thread-inpaint")
-        # Slot 1 output is not the AI-rendered full cap. Its micro-thread
-        # frequencies are accepted only after geometry/color gates, and then
-        # composited onto the pinned stock within the actual thread stencil.
+        # V2.4 Slot 1 composites verified photographic reference pixels
+        # directly onto stock. Historical native Pass B output still passes
+        # strict geometry/color QA before its original protected composite.
         # QA failure retries the image job; it never stores a fake success.
         output_bytes = generated.image_bytes
         output_mime = generated.mime_type
@@ -1782,7 +1863,7 @@ class EcommerceGenerateHandler:
                     "ecommerce_thread_inpaint_qa_failed", str(exc), retryable=False,
                 ) from exc
             output_mime = "image/png"
-        if slot1_material is not None:
+        if slot1_material is not None and not is_threadtransfer:
             try:
                 output_bytes = finish_slot1_refinement(
                     slot1_material, generated.image_bytes,
@@ -1809,8 +1890,8 @@ class EcommerceGenerateHandler:
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
             raise RrugcGenerationHandlerError("ecommerce_output_invalid",
                             "Generated photo did not pass basic validation.", retryable=True) from exc
-        # V2.3 saves Pass A before Pass B; old pinned V2.2 jobs still
-        # return two images together and use the historical completion path.
+        # V2.4 locally transfers saved Pass A; V2.3 uses checkpointed native
+        # Pass B. Pinned V2.2 jobs still use the historical completion path.
         if is_reference and not checkpointed_reference:
             if len(generated.additional_images) != 1:
                 raise EcommerceError("ecommerce_thread_material_missing",
@@ -1869,7 +1950,9 @@ class EcommerceGenerateHandler:
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
                                 font_info={**({"slot1_embroidery_pipeline": {
-                                    "version": ("thread-reference-inpaint-v2.3-checkpointed"
+                                    "version": ("threadtransfer-v1-raster"
+                                                if is_threadtransfer else
+                                                "thread-reference-inpaint-v2.3-checkpointed"
                                                 if checkpointed_reference else
                                                 "thread-reference-inpaint-v2" if is_reference else
                                                 "direct-inpaint-v1" if is_direct_legacy else
@@ -1884,6 +1967,10 @@ class EcommerceGenerateHandler:
                                        if is_lite or is_direct else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
+                                    **({"thread_layer_sha256": generated.provider_metadata.get("thread_layer_sha256"),
+                                        "transfer_box": generated.provider_metadata.get("transfer_box"),
+                                        "inference_calls": generated.provider_metadata.get("native_passes")}
+                                       if is_threadtransfer else {}),
                                     **({"thread_material_asset": material_reference_remote_id}
                                        if material_reference_remote_id else {}),
                                     **({"material_revision": ("fine-thread-reference-v2" if is_reference else

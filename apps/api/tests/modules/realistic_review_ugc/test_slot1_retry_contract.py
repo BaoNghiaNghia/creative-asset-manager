@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc import ecommerce_pipeline as pipeline
-from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel, RrugcEcommerceJobModel
+from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel, RrugcEcommerceJobModel, RrugcFrontPlacementSettingModel
 
 
 def setup_rows():
@@ -14,6 +14,7 @@ def setup_rows():
                            connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine, tables=[
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
+        RrugcFrontPlacementSettingModel.__table__,
     ])
     session = Session(engine)
     session.add(RrugcSourcePlanModel(

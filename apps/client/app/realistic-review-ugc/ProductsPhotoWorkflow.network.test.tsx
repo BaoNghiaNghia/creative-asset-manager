@@ -49,9 +49,9 @@ describe("Stage 2 lazy row requests", () => {
     expect(vi.mocked(api.startUgcScout)).not.toHaveBeenCalled();
 
     const first = MockObserver.observed.find(({ target }) =>
-      target.getAttribute("aria-label") === "Seven-skill photo workflow for Design 0");
+      target.getAttribute("aria-label") === "Seven-slot photo workflow for Design 0");
     const second = MockObserver.observed.find(({ target }) =>
-      target.getAttribute("aria-label") === "Seven-skill photo workflow for Design 1");
+      target.getAttribute("aria-label") === "Seven-slot photo workflow for Design 1");
     expect(first).toBeDefined();
     expect(second).toBeDefined();
     await act(async () => {
