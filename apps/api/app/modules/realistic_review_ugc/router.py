@@ -6118,9 +6118,14 @@ def ugc_scout_gallery(
                        "reused_verified": bool(getattr(item, "reused_verified_source", False)),
                        "manual_label": signal.get("reference_manual_label")
                            if signal.get("reference_manual_label") == "good" else None})
+    counts = RrugcRepository(session).campaign_usable_counts(
+        principal.active_tenant_id, campaign.id,
+    )
     return {"source_plan_id": plan.id, "campaign_id": campaign.id,
             "status": campaign.scout_status, "target": 20,
             "count": len(unique), "items": unique,
+            "verified_reused": sum(bool(item["reused_verified"]) for item in unique),
+            "analysis_pending": counts.get("analysis_queued", 0) + counts.get("analyzing", 0),
             "error_code": campaign.scan_last_error_code,
             "next_attempt_at": campaign.scan_next_at.isoformat() if campaign.scan_next_at else None}
 
@@ -6143,9 +6148,14 @@ def ugc_scout_start(
         # Idempotent, per-design bootstrap shared with background Run-all.
         bootstrap_products_ugc_campaign(session, plan=plan, user_id=principal.user_id)
     plan, campaign = _ugc_scout_campaign(session, principal.active_tenant_id, body.source_plan_id)
-    if campaign.status == "completed":
+    from app.modules.realistic_review_ugc.ugc_reference_fast_fill import (
+        warm_start_products_ugc,
+    )
+    fast_fill = warm_start_products_ugc(session, plan=plan, campaign=campaign)
+    if campaign.status == "completed" or fast_fill["eligible"] >= 20:
         session.commit()
-        return {"source_plan_id": plan.id, "status": "completed", "campaign_id": campaign.id}
+        return {"source_plan_id": plan.id, "status": "completed",
+                "campaign_id": campaign.id, "fast_fill": fast_fill}
     if campaign.status != "running":
         raise HTTPException(409, detail={"code": "ugc_scout_campaign_not_running",
             "message": "Review Scout campaign must be running before Slot 6 can scout."})
@@ -6159,7 +6169,7 @@ def ugc_scout_start(
         campaign.scan_next_at = datetime.now(timezone.utc)
     session.commit()
     return {"source_plan_id": plan.id, "status": campaign.scout_status,
-            "campaign_id": campaign.id}
+            "campaign_id": campaign.id, "fast_fill": fast_fill}
 
 
 class EcommerceRunAllSkill(BaseModel):
@@ -9579,6 +9589,24 @@ def mark_candidate_reference_feedback(
             user_id=principal.user_id,
             profile_key=body.profile_key,
         )
+        # Replenish a rejected Products Slot 6 reference from verified peers.
+        # Other Review and TikTokShop campaigns remain unchanged.
+        if body.label in {"bad", "ai"}:
+            from app.modules.realistic_review_ugc.colorways import (
+                PRODUCTS_STAGE1_SELECTED_ROOT,
+            )
+            product_plan = session.scalar(select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+                RrugcSourcePlanModel.campaign_id == campaign_id,
+                RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+                RrugcSourcePlanModel.status == "ready",
+            ).limit(1).with_for_update())
+            if product_plan is not None:
+                from app.modules.realistic_review_ugc.ugc_reference_fast_fill import (
+                    warm_start_products_ugc,
+                )
+                warm_start_products_ugc(session, plan=product_plan, campaign=campaign)
+                session.commit()
     except RrugcError as exc:
         raise _error(exc) from exc
     learning_intent = campaign_learning_intent(

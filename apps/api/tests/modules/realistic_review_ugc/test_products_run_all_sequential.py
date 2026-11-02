@@ -14,9 +14,9 @@ from app.modules.processing_policy.model import TenantProcessingPolicyModel
 from app.modules.realistic_review_ugc.cap_stack_model import RrugcCapStackImageModel
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_COLORS, PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.model import (
-    RrugcSourcePlanModel, RrugcProductsRunAllModel,
+    RrugcSourcePlanModel, RrugcCampaignModel, RrugcProductsRunAllModel,
     RrugcEcommerceJobModel, RrugcColorwayJobModel,
-    RrugcFrontPlacementSettingModel,
+    RrugcFrontPlacementSettingModel, RrugcImageOutputVersionModel,
 )
 from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllService, ProductsRunAllScheduler, SLOT_GROUPS
 from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
@@ -38,10 +38,12 @@ SETTINGS = SimpleNamespace(
 def context(monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine, tables=[
-        RrugcSourcePlanModel.__table__, RrugcProductsRunAllModel.__table__,
+        RrugcCampaignModel.__table__, RrugcSourcePlanModel.__table__,
+        RrugcProductsRunAllModel.__table__,
         RrugcEcommerceJobModel.__table__, RrugcColorwayJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
         RrugcCapStackImageModel.__table__, RrugcFrontPlacementSettingModel.__table__,
+        RrugcImageOutputVersionModel.__table__,
     ])
     import app.modules.realistic_review_ugc.ecommerce_pipeline as ep
     import app.modules.realistic_review_ugc.products_run_all as mod

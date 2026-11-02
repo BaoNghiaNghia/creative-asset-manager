@@ -27,7 +27,7 @@ from app.modules.realistic_review_ugc.ecommerce_pipeline import (
     _effective_status as ecommerce_effective_status,
 )
 from app.modules.realistic_review_ugc.model import (
-    RrugcProductsRunAllModel, RrugcSourcePlanModel, RrugcEcommerceJobModel,
+    RrugcProductsRunAllModel, RrugcSourcePlanModel, RrugcCampaignModel, RrugcEcommerceJobModel,
     RrugcColorwayJobModel, RrugcStageSkillDefaultModel, RrugcStage2SkillRegistryModel,
 )
 
@@ -297,6 +297,19 @@ class ProductsRunAllService:
                         ).with_for_update())
                         bootstrap_products_ugc_campaign(
                             self.session, plan=plan, user_id=run.started_by_user_id)
+                    if position == 6 and plan.campaign_id:
+                        from app.modules.realistic_review_ugc.ugc_reference_fast_fill import (
+                            warm_start_products_ugc,
+                        )
+                        locked_plan = self.session.scalar(select(RrugcSourcePlanModel).where(
+                            RrugcSourcePlanModel.tenant_id == run.tenant_id,
+                            RrugcSourcePlanModel.id == run.source_plan_id,
+                        ).with_for_update())
+                        source_campaign = self.session.get(RrugcCampaignModel, plan.campaign_id)
+                        if locked_plan is not None and source_campaign is not None:
+                            warm_start_products_ugc(
+                                self.session, plan=locked_plan, campaign=source_campaign,
+                            )
                     try:
                         result = EcommerceService(self.session, self.settings).queue_scene(
                             tenant_id=run.tenant_id, user_id=run.started_by_user_id,

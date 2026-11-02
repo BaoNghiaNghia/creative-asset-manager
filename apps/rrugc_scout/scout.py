@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from logging.handlers import TimedRotatingFileHandler
@@ -79,6 +80,7 @@ HAND_HELD_QUERY_MARKERS = (
     "holding hat",
 )
 HEARTBEAT_INTERVAL_SECONDS = 10
+SCOUT_LEASE_KEEPALIVE_SECONDS = 45
 REVIEW_BROWSER_STEP_TIMEOUT_SECONDS = 25
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
@@ -3983,16 +3985,19 @@ async def run_agent(args: argparse.Namespace) -> None:
                     ):
                         await recycle_browser("session_age_or_closed")
                         await client.heartbeat("ready")
-                    await scan_auto_run(
-                        page,
-                        client,
-                        task,
-                        login_wait_seconds=args.login_wait_seconds,
-                        pace_name=args.pace,
-                        detail_page=detail_page,
-                        detail_concurrency=1,
-                        history=history,
-                    )
+                    async with maintain_scout_run_lease(
+                        client, str(task["run"]["id"])
+                    ):
+                        await scan_auto_run(
+                            page,
+                            client,
+                            task,
+                            login_wait_seconds=args.login_wait_seconds,
+                            pace_name=args.pace,
+                            detail_page=detail_page,
+                            detail_concurrency=1,
+                            history=history,
+                        )
                     browser_runtime_failures = 0
                     runtime_error_streak = 0
                     successful_runs_since_restart += 1
@@ -4302,6 +4307,35 @@ def parse_args() -> argparse.Namespace:
         parser.error("--tiktokshop-mode requires --agent-id")
     args.token = resolve_token(args)
     return args
+
+
+@asynccontextmanager
+async def maintain_scout_run_lease(client, run_id: str, *,
+                                   interval_seconds: float = SCOUT_LEASE_KEEPALIVE_SECONDS):
+    """Renew the DB lease while Chromium is busy on a long navigation.
+
+    Browser-step heartbeats cannot run during blocked Pinterest navigation.
+    A separate coroutine protects the claim even when a detail page hangs;
+    temporary network failures do not cancel already persisted candidates.
+    """
+    async def renew():
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                await client.heartbeat("busy", run_id=run_id)
+            except Exception as exc:
+                scout_debug_event(
+                    "scout_lease_keepalive_failed",
+                    run_id=run_id,
+                    error_type=exc.__class__.__name__,
+                )
+    pulse = asyncio.create_task(renew())
+    try:
+        yield
+    finally:
+        pulse.cancel()
+        with suppress(asyncio.CancelledError):
+            await pulse
 
 
 async def supervise_review_scout(args: argparse.Namespace) -> None:

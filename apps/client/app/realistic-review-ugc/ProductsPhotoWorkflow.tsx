@@ -176,6 +176,7 @@ export function ProductsPhotoWorkflow({
   const [expandedStep, setExpandedStep] = useState<string | null>(null);
   const [ugcScout, setUgcScout] = useState<UgcScoutGallery | null>(null);
   const [ugcScoutError, setUgcScoutError] = useState("");
+  const [ugcRefilling, setUgcRefilling] = useState(false);
   const [ugcLearningMessage, setUgcLearningMessage] = useState("");
   const [previewGallery, setPreviewGallery] = useState<InputPreviewItem[] | null>(null);
   const [outputGallery, setOutputGallery] = useState<{ title: string; items: PhotoOutputItem[]; initialIndex: number } | null>(null);
@@ -271,7 +272,7 @@ export function ProductsPhotoWorkflow({
   // Keep automatic Scout for visible designs, but do not enqueue Scout
   // launches for offscreen rows. The backend remains the idempotency owner.
   useEffect(() => {
-    if (!sourcePlanId || !nearViewport || scoutBootstrappedFor.current === sourcePlanId) return;
+    if (!sourcePlanId || !nearViewport || expandedStep !== "prod_s2_ugc" || scoutBootstrappedFor.current === sourcePlanId) return;
     const controller = new AbortController();
     let started = false;
     scoutBootstrappedFor.current = sourcePlanId;
@@ -291,7 +292,7 @@ export function ProductsPhotoWorkflow({
       controller.abort();
       if (!started && scoutBootstrappedFor.current === sourcePlanId) scoutBootstrappedFor.current = null;
     };
-  }, [sourcePlanId, nearViewport]);
+  }, [sourcePlanId, nearViewport, expandedStep]);
 
   async function reviewUgcReference(item: UgcScoutItem, label: UgcScoutReviewLabel) {
     if (!ugcScout?.campaign_id) throw new Error("Review Scout campaign is not available.");
@@ -748,8 +749,23 @@ export function ProductsPhotoWorkflow({
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
                 <strong>Review Scout · Lifestyle references</strong>
                 <span>{ugcScout ? ugcScout.count + " / 20 images" : "Checking Scout campaign…"}</span>
-                <span role="status">Automatic Scout enabled</span>
-                {ugcScout && <small>Scout: {ugcScout.status === "error" && ugcScout.error_code === "pinterest_scan_failed"
+                <span role="status">{ugcScout?.count === 20 ? "Đã đủ 20 ảnh" : "Automatic Scout enabled"}</span>
+                {ugcScout && ugcScout.count < 20 && <button type="button"
+                  disabled={ugcRefilling || !sourcePlanId}
+                  onClick={() => {
+                    setUgcRefilling(true);
+                    setUgcScoutError("");
+                    void startUgcScout(sourcePlanId)
+                      .then(() => getUgcScoutGallery(sourcePlanId))
+                      .then(result => setUgcScout(result))
+                      .catch(error => setUgcScoutError(error instanceof Error ? error.message : "Scout fast fill failed"))
+                      .finally(() => setUgcRefilling(false));
+                  }}>{ugcRefilling ? "Đang bổ sung…" : "Bổ sung đủ 20 ảnh"}</button>}
+                {ugcScout && ugcScout.verified_reused !== undefined && ugcScout.verified_reused > 0 &&
+                  <small>{ugcScout.verified_reused} ảnh đã xác minh được dùng lại · không tốn Gemini</small>}
+                {ugcScout && ugcScout.count < 20 && (ugcScout.analysis_pending || 0) > 0 &&
+                  <small>{ugcScout.analysis_pending} ảnh đang chờ phân tích</small>}
+                {ugcScout && ugcScout.count < 20 && <small>Scout: {ugcScout.status === "error" && ugcScout.error_code === "pinterest_scan_failed"
                   ? "Retry scheduled after Pinterest/API timeout"
                   : ugcScout.status}
                   {ugcScout.error_code && ugcScout.error_code !== "pinterest_scan_failed"

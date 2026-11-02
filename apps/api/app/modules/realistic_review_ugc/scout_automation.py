@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import logging
 import random
+import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -179,13 +180,11 @@ def keyword_quote_backlog_gate(
 
 def scout_client_version_number(value: str | None) -> int | None:
     raw = str(value or "").strip().casefold()
-    prefix = "rrugc-scout-v"
-    if not raw.startswith(prefix):
-        return None
-    try:
-        return int(raw[len(prefix):])
-    except ValueError:
-        return None
+    # Deployed Windows versions append feature flags (e.g. v58-tiktokshop-
+    # isolation). Requiring an integer-only suffix incorrectly classified
+    # modern clients as legacy and suppressed the Products Run-all priority.
+    found = re.fullmatch(r"rrugc-scout-v([0-9]+)(?:[-+._][a-z0-9._-]+)?", raw)
+    return int(found.group(1)) if found else None
 
 
 def scout_client_supports_source_plans(value: str | None) -> bool:
@@ -1525,7 +1524,9 @@ class RrugcAutoScoutService:
             yield from priority
             yield from self.repository.claimable_campaigns(
                 agent.tenant_id, now=now, limit=25,
-                source_plan_only=source_plan_only,
+                # Modern clients support Plans, but must still scout legacy
+                # manually-created Review campaigns without a linked Plan.
+                source_plan_only=False,
                 workspace=agent.workspace or "gatorhats",
             )
 
