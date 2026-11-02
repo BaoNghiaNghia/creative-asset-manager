@@ -59,6 +59,34 @@ Pipeline:
   checked against actual photographs on a small first run. A test pass alone
   does not prove no design can ever be obscured.
 
+## Full replay (2026-11-02)
+
+Source analysis V5 is already scheduled via `RrugcSourcePlanSyncScheduler.tick`;
+its existing TikTokShop limit of 12 active source Gemini jobs remains in place.
+Do not force all sources into one Gemini request burst or delete prior results.
+
+The same scheduler now also replays **previously analyzed V11 reference
+candidates** as soon as their linked source plan and campaign are both V5
+ready. Limit: at most 8 new candidate jobs per scheduler tick and only while
+fewer than 24 TikTokShop candidate-analysis jobs are already active. Prior
+unreviewed/discovered/pending candidates continue on the regular queue.
+Replay is idempotent per candidate via `ai_signal_json.apparel_replay_version`;
+manually Bad/AI and true duplicates stay excluded. A previously imported
+reference keeps its original Managed Drive remote ID and becomes `drive_ready`
+again on successful review, without a second Drive upload. Existing job and
+generation history is not deleted or rewritten.
+
+Backend Scout claim gives V5-only collar/chest/sleeve composition searches
+priority over historical V11 quality ranks, including when the Windows v58
+Scout client performs its own query ranking. No Windows binary update needed.
+Re-arm only unleased TikTokShop V5 Scout campaigns using source-root-scoped
+operations; leave Pinterest cooldown/login errors intact.
+
+To monitor with the read-only production command:
+`bash scripts/cam-diagnose-rrugc-stage3.sh`. Check V5 source counts,
+v12 candidate counts, Scout active agent heartbeat and job backlog separately.
+Do not label a replay as completed merely because jobs have been queued.
+
 ## QA / rollback
 
 Backends: test_apparel_placement, test_product_context, test_source_plans,

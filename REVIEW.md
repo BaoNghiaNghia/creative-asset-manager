@@ -1,3 +1,10 @@
+## 2026-11-02 — TikTokShop full placement-aware Scout replay
+
+- 66 TikTokShop source images in the production audit; 11 already V5 and 55 queued/retrying V4. Leave existing V5 contexts intact; use the 12-job source Gemini budget to upgrade the remaining V4 sources.
+- Replay previously analyzed V11 TikTokShop Pinterest candidates only after both source and campaign reach V5, using at most 8 new jobs/tick and a 24-job TikTokShop reference-analysis outstanding cap. Preserve already imported Drive files, manual Good/Bad/AI votes, failed outcomes and completed generation history; no massive reset or duplicate uploads.
+- Give V5 source-placement chest/collar/sleeve queries guaranteed priority above stale V11 performance, using the existing Windows v58 runner API contract. Re-arm only unleased TikTokShop campaigns, without changing GatorHats or overriding login/backoff restrictions.
+- Runbook and verification: `docs/operations/CAM_TIKTOKSHOP_APPAREL_PLACEMENT_SCOUT.md`. Production Gemini source/candidate and Windows Scout progression must be independently observed after deploy; queueing is not the same as finishing generation.
+
 ## 2026-11-02 — TikTokShop apparel placement-aware Pinterest Scout
 
 - Only TikTokShop Source Stage 3 and Stage 4: existing Gemini vision source and candidate analyses capture the exact visible collar, left/right chest, center chest, sleeve and upper-arm zones, priority, framing, visibility and occlusion; existing runner queries gain garment-specific compositions without extra provider calls. GatorHats scout and all past images/job IDs are unchanged.

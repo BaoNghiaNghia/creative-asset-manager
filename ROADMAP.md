@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-02 — TikTokShop full source and reference replay
+
+- [x] Reuse existing source V5 upgrade and 12-job inflight budget for all 66 source photos.
+- [x] Add a bounded, restart-safe replay for V11 references only after the matching V5 source/campaign is ready.
+- [x] Reuse Managed Drive originals when reapproved, do not upload duplicates or delete past generations.
+- [x] Prioritize photo-composition search for exact apparel design zones with the existing Windows v58 Scout.
+- [ ] Confirm live source/candidate queue decreases and healthy TikTokShop Scout claims continue after release.
+
 ## 2026-11-02 — TikTokShop Apparel Placement-Aware Scout
 
 - [x] Detect collar, center/left/right chest, sleeve and upper arm artwork in the existing source-image Gemini analysis.

@@ -19,6 +19,9 @@ from app.modules.realistic_review_ugc.source_plans import (
 )
 from app.modules.storage.managed_oauth import MANAGED_STORAGE_OAUTH_PROVIDER
 from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+from app.modules.realistic_review_ugc.tiktokshop_replay import (
+    queue_legacy_tiktokshop_reference_replay,
+)
 
 # A small bounded inflight window prevents TikTokShop's large Drive import
 # from swamping the shared Gemini lane or starving GatorHats analysis.
@@ -204,4 +207,23 @@ class RrugcSourcePlanSyncScheduler:
                             "error_code": type(exc).__name__,
                         },
                     )
+            # Source V5 must be ready before retrying an old V11 Pinterest
+            # reference. Queue bounded replay in the existing scheduler: no
+            # new AI worker, timer, or bulk burst. Never block Drive sync.
+            try:
+                with self.session_factory() as session:
+                    replayed = queue_legacy_tiktokshop_reference_replay(
+                        session, tenant_id,
+                    )
+                    session.commit()
+                if replayed:
+                    self.logger.info(
+                        "tiktokshop_apparel_legacy_reference_replay_queued",
+                        extra={"tenant_id": tenant_id, "candidates": replayed},
+                    )
+            except Exception:
+                self.logger.exception(
+                    "tiktokshop_apparel_legacy_reference_replay_failed",
+                    extra={"tenant_id": tenant_id},
+                )
         return tuple(results)

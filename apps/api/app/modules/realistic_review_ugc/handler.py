@@ -903,10 +903,13 @@ class RrugcCandidateAnalyzeJobHandler:
                     },
                 }
                 service = RrugcService(session)
-                if (
-                    status == "approved"
-                    and campaign.auto_import
-                ):
+                if status == "approved" and tiktok_plan and candidate.remote_file_id:
+                    # A saved TikTokShop V11 reference can be re-evaluated by
+                    # V12 without writing duplicate bytes to Managed Drive.
+                    # The original imported file and generation history stay
+                    # intact even if the refreshed result is rejected.
+                    candidate.status = "drive_ready"
+                elif status == "approved" and campaign.auto_import:
                     service.enqueue_import(candidate)
                 service.refresh_campaign_completion(campaign)
                 service.ensure_scout_backfill(campaign)

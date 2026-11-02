@@ -1644,6 +1644,67 @@ def _scout_query_performance(
     )[:200]
 
 
+def prioritize_tiktokshop_placement_queries(
+    queries: list[str],
+    performance: list[ScoutQueryPerformance],
+    product_snapshot: dict | None,
+    profile: dict | None,
+) -> tuple[list[str], list[ScoutQueryPerformance]]:
+    """Put V5 source-design composition ahead of outdated V11 Scout statistics.
+
+    The current Windows v58 runner sorts claim queries using their performance
+    score. Supplying new placement scores at 1.0 makes the runner use its
+    existing behavior; this requires no Windows app update or extra AI calls.
+    """
+    from app.modules.realistic_review_ugc.apparel_placement import (
+        apparel_placement_queries, source_placements,
+    )
+    from app.modules.realistic_review_ugc.product_context import (
+        TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+    )
+
+    snapshot = dict(product_snapshot or {})
+    source = dict(profile or {})
+    visual = (
+        dict(source.get("visual_context"))
+        if isinstance(source.get("visual_context"), dict) else {}
+    )
+    if (
+        visual.get("version") != TIKTOKSHOP_APPAREL_CONTEXT_VERSION
+        or visual.get("status") != "ready"
+    ):
+        return queries, performance
+    placements = source_placements(source)
+    if not placements:
+        return queries, performance
+
+    requested = apparel_placement_queries(
+        str(snapshot.get("product_type") or "shirt"), placements,
+    )
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in [*requested, *queries]:
+        value = str(raw or "").strip()
+        key = _scout_query_key(value)
+        if value and key not in seen:
+            seen.add(key)
+            ordered.append(value)
+
+    boosted: list[ScoutQueryPerformance] = []
+    keys = {_scout_query_key(value) for value in requested}
+    for row in performance:
+        if _scout_query_key(row.query) in keys:
+            boosted.append(row.model_copy(update={"score": 1.0}))
+            keys.discard(_scout_query_key(row.query))
+        else:
+            boosted.append(row)
+    for value in requested:
+        if _scout_query_key(value) in keys:
+            boosted.append(ScoutQueryPerformance(query=value, score=1.0))
+            keys.discard(_scout_query_key(value))
+    return ordered, boosted
+
+
 def _rank_scout_queries(
     queries: list[str],
     performance: list[ScoutQueryPerformance],
@@ -9821,6 +9882,13 @@ def auto_scout_agent_claim(
         campaign_id=claim.campaign.id,
         stage2_used_ids=stage2_used_ids,
     )
+    if source_plan is not None and source_plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+        search_queries, query_performance = prioritize_tiktokshop_placement_queries(
+            search_queries,
+            query_performance,
+            claim.campaign.product_snapshot_json,
+            claim.campaign.product_context_json,
+        )
     search_queries = _rank_scout_queries(search_queries, query_performance)
 
     # Sync tenant-wide recent Pinterest history into the local Scout before it
