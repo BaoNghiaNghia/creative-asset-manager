@@ -68,6 +68,10 @@ export function Stage1OutputLightbox({
           <span>{version.font_info?.technical_qa_passed === true ? "PNG integrity: passed" : "PNG integrity: not recorded"}</span>
           <span>Exact spelling: {version.font_info?.image_spelling_verified === true ? "verified" : "review required"}</span>
           <span>Embroidery fit: {version.font_info?.embroidery_fit_verified === true ? "verified" : "review required"}</span>
+          {version.font_info?.visual_profile === "cap-fit-embroidered-v5" &&
+            <span title={(version.font_info.cap_fit_review_flags || []).join(", ") || "Only geometric PNG evidence; human cap fit review is required."}>
+              Cap framing: {(version.font_info.cap_fit_review_flags || []).length ? "shape warning · review" : "no geometry flags · review required"}
+            </span>}
         </div>
         <span>Visual QA checklist: check exact words, any plastic/foam effect, thread direction and small-size readability before starring for Stage 2.</span>
       </footer>

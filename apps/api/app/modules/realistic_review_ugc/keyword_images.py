@@ -1857,6 +1857,14 @@ class KeywordImageGenerateHandler:
                     "image_spelling_verified": False,
                     "embroidery_fit_verified": False,
                     "human_review_required": True,
+                    "visual_profile": v3.get("visual_profile"),
+                    "cap_fit_review_flags": (
+                        (generated.provider_metadata or {}).get("cap_fit_advisory", [{}] * expected_count)[index].get("flags", [])
+                        if isinstance((generated.provider_metadata or {}).get("cap_fit_advisory"), list)
+                        and len((generated.provider_metadata or {}).get("cap_fit_advisory")) == expected_count
+                        else []
+                    ),
+                    "cap_fit_visual_verified": False,
                 } if isinstance(v3, dict) else None)
                 save_output_version(
                     session, tenant_id=context.job.tenant_id, stage="stage1", job=job,

@@ -17,8 +17,9 @@ from app.modules.image_generation.providers import GeneratedImageFile, Generated
 from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
 from app.modules.realistic_review_ugc.creative_v3_generation import (
     CONTRACT, SKILL, SLOT_COUNT, LEGACY_SLOT_COUNT, LEGACY_VISUAL_PROFILE,
-    CreativeV3Error, enabled, prompt_for_slot, verify_snapshot,
+    CreativeV3Error, enabled, prompt_for_slot, verify_snapshot, VISUAL_PROFILE,
 )
+from app.modules.realistic_review_ugc.stage1_cap_art_direction import cap_fit_advisory
 from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
     TypographyPilotError, fit_native_on_stage1_canvas, _store_new,
 )
@@ -95,6 +96,7 @@ async def generate_six(
     final_dir.chmod(0o700)
     seen: set[str] = set()
     outputs: list[GeneratedImageFile] = []
+    cap_fit_reports: list[dict] = []
 
     with context.dependencies.session_factory() as session:
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
@@ -128,7 +130,7 @@ async def generate_six(
                     # An interrupted worker may resume only a verifiably
                     # complete, unique, valid PNG checkpoint.
                     data = target.read_bytes()
-                    digest, _ = _checked_png(data, seen)
+                    digest, qa = _checked_png(data, seen)
                     seen.add(digest)
                 else:
                     # Retry only this failed slot once after actual PNG / alpha / duplicate
@@ -194,6 +196,8 @@ async def generate_six(
                             raise
                         finally:
                             native_runner.cleanup_attempt(attempt_id)
+                if snapshot.get("visual_profile") == VISUAL_PROFILE:
+                    cap_fit_reports.append({"slot": slot, **cap_fit_advisory(qa.get("alpha_bbox"))})
                 outputs.append(GeneratedImageFile(
                     path=str(target),
                     filename=f"output/final/design_{slot:02}.png",
@@ -213,5 +217,7 @@ async def generate_six(
             "embroidery_fit_verified": False,
             "visual_material_verified": False,
             "technical_qa_slot_retry_max": 1,
+            "cap_fit_advisory": cap_fit_reports,
+            "cap_fit_visual_verified": False,
         },
     )

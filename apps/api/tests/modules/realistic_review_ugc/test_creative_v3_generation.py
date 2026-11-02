@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
 from app.modules.realistic_review_ugc.creative_v3_generation import (
     SCHEMA, LEGACY_SCHEMA, SLOT_COUNT, LEGACY_SLOT_COUNT, SKILL, CONTRACT,
-    VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
+    VISUAL_PROFILE, LITE_V4_VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
     THREAD_PALETTES, NINE_THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
@@ -129,12 +129,12 @@ def test_material_profile_does_not_inherit_obsolete_colors_or_thread_recipe():
     prompts = [prompt_for_slot(data, i) for i in range(1, 10)]
     assert len(set(prompts)) == 9
     for prompt in prompts:
-        assert "NATURAL EMBROIDERY MATERIAL PROFILE" in prompt
-        assert "low-relief machine embroidery" in prompt
+        assert "PHYSICAL CAP EMBROIDERY MATERIAL" in prompt
+        assert "PHYSICAL CAP-FIRST GEOMETRY" in prompt
         assert "Dùng một màu chỉ" not in prompt
         assert "Giữ chỉ xanh" not in prompt
-        assert "1-4 coordinated thread colors" in prompt
-        assert "no forced" in prompt.lower() or "No forced" in prompt
+        assert "2-4 complementary thread hues" in prompt
+        assert "NOT a thin 4:1 banner" in prompt
         assert "no automatically verified" not in prompt
         assert '"exact_phrase": "CREATIVE DICTATOR"' in prompt
         assert "transparent RGBA" in prompt
@@ -150,7 +150,7 @@ def test_lite_material_policy_does_not_receive_old_outline_plan():
     for slot in range(1, 10):
         prompt = prompt_for_slot(data, slot)
         assert "Thêu viền trắng quanh từng chữ" not in prompt
-        assert "WITHOUT a separately colored perimeter outline" in prompt
+        assert "No thick contrasting contour" in prompt
     old_prompt = prompt_for_slot(data, 1, visual_profile=NO_OUTLINE_VISUAL_PROFILE)
     assert "Thêu viền trắng quanh từng chữ" in old_prompt
     assert "FINAL NO-TEXT-OUTLINE POLICY" in old_prompt
@@ -168,7 +168,7 @@ def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
     new_prompt = prompt_for_slot(data, 1, visual_profile=VISUAL_PROFILE)
     assert "Flat low-profile Valucap 8869 front-crown embroidery" in old_prompt
     assert "MULTICOLOR THREAD DIRECTIVE" not in old_prompt
-    assert "NATURAL EMBROIDERY MATERIAL PROFILE" in new_prompt
+    assert "PHYSICAL CAP EMBROIDERY MATERIAL" in new_prompt
     assert "MULTICOLOR THREAD DIRECTIVE" not in new_prompt
     assert old_prompt != new_prompt
     # Failed/pending V2 retries retain their original visual contract rather
@@ -179,7 +179,7 @@ def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
     assert "accent/outline hues" in v2_prompt
     assert "Use contrasting embroidered outlines" in v2_prompt
     assert "FINAL NO-TEXT-OUTLINE POLICY" not in v2_prompt
-    assert "WITHOUT a separately colored perimeter outline" in new_prompt
+    assert "No thick contrasting contour" in new_prompt
     v3_snapshot = {**old, "visual_profile": NO_OUTLINE_VISUAL_PROFILE}
     verify_snapshot(data, v3_snapshot)
     assert "FINAL NO-TEXT-OUTLINE POLICY" in prompt_for_slot(data, 1, visual_profile=NO_OUTLINE_VISUAL_PROFILE)
@@ -289,6 +289,49 @@ def test_v3_generated_image_contract_cannot_be_misrepresented_as_png_spelling_pr
     assert data["requires_image_review"] is True
     assert data["image_spelling_verified"] is False
     assert data["stage2_handoff_performed"] is False
+
+def test_cowboy_phrase_is_cap_first_and_styled_like_real_thread_without_old_banner():
+    from app.modules.realistic_review_ugc.stage1_cap_art_direction import (
+        balanced_line_groups, cap_fit_advisory, CAP_LAYOUT_BLUEPRINTS,
+    )
+    phrase = "THIS IS MY COWBOY HAT"
+    assert balanced_line_groups(phrase) == ("THIS IS MY", "COWBOY HAT")
+    assert len(CAP_LAYOUT_BLUEPRINTS) == 9
+    plan_data = plan(phrase)
+    prompts = [prompt_for_slot(plan_data, i) for i in range(1, 10)]
+    assert len(set(prompts)) == 9
+    for prompt in prompts:
+        assert "4.5-inch-wide by 2.25-inch-high" in prompt
+        assert "PHYSICAL CAP-FIRST GEOMETRY" in prompt
+        assert "Western heritage craft" in prompt
+        assert "rust/saddle-brown" in prompt
+        assert '"suggested_two_line_break": ["THIS IS MY", "COWBOY HAT"]' in prompt
+        assert '"exact_phrase": "THIS IS MY COWBOY HAT"' in prompt
+        assert "embroider" in prompt.lower()
+        assert "No thick contrasting contour" in prompt
+        assert "diagonal single-line lettering" in prompt or "NOT a thin 4:1 banner" in prompt
+    # Geometry alone cannot verify lettering, but can flag overly long art.
+    assert cap_fit_advisory((100, 250, 1900, 650))["flags"] == ["overwide_cap_artwork_review_required"]
+    assert cap_fit_advisory((200, 200, 1800, 975))["flags"] == []
+    assert cap_fit_advisory((600, 100, 1200, 930))["flags"] == ["over_tall_cap_artwork_review_required"]
+
+
+def test_v4_in_flight_uses_original_material_and_unchanged_prompt():
+    data = plan("THIS IS MY COWBOY HAT")
+    saved_snapshot = {**snapshot_for_job(data), "visual_profile": LITE_V4_VISUAL_PROFILE}
+    verify_snapshot(data, saved_snapshot)
+    prompt = prompt_for_slot(data, 2, visual_profile=LITE_V4_VISUAL_PROFILE)
+    assert "NATURAL EMBROIDERY MATERIAL PROFILE" in prompt
+    assert "PHYSICAL CAP-FIRST GEOMETRY" not in prompt
+    assert "Creative Brief-specific direction" in prompt
+
+
+def test_new_cap_fit_is_advisory_not_an_automatic_codex_retry():
+    from app.modules.realistic_review_ugc.stage1_cap_art_direction import cap_fit_advisory
+    result = cap_fit_advisory((50, 350, 1980, 570))
+    assert result["flags"] == ["overwide_cap_artwork_review_required"]
+    assert result["visual_verified"] is False
+
 
 def test_native_nine_slot_worker_creates_nine_unique_g5_finals(tmp_path, monkeypatch):
     import asyncio
@@ -674,7 +717,7 @@ def test_native_v3_worker_creates_nine_verified_distinct_private_files(tmp_path,
     assert len(result.output_files) == 9
     assert len(generated_prompts) == 9
     assert len(set(generated_prompts)) == 9
-    assert all("NATURAL EMBROIDERY MATERIAL PROFILE" in p for p in generated_prompts)
+    assert all("PHYSICAL CAP EMBROIDERY MATERIAL" in p for p in generated_prompts)
     assert len(cleaned) == 9
     assert all(sha256(open(item.path, "rb").read()).hexdigest()
                for item in result.output_files)

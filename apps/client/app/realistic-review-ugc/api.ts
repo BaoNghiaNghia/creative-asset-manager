@@ -978,7 +978,8 @@ export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; 
   height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null;
   font_info?: { font_name?: string; font_style?: string; layout_name?: string; font_source?: string; font_url?: string; font_license?: string; font_status?: string;
     engine?: string; concept_mode?: string; concept_variant?: string; technical_qa_passed?: boolean;
-    image_spelling_verified?: boolean; embroidery_fit_verified?: boolean; human_review_required?: boolean } | null };
+    image_spelling_verified?: boolean; embroidery_fit_verified?: boolean; human_review_required?: boolean;
+    visual_profile?: string; cap_fit_review_flags?: string[]; cap_fit_visual_verified?: boolean } | null };
 export const listGenerationOutputVersions = (stage: "stage1" | "stage2" | "stage4", jobId: string, signal?: AbortSignal) =>
   request<{ job_id: string; stage: string; versions: GenerationOutputVersion[] }>(
     "/api/v1/realistic-review-ugc/generation-jobs/" + stage + "/" + encodeURIComponent(jobId) + "/outputs",
