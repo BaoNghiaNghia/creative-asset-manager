@@ -29,6 +29,10 @@ from app.modules.realistic_review_ugc.ecommerce_front_reference import FrontRefe
 from app.modules.realistic_review_ugc.front_placement import (
     front_placement_prompt, job_front_placement, pin_front_placement,
 )
+from app.modules.realistic_review_ugc.embroidery_scale import (
+    EmbroideryScaleError, angle_scale_prompt, front_scale_contract,
+    pinned_master, saved_master_box,
+)
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
 from app.modules.realistic_review_ugc.slot1_embroidery import (
     Slot1EmbroideryQAError, build_slot1_material_pass, finish_slot1_refinement,
@@ -47,6 +51,7 @@ from app.modules.realistic_review_ugc.generation_handler import (
 from app.modules.realistic_review_ugc.model import (
     RrugcEcommerceJobModel, RrugcSourcePlanModel, RrugcStageSkillDefaultModel,
     RrugcStage2SkillRegistryModel, RrugcCandidateModel,
+    RrugcImageOutputVersionModel,
 )
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.ugc_scene_selection import select_ugc_references, allowed_scout_image_url
@@ -343,6 +348,68 @@ def _front_material_job(session: Session, plan: RrugcSourcePlanModel,
     return front
 
 
+def _saved_front_placement_for_angle(
+    session: Session, row: RrugcEcommerceJobModel,
+    current_snapshot: object,
+) -> dict:
+    """Pin the actual completed Slot 1 size to a new angle job.
+
+    Never estimate the master scale from the artwork PNG or the embroidery
+    macro's margin. Old completed Slot 1 versions have a stored transfer_box.
+    Fallback is only for old imported history without that box.
+    """
+    front = session.scalar(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == row.tenant_id,
+        RrugcEcommerceJobModel.source_plan_id == row.source_plan_id,
+        RrugcEcommerceJobModel.source_revision == row.source_revision,
+        RrugcEcommerceJobModel.color_key == row.color_key,
+        RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+        RrugcEcommerceJobModel.status == "completed",
+    ))
+    if not front or not front.front_preview_remote_file_id:
+        raise EcommerceError("ecommerce_thread_reference_missing",
+                             "Complete Slot 1 and save the reference before calibrating another angle.")
+    version = session.scalar(select(RrugcImageOutputVersionModel).where(
+        RrugcImageOutputVersionModel.tenant_id == row.tenant_id,
+        RrugcImageOutputVersionModel.stage == "ecommerce",
+        RrugcImageOutputVersionModel.job_id == front.id,
+    ).order_by(RrugcImageOutputVersionModel.version.desc()).limit(1))
+    info = (version.font_info_json or {}) if version else {}
+    saved = info.get("embroidery_placement_v1")
+    if isinstance(saved, dict):
+        try:
+            return pinned_master(
+                saved, reference_remote_file_id=front.front_preview_remote_file_id,
+                source_revision=row.source_revision,
+            )
+        except EmbroideryScaleError as exc:
+            raise EcommerceError("ecommerce_embroidery_scale_changed", str(exc), 409) from exc
+    old_box = (info.get("slot1_embroidery_pipeline") or {}).get("transfer_box")
+    if old_box and version and version.width and version.height:
+        try:
+            return saved_master_box(
+                old_box, version.width, version.height,
+                row.source_revision, front.front_preview_remote_file_id,
+            )
+        except EmbroideryScaleError:
+            pass
+    # Legacy records without verifiable placement cannot be assumed to have
+    # physically calibrated embroidery. Use bounded stock-safe defaults;
+    # every new front run will persist its exact bounds.
+    v = front_scale_contract(current_snapshot)
+    width = v["target_width"]
+    height = min(.20, v["max_height"])
+    cx, cy = v["center_x"], v["center_y"]
+    return {
+        "version": "front-locked-v1",
+        "front_box": [round(cx-width/2,6), round(cy-height/2,6),
+                      round(cx+width/2,6),round(cy+height/2,6)],
+        "source_revision": row.source_revision,
+        "reference_remote_file_id": front.front_preview_remote_file_id,
+        "legacy_fallback": True,
+    }
+
+
 def _effective_status(row: RrugcEcommerceJobModel, processing: ProcessingJobModel | None):
     if row.status == "completed":
         return "completed"
@@ -419,6 +486,21 @@ class EcommerceService:
                 and row.front_preview_design_sha256
                 and not regenerate_material_reference)
         )
+        # Each newly queued direct job has one fixed placement contract.
+        # Existing in-flight jobs are not mutated by later deployments.
+        front_contract = (
+            front_scale_contract(front_placement)
+            if row.stage == "prod_s2_ec1" and row.skill_name == SLOT1_DIRECT_NAME
+               and row.skill_version == SLOT1_DIRECT_VERSION
+            else None
+        )
+        master_contract = (
+            _saved_front_placement_for_angle(self.session, row, front_placement)
+            if row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+               and row.skill_source == "internal"
+               and row.front_preview_remote_file_id
+            else None
+        )
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
@@ -437,6 +519,8 @@ class EcommerceService:
                     and row.front_preview_remote_file_id
                 ) else {}),
                 **({"front_placement": front_placement} if front_placement is not None else {}),
+                **({"embroidery_scale_front_v1": front_contract} if front_contract else {}),
+                **({"embroidery_placement_v1": master_contract} if master_contract else {}),
                 **({"scout_reference": scout_reference} if scout_reference else {}),
                 **({"multihat_references": multihat_references} if multihat_references else {}),
                 **({"multihat_colorways": multihat_colorways,
@@ -1258,6 +1342,7 @@ class EcommerceGenerateHandler:
         preview_remote_id: str | None, preview_mime: str | None,
         preview_size: int | None, preview_design_sha: str | None,
         transfer_material=None, transfer_design_size: int = 100,
+        scale_contract: dict | None = None,
     ) -> tuple[GeneratedImageResult, str, int]:
         """Checkpoint native Embroidery Reference, then run local V2.4 transfer.
 
@@ -1346,6 +1431,7 @@ class EcommerceGenerateHandler:
             try:
                 transferred = composite_reference_on_cap(
                     transfer_material, material_bytes, design_size=transfer_design_size,
+                    scale_contract=scale_contract,
                 )
             except Slot1EmbroideryQAError as exc:
                 # A failed layer extraction cannot be fixed by repeating the
@@ -1789,7 +1875,9 @@ class EcommerceGenerateHandler:
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Verified Slot 1 Embroidery Reference is missing.")
             references = [material_ref]
-            prompt = angle_direct_prompt(stage)
+            prompt = angle_direct_prompt(
+                stage, placement=context.job.payload.get("embroidery_placement_v1"),
+            )
         elif builtin_stock:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):
                 raise EcommerceError("ecommerce_thread_material_missing",
@@ -1905,6 +1993,7 @@ class EcommerceGenerateHandler:
                                 transfer_design_size=job_front_placement(
                                     context.job.payload.get("front_placement")
                                 ).get("design_size", 100),
+                                scale_contract=context.job.payload.get("embroidery_scale_front_v1"),
                             )
                         )
                     else:
@@ -1968,6 +2057,7 @@ class EcommerceGenerateHandler:
             try:
                 validated = process_direct_angle_edit(
                     refs[0][1], generated, preview_bytes, stage=stage,
+                    placement=context.job.payload.get("embroidery_placement_v1"),
                 )
             except AngleDirectEditError as exc:
                 raise RrugcGenerationHandlerError(
@@ -2082,7 +2172,18 @@ class EcommerceGenerateHandler:
                                 content_type=output_mime,
                                 size_bytes=len(output_bytes), width=width, height=height,
                                 processing_job_id=context.job.id,
-                                font_info={**({"slot1_embroidery_pipeline": {
+                                font_info={
+                                **({"embroidery_placement_v1": saved_master_box(
+                                    generated.provider_metadata["transfer_box"], width, height,
+                                    row.source_revision,
+                                    row.front_preview_remote_file_id or material_reference_remote_id,
+                                )} if is_threadtransfer and generated.provider_metadata.get("transfer_box") else {}),
+                                **({"embroidery_placement_v1": pinned_master(
+                                    context.job.payload["embroidery_placement_v1"],
+                                    reference_remote_file_id=row.front_preview_remote_file_id,
+                                    source_revision=row.source_revision,
+                                )} if direct_angle and context.job.payload.get("embroidery_placement_v1") else {}),
+                                **({"slot1_embroidery_pipeline": {
                                     "version": ("threadtransfer-v1-raster"
                                                 if is_threadtransfer else
                                                 "thread-reference-inpaint-v2.3-checkpointed"

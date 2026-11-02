@@ -118,7 +118,7 @@ def _layer_from_reference(image_bytes: bytes) -> tuple[Image.Image, int]:
 
 def composite_reference_on_cap(
     material: Slot1MaterialPass, reference_png: bytes, *,
-    design_size: int = 100,
+    design_size: int = 100, scale_contract: dict | None = None,
 ) -> ThreadTransferResult:
     """Blend only extracted thread against immutable original factory pixels.
 
@@ -129,14 +129,38 @@ def composite_reference_on_cap(
     import hashlib
 
     layer, extracted = _layer_from_reference(reference_png)
-    x0, y0, x1, y1 = material.guide_box
-    field_w, field_h = x1 - x0, y1 - y0
-    if field_w < 48 or field_h < 32 or layer.width < 12 or layer.height < 12:
-        raise Slot1EmbroideryQAError("Reference or embroidery area is too small.")
-    zoom = min(2.0, max(.4, design_size / 100.))
-    scale = min(field_w * .95 / layer.width, field_h * .92 / layer.height) * zoom
-    tw = min(field_w - 2, max(8, round(layer.width * scale)))
-    th = min(field_h - 2, max(8, round(layer.height * scale)))
+    if scale_contract is not None:
+        # New front photos use an explicit physical master size; do not infer
+        # size from a generated macro's margins or legacy field height.
+        from app.modules.realistic_review_ugc.embroidery_scale import (
+            EmbroideryScaleError, front_transfer_box,
+        )
+        try:
+            px, py, rx, by = front_transfer_box(
+                scale_contract, layer.width / layer.height, material.stock.size,
+            )
+        except EmbroideryScaleError as exc:
+            raise Slot1EmbroideryQAError(str(exc)) from exc
+        tw, th = rx-px, by-py
+        safe = scale_contract["safe_box"]
+        x0, y0, x1, y1 = (
+            round(material.stock.width * safe[0]),
+            round(material.stock.height * safe[1]),
+            round(material.stock.width * safe[2]),
+            round(material.stock.height * safe[3]),
+        )
+    else:
+        # Existing queued/cached Slot 1 jobs keep historical pixel placement.
+        x0, y0, x1, y1 = material.guide_box
+        field_w, field_h = x1 - x0, y1 - y0
+        if field_w < 48 or field_h < 32 or layer.width < 12 or layer.height < 12:
+            raise Slot1EmbroideryQAError("Reference or embroidery area is too small.")
+        zoom = min(2.0, max(.4, design_size / 100.))
+        scale = min(field_w * .95 / layer.width, field_h * .92 / layer.height) * zoom
+        tw = min(field_w - 2, max(8, round(layer.width * scale)))
+        th = min(field_h - 2, max(8, round(layer.height * scale)))
+        px = x0 + (field_w - tw) // 2
+        py = y0 + (field_h - th) // 2
     if tw < 12 or th < 10:
         raise Slot1EmbroideryQAError("Embroidery placement is too small.")
     target = np.asarray(layer.resize((tw, th), Image.Resampling.LANCZOS), dtype=np.float32)
@@ -158,8 +182,6 @@ def composite_reference_on_cap(
     if int(np.count_nonzero(warped_alpha > .5)) < 140:
         raise Slot1EmbroideryQAError("Thread transfer lost the embroidered glyphs.")
 
-    px = x0 + (field_w - tw) // 2
-    py = y0 + (field_h - th) // 2
     stock = np.asarray(material.stock.convert("RGB"), dtype=np.uint8)
     result = stock.copy()
     backing = stock[py:py + th, px:px + tw].astype(np.float32)

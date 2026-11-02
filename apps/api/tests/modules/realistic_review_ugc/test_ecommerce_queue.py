@@ -13,7 +13,7 @@ from app.modules.realistic_review_ugc.ecommerce_pipeline import (
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel, RrugcEcommerceJobModel,
-    RrugcFrontPlacementSettingModel,
+    RrugcFrontPlacementSettingModel, RrugcImageOutputVersionModel,
 )
 from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
 
@@ -36,6 +36,7 @@ def ecommerce_db(monkeypatch, tmp_path):
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
         RrugcCapStackImageModel.__table__, RrugcFrontPlacementSettingModel.__table__,
+        RrugcImageOutputVersionModel.__table__,
     ])
     import app.modules.realistic_review_ugc.ecommerce_pipeline as pipeline
     monkeypatch.setattr(pipeline, "_assigned_skill", lambda *args: ResolvedStage2Skill(
@@ -79,6 +80,7 @@ def test_queue_is_idempotent_and_job_is_durable(ecommerce_db):
     jobs = list(session.scalars(select(ProcessingJobModel)))
     assert len(jobs) == 1 and jobs[0].job_type == "rrugc_ecommerce_generate"
     assert jobs[0].payload_json["ecommerce_job_id"] == first["job_id"]
+    assert jobs[0].payload_json["embroidery_scale_front_v1"]["version"] == "front-locked-v1"
     assert jobs[0].priority == 96
 
 
@@ -162,11 +164,72 @@ def test_new_stock_angle_uses_one_codex_edit_and_back_bypasses_provider(ecommerc
             assert processing.provider_key == "codex"
             assert processing.provider_scope == "ai"
             assert processing.payload_json["thread_material_pipeline"] == "v3-direct-edit"
+            assert processing.payload_json["embroidery_placement_v1"]["version"] == "front-locked-v1"
+            assert processing.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-thread-macro"
             assert row.front_preview_remote_file_id == "saved-thread-macro"
         else:
             assert processing.provider_key is None
             assert processing.provider_scope is None
             assert "thread_material_pipeline" not in processing.payload_json
+
+
+def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerce_db):
+    from app.modules.realistic_review_ugc.embroidery_scale import saved_master_box
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    queued = service.queue(tenant_id="tenant-001", user_id="operator",
+                           source_plan_id="plan-001", stage="prod_s2_ec1")
+    front = session.get(RrugcEcommerceJobModel, queued["job_id"])
+    front.status = "completed"
+    front.output_remote_file_id = "saved-front"
+    front.front_preview_remote_file_id = "actual-yarn-reference"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_design_sha256 = "b" * 64
+    exact = saved_master_box((280, 330, 620, 560), 900, 1000,
+                             front.source_revision, front.front_preview_remote_file_id)
+    session.add(RrugcImageOutputVersionModel(
+        tenant_id="tenant-001", stage="ecommerce", job_id=front.id, version=1,
+        remote_file_id="saved-front", width=900, height=1000,
+        font_info_json={"embroidery_placement_v1": exact},
+    ))
+    session.commit()
+    angle = service.queue(tenant_id="tenant-001", user_id="operator",
+                          source_plan_id="plan-001", stage="prod_s2_ec2")
+    row = session.get(RrugcEcommerceJobModel, angle["job_id"])
+    processing = session.get(ProcessingJobModel, row.processing_job_id)
+    assert processing.payload_json["embroidery_placement_v1"] == exact
+    # A change to tenant global placement must not affect this already pinned
+    # job's projection or historical output.
+    from app.modules.realistic_review_ugc.front_placement import (
+        DEFAULT_FRONT_PLACEMENT, save_front_placement,
+    )
+    changed = {**DEFAULT_FRONT_PLACEMENT, "top": .19, "width": .62}
+    save_front_placement(session, "tenant-001", "operator", changed, 0)
+    assert processing.payload_json["embroidery_placement_v1"] == exact
+
+
+def test_angle_falls_back_to_historical_transfer_box_without_scale_contract(ecommerce_db):
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    front_queue = service.queue(tenant_id="tenant-001", user_id="operator",
+                                source_plan_id="plan-001", stage="prod_s2_ec1")
+    front = session.get(RrugcEcommerceJobModel, front_queue["job_id"])
+    front.status = "completed"
+    front.output_remote_file_id = "legacy-front"
+    front.front_preview_remote_file_id = "legacy-thread-macro"
+    front.front_preview_design_sha256 = "a" * 64
+    session.add(RrugcImageOutputVersionModel(
+        tenant_id="tenant-001", stage="ecommerce", job_id=front.id, version=1,
+        remote_file_id="legacy-front", width=900, height=1000,
+        font_info_json={"slot1_embroidery_pipeline":{"transfer_box":[300,350,540,520]}},
+    ))
+    session.commit()
+    queued = service.queue(tenant_id="tenant-001", user_id="operator",
+                           source_plan_id="plan-001", stage="prod_s2_ec3")
+    row = session.get(RrugcEcommerceJobModel, queued["job_id"])
+    pinned = session.get(ProcessingJobModel, row.processing_job_id).payload_json["embroidery_placement_v1"]
+    assert pinned["front_box"] == [round(300/900,6), .35, .6, .52]
+    assert pinned["reference_remote_file_id"] == "legacy-thread-macro"
 
 
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):

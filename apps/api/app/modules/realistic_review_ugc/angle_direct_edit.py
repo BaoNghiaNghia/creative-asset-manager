@@ -22,6 +22,9 @@ from PIL import Image, ImageOps
 from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.realistic_review_ugc.threadtransfer import _layer_from_reference
 from app.modules.realistic_review_ugc.slot1_embroidery import Slot1EmbroideryQAError
+from app.modules.realistic_review_ugc.embroidery_scale import (
+    EmbroideryScaleError, angle_scale_prompt, projected_angle_box,
+)
 
 
 class AngleDirectEditError(ValueError):
@@ -53,7 +56,7 @@ _MAX_PIXELS = 8_000_000
 _MAX_BYTES = 25_000_000
 
 
-def angle_direct_prompt(stage: str) -> str:
+def angle_direct_prompt(stage: str, *, placement: dict | None = None) -> str:
     """Short explicit single-edit contract used by Codex CLI."""
     common = (
         "ONE IMAGE-EDIT invocation only. The TARGET image (person) is the official "
@@ -73,7 +76,7 @@ def angle_direct_prompt(stage: str) -> str:
         "Output exactly ONE final edited PNG with the source aspect ratio. "
     )
     if stage == "prod_s2_ec2":
-        return common + (
+        return common + (angle_scale_prompt(placement, stage) + " " if placement else "") + (
             "This is a TRUE FRONT THREE-QUARTER view. Sew the complete reference "
             "typography onto the visible FRONT crown only. Apply natural "
             "foreshortening across the curved fabric and keep the design large "
@@ -83,7 +86,7 @@ def angle_direct_prompt(stage: str) -> str:
             "leave protected areas identical and modify only the front yarn."
         )
     if stage == "prod_s2_ec3":
-        return common + (
+        return common + (angle_scale_prompt(placement, stage) + " " if placement else "") + (
             "This is a TRUE RIGHT SIDE 90-DEGREE view, visor points LEFT. "
             "The front panel is almost entirely hidden. Show, at most, a TINY "
             "physically visible edge of the original front embroidery on the "
@@ -159,12 +162,78 @@ def _native_yarn_labs(reference_png: bytes) -> np.ndarray:
     return np.float32(values[:56])
 
 
+def _normalized_yarn_composite(
+    stock: np.ndarray,
+    native: np.ndarray,
+    stitch_mask: np.ndarray,
+    expected: tuple[int, int, int, int],
+    *,
+    stage: str,
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+    """Resize/recenter ONLY already-generated yarn pixels at the master scale.
+
+    No interpolation of background, no rectangular inpaint: unselected pixels
+    are copied verbatim from official stock. Uniform scale prevents stretching
+    glyphs; extreme corrections fail (side uses unchanged stock fallback).
+    """
+    ys, xs = np.where(stitch_mask > 0)
+    if len(xs) < 60:
+        raise AngleDirectEditError("No visible stitch pixels for calibrated placement.")
+    src_left, src_top = int(xs.min()), int(ys.min())
+    src_right, src_bottom = int(xs.max())+1, int(ys.max())+1
+    sw, sh = src_right-src_left, src_bottom-src_top
+    ex0, ey0, ex1, ey1 = expected
+    ew, eh = ex1-ex0, ey1-ey0
+    if min(sw, sh, ew, eh) < 8:
+        raise AngleDirectEditError("Embroidery cannot fit its physical master box.")
+    ratio = min(ew/sw, eh/sh)
+    if not .46 <= ratio <= (2.2 if stage == "prod_s2_ec3" else 1.65):
+        raise AngleDirectEditError("Native edit scale differs too much from Slot 1.")
+    tw, th = max(8, round(sw*ratio)), max(8, round(sh*ratio))
+    px = round((ex0+ex1-tw)/2)
+    py = round((ey0+ey1-th)/2)
+    # Projection happens only inside the calibrated front-facing stock field.
+    width, height = stock.shape[1], stock.shape[0]
+    fx0, fy0, fx1, fy1 = _FRONT_CROWN[stage]
+    if not (0 <= px and 0 <= py and px+tw <= width and py+th <= height
+            and px >= round(fx0*width) and py >= round(fy0*height)
+            and px+tw <= round(fx1*width) and py+th <= round(fy1*height)):
+        raise AngleDirectEditError("Calibrated yarn would cross a protected crown seam.")
+
+    mask = stitch_mask[src_top:src_bottom, src_left:src_right].astype(np.float32) / 255.
+    mask = cv2.GaussianBlur(mask, (0, 0), .55)
+    rgb = native[src_top:src_bottom, src_left:src_right].astype(np.float32)
+    premul = rgb * mask[..., None]
+    interpolation = cv2.INTER_AREA if ratio < 1 else cv2.INTER_CUBIC
+    output_alpha = cv2.resize(mask, (tw, th), interpolation=interpolation)
+    output_premul = cv2.resize(premul, (tw, th), interpolation=interpolation)
+    output_alpha = np.clip(output_alpha, 0, 1)
+    yarn = np.divide(output_premul, np.maximum(output_alpha[..., None], .001))
+    base = stock[py:py+th, px:px+tw].astype(np.float32)
+    patch = yarn*output_alpha[..., None]+base*(1-output_alpha[..., None])
+    result = stock.copy()
+    result[py:py+th, px:px+tw] = np.uint8(np.clip(np.rint(patch), 0, 255))
+    if (not np.array_equal(result[:py], stock[:py])
+            or not np.array_equal(result[py+th:], stock[py+th:])
+            or not np.array_equal(result[:, :px], stock[:, :px])
+            or not np.array_equal(result[:, px+tw:], stock[:, px+tw:])):
+        raise AngleDirectEditError("Stock pixels outside sewn yarn were modified.")
+    center_x = (px+tw/2)/width
+    center_y = (py+th/2)/height
+    expected_center_x = (ex0+ex1)/2/width
+    expected_center_y = (ey0+ey1)/2/height
+    if abs(center_x-expected_center_x) > .04 or abs(center_y-expected_center_y) > .04:
+        raise AngleDirectEditError("Embroidery center differs from the saved master placement.")
+    return result, (px, py, px+tw, py+th)
+
+
 def process_direct_angle_edit(
     original_stock: bytes,
     generated: GeneratedImageResult,
     embroidery_reference: bytes,
     *,
     stage: str,
+    placement: dict | None = None,
 ) -> AngleDirectResult:
     """QA and harvest thread pixels from a native one-pass edit.
 
@@ -254,6 +323,23 @@ def process_direct_angle_edit(
         return AngleDirectResult(
             _encode_png(stock), True, reason, digest, 0, None,
         )
+    if placement is not None:
+        # One-pass native edit may oversize/offset yarn. Correct only the
+        # extracted stitch-shaped pixels onto the physically pinned Slot 1
+        # scale, never synthesize/repaint the manufacturer hat or camera.
+        try:
+            expected = projected_angle_box(placement, stage, (width, height))
+            output, actual = _normalized_yarn_composite(
+                stock, native, cleaned, expected, stage=stage,
+            )
+        except (AngleDirectEditError, EmbroideryScaleError) as exc:
+            if stage != "prod_s2_ec3":
+                raise AngleDirectEditError(str(exc)) from exc
+            return AngleDirectResult(
+                _encode_png(stock), True, str(exc), digest, 0, None,
+            )
+        return AngleDirectResult(_encode_png(output), False, None, digest,
+                                 pixels, actual)
     # Convert the handoff to a *stitch-shaped* mask instead of a rectangular
     # box. Feather is at most one pixel, protecting all other factory pixels.
     alpha = cv2.GaussianBlur(cleaned.astype(np.float32)/255., (0,0), .55)

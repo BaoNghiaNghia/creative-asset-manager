@@ -21,6 +21,7 @@ from app.core.database import Base
 from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerationHandlerError
+from app.modules.realistic_review_ugc.embroidery_scale import saved_master_box, projected_angle_box
 from app.modules.realistic_review_ugc import ecommerce_pipeline as pipeline
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.model import (
@@ -170,6 +171,7 @@ def test_stock_edit_invokes_single_native_model_without_mask_and_side_fallback(
             ]
             assert "ONE IMAGE-EDIT invocation only" in args["prompt"]
             assert "No mask image" in args["prompt"]
+            assert "PHYSICALLY LOCKED EMBROIDERY SIZE" in args["prompt"]
             assert "slot1_edit_mask" not in args["prompt"]
             assert "REFERENCE C" not in args["prompt"]
             assert all("mask" not in r.role for r in args["references"])
@@ -191,10 +193,14 @@ def test_stock_edit_invokes_single_native_model_without_mask_and_side_fallback(
         IMAGE_GENERATION_STAGING_ROOT="/tmp", CODEX_IMAGE_TIMEOUT_SECONDS=120,
         CODEX_IMAGE_MODEL=None,
     )
+    master = saved_master_box(
+        (255, 340, 615, 540), 900, 1000, "rev", "macro",
+    )
     context = SimpleNamespace(
         job=SimpleNamespace(
             id="processing", job_type=pipeline.JOB_TYPE, entity_id="job", tenant_id="tenant",
-            payload={"ecommerce_job_id": "job", "thread_material_pipeline": "v3-direct-edit"},
+            payload={"ecommerce_job_id": "job", "thread_material_pipeline": "v3-direct-edit",
+                     "embroidery_placement_v1": master},
         ),
         dependencies=SimpleNamespace(session_factory=lambda: Session(engine),
                                      storage_provider=storage),
@@ -213,6 +219,7 @@ def test_stock_edit_invokes_single_native_model_without_mask_and_side_fallback(
         assert len(versions) == 1
         info=versions[0].font_info_json["thread_inpaint_pipeline"]
         assert info["version"] == "angle-direct-v3-single-edit"
+        assert versions[0].font_info_json["embroidery_placement_v1"] == master
         assert info["native_passes"] == 1
         assert info["original_stock_pixels_protected"] is True
         assert info["side_stock_fallback"] is wrong_side
