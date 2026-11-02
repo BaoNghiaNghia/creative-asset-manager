@@ -6462,11 +6462,15 @@ def ecommerce_input_readiness(
         EcommerceError, _front_material_job,
     )
     settings = get_settings()
-    worker_ready = all((
+    # Native Codex is required only to create the Slot 1 photographic yarn
+    # reference. The remaining Ecommerce slots use local stock/raster assets.
+    local_worker_ready = all((
         settings.PROCESSING_JOBS_ENABLED, settings.IMAGE_GENERATION_ENABLED,
-        settings.MANAGED_ASSET_STORAGE_ENABLED, settings.CODEX_IMAGE_GENERATION_ENABLED,
-        bool(shutil.which(settings.CODEX_IMAGE_BINARY or "codex")),
+        settings.MANAGED_ASSET_STORAGE_ENABLED,
     ))
+    codex_worker_ready = (local_worker_ready
+        and settings.CODEX_IMAGE_GENERATION_ENABLED
+        and bool(shutil.which(settings.CODEX_IMAGE_BINARY or "codex")))
     assets = {"design": plan.source_file_id}
     for role, evidence in stock.items():
         if evidence.get("ready") and evidence.get("sha256"):
@@ -6480,14 +6484,17 @@ def ecommerce_input_readiness(
         pass
     slots = []
     for shot in SHOTS:
-        # All four Ecommerce shots now have an internal, Skill-free contract:
-        # native material + edit for 1–3, untouched official back photo for 4.
+        # Only Slot 1 may require native ImageGen; Slots 2/3/4 run locally.
         skill_ready = True
         entry = build_execution_preflight(
-            shot.stage, assets, worker_ready=worker_ready, skill_ready=skill_ready,
+            shot.stage, assets,
+            worker_ready=(codex_worker_ready if shot.stage == "prod_s2_ec1"
+                          else local_worker_ready),
+            skill_ready=skill_ready,
         )
         entry["pipeline"] = ("thread-reference-inpaint-v2" if shot.stage == "prod_s2_ec1"
-                             else "original-stock-thread-inpaint-v1" if shot.stage in ("prod_s2_ec2", "prod_s2_ec3")
+                             else "threadtransfer-v3-deterministic-quad"
+                             if shot.stage in ("prod_s2_ec2", "prod_s2_ec3")
                              else "unaltered-back-stock-v1")
         entry["custom_skill_required"] = False
         slots.append(entry)

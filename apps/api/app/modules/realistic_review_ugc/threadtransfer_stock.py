@@ -29,12 +29,121 @@ _VIEW_CROWN = {
 _MAX_PIXELS = 8_000_000
 
 
+def _composite_pinned_view(
+    original: np.ndarray,
+    layer: Image.Image,
+    stage: str,
+    master: dict,
+) -> ThreadTransferResult:
+    """V3: perspective-warp SAME real yarn with one predefined stock quad.
+
+    Not a native image edit. Never generates or moves stock fabric, visor,
+    seams, background or manufacturer side lettering.
+    """
+    from app.modules.realistic_review_ugc.embroidery_scale import (
+        EmbroideryScaleError, projected_raster_box,
+    )
+
+    height, width = original.shape[:2]
+    try:
+        x0, y0, x1, y1 = projected_raster_box(master, stage, (width, height))
+    except EmbroideryScaleError as exc:
+        raise Slot1EmbroideryQAError(str(exc)) from exc
+    rgba = np.asarray(layer.convert("RGBA"), dtype=np.uint8)
+    if stage == "prod_s2_ec3":
+        # Viewer faces the right side. Only the rightmost end of the
+        # FRONT embroidery (not a scaled-down entire slogan) is visible.
+        rgba = rgba[:, max(0, round(rgba.shape[1] * .82)):, :].copy()
+    src_h, src_w = rgba.shape[:2]
+    if min(src_w, src_h) < 10:
+        raise Slot1EmbroideryQAError("Saved thread layer has insufficient visible detail.")
+    tw, th = x1-x0, y1-y0
+    if stage == "prod_s2_ec2":
+        quad = np.float32([
+            [x0+tw*.055, y0+th*.025],
+            [x1-tw*.085, y0+th*.095],
+            [x1-tw*.018, y1-th*.065],
+            [x0+tw*.015, y1-th*.025],
+        ])
+    else:
+        quad = np.float32([
+            [x0+tw*.080, y0+th*.025],
+            [x1-tw*.095, y0+th*.125],
+            [x1-tw*.045, y1-th*.050],
+            [x0+tw*.030, y1-th*.020],
+        ])
+    # Clip the raster operation to a tiny local front crown buffer.
+    pad = 3
+    left, top = max(0, x0-pad), max(0, y0-pad)
+    right, bottom = min(width, x1+pad), min(height, y1+pad)
+    fw, fh = right-left, bottom-top
+    src = np.float32([
+        [0, 0], [src_w-1, 0], [src_w-1, src_h-1], [0, src_h-1],
+    ])
+    matrix = cv2.getPerspectiveTransform(
+        src, quad - np.float32([left, top]),
+    )
+    alpha_src = rgba[:, :, 3].astype(np.float32)/255.
+    premul_src = rgba[:, :, :3].astype(np.float32)*alpha_src[:, :, None]
+    alpha = np.clip(cv2.warpPerspective(
+        alpha_src, matrix, (fw, fh), flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+    ), 0, 1)
+    premul = cv2.warpPerspective(
+        premul_src, matrix, (fw, fh), flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+    )
+    selected = alpha > .5
+    accepted = int(np.count_nonzero(selected))
+    if accepted < (100 if stage == "prod_s2_ec2" else 35):
+        raise Slot1EmbroideryQAError("Embroidery reference contains no visible yarn at this angle.")
+    ys, xs = np.where(selected)
+    # Ensure the warp actually occupies its calibrated target, rather than
+    # silently publishing a microscopic or clipped glyph.
+    visible_w = int(xs.max()-xs.min()+1)
+    if visible_w < tw*(.50 if stage == "prod_s2_ec2" else .28):
+        raise Slot1EmbroideryQAError("Calibrated embroidery width is insufficient.")
+    yarn = np.divide(premul, np.maximum(alpha[:, :, None], .001))
+    background = original[top:bottom, left:right].astype(np.float32)
+    # Gentle lighting integration acts on extracted yarn alone.
+    light = cv2.GaussianBlur(
+        cv2.cvtColor(np.uint8(background), cv2.COLOR_RGB2GRAY).astype(np.float32),
+        (0, 0), max(2., min(fw, fh)*.06),
+    )
+    exposure = np.clip((light-np.median(light))/255., -.06, .06)
+    yarn = np.clip(yarn*(1.+exposure[:, :, None]), 0, 255)
+    composite = yarn*alpha[:, :, None]+background*(1.-alpha[:, :, None])
+    # Narrow stitch-foot contact shadow, no embroidered fabric rectangle.
+    fringe = np.maximum(cv2.GaussianBlur(alpha, (0, 0), .8)-alpha, 0)
+    composite *= 1.-fringe[:, :, None]*.04
+    result = original.copy()
+    result[top:bottom, left:right] = np.uint8(np.clip(np.rint(composite), 0, 255))
+    if (not np.array_equal(result[:top], original[:top])
+            or not np.array_equal(result[bottom:], original[bottom:])
+            or not np.array_equal(result[:, :left], original[:, :left])
+            or not np.array_equal(result[:, right:], original[:, right:])):
+        raise Slot1EmbroideryQAError("Local transfer modified protected factory stock.")
+    mask_box = (left+int(xs.min()), top+int(ys.min()),
+                left+int(xs.max())+1, top+int(ys.max())+1)
+    encoded = BytesIO()
+    Image.fromarray(result, "RGB").save(encoded, "PNG", optimize=True)
+    layer_png = BytesIO()
+    layer.save(layer_png, "PNG", optimize=True)
+    return ThreadTransferResult(
+        output_png=encoded.getvalue(),
+        thread_layer_sha256=hashlib.sha256(layer_png.getvalue()).hexdigest(),
+        extracted_pixels=accepted,
+        target_box=mask_box,
+    )
+
+
 def composite_reference_on_stock_view(
     stock_bytes: bytes,
     reference_png: bytes,
     *,
     stage: str,
     design_size: int = 100,
+    placement: dict | None = None,
 ) -> ThreadTransferResult:
     """Project yarn onto a real angle; protect every pixel outside target ROI.
 
@@ -57,6 +166,9 @@ def composite_reference_on_stock_view(
 
     layer, _count = _layer_from_reference(reference_png)
     original = np.asarray(img, dtype=np.uint8)
+    if placement is not None:
+        return _composite_pinned_view(original, layer, stage, placement)
+    # Pre-V3 pinned work uses the historical stock-safe v2 fields.
     height, width = original.shape[:2]
     fx0, fy0, fx1, fy1 = _VIEW_CROWN[stage]
     left, top, right, bottom = (round(width * fx0), round(height * fy0),

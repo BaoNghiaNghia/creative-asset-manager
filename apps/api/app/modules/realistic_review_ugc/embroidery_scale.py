@@ -11,7 +11,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-_VERSION = "front-locked-v1"
+_VERSION = "front-locked-v1"  # immutable saved angle master, including historic jobs
+_FRONT_GUIDE_VERSION = "front-guide-v2"
 _FRONT_SAFE_BOX = (.145, .245, .855, .620)
 # Normalized physical front-facing fields. Side90 has only a slim visible edge.
 _ANGLE_ZONE = {
@@ -45,37 +46,56 @@ def _bbox(box: object) -> tuple[float, float, float, float]:
 
 
 def front_scale_contract(front_placement: object) -> dict[str, Any]:
-    """Fresh front placements only; honor calibrated guide center/size zoom."""
+    """Lock a fresh Slot 1 to the user's SAVED front embroidery rectangle.
+
+    The old V1 guessed a fixed 38% width regardless of the visible blueprint.
+    The V2 width/height constraints are instead 90%/76% of the saved *field*
+    at 100% zoom, contain-fitting the actual reference yarn without stretching.
+    """
     from app.modules.realistic_review_ugc.front_placement import job_front_placement
     v = job_front_placement(front_placement)
-    zoom = max(.55, min(1.5, v.get("design_size", 100) / 100.))
-    guide_center_x = v["left"] + v["width"] * .5
-    guide_center_y = v["top"] + v["height"] * .5
-    center_x = min(.535, max(.465, guide_center_x))
-    center_y = min(.472, max(.385, guide_center_y))
-    target_width = min(.48, max(.28, .38 * zoom * (v["width"]/.696)))
+    x0, y0, x1, y1 = _FRONT_SAFE_BOX
+    guide = (
+        max(x0, v["left"]), max(y0, v["top"]),
+        min(x1, v["left"] + v["width"]),
+        min(y1, v["top"] + v["height"]),
+    )
+    if guide[2] - guide[0] < .12 or guide[3] - guide[1] < .06:
+        raise EmbroideryScaleError("Saved front embroidery guide is outside the factory crown.")
+    zoom = max(.4, min(2., v.get("design_size", 100) / 100.))
+    width, height = guide[2] - guide[0], guide[3] - guide[1]
+    # Contain-fit with safe perimeter; zoom is bounded to the actual field.
+    target_w = min(width * .96, width * .90 * zoom)
+    target_h = min(height * .96, height * .76 * zoom)
     return {
-        "version": _VERSION, "center_x": round(center_x, 6),
-        "center_y": round(center_y, 6),
-        "target_width": round(target_width, 6),
-        "max_height": round(min(.25, max(.18, v["height"] * 1.15)), 6),
-        "safe_box": list(_FRONT_SAFE_BOX),
+        "version": _FRONT_GUIDE_VERSION,
+        "center_x": round((guide[0] + guide[2]) / 2, 6),
+        "center_y": round((guide[1] + guide[3]) / 2, 6),
+        "target_width": round(target_w, 6),
+        "max_height": round(target_h, 6),
+        "safe_box": [round(t, 6) for t in guide],
         "design_size": int(v.get("design_size", 100)),
+        "fit_mode": "contain",
+        "guide_source": "saved_front_embroidery_area",
     }
 
 
 def front_transfer_box(contract: dict, source_ratio: float,
                        photo_size: tuple[int, int]) -> tuple[int, int, int, int]:
     """Contain-fit reference yarn at a fixed front crown center and physical size."""
-    if contract.get("version") != _VERSION or source_ratio <= 0 or not math.isfinite(source_ratio):
+    if contract.get("version") not in (_VERSION, _FRONT_GUIDE_VERSION) or source_ratio <= 0 or not math.isfinite(source_ratio):
         raise EmbroideryScaleError("Unknown front embroidery scale contract.")
     width, height = photo_size
     if min(width, height) < 64:
         raise EmbroideryScaleError("Stock image is too small for front transfer.")
-    x0, y0, x1, y1 = _FRONT_SAFE_BOX
+    x0, y0, x1, y1 = (
+        _bbox(contract["safe_box"]) if contract.get("version") == _FRONT_GUIDE_VERSION
+        else _FRONT_SAFE_BOX
+    )
     cx, cy = _finite(contract["center_x"]), _finite(contract["center_y"])
-    desired_w = min(_finite(contract["target_width"])*width, (x1-x0)*width*.94)
-    desired_h = min(_finite(contract["max_height"])*height, (y1-y0)*height*.89)
+    safety = .98 if contract.get("version") == _FRONT_GUIDE_VERSION else .94
+    desired_w = min(_finite(contract["target_width"])*width, (x1-x0)*width*safety)
+    desired_h = min(_finite(contract["max_height"])*height, (y1-y0)*height*safety)
     tw = min(desired_w, desired_h * source_ratio)
     th = tw / source_ratio
     if tw < 12 or th < 12:
@@ -148,6 +168,49 @@ def projected_angle_box(master: dict, stage: str,
             and px_y >= y0*height and px_y+px_h <= y1*height):
         raise EmbroideryScaleError("Projected embroidery would cross a factory side seam.")
     return px_x, px_y, px_x+px_w, px_y+px_h
+
+
+# Calibrated manufacturer stock presets for the no-ImageGen raster path.
+# These rectangles mark the visible FRONT crown (not the larger lateral panel).
+# Their derived quads are transformed ONLY within these safe zones.
+_RASTER_ANGLE_ZONE = {
+    "prod_s2_ec2": (.230, .300, .750, .620),
+    "prod_s2_ec3": (.230, .290, .420, .550),
+}
+
+
+def projected_raster_box(master: dict, stage: str,
+                         photo_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Fixed template-dependent target preserving physical Slot 1 size.
+
+    The original Slot 1 box is actual sewn yarn, not the macro photo extent.
+    A 3/4 view foreshortens the full design. A true right-side 90-degree view
+    exposes only the rightmost edge, with the lateral GatorHats logo protected.
+    """
+    source = pinned_master(master)["front_box"]
+    if stage not in _RASTER_ANGLE_ZONE:
+        raise EmbroideryScaleError("Unknown factory stock raster placement angle.")
+    width, height = photo_size
+    if min(width, height) < 512:
+        raise EmbroideryScaleError("Manufacturer stock resolution is too small.")
+    z0, z1, z2, z3 = _RASTER_ANGLE_ZONE[stage]
+    front_w, front_h = source[2]-source[0], source[3]-source[1]
+    if stage == "prod_s2_ec2":
+        target_w = min(front_w*.82, (z2-z0)*.92)
+        target_h = min(front_h*.90, (z3-z1)*.85)
+        cx, cy = .465, .454
+    else:
+        target_w = min(front_w*.13, .060, (z2-z0)*.72)
+        target_h = min(front_h*.91, (z3-z1)*.82)
+        cx, cy = .318, .434
+    tw, th = round(target_w*width), round(target_h*height)
+    if min(tw, th) < 11:
+        raise EmbroideryScaleError("Projected embroidery would not be visible.")
+    x, y = round(cx*width - tw/2), round(cy*height - th/2)
+    if not (z0*width <= x and x+tw <= z2*width
+            and z1*height <= y and y+th <= z3*height):
+        raise EmbroideryScaleError("Projected yarn exceeds the verified factory front crown.")
+    return x, y, x+tw, y+th
 
 
 def angle_scale_prompt(master: dict, stage: str) -> str:

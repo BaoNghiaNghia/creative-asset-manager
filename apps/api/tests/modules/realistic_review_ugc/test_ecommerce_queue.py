@@ -80,7 +80,7 @@ def test_queue_is_idempotent_and_job_is_durable(ecommerce_db):
     jobs = list(session.scalars(select(ProcessingJobModel)))
     assert len(jobs) == 1 and jobs[0].job_type == "rrugc_ecommerce_generate"
     assert jobs[0].payload_json["ecommerce_job_id"] == first["job_id"]
-    assert jobs[0].payload_json["embroidery_scale_front_v1"]["version"] == "front-locked-v1"
+    assert jobs[0].payload_json["embroidery_scale_front_v1"]["version"] == "front-guide-v2"
     assert jobs[0].priority == 96
 
 
@@ -141,7 +141,7 @@ def test_saved_embroidery_reference_retry_is_queued_without_codex_quota(ecommerc
     assert row.output_remote_file_id == "old-front"
 
 
-def test_new_stock_angle_uses_one_codex_edit_and_back_bypasses_provider(ecommerce_db):
+def test_new_stock_angles_are_local_raster_and_back_bypasses_provider(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
     first = service.queue(tenant_id="tenant-001", user_id="operator",
@@ -161,9 +161,9 @@ def test_new_stock_angle_uses_one_codex_edit_and_back_bypasses_provider(ecommerc
         row = session.get(RrugcEcommerceJobModel, queued["job_id"])
         processing = session.get(ProcessingJobModel, row.processing_job_id)
         if slot in ("prod_s2_ec2", "prod_s2_ec3"):
-            assert processing.provider_key == "codex"
-            assert processing.provider_scope == "ai"
-            assert processing.payload_json["thread_material_pipeline"] == "v3-direct-edit"
+            assert processing.provider_key is None
+            assert processing.provider_scope is None
+            assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
             assert processing.payload_json["embroidery_placement_v1"]["version"] == "front-locked-v1"
             assert processing.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-thread-macro"
             assert row.front_preview_remote_file_id == "saved-thread-macro"
@@ -171,6 +171,29 @@ def test_new_stock_angle_uses_one_codex_edit_and_back_bypasses_provider(ecommerc
             assert processing.provider_key is None
             assert processing.provider_scope is None
             assert "thread_material_pipeline" not in processing.payload_json
+
+
+def test_angles_queue_without_codex_provider_when_saved_reference_exists(ecommerce_db):
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    queued = service.queue(tenant_id="tenant-001", user_id="operator",
+                           source_plan_id="plan-001", stage="prod_s2_ec1")
+    front = session.get(RrugcEcommerceJobModel, queued["job_id"])
+    front.status = "completed"
+    front.output_remote_file_id = "original-completed-front"
+    front.front_preview_remote_file_id = "saved-reference"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_design_sha256 = "d" * 64
+    session.commit()
+    settings.CODEX_IMAGE_GENERATION_ENABLED = False
+    for stage in ("prod_s2_ec2", "prod_s2_ec3"):
+        result = service.queue(tenant_id="tenant-001", user_id="operator",
+                               source_plan_id="plan-001", stage=stage)
+        row = session.get(RrugcEcommerceJobModel, result["job_id"])
+        processing = session.get(ProcessingJobModel, row.processing_job_id)
+        assert processing.provider_key is None
+        assert processing.provider_scope is None
+        assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
 
 
 def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerce_db):

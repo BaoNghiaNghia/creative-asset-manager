@@ -478,7 +478,11 @@ class EcommerceService:
         # A saved reference makes V2.4 Retry Placement a CPU-only compositor.
         # Do not subject it to Codex provider quota/policy admission controls.
         local_transfer = bool(
-            (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
+            (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+             and row.skill_name == SLOT1_DIRECT_NAME
+             and row.front_preview_remote_file_id
+             and row.front_preview_design_sha256)
+            or (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
             or (row.stage == "prod_s2_ec1"
                 and row.skill_name == SLOT1_DIRECT_NAME
                 and row.skill_version == SLOT1_DIRECT_VERSION
@@ -508,9 +512,10 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v3-direct-edit"} if (
+                **({"thread_material_pipeline": "v4-raster-placement"} if (
                     row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
                     and row.skill_source == "internal"
+                    and row.skill_name == SLOT1_DIRECT_NAME
                     and row.front_preview_remote_file_id
                     and row.front_preview_design_sha256
                 ) else {"thread_material_pipeline": "v2"} if (
@@ -538,12 +543,12 @@ class EcommerceService:
               multihat_colorways=None, multihat_colorway_hashes=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
+        uses_native_codex = stage not in ("prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")
         if not all((
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
             self.settings.MANAGED_ASSET_STORAGE_ENABLED,
-            self.settings.CODEX_IMAGE_GENERATION_ENABLED,
-        )):
+        )) or (uses_native_codex and not self.settings.CODEX_IMAGE_GENERATION_ENABLED):
             raise EcommerceError("ecommerce_execution_disabled", "Image generation is disabled.", 503)
         plan = _source_plan(self.session, tenant_id, source_plan_id, lock=True)
         _refs, stock_digest = _stock_refs(self.settings, stage, color_key)
@@ -1504,7 +1509,7 @@ class EcommerceGenerateHandler:
             return JobHandlerResult.cancelled()
         settings = self.settings or get_settings()
         if not all((settings.PROCESSING_JOBS_ENABLED, settings.IMAGE_GENERATION_ENABLED,
-                    settings.MANAGED_ASSET_STORAGE_ENABLED, settings.CODEX_IMAGE_GENERATION_ENABLED)):
+                    settings.MANAGED_ASSET_STORAGE_ENABLED)):
             return JobHandlerResult.non_retryable("ecommerce_disabled", "Ecommerce image generation disabled.")
         storage = context.dependencies.storage_provider
         if storage is None:
@@ -1519,6 +1524,24 @@ class EcommerceGenerateHandler:
                 return JobHandlerResult.non_retryable("ecommerce_job_not_found", "Job missing.")
             if row.status == "completed":
                 return JobHandlerResult.completed()
+            transfer_mode = context.job.payload.get("thread_material_pipeline")
+            local_execution = bool(
+                (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+                 and row.skill_name == SLOT1_DIRECT_NAME
+                 and transfer_mode in ("v2", "v4-raster-placement"))
+                or (row.stage == "prod_s2_ec4"
+                    and row.skill_name == SLOT1_DIRECT_NAME)
+                or (row.stage == "prod_s2_ec1"
+                    and row.skill_name == SLOT1_DIRECT_NAME
+                    and row.skill_version == SLOT1_DIRECT_VERSION
+                    and row.front_preview_remote_file_id
+                    and row.front_preview_design_sha256
+                    and not context.job.payload.get("regenerate_material_reference"))
+            )
+            if not local_execution and not settings.CODEX_IMAGE_GENERATION_ENABLED:
+                return JobHandlerResult.non_retryable(
+                    "ecommerce_disabled", "Native image generation disabled."
+                )
             plan = _source_plan(session, context.job.tenant_id, row.source_plan_id)
             if plan.source_revision != row.source_revision:
                 raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
@@ -1563,7 +1586,8 @@ class EcommerceGenerateHandler:
                     multihat_colors = [key for key, _ in multi_color_stock]
             front_asset = None
             if (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
-                    and context.job.payload.get("thread_material_pipeline") != "v3-direct-edit") or (
+                    and context.job.payload.get("thread_material_pipeline") not in (
+                        "v3-direct-edit", "v4-raster-placement")) or (
                 row.stage in SCENE_STAGE_SLOTS and
                 (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
@@ -1573,6 +1597,7 @@ class EcommerceGenerateHandler:
                                row.front_reference_content_type, row.front_reference_size_bytes)
             plan_id, mime, size, source_file_id = (
                 plan.id, plan.source_mime_type, plan.source_size_bytes, plan.source_file_id)
+            source_revision = plan.source_revision  # immutable across worker session closure
             folder_id, stage, skill_name, color_key = plan.source_parent_folder_id, row.stage, row.skill_name, row.color_key
             preview_remote_id = row.front_preview_remote_file_id
             preview_mime = row.front_preview_content_type
@@ -1595,16 +1620,17 @@ class EcommerceGenerateHandler:
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
         transfer_mode = context.job.payload.get("thread_material_pipeline")
-        material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit")
+        material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit", "v4-raster-placement")
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
-        local_stock = builtin_stock and transfer_mode == "v2"
+        deterministic_angle = builtin_stock and transfer_mode == "v4-raster-placement"
+        local_stock = builtin_stock and transfer_mode in ("v2", "v4-raster-placement")
         direct_angle = builtin_stock and transfer_mode == "v3-direct-edit"
         scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
         builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
-            if direct_angle:
-                # New V3 native angle edits have precisely TWO image inputs:
+            if direct_angle or deterministic_angle:
+                # Native V3 and local V4 angle jobs use only TWO images:
                 # original manufacturer stock (person) and the saved Slot 1
                 # Embroidery Reference. Never fetch the Stage 1 flat PNG.
                 # Keep the Slot 1 design fingerprint for pinned provenance.
@@ -1626,7 +1652,7 @@ class EcommerceGenerateHandler:
                 # Slots 2/3 already receive the completed photographic front.
                 preview_bytes = None
             elif preview_remote_id:
-                if not direct_angle and preview_design_sha != design_sha:
+                if not (direct_angle or deterministic_angle) and preview_design_sha != design_sha:
                     raise EcommerceError("ecommerce_design_changed",
                                          "Embroidery artwork changed after preview was pinned.")
                 preview_bytes = await self._open_bytes(
@@ -1700,7 +1726,10 @@ class EcommerceGenerateHandler:
                         role="slot1_layout_guide",
                         label="exact locked text, layout, pigments and position on this same crop; REFERENCE ONLY, never edit this flat guide",
                     ))
-            elif preview_bytes:
+            elif preview_bytes and not deterministic_angle:
+                # Local raster placement takes the saved macro bytes directly.
+                # Do not prepare/upload a Codex reference image or impose the
+                # native tool's separate >=512px minimum on a valid raster.
                 references.append(ReferenceImageInput(
                     image=(native_thread_macro(preview_bytes) if material_transfer
                            else _prepared_image(preview_bytes)),
@@ -1878,11 +1907,14 @@ class EcommerceGenerateHandler:
             prompt = angle_direct_prompt(
                 stage, placement=context.job.payload.get("embroidery_placement_v1"),
             )
-        elif builtin_stock:
+        elif builtin_stock and not deterministic_angle:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Native Pass A macro is missing from pinned Slot 1.")
             prompt = "Built-in original factory stock inpaint using pinned native Slot 1 thread material."
+        elif deterministic_angle:
+            # No native model invocation or second prompt in the V4 path.
+            prompt = "Local raster placement using the pinned physical embroidery master."
         if is_threadtransfer:
             prompt = ("Generate a faithful photographic close-up of the selected typography "
                       "embroidered with fine yarn on neutral fabric. EXACT spelling, color "
@@ -1902,19 +1934,27 @@ class EcommerceGenerateHandler:
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
         if local_stock:
-            # Deterministic 3/4 and side projection: use exactly the pinned
-            # photographic material reference and original official stock.
+            # V4 needs only original immutable stock + SAVED reference bytes.
+            # V2 historical jobs retain the prepared native macro contract.
             pinned = next((ref for ref in references
                            if ref.role == "slot1_thread_material_reference"), None)
-            if pinned is None:
+            material_bytes = preview_bytes if deterministic_angle else (
+                pinned.image.image_bytes if pinned else None
+            )
+            if not material_bytes:
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Slot 1 Embroidery Reference was not pinned.")
             try:
                 transferred = composite_reference_on_stock_view(
-                    refs[0][1], pinned.image.image_bytes, stage=stage,
+                    refs[0][1], material_bytes, stage=stage,
                     design_size=job_front_placement(
                         context.job.payload.get("front_placement")
                     ).get("design_size", 100),
+                    placement=(pinned_master(
+                        context.job.payload.get("embroidery_placement_v1"),
+                        reference_remote_file_id=preview_remote_id,
+                        source_revision=source_revision,
+                    ) if deterministic_angle else None),
                 )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
@@ -1924,11 +1964,12 @@ class EcommerceGenerateHandler:
                 provider="codex", model=None,
                 image_bytes=transferred.output_png, mime_type="image/png",
                 provider_metadata={
-                    "transfer_engine": "threadtransfer-v2-angle",
+                    "transfer_engine": ("threadtransfer-v3-deterministic-quad"
+                                        if deterministic_angle else "threadtransfer-v2-angle"),
                     "native_passes": 0,
                     "thread_layer_sha256": transferred.thread_layer_sha256,
                     "transfer_box": list(transferred.target_box),
-                    "reference_sha256": hashlib.sha256(pinned.image.image_bytes).hexdigest(),
+                    "reference_sha256": hashlib.sha256(material_bytes).hexdigest(),
                     "original_stock_pixels_protected": True,
                 },
             )
@@ -1949,6 +1990,7 @@ class EcommerceGenerateHandler:
                     transfer_design_size=job_front_placement(
                         context.job.payload.get("front_placement")
                     ).get("design_size", 100),
+                    scale_contract=context.job.payload.get("embroidery_scale_front_v1"),
                 )
             )
         elif builtin_back:
@@ -2182,7 +2224,8 @@ class EcommerceGenerateHandler:
                                     context.job.payload["embroidery_placement_v1"],
                                     reference_remote_file_id=row.front_preview_remote_file_id,
                                     source_revision=row.source_revision,
-                                )} if direct_angle and context.job.payload.get("embroidery_placement_v1") else {}),
+                                )} if (direct_angle or deterministic_angle)
+                                and context.job.payload.get("embroidery_placement_v1") else {}),
                                 **({"slot1_embroidery_pipeline": {
                                     "version": ("threadtransfer-v1-raster"
                                                 if is_threadtransfer else
@@ -2218,7 +2261,9 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": ("angle-direct-v3-single-edit" if direct_angle else
+                                    "version": ("threadtransfer-v3-deterministic-quad"
+                                                if deterministic_angle else
+                                                "angle-direct-v3-single-edit" if direct_angle else
                                                 "threadtransfer-v2-angle" if local_stock else
                                                 "scene-single-pass-v2" if scene_one_pass else
                                                 "reference-reuse-v1"),

@@ -71,7 +71,7 @@ describe("Products Stage 2 photo workflow", () => {
       }]} />);
     expect(html).toContain("Slot 2 failed · ecommerce_angle_direct_qa_failed");
     expect(html).toContain("No credible front embroidery detected inside the visible front crown.");
-    expect(html).toContain("Saved Embroidery Reference is unchanged.");
+    expect(html).toContain("Retry reuses the Saved Embroidery Reference with fixed local raster placement.");
     expect(html).toContain("2m 4s");
     expect(html).not.toContain("Storage or image input unavailable.");
   });
@@ -266,8 +266,8 @@ describe("Products Stage 2 photo workflow", () => {
     for (const skill of ["multihat-v2", "ugc-v3"]) {
       expect(html).toContain(skill);
     }
-    expect(html).toContain("Codex CLI · 1-pass 3/4 edit");
-    expect(html).toContain("Codex CLI · 1-pass side edit");
+    expect(html).toContain("ThreadTransfer V3 · Fixed raster 3/4");
+    expect(html).toContain("ThreadTransfer V3 · Fixed raster side");
     expect(html).toContain("Built-in · Original Back Stock");
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
     expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');

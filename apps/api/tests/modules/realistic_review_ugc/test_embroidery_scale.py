@@ -47,10 +47,11 @@ def generator(image):
 
 def test_slot1_default_master_is_bigger_than_previous_height_limited_projection():
     contract = front_scale_contract(None)
-    assert contract["version"] == "front-locked-v1"
+    assert contract["version"] == "front-guide-v2"
+    assert contract["guide_source"] == "saved_front_embroidery_area"
     box = front_transfer_box(contract, 2.6, (900, 1000))
     assert abs((box[0]+box[2]) / 2 / 900 - .5) < .006
-    assert .32 < (box[2]-box[0])/900 < .42
+    assert .47 < (box[2]-box[0])/900 < .55
     assert box[1] > 250 and box[3] < 620
 
 

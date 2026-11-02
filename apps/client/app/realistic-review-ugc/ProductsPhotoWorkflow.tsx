@@ -30,8 +30,8 @@ type StepDefinition = {
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 export const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Front-locked scale: the saved Slot 1 placement defines exact yarn size and center on this factory 3/4 stock. One Codex CLI edit, then yarn-only raster correction to the projected bounds. No rectangular mask, second pass or cap redraw." },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Right-side stock — edit target", kind: "side" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Front-locked scale on genuine 90-degree side stock. Only the naturally visible front-edge portion may appear; a fully readable slogan is not physically visible at this angle. One Codex CLI edit, yarn-only scale correction or untouched side stock fallback." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Fixed raster transfer: use the exact saved Slot 1 embroidery footprint and the original factory 3/4 stock. One locally calibrated perspective warp of photographic yarn only; no Codex/ImageGen call, no flat PNG artwork or cap redraw." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Right-side stock — edit target", kind: "side" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Fixed raster transfer onto genuine side-90 factory stock. Only the rightmost visible front-edge stitches may appear; a full slogan cannot be seen at this angle. Local perspective projection, no Codex/ImageGen call or reshooting the cap." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
@@ -490,8 +490,8 @@ export function ProductsPhotoWorkflow({
         const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
           ? "ThreadTransfer V1 · Raster placement"
-          : step.key === "prod_s2_ec2" ? "Codex CLI · 1-pass 3/4 edit"
-          : step.key === "prod_s2_ec3" ? "Codex CLI · 1-pass side edit"
+          : step.key === "prod_s2_ec2" ? "ThreadTransfer V3 · Fixed raster 3/4"
+          : step.key === "prod_s2_ec3" ? "ThreadTransfer V3 · Fixed raster side"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
           : configured || step.skillName;
         const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
@@ -566,8 +566,8 @@ export function ProductsPhotoWorkflow({
           : phase === "retry" ? (isBuiltInFront && shotJob?.embroidery_reference_url ? "Retry Placement" : "Retry")
           : phase === "failed" ? "Failed" : phase === "ready"
             ? isBuiltInFront ? "Apply to Cap"
-              : step.key === "prod_s2_ec2" ? "Edit 3/4"
-              : step.key === "prod_s2_ec3" ? "Edit Side"
+              : step.key === "prod_s2_ec2" ? "Place 3/4"
+              : step.key === "prod_s2_ec3" ? "Place Side"
               : step.key === "prod_s2_ec4" ? "Use Stock"
               : sceneJobs.some(job => job.status === "completed") ? "Continue" : "Render Scene"
           : phase === "checking" ? "Checking…" : blockLabel;
@@ -655,7 +655,9 @@ export function ProductsPhotoWorkflow({
             && <div className="rrugc-slot1-failure-message is-failed rrugc-products-photo-stage-error" role="alert">
                 <strong>{"Slot " + (index + 1) + " failed · " + (shotJob.error_code || "unknown_error")}</strong>
                 <small>{shotJob.error_message || "The generated photo was rejected. Open Logs for the processing reason."}</small>
-                <small>Saved Embroidery Reference is unchanged. Retry uses one new Codex edit; no extra refinement pass.</small>
+                <small>{step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
+                  ? "Retry reuses the Saved Embroidery Reference with fixed local raster placement. No Codex/ImageGen call."
+                  : "Saved output references remain unchanged; Retry follows this slot's engine."}</small>
               </div>}
           {opened && <div id={"rrugc-stage2-details-" + step.key} className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
@@ -683,7 +685,7 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>{isBuiltInFront
                 ? "Slot 1 first generates and saves one photographic Embroidery Reference using Codex CLI; it then transfers real yarn locally onto the original factory front stock. A failed reference blocks both outputs; Retry Placement never generates new material."
-                : "Slots 2–3 use stock + Saved Embroidery Reference only, with the same pinned Slot 1 size and center. One Codex CLI edit per output, followed by localized yarn-only QA. A true 90° side reveals only the front edge. Slot 4 remains original stock."}</small>
+                : "Slots 2–3 use exactly two images, official stock + Saved Embroidery Reference. Both reuse the actual Slot 1 footprint via fixed, local raster perspective placement with zero new ImageGen calls. True side 90° reveals only the visible front-edge part; Slot 4 remains original stock."}</small>
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
@@ -772,7 +774,7 @@ export function ProductsPhotoWorkflow({
               <p>{isBuiltInFront
                 ? "ThreadTransfer V1: save a photographic Embroidery Reference once; extract only its yarn pixels and composite locally onto the unedited factory cap crown. No Skill ZIP and no image-generation call for Retry Placement."
                 : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
-                  ? "Front-locked embroidery scale from Slot 1. The original stock and saved Embroidery Reference are the only two images. Codex edits once, then QA adjusts only real yarn pixels to the calibrated physical size and center, keeping factory fabric and GatorHats branding untouched. True side 90° necessarily reveals only the front-edge portion; an incorrect side edit falls back to stock."
+                  ? "Deterministic ThreadTransfer V3: original stock + saved Slot 1 Embroidery Reference are the only two images. The saved blueprint placement fixes size and center, with one local raster perspective projection and QA, zero Codex calls. Factory crown, visor, seams and GatorHats logo remain intact. A genuine 90° side only reveals the frontmost yarn edge."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto
