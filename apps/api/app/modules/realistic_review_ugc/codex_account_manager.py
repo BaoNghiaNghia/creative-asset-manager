@@ -8,6 +8,7 @@ import os
 import fcntl
 import shutil
 import subprocess
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,41 @@ from app.modules.processing_policy.model import ProcessingPolicyAuditModel
 PROFILE_IDS = ("account-1", "account-2")
 STAGES = ("stage1", "stage2", "stage4")
 MAX_PROFILES = 2
+_STAGE1_EARLY_FAILURE_COOLDOWN_SECONDS = 300
+_STAGE1_EARLY_FAILURE_MARKER = ".creative-v3-cli-early-exit-until"
+
+
+def stage1_profile_cooling(home: str | Path) -> bool:
+    """Cross-worker bounded circuit breaker; stores only an expiration epoch."""
+    marker = Path(home) / "worker-locks" / _STAGE1_EARLY_FAILURE_MARKER
+    try:
+        if marker.is_symlink() or not marker.is_file():
+            return False
+        expiry = int(marker.read_text(encoding="ascii")[:20].strip())
+        remaining = expiry - time.time()
+        return 0 < remaining <= _STAGE1_EARLY_FAILURE_COOLDOWN_SECONDS
+    except (OSError, ValueError, UnicodeError):
+        return False
+
+
+def mark_stage1_profile_cooldown(home: str | Path) -> None:
+    """Avoid burning many 5-second Codex startup failures on one bad login.
+
+    This does not modify credentials, cancel an active ImageGen invocation,
+    or disable the profile for other product stages.
+    """
+    lock_dir = Path(home) / "worker-locks"
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        marker = lock_dir / _STAGE1_EARLY_FAILURE_MARKER
+        if marker.is_symlink():
+            return
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as output:
+            output.write(str(int(time.time() + _STAGE1_EARLY_FAILURE_COOLDOWN_SECONDS)))
+    except OSError:
+        # Health metadata is best effort: don't mask the original CLI error.
+        return
 
 
 class CodexAccountPoolBusy(RuntimeError):
@@ -49,6 +85,9 @@ def acquire_worker_profile(
         ) != "connected":
             continue
         home = account_home(record.account_id, primary_home)
+        if (stage == "stage1" and skill_name == "creative-brief-v3"
+                and stage1_profile_cooling(home)):
+            continue
         if skill_name and record.account_id == "account-2":
             skill_dir = home / "skills" / skill_name
             if not (skill_dir / "SKILL.md").is_file():

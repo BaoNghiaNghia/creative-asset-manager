@@ -204,6 +204,49 @@ def test_slot1_cli_failure_before_imagegen_is_deferred_not_retried_three_times(t
     assert "before invoking native ImageGen" in str(raised.value)
 
 
+def test_creative_v3_fast_codex_cli_exit_gets_bounded_recovery_code(tmp_path, monkeypatch):
+    class FakeFailedProcess:
+        returncode = 1
+        def __init__(self):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b'{"type":"turn.failed","error":{"message":"Upstream failed"}}\n')
+            self.stdout.feed_eof()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_data(b"Unexpected upstream process exit")
+            self.stderr.feed_eof()
+        async def wait(self):
+            return self.returncode
+
+    async def fail_cli(*args, **kwargs):
+        return FakeFailedProcess()
+
+    account = tmp_path / "account"
+    skill = account / "skills" / "creative-brief-v3"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: creative-brief-v3\ndescription: test\n---\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.providers.ai.codex_image.shutil.which",
+                        lambda _binary: "/usr/local/bin/codex")
+    monkeypatch.setattr("app.providers.ai.codex_image.asyncio.create_subprocess_exec",
+                        fail_cli)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        binary="codex", codex_home=str(account),
+        staging_root=str(tmp_path / "staging"),
+        skill_name="creative-brief-v3",
+        output_contract="creative_v3_single_slot",
+    ))
+    with pytest.raises(CodexImageProviderError) as raised:
+        asyncio.run(runner.generate_from_references(
+            attempt_id="fast-stage1-cli-failed",
+            person=None, references=[],
+            prompt="Make one transparent stitched type design.",
+        ))
+    assert raised.value.code == "creative_v3_codex_cli_early_exit"
+    assert "verifiable ImageGen invocation" in str(raised.value)
+
+
 def test_codex_runner_requires_installed_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.providers.ai.codex_image.shutil.which",

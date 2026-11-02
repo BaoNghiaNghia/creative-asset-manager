@@ -1259,6 +1259,45 @@ def test_v3_storage_recovery_reuses_six_native_finals_without_imagegen(db, tmp_p
         ctx, StorageProviderError("Forbidden", retryable=False, code="managed_storage_permission_denied"),
     ) is None
 
+def test_v3_nine_native_finals_resume_storage_without_new_imagegen(db, tmp_path):
+    from hashlib import sha256
+    from app.domain.providers.contracts import StorageProviderError
+    handler, ctx, row, workspace, _ = _v3_retry_context(
+        db, tmp_path, external_preview="published-older",
+    )
+    ctx.job.payload["expected_output_count"] = 9
+    final = workspace / "output" / "final"
+    for index in range(1, 10):
+        _saved_v3_png(final / f"design_{index:02}.png",
+                      (index * 24, 56, 140, 255))
+    digests = [sha256((final / f"design_{i:02}.png").read_bytes()).hexdigest()
+               for i in range(1, 10)]
+    temporary = StorageProviderError("Drive timeout", retryable=True,
+                                     code="managed_storage_network_error")
+    outcome = handler._defer_v3_upload_failure(ctx, temporary)
+    assert outcome is not None
+    assert [sha256((final / f"design_{i:02}.png").read_bytes()).hexdigest()
+            for i in range(1, 10)] == digests
+    db.expire_all()
+    saved = db.get(RrugcKeywordImageJobModel, row.id)
+    assert saved.retry_count == 1 and saved.status == "queued"
+
+
+def test_v3_codex_startup_failure_recovers_once_without_native_images(db, tmp_path):
+    from app.providers.ai.codex_image import CodexImageProviderError
+    handler, ctx, row, workspace, _ = _v3_retry_context(db, tmp_path)
+    ctx.job.payload["expected_output_count"] = 9
+    bad = CodexImageProviderError(
+        "creative_v3_codex_cli_early_exit",
+        "Codex exited before a verifiable ImageGen invocation.", retryable=False,
+    )
+    recovery = handler._defer_safe_zero_output(ctx, bad)
+    assert recovery is not None
+    assert recovery.reason_code == bad.code
+    assert handler._defer_safe_zero_output(ctx, bad) is None
+    assert not (workspace / "output" / "final").exists()
+
+
 def test_stage1_v3_retry_eligible_only_for_unexhausted_failed_attempt(db):
     from uuid import uuid4
     kw = keyword(db, "retry-eligibility", "tenant-a", picked=True)

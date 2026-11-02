@@ -9,6 +9,7 @@ import re
 import signal
 import shutil
 import sys
+import time
 from dataclasses import dataclass, field, replace
 from io import BytesIO
 from pathlib import Path
@@ -1078,7 +1079,7 @@ class CodexImageGenRunner:
         if self.config.output_contract in (
             "slot1_two_pass", "slot1_direct_inpaint",
             "slot1_v2_material_single", "slot1_v2_cap_single",
-            "stage2_angle_direct_single",
+            "stage2_angle_direct_single", "creative_v3_single_slot",
         ):
             # The second native pass must be conditioned on viewing the
             # completed first pass. Avoid the single-edit low-effort setting.
@@ -1213,6 +1214,24 @@ class CodexImageGenRunner:
                         retryable=False,
                     )
             classified = _classify_failure(stderr, stdout)
+            if (self.config.output_contract == "creative_v3_single_slot"
+                    and classified.code == "codex_image_provider_error"
+                    and not native_image_digests
+                    and _distinct_imagegen_calls(stdout) == 0
+                    and time.monotonic() - log.start < 45):
+                # Production: a burst of CLI sessions exited within 5 seconds
+                # without any verifiable ImageGen result. Retry once on a
+                # later lease, never burn three immediate full nine-slot runs.
+                # Native generation might be absent from JSONL alone: require
+                # BOTH an empty isolated cache and zero tool events, plus a
+                # strict short-runtime threshold before classifying.
+                raise CodexImageProviderError(
+                    "creative_v3_codex_cli_early_exit",
+                    "Codex CLI exited before a verifiable ImageGen invocation. "
+                    "A single bounded recovery will retry the missing slot; "
+                    "review Codex account/tool access if it fails again.",
+                    retryable=False,
+                )
             if self.config.output_contract == "slot1_v2_material_single":
                 # Log only safe operational metadata, never prompts, account
                 # credentials, model text or raw stderr from private artwork.

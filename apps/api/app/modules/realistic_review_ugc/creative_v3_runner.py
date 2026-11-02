@@ -7,14 +7,18 @@ claims. A partial batch remains private until all files pass G5 QA.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import time
 import shutil
 from pathlib import Path
 from uuid import UUID
 from typing import Any, Callable, Mapping
 
 from app.modules.image_generation.providers import GeneratedImageFile, GeneratedImageResult
-from app.modules.realistic_review_ugc.codex_account_manager import acquire_worker_profile
+from app.modules.realistic_review_ugc.codex_account_manager import (
+    CodexAccountPoolBusy, acquire_worker_profile, mark_stage1_profile_cooldown,
+)
 from app.modules.realistic_review_ugc.creative_v3_generation import (
     CONTRACT, SKILL, SLOT_COUNT, LEGACY_SLOT_COUNT, LEGACY_VISUAL_PROFILE,
     CreativeV3Error, enabled, prompt_for_slot, verify_snapshot, VISUAL_PROFILE,
@@ -98,111 +102,190 @@ async def generate_six(
     outputs: list[GeneratedImageFile] = []
     cap_fit_reports: list[dict] = []
 
+    # New nine-slot jobs can use two independently leased Codex accounts.
+    # Older in-flight / historical jobs default to their pinned serial path.
+    payload = getattr(context.job, "payload", {}) or {}
+    requested_lanes = 2 if (count == SLOT_COUNT and
+                            payload.get("creative_v3_parallel_slots") == 2) else 1
+    remaining = list(range(1, count + 1))
+    verified: dict[int, dict] = {}
+    stop = asyncio.Event()
+    actual_lanes = 1
+    primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
+    binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+
+    async def _one_slot(slot: int, native_runner: CodexImageGenRunner) -> None:
+        slot_started = time.monotonic()
+        if context.is_cancelled:
+            raise _fail("creative_v3_cancelled", "User cancelled Creative V3 generation.")
+        if not enabled(settings, tenant_id):
+            raise _fail("creative_v3_revoked", "Creative V3 generation was disabled.")
+        verify_snapshot(revalidate(), snapshot)
+        target = final_dir / f"design_{slot:02}.png"
+        if target.is_symlink():
+            raise _fail("creative_v3_staging_unsafe", "A Stage 1 checkpoint is a symlink.")
+        checkpoint_reused = target.is_file()
+        if checkpoint_reused:
+            # Only a verified native checkpoint may be reused.
+            data = target.read_bytes()
+            digest, qa = _checked_png(data, seen)
+        else:
+            for qa_attempt in range(2):
+                attempt_id = context.job.id + f"-v3-{slot:02}-qa{qa_attempt + 1}"
+                try:
+                    prompt = prompt_for_slot(
+                        plan, slot,
+                        visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
+                    )
+                    if qa_attempt:
+                        prompt += (
+                            "\nTECHNICAL QA REPAIR: the previous PNG for THIS SLOT "
+                            "failed validation. Create a new distinct image with "
+                            "genuine transparency, safe alpha margins and crisp "
+                            "legible typography; never reuse rejected pixels."
+                        )
+                    result = await native_runner.generate_from_references(
+                        attempt_id=attempt_id, person=None, references=[], prompt=prompt,
+                    )
+                    native = result.image_bytes
+                    native_hash = hashlib.sha256(native).hexdigest()
+                    meta = result.provider_metadata or {}
+                    if (meta.get("typography_v2_native_verified") is not True
+                            or meta.get("native_sha256") != native_hash):
+                        raise _fail("creative_v3_native_unverified",
+                                    "ImageGen native output cannot be verified by SHA-256.")
+                    try:
+                        data, _padded_only = fit_native_on_stage1_canvas(native)
+                    except TypographyPilotError as exc:
+                        raise _fail("creative_v3_native_png_rejected",
+                                    "Native ImageGen returned a PNG without safe transparent margins.") from exc
+                    digest, qa = _checked_png(data, seen)
+                    verify_snapshot(revalidate(), snapshot)
+                    if not enabled(settings, tenant_id) or context.is_cancelled:
+                        raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
+                    try:
+                        _store_new(target, data)
+                    except FileExistsError as exc:
+                        raise _fail("creative_v3_slot_exists",
+                                    "Stage 1 slot already exists; will not overwrite it.") from exc
+                    context.logger.info("rrugc_creative_v3_slot_qa", extra={
+                        "tenant_id": tenant_id, "job_id": context.job.id,
+                        "slot": slot, "technical_pass": qa["technical_pass"],
+                        "image_spelling_verified": False,
+                        "visual_material_verified": False,
+                    })
+                    break
+                except CodexImageProviderError as exc:
+                    if (qa_attempt == 0 and exc.code in {
+                            "creative_v3_alpha_or_canvas_rejected",
+                            "creative_v3_duplicate_image",
+                            "creative_v3_native_png_rejected",
+                    }):
+                        context.logger.warning("rrugc_creative_v3_slot_technical_retry", extra={
+                            "tenant_id": tenant_id, "job_id": context.job.id,
+                            "slot": slot, "error_code": exc.code,
+                        })
+                        continue
+                    raise
+                finally:
+                    native_runner.cleanup_attempt(attempt_id)
+        # No awaits between duplicate detection and commit: separate lanes
+        # cannot publish the same native pixels as two distinct variants.
+        seen.add(digest)
+        verified[slot] = qa
+        context.logger.info("rrugc_creative_v3_slot_completed", extra={
+            "tenant_id": tenant_id, "job_id": context.job.id,
+            "slot": slot, "duration_ms": round((time.monotonic() - slot_started) * 1000),
+            "source": "checkpoint" if checkpoint_reused else "native",
+        })
+
+    async def _work_lane(native_runner: CodexImageGenRunner) -> None:
+        while remaining and not stop.is_set():
+            slot = remaining.pop(0)
+            try:
+                await _one_slot(slot, native_runner)
+            except CodexImageProviderError as exc:
+                if exc.code == "creative_v3_codex_cli_early_exit":
+                    mark_stage1_profile_cooldown(native_runner.config.codex_home)
+                # Do not start expensive new image calls after one lane fails.
+                # The other in-flight native tool may still finish a checkpoint.
+                stop.set()
+                raise
+            except Exception:
+                stop.set()
+                raise
+
+    def _runner(home: str, *, lane: int) -> CodexImageGenRunner:
+        return CodexImageGenRunner(CodexImageRunnerConfig(
+            binary=binary, codex_home=home,
+            staging_root=str(settings.IMAGE_GENERATION_STAGING_ROOT),
+            skill_name=SKILL,
+            timeout_seconds=max(60, min(1200, int(settings.CODEX_IMAGE_TIMEOUT_SECONDS))),
+            model=str(settings.CODEX_IMAGE_MODEL).strip() or None,
+            output_contract=CONTRACT,
+            expected_output_count=1,
+            # Separate bounded, non-sensitive logs. The primary lane keeps
+            # the historic ID used by the Stage 1 Logs endpoint.
+            execution_log_id=(context.job.id if lane == 1 else context.job.id + "-lane2"),
+        ))
+
     with context.dependencies.session_factory() as session:
-        primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
-        binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
-        with acquire_worker_profile(session, tenant_id, "stage1", primary_home, binary, SKILL) as (account_id, home):
+        with acquire_worker_profile(
+            session, tenant_id, "stage1", primary_home, binary, SKILL,
+        ) as (account_id, home):
             session.commit()
             context.logger.info("rrugc_creative_v3_native_dispatch", extra={
-                "job_id": context.job.id, "tenant_id": tenant_id, "account_id": account_id,
-                "slots": count,
+                "job_id": context.job.id, "tenant_id": tenant_id,
+                "account_id": account_id, "slots": count, "requested_lanes": requested_lanes,
             })
-            native_runner = CodexImageGenRunner(CodexImageRunnerConfig(
-                binary=binary, codex_home=home,
-                staging_root=str(settings.IMAGE_GENERATION_STAGING_ROOT),
-                skill_name=SKILL,
-                timeout_seconds=max(60, min(1200, int(settings.CODEX_IMAGE_TIMEOUT_SECONDS))),
-                model=str(settings.CODEX_IMAGE_MODEL).strip() or None,
-                output_contract=CONTRACT,
-                expected_output_count=1,
-                execution_log_id=context.job.id,
-            ))
-            for slot in range(1, count + 1):
-                if context.is_cancelled:
-                    raise _fail("creative_v3_cancelled", "User cancelled Creative V3 generation.")
-                if not enabled(settings, tenant_id):
-                    raise _fail("creative_v3_revoked", "Creative V3 generation was disabled.")
-                verify_snapshot(revalidate(), snapshot)
-                target = final_dir / f"design_{slot:02}.png"
-                if target.is_symlink():
-                    raise _fail("creative_v3_staging_unsafe", "A Stage 1 checkpoint is a symlink.")
-                if target.is_file():
-                    # An interrupted worker may resume only a verifiably
-                    # complete, unique, valid PNG checkpoint.
-                    data = target.read_bytes()
-                    digest, qa = _checked_png(data, seen)
-                    seen.add(digest)
-                else:
-                    # Retry only this failed slot once after actual PNG / alpha / duplicate
-                    # rejection. Never auto-retry provider quota/auth/network failures;
-                    # never regenerate already-verified sibling checkpoints.
-                    for qa_attempt in range(2):
-                        attempt_id = context.job.id + f"-v3-{slot:02}-qa{qa_attempt + 1}"
+            primary_runner = _runner(home, lane=1)
+            if requested_lanes == 1:
+                await _work_lane(primary_runner)
+            else:
+                async def _second_lane() -> None:
+                    nonlocal actual_lanes
+                    with context.dependencies.session_factory() as other_session:
                         try:
-                            prompt = prompt_for_slot(
-                                plan, slot,
-                                visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
-                            )
-                            if qa_attempt:
-                                prompt += (
-                                    "\nTECHNICAL QA REPAIR: the previous PNG for THIS SLOT "
-                                    "failed validation. Create a new distinct image with "
-                                    "genuine transparency, safe alpha margins and crisp "
-                                    "legible typography; never reuse rejected pixels."
-                                )
-                            result = await native_runner.generate_from_references(
-                                attempt_id=attempt_id, person=None, references=[], prompt=prompt,
-                            )
-                            native = result.image_bytes
-                            native_hash = hashlib.sha256(native).hexdigest()
-                            meta = result.provider_metadata or {}
-                            if (meta.get("typography_v2_native_verified") is not True
-                                    or meta.get("native_sha256") != native_hash):
-                                raise _fail("creative_v3_native_unverified",
-                                            "ImageGen native output cannot be verified by SHA-256.")
-                            try:
-                                data, _padded_only = fit_native_on_stage1_canvas(native)
-                            except TypographyPilotError as exc:
-                                raise _fail("creative_v3_native_png_rejected",
-                                            "Native ImageGen returned a PNG without safe transparent margins.") from exc
-                            digest, qa = _checked_png(data, seen)
-                            verify_snapshot(revalidate(), snapshot)
-                            if not enabled(settings, tenant_id) or context.is_cancelled:
-                                raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
-                            try:
-                                _store_new(target, data)
-                            except FileExistsError as exc:
-                                raise _fail("creative_v3_slot_exists",
-                                            "Stage 1 slot already exists; will not overwrite it.") from exc
-                            seen.add(digest)
-                            context.logger.info("rrugc_creative_v3_slot_qa", extra={
-                                "tenant_id": tenant_id, "job_id": context.job.id,
-                                "slot": slot, "technical_pass": qa["technical_pass"],
-                                "image_spelling_verified": False,
-                                "visual_material_verified": False,
-                            })
-                            break
-                        except CodexImageProviderError as exc:
-                            if (qa_attempt == 0 and exc.code in {
-                                    "creative_v3_alpha_or_canvas_rejected",
-                                    "creative_v3_duplicate_image",
-                                    "creative_v3_native_png_rejected",
-                            }):
-                                context.logger.warning("rrugc_creative_v3_slot_technical_retry", extra={
-                                    "tenant_id": tenant_id, "job_id": context.job.id,
-                                    "slot": slot, "error_code": exc.code,
+                            with acquire_worker_profile(
+                                other_session, tenant_id, "stage1",
+                                primary_home, binary, SKILL,
+                            ) as (other_id, other_home):
+                                other_session.commit()
+                                # Account leasing, not the number of API/worker
+                                # processes, controls total native concurrency.
+                                actual_lanes = 2
+                                context.logger.info("rrugc_creative_v3_parallel_lane", extra={
+                                    "job_id": context.job.id,
+                                    "tenant_id": tenant_id, "account_id": other_id,
+                                    "lane": 2,
                                 })
-                                continue
-                            raise
-                        finally:
-                            native_runner.cleanup_attempt(attempt_id)
-                if snapshot.get("visual_profile") == VISUAL_PROFILE:
-                    cap_fit_reports.append({"slot": slot, **cap_fit_advisory(qa.get("alpha_bbox"))})
-                outputs.append(GeneratedImageFile(
-                    path=str(target),
-                    filename=f"output/final/design_{slot:02}.png",
-                    mime_type="image/png",
-                ))
+                                await _work_lane(_runner(other_home, lane=2))
+                        except CodexAccountPoolBusy:
+                            # Existing Stage 1/Stage 2 jobs have priority over
+                            # the optional second lane; proceed on one profile.
+                            context.logger.info("rrugc_creative_v3_parallel_capacity_busy", extra={
+                                "job_id": context.job.id, "tenant_id": tenant_id,
+                            })
+
+                lane_results = await asyncio.gather(
+                    _work_lane(primary_runner), _second_lane(),
+                    return_exceptions=True,
+                )
+                errors = [item for item in lane_results if isinstance(item, BaseException)]
+                if errors:
+                    raise errors[0]
+
+    for slot in range(1, count + 1):
+        qa = verified.get(slot)
+        if qa is None:
+            raise _fail("creative_v3_outputs_required", "Stage 1 slot did not finish.")
+        if snapshot.get("visual_profile") == VISUAL_PROFILE:
+            cap_fit_reports.append({"slot": slot, **cap_fit_advisory(qa.get("alpha_bbox"))})
+        outputs.append(GeneratedImageFile(
+            path=str(final_dir / f"design_{slot:02}.png"),
+            filename=f"output/final/design_{slot:02}.png",
+            mime_type="image/png",
+        ))
     verify_snapshot(revalidate(), snapshot)
     if len(outputs) != count or len(seen) != count:
         raise _fail("creative_v3_outputs_required", f"All {count} distinct images are required.")
@@ -217,6 +300,8 @@ async def generate_six(
             "embroidery_fit_verified": False,
             "visual_material_verified": False,
             "technical_qa_slot_retry_max": 1,
+            "parallel_lanes_requested": requested_lanes,
+            "parallel_lanes_used": actual_lanes,
             "cap_fit_advisory": cap_fit_reports,
             "cap_fit_visual_verified": False,
         },

@@ -123,6 +123,7 @@ STAGE1_PARTIAL_RECOVERY_CODES = frozenset({
 STAGE1_V3_NATIVE_RECOVERY_CODES = frozenset({
     "creative_v3_native_png_missing", "creative_v3_native_png_rejected",
     "creative_v3_alpha_or_canvas_rejected", "creative_v3_duplicate_image",
+    "creative_v3_codex_cli_early_exit",
 })
 # Drive I/O retries are separate from image generation.
 STAGE1_DRIVE_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
@@ -500,6 +501,10 @@ class KeywordImageService:
         processing.payload_json = {
             **(processing.payload_json or {}),
             "expected_output_count": SLOT_COUNT,
+            # Two independently leased Codex sessions may generate distinct
+            # slots concurrently, without increasing calls or changing 1/4/4.
+            # Old in-flight runs do not have this key and remain sequential.
+            "creative_v3_parallel_slots": 2,
             "creative_v3": {
                 **snapshot_for_job(plan),
                 "provider": provider,
@@ -620,6 +625,11 @@ class KeywordImageService:
         processing.last_error_message = None
         processing.payload_json = {
             **payload, "manual_retry_count": int(payload.get("manual_retry_count") or 0) + 1,
+            # A manual Retry is a new worker claim; optimize only the missing
+            # native slots from its validated, immutable checkpoint folder.
+            "creative_v3_parallel_slots": 2 if (
+                payload.get("expected_output_count") == SLOT_COUNT
+            ) else 1,
         }
         job.status = "queued"
         job.retry_count = 0
@@ -1099,9 +1109,9 @@ class KeywordImageGenerateHandler:
     def _defer_v3_upload_failure(
         self, context: JobHandlerContext, error: StorageProviderError,
     ) -> DeferredJobOutcome | None:
-        """Retry only transient V3 Drive failures with all six genuine finals.
+        """Retry transient V3 Drive failures with all 6/9 genuine finals.
 
-        Resuming the SAME processing ID skips all six native image calls,
+        Resuming the SAME processing ID skips every verified native image call,
         reuses already uploaded version checkpoints and retries missing writes.
         No automatic fallback to paid Image API, no regeneration of art.
         """
@@ -1117,10 +1127,13 @@ class KeywordImageGenerateHandler:
             settings, tenant_id=context.job.tenant_id,
             processing_id=context.job.id,
         )
-        if CodexImageGenRunner.stage1_missing_final_numbers(workspace, 6) != ():
+        expected_count = int(payload.get("expected_output_count", 6))
+        if expected_count not in (6, 9):
+            return None
+        if CodexImageGenRunner.stage1_missing_final_numbers(workspace, expected_count) != ():
             return None
         seen: set[str] = set()
-        for index in range(1, 7):
+        for index in range(1, expected_count + 1):
             try:
                 digest, _qa = _checked_png(
                     (workspace / "output" / "final" /
@@ -1858,6 +1871,8 @@ class KeywordImageGenerateHandler:
                     "embroidery_fit_verified": False,
                     "human_review_required": True,
                     "visual_profile": v3.get("visual_profile"),
+                    "parallel_lanes_requested": (generated.provider_metadata or {}).get("parallel_lanes_requested", 1),
+                    "parallel_lanes_used": (generated.provider_metadata or {}).get("parallel_lanes_used", 1),
                     "cap_fit_review_flags": (
                         (generated.provider_metadata or {}).get("cap_fit_advisory", [{}] * expected_count)[index].get("flags", [])
                         if isinstance((generated.provider_metadata or {}).get("cap_fit_advisory"), list)

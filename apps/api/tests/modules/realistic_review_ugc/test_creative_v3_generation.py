@@ -396,6 +396,155 @@ def test_native_nine_slot_worker_creates_nine_unique_g5_finals(tmp_path, monkeyp
     assert len(result_again.output_files) == 9 and len(calls) == 9
 
 
+def test_parallel_v3_nine_slots_use_two_leased_profiles_and_stable_order(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from app.modules.image_generation.providers import GeneratedImageResult
+    from app.modules.realistic_review_ugc import creative_v3_runner as worker
+    from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy
+
+    leased = set()
+    used_homes = set()
+    concurrent_calls = 0
+    peak_calls = 0
+    invoked = []
+
+    @contextmanager
+    def account(*args, **kwargs):
+        free = next((number for number in (1, 2) if number not in leased), None)
+        if free is None:
+            raise CodexAccountPoolBusy("All profiles leased")
+        leased.add(free)
+        try:
+            yield f"account-{free}", str(tmp_path / f"account-{free}")
+        finally:
+            leased.remove(free)
+
+    async def native_generate(self, *, attempt_id, person, references, prompt, **kwargs):
+        nonlocal concurrent_calls, peak_calls
+        import re
+        slot = int(re.search(r"-v3-(\d\d)-qa", attempt_id).group(1))
+        concurrent_calls += 1
+        peak_calls = max(peak_calls, concurrent_calls)
+        invoked.append(slot)
+        used_homes.add(self.config.codex_home)
+        await asyncio.sleep(.025)
+        concurrent_calls -= 1
+        pixels = _png(((slot * 22) % 255, 45, 110, 255))
+        return GeneratedImageResult(
+            provider="codex", model="native", image_bytes=pixels, mime_type="image/png",
+            provider_metadata={"typography_v2_native_verified": True,
+                               "native_sha256": sha256(pixels).hexdigest()},
+        )
+
+    monkeypatch.setattr(worker, "acquire_worker_profile", account)
+    monkeypatch.setattr(worker.CodexImageGenRunner, "generate_from_references", native_generate)
+    monkeypatch.setattr(worker.CodexImageGenRunner, "cleanup_attempt", lambda *_: None)
+
+    class Session:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return None
+        def commit(self):
+            pass
+
+    config = SimpleNamespace(**vars(settings()),
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path / "staging"),
+        CODEX_IMAGE_HOME=str(tmp_path / "home"),
+        CODEX_IMAGE_BINARY="codex", CODEX_IMAGE_TIMEOUT_SECONDS=600,
+        CODEX_IMAGE_MODEL="")
+    data = plan()
+    context = SimpleNamespace(
+        job=SimpleNamespace(id=str(uuid4()), tenant_id="tenant-a",
+                            payload={"creative_v3_parallel_slots": 2}),
+        is_cancelled=False, dependencies=SimpleNamespace(session_factory=Session),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None,
+                               warning=lambda *_args, **_kwargs: None),
+    )
+    result = asyncio.run(worker.generate_six(
+        context=context, settings=config, plan=data,
+        snapshot=snapshot_for_job(data), revalidate=lambda: data,
+    ))
+    assert sorted(invoked) == list(range(1, 10))
+    assert peak_calls == 2
+    assert len(used_homes) == 2
+    assert result.provider_metadata["parallel_lanes_used"] == 2
+    assert [item.filename for item in result.output_files] == [
+        f"output/final/design_{slot:02}.png" for slot in range(1, 10)
+    ]
+    assert not leased
+    # Resuming an all-valid checkpoint batch must never call ImageGen.
+    again = asyncio.run(worker.generate_six(
+        context=context, settings=config, plan=data,
+        snapshot=snapshot_for_job(data), revalidate=lambda: data,
+    ))
+    assert len(again.output_files) == 9
+    assert len(invoked) == 9
+
+
+def test_parallel_v3_falls_back_to_single_lane_when_other_account_busy(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from app.modules.image_generation.providers import GeneratedImageResult
+    from app.modules.realistic_review_ugc import creative_v3_runner as worker
+    from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy
+    held = False
+    active = 0
+    peak = 0
+
+    @contextmanager
+    def account(*_args, **_kwargs):
+        nonlocal held
+        if held:
+            raise CodexAccountPoolBusy("Only one account available")
+        held = True
+        try:
+            yield "account-1", str(tmp_path / "only-account")
+        finally:
+            held = False
+
+    async def native_generate(self, *, attempt_id, **kwargs):
+        nonlocal active, peak
+        import re
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(.003)
+        active -= 1
+        slot = int(re.search(r"-v3-(\d\d)-qa", attempt_id).group(1))
+        pixels = _png(((slot * 24) % 255, 50, 120, 255))
+        return GeneratedImageResult(
+            provider="codex", model="native", image_bytes=pixels, mime_type="image/png",
+            provider_metadata={"typography_v2_native_verified": True,
+                               "native_sha256": sha256(pixels).hexdigest()},
+        )
+    monkeypatch.setattr(worker, "acquire_worker_profile", account)
+    monkeypatch.setattr(worker.CodexImageGenRunner, "generate_from_references", native_generate)
+    monkeypatch.setattr(worker.CodexImageGenRunner, "cleanup_attempt", lambda *_: None)
+    class Session:
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def commit(self): pass
+    config = SimpleNamespace(**vars(settings()),
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path / "staging"),
+        CODEX_IMAGE_HOME=str(tmp_path / "home"),
+        CODEX_IMAGE_BINARY="codex", CODEX_IMAGE_TIMEOUT_SECONDS=600,
+        CODEX_IMAGE_MODEL="")
+    data = plan()
+    context = SimpleNamespace(
+        job=SimpleNamespace(id=str(uuid4()), tenant_id="tenant-a",
+                            payload={"creative_v3_parallel_slots": 2}),
+        is_cancelled=False, dependencies=SimpleNamespace(session_factory=Session),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None,
+                               warning=lambda *_args, **_kwargs: None),
+    )
+    result = asyncio.run(worker.generate_six(
+        context=context, settings=config, plan=data,
+        snapshot=snapshot_for_job(data), revalidate=lambda: data,
+    ))
+    assert len(result.output_files) == 9
+    assert result.provider_metadata["parallel_lanes_used"] == 1
+    assert peak == 1
+
+
 def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1(tmp_path, monkeypatch):
     from app.modules.processing.model import ProcessingJobModel
     from app.modules.processing.repository import ProcessingRepository
@@ -462,6 +611,7 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             processing = session.get(ProcessingJobModel, result.processing_job_id)
             assert result.status == "queued"
             assert processing.payload_json["expected_output_count"] == 9
+            assert processing.payload_json["creative_v3_parallel_slots"] == 2
             assert processing.payload_json["creative_v3"]["provider"] == "codex"
             assert processing.provider_key == "codex"
             assert processing.payload_json["creative_v3"]["visual_profile"] == VISUAL_PROFILE
@@ -618,6 +768,7 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
             assert attempt.status == "pending"
             assert attempt.attempt_count == 0
             assert attempt.payload_json["manual_retry_count"] == 1
+            assert attempt.payload_json["creative_v3_parallel_slots"] == 1
             assert attempt.payload_json["creative_v3"] == first_snapshot
             assert attempt.payload_json["expected_output_count"] == LEGACY_SLOT_COUNT
             assert session.query(ProcessingJobModel).count() == 1
@@ -646,6 +797,7 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
             assert next_processing.payload_json["creative_v3"] != first_snapshot
             assert next_processing.payload_json["creative_v3"]["schema_version"] == SCHEMA
             assert next_processing.payload_json["expected_output_count"] == SLOT_COUNT
+            assert next_processing.payload_json["creative_v3_parallel_slots"] == 2
             assert next_processing.payload_json.get("replace_outputs") is None
 
             # A new V3 run can no longer Retry the retired failed processing ID.
