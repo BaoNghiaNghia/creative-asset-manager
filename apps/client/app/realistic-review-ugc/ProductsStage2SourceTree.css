@@ -100,7 +100,8 @@
   background:#fff;overflow:hidden;
 }
 .rrugc-products-source-tree-thumbnail img{
-  display:block;width:100%;height:100%;object-fit:contain;
+  display:block;height:100%;width:auto;max-width:100%;object-fit:contain;
+  background:transparent;
 }
 .rrugc-products-source-tree-item-info{
   display:flex;flex-direction:column;align-content:center;justify-content:center;

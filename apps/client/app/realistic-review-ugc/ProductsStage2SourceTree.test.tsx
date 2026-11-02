@@ -93,9 +93,10 @@ describe("Products Stage 2 thumbnail + keyword source tree", () => {
     expect(onSelect).toHaveBeenCalledWith("design-two");
     const image = items[0].querySelector("img");
     expect(image).not.toBeNull();
-    // The lazy loader may not have loaded src yet; verify the thumb reference
-    // is never handed off as a full original.
-    expect(image?.getAttribute("src") ?? "").not.toMatch(/artwork=stage1-thread-geometry/);
+    // The source-tree preview must request the transparent Stage 1 artwork,
+    // rather than a Drive-derived thumbnail with a flattened black backdrop.
+    expect(image?.getAttribute("src") ?? "").toContain("artwork=stage1-thread-geometry-v1");
+    expect(image?.getAttribute("src") ?? "").toContain("size=128");
     await act(async () => root.unmount());
   });
 

@@ -1,5 +1,5 @@
 import { DeferredImage } from "./DeferredImage";
-import { productFabricArtworkUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl } from "./stage2Media";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import { productProgressLabel, type ProductDesignProgress } from "./ProductsStage2Progress";
 import type { SourcePlanSortBy, SourcePlanSortDirection } from "./api";
@@ -85,7 +85,7 @@ export function ProductsStage2SourceTree({
           title={keyword + " · " + plan.source_name + " · " + detail}
           onClick={() => onSelect(plan.id)}>
           <span className="rrugc-products-source-tree-thumbnail" aria-hidden="true">
-            <DeferredImage src={productFabricArtworkUrl(plan.source_preview_url, 128)}
+            <DeferredImage src={productEmbroideryArtworkUrl(plan.source_preview_url, 128)}
               alt="" rootMargin="160px" loading="lazy" decoding="async" />
           </span>
           <span className="rrugc-products-source-tree-item-info">
