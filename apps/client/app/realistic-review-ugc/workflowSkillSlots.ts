@@ -1,15 +1,15 @@
 import type { RrugcWorkflowGroup } from "./workflowRouting";
 
-/** One Skill per Ecommerce image, plus one per Multi-hat, UGC, and colorway group.
- * Photo workers remain gated; these rows configure Skill assignments only. */
+/** Built-in reference-first inpaint for Ecommerce + Colors. Only the Multi-hat
+ * and UGC scene-composition slots need configurable image Skills. */
 export const PRODUCT_STAGE2_SKILL_SLOTS = [
   { key: "prod_s2_ec1", title: "Slot 1", label: "Front · Thread Inpaint V2", detail: "Built-in · 2 native ImageGen edits: fine thread reference → original cap inpaint · no custom Skill", expectedSkill: null, active: true },
-  { key: "prod_s2_ec2", title: "Skill 2", label: "Ecommerce · Image 02", detail: "Front Right 3/4 · 1 photo output", expectedSkill: null, active: true },
-  { key: "prod_s2_ec3", title: "Skill 3", label: "Ecommerce · Image 03", detail: "Right Side · 1 photo output", expectedSkill: null, active: true },
-  { key: "prod_s2_ec4", title: "Skill 4", label: "Ecommerce · Image 04", detail: "Back High · 1 photo output", expectedSkill: null, active: true },
+  { key: "prod_s2_ec2", title: "Slot 2", label: "Three-quarter · Satin Inpaint", detail: "Built-in · reuse Slot 1 native thread material on the original 3/4 stock photo", expectedSkill: null, active: true },
+  { key: "prod_s2_ec3", title: "Slot 3", label: "Right Side · Satin Inpaint", detail: "Built-in · perspective-limited front edge on original right-side stock photo", expectedSkill: null, active: true },
+  { key: "prod_s2_ec4", title: "Slot 4", label: "Back · Original Stock", detail: "Built-in · exact original rear photograph; no invented rear embroidery", expectedSkill: null, active: true },
   { key: "prod_s2_mh", title: "Skill 5", label: "Multi-hat", detail: "Images 05–07 · 3 photo outputs", expectedSkill: "gatorhats-8869-multihat-v2-4", active: true },
   { key: "prod_s2_ugc", title: "Skill 6", label: "UGC", detail: "Images 08–10 · 3 photo outputs", expectedSkill: "gatorhats-8869-ugc-v3", active: true },
-  { key: "prod_s2_col", title: "Skill 7", label: "12 Hat Colors", detail: "12 Natural colorway outputs · existing worker", expectedSkill: null, active: true },
+  { key: "prod_s2_col", title: "Slot 7", label: "12 Hat Colors · Satin Inpaint", detail: "Built-in · 12 original stock photos, one native inpaint per color using Slot 1 thread reference", expectedSkill: null, active: true },
 ] as const;
 
 export type ProductStage2SkillKey = typeof PRODUCT_STAGE2_SKILL_SLOTS[number]["key"];

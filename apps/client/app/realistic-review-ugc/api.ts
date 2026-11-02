@@ -891,10 +891,14 @@ export const listColorwayJobs = async (sourceIds: string[], signal?: AbortSignal
 };
 
 export const queueColorwayBatch = (
-  sourcePlanIds: string[], skill: Stage2SkillSelection, workflow: "products" | "reviews" = "reviews",
+  sourcePlanIds: string[], skill: Stage2SkillSelection | null, workflow: "products" | "reviews" = "reviews",
 ) => request<{ queued: number; existing: number }>("/api/v1/realistic-review-ugc/colorways/batch", {
   method: "POST",
-  body: JSON.stringify({ source_plan_ids: sourcePlanIds, workflow, skill_source: skill.source, skill_id: skill.skill_id, skill_name: skill.skill_name, skill_version: skill.skill_version }),
+  body: JSON.stringify({
+    source_plan_ids: sourcePlanIds, workflow,
+    ...(skill ? { skill_source: skill.source, skill_id: skill.skill_id,
+                  skill_name: skill.skill_name, skill_version: skill.skill_version } : {}),
+  }),
 });
 
 export const retryColorway = (jobId: string) =>

@@ -710,7 +710,8 @@ class CodexImageGenRunner:
         if ((self.config.output_contract == "slot1_direct_inpaint"
              and self.config.skill_name == SLOT1_LEGACY_DIRECT_NAME)
             or (self.config.output_contract in (
-                "slot1_reference_inpaint_v2", "slot1_v2_material_single", "slot1_v2_cap_single"
+                "slot1_reference_inpaint_v2", "slot1_v2_material_single", "slot1_v2_cap_single",
+                "stage2_stock_inpaint_single", "stage2_scene_inpaint_single",
             ) and self.config.skill_name == SLOT1_DIRECT_NAME)):
             return None
         skill = self._skill_path()
@@ -844,6 +845,7 @@ class CodexImageGenRunner:
             return GeneratedImageResult(
                 provider="codex", model=self.config.model,
                 image_bytes=photo.image_bytes, mime_type="image/png",
+                additional_images=(material.image_bytes,),
                 provider_request_id=photo.provider_request_id,
                 provider_metadata={
                     "skill": SLOT1_DIRECT_NAME,
@@ -897,6 +899,7 @@ class CodexImageGenRunner:
              and self.config.skill_name == SLOT1_LEGACY_DIRECT_NAME)
             or (self.config.output_contract in (
                 "slot1_v2_material_single", "slot1_v2_cap_single",
+                "stage2_stock_inpaint_single", "stage2_scene_inpaint_single",
             ) and self.config.skill_name == SLOT1_DIRECT_NAME)
         )
         if not is_slot1_direct and not skill_path.is_file():
@@ -2011,6 +2014,60 @@ class CodexImageGenRunner:
                 "Keep assistant text brief: only report milestones and final file paths. "
                 "Write all intermediate artwork, checklists, and diagnostics to workspace files. "
                 "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
+                + extra_block
+            )
+        if self.config.output_contract in ("stage2_stock_inpaint_single", "stage2_scene_inpaint_single"):
+            if self.config.skill_name != SLOT1_DIRECT_NAME or not person_name:
+                raise ValueError("Stage 2 embroidery inpaint requires a native image-edit target.")
+            roles = {role for role, _ in references}
+            if not {"design_reference", "slot1_thread_material_reference"}.issubset(roles):
+                raise ValueError("Stage 2 embroidery inpaint requires the source artwork and verified material.")
+            scene = self.config.output_contract == "stage2_scene_inpaint_single"
+            if scene and roles != {"design_reference", "slot1_thread_material_reference"}:
+                raise ValueError("Scene refinement must not include unrelated photo references.")
+            if not scene and not roles.issubset({
+                "design_reference", "slot1_thread_material_reference",
+                "slot1_layout_guide", "slot1_edit_mask", "front_reference",
+            }):
+                raise ValueError("Stock refinement received unexpected references.")
+            return (
+                "GATORHATS PRODUCTS STAGE 2: ONE NATIVE IMAGEGEN PHOTO INPAINT. "
+                "Use the actual built-in $imagegen in IMAGE-EDIT mode, exactly ONCE. "
+                f"First view IMAGE-EDIT TARGET {person_name}. It is the exact photo to retain. "
+                f"View role-labelled images: {reference_lines}. "
+                "The material reference is a VERIFIED fine satin/tatami machine embroidery photograph "
+                "from Stage 2 Slot 1. Transfer ONLY its individual 40wt fiber texture, "
+                "directional strand shine, tight needle contact and low relief. "
+                "The design_reference fixes EVERY original glyph, line break, thread pigment "
+                "and layout; do not take fabric, letters, scale, lens or camera from the material photo. "
+                + (
+                    "THIS IMAGE IS ALREADY A FINISHED LIFESTYLE OR MULTI-CAP PHOTO. "
+                    "Do not reshoot, rotate or redraw any part of the existing scene. "
+                    "INPAINT ONLY VISIBLE FRONT-CROWN EMBROIDERY on caps facing the camera; "
+                    "each cap in a group uses the same exact lettering and thread palette. "
+                    "Keep existing hat count, their individual cap colors, cap shapes, people, faces, "
+                    "hands, clothes, setting, background and camera intact. "
+                    "No stitching on hats turned fully sideways/backward. "
+                    if scene else
+                    "THIS IS THE ORIGINAL VERIFIED FACTORY STOCK PHOTO. "
+                    "Preserve its selected-color panels, seams, visor, brim, logo, light, "
+                    "camera, background and side branding as exact unchanged pixels. "
+                    "Place thread only on the visible approved FRONT crown surface. "
+                    "If it is a 3/4 hat, use natural foreshortening and curvature. "
+                    "If it is a true side view, show only the physically visible edge of "
+                    "the front design and do not add full words to its side. "
+                    "If a slot1_edit_mask is supplied, BLACK protects original photo pixels. "
+                    "If a slot1_layout_guide is supplied, use it ONLY for exact glyph placement, "
+                    "never as a target image or a material/texture source. "
+                )
+                + "Thread must be individually visible, satin smooth, low-profile and stitched "
+                "into fabric, never sticker, paint, rubber, puff, plastic, foam, outline, "
+                "emboss, distorted lettering or floating patch. Keep all surrounding stock "
+                "weave, original shadows and framing. Output ONE complete photograph with "
+                "unchanged canvas dimensions and no inset, watermark, labels or collage. "
+                "Save the exact original ImageGen native PNG to output/final.png. "
+                "If native edit cannot run, fail explicitly; no Python art, fabricated output, "
+                "second generation, uploaded Skill ZIP, or paid API fallback. "
                 + extra_block
             )
         if self.config.output_contract == "slot1_v2_material_single":

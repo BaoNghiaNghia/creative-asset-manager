@@ -101,10 +101,11 @@ describe("SkillManagerModal compact redesign", () => {
 
     expect(host.querySelector(".rrugc-skill-summary-role")?.textContent).toBe("Manage access");
     expect(host.querySelector('select[aria-label="GatorHats Products Stage 1 default skill"]')?.querySelectorAll("option")).toHaveLength(2);
-    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')?.querySelectorAll("option")).toHaveLength(2);
+    expect(host.querySelector('select[aria-label="GatorHats Products Stage 2 Skill 7"]')).toBeNull();
+    expect(host.querySelector('[data-stage2-slot="prod_s2_col"]')?.textContent).toContain("Built-in");
     const builtIn = host.querySelector('[data-stage2-slot="prod_s2_ec1"]');
     expect(builtIn?.textContent).toContain("Thread Inpaint V2");
-    expect(builtIn?.textContent).toContain("2 ImageGen edits");
+    expect(builtIn?.textContent).toContain("2 native ImageGen edits");
     expect(builtIn?.textContent).toContain("no Skill ZIP");
     expect(builtIn?.querySelector("select")).toBeNull();
     await openLibrary(host);
@@ -444,19 +445,17 @@ describe("GatorHats workflow-specific Skill Manager", () => {
     expect(host.textContent).toContain("Assignment only · Photo worker not enabled");
     expect(host.querySelector('[data-stage2-slot="prod_s2_ec1"]')?.textContent).toContain("Built-in");
     expect(host.querySelector('[data-stage2-slot="prod_s2_ec1"] select')).toBeNull();
-    for (const image of ["Image 02", "Image 03", "Image 04"]) {
-      expect(host.textContent).toContain("Ecommerce · " + image);
+    for (const slot of ["prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_col"]) {
+      expect(host.querySelector('[data-stage2-slot="' + slot + '"]')?.textContent).toContain("Built-in");
+      expect(host.querySelector('[data-stage2-slot="' + slot + '"] select')).toBeNull();
     }
     expect(host.textContent).toContain("Skill 5");
     expect(host.textContent).toContain("Multi-hat");
     expect(host.textContent).toContain("Skill 6");
     expect(host.textContent).toContain("UGC");
-    expect(host.textContent).toContain("Skill 7");
+    expect(host.textContent).toContain("Slot 7");
     expect(host.querySelector('select[aria-label="GatorHats Reviews Stage 2 default skill"]')).toBeNull();
-    const colorway = host.querySelector<HTMLSelectElement>(
-      'select[aria-label="GatorHats Products Stage 2 Skill 7"]',
-    );
-    expect(colorway?.value).toBe("scale"); // existing legacy default migrates to Products only as read
+    expect(host.querySelector('[data-stage2-slot="prod_s2_col"] select')).toBeNull();
     await act(async () => root.unmount());
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatKeywordJobDuration } from "./KeywordImageStage";
 import { getEcommerceInputReadiness, getEcommerceJobLogs, getEcommerceOutputVersions, regenerateEcommerceJob, retryEcommerceJob, runEcommerceJob, runSceneJob, runAllEcommerceJobs, getEcommerceRunAllStatus, type EcommerceRunAllResult, getUgcScoutGallery, startUgcScout, markCandidateReferenceFeedback, type UgcScoutGallery, type ColorwayQueueResult, type EcommerceInputReadiness, type EcommerceJob, type EcommerceJobLogs, type EcommerceOutputVersion, type EcommerceRunAllStep, type ColorwayJob, type ProductsStage2PhotoReadiness } from "./api";
 import "./ProductsPhotoWorkflow.css";
@@ -141,8 +141,7 @@ type Props = {
 };
 
 export function ProductsPhotoWorkflow({
-  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, selectedColor = "natural-black", ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillKey = "",
-  colorwaySkillOptions = [], colorwaySkillDisabled = false, onColorwaySkillChange, colorwaySkillSelection,
+  sourceName, lastUpdated, sourcePlanId = "", designSrc = "", stockViews, stockCatalog = {}, selectedColor = "natural-black", ecommerceJobs: allJobs = [], onEcommerceJobChange, readiness, colors = [], colorwaySkillName, colorwaySkillSelection,
   colorwayReady = false, colorwayRunning = false,
   onQueueColors, onRetryColor, onOpenColor, onOpenLog, configuredSkillNames = {},
 }: Props) {
@@ -343,7 +342,6 @@ export function ProductsPhotoWorkflow({
     catch (reason) { setJobActionError(reason instanceof Error ? reason.message : "Cannot load versions"); }
   }
 
-  const colorSkillSelectId = useId();
   // The retired Khaki/Maroon output stays in history, not the live gallery.
   const productColors = colors.filter(job => PHOTO_COLOR_KEYS.some(key => key === job.color_key));
   const byColor = new Map(productColors.map(job => [job.color_key, job]));
@@ -429,7 +427,7 @@ export function ProductsPhotoWorkflow({
     : colorPhase === "running" ? "Running"
     : colorPhase === "completed" ? "Complete" : colorPhase === "retry" ? "Retry"
     : colorPhase === "failed" ? "Failed" : colorPhase === "ready"
-      ? complete ? "Continue" : "Run" : !colorwaySkillName ? "Needs skill" : "Not ready";
+      ? complete ? "Continue" : "Run" : "Not ready";
 
   return <div ref={pipelineRef} className="rrugc-products-photo-pipeline" aria-label={"Seven-skill photo workflow for " + sourceName}>
     {!colorAvailable && <p role="status">Selected color has no complete synchronized front, side and back stock set. Generation will remain blocked.</p>}
@@ -442,10 +440,12 @@ export function ProductsPhotoWorkflow({
         const opened = expandedStep === step.key;
         const configured = configuredSkillNames[step.key];
         const isBuiltInFront = step.key === "prod_s2_ec1";
+        const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
           ? "Built-in · Embroidery Reference → Inpaint"
-          : configured || step.skillName;
-        const hasRequiredEngine = isBuiltInFront || Boolean(configured);
+          : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
+          : isBuiltInPhoto ? "Built-in · Satin Thread Inpaint" : configured || step.skillName;
+        const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
         const isEcommerce = index < 4;
         const slotInputs = inputs?.source_plan_id === sourcePlanId && inputs?.color_key === selectedColor
           ? inputs.slots.find(item => item.stage === step.key) : undefined;
@@ -550,7 +550,7 @@ export function ProductsPhotoWorkflow({
             })}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
-            <span>{isBuiltInFront ? "Pipeline 1" : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
+            <span>{isBuiltInPhoto ? "Pipeline " + (index + 1) : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
           <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
               <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
             </time>
@@ -564,8 +564,8 @@ export function ProductsPhotoWorkflow({
               <small>{slotInputs
                 ? slotInputs.missing_roles.length
                   ? "Missing saved inputs: " + slotInputs.missing_roles.join(", ")
-                  : isBuiltInFront
-                    ? "Saved inputs detected; built-in ImageGen worker readiness is verified by the server"
+                  : isBuiltInPhoto
+                    ? "Saved inputs detected; internal pipeline readiness is verified by the server"
                     : "Saved inputs detected; worker and assigned skill must still be verified"
                 : "Checking durable inputs on the server…"}
               </small>
@@ -629,10 +629,14 @@ export function ProductsPhotoWorkflow({
               <strong>{skillName}</strong>
               <p>{isBuiltInFront
                 ? "Pass A creates a photographic fine-thread embroidery reference; Pass B inpaints its thread material onto the original factory cap. No custom Skill ZIP is used. Original stock outside the embroidery remains unchanged."
-                : "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."}</p>
+                : step.key === "prod_s2_ec4"
+                  ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
+                  : isBuiltInPhoto
+                    ? "Reuses Slot 1's verified satin thread macro to inpaint embroidery onto the original factory photo, protecting every pixel outside the crown edit zone."
+                    : "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."}</p>
             </div>}
             <div className="rrugc-products-photo-detail-actions">
-            {isEcommerce && !isBuiltInFront && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
+            {isEcommerce && !isBuiltInPhoto && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
               onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}
@@ -710,8 +714,8 @@ export function ProductsPhotoWorkflow({
               title={colorName + " · " + (job?.status || "Not generated") + " · Open all 12 outputs"}>{content}</button>;
           })}
         </div>
-        <div className="rrugc-products-photo-skill" title={colorwaySkillName || "Not assigned"}>
-          <span>Skill 7</span><strong>{colorwaySkillName || "Not assigned"}</strong>
+        <div className="rrugc-products-photo-skill" title="Built-in · Satin Inpaint">
+          <span>Pipeline 7</span><strong>Built-in · Satin Inpaint</strong>
         <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
             <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
           </time>
@@ -725,20 +729,8 @@ export function ProductsPhotoWorkflow({
           })()}</span></span></div>
 
         {expandedStep === "colorway" && <div id="rrugc-stage2-details-colorway" className="rrugc-products-photo-stage-detail">
-          <div className="rrugc-products-photo-colorway-selector">
-            <label htmlFor={colorSkillSelectId}>Skill 7 configuration</label>
-            <select id={colorSkillSelectId} className="rrugc-products-photo-skill-select"
-              aria-label={"12 Hat Colors skill for " + sourceName}
-              title={colorwaySkillName || "Choose 12 Hat Colors skill"}
-              value={colorwaySkillKey} disabled={colorwaySkillDisabled || !onColorwaySkillChange}
-              onChange={event => onColorwaySkillChange?.(event.target.value)}>
-              {colorwaySkillOptions.length === 0 && <option value="">{colorwaySkillDisabled ? "Loading skills…" : "No skill available"}</option>}
-              {colorwaySkillOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.ready ? "" : " · needs sync"}</option>)}
-            </select>
-          </div>
-          <div><strong>{colorwaySkillName || "Select colorway skill"}</strong>
-            <p>Generate each of 12 Natural-series Valucap 8869 colors. Select any thumbnail to open the full 12-color gallery, including ungenerated images. Use gallery actions to view versions or retry failed outputs.</p></div>
-          <button type="button" onClick={openSkillsManager}>Manage skill</button>
+          <div><strong>Built-in · Reuse Slot 1 satin thread material</strong>
+            <p>Inpaint the same verified thread reference onto each of the 12 original Natural-series cap photos. No uploaded Skill ZIP is necessary. Select a thumbnail to see versions or retry failed outputs.</p></div>
           <button type="button" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT}
             onClick={() => { void onQueueColors?.(false); }}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
           {!!colors.length && onOpenLog && <select aria-label={"Hat color skill logs for " + sourceName} value=""

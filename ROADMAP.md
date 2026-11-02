@@ -1,5 +1,19 @@
 # Implementation Roadmap
 
+## 2026-11-02 — Reuse Slot 1 native fine-thread material throughout Stage 2
+
+- [x] Persist the byte-verified native ImageGen Pass A macro once per completed V2 Slot 1 design.
+- [x] Slot 2/3 inpaint against the original verified 3/4 and right-side factory photos; protect the non-embroidery pixels.
+- [x] Slot 4 keeps the original blank rear stock without generating new lettering.
+- [x] Multi-hat and UGC Skills retain their scene-composition task; completed photos receive one further native thread inpaint pass with anti-reshoot QA.
+- [x] Products Slot 7 uses one native inpaint per Natural-series color; no old custom ZIP dependency.
+- [x] Make UI/run-readiness and Skill Manager reflect 5 built-in slots and only 2 configurable scene Skills.
+- [ ] Complete human visual inspection of newly generated real-provider 3/4, side, multi-hat, UGC and colorway outputs.
+- [ ] Investigate historical fixture visual-baseline sidebar drift separately; never auto-accept.
+
+Runbook: `docs/operations/CAM_STAGE2_THREAD_REFERENCE_REUSE.md`.
+
+
 ## 2026-11-02 — Stage 2 Slot 1 Reference-First Thread Inpaint
 
 - [x] Keep two native passes: photographic embroidery material, then original-stock crown inpaint with bounded thread-only composite and QA.

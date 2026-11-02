@@ -114,7 +114,7 @@ def test_three_quarter_and_side_require_completed_front(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
     for stage in ("prod_s2_ec2", "prod_s2_ec3"):
-        with pytest.raises(EcommerceError, match="Skill 1"):
+        with pytest.raises(EcommerceError, match="Slot 1"):
             service.queue(tenant_id="tenant-001", user_id="operator",
                           source_plan_id="plan-001", stage=stage)
 
@@ -185,6 +185,10 @@ def test_angle_stage_can_queue_after_front_output_persisted(ecommerce_db):
     job = session.get(RrugcEcommerceJobModel, first["job_id"])
     job.status = "completed"
     job.output_remote_file_id = "front-remote"
+    job.front_preview_remote_file_id = "native-macro-remote"
+    job.front_preview_content_type = "image/png"
+    job.front_preview_size_bytes = 2048
+    job.front_preview_design_sha256 = "d" * 64
     session.commit()
     for stage in ("prod_s2_ec2", "prod_s2_ec3"):
         result = service.queue(tenant_id="tenant-001", user_id="operator",
@@ -231,6 +235,10 @@ def test_run_all_front_completion_queues_angles_even_without_browser(ecommerce_d
     front = session.get(RrugcEcommerceJobModel, response["steps"][0]["job_id"])
     front.status = "completed"
     front.output_remote_file_id = "front-output-remote-id"
+    front.front_preview_remote_file_id = "native-macro-remote"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_size_bytes = 2048
+    front.front_preview_design_sha256 = "d" * 64
     session.commit()
     engine = session.get_bind()
     def session_factory():
@@ -294,6 +302,20 @@ def test_multihat_slot_pins_one_twenty_photo_selection_across_three_shots(ecomme
     session.commit()
 
     service = EcommerceService(session, settings)
+    for plan_id in ("plan-001", "plan-002"):
+        front_result = service.queue(
+            tenant_id="tenant-001", user_id="operator",
+            source_plan_id=plan_id, stage="prod_s2_ec1",
+        )
+        front = session.get(RrugcEcommerceJobModel, front_result["job_id"])
+        front.status = "completed"
+        front.output_remote_file_id = "front-photo-" + plan_id
+        front.output_content_type = "image/png"
+        front.front_preview_remote_file_id = "thread-macro-" + plan_id
+        front.front_preview_content_type = "image/png"
+        front.front_preview_size_bytes = 2048
+        front.front_preview_design_sha256 = "d" * 64
+    session.commit()
     first = service.queue_scene(
         tenant_id="tenant-001", user_id="operator",
         source_plan_id="plan-001", slot="prod_s2_mh")
@@ -370,6 +392,10 @@ def test_run_all_with_completed_front_starts_all_four(ecommerce_db):
     front = session.get(RrugcEcommerceJobModel, first["job_id"])
     front.status = "completed"
     front.output_remote_file_id = "front-output"
+    front.front_preview_remote_file_id = "native-macro-remote"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_size_bytes = 2048
+    front.front_preview_design_sha256 = "d" * 64
     session.commit()
     result = EcommerceService(session, settings).queue_all(
         tenant_id="tenant-001", user_id="operator", source_plan_id="plan-001")
@@ -395,12 +421,11 @@ def test_run_all_records_individual_failures_without_blocking_other_slots(ecomme
     assert states["prod_s2_ec4"]["status"] == "queued"
     assert states["prod_s2_ec1"]["status"] == "queued"
     assert states["prod_s2_ec2"]["status"] == "waiting_for_front"
-    assert states["prod_s2_ec3"]["status"] == "blocked"
-    assert "Side90" in states["prod_s2_ec3"]["reason"]
+    assert states["prod_s2_ec3"]["status"] == "waiting_for_front"
     front = next(row for row in session.scalars(select(RrugcEcommerceJobModel))
                  if row.stage == "prod_s2_ec1")
     processing = session.get(ProcessingJobModel, front.processing_job_id)
-    assert processing.payload_json["run_all_followups"] == ["prod_s2_ec2"]
+    assert processing.payload_json["run_all_followups"] == ["prod_s2_ec2", "prod_s2_ec3"]
 
 
 def test_run_all_retries_a_failed_dependent_when_front_is_completed(ecommerce_db):
@@ -411,6 +436,10 @@ def test_run_all_retries_a_failed_dependent_when_front_is_completed(ecommerce_db
     front = session.get(RrugcEcommerceJobModel, first["job_id"])
     front.status = "completed"
     front.output_remote_file_id = "front-original"
+    front.front_preview_remote_file_id = "native-macro-remote"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_size_bytes = 2048
+    front.front_preview_design_sha256 = "d" * 64
     session.commit()
     angle = service.queue(tenant_id="tenant-001", user_id="operator",
                           source_plan_id="plan-001", stage="prod_s2_ec2")

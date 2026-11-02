@@ -6342,10 +6342,7 @@ def ecommerce_input_readiness(
     stock = release_stock_evidence(project_root=Path(__file__).resolve().parents[5], color_key=color_key)
     import shutil
     from app.modules.realistic_review_ugc.ecommerce_pipeline import (
-        EcommerceError, _front_job,
-    )
-    from app.modules.realistic_review_ugc.model import (
-        RrugcStageSkillDefaultModel, RrugcStage2SkillRegistryModel,
+        EcommerceError, _front_material_job,
     )
     settings = get_settings()
     worker_ready = all((
@@ -6358,32 +6355,22 @@ def ecommerce_input_readiness(
         if evidence.get("ready") and evidence.get("sha256"):
             assets[role] = "sha256:" + evidence["sha256"]
     try:
-        front = _front_job(session, plan, color_key)
+        front = _front_material_job(session, plan, color_key)
         assets["embroidered_front"] = front.output_remote_file_id
     except EcommerceError:
         pass
     slots = []
     for shot in SHOTS:
-        if shot.stage == "prod_s2_ec1":
-            # Built-in two-pass reference/photo edit needs no uploaded Skill.
-            skill_ready = True
-        else:
-            assignment = session.get(
-                RrugcStageSkillDefaultModel, (principal.active_tenant_id, shot.stage))
-            skill = session.get(
-                RrugcStage2SkillRegistryModel, assignment.registry_id
-            ) if assignment and assignment.registry_id else None
-            skill_ready = bool(
-                skill and skill.tenant_id == principal.active_tenant_id
-                and skill.enabled and skill.deleted_at is None
-                and skill.validation_status == "valid" and skill.skill_name
-            )
+        # All four Ecommerce shots now have an internal, Skill-free contract:
+        # native material + edit for 1–3, untouched official back photo for 4.
+        skill_ready = True
         entry = build_execution_preflight(
             shot.stage, assets, worker_ready=worker_ready, skill_ready=skill_ready,
         )
-        if shot.stage == "prod_s2_ec1":
-            entry["pipeline"] = "thread-reference-inpaint-v2"
-            entry["custom_skill_required"] = False
+        entry["pipeline"] = ("thread-reference-inpaint-v2" if shot.stage == "prod_s2_ec1"
+                             else "original-stock-thread-inpaint-v1" if shot.stage in ("prod_s2_ec2", "prod_s2_ec3")
+                             else "unaltered-back-stock-v1")
+        entry["custom_skill_required"] = False
         slots.append(entry)
     return {
         "source_plan_id": plan.id,

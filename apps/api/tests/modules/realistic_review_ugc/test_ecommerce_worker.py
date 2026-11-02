@@ -196,11 +196,13 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
                 stream = BytesIO()
                 Image.fromarray(np.uint8(np.clip(candidate, 0, 255)), "RGB").save(stream, format="PNG")
                 image_data = stream.getvalue()
+            macro = _image() if front_mode == "direct" else None
             return SimpleNamespace(
                 image_bytes=image_data, mime_type="image/png",
+                additional_images=(macro,) if macro else (),
                 provider_metadata={"native_passes": 1 if front_mode == "direct_v1" else 2,
                                    "macro_sha256": "a"*64,
-                                   "reference_sha256": "c"*64,
+                                   "reference_sha256": __import__("hashlib").sha256(macro).hexdigest() if macro else "c"*64,
                                    "edited_sha256": "b"*64},
             )
 
@@ -243,10 +245,10 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         assert row.status == "completed"
         assert row.output_remote_file_id == "persisted-photo-output"
         if front_mode == "direct":
-            # Native reference + original-stock inpaint no longer stores a
-            # redundant flat full-cap preview; downstream uses real front.
-            assert row.front_preview_remote_file_id is None
-            assert row.front_preview_design_sha256 is None
+            # Slot 1 stores verified native Pass A as the reusable material;
+            # never an obsolete flat-painted full-cap preview.
+            assert row.front_preview_remote_file_id == "persisted-photo-output"
+            assert row.front_preview_design_sha256
         else:
             assert row.front_preview_remote_file_id == "persisted-photo-output"
             assert row.front_preview_design_sha256
@@ -258,10 +260,10 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         assert versions[0].stage == "ecommerce"
         assert versions[0].remote_file_id == "persisted-photo-output"
     assert storage.opened == ["design-remote"]
-    assert len(storage.saved) == (1 if front_mode == "direct" else 2)
+    assert len(storage.saved) == 2
     assert all(item[1] > 0 for item in storage.saved)
     if front_mode == "direct":
-        assert storage.saved[0][0].startswith("output_ecommerce_")
+        assert storage.saved[0][0].startswith("input_thread_material_")
     else:
         assert storage.saved[0][0].startswith("input_embroidered_front_")
     assert len(calls) == 1

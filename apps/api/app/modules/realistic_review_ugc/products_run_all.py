@@ -221,12 +221,11 @@ class ProductsRunAllService:
         return self.status(tenant_id=tenant_id, source_plan_id=source_plan_id, color_key=color_key)
 
     def _default_colorway_skill(self, tenant_id: str) -> dict:
-        selection = self.session.get(RrugcStageSkillDefaultModel, (tenant_id, "prod_s2_col"))
-        row = self.session.get(RrugcStage2SkillRegistryModel, selection.registry_id) if selection and selection.registry_id else None
-        if not row or not row.enabled or row.deleted_at is not None or row.validation_status != "valid":
-            raise EcommerceError("run_all_color_skill_missing", "Assign a valid Slot 7 Skill first.")
-        return {"source": row.source, "skill_id": row.skill_id, "skill_name": row.skill_name,
-                "skill_version": row.synced_version or row.default_version}
+        # Products Slot 7 now uses the same built-in native inpaint as Slot 1.
+        # Reviews colorways remain a separate Skill-driven workflow.
+        from app.providers.ai.codex_image import SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION
+        return {"source": "internal", "skill_id": None,
+                "skill_name": SLOT1_DIRECT_NAME, "skill_version": SLOT1_DIRECT_VERSION}
 
     def _remove_legacy_front_fanout(self, run: RrugcProductsRunAllModel) -> None:
         front = _jobs_for_slot(self.session, run, 1).get("prod_s2_ec1")

@@ -1,3 +1,10 @@
+## 2026-11-02 — Stage 2 all-slot native material reuse
+
+- Scope: GatorHats **Products** Stage 2. Slot 1's byte-verified photographic Pass A macro becomes the single saved material source. New Slots 2/3 edit real angled factory photos, Slot 4 returns the original blank rear stock, Slots 5/6 edit only stitch material on completed scene photos, and Slot 7 edits each of the 12 natural-color factory photos. Reviews pipeline remains unchanged.
+- New built-in engines for Ecommerce 1–4 and colorway 7 eliminate obsolete Skill assignment/ZIP checks; scene-composition Skills 5/6 remain. Fail closed without the V2 native macro and exact matching tenant/source revision. No bulk replay, migration, secrets or destructive data operation.
+- Image QA: original stock protection, native output hash evidence, no-op rejection, thread-contact masks and scene change-area guard. Two native passes per new scene are intentionally required; original macro is generated only once per Slot 1. Historical pinned jobs and completed output versions are preserved.
+- Runtime and rollout: standard backend/frontend deployment and explicit health checks; final image quality must still be reviewed against the supplied photographic reference. `docs/operations/CAM_STAGE2_THREAD_REFERENCE_REUSE.md`.
+
 ## 2026-11-02 — Stage 2 Slot 1 reference-first simplification
 
 - Scope: built-in fine-thread macro (Pass A), original-stock inpaint (Pass B), backend output protection and a narrowly scoped Slot 1 UI readiness correction. No database migration, source/stock deletion, secrets or new provider/API dependency.

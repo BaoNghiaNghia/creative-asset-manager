@@ -128,6 +128,13 @@ def done(session, position):
     for row in jobs:
         row.status = "completed"
         row.output_remote_file_id = f"saved-{row.id}"
+        if position == 1:
+            # The real V2 Slot 1 worker saves its native macro independently
+            # before Run all can queue original-stock inpaint for Slot 2.
+            row.front_preview_remote_file_id = "saved-native-thread-material"
+            row.front_preview_content_type = "image/png"
+            row.front_preview_size_bytes = 1800
+            row.front_preview_design_sha256 = "d" * 64
         if row.processing_job_id:
             processing = session.get(ProcessingJobModel, row.processing_job_id)
             if processing:

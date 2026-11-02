@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput, StorageProviderError
-from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput
+from app.modules.image_generation.providers import PreparedImage, ReferenceImageInput, GeneratedImageResult
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.realistic_review_ugc.codex_account_manager import CodexAccountPoolBusy, acquire_worker_profile
@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
     Slot1EmbroideryQAError, build_slot1_material_pass, finish_slot1_refinement,
     lite_slot1_qa_error_code,
 )
+from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -72,7 +73,7 @@ MAX_MANUAL_RETRIES = 3
 
 
 def _slot1_direct_selection():
-    """Slot 1's internal photo edit replaces custom Skills for NEW jobs only."""
+    """Built-in native embroidery edits for new Ecommerce Slots 1–3 and stock-only 4."""
     from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
     return ResolvedStage2Skill(
         source="internal", skill_id=None,
@@ -314,7 +315,17 @@ def _front_job(session: Session, plan: RrugcSourcePlanModel, color_key: str = "n
     ))
     if not front:
         raise EcommerceError("ecommerce_front_prerequisite",
-                             "Run and complete Ecommerce Skill 1 before Skills 2 and 3.")
+                             "Complete Stage 2 Slot 1 before applying embroidery to another slot.")
+    return front
+
+
+def _front_material_job(session: Session, plan: RrugcSourcePlanModel,
+                        color_key: str = "natural-black") -> RrugcEcommerceJobModel:
+    """Only a completed V2 front with a durable native Pass A macro may seed downstream edits."""
+    front = _front_job(session, plan, color_key)
+    if front.skill_name != SLOT1_DIRECT_NAME or not front.front_preview_remote_file_id:
+        raise EcommerceError("ecommerce_thread_reference_missing",
+                             "Regenerate Slot 1 to save the photographic thread reference before running other slots.")
     return front
 
 
@@ -388,6 +399,11 @@ class EcommerceService:
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
             payload={
                 "ecommerce_job_id": row.id,
+                **({"thread_material_pipeline": "v1"} if (
+                    row.stage in {"prod_s2_ec2", "prod_s2_ec3"} and row.skill_source == "internal"
+                    or row.stage in SCENE_STAGE_SLOTS and row.front_reference_remote_file_id
+                    and row.front_preview_remote_file_id
+                ) else {}),
                 **({"front_placement": front_placement} if front_placement is not None else {}),
                 **({"scout_reference": scout_reference} if scout_reference else {}),
                 **({"multihat_references": multihat_references} if multihat_references else {}),
@@ -414,9 +430,11 @@ class EcommerceService:
             raise EcommerceError("ecommerce_execution_disabled", "Image generation is disabled.", 503)
         plan = _source_plan(self.session, tenant_id, source_plan_id, lock=True)
         _refs, stock_digest = _stock_refs(self.settings, stage, color_key)
-        skill = (_slot1_direct_selection() if stage == "prod_s2_ec1"
+        skill = (_slot1_direct_selection() if stage in SHOTS_BY_STAGE
                  else _assigned_skill(self.session, self.settings, tenant_id, stage))
-        front = _front_job(self.session, plan, color_key) if stage in ("prod_s2_ec2", "prod_s2_ec3") else None
+        front = (_front_material_job(self.session, plan, color_key)
+                 if stage in {"prod_s2_ec2", "prod_s2_ec3", *SCENE_STAGE_SLOTS}
+                 else None)
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.tenant_id == tenant_id,
             RrugcEcommerceJobModel.source_plan_id == source_plan_id,
@@ -728,11 +746,9 @@ class EcommerceService:
                 if front and front.status == "completed" and front.output_remote_file_id:
                     stages[stage] = enqueue(stage)
                 else:
-                    # Validate stock and assigned Skill *before* marking a
-                    # dependent task as waiting; never represent absent
-                    # dependencies as queued jobs.
+                    # Only require official stock while Slot 1 is running;
+                    # the built-in native ImageGen pipeline needs no ZIP Skill.
                     _stock_refs(self.settings, stage, color_key)
-                    _assigned_skill(self.session, self.settings, tenant_id, stage)
                     if not front or front.status == "failed":
                         raise EcommerceError("ecommerce_front_prerequisite",
                                              "Front High must run successfully first.")
@@ -803,8 +819,23 @@ class EcommerceService:
         _rebind_ec2_stock_for_explicit_action(self.settings, row)
         if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
             raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front reference is missing.")
-        if row.stage == "prod_s2_ec1":
-            _repin_slot1_direct(row)
+        if row.stage in SHOTS_BY_STAGE:
+            if row.stage == "prod_s2_ec1":
+                _repin_slot1_direct(row)
+            else:
+                selected = _slot1_direct_selection()
+                row.skill_source, row.skill_id = selected.source, None
+                row.skill_name, row.skill_version = selected.skill_name, selected.skill_version
+                row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
+                if row.stage in {"prod_s2_ec2", "prod_s2_ec3"}:
+                    front = _front_material_job(self.session, plan, row.color_key)
+                    row.front_reference_remote_file_id = front.output_remote_file_id
+                    row.front_reference_content_type = front.output_content_type
+                    row.front_reference_size_bytes = front.output_size_bytes
+                    row.front_preview_remote_file_id = front.front_preview_remote_file_id
+                    row.front_preview_content_type = front.front_preview_content_type
+                    row.front_preview_size_bytes = front.front_preview_size_bytes
+                    row.front_preview_design_sha256 = front.front_preview_design_sha256
         elif row.last_error_code == "ecommerce_skill_changed":
             selected = _assigned_skill(self.session, self.settings, tenant_id, row.stage)
             row.skill_source = selected.source
@@ -816,6 +847,18 @@ class EcommerceService:
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
+        if (row.stage in SCENE_STAGE_SLOTS and processing is not None
+                and (processing.payload_json or {}).get("thread_material_pipeline") == "v1"):
+            # Retry old pinned scene jobs without changing their legacy inputs.
+            # New scenes keep the native V2 reference, verified again.
+            front = _front_material_job(self.session, plan, row.color_key)
+            row.front_reference_remote_file_id = front.output_remote_file_id
+            row.front_reference_content_type = front.output_content_type
+            row.front_reference_size_bytes = front.output_size_bytes
+            row.front_preview_remote_file_id = front.front_preview_remote_file_id
+            row.front_preview_content_type = front.front_preview_content_type
+            row.front_preview_size_bytes = front.front_preview_size_bytes
+            row.front_preview_design_sha256 = front.front_preview_design_sha256
         if row.stage in SCENE_GROUPS["prod_s2_ugc"] and scout_reference is None:
             previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
             scout_reference = (previous.payload_json or {}).get("scout_reference") if previous else None
@@ -876,8 +919,8 @@ class EcommerceService:
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
         _rebind_ec2_stock_for_explicit_action(self.settings, row)
-        if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
-            front = _front_job(self.session, plan, row.color_key)
+        if row.stage in ("prod_s2_ec2", "prod_s2_ec3") or row.stage in SCENE_STAGE_SLOTS:
+            front = _front_material_job(self.session, plan, row.color_key)
             row.front_reference_remote_file_id = front.output_remote_file_id
             row.front_reference_content_type = front.output_content_type
             row.front_reference_size_bytes = front.output_size_bytes
@@ -885,8 +928,12 @@ class EcommerceService:
             row.front_preview_content_type = front.front_preview_content_type
             row.front_preview_size_bytes = front.front_preview_size_bytes
             row.front_preview_design_sha256 = front.front_preview_design_sha256
+        if row.stage in SHOTS_BY_STAGE:
+            selected = _slot1_direct_selection()
+            row.skill_source, row.skill_id = selected.source, None
+            row.skill_name, row.skill_version = selected.skill_name, selected.skill_version
+            row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
         if row.stage == "prod_s2_ec1":
-            _repin_slot1_direct(row)
             # Explicit regeneration consumes the current calibration, not an
             # outdated persisted front overlay. Saved output versions are intact.
             row.front_preview_remote_file_id = None
@@ -1128,7 +1175,7 @@ class EcommerceGenerateHandler:
             if plan.source_revision != row.source_revision:
                 raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
             is_direct_job = (
-                row.stage == "prod_s2_ec1"
+                row.stage in SHOTS_BY_STAGE
                 and row.skill_source == "internal"
                 and row.skill_name in {SLOT1_DIRECT_NAME, SLOT1_LEGACY_DIRECT_NAME}
             )
@@ -1165,7 +1212,10 @@ class EcommerceGenerateHandler:
                         raise EcommerceError("multihat_stock_changed", str(exc), 409) from exc
                     multihat_colors = [key for key, _ in multi_color_stock]
             front_asset = None
-            if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
+            if row.stage in ("prod_s2_ec2", "prod_s2_ec3") or (
+                row.stage in SCENE_STAGE_SLOTS and
+                (context.job.payload.get("thread_material_pipeline") == "v1")
+            ):
                 if not row.front_reference_remote_file_id:
                     raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front input is missing.")
                 front_asset = (row.front_reference_remote_file_id,
@@ -1181,14 +1231,16 @@ class EcommerceGenerateHandler:
             row.started_at = row.started_at or datetime.now(timezone.utc)
             session.commit()
 
-        # The rear view needs no design and must not accidentally decorate the back.
-        # This material pass is strictly Slot 1; all other Slots retain their
-        # current pinned photo/preview contract.
+        # All new photo-edit slots reuse the verified native Slot 1 reference.
+        # The rear stock view is already a correct, unembroidered product photo.
         slot1_material = None
         is_lite = stage == "prod_s2_ec1" and skill_name == "gatorhats-8869-slot1-threadtransfer-lite-v1"
         is_reference = stage == "prod_s2_ec1" and skill_name == SLOT1_DIRECT_NAME
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
+        material_transfer = context.job.payload.get("thread_material_pipeline") == "v1"
+        builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
+        builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
             design_bytes = await self._open_bytes(storage, context,
@@ -1210,7 +1262,7 @@ class EcommerceGenerateHandler:
                 preview_bytes = await self._open_bytes(
                     storage, context, "rrugc-ecommerce-front-preview:" + context.job.entity_id,
                     preview_remote_id, preview_mime, preview_size)
-            elif stage in FRONT_PREVIEW_STAGES:
+            elif stage in FRONT_PREVIEW_STAGES and not material_transfer:
                 front_placement = job_front_placement(context.job.payload.get("front_placement"))
                 preview_bytes = render_front_reference(
                     refs[0][1], design_bytes,
@@ -1280,8 +1332,11 @@ class EcommerceGenerateHandler:
                     ))
             elif preview_bytes:
                 references.append(ReferenceImageInput(
-                    image=_prepared_image(preview_bytes), role="embroidered_front_preview",
-                    label="persisted artwork fitted inside calibrated front embroidery area"))
+                    image=(native_thread_macro(preview_bytes) if material_transfer
+                           else _prepared_image(preview_bytes)),
+                    role=("slot1_thread_material_reference" if material_transfer else "embroidered_front_preview"),
+                    label=("byte-verified native Pass A satin thread macro from Slot 1; material only"
+                           if material_transfer else "persisted artwork fitted inside calibrated front embroidery area")))
         front_image = None
         if front_asset:
             front_remote, front_mime, front_size = front_asset
@@ -1432,6 +1487,11 @@ class EcommerceGenerateHandler:
                 "flat paint, hard outline, foam, rubber or 3D emboss. "
                 "Preserve all original words/colors/position. Two images, no extras."
             )
+        if builtin_stock:
+            if not any(ref.role == "slot1_thread_material_reference" for ref in references):
+                raise EcommerceError("ecommerce_thread_material_missing",
+                                     "Native Pass A macro is missing from pinned Slot 1.")
+            prompt = "Built-in original factory stock inpaint using pinned native Slot 1 thread material."
         if is_reference:
             # Built-in, skill-free two-step workflow. A is a fine material photo;
             # B is the actual edit of the original unprinted factory crown.
@@ -1443,9 +1503,19 @@ class EcommerceGenerateHandler:
         binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
         primary_home = str(getattr(settings, "CODEX_IMAGE_HOME",
                                    "/var/lib/creative-asset-manager/codex"))
-        with context.dependencies.session_factory() as pool_session:
+        if builtin_back:
+            with Image.open(BytesIO(refs[0][1])) as unprinted_back:
+                back_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(unprinted_back.format)
+            if not back_mime:
+                raise EcommerceError("ecommerce_stock_invalid", "Unsupported official back stock.")
+            generated = GeneratedImageResult(provider="codex", model=None,
+                                             image_bytes=refs[0][1], mime_type=back_mime,
+                                             provider_metadata={"native_passes": 0})
+        else:
+          with context.dependencies.session_factory() as pool_session:
             with acquire_worker_profile(pool_session, context.job.tenant_id, "stage2",
-                                         primary_home, binary, None if is_direct else skill_name) as (account_id, selected_home):
+                                         primary_home, binary,
+                                         None if is_direct or builtin_stock else skill_name) as (account_id, selected_home):
                 pool_session.commit()
                 runner = CodexImageGenRunner(CodexImageRunnerConfig(
                     binary=binary, codex_home=selected_home,
@@ -1454,7 +1524,8 @@ class EcommerceGenerateHandler:
                     skill_name=skill_name,
                     output_contract=("slot1_reference_inpaint_v2" if is_reference else
                                      "slot1_direct_inpaint" if is_direct_legacy else
-                                     "slot1_two_pass" if is_lite else "single_png"),
+                                     "slot1_two_pass" if is_lite else
+                                     "stage2_stock_inpaint_single" if builtin_stock else "single_png"),
                     timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
                 ))
@@ -1465,12 +1536,67 @@ class EcommerceGenerateHandler:
                     )
                 finally:
                     runner.cleanup_attempt(context.job.entity_id)
+                if material_transfer and stage in SCENE_STAGE_SLOTS:
+                    # Scene Skill owns composition only. Native Pass B refines
+                    # actual thread on its finished photo without reshooting it.
+                    from app.modules.realistic_review_ugc.stage2_stock_inpaint import (
+                        verified_inpaint_result,
+                    )
+                    inpaint_refs = [ref for ref in references if ref.role in {
+                        "design_reference", "slot1_thread_material_reference"}]
+                    if len(inpaint_refs) != 2:
+                        raise EcommerceError("ecommerce_thread_material_missing",
+                                             "The native embroidery macro was not pinned.")
+                    scene_refiner = CodexImageGenRunner(CodexImageRunnerConfig(
+                        binary=binary, codex_home=selected_home,
+                        staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT",
+                                                "/var/lib/creative-asset-manager/image-generation")),
+                        skill_name=SLOT1_DIRECT_NAME,
+                        output_contract="stage2_scene_inpaint_single",
+                        timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+                        model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
+                    ))
+                    scene_before = generated
+                    try:
+                        generated = await scene_refiner.generate_from_references(
+                            attempt_id=context.job.entity_id + "-thread-inpaint",
+                            person=_prepared_image(scene_before.image_bytes),
+                            references=inpaint_refs,
+                            prompt="Inpaint only visible machine-embroidered lettering, leaving entire scene intact.",
+                        )
+                        verified_inpaint_result(scene_before.image_bytes, generated, "scene")
+                        generated = GeneratedImageResult(
+                            provider="codex", model=generated.model, image_bytes=generated.image_bytes,
+                            mime_type=generated.mime_type,
+                            provider_metadata={
+                                **(generated.provider_metadata or {}),
+                                "native_passes": 2,
+                                "scene_base_sha256": hashlib.sha256(scene_before.image_bytes).hexdigest(),
+                                "thread_reference_sha256": hashlib.sha256(
+                                    inpaint_refs[1].image.image_bytes
+                                    if inpaint_refs[1].role == "slot1_thread_material_reference"
+                                    else inpaint_refs[0].image.image_bytes).hexdigest(),
+                            },
+                        )
+                    finally:
+                        scene_refiner.cleanup_attempt(context.job.entity_id + "-thread-inpaint")
         # Slot 1 output is not the AI-rendered full cap. Its micro-thread
         # frequencies are accepted only after geometry/color gates, and then
         # composited onto the pinned stock within the actual thread stencil.
         # QA failure retries the image job; it never stores a fake success.
         output_bytes = generated.image_bytes
         output_mime = generated.mime_type
+        if builtin_stock:
+            from app.modules.realistic_review_ugc.stage2_stock_inpaint import (
+                Stage2InpaintError, composite_original_stock,
+            )
+            try:
+                output_bytes = composite_original_stock(refs[0][1], generated, stage)
+            except Stage2InpaintError as exc:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_thread_inpaint_qa_failed", str(exc), retryable=False,
+                ) from exc
+            output_mime = "image/png"
         if slot1_material is not None:
             try:
                 output_bytes = finish_slot1_refinement(
@@ -1498,6 +1624,36 @@ class EcommerceGenerateHandler:
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
             raise RrugcGenerationHandlerError("ecommerce_output_invalid",
                             "Generated photo did not pass basic validation.", retryable=True) from exc
+        # Persist the verified high-resolution Pass A once. Future slots
+        # pin this exact asset, not a low-resolution crop or painted preview.
+        material_reference_remote_id = None
+        material_reference_bytes = None
+        if is_reference:
+            if len(generated.additional_images) != 1:
+                raise EcommerceError("ecommerce_thread_material_missing",
+                                     "Native Slot 1 material was not returned.")
+            material_reference_bytes = generated.additional_images[0]
+            material_hash = hashlib.sha256(material_reference_bytes).hexdigest()
+            if (material_hash != generated.provider_metadata.get("reference_sha256")
+                    or len(material_reference_bytes) > MAX_REFERENCE_BYTES):
+                raise EcommerceError("ecommerce_thread_material_unverified",
+                                     "Unverified or oversize native embroidery material.")
+            with Image.open(BytesIO(material_reference_bytes)) as macro_image:
+                if macro_image.format != "PNG" or min(macro_image.size) < 512:
+                    raise EcommerceError("ecommerce_thread_material_invalid", "Invalid embroidery material.")
+                macro_image.verify()
+            material_asset = await storage.store_asset(StoreAssetInput(
+                tenant_id=context.job.tenant_id,
+                content_hash=material_hash, body=_bytes_body(material_reference_bytes),
+                asset_id="rrugc-ecommerce-thread-material:" + context.job.entity_id,
+                content_type="image/png", size_bytes=len(material_reference_bytes),
+                filename=f"input_thread_material_{context.job.entity_id}.png",
+                destination_folder_id=folder_id or None,
+            ))
+            if not material_asset.remote_file_id:
+                raise StorageProviderError("Native embroidery reference could not be saved.",
+                                           retryable=True, code="ecommerce_thread_material_storage_failed")
+            material_reference_remote_id = material_asset.remote_file_id
         stored = await storage.store_asset(StoreAssetInput(
             tenant_id=context.job.tenant_id,
             content_hash=hashlib.sha256(output_bytes).hexdigest(),
@@ -1517,6 +1673,14 @@ class EcommerceGenerateHandler:
             ).with_for_update())
             if row is None:
                 return JobHandlerResult.non_retryable("ecommerce_job_not_found", "Job missing.")
+            if material_reference_remote_id:
+                # Historical field is empty for V2 and only used as a durable
+                # internal macro handle; distinguish from legacy flat preview
+                # using the internal skill name and pinned pipeline snapshot.
+                row.front_preview_remote_file_id = material_reference_remote_id
+                row.front_preview_content_type = "image/png"
+                row.front_preview_size_bytes = len(material_reference_bytes)
+                row.front_preview_design_sha256 = design_sha
             save_output_version(session, tenant_id=context.job.tenant_id, stage="ecommerce",
                                 job=row, remote_file_id=stored.remote_file_id,
                                 content_type=output_mime,
@@ -1536,6 +1700,8 @@ class EcommerceGenerateHandler:
                                        if is_lite or is_direct else {}),
                                     "outside_stock_preserved": True,
                                     "flat_preview_not_used_for_refinement": True,
+                                    **({"thread_material_asset": material_reference_remote_id}
+                                       if material_reference_remote_id else {}),
                                     **({"material_revision": ("fine-thread-reference-v2" if is_reference else
                                                                "single-native-edit-v1" if is_direct_legacy else
                                                                "roi-original-stock-inpaint-v1.3"),
@@ -1546,6 +1712,14 @@ class EcommerceGenerateHandler:
                                         "contact_width_px": slot1_material.contact_width_px}
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
+                                **({"thread_inpaint_pipeline": {
+                                    "version": "reference-reuse-v1",
+                                    "material_remote_file_id": row.front_preview_remote_file_id,
+                                    "material_source": "slot1-native-pass-a",
+                                    "native_sha256": generated.provider_metadata.get("native_sha256"),
+                                    "original_stock_pixels_protected": bool(builtin_stock or builtin_back),
+                                    "scene_photo_preserved_by_edit_gate": bool(stage in SCENE_STAGE_SLOTS),
+                                }} if material_transfer else {}),
                                 "input_reference_snapshot": {
                                     "source_revision": row.source_revision,
                                     "stock_sha256": row.stock_sha256,

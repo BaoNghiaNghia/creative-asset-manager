@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel, RrugcFrontPlacementSettingModel
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel, RrugcFrontPlacementSettingModel, RrugcEcommerceJobModel
 from app.modules.realistic_review_ugc.colorways import (
     COLORS, PRODUCTS_COLORS, PRODUCTS_COLOR_KEYS, ColorwayError, ColorwayService, effective_status,
 )
@@ -25,7 +25,7 @@ from app.modules.realistic_review_ugc.source_plans import RRUGC_SOURCE_ROOT_FOLD
 def db():
     engine = create_engine("sqlite://")
     for table in (
-        RrugcSourcePlanModel.__table__, RrugcColorwayJobModel.__table__,
+        RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__, RrugcColorwayJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
         RrugcImageOutputVersionModel.__table__, RrugcFrontPlacementSettingModel.__table__,
     ):
@@ -63,6 +63,39 @@ def plan(db, tenant="tenant-a", *, name="embroidery_design.png", source_id="plan
     return row
 
 
+def attach_native_thread_reference(db, source, *, design_bytes=None):
+    import hashlib
+    native = RrugcEcommerceJobModel(
+        id="macro-" + source.id, tenant_id=source.tenant_id,
+        source_plan_id=source.id, source_revision=source.source_revision,
+        stage="prod_s2_ec1", color_key="natural-black",
+        stock_sha256="a" * 64, skill_source="internal",
+        skill_name=colorways.SLOT1_DIRECT_NAME,
+        skill_version=colorways.SLOT1_DIRECT_VERSION,
+        skill_bundle_sha256=colorways.SLOT1_DIRECT_SHA256,
+        front_preview_remote_file_id="verified-native-thread-macro",
+        front_preview_content_type="image/png", front_preview_size_bytes=2048,
+        front_preview_design_sha256=hashlib.sha256(design_bytes).hexdigest()
+                                    if design_bytes else "c"*64,
+        output_remote_file_id="completed-front-stock", output_content_type="image/png",
+        created_by_user_id="actor", status="completed",
+        completed_at=datetime.now(timezone.utc),
+    )
+    db.add(native)
+    db.commit()
+    return native
+
+
+def test_products_require_native_material_before_queue(db):
+    source = plan(db, name="design_01.png")
+    source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
+    db.commit()
+    with pytest.raises(ColorwayError, match="Slot 1"):
+        ColorwayService(db).queue(tenant_id=source.tenant_id, user_id="actor",
+                                  source_plan_ids=[source.id], workflow="products")
+    assert not db.query(RrugcColorwayJobModel).count()
+
+
 def test_canonical_color_names_match_shipped_stock_manifest():
     root = Path(__file__).resolve().parents[5]
     manifest = (root / "deploy/codex/skills/gatorhats-8869-image-studio"
@@ -79,6 +112,7 @@ def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(
     source = plan(db, name="design_01.png", source_id="products-12")
     source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
     db.commit()
+    attach_native_thread_reference(db, source)
     from app.modules.realistic_review_ugc.front_placement import (
         DEFAULT_FRONT_PLACEMENT, save_front_placement,
     )
@@ -289,6 +323,7 @@ def test_reconcile_census_only_flags_stale_completed_products_jobs(db, monkeypat
     source = plan(db)
     source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
     db.commit()
+    attach_native_thread_reference(db, source)
     svc = ColorwayService(db)
     svc.queue(tenant_id=source.tenant_id, user_id="actor",
               source_plan_ids=[source.id], workflow="products")
@@ -354,6 +389,7 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     if products_mode:
         source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
         db.commit()
+        attach_native_thread_reference(db, source, design_bytes=design_bytes)
     svc = ColorwayService(db)
     svc.queue(tenant_id="tenant-a", user_id="actor", source_plan_ids=[source.id],
               workflow="products" if products_mode else "reviews")
@@ -362,8 +398,10 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     saved_assets = []
 
     class FakeStream:
+        def __init__(self, data):
+            self.data = data
         async def _body(self):
-            yield design_bytes if products_mode else image_bytes
+            yield self.data
         @property
         def body(self):
             return self._body()
@@ -373,8 +411,10 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     class FakeStorage:
         async def open_asset(self, request):
             assert request.tenant_id == "tenant-a"
+            if products_mode and request.remote_file_id == "verified-native-thread-macro":
+                return FakeStream(image_bytes)
             assert request.remote_file_id == "drive-" + source.id
-            return FakeStream()
+            return FakeStream(design_bytes if products_mode else image_bytes)
         async def store_asset(self, request):
             saved_assets.append(request)
             return SimpleNamespace(remote_file_id="stored-output", remote_folder_id="folder")
@@ -386,21 +426,29 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
             generated_calls.append(attempt_id)
             assert person.image_bytes
             assert references[0].role == "design_reference"
-            assert len(references) == (2 if products_mode else 1)
+            assert len(references) == (4 if products_mode else 1)
             if products_mode:
-                assert references[1].role == "embroidered_front_preview"
-            assert "Official cap color: " + dict(COLORS)[job.color_key] in prompt
-            assert ("canonical-design-direct-thread-v4" in prompt) is products_mode
-            if products_mode:
-                assert "TWELVE STOCK COLORS" in prompt
-                assert "PRE-SAVE VISUAL QUALITY CHECK" in prompt
+                assert {ref.role for ref in references} == {
+                    "design_reference", "slot1_edit_mask", "slot1_layout_guide",
+                    "slot1_thread_material_reference",
+                }
+                assert self.config.output_contract == "stage2_stock_inpaint_single"
+                assert "native low-relief satin" in prompt
+            else:
+                assert "Official cap color: " + dict(COLORS)[job.color_key] in prompt
             return SimpleNamespace(
-                image_bytes=image_bytes, mime_type="image/png", provider_request_id="test-provider",
+                image_bytes=image_bytes, mime_type="image/png", model=None, provider_request_id="test-provider",
+                provider_metadata={"native_sha256": __import__("hashlib").sha256(image_bytes).hexdigest()},
             )
         def cleanup_attempt(self, attempt_id):
             pass
 
     monkeypatch.setattr(colorways, "CodexImageGenRunner", FakeRunner)
+    if products_mode:
+        # The worker contract is tested with fake provider bytes; thread and
+        # protected-pixel image QA are independently exercised in their module.
+        monkeypatch.setattr(colorways, "verified_inpaint_result", lambda *_: None)
+        monkeypatch.setattr(colorways, "finish_slot1_refinement", lambda mat, raw, **kwargs: image_bytes)
     from app.modules.realistic_review_ugc import products_run_all
     monkeypatch.setattr(products_run_all, "advance_after_output", lambda *args, **kwargs: None)
     from contextlib import nullcontext
@@ -415,7 +463,8 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     context = SimpleNamespace(
         job=SimpleNamespace(
             job_type="rrugc_colorway_generate", entity_id=job.id, tenant_id="tenant-a",
-            payload={"colorway_job_id": job.id},
+            payload={"colorway_job_id": job.id, **(
+                db.get(ProcessingJobModel, job.processing_job_id).payload_json if products_mode else {})},
         ),
         dependencies=dependencies, is_cancelled=False,
         logger=SimpleNamespace(info=lambda *args, **kwargs: None, exception=lambda *args, **kwargs: None),
@@ -425,7 +474,10 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     )
     handler = colorways.ColorwayGenerateHandler(settings)
     result = handler(context)
-    assert result.outcome.value == "completed"
+    assert result.outcome.value == "completed", (
+        getattr(result, "error_code", None), db.get(RrugcColorwayJobModel, job.id).last_error_code,
+        db.get(RrugcColorwayJobModel, job.id).last_error_message,
+    )
     db.expire_all()
     completed = db.get(RrugcColorwayJobModel, job.id)
     assert completed.status == "completed"
@@ -470,6 +522,7 @@ def test_reviews_stage2_filters_exact_embroidery_prefix_and_products_selected_na
 
     assert svc.queue(tenant_id="tenant-a", user_id="actor",
                      source_plan_ids=[nested.id], workflow="reviews")["queued"] == 13
+    attach_native_thread_reference(db, products)
     assert svc.queue(tenant_id="tenant-a", user_id="actor",
                      source_plan_ids=[products.id], workflow="products")["queued"] == 12
     assert db.query(RrugcColorwayJobModel).count() == 25

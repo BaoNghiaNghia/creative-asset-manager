@@ -29,7 +29,7 @@ from app.modules.realistic_review_ugc.generation_handler import (
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
 )
 from app.modules.image_generation.providers import ReferenceImageInput
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcEcommerceJobModel
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
@@ -42,7 +42,15 @@ from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, resolve_stage2_skill, verify_stage2_skill_runtime,
     installed_stage2_skill_sha256,
 )
-from app.providers.ai.codex_image import CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError
+from app.providers.ai.codex_image import (
+    CodexImageGenRunner, CodexImageRunnerConfig, CodexImageProviderError,
+    SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256,
+)
+from app.modules.image_generation.providers import PreparedImage, GeneratedImageResult
+from app.modules.realistic_review_ugc.slot1_embroidery import (
+    build_slot1_material_pass, finish_slot1_refinement, Slot1EmbroideryQAError,
+)
+from app.modules.realistic_review_ugc.stage2_stock_inpaint import verified_inpaint_result, Stage2InpaintError
 
 # Distinct synthetic source namespace for explicitly selected Products Stage 1 PNGs.
 # Reviews Stage 2 uses real Drive source files and the embroidery_ prefix.
@@ -133,15 +141,47 @@ def effective_status(row: RrugcColorwayJobModel, processing: ProcessingJobModel 
     return row.status
 
 
-def _codex_runtime_available(settings: Settings) -> bool:
+def _codex_runtime_available(settings: Settings, *, require_skill: bool = True) -> bool:
     """Cheap readiness gate. Provider login/quota still require a live smoke."""
     binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
     home = Path(str(getattr(settings, "CODEX_IMAGE_HOME",
                             "/var/lib/creative-asset-manager/codex"))).resolve()
     return bool(
         shutil.which(binary)
-        and (home / "skills" / DEFAULT_COLORWAY_SKILL / "SKILL.md").is_file()
+        and (not require_skill or (home / "skills" / DEFAULT_COLORWAY_SKILL / "SKILL.md").is_file())
     )
+
+
+def _product_material_ref(session: Session, tenant_id: str, source_plan_id: str,
+                          source_revision: str, preferred_color: str = "natural-black") -> dict:
+    """Reuse one completed native Slot 1 material for all Products hat colors.
+
+    Only tenant/source-revision matched, finished V2 image edits qualify.
+    Reviews Stage 2 never calls this helper.
+    """
+    rows = list(session.scalars(select(RrugcEcommerceJobModel).where(
+        RrugcEcommerceJobModel.tenant_id == tenant_id,
+        RrugcEcommerceJobModel.source_plan_id == source_plan_id,
+        RrugcEcommerceJobModel.source_revision == source_revision,
+        RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+        RrugcEcommerceJobModel.status == "completed",
+        RrugcEcommerceJobModel.skill_name == SLOT1_DIRECT_NAME,
+        RrugcEcommerceJobModel.front_preview_remote_file_id.is_not(None),
+        RrugcEcommerceJobModel.front_preview_design_sha256.is_not(None),
+    ).order_by(RrugcEcommerceJobModel.completed_at.desc()).limit(20)))
+    front = next((row for row in rows if row.color_key == preferred_color), None)
+    if front is None:
+        front = rows[0] if rows else None
+    if front is None:
+        raise ColorwayError("colorway_thread_reference_missing",
+                            "Complete or regenerate Products Slot 1 first to save its native embroidery macro.")
+    return {
+        "material_remote_file_id": front.front_preview_remote_file_id,
+        "material_content_type": front.front_preview_content_type,
+        "material_size_bytes": front.front_preview_size_bytes,
+        "material_design_sha256": front.front_preview_design_sha256,
+        "material_source_job_id": front.id,
+    }
 
 
 class ColorwayService:
@@ -167,10 +207,15 @@ class ColorwayService:
                 available_colors += 1
             except (ColorwayError, OSError):
                 continue
+        # Products use the built-in ImageGen contract without a Skill ZIP.
+        # Reviews retain their historical installed-Skill readiness gate.
+        runtime_ok = (_codex_runtime_available(self.settings)
+                      if workflow == "reviews"
+                      else bool(shutil.which(str(getattr(self.settings, "CODEX_IMAGE_BINARY", "codex") or "codex"))))
         error_code = (
             "colorway_disabled" if not configured else
             "colorway_stock_missing" if available_colors != len(selected_colors) else
-            "colorway_runtime_missing" if not _codex_runtime_available(self.settings) else None
+            "colorway_runtime_missing" if not runtime_ok else None
         )
         return {
             "ready": error_code is None,
@@ -184,16 +229,23 @@ class ColorwayService:
             RrugcColorwayJobModel.tenant_id == tenant_id, RrugcColorwayJobModel.id == job_id,
         ).with_for_update())
 
-    def _enqueue(self, row: RrugcColorwayJobModel, *, front_placement=None) -> None:
+    def _enqueue(self, row: RrugcColorwayJobModel, *, front_placement=None,
+                 pinned_material: dict | None = None) -> None:
         sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_colorway_job",
             ProcessingJobModel.entity_id == row.id,
         )) or 0)
+        if row.skill_source == "internal" and row.skill_name == SLOT1_DIRECT_NAME:
+            material_ref = pinned_material or _product_material_ref(
+                self.session, row.tenant_id, row.source_plan_id, row.source_revision)
+        else:
+            material_ref = None
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_colorway_job",
             entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
             payload={"colorway_job_id": row.id,
+                     **({"thread_material_pipeline": "v1", **material_ref} if material_ref else {}),
                      **({"front_placement": front_placement} if front_placement is not None else {})},
             priority=20, max_attempts=3,
             provider_key="codex", provider_scope="ai",
@@ -221,14 +273,19 @@ class ColorwayService:
                 503,
             )
         try:
-            skill = resolve_stage2_skill(
-                settings=self.settings, skill_source=skill_source, skill_id=skill_id,
-                skill_name=skill_name, skill_version=skill_version,
-                fallback_skill_name=DEFAULT_COLORWAY_SKILL,
-            )
-            ensure_skill_registry(self.session, tenant_id=tenant_id)
-            assert_skill_enabled(self.session, tenant_id=tenant_id, source=skill.source,
-                                 skill_id=skill.skill_id, skill_name=skill.skill_name)
+            if workflow == "products":
+                from types import SimpleNamespace
+                skill = SimpleNamespace(source="internal", skill_id=None,
+                                        skill_name=SLOT1_DIRECT_NAME, skill_version=SLOT1_DIRECT_VERSION)
+            else:
+                skill = resolve_stage2_skill(
+                    settings=self.settings, skill_source=skill_source, skill_id=skill_id,
+                    skill_name=skill_name, skill_version=skill_version,
+                    fallback_skill_name=DEFAULT_COLORWAY_SKILL,
+                )
+                ensure_skill_registry(self.session, tenant_id=tenant_id)
+                assert_skill_enabled(self.session, tenant_id=tenant_id, source=skill.source,
+                                     skill_id=skill.skill_id, skill_name=skill.skill_name)
         except Stage2SkillRegistryError as exc:
             raise ColorwayError(exc.code, exc.message, exc.status_code) from exc
 
@@ -253,6 +310,10 @@ class ColorwayService:
         ):
             raise ColorwayError("colorway_source_invalid",
                                 "Only available JPG/PNG design files from the configured Drive source can be generated.", 422)
+        if workflow == "products":
+            # Fail before queuing any color if native material is absent.
+            for plan in plans:
+                _product_material_ref(self.session, tenant_id, plan.id, plan.source_revision)
         existing = {(j.source_plan_id, j.source_revision, j.color_key) for j in self.session.scalars(
             select(RrugcColorwayJobModel).where(
                 RrugcColorwayJobModel.tenant_id == tenant_id,
@@ -270,7 +331,8 @@ class ColorwayService:
                     stock_sha256=stock_digests[color_key],
                     skill_source=skill.source, skill_id=skill.skill_id,
                     skill_name=skill.skill_name, skill_version=skill.skill_version,
-                    skill_bundle_sha256=installed_stage2_skill_sha256(skill.skill_name, settings=self.settings),
+                    skill_bundle_sha256=(SLOT1_DIRECT_SHA256 if workflow == "products" else
+                                         installed_stage2_skill_sha256(skill.skill_name, settings=self.settings)),
                     created_by_user_id=user_id, status="queued",
                 )
                 self.session.add(row)
@@ -302,6 +364,10 @@ class ColorwayService:
         # Retry, in contrast, must keep the original SHA pinned.
         current_stock_sha = hashlib.sha256(_stock_bytes(self.settings, row.color_key)).hexdigest()
         row.stock_sha256 = current_stock_sha
+        if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT:
+            row.skill_source, row.skill_id = "internal", None
+            row.skill_name, row.skill_version = SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION
+            row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
         row.retry_count = 0
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
@@ -336,7 +402,12 @@ class ColorwayService:
         row.last_error_code = row.last_error_message = None
         previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
         old_placement = (previous.payload_json or {}).get("front_placement") if previous else None
-        self._enqueue(row, front_placement=old_placement)
+        previous_material = {k: v for k, v in ((previous.payload_json or {}) if previous else {}).items()
+                             if k in {"material_remote_file_id", "material_content_type",
+                                      "material_size_bytes", "material_design_sha256",
+                                      "material_source_job_id"}}
+        self._enqueue(row, front_placement=old_placement,
+                      pinned_material=previous_material or None)
         self.session.commit()
         self.session.refresh(row)
         return row
@@ -441,11 +512,18 @@ class ColorwayGenerateHandler:
                 RrugcSourcePlanModel.id == row.source_plan_id))
             if plan is None or plan.status == "missing" or plan.source_revision != row.source_revision:
                 raise ColorwayError("colorway_source_changed", "Source design changed since queueing.")
-            verify_stage2_skill_runtime(settings=settings, skill_source=row.skill_source,
-                                         skill_id=row.skill_id, skill_name=row.skill_name,
-                                         skill_version=row.skill_version)
-            if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
-                raise ColorwayError("colorway_skill_changed", "Selected Skill changed since queueing.")
+            builtin_product = (plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT
+                               and row.skill_source == "internal"
+                               and row.skill_name == SLOT1_DIRECT_NAME)
+            if builtin_product:
+                if (row.skill_version, row.skill_bundle_sha256) != (SLOT1_DIRECT_VERSION, SLOT1_DIRECT_SHA256):
+                    raise ColorwayError("colorway_inpaint_version_changed", "Pinned built-in pipeline changed.")
+            else:
+                verify_stage2_skill_runtime(settings=settings, skill_source=row.skill_source,
+                                             skill_id=row.skill_id, skill_name=row.skill_name,
+                                             skill_version=row.skill_version)
+                if row.skill_bundle_sha256 != installed_stage2_skill_sha256(row.skill_name, settings=settings):
+                    raise ColorwayError("colorway_skill_changed", "Selected Skill changed since queueing.")
             stock_data = _stock_bytes(settings, row.color_key)
             if hashlib.sha256(stock_data).hexdigest() != row.stock_sha256:
                 raise ColorwayError("colorway_stock_changed", "The pinned stock photo changed since queueing.")
@@ -456,6 +534,20 @@ class ColorwayGenerateHandler:
             # Copy mode while SQLAlchemy's plan is still attached to the session.
             # Do not dereference the ORM row after the transaction is closed.
             is_products_colorway = plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT
+            material_pin = dict(context.job.payload) if builtin_product else None
+            if builtin_product:
+                front = session.scalar(select(RrugcEcommerceJobModel).where(
+                    RrugcEcommerceJobModel.id == material_pin.get("material_source_job_id"),
+                    RrugcEcommerceJobModel.tenant_id == row.tenant_id,
+                    RrugcEcommerceJobModel.source_plan_id == plan.id,
+                    RrugcEcommerceJobModel.source_revision == plan.source_revision,
+                    RrugcEcommerceJobModel.stage == "prod_s2_ec1",
+                    RrugcEcommerceJobModel.skill_name == SLOT1_DIRECT_NAME,
+                ))
+                if (front is None or not front.front_preview_remote_file_id
+                        or front.front_preview_remote_file_id != material_pin.get("material_remote_file_id")
+                        or front.front_preview_design_sha256 != material_pin.get("material_design_sha256")):
+                    raise ColorwayError("colorway_thread_reference_changed", "Pinned Slot 1 material reference is unavailable.")
             row.status = "running"
             row.started_at = row.started_at or datetime.now(timezone.utc)
             session.commit()
@@ -475,6 +567,35 @@ class ColorwayGenerateHandler:
             await stream.close()
         stock = _prepared_image(stock_data)
         design = _prepared_image(bytes(source_bytes))
+        slot7_material = None
+        if builtin_product:
+            if hashlib.sha256(bytes(source_bytes)).hexdigest() != material_pin["material_design_sha256"]:
+                raise ColorwayError("colorway_thread_design_changed", "Native material belongs to another design revision.")
+            stream = await storage.open_asset(OpenStoredAssetInput(
+                tenant_id=context.job.tenant_id,
+                asset_id="rrugc-colorway-native-material:" + source_id,
+                remote_file_id=material_pin["material_remote_file_id"],
+                content_type=material_pin["material_content_type"],
+                size_bytes=material_pin["material_size_bytes"],
+            ))
+            macro = bytearray()
+            try:
+                async for chunk in stream.body:
+                    macro.extend(chunk)
+                    if len(macro) > MAX_REFERENCE_BYTES:
+                        raise ColorwayError("colorway_thread_material_large", "Material exceeds safe input size.")
+            finally:
+                await stream.close()
+            try:
+                from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
+                material_png = native_thread_macro(bytes(macro))
+            except Stage2InpaintError as exc:
+                raise ColorwayError("colorway_thread_material_invalid", str(exc)) from exc
+            slot7_material = build_slot1_material_pass(
+                stock_data, bytes(source_bytes),
+                job_front_placement(context.job.payload.get("front_placement")),
+                contact_width_px=3, localized_edit=True, clean_soft_shadow=True,
+            )
         prompt = (
             "Apply the embroidery from the design reference to the FRONT CENTER of the "
             f"Valucap 8869 five-panel twill cap shown in the base stock photo. Official cap color: {color_name}. "
@@ -495,7 +616,27 @@ class ColorwayGenerateHandler:
             prompt += " " + front_placement_prompt(pinned_placement)
             prompt += " " + embroidery_prompt_for_product_slot("prod_s2_col")
         references = [ReferenceImageInput(image=design, role="design_reference", label="embroidery")]
-        if is_products_colorway:
+        if builtin_product:
+            rw, rh = slot7_material.edit_canvas_size
+            stock = PreparedImage(image_bytes=slot7_material.model_edit_target_png(),
+                                  mime_type="image/png", width=rw, height=rh)
+            references.extend([
+                ReferenceImageInput(image=PreparedImage(
+                    image_bytes=slot7_material.edit_mask_png(), mime_type="image/png",
+                    width=rw, height=rh), role="slot1_edit_mask",
+                    label="white thread contact area only; black factory stock protected"),
+                ReferenceImageInput(image=PreparedImage(
+                    image_bytes=slot7_material.placement_guide_png(), mime_type="image/png",
+                    width=rw, height=rh), role="slot1_layout_guide",
+                    label="locked text, colors, geometry and placement; not edit target"),
+                ReferenceImageInput(image=material_png,
+                    role="slot1_thread_material_reference",
+                    label="saved native Pass A satin thread reference from Slot 1; material only"),
+            ])
+            prompt = ("Inpaint the verified native low-relief satin machine-thread material "
+                      f"onto ORIGINAL {color_name} factory stock photo. Keep all stock pixels outside "
+                      "the embroidery mask. Do not reinterpret lettering or adapt pigment to cap color.")
+        elif is_products_colorway:
             master = render_front_reference(
                 stock_data, bytes(source_bytes),
                 guide=tuple(pinned_placement[key] for key in ("left", "top", "width", "height")),
@@ -511,7 +652,7 @@ class ColorwayGenerateHandler:
             with context.dependencies.session_factory() as pool_session:
                 with acquire_worker_profile(
                     pool_session, context.job.tenant_id, "stage2",
-                    primary_home, binary, skill_name,
+                    primary_home, binary, None if builtin_product else skill_name,
                 ) as (account_id, selected_home):
                     pool_session.commit()
                     context.logger.info("rrugc_codex_pool_dispatch", extra={
@@ -522,7 +663,9 @@ class ColorwayGenerateHandler:
                         binary=binary,
                         codex_home=selected_home,
                         staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
-                        skill_name=skill_name, timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+                        skill_name=skill_name,
+                        output_contract=("stage2_stock_inpaint_single" if builtin_product else "single_png"),
+                        timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                         model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
                     ))
                     try:
@@ -539,6 +682,26 @@ class ColorwayGenerateHandler:
             return DeferredJobOutcome(
                 "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
                 datetime.now(timezone.utc) + timedelta(seconds=60),
+            )
+        if builtin_product:
+            try:
+                verified_inpaint_result(stock.image_bytes, generated, "stock")
+                final_png = finish_slot1_refinement(
+                    slot7_material, generated.image_bytes, clip_raw_halo=True,
+                    require_raw_stock=True, fine_thread_profile=True,
+                )
+            except (Slot1EmbroideryQAError, Stage2InpaintError) as exc:
+                raise RrugcGenerationHandlerError(
+                    "colorway_thread_inpaint_qa_failed", str(exc), retryable=False,
+                ) from exc
+            generated = GeneratedImageResult(
+                provider="codex", model=generated.model, image_bytes=final_png,
+                mime_type="image/png", provider_metadata={
+                    **(generated.provider_metadata or {}),
+                    "thread_material_remote_file_id": material_pin["material_remote_file_id"],
+                    "stock_outside_thread_preserved": True,
+                    "native_passes": 1,
+                },
             )
         try:
             if len(generated.image_bytes) > MAX_REFERENCE_BYTES:

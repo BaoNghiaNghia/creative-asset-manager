@@ -25,12 +25,16 @@ def test_new_color_does_not_reuse_an_existing_completed_front(ecommerce_db, monk
     assert {row.color_key for row in session.scalars(select(RrugcEcommerceJobModel))} == {
         "natural-black", "natural-red"
     }
-    with pytest.raises(EcommerceError, match="Skill 1"):
+    with pytest.raises(EcommerceError, match="Slot 1"):
         service.queue(tenant_id="tenant-001", user_id="operator",
                       source_plan_id="plan-001", stage="prod_s2_ec3", color_key="natural-red")
     new_front = session.get(RrugcEcommerceJobModel, new["job_id"])
     new_front.status = "completed"
     new_front.output_remote_file_id = "red-front-only"
+    new_front.front_preview_remote_file_id = "red-native-thread-macro"
+    new_front.front_preview_content_type = "image/png"
+    new_front.front_preview_size_bytes = 2300
+    new_front.front_preview_design_sha256 = "d" * 64
     session.commit()
     side = service.queue(tenant_id="tenant-001", user_id="operator",
                          source_plan_id="plan-001", stage="prod_s2_ec3", color_key="natural-red")

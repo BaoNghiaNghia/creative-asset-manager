@@ -286,13 +286,13 @@ export function EmbroideryColorwayStage({
   const plannedOutputs = data.total * (workflow === "products" ? PRODUCTS_COLOR_SLOT_COUNT + 10 : COLOR_SLOT_COUNT);
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
-  const ready = Boolean(selectedSkill?.ready);
+  const ready = workflow === "products" || Boolean(selectedSkill?.ready);
   const canQueue = executionReady && Boolean(serverReadiness?.ready) && ready && selectedIds.size > 0 && !queueing;
   const readinessWarning = serverReadiness && !serverReadiness.ready
     ? serverReadiness.error_code === "colorway_stock_missing"
       ? "Missing or invalid stock photos: " + serverReadiness.stock_ready_count + "/" + serverReadiness.stock_total_count + " verified."
       : serverReadiness.error_code === "colorway_runtime_missing"
-        ? "Codex CLI or the 8869 scale Skill is missing from the server runtime."
+        ? (workflow === "products" ? "Codex ImageGen runtime is missing." : "Codex CLI or the 8869 scale Skill is missing from the server runtime.")
         : "The image generation service is not enabled for Stage 2."
     : readinessMessage;
   const pagePlanIds = data.items.map(item => item.id);
@@ -421,14 +421,14 @@ export function EmbroideryColorwayStage({
     }
   };
   const queueSelected = async () => {
-    if (!skillInput || !canQueue) return;
+    if ((workflow !== "products" && !skillInput) || !canQueue) return;
     setQueueing(true);
     setJobMessage("");
     try {
       const ids = Array.from(selectedIds);
       let queued = 0;
       for (let start = 0; start < ids.length; start += 50) {
-        const result = await queueColorwayBatch(ids.slice(start, start + 50), skillInput, workflow);
+        const result = await queueColorwayBatch(ids.slice(start, start + 50), workflow === "products" ? null : skillInput, workflow);
         queued += result.queued;
       }
       await refreshJobs();
@@ -438,13 +438,13 @@ export function EmbroideryColorwayStage({
     } finally { setQueueing(false); }
   };
   const queueOneColorway = async (planId: string, retryFailedJobs = false) => {
-    if (!skillInput || !executionReady || !serverReadiness?.ready || queueing || queueingPlanId) {
+    if (!executionReady || !serverReadiness?.ready || queueing || queueingPlanId) {
       return { queued: 0, existing: 0, error: "12 Hat Colors is not ready or another batch is already running." };
     }
     setQueueingPlanId(planId);
     setJobMessage("");
     try {
-      const result = await queueColorwayBatch([planId], skillInput, "products");
+      const result = await queueColorwayBatch([planId], null, "products");
       let retried = 0;
       const retryErrors: string[] = [];
       if (retryFailedJobs) {
@@ -664,9 +664,9 @@ export function EmbroideryColorwayStage({
               onEcommerceJobChange={refreshEcommerceJobs}
               configuredSkillNames={productStage2SkillNames}
               colors={Array.from(byPlan.get(activeProductPlan.id)?.values() || [])}
-              colorwaySkillName={selectedSkill?.display_name || selectedSkill?.skill_name}
-              colorwaySkillKey={selectedSkillKey}
-              colorwaySkillSelection={skillInput}
+              colorwaySkillName="Built-in · Satin Inpaint"
+              colorwaySkillKey=""
+              colorwaySkillSelection={null}
               colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}
               colorwaySkillOptions={catalog.items.map(skill => ({
                 value: skillKey(skill),
@@ -674,7 +674,7 @@ export function EmbroideryColorwayStage({
                 ready: skill.ready,
               }))}
               onColorwaySkillChange={setSelectedSkillKey}
-              colorwayReady={Boolean(skillInput && executionReady && serverReadiness?.ready)}
+              colorwayReady={Boolean(executionReady && serverReadiness?.ready)}
               colorwayRunning={Boolean(queueing || queueingPlanId || retryingId)}
               onQueueColors={retryFailedJobs => queueOneColorway(activeProductPlan.id, Boolean(retryFailedJobs))}
               onRetryColor={job => void retryFailed(job)}
