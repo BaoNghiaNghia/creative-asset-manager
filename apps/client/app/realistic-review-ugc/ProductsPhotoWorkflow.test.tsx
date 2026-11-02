@@ -139,7 +139,7 @@ describe("Products Stage 2 photo workflow", () => {
     for (const slot of ["prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4", "prod_s2_mh", "prod_s2_ugc", "colorway"]) {
       expect(html).toContain('data-skill="' + slot + '"');
     }
-    expect(html).toContain("Pipeline 7");
+    expect(html).toContain("ThreadTransfer V2 · Colorways");
     expect((html.match(/rrugc-products-photo-empty-shot/g) || []).length).toBe(11);
     expect((html.match(/rrugc-colorway-slot is-pending/g) || []).length).toBe(12);
     expect(html).not.toContain("Completed · 10/10");
@@ -186,14 +186,14 @@ describe("Products Stage 2 photo workflow", () => {
     for (const skill of ["multihat-v2", "ugc-v3"]) {
       expect(html).toContain(skill);
     }
-    expect(html).toContain("Built-in · Satin Thread Inpaint");
+    expect(html).toContain("ThreadTransfer V2 · 3/4 projection");
     expect(html).toContain("Built-in · Original Back Stock");
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
     expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');
     expect(html).not.toContain(">Last updated:");
     expect(html).not.toContain(">Duration:");
-    expect(html).toContain('title="Built-in · Satin Inpaint"');
-    expect(html).toContain('<strong>Built-in · Satin Inpaint</strong>');
+    expect(html).toContain('title="ThreadTransfer V2 · Colorways"');
+    expect(html).toContain('<strong>ThreadTransfer V2 · Colorways</strong>');
     expect(html).not.toContain('aria-label="12 Hat Colors skill for design.png"');
     expect(html).toContain("Not generated · Open all 12 outputs");
   });

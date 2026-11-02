@@ -30,9 +30,9 @@ type StepDefinition = {
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "embroidered_front" }], inputInstruction: "Edit the verified 3/4 stock image of the selected hat color. Keep its camera, crown, visor, seams, lighting, background and factory branding unchanged; add only realistic front embroidery in natural perspective." },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front embroidered reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "Hat Side90 Embroidery: preserve the design, scaled for the visible side perspective, without inventing lettering." },
-  { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "GatorHats 8869 Front to Back: use the real back stock image; do not invent rear embroidery." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Locally project fine yarn from the saved Embroidery Reference onto the original official 3/4 stock front crown. No ImageGen, no reshot cap; outside the narrow front field, factory pixels are unchanged." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "Show only the small front-edge portion of the original embroidery visible from a true side angle. Local raster projection; factory side branding and cap pixels outside the front-edge field remain untouched." },
+  { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
   ] },
@@ -466,8 +466,10 @@ export function ProductsPhotoWorkflow({
         const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
           ? "ThreadTransfer V1 · Raster placement"
+          : step.key === "prod_s2_ec2" ? "ThreadTransfer V2 · 3/4 projection"
+          : step.key === "prod_s2_ec3" ? "ThreadTransfer V2 · Front-edge projection"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
-          : isBuiltInPhoto ? "Built-in · Satin Thread Inpaint" : configured || step.skillName;
+          : configured || step.skillName;
         const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
         const isEcommerce = index < 4;
         const slotInputs = inputs?.source_plan_id === sourcePlanId && inputs?.color_key === selectedColor
@@ -476,7 +478,8 @@ export function ProductsPhotoWorkflow({
           key: input.kind,
           label: input.label,
           src: input.kind === "design" ? stage2OriginalUrl(designSrc) : input.kind === "embroidered_front"
-            ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
+            ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.embroidery_reference_url
+              || jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
             : input.kind === "angle" ? (selectedStockViews?.["three-quarter"] || "")
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
@@ -539,7 +542,9 @@ export function ProductsPhotoWorkflow({
           : phase === "retry" ? (isBuiltInFront && shotJob?.embroidery_reference_url ? "Retry Placement" : "Retry")
           : phase === "failed" ? "Failed" : phase === "ready"
             ? isBuiltInFront ? "Apply to Cap"
-              : sceneJobs.some(job => job.status === "completed") ? "Continue" : "Run"
+              : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3" ? "Apply to View"
+              : step.key === "prod_s2_ec4" ? "Use Stock"
+              : sceneJobs.some(job => job.status === "completed") ? "Continue" : "Render Scene"
           : phase === "checking" ? "Checking…" : blockLabel;
         return <div key={step.key} className="rrugc-products-photo-stage-row" data-skill={step.key} data-state={phase}>
           <div className="rrugc-products-photo-stage-controls">
@@ -568,7 +573,11 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
-            <div><strong>{isBuiltInFront ? "ThreadTransfer · Front Cap" : configured && isEcommerce ? "Ecommerce" : step.title}</strong><small>{isBuiltInFront ? "Reference + Cap Front" : configured && isEcommerce ? step.shots[0].label : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
+            <div><strong>{isBuiltInFront ? "ThreadTransfer · Front Cap"
+              : step.key === "prod_s2_ec2" ? "ThreadTransfer · 3/4"
+              : step.key === "prod_s2_ec3" ? "ThreadTransfer · Side"
+              : step.key === "prod_s2_ec4" ? "Original Back Stock" : step.title}</strong><small>{isBuiltInFront ? "Reference + Cap Front" : configured && isEcommerce ? step.shots[0].label
+                : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
           </div>
           <div className="rrugc-products-photo-output-strip" role="group" aria-label={step.title + " output slots"}>
             {isBuiltInFront && [
@@ -607,7 +616,7 @@ export function ProductsPhotoWorkflow({
             })}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
-            <span>{isBuiltInFront ? "Method" : isBuiltInPhoto ? "Pipeline " + (index + 1) : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
+            <span>{isBuiltInPhoto ? "Method" : "Scene Skill"}</span><strong>{skillName}</strong>
           <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
               <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
             </time>
@@ -639,7 +648,7 @@ export function ProductsPhotoWorkflow({
                 })}
               </div>
               <p>{step.inputInstruction}</p>
-              <small>Inputs are verified on the server. Skill 2 edits the pinned 3/4 stock photograph directly; it never synthesizes the cap angle from front/side. A completed Front output is required for design continuity.</small>
+              <small>Inputs are verified on the server. Slots 2–3 transfer saved yarn onto the pinned official stock without another ImageGen call. Slot 4 reuses original back stock. Completed Slot 1 and its reference must already exist for 2–3.</small>
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
@@ -716,13 +725,16 @@ export function ProductsPhotoWorkflow({
               <strong>{skillName}</strong>
               <p>{isBuiltInFront
                 ? "ThreadTransfer V1: save a photographic Embroidery Reference once; extract only its yarn pixels and composite locally onto the unedited factory cap crown. No Skill ZIP and no image-generation call for Retry Placement."
+                : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
+                  ? "ThreadTransfer V2 locally transfers saved real yarn pixels onto the pinned official angle stock. No extra ImageGen, no Codex account lease and no generated hat replacement. Side only reveals the front-edge embroidery."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto
-                    ? "Reuses Slot 1's verified satin thread macro to inpaint embroidery onto the original factory photo, protecting every pixel outside the crown edit zone."
+                    ? "Reuses the verified Slot 1 Embroidery Reference as a local raster transfer onto the original factory stock, protecting pixels outside the small front-crown region."
                     : "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."}</p>
             </div>}
             <div className="rrugc-products-photo-detail-actions">
+            {!isEcommerce && <small>One scene render per output using the saved Embroidery Reference. No second material or thread-refinement ImageGen pass. Scene composition still requires the assigned Skill.</small>}
             {isEcommerce && !isBuiltInPhoto && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
             {shotJob && (!isBuiltInFront || !shotJob.embroidery_reference_url)
               && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
@@ -810,8 +822,8 @@ export function ProductsPhotoWorkflow({
               title={colorName + " · " + (job?.status || "Not generated") + " · Open all 12 outputs"}>{content}</button>;
           })}
         </div>
-        <div className="rrugc-products-photo-skill" title="Built-in · Satin Inpaint">
-          <span>Pipeline 7</span><strong>Built-in · Satin Inpaint</strong>
+        <div className="rrugc-products-photo-skill" title="ThreadTransfer V2 · Colorways">
+          <span>Method</span><strong>ThreadTransfer V2 · Colorways</strong>
         <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
             <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
           </time>
@@ -825,8 +837,8 @@ export function ProductsPhotoWorkflow({
           })()}</span></span></div>
 
         {expandedStep === "colorway" && <div id="rrugc-stage2-details-colorway" className="rrugc-products-photo-stage-detail">
-          <div><strong>Built-in · Reuse Slot 1 satin thread material</strong>
-            <p>Inpaint the same verified thread reference onto each of the 12 original Natural-series cap photos. No uploaded Skill ZIP is necessary. Select a thumbnail to see versions or retry failed outputs.</p></div>
+          <div><strong>ThreadTransfer V2 · Reuse saved Embroidery Reference</strong>
+            <p>Transfer the saved Slot 1 yarn reference onto each original official Natural-series front stock photo. Local raster only; zero ImageGen calls for colorway outputs. Select a thumbnail to inspect versions or retry failures.</p></div>
           <button type="button" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT}
             onClick={() => { void onQueueColors?.(false); }}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
           {!!colors.length && onOpenLog && <select aria-label={"Hat color skill logs for " + sourceName} value=""

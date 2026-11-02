@@ -36,6 +36,7 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
 )
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
 from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
+from app.modules.realistic_review_ugc.threadtransfer_stock import composite_reference_on_stock_view
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -407,12 +408,17 @@ class EcommerceService:
         # A saved reference makes V2.4 Retry Placement a CPU-only compositor.
         # Do not subject it to Codex provider quota/policy admission controls.
         local_transfer = bool(
-            row.stage == "prod_s2_ec1"
-            and row.skill_name == SLOT1_DIRECT_NAME
-            and row.skill_version == SLOT1_DIRECT_VERSION
-            and row.front_preview_remote_file_id
-            and row.front_preview_design_sha256
-            and not regenerate_material_reference
+            (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
+            or (row.stage == "prod_s2_ec1"
+                and row.skill_name == SLOT1_DIRECT_NAME
+                and row.skill_version == SLOT1_DIRECT_VERSION
+                and row.front_preview_remote_file_id
+                and row.front_preview_design_sha256
+                and not regenerate_material_reference)
+            or (row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
+                and row.skill_name == SLOT1_DIRECT_NAME
+                and row.front_preview_remote_file_id
+                and row.front_preview_design_sha256)
         )
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
@@ -421,9 +427,12 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v1"} if (
-                    row.stage in {"prod_s2_ec2", "prod_s2_ec3"} and row.skill_source == "internal"
-                    or row.stage in SCENE_STAGE_SLOTS and row.front_reference_remote_file_id
+                **({"thread_material_pipeline": "v2"} if (
+                    row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
+                    and row.skill_source == "internal"
+                    and row.front_preview_remote_file_id
+                    or row.stage in SCENE_STAGE_SLOTS
+                    and row.front_reference_remote_file_id
                     and row.front_preview_remote_file_id
                 ) else {}),
                 **({"front_placement": front_placement} if front_placement is not None else {}),
@@ -1443,7 +1452,7 @@ class EcommerceGenerateHandler:
             front_asset = None
             if row.stage in ("prod_s2_ec2", "prod_s2_ec3") or (
                 row.stage in SCENE_STAGE_SLOTS and
-                (context.job.payload.get("thread_material_pipeline") == "v1")
+                (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
                 if not row.front_reference_remote_file_id:
                     raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front input is missing.")
@@ -1472,8 +1481,11 @@ class EcommerceGenerateHandler:
         is_threadtransfer = is_reference and pinned_reference_version == SLOT1_DIRECT_VERSION
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
-        material_transfer = context.job.payload.get("thread_material_pipeline") == "v1"
+        transfer_mode = context.job.payload.get("thread_material_pipeline")
+        material_transfer = transfer_mode in ("v1", "v2")
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
+        local_stock = builtin_stock and transfer_mode == "v2"
+        scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
         builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
@@ -1703,6 +1715,15 @@ class EcommerceGenerateHandler:
             "colors and hardware strictly consistent with the official reference photos. "
             "The approved GatorHats side branding is allowed only on the visible side of the cap; no unrelated logos, added decorations, invented slogans or merged panels."
         )
+        if scene_one_pass:
+            prompt += (
+                " SINGLE GENERATION: compose the entire original scene AND embed"
+                " the supplied saved photographic fine-thread Embroidery Reference"
+                " on the visible front crowns in this same render. Preserve the"
+                " exact source letters, colors, low-profile yarn and cap fabric."
+                " Do not stamp a full slogan on side/back hats, and do not"
+                " reconstruct a different logo. No second image edit."
+            )
         if is_lite:
             # Actual fabric-first two-pass EDIT; person is the UNPRINTED
             # original cap ROI. The separate guide freezes text layout/colors.
@@ -1744,7 +1765,38 @@ class EcommerceGenerateHandler:
                                    "/var/lib/creative-asset-manager/codex"))
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
-        if (is_threadtransfer and preview_remote_id
+        if local_stock:
+            # Deterministic 3/4 and side projection: use exactly the pinned
+            # photographic material reference and original official stock.
+            pinned = next((ref for ref in references
+                           if ref.role == "slot1_thread_material_reference"), None)
+            if pinned is None:
+                raise EcommerceError("ecommerce_thread_material_missing",
+                                     "Slot 1 Embroidery Reference was not pinned.")
+            try:
+                transferred = composite_reference_on_stock_view(
+                    refs[0][1], pinned.image.image_bytes, stage=stage,
+                    design_size=job_front_placement(
+                        context.job.payload.get("front_placement")
+                    ).get("design_size", 100),
+                )
+            except Slot1EmbroideryQAError as exc:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_threadtransfer_angle_qa_failed", str(exc), retryable=False,
+                ) from exc
+            generated = GeneratedImageResult(
+                provider="codex", model=None,
+                image_bytes=transferred.output_png, mime_type="image/png",
+                provider_metadata={
+                    "transfer_engine": "threadtransfer-v2-angle",
+                    "native_passes": 0,
+                    "thread_layer_sha256": transferred.thread_layer_sha256,
+                    "transfer_box": list(transferred.target_box),
+                    "reference_sha256": hashlib.sha256(pinned.image.image_bytes).hexdigest(),
+                    "original_stock_pixels_protected": True,
+                },
+            )
+        elif (is_threadtransfer and preview_remote_id
                 and preview_design_sha == design_sha
                 and context.job.payload.get("regenerate_material_reference") is not True):
             # Saved reference is sufficient. Do not even acquire a Codex
@@ -1813,8 +1865,8 @@ class EcommerceGenerateHandler:
                         )
                 finally:
                     runner.cleanup_attempt(context.job.entity_id)
-                if material_transfer and stage in SCENE_STAGE_SLOTS:
-                    # Scene Skill owns composition only. Native Pass B refines
+                if material_transfer and stage in SCENE_STAGE_SLOTS and not scene_one_pass:
+                    # Historical v1 Scene Skill owns composition only. Native Pass B refines
                     # actual thread on its finished photo without reshooting it.
                     from app.modules.realistic_review_ugc.stage2_stock_inpaint import (
                         verified_inpaint_result,
@@ -1863,7 +1915,7 @@ class EcommerceGenerateHandler:
         # QA failure retries the image job; it never stores a fake success.
         output_bytes = generated.image_bytes
         output_mime = generated.mime_type
-        if builtin_stock:
+        if builtin_stock and not local_stock:
             from app.modules.realistic_review_ugc.stage2_stock_inpaint import (
                 Stage2InpaintError, composite_original_stock,
             )
@@ -1995,12 +2047,18 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": "reference-reuse-v1",
+                                    "version": ("threadtransfer-v2-angle" if local_stock else
+                                                "scene-single-pass-v2" if scene_one_pass else
+                                                "reference-reuse-v1"),
                                     "material_remote_file_id": row.front_preview_remote_file_id,
                                     "material_source": "slot1-native-pass-a",
                                     "native_sha256": generated.provider_metadata.get("native_sha256"),
+                                    "native_passes": generated.provider_metadata.get("native_passes", 1),
+                                    "thread_layer_sha256": generated.provider_metadata.get("thread_layer_sha256"),
+                                    "transfer_box": generated.provider_metadata.get("transfer_box"),
                                     "original_stock_pixels_protected": bool(builtin_stock or builtin_back),
-                                    "scene_photo_preserved_by_edit_gate": bool(stage in SCENE_STAGE_SLOTS),
+                                    "scene_photo_preserved_by_edit_gate": bool(
+                                        stage in SCENE_STAGE_SLOTS and not scene_one_pass),
                                 }} if material_transfer else {}),
                                 "input_reference_snapshot": {
                                     "source_revision": row.source_revision,

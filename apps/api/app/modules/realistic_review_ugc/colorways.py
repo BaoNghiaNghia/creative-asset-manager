@@ -53,6 +53,7 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
     build_slot1_material_pass, finish_slot1_refinement, Slot1EmbroideryQAError,
 )
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import verified_inpaint_result, Stage2InpaintError
+from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
 
 # Distinct synthetic source namespace for explicitly selected Products Stage 1 PNGs.
 # Reviews Stage 2 uses real Drive source files and the embroidery_ prefix.
@@ -211,9 +212,9 @@ class ColorwayService:
                 continue
         # Products use the built-in ImageGen contract without a Skill ZIP.
         # Reviews retain their historical installed-Skill readiness gate.
-        runtime_ok = (_codex_runtime_available(self.settings)
-                      if workflow == "reviews"
-                      else bool(shutil.which(str(getattr(self.settings, "CODEX_IMAGE_BINARY", "codex") or "codex"))))
+        # Products Slot 7 transfers pinned real thread using local raster;
+        # unlike Reviews it needs no Codex binary or free account quota.
+        runtime_ok = _codex_runtime_available(self.settings) if workflow == "reviews" else True
         error_code = (
             "colorway_disabled" if not configured else
             "colorway_stock_missing" if available_colors != len(selected_colors) else
@@ -247,10 +248,11 @@ class ColorwayService:
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_colorway_job",
             entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
             payload={"colorway_job_id": row.id,
-                     **({"thread_material_pipeline": "v1", **material_ref} if material_ref else {}),
+                     **({"thread_material_pipeline": "v2", **material_ref} if material_ref else {}),
                      **({"front_placement": front_placement} if front_placement is not None else {})},
             priority=20, max_attempts=3,
-            provider_key="codex", provider_scope="ai",
+            provider_key=None if material_ref else "codex",
+            provider_scope=None if material_ref else "ai",
         )
         row.processing_job_id = processing.id
 
@@ -402,6 +404,12 @@ class ColorwayService:
         row.retry_count += 1
         row.status = "queued"
         row.last_error_code = row.last_error_message = None
+        if plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT:
+            # User-initiated retry moves to the local transfer contract;
+            # previously queued attempts retain their pinned v1 payload.
+            row.skill_source, row.skill_id = "internal", None
+            row.skill_name, row.skill_version = SLOT1_DIRECT_NAME, SLOT1_DIRECT_VERSION
+            row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
         previous = self.session.get(ProcessingJobModel, row.processing_job_id) if row.processing_job_id else None
         old_placement = (previous.payload_json or {}).get("front_placement") if previous else None
         previous_material = {k: v for k, v in ((previous.payload_json or {}) if previous else {}).items()
@@ -574,6 +582,7 @@ class ColorwayGenerateHandler:
             await stream.close()
         stock = _prepared_image(stock_data)
         design = _prepared_image(bytes(source_bytes))
+        local_product = builtin_product and context.job.payload.get("thread_material_pipeline") == "v2"
         slot7_material = None
         if builtin_product:
             if hashlib.sha256(bytes(source_bytes)).hexdigest() != material_pin["material_design_sha256"]:
@@ -653,44 +662,70 @@ class ColorwayGenerateHandler:
                 image=_prepared_image(master), role="embroidered_front_preview",
                 label="deterministic front embroidery scale and placement master",
             ))
-        binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
-        primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
-        try:
-            with context.dependencies.session_factory() as pool_session:
-                with acquire_worker_profile(
-                    pool_session, context.job.tenant_id, "stage2",
-                    primary_home, binary, None if builtin_product else skill_name,
-                ) as (account_id, selected_home):
-                    pool_session.commit()
-                    context.logger.info("rrugc_codex_pool_dispatch", extra={
-                        "stage": "stage2", "account_id": account_id,
-                        "job_id": context.job.entity_id, "tenant_id": context.job.tenant_id,
-                    })
-                    runner = CodexImageGenRunner(CodexImageRunnerConfig(
-                        binary=binary,
-                        codex_home=selected_home,
-                        staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
-                        skill_name=skill_name,
-                        output_contract=("stage2_stock_inpaint_single" if builtin_product else "single_png"),
-                        timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
-                        model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
-                    ))
-                    try:
-                        generated = await runner.generate_from_references(
-                            attempt_id=context.job.entity_id, person=stock,
-                            references=references,
-                            prompt=prompt,
-                        )
-                    finally:
-                        runner.cleanup_attempt(context.job.entity_id)
-        except CodexAccountPoolBusy:
-            self._mark_failure(context, "codex_account_pool_busy",
-                               "All eligible Codex worker profiles are busy.")
-            return DeferredJobOutcome(
-                "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
-                datetime.now(timezone.utc) + timedelta(seconds=60),
+        if local_product:
+            try:
+                transferred = composite_reference_on_cap(
+                    slot7_material, bytes(macro),
+                    design_size=job_front_placement(
+                        context.job.payload.get("front_placement")
+                    ).get("design_size", 100),
+                )
+            except Slot1EmbroideryQAError as exc:
+                raise RrugcGenerationHandlerError(
+                    "colorway_threadtransfer_qa_failed", str(exc),
+                    retryable=False,
+                ) from exc
+            generated = GeneratedImageResult(
+                provider="codex", model=None, image_bytes=transferred.output_png,
+                mime_type="image/png", provider_metadata={
+                    "transfer_engine": "threadtransfer-v2-colorway",
+                    "native_passes": 0,
+                    "thread_material_remote_file_id": material_pin["material_remote_file_id"],
+                    "reference_sha256": hashlib.sha256(bytes(macro)).hexdigest(),
+                    "thread_layer_sha256": transferred.thread_layer_sha256,
+                    "transfer_box": list(transferred.target_box),
+                    "stock_outside_thread_preserved": True,
+                },
             )
-        if builtin_product:
+        else:
+            binary = str(getattr(settings, "CODEX_IMAGE_BINARY", "codex") or "codex")
+            primary_home = str(getattr(settings, "CODEX_IMAGE_HOME", "/var/lib/creative-asset-manager/codex"))
+            try:
+                with context.dependencies.session_factory() as pool_session:
+                    with acquire_worker_profile(
+                        pool_session, context.job.tenant_id, "stage2",
+                        primary_home, binary, None if builtin_product else skill_name,
+                    ) as (account_id, selected_home):
+                        pool_session.commit()
+                        context.logger.info("rrugc_codex_pool_dispatch", extra={
+                            "stage": "stage2", "account_id": account_id,
+                            "job_id": context.job.entity_id, "tenant_id": context.job.tenant_id,
+                        })
+                        runner = CodexImageGenRunner(CodexImageRunnerConfig(
+                            binary=binary,
+                            codex_home=selected_home,
+                            staging_root=str(getattr(settings, "IMAGE_GENERATION_STAGING_ROOT", "/var/lib/creative-asset-manager/image-generation")),
+                            skill_name=skill_name,
+                            output_contract=("stage2_stock_inpaint_single" if builtin_product else "single_png"),
+                            timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
+                            model=str(getattr(settings, "CODEX_IMAGE_MODEL", "")).strip() or None,
+                        ))
+                        try:
+                            generated = await runner.generate_from_references(
+                                attempt_id=context.job.entity_id, person=stock,
+                                references=references,
+                                prompt=prompt,
+                            )
+                        finally:
+                            runner.cleanup_attempt(context.job.entity_id)
+            except CodexAccountPoolBusy:
+                self._mark_failure(context, "codex_account_pool_busy",
+                                   "All eligible Codex worker profiles are busy.")
+                return DeferredJobOutcome(
+                    "codex_account_pool_busy", "All eligible Codex worker profiles are busy.",
+                    datetime.now(timezone.utc) + timedelta(seconds=60),
+                )
+        if builtin_product and not local_product:
             try:
                 verified_inpaint_result(stock.image_bytes, generated, "stock")
                 final_png = finish_slot1_refinement(
@@ -751,6 +786,19 @@ class ColorwayGenerateHandler:
                 remote_file_id=stored.remote_file_id, content_type=generated.mime_type,
                 size_bytes=len(generated.image_bytes), width=width, height=height,
                 processing_job_id=getattr(context.job, "id", None),
+                font_info=({"thread_colorway_pipeline": {
+                    "version": ("threadtransfer-v2-colorway" if local_product
+                                else "reference-reuse-v1"),
+                    "native_passes": (generated.provider_metadata or {}).get("native_passes", 1),
+                    "reference_sha256": (generated.provider_metadata or {}).get("reference_sha256"),
+                    "thread_layer_sha256": (generated.provider_metadata or {}).get("thread_layer_sha256"),
+                    "transfer_box": (generated.provider_metadata or {}).get("transfer_box"),
+                    "stock_outside_thread_preserved": True,
+                    "material_remote_file_id": material_pin["material_remote_file_id"],
+                    "material_design_sha256": material_pin["material_design_sha256"],
+                    "stock_sha256": row.stock_sha256,
+                    "source_revision": row.source_revision,
+                }} if builtin_product else None),
             )
             row.status = "completed"
             row.output_remote_file_id = stored.remote_file_id

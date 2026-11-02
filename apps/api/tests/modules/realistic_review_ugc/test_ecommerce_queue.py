@@ -139,6 +139,34 @@ def test_saved_embroidery_reference_retry_is_queued_without_codex_quota(ecommerc
     assert row.output_remote_file_id == "old-front"
 
 
+def test_new_stock_angle_and_back_jobs_bypass_codex_provider(ecommerce_db):
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    first = service.queue(tenant_id="tenant-001", user_id="operator",
+                          source_plan_id="plan-001", stage="prod_s2_ec1")
+    front = session.get(RrugcEcommerceJobModel, first["job_id"])
+    front.status = "completed"
+    front.output_remote_file_id = "completed-front"
+    front.front_preview_remote_file_id = "saved-thread-macro"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_design_sha256 = "a" * 64
+    session.commit()
+    for slot in ("prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4"):
+        queued = service.queue(
+            tenant_id="tenant-001", user_id="operator",
+            source_plan_id="plan-001", stage=slot,
+        )
+        row = session.get(RrugcEcommerceJobModel, queued["job_id"])
+        processing = session.get(ProcessingJobModel, row.processing_job_id)
+        assert processing.provider_key is None
+        assert processing.provider_scope is None
+        if slot in ("prod_s2_ec2", "prod_s2_ec3"):
+            assert processing.payload_json["thread_material_pipeline"] == "v2"
+            assert row.front_preview_remote_file_id == "saved-thread-macro"
+        else:
+            assert "thread_material_pipeline" not in processing.payload_json
+
+
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)

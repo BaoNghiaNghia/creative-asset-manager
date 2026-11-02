@@ -375,6 +375,16 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     output = BytesIO()
     canvas.save(output, "PNG")
     image_bytes = output.getvalue()
+    # Products use a saved textured native reference, never a flat canvas.
+    macro_canvas = Image.new("RGBA", (640, 640), (0, 0, 0, 0))
+    from PIL import ImageDraw
+    yarn = ImageDraw.Draw(macro_canvas)
+    yarn.rectangle((60, 225, 565, 345), fill=(15, 43, 130, 255))
+    for x in range(60, 565, 3):
+        yarn.line((x, 225, x, 345), fill=(35, 68, 175, 255), width=1)
+    macro_output = BytesIO()
+    macro_canvas.save(macro_output, "PNG")
+    macro_bytes = macro_output.getvalue()
     # New Products jobs use a deterministic embroidered-front reference.
     design_canvas = Image.new("RGBA", (240, 120), (0, 0, 0, 0))
     from PIL import ImageDraw
@@ -412,7 +422,7 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
         async def open_asset(self, request):
             assert request.tenant_id == "tenant-a"
             if products_mode and request.remote_file_id == "verified-native-thread-macro":
-                return FakeStream(image_bytes)
+                return FakeStream(macro_bytes)
             assert request.remote_file_id == "drive-" + source.id
             return FakeStream(design_bytes if products_mode else image_bytes)
         async def store_asset(self, request):
@@ -482,11 +492,22 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     completed = db.get(RrugcColorwayJobModel, job.id)
     assert completed.status == "completed"
     assert completed.output_remote_file_id == "stored-output"
+    if products_mode:
+        version = db.query(RrugcImageOutputVersionModel).first()
+        metadata = version.font_info_json["thread_colorway_pipeline"]
+        assert metadata["version"] == "threadtransfer-v2-colorway"
+        assert metadata["native_passes"] == 0
+        assert len(metadata["thread_layer_sha256"]) == 64
+        assert metadata["stock_outside_thread_preserved"] is True
     assert saved_assets[0].destination_folder_id == "folder"
     assert saved_assets[0].filename.startswith("output_" + job.color_key + "_")
-    assert len(saved_assets) == len(generated_calls) == 1
+    assert len(saved_assets) == 1
+    assert len(generated_calls) == (0 if products_mode else 1)
+    if products_mode:
+        assert db.get(ProcessingJobModel, job.processing_job_id).provider_key is None
     assert handler(context).outcome.value == "completed"
-    assert len(saved_assets) == len(generated_calls) == 1
+    assert len(saved_assets) == 1
+    assert len(generated_calls) == (0 if products_mode else 1)
 
 
 def test_source_revision_change_blocks_retry(db):
