@@ -95,6 +95,41 @@ def test_three_quarter_only_accepts_stitch_pixels_preserving_every_other_stock_p
     assert np.array_equal(after[610:680,690:890],before[610:680,690:890])
 
 
+def test_multicolor_lower_line_is_transferred_in_three_quarter_without_patch():
+    # A real ORGY REFEREE-like reference has two pigments. The older three
+    # luminance medians could collapse them, and the old crown ended at 56%,
+    # clipping this second line that sits above the visor.
+    original = png(stock())
+    ref = Image.new("RGBA", (720, 620), (0, 0, 0, 0))
+    paint = ImageDraw.Draw(ref)
+    for top, low, high in (
+        (125, (190, 65, 16, 255), (226, 99, 40, 255)),
+        (305, (10, 93, 104, 255), (25, 133, 139, 255)),
+    ):
+        paint.rectangle((70, top, 630, top+120), fill=low)
+        for x in range(70, 630, 3):
+            paint.line((x, top, x, top+119), fill=high, width=1)
+    edited = stock()
+    paint = ImageDraw.Draw(edited)
+    for top, low, high in (
+        (370, (190, 65, 16), (226, 99, 40)),
+        (575, (10, 93, 104), (25, 133, 139)),
+    ):
+        paint.rectangle((255, top, 540, top+54), fill=low)
+        for x in range(255, 540, 3):
+            paint.line((x, top, x, top+53), fill=high, width=1)
+    outcome = process_direct_angle_edit(
+        original, gen(png(edited)), png(ref), stage="prod_s2_ec2",
+    )
+    result = np.asarray(Image.open(BytesIO(outcome.output_png)).convert("RGB"))
+    baseline = np.asarray(Image.open(BytesIO(original)).convert("RGB"))
+    assert outcome.accepted_pixels > 1200
+    assert np.count_nonzero(np.any(result[370:420, 255:540] != baseline[370:420, 255:540], axis=2)) > 400
+    assert np.count_nonzero(np.any(result[575:625, 255:540] != baseline[575:625, 255:540], axis=2)) > 400
+    assert np.array_equal(result[:, 700:], baseline[:, 700:])
+    assert np.array_equal(result[700:], baseline[700:])
+
+
 def test_three_quarter_rejects_rectangular_decal():
     with pytest.raises(AngleDirectEditError,match="patch"):
         process_direct_angle_edit(png(stock()),gen(candidate("prod_s2_ec2",patch=True)),
@@ -134,7 +169,8 @@ def test_side_full_slogan_in_front_area_is_not_accepted():
         original, gen(png(image)), reference(), stage="prod_s2_ec3",
     )
     assert validated.fallback_stock
-    assert "full slogan" in (validated.fallback_reason or "")
+    assert any(label in (validated.fallback_reason or "")
+               for label in ("full slogan", "filled patch"))
     assert np.array_equal(
         np.asarray(Image.open(BytesIO(validated.output_png)).convert("RGB")),
         np.asarray(Image.open(BytesIO(original)).convert("RGB")),

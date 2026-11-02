@@ -1083,6 +1083,13 @@ class EcommerceService:
             "status": _effective_status(row, processing), "retry_count": row.retry_count,
             "attempt_count": processing.attempt_count if processing else 0,
             "error_code": row.last_error_code or (processing.last_error_code if processing else None),
+            "error_message": (
+                row.last_error_message or (processing.last_error_message if processing else None)
+            ) if _effective_status(row, processing) in ("failed", "queued") else None,
+            "failed_at": (
+                (processing.updated_at if processing else row.updated_at).isoformat()
+                if _effective_status(row, processing) == "failed" else None
+            ),
             "output_url": f"/api/v1/realistic-review-ugc/products-stage2/ecommerce/jobs/{row.id}/output"
                           if row.output_remote_file_id else None,
             "embroidery_reference_url": (
@@ -1138,7 +1145,22 @@ class EcommerceGenerateHandler:
                           "Cannot compose an embroidered front reference.", terminal=True)
             return JobHandlerResult.non_retryable(
                 "ecommerce_artwork_invalid", "Invalid embroidery artwork.")
-        except (StorageProviderError, RrugcGenerationHandlerError) as exc:
+        except RrugcGenerationHandlerError as exc:
+            code = exc.code
+            retryable = bool(exc.retryable)
+            # QA messages are authored by our server, not arbitrary model
+            # output. Preserve the exact rejection reason instead of falsely
+            # labeling it as a storage outage and hiding why Slot 2 is blank.
+            message = (str(exc)[:450] or "Image input or quality verification failed.")
+            self._failure(context, code, message, terminal=not retryable)
+            context.logger.warning(
+                "ecommerce_image_quality_rejected",
+                extra={"job_id":context.job.entity_id, "error_code":code,
+                       "reason":message, "retryable":retryable},
+            )
+            return (JobHandlerResult.retryable(code, message)
+                    if retryable else JobHandlerResult.non_retryable(code, message))
+        except StorageProviderError as exc:
             code = getattr(exc, "code", "ecommerce_storage_error")
             retryable = bool(getattr(exc, "retryable", True))
             self._failure(context, code, "Storage or image input unavailable.", terminal=not retryable)

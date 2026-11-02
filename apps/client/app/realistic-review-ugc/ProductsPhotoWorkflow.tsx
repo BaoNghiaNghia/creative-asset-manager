@@ -648,9 +648,15 @@ export function ProductsPhotoWorkflow({
               <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
             </time>
             <span className="rrugc-products-photo-duration" title="Execution duration from job start to completion">
-              <ActionIcon kind="clock" />{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}
+              <ActionIcon kind="clock" />{shotJob ? formatKeywordJobDuration(shotJob.started_at, shotJob.status === "failed" ? shotJob.failed_at : shotJob.completed_at) : sceneJobs.length ? formatKeywordJobDuration(sceneJobs.map(job => job.started_at).filter(Boolean).sort()[0], sceneComplete ? sceneJobs.map(job => job.completed_at).filter(Boolean).sort().at(-1) : null) : "—"}
             </span></span></div>
 
+          {isEcommerce && shotJob?.status === "failed" && !isBuiltInFront
+            && <div className="rrugc-slot1-failure-message is-failed rrugc-products-photo-stage-error" role="alert">
+                <strong>{"Slot " + (index + 1) + " failed · " + (shotJob.error_code || "unknown_error")}</strong>
+                <small>{shotJob.error_message || "The generated photo was rejected. Open Logs for the processing reason."}</small>
+                <small>Saved Embroidery Reference is unchanged. Retry uses one new Codex edit; no extra refinement pass.</small>
+              </div>}
           {opened && <div id={"rrugc-stage2-details-" + step.key} className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
               <strong>Input references · {step.inputs?.length}</strong>

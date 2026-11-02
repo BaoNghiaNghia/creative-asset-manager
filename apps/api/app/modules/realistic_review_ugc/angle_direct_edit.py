@@ -42,7 +42,11 @@ class AngleDirectResult:
 # toward the visor (left on the factory right-side picture), NOT beside the
 # existing GatorHats side logo on the rear half of the crown.
 _FRONT_CROWN = {
-    "prod_s2_ec2": (0.24, 0.27, 0.67, 0.56),
+    # The factory 3/4 front panel extends down close to the visor. The old
+    # y1=.56 clipped the lower line of two-line embroidery and could reject a
+    # genuine native edit as "no credible front embroidery". Leave the true
+    # lateral panel and its GatorHats branding entirely outside the field.
+    "prod_s2_ec2": (0.20, 0.24, 0.76, 0.65),
     "prod_s2_ec3": (0.22, 0.28, 0.46, 0.54),
 }
 _MAX_PIXELS = 8_000_000
@@ -124,17 +128,34 @@ def _native_yarn_labs(reference_png: bytes) -> np.ndarray:
     if len(pixels) < 100:
         raise AngleDirectEditError("Pinned reference contains too little yarn.")
     # Stable selection, no random kmeans seed or nondeterministic CI behavior.
-    sampled = pixels[::max(1, len(pixels) // 7000)]
-    lab = cv2.cvtColor(sampled.reshape(1, -1, 3), cv2.COLOR_RGB2LAB)
-    # Reference anti-alias and yarn highlights occupy multiple nearby colors.
-    # Three median/quantile representatives cover most satin pigments.
-    luma = lab[0, :, 0]
-    values = [
-        np.median(lab[0, (luma <= np.percentile(luma, 33))], axis=0),
-        np.median(lab[0, (luma >= np.percentile(luma, 67))], axis=0),
-        np.median(lab[0], axis=0),
-    ]
-    return np.float32(values)
+    sampled = pixels[::max(1, len(pixels) // 9000)]
+    labs = cv2.cvtColor(sampled.reshape(1, -1, 3), cv2.COLOR_RGB2LAB)[0]
+    hsv = cv2.cvtColor(sampled.reshape(1, -1, 3), cv2.COLOR_RGB2HSV)[0]
+    # Do not merge unrelated pigments (e.g. orange ORGY + teal REFEREE) into
+    # one brown median. Keep stable, bounded hue groups and brightness levels
+    # for real yarn highlights, independent of source layout or thread color.
+    values: list[np.ndarray] = []
+    valid = hsv[:, 1] >= 40
+    for bin_index in range(18):
+        selected = valid & ((hsv[:, 0] // 10) == bin_index)
+        if int(selected.sum()) < max(32, len(sampled) // 120):
+            continue
+        cluster = labs[selected].astype(np.float32)
+        luminance = cluster[:, 0]
+        values.append(np.median(cluster, axis=0))
+        for boundary in (30, 70):
+            threshold = np.percentile(luminance, boundary)
+            band = cluster[luminance <= threshold] if boundary == 30 else cluster[luminance >= threshold]
+            if len(band) >= 12:
+                values.append(np.median(band, axis=0))
+    # Preserve a fallback for muted/monochrome embroidery with no saturated
+    # hue, while bounding the total CIELAB palette used during QA.
+    if not values:
+        luma = labs[:, 0]
+        values = [np.median(labs, axis=0),
+                  np.median(labs[luma <= np.percentile(luma, 33)], axis=0),
+                  np.median(labs[luma >= np.percentile(luma, 67)], axis=0)]
+    return np.float32(values[:56])
 
 
 def process_direct_angle_edit(
@@ -185,23 +206,32 @@ def process_direct_angle_edit(
                   for color in yarn_colors], axis=0), axis=0,
     )
     # Only actual new thread-pigment pixels, never similar beige/cream fabric.
-    foreground = (roi > 0) & (diff > 23) & (color_distance < 43)
+    foreground = (roi > 0) & (diff > 23) & (color_distance < 47)
     raw = np.uint8(foreground) * 255
     n, labels, stats, _ = cv2.connectedComponentsWithStats(raw, 8)
     cleaned = np.zeros_like(raw)
     component_min = max(6, round(width * height * .000007))
+    filled_patch = False
     for i in range(1, n):
-        if int(stats[i, cv2.CC_STAT_AREA]) >= component_min:
-            cleaned[labels == i] = 255
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < component_min:
+            continue
+        bw = max(1, int(stats[i, cv2.CC_STAT_WIDTH]))
+        bh = max(1, int(stats[i, cv2.CC_STAT_HEIGHT]))
+        # A broad solid rectangle masquerading as an embroidery patch should
+        # never be treated as a single glyph, even when it is thread-colored.
+        if area >= max(300, round((x1-x0)*(y1-y0)*.11)) and area / (bw*bh) > .91:
+            filled_patch = True
+        cleaned[labels == i] = 255
     pixels = int(np.count_nonzero(cleaned))
     safe_min = (max(160, round(width * height * .00012))
                 if stage == "prod_s2_ec2" else max(60, round(width * height * .00004)))
     roi_area = max(1, (x1-x0) * (y1-y0))
     reason: str | None = None
-    if pixels < safe_min:
-        reason = "No credible front embroidery detected at the correct angle."
-    elif pixels > roi_area * .31:
+    if filled_patch or pixels > roi_area * .31:
         reason = "Edited area resembles a filled patch rather than individual stitches."
+    elif pixels < safe_min:
+        reason = "No credible front embroidery detected inside the visible front crown."
     else:
         ys, xs = np.where(cleaned > 0)
         target = native[min(ys):max(ys)+1, min(xs):max(xs)+1]

@@ -745,6 +745,7 @@ export type EcommerceJob = {
   id: string; source_plan_id: string; stage: string; color_key?: string;
   status: "queued" | "running" | "completed" | "failed";
   retry_count: number; attempt_count: number; error_code: string | null;
+  error_message?: string | null; failed_at?: string | null;
   output_url: string | null;
   embroidery_reference_url?: string | null;
   skill_name: string;

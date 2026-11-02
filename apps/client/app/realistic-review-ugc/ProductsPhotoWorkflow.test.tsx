@@ -44,6 +44,27 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).not.toContain("rrugc-products-photo-run-button is-unavailable");
   });
 
+  it("shows Slot 2 QA rejection reason and freezes failed duration instead of hiding it as a storage error", () => {
+    const startedAt = "2026-11-02T18:03:40+07:00";
+    const stoppedAt = "2026-11-02T18:05:44+07:00";
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow
+      sourceName="design_08.png" readiness={null}
+      ecommerceJobs={[{
+        id: "angle-failed", source_plan_id: "design-08",
+        stage: "prod_s2_ec2", status: "failed",
+        retry_count: 0, attempt_count: 1,
+        error_code: "ecommerce_angle_direct_qa_failed",
+        error_message: "No credible front embroidery detected inside the visible front crown.",
+        started_at: startedAt, failed_at: stoppedAt,
+        output_url: null, skill_name: "cam-slot1-thread-reference-inpaint-v2",
+      }]} />);
+    expect(html).toContain("Slot 2 failed · ecommerce_angle_direct_qa_failed");
+    expect(html).toContain("No credible front embroidery detected inside the visible front crown.");
+    expect(html).toContain("Saved Embroidery Reference is unchanged.");
+    expect(html).toContain("2m 4s");
+    expect(html).not.toContain("Storage or image input unavailable.");
+  });
+
   it("explains when Ecommerce is waiting for an eligible Codex Stage 2 account", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow
       sourceName="design.png" readiness={null}

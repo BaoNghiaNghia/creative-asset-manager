@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.modules.image_generation.providers import GeneratedImageResult
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.generation_handler import RrugcGenerationHandlerError
 from app.modules.realistic_review_ugc import ecommerce_pipeline as pipeline
 from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
 from app.modules.realistic_review_ugc.model import (
@@ -78,6 +79,32 @@ class Storage:
         self.saves += 1
         self.images["saved-angle"] = bytes(value)
         return SimpleNamespace(remote_file_id="saved-angle")
+
+
+def test_slot2_qa_reason_is_reported_not_masked_as_storage_error(monkeypatch):
+    class Handler(pipeline.EcommerceGenerateHandler):
+        def _failure(self, context, code, message, terminal=False):
+            context.events.append((code, message, terminal))
+
+        async def _execute(self, context):
+            raise RrugcGenerationHandlerError(
+                "ecommerce_angle_direct_qa_failed",
+                "No credible front embroidery detected inside the visible front crown.",
+                retryable=False,
+            )
+
+    context = SimpleNamespace(
+        job=SimpleNamespace(entity_id="test-angle", tenant_id="tenant"),
+        events=[],
+        logger=SimpleNamespace(warning=lambda *args, **kw: None),
+    )
+    result = Handler()(context)
+    assert result.outcome.value == "non_retryable_failure"
+    assert "No credible front embroidery" in result.error_message
+    assert result.error_code == "ecommerce_angle_direct_qa_failed"
+    assert context.events == [
+        ("ecommerce_angle_direct_qa_failed", result.error_message, True),
+    ]
 
 
 @pytest.mark.parametrize("stage,wrong_side", [
