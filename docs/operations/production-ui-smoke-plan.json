@@ -307,9 +307,20 @@
           ]
         },
         {
-          "name": "skill-manager-upload-versions",
+          "name": "skill-manager-open",
           "click": "button.rrugc-global-management-button:has-text(\"Manage skills\")",
           "waitFor": ".rrugc-skill-modal[role=\"dialog\"]",
+          "assertions": [
+            {
+              "type": "visible",
+              "selector": ".rrugc-skill-modal .rrugc-skill-workflow-tabs"
+            }
+          ]
+        },
+        {
+          "name": "skill-manager-upload-versions",
+          "click": "#rrugc-skill-tab-library",
+          "waitFor": ".rrugc-skill-modal .rrugc-skill-catalog-toolbar",
           "assertions": [
             {
               "type": "visible",
