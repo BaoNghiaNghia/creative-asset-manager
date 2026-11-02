@@ -30,8 +30,8 @@ type StepDefinition = {
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Locally project fine yarn from the saved Embroidery Reference onto the original official 3/4 stock front crown. No ImageGen, no reshot cap; outside the narrow front field, factory pixels are unchanged." },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "Show only the small front-edge portion of the original embroidery visible from a true side angle. Local raster projection; factory side branding and cap pixels outside the front-edge field remain untouched." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "One Codex CLI image-edit call: original official 3/4 stock is the editable photo, with the saved Embroidery Reference as the thread authority. No rectangular mask or second pass. QA keeps original factory pixels outside genuine stitches." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "One Codex CLI image edit on original side stock. Show only a tiny physically visible edge of front embroidery near the visor, never a whole slogan on the side. QA falls back to unedited side stock if geometry/thread quality fails." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
@@ -466,8 +466,8 @@ export function ProductsPhotoWorkflow({
         const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
           ? "ThreadTransfer V1 · Raster placement"
-          : step.key === "prod_s2_ec2" ? "ThreadTransfer V2 · 3/4 projection"
-          : step.key === "prod_s2_ec3" ? "ThreadTransfer V2 · Front-edge projection"
+          : step.key === "prod_s2_ec2" ? "Codex CLI · 1-pass 3/4 edit"
+          : step.key === "prod_s2_ec3" ? "Codex CLI · 1-pass side edit"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
           : configured || step.skillName;
         const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
@@ -542,7 +542,8 @@ export function ProductsPhotoWorkflow({
           : phase === "retry" ? (isBuiltInFront && shotJob?.embroidery_reference_url ? "Retry Placement" : "Retry")
           : phase === "failed" ? "Failed" : phase === "ready"
             ? isBuiltInFront ? "Apply to Cap"
-              : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3" ? "Apply to View"
+              : step.key === "prod_s2_ec2" ? "Edit 3/4"
+              : step.key === "prod_s2_ec3" ? "Edit Side"
               : step.key === "prod_s2_ec4" ? "Use Stock"
               : sceneJobs.some(job => job.status === "completed") ? "Continue" : "Render Scene"
           : phase === "checking" ? "Checking…" : blockLabel;
@@ -648,7 +649,7 @@ export function ProductsPhotoWorkflow({
                 })}
               </div>
               <p>{step.inputInstruction}</p>
-              <small>Inputs are verified on the server. Slots 2–3 transfer saved yarn onto the pinned official stock without another ImageGen call. Slot 4 reuses original back stock. Completed Slot 1 and its reference must already exist for 2–3.</small>
+              <small>Inputs are verified on the server. Slots 2–3 each use one Codex CLI native image-edit call with original stock plus the saved Slot 1 Embroidery Reference; no rectangular mask or second pass. Slot 4 reuses original back stock. Slot 1 must be completed first.</small>
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
@@ -726,11 +727,11 @@ export function ProductsPhotoWorkflow({
               <p>{isBuiltInFront
                 ? "ThreadTransfer V1: save a photographic Embroidery Reference once; extract only its yarn pixels and composite locally onto the unedited factory cap crown. No Skill ZIP and no image-generation call for Retry Placement."
                 : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
-                  ? "ThreadTransfer V2 locally transfers saved real yarn pixels onto the pinned official angle stock. No extra ImageGen, no Codex account lease and no generated hat replacement. Side only reveals the front-edge embroidery."
+                  ? "Single-pass Codex CLI photo edit: the original official stock is the edit target; the saved Embroidery Reference controls letters, pigments and fine yarn. No patch mask and no second inpaint. QA preserves factory stock outside accepted thread pixels. Side falls back to unedited stock if the front edge cannot be placed naturally."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto
-                    ? "Reuses the verified Slot 1 Embroidery Reference as a local raster transfer onto the original factory stock, protecting pixels outside the small front-crown region."
+                    ? "Directly edits the original stock once with Codex CLI using the verified Slot 1 Embroidery Reference. No rectangular patch; final QA protects factory pixels outside embroidered yarn."
                     : "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."}</p>
             </div>}
             <div className="rrugc-products-photo-detail-actions">

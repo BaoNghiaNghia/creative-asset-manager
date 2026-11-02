@@ -139,7 +139,7 @@ def test_saved_embroidery_reference_retry_is_queued_without_codex_quota(ecommerc
     assert row.output_remote_file_id == "old-front"
 
 
-def test_new_stock_angle_and_back_jobs_bypass_codex_provider(ecommerce_db):
+def test_new_stock_angle_uses_one_codex_edit_and_back_bypasses_provider(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
     first = service.queue(tenant_id="tenant-001", user_id="operator",
@@ -158,12 +158,14 @@ def test_new_stock_angle_and_back_jobs_bypass_codex_provider(ecommerce_db):
         )
         row = session.get(RrugcEcommerceJobModel, queued["job_id"])
         processing = session.get(ProcessingJobModel, row.processing_job_id)
-        assert processing.provider_key is None
-        assert processing.provider_scope is None
         if slot in ("prod_s2_ec2", "prod_s2_ec3"):
-            assert processing.payload_json["thread_material_pipeline"] == "v2"
+            assert processing.provider_key == "codex"
+            assert processing.provider_scope == "ai"
+            assert processing.payload_json["thread_material_pipeline"] == "v3-direct-edit"
             assert row.front_preview_remote_file_id == "saved-thread-macro"
         else:
+            assert processing.provider_key is None
+            assert processing.provider_scope is None
             assert "thread_material_pipeline" not in processing.payload_json
 
 

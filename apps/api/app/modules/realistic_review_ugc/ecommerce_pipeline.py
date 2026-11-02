@@ -37,6 +37,9 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
 from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
 from app.modules.realistic_review_ugc.threadtransfer_stock import composite_reference_on_stock_view
+from app.modules.realistic_review_ugc.angle_direct_edit import (
+    AngleDirectEditError, angle_direct_prompt, process_direct_angle_edit,
+)
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -415,10 +418,6 @@ class EcommerceService:
                 and row.front_preview_remote_file_id
                 and row.front_preview_design_sha256
                 and not regenerate_material_reference)
-            or (row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
-                and row.skill_name == SLOT1_DIRECT_NAME
-                and row.front_preview_remote_file_id
-                and row.front_preview_design_sha256)
         )
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
@@ -427,11 +426,13 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v2"} if (
+                **({"thread_material_pipeline": "v3-direct-edit"} if (
                     row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
                     and row.skill_source == "internal"
                     and row.front_preview_remote_file_id
-                    or row.stage in SCENE_STAGE_SLOTS
+                    and row.front_preview_design_sha256
+                ) else {"thread_material_pipeline": "v2"} if (
+                    row.stage in SCENE_STAGE_SLOTS
                     and row.front_reference_remote_file_id
                     and row.front_preview_remote_file_id
                 ) else {}),
@@ -1450,7 +1451,8 @@ class EcommerceGenerateHandler:
                         raise EcommerceError("multihat_stock_changed", str(exc), 409) from exc
                     multihat_colors = [key for key, _ in multi_color_stock]
             front_asset = None
-            if row.stage in ("prod_s2_ec2", "prod_s2_ec3") or (
+            if (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+                    and context.job.payload.get("thread_material_pipeline") != "v3-direct-edit") or (
                 row.stage in SCENE_STAGE_SLOTS and
                 (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
@@ -1482,9 +1484,10 @@ class EcommerceGenerateHandler:
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
         transfer_mode = context.job.payload.get("thread_material_pipeline")
-        material_transfer = transfer_mode in ("v1", "v2")
+        material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit")
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
         local_stock = builtin_stock and transfer_mode == "v2"
+        direct_angle = builtin_stock and transfer_mode == "v3-direct-edit"
         scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
         builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
@@ -1742,7 +1745,19 @@ class EcommerceGenerateHandler:
                 "flat paint, hard outline, foam, rubber or 3D emboss. "
                 "Preserve all original words/colors/position. Two images, no extras."
             )
-        if builtin_stock:
+        if direct_angle:
+            # The runner must receive exactly A (actual stock edit target),
+            # B (photographic yarn), and C (flat artwork for spelling).
+            material_ref = next((ref for ref in references
+                                 if ref.role == "slot1_thread_material_reference"), None)
+            design_ref = next((ref for ref in references
+                               if ref.role == "design_reference"), None)
+            if material_ref is None or design_ref is None:
+                raise EcommerceError("ecommerce_thread_material_missing",
+                                     "Verified Slot 1 Embroidery Reference is missing.")
+            references = [material_ref, design_ref]
+            prompt = angle_direct_prompt(stage)
+        elif builtin_stock:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Native Pass A macro is missing from pinned Slot 1.")
@@ -1837,6 +1852,7 @@ class EcommerceGenerateHandler:
                     output_contract=("slot1_reference_inpaint_v2" if is_reference else
                                      "slot1_direct_inpaint" if is_direct_legacy else
                                      "slot1_two_pass" if is_lite else
+                                     "stage2_angle_direct_single" if direct_angle else
                                      "stage2_stock_inpaint_single" if builtin_stock else "single_png"),
                     timeout_seconds=int(getattr(settings, "CODEX_IMAGE_TIMEOUT_SECONDS", 900)),
                     model=str(getattr(settings, "CODEX_IMAGE_MODEL", "") or "").strip() or None,
@@ -1915,7 +1931,28 @@ class EcommerceGenerateHandler:
         # QA failure retries the image job; it never stores a fake success.
         output_bytes = generated.image_bytes
         output_mime = generated.mime_type
-        if builtin_stock and not local_stock:
+        if direct_angle:
+            try:
+                validated = process_direct_angle_edit(
+                    refs[0][1], generated, preview_bytes, stage=stage,
+                )
+            except AngleDirectEditError as exc:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_angle_direct_qa_failed", str(exc), retryable=False,
+                ) from exc
+            output_bytes = validated.output_png
+            output_mime = "image/png"
+            generated = replace(generated, provider_metadata={
+                **(generated.provider_metadata or {}),
+                "native_sha256": validated.native_sha256,
+                "native_passes": 1,
+                "transfer_engine": "angle-direct-v3-single-codex-edit",
+                "accepted_thread_pixels": validated.accepted_pixels,
+                "transfer_box": list(validated.edit_box) if validated.edit_box else None,
+                "side_stock_fallback": validated.fallback_stock,
+                "fallback_reason": validated.fallback_reason,
+            })
+        if builtin_stock and not (local_stock or direct_angle):
             from app.modules.realistic_review_ugc.stage2_stock_inpaint import (
                 Stage2InpaintError, composite_original_stock,
             )
@@ -2047,7 +2084,8 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": ("threadtransfer-v2-angle" if local_stock else
+                                    "version": ("angle-direct-v3-single-edit" if direct_angle else
+                                                "threadtransfer-v2-angle" if local_stock else
                                                 "scene-single-pass-v2" if scene_one_pass else
                                                 "reference-reuse-v1"),
                                     "material_remote_file_id": row.front_preview_remote_file_id,
@@ -2056,6 +2094,9 @@ class EcommerceGenerateHandler:
                                     "native_passes": generated.provider_metadata.get("native_passes", 1),
                                     "thread_layer_sha256": generated.provider_metadata.get("thread_layer_sha256"),
                                     "transfer_box": generated.provider_metadata.get("transfer_box"),
+                                    "accepted_thread_pixels": generated.provider_metadata.get("accepted_thread_pixels"),
+                                    "side_stock_fallback": generated.provider_metadata.get("side_stock_fallback", False),
+                                    "fallback_reason": generated.provider_metadata.get("fallback_reason"),
                                     "original_stock_pixels_protected": bool(builtin_stock or builtin_back),
                                     "scene_photo_preserved_by_edit_gate": bool(
                                         stage in SCENE_STAGE_SLOTS and not scene_one_pass),

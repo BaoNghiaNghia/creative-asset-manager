@@ -186,7 +186,8 @@ describe("Products Stage 2 photo workflow", () => {
     for (const skill of ["multihat-v2", "ugc-v3"]) {
       expect(html).toContain(skill);
     }
-    expect(html).toContain("ThreadTransfer V2 · 3/4 projection");
+    expect(html).toContain("Codex CLI · 1-pass 3/4 edit");
+    expect(html).toContain("Codex CLI · 1-pass side edit");
     expect(html).toContain("Built-in · Original Back Stock");
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
     expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');

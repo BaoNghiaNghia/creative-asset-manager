@@ -722,6 +722,7 @@ class CodexImageGenRunner:
             or (self.config.output_contract in (
                 "slot1_reference_inpaint_v2", "slot1_v2_material_single", "slot1_v2_cap_single",
                 "stage2_stock_inpaint_single", "stage2_scene_inpaint_single",
+                "stage2_angle_direct_single",
             ) and self.config.skill_name == SLOT1_DIRECT_NAME)):
             return None
         skill = self._skill_path()
@@ -910,6 +911,7 @@ class CodexImageGenRunner:
             or (self.config.output_contract in (
                 "slot1_v2_material_single", "slot1_v2_cap_single",
                 "stage2_stock_inpaint_single", "stage2_scene_inpaint_single",
+                "stage2_angle_direct_single",
             ) and self.config.skill_name == SLOT1_DIRECT_NAME)
         )
         if not is_slot1_direct and not skill_path.is_file():
@@ -1044,6 +1046,7 @@ class CodexImageGenRunner:
         if self.config.output_contract in (
             "slot1_two_pass", "slot1_direct_inpaint",
             "slot1_v2_material_single", "slot1_v2_cap_single",
+            "stage2_angle_direct_single",
         ):
             # The second native pass must be conditioned on viewing the
             # completed first pass. Avoid the single-edit low-effort setting.
@@ -1131,7 +1134,7 @@ class CodexImageGenRunner:
                                 output_dir / "final.png"
                                 if self.config.output_contract in (
                                     "creative_v3_single_slot", "slot1_v2_material_single",
-                                    "slot1_v2_cap_single",
+                                    "slot1_v2_cap_single", "stage2_angle_direct_single",
                                 ) and process.returncode == 0 else None
                             ),
                         )
@@ -1283,14 +1286,17 @@ class CodexImageGenRunner:
             extra_images = ()
         elif self.config.output_contract in (
             "slot1_v2_material_single", "slot1_v2_cap_single",
+            "stage2_angle_direct_single",
         ):
             # Each isolated invocation must yield exactly ONE native image.
             # If Codex did not copy its cache PNG to final, the single native
             # result is safely hardlinked there before deleting the cache.
             is_material = self.config.output_contract == "slot1_v2_material_single"
+            is_angle = self.config.output_contract == "stage2_angle_direct_single"
             path = output_dir / "final.png"
             if path.is_symlink() or not path.is_file():
                 raise CodexImageProviderError(
+                    "stage2_angle_native_missing" if is_angle else
                     "slot1_v2_material_native_missing" if is_material
                     else "slot1_v2_cap_native_missing",
                     "Native ImageGen did not create a single verified photo.",
@@ -1300,6 +1306,7 @@ class CodexImageGenRunner:
             digest = hashlib.sha256(image_bytes).hexdigest()
             if len(native_image_digests) != 1 or digest not in native_image_digests:
                 raise CodexImageProviderError(
+                    "stage2_angle_native_unverified" if is_angle else
                     "slot1_v2_material_native_unverified" if is_material
                     else "slot1_v2_cap_native_unverified",
                     "Image is not the exact sole native ImageGen result.",
@@ -1408,6 +1415,9 @@ class CodexImageGenRunner:
                 **({"typography_v2_native_verified": True,
                     "native_sha256": hashlib.sha256(image_bytes).hexdigest()}
                    if self.config.output_contract in ("typography_v2_single_slot", "creative_v3_single_slot") else {}),
+                **({"native_sha256": hashlib.sha256(image_bytes).hexdigest(),
+                    "native_passes": 1}
+                   if self.config.output_contract == "stage2_angle_direct_single" else {}),
             },
             additional_images=extra_images,
             output_files=files if self.config.output_contract in ("all_generated_images", "stage1_six_final_designs") else (),
@@ -2024,6 +2034,31 @@ class CodexImageGenRunner:
                 "Keep assistant text brief: only report milestones and final file paths. "
                 "Write all intermediate artwork, checklists, and diagnostics to workspace files. "
                 "Never print image data, whole checklists, or repeated concept descriptions to stdout.\n"
+                + extra_block
+            )
+        if self.config.output_contract == "stage2_angle_direct_single":
+            if self.config.skill_name != SLOT1_DIRECT_NAME or not person_name:
+                raise ValueError("Angle direct edit requires the original stock as image target.")
+            if [role for role, _ in references] != [
+                "slot1_thread_material_reference", "design_reference",
+            ]:
+                raise ValueError("Angle direct edit accepts only pinned material B and design C.")
+            return (
+                "GATORHATS PRODUCTS STAGE 2: SINGLE CODEx NATIVE IMAGE EDIT. "
+                "DO NOT load or execute an uploaded custom ZIP Skill. "
+                "Call the actual built-in $imagegen tool exactly ONCE in "
+                "IMAGE-EDIT MODE, supplying the ORIGINAL PHOTO as the EDIT IMAGE. "
+                f"First VIEW THE EDIT TARGET {person_name} and both attached role-labelled "
+                f"references: {reference_lines}. "
+                "The embroidery reference photo is evidence for real thread only, "
+                "not a second target or a background fabric to stamp on the cap. "
+                "The flat design reference is only for exact words/letter shapes. "
+                "Keep every non-embroidery element in the original photograph. "
+                "Do NOT produce a square guide, edit mask, inset, rectangle, patch "
+                "or synthetic cap. Do not run a second pass, call a paid API, "
+                "draw with PIL/SVG, or create a fallback image using code. "
+                "Save the untouched native ImageGen edited PNG as output/final.png. "
+                "If native image EDIT is unavailable, fail explicitly. "
                 + extra_block
             )
         if self.config.output_contract in ("stage2_stock_inpaint_single", "stage2_scene_inpaint_single"):
