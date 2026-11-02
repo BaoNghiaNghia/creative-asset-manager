@@ -791,7 +791,7 @@ class CodexImageGenRunner:
             material = await macro_runner.generate_from_references(
                 attempt_id=macro_attempt,
                 person=ref_by_role["design_reference"].image,
-                references=[ref_by_role["design_reference"]],
+                references=[],  # The exact design is already the edit target.
                 prompt=prompt,
             )
             material_sha = hashlib.sha256(material.image_bytes).hexdigest()
@@ -799,6 +799,16 @@ class CodexImageGenRunner:
                 raise CodexImageProviderError(
                     "slot1_v2_material_native_unverified",
                     "Photographic thread reference lacks native ImageGen provenance.",
+                )
+            # A native generation which simply returns the input design is
+            # not the required embroidered MATERIAL reference. Fail before
+            # spending the second ImageGen call.
+            if material_sha == hashlib.sha256(
+                ref_by_role["design_reference"].image.image_bytes
+            ).hexdigest():
+                raise CodexImageProviderError(
+                    "slot1_v2_material_no_edit",
+                    "ImageGen did not create a new photographic embroidery reference.",
                 )
             strand_image = Image.open(BytesIO(material.image_bytes))
             try:
@@ -2005,13 +2015,13 @@ class CodexImageGenRunner:
             )
         if self.config.output_contract == "slot1_v2_material_single":
             if (self.config.skill_name != SLOT1_DIRECT_NAME or not person_name
-                    or {role for role, _ in references} != {"design_reference"}):
-                raise ValueError("Slot 1 V2 material edit requires the exact design PNG.")
+                    or references):
+                raise ValueError("Slot 1 V2 material edit requires only the source design edit target.")
             return (
                 "STAGE 2 SLOT 1: NATIVE IMAGEGEN PASS A OF TWO SEPARATE EXECUTIONS. "
                 "Use actual built-in $imagegen in IMAGE-EDIT mode NOW, once only. "
-                f"First view IMAGE-EDIT TARGET {person_name} and the matching "
-                f"role-labelled design_reference {reference_lines}. "
+                f"First view IMAGE-EDIT TARGET {person_name}: the exact Stage 1 "
+                "artwork PNG. No duplicate reference image is needed. "
                 "Produce a sharply photographed real machine-embroidery macro "
                 "of the SAME EXACT design on light cream woven cotton twill. "
                 "Preserve all text, line breaks, lettering geometry, independent "

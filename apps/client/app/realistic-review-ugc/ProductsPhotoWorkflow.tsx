@@ -441,7 +441,11 @@ export function ProductsPhotoWorkflow({
         const state = readiness?.steps.find(item => item.key === step.readinessKey);
         const opened = expandedStep === step.key;
         const configured = configuredSkillNames[step.key];
-        const skillName = configured || step.skillName;
+        const isBuiltInFront = step.key === "prod_s2_ec1";
+        const skillName = isBuiltInFront
+          ? "Built-in · Embroidery Reference → Inpaint"
+          : configured || step.skillName;
+        const hasRequiredEngine = isBuiltInFront || Boolean(configured);
         const isEcommerce = index < 4;
         const slotInputs = inputs?.source_plan_id === sourcePlanId && inputs?.color_key === selectedColor
           ? inputs.slots.find(item => item.stage === step.key) : undefined;
@@ -465,7 +469,8 @@ export function ProductsPhotoWorkflow({
           && !busyStage && !sceneComplete
           && sceneJobs.every(job => !["queued", "running"].includes(job.status));
 
-        const runnable = isEcommerce && Boolean(configured && slotInputs?.ready && sourcePlanId)
+        // Slot 1 uses the built-in two-pass runner, not an assigned Skill ZIP.
+        const runnable = isEcommerce && Boolean(hasRequiredEngine && slotInputs?.ready && sourcePlanId)
           && !busyStage && !shotJob;
         const bundleMissing = !isEcommerce && Boolean(state && !state.bundle_installed);
         const setupMessage = !state
@@ -486,8 +491,8 @@ export function ProductsPhotoWorkflow({
         const canRetry = isEcommerce
           ? shotJob?.status === "failed" && shotJob.retry_count < 3
           : sceneFailed && sceneRunnable;
-        const checking = Boolean(configured && (isEcommerce ? !slotInputs : !state));
-        const blockLabel = !configured ? "Needs skill" : !colorAvailable ? "No stock"
+        const checking = Boolean(hasRequiredEngine && (isEcommerce ? !slotInputs : !state));
+        const blockLabel = !hasRequiredEngine ? "Needs skill" : !colorAvailable ? "No stock"
           : isEcommerce && slotInputs?.status === "missing_inputs" ? "Missing inputs"
           : isEcommerce && slotInputs?.status === "worker_pending" ? "Worker pending"
           : bundleMissing ? "Skill unavailable" : "Worker pending";
@@ -545,7 +550,7 @@ export function ProductsPhotoWorkflow({
             })}
           </div>
           <div className="rrugc-products-photo-skill" title={skillName}>
-            <span>Skill {index + 1}</span><strong>{skillName}</strong>
+            <span>{isBuiltInFront ? "Pipeline 1" : "Skill " + (index + 1)}</span><strong>{skillName}</strong>
           <span className="rrugc-products-photo-stage-times"><time className="rrugc-products-photo-updated" title={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleString() : "No update date"} dateTime={lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toISOString() : undefined}>
               <ActionIcon kind="calendar" />{lastUpdated && Number.isFinite(Date.parse(lastUpdated)) ? new Date(lastUpdated).toLocaleDateString() : "—"}
             </time>
@@ -559,7 +564,9 @@ export function ProductsPhotoWorkflow({
               <small>{slotInputs
                 ? slotInputs.missing_roles.length
                   ? "Missing saved inputs: " + slotInputs.missing_roles.join(", ")
-                  : "Saved inputs detected; worker and assigned skill must still be verified"
+                  : isBuiltInFront
+                    ? "Saved inputs detected; built-in ImageGen worker readiness is verified by the server"
+                    : "Saved inputs detected; worker and assigned skill must still be verified"
                 : "Checking durable inputs on the server…"}
               </small>
               <div className="rrugc-products-photo-input-grid">
@@ -620,10 +627,12 @@ export function ProductsPhotoWorkflow({
             </section>}
             {isEcommerce && <div className="rrugc-products-photo-detail-info">
               <strong>{skillName}</strong>
-              <p>This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions.</p>
+              <p>{isBuiltInFront
+                ? "Pass A creates a photographic fine-thread embroidery reference; Pass B inpaints its thread material onto the original factory cap. No custom Skill ZIP is used. Original stock outside the embroidery remains unchanged."
+                : "This Skill generates one independent Ecommerce photo and stores it in managed storage with job logs and output versions."}</p>
             </div>}
             <div className="rrugc-products-photo-detail-actions">
-            {isEcommerce && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
+            {isEcommerce && !isBuiltInFront && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
             {shotJob && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
               onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
             {shotJob && <button type="button" onClick={() => void showEcommerceLogs(shotJob.id)}>Logs</button>}

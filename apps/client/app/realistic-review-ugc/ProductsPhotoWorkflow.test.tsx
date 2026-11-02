@@ -126,8 +126,11 @@ describe("Products Stage 2 photo workflow", () => {
         prod_s2_mh: "multihat-v2",
         prod_s2_ugc: "ugc-v3",
       }} />);
+    expect(html).toContain("Built-in · Embroidery Reference → Inpaint");
+    expect(html).toContain("Pipeline 1");
+    expect(html).not.toContain("ecommerce-image-01");
     for (const skill of [
-      "ecommerce-image-01", "ecommerce-image-02", "ecommerce-image-03",
+      "ecommerce-image-02", "ecommerce-image-03",
       "multihat-v2", "ugc-v3",
     ]) {
       expect(html).toContain(skill);

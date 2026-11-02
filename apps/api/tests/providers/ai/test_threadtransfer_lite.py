@@ -251,6 +251,7 @@ def test_direct_inpaint_no_custom_skill_single_native_edit(tmp_path, monkeypatch
     ("missing_macro", "slot1_v2_material_native_missing", 1),
     ("missing_final", "slot1_v2_cap_native_missing", 2),
     ("wrong_macro", "slot1_v2_material_native_unverified", 1),
+    ("unmodified_macro", "slot1_v2_material_no_edit", 1),
     ("wrong_final", "slot1_v2_cap_native_unverified", 2),
     ("extra_macro", "slot1_v2_material_native_unverified", 1),
     ("extra_native", "slot1_v2_cap_native_unverified", 2),
@@ -285,7 +286,7 @@ def test_builtin_slot1_v2_serializes_two_verified_single_image_edits(
             folder = workspace / ".codex-runtime" / "generated_images" / str(UUID(int=11))
             folder.mkdir(parents=True)
             if stage == "material" and mode != "missing_macro":
-                native = [reference]
+                native = [png("tan") if mode == "unmodified_macro" else reference]
                 if mode == "extra_macro":
                     native.append(png("yellow"))
             elif stage == "cap" and mode != "missing_final":
@@ -347,6 +348,7 @@ def test_builtin_slot1_v2_serializes_two_verified_single_image_edits(
     assert calls[0]["stage"] == "material"
     assert "model_reasoning_effort=medium" in calls[0]["args"]
     assert "40wt satin filaments" in calls[0]["args"][-1]
+    assert "No duplicate reference image is needed" in calls[0]["args"][-1]
     assert "Make EXACTLY ONE native imagegen call" in calls[0]["args"][-1]
     if len(calls) == 2:
         assert calls[1]["stage"] == "cap"

@@ -1197,7 +1197,13 @@ class EcommerceGenerateHandler:
                 image=_prepared_image(design_bytes), role="design_reference",
                 label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
             design_sha = hashlib.sha256(design_bytes).hexdigest()
-            if preview_remote_id:
+            if is_reference:
+                # V2 edits the original stock with its own material reference.
+                # Do not render/upload a second flat-painted full-hat preview:
+                # it is not an ImageGen input and can mislead downstream slots.
+                # Slots 2/3 already receive the completed photographic front.
+                preview_bytes = None
+            elif preview_remote_id:
                 if preview_design_sha != design_sha:
                     raise EcommerceError("ecommerce_design_changed",
                                          "Embroidery artwork changed after preview was pinned.")

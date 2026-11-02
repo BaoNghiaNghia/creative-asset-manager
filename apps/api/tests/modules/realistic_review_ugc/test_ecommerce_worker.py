@@ -242,8 +242,14 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
             RrugcEcommerceJobModel.id == job_id))
         assert row.status == "completed"
         assert row.output_remote_file_id == "persisted-photo-output"
-        assert row.front_preview_remote_file_id == "persisted-photo-output"
-        assert row.front_preview_design_sha256
+        if front_mode == "direct":
+            # Native reference + original-stock inpaint no longer stores a
+            # redundant flat full-cap preview; downstream uses real front.
+            assert row.front_preview_remote_file_id is None
+            assert row.front_preview_design_sha256 is None
+        else:
+            assert row.front_preview_remote_file_id == "persisted-photo-output"
+            assert row.front_preview_design_sha256
         assert (row.output_width, row.output_height) == (
             (512, 640) if stage == "prod_s2_ec1" else (600, 650)
         )
@@ -252,8 +258,12 @@ def test_ecommerce_worker_stores_output_and_version_without_real_codex(monkeypat
         assert versions[0].stage == "ecommerce"
         assert versions[0].remote_file_id == "persisted-photo-output"
     assert storage.opened == ["design-remote"]
-    assert len(storage.saved) == 2 and all(item[1] > 0 for item in storage.saved)
-    assert storage.saved[0][0].startswith("input_embroidered_front_")
+    assert len(storage.saved) == (1 if front_mode == "direct" else 2)
+    assert all(item[1] > 0 for item in storage.saved)
+    if front_mode == "direct":
+        assert storage.saved[0][0].startswith("output_ecommerce_")
+    else:
+        assert storage.saved[0][0].startswith("input_embroidered_front_")
     assert len(calls) == 1
     assert calls[0]["references"][0].role == "design_reference"
     assert calls[0]["references"][1].role == (

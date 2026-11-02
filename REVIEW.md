@@ -1,3 +1,11 @@
+## 2026-11-02 — Stage 2 Slot 1 reference-first simplification
+
+- Scope: built-in fine-thread macro (Pass A), original-stock inpaint (Pass B), backend output protection and a narrowly scoped Slot 1 UI readiness correction. No database migration, source/stock deletion, secrets or new provider/API dependency.
+- Remove redundant flat-painted full-hat preview storage for new internal V2 jobs and duplicate source-image role for Pass A; reject an unchanged native macro before spending the second generation call.
+- Slot 1 is now runnable without an assigned ZIP Skill, and its details describe the actual two-step pipeline. Other slots and historic pinned jobs retain their existing Skill contracts.
+- QA: hash-verified native images, source glyph/color checks, fiber detail, bounded stitch contact and pixel-identical protected stock. Unit/fixture tests do **not** demonstrate that live ImageGen photos match the user's quality reference.
+- Runbook: `docs/operations/CAM_STAGE2_SLOT1_REFERENCE_INPAINT.md`. Rollback through standard previous immutable API and frontend releases; retain source data and output history.
+
 ## Creative Brief V1 modal UX — 2026-10-30
 
 - Scope: frontend modal TSX/CSS and new focused component tests only. No backend/API, migration, dependency, credentials, worker policy, or Stage 1 output changes.

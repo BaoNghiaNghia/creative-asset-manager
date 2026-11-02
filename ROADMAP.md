@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-02 — Stage 2 Slot 1 Reference-First Thread Inpaint
+
+- [x] Keep two native passes: photographic embroidery material, then original-stock crown inpaint with bounded thread-only composite and QA.
+- [x] Remove redundant flat preview upload and duplicate Pass A reference from the new built-in path; reject unchanged Pass A before Pass B.
+- [x] Unlock built-in Slot 1 in the UI without an assigned Skill and remove its obsolete Manage Skill action; preserve pinned legacy jobs and outputs.
+- [ ] Verify actual native ImageGen output against approved photographic thread example after normal deployment; no automated unit test establishes visual parity.
+
+See [Slot 1 pipeline contract](docs/operations/CAM_STAGE2_SLOT1_REFERENCE_INPAINT.md).
+
 ## Creative Brief V1 modal UX — 2026-10-30
 
 - [x] Replace the sparse un-analyzed modal with a clear keyword briefing CTA, three concept-route previews, and preservation notice.

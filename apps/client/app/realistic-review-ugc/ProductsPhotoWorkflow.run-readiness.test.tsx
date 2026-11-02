@@ -77,11 +77,27 @@ function runState(slot: number) {
     '[data-skill="prod_s2_ec' + slot + '"] .rrugc-products-photo-run-state',
   );
 }
-async function render(extra: Partial<typeof props> & { ecommerceJobs?: EcommerceJob[] } = {}) {
+async function render(extra: Partial<Omit<typeof props, "configuredSkillNames">> & {
+  configuredSkillNames?: Partial<typeof names>; ecommerceJobs?: EcommerceJob[];
+} = {}) {
   await act(async () => root.render(<ProductsPhotoWorkflow {...props} {...extra} />));
 }
 
 describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
+  it("runs built-in Slot 1 without assigning an obsolete Skill ZIP", async () => {
+    preflight.mockResolvedValue(ready());
+    await render({ configuredSkillNames: {} });
+    expect(runButton(1).disabled).toBe(false);
+    expect(runButton(1).className).toContain("is-ready");
+    const slot = host.querySelector<HTMLElement>('[data-skill="prod_s2_ec1"]')!;
+    expect(slot.textContent).toContain("Built-in · Embroidery Reference");
+    expect(slot.textContent).not.toContain("Needs skill");
+    await act(async () => slot.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-toggle")!.click());
+    expect(slot.textContent).toContain("Pass A creates a photographic fine-thread embroidery reference");
+    expect(Array.from(slot.querySelectorAll("button")).some(button => button.textContent?.includes("Manage skill"))).toBe(false);
+    await act(async () => runButton(1).click());
+    expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec1", "natural-charcoal");
+  });
   it("loads server readiness immediately; front and back run without opening Details", async () => {
     preflight.mockResolvedValue(ready());
     await render();
