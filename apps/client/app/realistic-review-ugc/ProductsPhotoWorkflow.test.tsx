@@ -200,6 +200,8 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("Multi-hat");
     expect(html).toContain("UGC");
     expect(html).toContain("12 Hat Colors");
+    expect(html).toContain("Visor-Matched Embroidery Accent V1");
+    expect(html).toContain("30% maximum");
     expect(html).toContain("Seven-slot photo workflow for design_01.png");
     expect(html).not.toContain("<strong>7 skill slots");
     expect(html).not.toContain("<small>Skills 1–4: Ecommerce Images 01–04");

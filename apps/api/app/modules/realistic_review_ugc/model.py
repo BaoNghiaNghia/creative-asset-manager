@@ -12,6 +12,7 @@ from sqlalchemy import (
     JSON,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -1279,6 +1280,44 @@ class RrugcProductsRunAllModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RrugcVisorAccentSelectionModel(Base):
+    """One tenant/source-revision/material-specific immutable Slot 7 ML accent mask.
+
+    Other stages and Reviews must not depend on this table. A locked source-plan
+    row serializes first selection across parallel colorway image workers.
+    """
+
+    __tablename__ = "rrugc_visor_accent_selections"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "source_plan_id", "source_revision",
+            "material_remote_file_id", "algorithm_version",
+            name="uq_rrugc_visor_accent_material",
+        ),
+        Index("ix_rrugc_visor_accent_source",
+              "tenant_id", "source_plan_id", "source_revision"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_plan_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rrugc_source_plans.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_revision: Mapped[str] = mapped_column(String(64), nullable=False)
+    material_remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    algorithm_version: Mapped[str] = mapped_column(String(48), nullable=False)
+    mask_png: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    mask_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    layer_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    selection_method: Mapped[str] = mapped_column(String(40), nullable=False)
+    selected_pixels: Mapped[int] = mapped_column(Integer, nullable=False)
+    thread_pixels: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
 
 class RrugcColorwayJobModel(Base):

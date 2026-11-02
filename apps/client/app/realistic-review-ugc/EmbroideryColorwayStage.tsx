@@ -664,7 +664,7 @@ export function EmbroideryColorwayStage({
               onEcommerceJobChange={refreshEcommerceJobs}
               configuredSkillNames={productStage2SkillNames}
               colors={Array.from(byPlan.get(activeProductPlan.id)?.values() || [])}
-              colorwaySkillName="Built-in · Satin Inpaint"
+              colorwaySkillName="Visor-Matched Accent V1 · ML + Raster"
               colorwaySkillKey=""
               colorwaySkillSelection={null}
               colorwaySkillDisabled={catalogLoading || catalog.items.length === 0}

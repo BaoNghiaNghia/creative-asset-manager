@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing_policy.model import TenantProcessingPolicyModel
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel, RrugcFrontPlacementSettingModel, RrugcEcommerceJobModel
+from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcImageOutputVersionModel, RrugcFrontPlacementSettingModel, RrugcEcommerceJobModel, RrugcVisorAccentSelectionModel
 from app.modules.realistic_review_ugc.colorways import (
     COLORS, PRODUCTS_COLORS, PRODUCTS_COLOR_KEYS, ColorwayError, ColorwayService, effective_status,
 )
@@ -28,6 +28,7 @@ def db():
         RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__, RrugcColorwayJobModel.__table__,
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
         RrugcImageOutputVersionModel.__table__, RrugcFrontPlacementSettingModel.__table__,
+        RrugcVisorAccentSelectionModel.__table__,
     ):
         table.create(engine)
     with Session(engine) as session:
@@ -133,6 +134,7 @@ def test_products_slot7_only_uses_twelve_natural_caps_and_keeps_retired_history(
     for row in db.query(RrugcColorwayJobModel):
         proc = db.get(ProcessingJobModel, row.processing_job_id)
         assert proc.payload_json["front_placement"] == {**customized, "design_size": 100}
+        assert proc.payload_json["thread_material_pipeline"] == "v3-visor-accent"
 
     # A pre-existing 13th output is immutable but excluded from the live UI,
     # future queues, ZIP delivery and all subsequent Products generations.
@@ -480,7 +482,9 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
         logger=SimpleNamespace(info=lambda *args, **kwargs: None, exception=lambda *args, **kwargs: None),
     )
     settings = SimpleNamespace(
-        PROCESSING_JOBS_ENABLED=True, IMAGE_GENERATION_ENABLED=True, MANAGED_ASSET_STORAGE_ENABLED=True, CODEX_IMAGE_GENERATION_ENABLED=True,
+        PROCESSING_JOBS_ENABLED=True, IMAGE_GENERATION_ENABLED=True,
+        MANAGED_ASSET_STORAGE_ENABLED=True,
+        CODEX_IMAGE_GENERATION_ENABLED=not products_mode,
     )
     handler = colorways.ColorwayGenerateHandler(settings)
     result = handler(context)
@@ -495,7 +499,9 @@ def test_worker_preserves_generated_color_and_is_idempotent(db, monkeypatch, pro
     if products_mode:
         version = db.query(RrugcImageOutputVersionModel).first()
         metadata = version.font_info_json["thread_colorway_pipeline"]
-        assert metadata["version"] == "threadtransfer-v2-colorway"
+        assert metadata["version"] == "visor-accent-v1-raster"
+        assert metadata["visor_accent"]["max_ratio"] == 0.30
+        assert db.query(RrugcVisorAccentSelectionModel).count() == 1
         assert metadata["native_passes"] == 0
         assert len(metadata["thread_layer_sha256"]) == 64
         assert metadata["stock_outside_thread_preserved"] is True
@@ -559,3 +565,24 @@ def test_stage2_rejects_non_image_and_wrong_root(db):
         with pytest.raises(ColorwayError, match="Only available JPG/PNG"):
             ColorwayService(db).queue(tenant_id="tenant-a", user_id="actor",
                                      source_plan_ids=[row.id])
+
+
+def test_products_slot7_does_not_require_codex_and_reviews_still_do(db):
+    source = plan(db, name="design_01.png", source_id="no-codex-visor")
+    source.root_folder_id = colorways.PRODUCTS_STAGE1_SELECTED_ROOT
+    db.commit()
+    attach_native_thread_reference(db, source)
+    disabled = get_settings().model_copy(update={
+        "PROCESSING_JOBS_ENABLED": True, "IMAGE_GENERATION_ENABLED": True,
+        "MANAGED_ASSET_STORAGE_ENABLED": True, "CODEX_IMAGE_GENERATION_ENABLED": False,
+    })
+    service = ColorwayService(db, settings=disabled)
+    assert service.readiness("products")["ready"] is True
+    assert service.readiness("reviews")["error_code"] == "colorway_disabled"
+    assert service.queue(tenant_id=source.tenant_id, user_id="actor",
+                         source_plan_ids=[source.id], workflow="products")["queued"] == 12
+    for row in db.query(RrugcColorwayJobModel):
+        job = db.get(ProcessingJobModel, row.processing_job_id)
+        assert job.provider_key is None
+        assert job.provider_scope is None
+        assert job.payload_json["thread_material_pipeline"] == "v3-visor-accent"

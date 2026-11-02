@@ -829,7 +829,7 @@ export function ProductsPhotoWorkflow({
           </div>
           <div className="rrugc-products-photo-stage-column is-scenes" aria-label="Multi-hat, UGC and 12 Hat Colors">
             {photoCards.slice(4)}
-      <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway" data-state={colorPhase}>
+      <div className="rrugc-products-photo-stage-row is-colorway" data-skill="colorway" data-state={colorPhase} title="Visor-Matched Embroidery Accent V1 · 30% maximum">
         <div className="rrugc-products-photo-stage-controls">
           <SkillRunControl phase={colorPhase} label={colorActionLabel}
             title={colorPhase === "completed" ? "All color outputs completed. Open Details or the gallery to inspect versions." : "Open Details for skill readiness and colorway progress."}
@@ -889,8 +889,8 @@ export function ProductsPhotoWorkflow({
           })()}</span></span></div>
 
         {expandedStep === "colorway" && <div id="rrugc-stage2-details-colorway" className="rrugc-products-photo-stage-detail">
-          <div><strong>ThreadTransfer V2 · Reuse saved Embroidery Reference</strong>
-            <p>Transfer the saved Slot 1 yarn reference onto each original official Natural-series front stock photo. Local raster only; zero ImageGen calls for colorway outputs. Select a thumbnail to inspect versions or retry failures.</p></div>
+          <div><strong>Visor-Matched Embroidery Accent V1 · 30% maximum</strong>
+            <p>ML chooses one accent region from the saved Slot 1 photographic embroidery reference and caches its immutable mask per design/reference. The 12 Natural visor palettes recolor only those yarn pixels by local raster, preserving fine stitch lighting, original geometry, alpha and all unselected colors. Crown contrast and color-change QA run before saving. No new Codex/ImageGen calls. Designs without a safely selectable region keep their original thread colors and record that exception in Output History.</p></div>
           <button type="button" disabled={!colorwayReady || colorwayRunning || complete === PHOTO_COLOR_COUNT}
             onClick={() => { void onQueueColors?.(false); }}>{colorwayRunning ? "Queueing…" : "Run missing"}</button>
           {!!colors.length && onOpenLog && <select aria-label={"Hat color skill logs for " + sourceName} value=""

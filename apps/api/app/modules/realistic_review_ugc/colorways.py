@@ -29,7 +29,10 @@ from app.modules.realistic_review_ugc.generation_handler import (
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
 )
 from app.modules.image_generation.providers import ReferenceImageInput
-from app.modules.realistic_review_ugc.model import RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcEcommerceJobModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcColorwayJobModel, RrugcSourcePlanModel, RrugcEcommerceJobModel,
+    RrugcVisorAccentSelectionModel,
+)
 from app.modules.realistic_review_ugc.skill_registry import ensure_skill_registry, assert_skill_enabled
 from app.modules.realistic_review_ugc.output_versions import save_output_version
 from app.modules.realistic_review_ugc.embroidery_realism import embroidery_prompt_for_product_slot
@@ -53,7 +56,13 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
     build_slot1_material_pass, finish_slot1_refinement, Slot1EmbroideryQAError,
 )
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import verified_inpaint_result, Stage2InpaintError
-from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
+from app.modules.realistic_review_ugc.threadtransfer import (
+    composite_reference_on_cap, _layer_from_reference,
+)
+from app.modules.realistic_review_ugc.visor_accent import (
+    VERSION as VISOR_ACCENT_VERSION, AccentSelection, VisorAccentError,
+    select_accent, recolor_layer, VISOR_THREAD_RGB,
+)
 
 # Distinct synthetic source namespace for explicitly selected Products Stage 1 PNGs.
 # Reviews Stage 2 uses real Drive source files and the embroidery_ prefix.
@@ -84,6 +93,8 @@ PRODUCTS_COLORS = tuple((key, label) for key, label in COLORS if key.startswith(
 PRODUCTS_COLOR_KEYS = frozenset(key for key, _ in PRODUCTS_COLORS)
 assert len(PRODUCTS_COLORS) == 12
 MAX_MANUAL_RETRIES = 3
+PRODUCTS_VISOR_ACCENT_PIPELINE = "v3-visor-accent"
+assert set(VISOR_THREAD_RGB) == PRODUCTS_COLOR_KEYS
 
 
 class ColorwayError(RuntimeError):
@@ -187,6 +198,59 @@ def _product_material_ref(session: Session, tenant_id: str, source_plan_id: str,
     }
 
 
+def _get_or_create_visor_selection(
+    session_factory, *, tenant_id: str, source_plan_id: str,
+    source_revision: str, material_remote_file_id: str,
+    reference_png: bytes, thread_layer: Image.Image,
+) -> tuple[AccentSelection, bool]:
+    """Persist one immutable ML mask per source material across 12 parallel workers.
+
+    Lock the shared source-plan row, NOT each color job: PostgreSQL serializes
+    different colorway workers and prevents redundant selection/model passes.
+    """
+    digest = hashlib.sha256(reference_png).hexdigest()
+    with session_factory() as session:
+        source = session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.id == source_plan_id,
+            RrugcSourcePlanModel.source_revision == source_revision,
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+        ).with_for_update())
+        if source is None:
+            raise ColorwayError("colorway_accent_source_changed", "Pinned design is no longer valid.")
+        existing = session.scalar(select(RrugcVisorAccentSelectionModel).where(
+            RrugcVisorAccentSelectionModel.tenant_id == tenant_id,
+            RrugcVisorAccentSelectionModel.source_plan_id == source_plan_id,
+            RrugcVisorAccentSelectionModel.source_revision == source_revision,
+            RrugcVisorAccentSelectionModel.material_remote_file_id == material_remote_file_id,
+            RrugcVisorAccentSelectionModel.algorithm_version == VISOR_ACCENT_VERSION,
+        ))
+        if existing:
+            if (existing.reference_sha256 != digest
+                    or existing.mask_sha256 != hashlib.sha256(existing.mask_png).hexdigest()):
+                raise ColorwayError("colorway_accent_cache_changed", "Saved accent mask evidence changed.")
+            return AccentSelection(
+                mask_png=existing.mask_png, method=existing.selection_method,
+                selected_pixels=existing.selected_pixels,
+                thread_pixels=existing.thread_pixels,
+                layer_sha256=existing.layer_sha256,
+            ), True
+        selected = select_accent(thread_layer)
+        session.add(RrugcVisorAccentSelectionModel(
+            tenant_id=tenant_id, source_plan_id=source_plan_id,
+            source_revision=source_revision, material_remote_file_id=material_remote_file_id,
+            reference_sha256=digest, algorithm_version=VISOR_ACCENT_VERSION,
+            mask_png=selected.mask_png,
+            mask_sha256=hashlib.sha256(selected.mask_png).hexdigest(),
+            layer_sha256=selected.layer_sha256,
+            selection_method=selected.method,
+            selected_pixels=selected.selected_pixels,
+            thread_pixels=selected.thread_pixels,
+        ))
+        session.commit()
+        return selected, False
+
+
 class ColorwayService:
     def __init__(self, session: Session, settings: Settings | None = None):
         self.session = session
@@ -201,8 +265,7 @@ class ColorwayService:
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
             self.settings.MANAGED_ASSET_STORAGE_ENABLED,
-            self.settings.CODEX_IMAGE_GENERATION_ENABLED,
-        ))
+        )) and (workflow == "products" or self.settings.CODEX_IMAGE_GENERATION_ENABLED)
         available_colors = 0
         for color_key, _ in selected_colors:
             try:
@@ -248,7 +311,8 @@ class ColorwayService:
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_colorway_job",
             entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
             payload={"colorway_job_id": row.id,
-                     **({"thread_material_pipeline": "v2", **material_ref} if material_ref else {}),
+                     **({"thread_material_pipeline": PRODUCTS_VISOR_ACCENT_PIPELINE,
+                         **material_ref} if material_ref else {}),
                      **({"front_placement": front_placement} if front_placement is not None else {})},
             priority=20, max_attempts=3,
             provider_key=None if material_ref else "codex",
@@ -269,8 +333,7 @@ class ColorwayService:
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
             self.settings.MANAGED_ASSET_STORAGE_ENABLED,
-            self.settings.CODEX_IMAGE_GENERATION_ENABLED,
-        )):
+        )) or (workflow == "reviews" and not self.settings.CODEX_IMAGE_GENERATION_ENABLED):
             raise ColorwayError(
                 "colorway_disabled",
                 "Stage 2 colorway generation is not enabled on the server.",
@@ -478,6 +541,9 @@ class ColorwayGenerateHandler:
         except ColorwayError as exc:
             self._mark_failure(context, exc.code, exc.message, terminal=True)
             return JobHandlerResult.non_retryable(exc.code, exc.message)
+        except VisorAccentError as exc:
+            self._mark_failure(context, "colorway_accent_qa_failed", str(exc), terminal=True)
+            return JobHandlerResult.non_retryable("colorway_accent_qa_failed", str(exc))
         except Exception:
             context.logger.exception("rrugc_colorway_generation_failed", extra={"job_id": context.job.entity_id})
             self._mark_failure(context, "colorway_internal_error", "Colorway generation failed.")
@@ -502,8 +568,7 @@ class ColorwayGenerateHandler:
             return JobHandlerResult.cancelled()
         settings = self.settings or get_settings()
         if not (settings.PROCESSING_JOBS_ENABLED and settings.IMAGE_GENERATION_ENABLED
-                and settings.MANAGED_ASSET_STORAGE_ENABLED
-                and getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False)):
+                and settings.MANAGED_ASSET_STORAGE_ENABLED):
             return JobHandlerResult.non_retryable("colorway_disabled", "Colorway generator disabled.")
         storage = context.dependencies.storage_provider
         if storage is None:
@@ -525,6 +590,11 @@ class ColorwayGenerateHandler:
             builtin_product = (plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT
                                and row.skill_source == "internal"
                                and row.skill_name == SLOT1_DIRECT_NAME)
+            local_pinned = (builtin_product and
+                            context.job.payload.get("thread_material_pipeline") in
+                            ("v2", PRODUCTS_VISOR_ACCENT_PIPELINE))
+            if not local_pinned and not getattr(settings, "CODEX_IMAGE_GENERATION_ENABLED", False):
+                return JobHandlerResult.non_retryable("colorway_disabled", "Native image generator disabled.")
             if builtin_product:
                 pinned = (row.skill_version, row.skill_bundle_sha256)
                 if pinned not in {
@@ -549,6 +619,7 @@ class ColorwayGenerateHandler:
             # Copy mode while SQLAlchemy's plan is still attached to the session.
             # Do not dereference the ORM row after the transaction is closed.
             is_products_colorway = plan.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT
+            source_revision = plan.source_revision
             material_pin = dict(context.job.payload) if builtin_product else None
             if builtin_product:
                 front = session.scalar(select(RrugcEcommerceJobModel).where(
@@ -580,9 +651,15 @@ class ColorwayGenerateHandler:
                     raise ColorwayError("colorway_source_too_large", "Embroidery input is too large.")
         finally:
             await stream.close()
-        stock = _prepared_image(stock_data)
-        design = _prepared_image(bytes(source_bytes))
-        local_product = builtin_product and context.job.payload.get("thread_material_pipeline") == "v2"
+        local_product = builtin_product and context.job.payload.get("thread_material_pipeline") in (
+            "v2", PRODUCTS_VISOR_ACCENT_PIPELINE,
+        )
+        # Local 12-color raster jobs never prepare provider image inputs.
+        stock = None if local_product else _prepared_image(stock_data)
+        design = None if local_product else _prepared_image(bytes(source_bytes))
+        with_visor_accent = local_product and (
+            context.job.payload.get("thread_material_pipeline") == PRODUCTS_VISOR_ACCENT_PIPELINE
+        )
         slot7_material = None
         if builtin_product:
             if hashlib.sha256(bytes(source_bytes)).hexdigest() != material_pin["material_design_sha256"]:
@@ -602,11 +679,12 @@ class ColorwayGenerateHandler:
                         raise ColorwayError("colorway_thread_material_large", "Material exceeds safe input size.")
             finally:
                 await stream.close()
-            try:
-                from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
-                material_png = native_thread_macro(bytes(macro))
-            except Stage2InpaintError as exc:
-                raise ColorwayError("colorway_thread_material_invalid", str(exc)) from exc
+            if not local_product:
+                try:
+                    from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
+                    material_png = native_thread_macro(bytes(macro))
+                except Stage2InpaintError as exc:
+                    raise ColorwayError("colorway_thread_material_invalid", str(exc)) from exc
             slot7_material = build_slot1_material_pass(
                 stock_data, bytes(source_bytes),
                 job_front_placement(context.job.payload.get("front_placement")),
@@ -631,8 +709,9 @@ class ColorwayGenerateHandler:
             pinned_placement = job_front_placement(context.job.payload.get("front_placement"))
             prompt += " " + front_placement_prompt(pinned_placement)
             prompt += " " + embroidery_prompt_for_product_slot("prod_s2_col")
-        references = [ReferenceImageInput(image=design, role="design_reference", label="embroidery")]
-        if builtin_product:
+        references = ([] if local_product else
+                      [ReferenceImageInput(image=design, role="design_reference", label="embroidery")])
+        if builtin_product and not local_product:
             rw, rh = slot7_material.edit_canvas_size
             stock = PreparedImage(image_bytes=slot7_material.model_edit_target_png(),
                                   mime_type="image/png", width=rw, height=rh)
@@ -652,7 +731,7 @@ class ColorwayGenerateHandler:
             prompt = ("Inpaint the verified native low-relief satin machine-thread material "
                       f"onto ORIGINAL {color_name} factory stock photo. Keep all stock pixels outside "
                       "the embroidery mask. Do not reinterpret lettering or adapt pigment to cap color.")
-        elif is_products_colorway:
+        elif is_products_colorway and not local_product:
             master = render_front_reference(
                 stock_data, bytes(source_bytes),
                 guide=tuple(pinned_placement[key] for key in ("left", "top", "width", "height")),
@@ -662,13 +741,30 @@ class ColorwayGenerateHandler:
                 image=_prepared_image(master), role="embroidered_front_preview",
                 label="deterministic front embroidery scale and placement master",
             ))
+        visor_accent_meta = None
         if local_product:
             try:
+                accent_layer = None
+                if with_visor_accent:
+                    original_thread, _ = _layer_from_reference(bytes(macro))
+                    selection, cached = _get_or_create_visor_selection(
+                        context.dependencies.session_factory,
+                        tenant_id=context.job.tenant_id, source_plan_id=source_id,
+                        source_revision=source_revision,
+                        material_remote_file_id=material_pin["material_remote_file_id"],
+                        reference_png=bytes(macro), thread_layer=original_thread,
+                    )
+                    accent_layer, visor_accent_meta = recolor_layer(
+                        original_thread, selection, color_key,
+                        slot7_material.stock, slot7_material.guide_box,
+                    )
+                    visor_accent_meta["cached_mask"] = cached
                 transferred = composite_reference_on_cap(
                     slot7_material, bytes(macro),
                     design_size=job_front_placement(
                         context.job.payload.get("front_placement")
                     ).get("design_size", 100),
+                    thread_layer=accent_layer,
                 )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
@@ -678,8 +774,10 @@ class ColorwayGenerateHandler:
             generated = GeneratedImageResult(
                 provider="codex", model=None, image_bytes=transferred.output_png,
                 mime_type="image/png", provider_metadata={
-                    "transfer_engine": "threadtransfer-v2-colorway",
+                    "transfer_engine": ("visor-accent-v1-raster" if with_visor_accent
+                                        else "threadtransfer-v2-colorway"),
                     "native_passes": 0,
+                    **({"visor_accent": visor_accent_meta} if visor_accent_meta else {}),
                     "thread_material_remote_file_id": material_pin["material_remote_file_id"],
                     "reference_sha256": hashlib.sha256(bytes(macro)).hexdigest(),
                     "thread_layer_sha256": transferred.thread_layer_sha256,
@@ -787,8 +885,10 @@ class ColorwayGenerateHandler:
                 size_bytes=len(generated.image_bytes), width=width, height=height,
                 processing_job_id=getattr(context.job, "id", None),
                 font_info=({"thread_colorway_pipeline": {
-                    "version": ("threadtransfer-v2-colorway" if local_product
+                    "version": ("visor-accent-v1-raster" if with_visor_accent
+                                else "threadtransfer-v2-colorway" if local_product
                                 else "reference-reuse-v1"),
+                    **({"visor_accent": visor_accent_meta} if visor_accent_meta else {}),
                     "native_passes": (generated.provider_metadata or {}).get("native_passes", 1),
                     "reference_sha256": (generated.provider_metadata or {}).get("reference_sha256"),
                     "thread_layer_sha256": (generated.provider_metadata or {}).get("thread_layer_sha256"),

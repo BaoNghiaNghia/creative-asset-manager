@@ -119,6 +119,7 @@ def _layer_from_reference(image_bytes: bytes) -> tuple[Image.Image, int]:
 def composite_reference_on_cap(
     material: Slot1MaterialPass, reference_png: bytes, *,
     design_size: int = 100, scale_contract: dict | None = None,
+    thread_layer: Image.Image | None = None,
 ) -> ThreadTransferResult:
     """Blend only extracted thread against immutable original factory pixels.
 
@@ -128,7 +129,13 @@ def composite_reference_on_cap(
     """
     import hashlib
 
-    layer, extracted = _layer_from_reference(reference_png)
+    if thread_layer is not None:
+        if thread_layer.mode != "RGBA" or min(thread_layer.size) < 10:
+            raise Slot1EmbroideryQAError("Recolored thread layer is invalid.")
+        layer = thread_layer
+        extracted = int(np.count_nonzero(np.asarray(layer.getchannel("A")) >= 55))
+    else:
+        layer, extracted = _layer_from_reference(reference_png)
     if scale_contract is not None:
         # New front photos use an explicit physical master size; do not infer
         # size from a generated macro's margins or legacy field height.
