@@ -158,7 +158,9 @@ def _brief_plan(*, keyword: str, brief_json: Mapping[str, Any],
         for variant_index, (variant, recipe) in enumerate(zip(variants, recipes, strict=True)):
             # Use keyword-specific 1/4/4 directions from the V2 brief instead
             # of repeating a generic style recipe across all keywords.
-            if schema_version == SCHEMA and len(brief_variants) == len(recipes):
+            if schema_version == SCHEMA:
+                if len(brief_variants) != len(recipes):
+                    raise CreativeV3Error("creative_v3_directions_missing", "Nine-design brief requires a distinct direction for every slot.")
                 recipe = f"{recipe} Creative Brief-specific direction: {brief_variants[variant_index]}"
             slots.append({
                 "slot": len(slots) + 1,
@@ -352,20 +354,26 @@ def prompt_for_slot(
         "Some older briefing prose says 'một màu chỉ', single color, single ink, or monochrome "
         "because it was drafted for a conservative typography workflow. Ignore ONLY those old "
         "one-color stylistic limitations; retain the meaning, legibility and visual hook. "
-        "Use a deliberate coordinated palette of THREE to FIVE distinctly colored embroidery "
-        "threads with two clear main hues and one or more " + palette_accent + "The slot's color "
+        "Use a deliberate coordinated palette of TWO TO FOUR embroidery thread colors "
+        "when needed for the concept, using one dominant hue and restrained " + palette_accent + "The slot's color "
         "palette is the initial art direction; you may replace a hue when the keyword's meaning "
         "strongly supports it, but never collapse into uniform blue/navy/cobalt or blue + white. "
         "Do not apply the same color family to every slot. Avoid corporate-blue text defaults. "
-        "STYLE AND EMBROIDERY REALISM: The image must resemble high-quality macro photography "
-        "of actual hand-guided machine satin embroidery, not a flat vector logo: show densely "
-        "packed directional satin columns, small individual thread fibers, glossy highlights "
-        "following each stitch direction, subtle natural irregularity, " + thread_edge +
-        "tactile overlapping threads, and realistic stitch-edge depth. "
+        "EMBROIDERY-FIRST MATERIAL: Design as realistic LOW-RELIEF machine embroidery, not "
+        "freestanding sculpted 3D lettering, a glossy product render or macro-lit plastic. "
+        "Use satin columns on suitable medium-width strokes, tatami/fill stitches for wider "
+        "areas and restrained running stitches only for viable fine accents. "
+        "Show consistent stitch direction, matte-to-soft thread sheen, visible yet subtle "
+        "fiber grooves and gentle edge relief inside each letter. " + thread_edge +
+        "No deep bevel, dimensional extrusion, drop shadows, foam swelling, rubber gloss, "
+        "thick stacked thread layers, metallic shading or cast lighting. "
+        "Preserve open counters and breathing room between glyphs at cap-front scale. "
         + legibility +
         "No fake plastic 3D extrusion, puffy rubber, flat solid fills, digital gradients, "
         "printed ink, or uniform smooth blue glyphs. "
-        "DESIGN QUALITY: combine richly embroidered letters with small embroidered visual "
+        "DESIGN QUALITY: prioritize distinctive letter construction and readable hierarchy. "
+        "Do not make each letter a differently shaded inflatable shape; prefer coherent "
+        "stitched fills and uncluttered silhouettes. Combine lettering with small embroidered visual "
         "illustrations or interactions when meaningfully supported by this exact quote "
         "(e.g. microphone/cable/notes only for a music quote, fish/line only for fishing, "
         "loose expressive loops only for overwhelm; DO NOT borrow these motifs for unrelated words). "

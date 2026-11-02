@@ -44,6 +44,7 @@ def brief(keyword="CREATIVE DICTATOR"):
                 "clarity_assessment": "Needs image verification",
                 "embroidery_fit": "Requires physical stitch QA",
                 "risks": ["Avoid thin lines"],
+                "design_variants": [f"Original embroidered direction {mode} {j} with distinct stitched letter hierarchy" for j in range(1 if mode == "safe" else 4)],
             } for mode in ("safe", "creative_twist", "explore")
         ],
     }
@@ -135,9 +136,10 @@ def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
         assert "CREATIVE DICTATOR" in prompt
         assert "Dùng một màu chỉ" in prompt  # original data remains untouched
         assert "MULTICOLOR THREAD DIRECTIVE" in prompt
-        assert "THREE to FIVE distinctly colored" in prompt
+        assert "TWO TO FOUR embroidery thread colors" in prompt
         assert "uniform blue/navy/cobalt" in prompt
-        assert "realistic stitch-edge depth" in prompt
+        assert "LOW-RELIEF machine embroidery" in prompt
+        assert "No deep bevel" in prompt
         assert "FINAL NO-TEXT-OUTLINE POLICY" in prompt
         assert "No cream/ivory/white/black contrasting outline" in prompt
         assert "accent/outline hues" not in prompt
