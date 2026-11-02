@@ -428,7 +428,9 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(reviewMarkup).toContain('id="rrugc-reviews-stage2-search-input"');
     expect(markup).toContain('id="rrugc-stage2-search-input"');
     expect(markup).toContain("Embroidery design → 7-skill Product Stage 2");
-    expect(markup).toContain("Planned outputs");
+    expect(markup).not.toContain("Planned outputs");
+    expect(reviewMarkup).toContain("Planned outputs");
+    expect(markup).not.toContain("design × 22 images");
     expect(markup).not.toContain("7-skill configuration · 22 outputs");
     expect(markup).not.toContain("<th>13-color batch</th>");
     expect(reviewMarkup).toContain("<th>13-color batch</th>");
@@ -470,7 +472,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(reviewMarkup).toContain("Scan source");
     expect(markup).not.toContain("0 completed · 0 active · 0 failed");
     expect(markup).toContain("12 Hat Colors");
-    expect(markup).toContain("Skill 7");
+    expect(markup).toContain('aria-label="Multi-hat, UGC and 12 Hat Colors"');
     expect(markup).toContain("rrugc-products-photo-duration");
     expect(markup).not.toContain(">Duration:");
     expect(markup).not.toContain(">Last updated:");

@@ -283,7 +283,9 @@ export function EmbroideryColorwayStage({
     [catalog.items, selectedSkillKey],
   );
   const pageCount = Math.max(1, Math.ceil(data.total / Math.max(1, data.page_size)));
-  const plannedOutputs = data.total * (workflow === "products" ? PRODUCTS_COLOR_SLOT_COUNT + 10 : COLOR_SLOT_COUNT);
+  // Reviews still show a theoretical color count. Products have no persisted
+  // planned outputs: an unqueued design must never be presented as 22 jobs.
+  const plannedOutputs = data.total * COLOR_SLOT_COUNT;
   const pageIds = data.items.map(item => item.id);
   const pageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
   const ready = workflow === "products" || Boolean(selectedSkill?.ready);
@@ -584,7 +586,7 @@ export function EmbroideryColorwayStage({
     <div className="rrugc-colorway-kpis">
       <article><span>Designs found</span><strong>{data.total}</strong><small>JPG / PNG source images</small></article>
       <article><span>Hat colors</span><strong>{workflow === "products" ? PRODUCTS_COLOR_SLOT_COUNT : COLOR_SLOT_COUNT}</strong><small>per design</small></article>
-      <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>{workflow === "products" ? "design × 22 images" : "design × color"}</small></article>
+      {workflow === "reviews" && <article><span>Planned outputs</span><strong>{plannedOutputs}</strong><small>design × color</small></article>}
       {workflow === "reviews" && <article><span>Selected</span><strong>{selectedIds.size}</strong><small>{selectedIds.size * COLOR_SLOT_COUNT} planned outputs</small></article>}
     </div>
 
