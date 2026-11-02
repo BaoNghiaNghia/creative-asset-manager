@@ -1517,12 +1517,22 @@ class EcommerceGenerateHandler:
         builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
-            design_bytes = await self._open_bytes(storage, context,
-                    "rrugc-ecommerce-design:" + plan_id, source_file_id, mime, size)
-            references.append(ReferenceImageInput(
-                image=_prepared_image(design_bytes), role="design_reference",
-                label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
-            design_sha = hashlib.sha256(design_bytes).hexdigest()
+            if direct_angle:
+                # New V3 native angle edits have precisely TWO image inputs:
+                # original manufacturer stock (person) and the saved Slot 1
+                # Embroidery Reference. Never fetch the Stage 1 flat PNG.
+                # Keep the Slot 1 design fingerprint for pinned provenance.
+                if not preview_remote_id or not preview_design_sha:
+                    raise EcommerceError("ecommerce_thread_material_missing",
+                                         "Saved Slot 1 Embroidery Reference is missing.")
+                design_sha = preview_design_sha
+            else:
+                design_bytes = await self._open_bytes(storage, context,
+                        "rrugc-ecommerce-design:" + plan_id, source_file_id, mime, size)
+                references.append(ReferenceImageInput(
+                    image=_prepared_image(design_bytes), role="design_reference",
+                    label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
+                design_sha = hashlib.sha256(design_bytes).hexdigest()
             if is_reference:
                 # V2 edits the original stock with its own material reference.
                 # Do not render/upload a second flat-painted full-hat preview:
@@ -1530,7 +1540,7 @@ class EcommerceGenerateHandler:
                 # Slots 2/3 already receive the completed photographic front.
                 preview_bytes = None
             elif preview_remote_id:
-                if preview_design_sha != design_sha:
+                if not direct_angle and preview_design_sha != design_sha:
                     raise EcommerceError("ecommerce_design_changed",
                                          "Embroidery artwork changed after preview was pinned.")
                 preview_bytes = await self._open_bytes(
@@ -1771,16 +1781,14 @@ class EcommerceGenerateHandler:
                 "Preserve all original words/colors/position. Two images, no extras."
             )
         if direct_angle:
-            # The runner must receive exactly A (actual stock edit target),
-            # B (photographic yarn), and C (flat artwork for spelling).
+            # A: original stock IMAGE-EDIT TARGET; B: sole saved embroidery
+            # reference. No artwork PNG is loaded, uploaded or sent to Codex.
             material_ref = next((ref for ref in references
                                  if ref.role == "slot1_thread_material_reference"), None)
-            design_ref = next((ref for ref in references
-                               if ref.role == "design_reference"), None)
-            if material_ref is None or design_ref is None:
+            if material_ref is None:
                 raise EcommerceError("ecommerce_thread_material_missing",
                                      "Verified Slot 1 Embroidery Reference is missing.")
-            references = [material_ref, design_ref]
+            references = [material_ref]
             prompt = angle_direct_prompt(stage)
         elif builtin_stock:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):

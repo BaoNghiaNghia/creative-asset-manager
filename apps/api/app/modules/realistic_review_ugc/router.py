@@ -6473,7 +6473,9 @@ def ecommerce_input_readiness(
             assets[role] = "sha256:" + evidence["sha256"]
     try:
         front = _front_material_job(session, plan, color_key)
-        assets["embroidered_front"] = front.output_remote_file_id
+        # Direct Slots 2-3 must depend on the SAVED yarn photograph, never
+        # on the flat artwork PNG or a separately composited front output.
+        assets["embroidery_reference"] = front.front_preview_remote_file_id
     except EcommerceError:
         pass
     slots = []

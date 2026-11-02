@@ -23,7 +23,6 @@ def test_angle_prompt_requires_single_native_edit_and_exact_reference_roles(stag
         person_name="person.jpg",
         references=[
             ("slot1_thread_material_reference","verified-macro.png"),
-            ("design_reference","original.png"),
         ],
         user_prompt=angle_direct_prompt(stage),
     )
@@ -35,6 +34,9 @@ def test_angle_prompt_requires_single_native_edit_and_exact_reference_roles(stag
     assert "No mask image" in prompt
     assert "stock" in prompt.lower()
     assert "GatorHats" in prompt
+    assert "single attached" in prompt
+    assert "third reference" in prompt
+    assert "original.png" not in prompt
     assert "$" + SLOT1_DIRECT_NAME not in prompt
 
 
@@ -47,11 +49,10 @@ def test_direct_angle_is_built_in_not_an_uploaded_skill(monkeypatch):
 @pytest.mark.parametrize("roles",[
     [],
     [("design_reference","design.png")],
-    [("design_reference","design.png"),("slot1_thread_material_reference","macro.png")],
-    [("slot1_thread_material_reference","macro.png"),("design_reference","design.png"),
-     ("slot1_edit_mask","mask.png")],
+    [("slot1_thread_material_reference","macro.png"),("design_reference","design.png")],
+    [("slot1_thread_material_reference","macro.png"),("slot1_edit_mask","mask.png")],
 ])
-def test_angle_rejects_unpinned_or_unordered_reference_inputs(roles):
-    with pytest.raises(ValueError,match="only pinned material B and design C"):
+def test_angle_rejects_missing_material_or_third_reference_inputs(roles):
+    with pytest.raises(ValueError,match="only pinned Embroidery Reference B"):
         runner()._prompt(person_name="person.jpg",references=roles,
                          user_prompt=angle_direct_prompt("prod_s2_ec2"))

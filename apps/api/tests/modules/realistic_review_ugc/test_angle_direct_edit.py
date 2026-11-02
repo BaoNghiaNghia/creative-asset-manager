@@ -71,7 +71,8 @@ def test_direct_prompts_lock_stock_and_side_geometry():
     for text in (front,side):
         assert "ONE IMAGE-EDIT invocation only" in text
         assert "REFERENCE B" in text
-        assert "REFERENCE C" in text
+        assert "REFERENCE B" in text
+        assert "REFERENCE C" not in text
         assert "No mask image" in text
         assert "GatorHats side logo" in text
     assert "tiny" in side.casefold()

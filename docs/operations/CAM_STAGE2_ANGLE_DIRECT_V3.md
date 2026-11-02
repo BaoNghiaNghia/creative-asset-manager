@@ -6,16 +6,19 @@
 - No schema migration, no forced bulk regeneration. Old pending V2 jobs continue
   using their pinned `thread_material_pipeline=v2` payload. New queue/retry/
   regenerate jobs use `thread_material_pipeline=v3-direct-edit` and Codex.
+- The V3 contract is precisely two images: A stock edit target and B saved
+  Embroidery Reference. Neither server validation nor the Codex CLI loads
+  the Stage 1 flat design PNG; its saved digest remains for provenance.
 
 ## Native edit (one Codex CLI call per output)
 1. A = official selected-color stock 3/4 or side photo, the actual EDIT TARGET
    (not a newly generated cap or a front/side composite). Stock SHA remains pinned.
 2. B = saved native Slot 1 Embroidery Reference PNG, exact thread texture/color.
-3. C = original Stage 1 design PNG for text/spelling/layout check.
-4. Isolated `CodexImageGenRunner` uses built-in
+3. Isolated `CodexImageGenRunner` uses built-in
    `output_contract=stage2_angle_direct_single`, calls native `$imagegen` once
-   in IMAGE-EDIT mode. No Skill ZIP, no mask image, no second inpaint/refiner.
-5. Native tool's PNG must match the **one and only** actual imagegen cache output
+   in IMAGE-EDIT mode with **only B** as a reference. No Skill ZIP, flat PNG,
+   mask image or second inpaint/refiner.
+4. Native tool's PNG must match the **one and only** actual imagegen cache output
    by SHA-256. A fabricated Python PNG or another image cannot pass provenance.
 
 ## Raster QA after native edit

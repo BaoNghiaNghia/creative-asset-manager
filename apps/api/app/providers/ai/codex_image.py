@@ -2093,20 +2093,19 @@ class CodexImageGenRunner:
         if self.config.output_contract == "stage2_angle_direct_single":
             if self.config.skill_name != SLOT1_DIRECT_NAME or not person_name:
                 raise ValueError("Angle direct edit requires the original stock as image target.")
-            if [role for role, _ in references] != [
-                "slot1_thread_material_reference", "design_reference",
-            ]:
-                raise ValueError("Angle direct edit accepts only pinned material B and design C.")
+            if [role for role, _ in references] != ["slot1_thread_material_reference"]:
+                raise ValueError("Angle direct edit accepts only pinned Embroidery Reference B.")
             return (
                 "GATORHATS PRODUCTS STAGE 2: SINGLE CODEx NATIVE IMAGE EDIT. "
                 "DO NOT load or execute an uploaded custom ZIP Skill. "
                 "Call the actual built-in $imagegen tool exactly ONCE in "
                 "IMAGE-EDIT MODE, supplying the ORIGINAL PHOTO as the EDIT IMAGE. "
-                f"First VIEW THE EDIT TARGET {person_name} and both attached role-labelled "
-                f"references: {reference_lines}. "
-                "The embroidery reference photo is evidence for real thread only, "
-                "not a second target or a background fabric to stamp on the cap. "
-                "The flat design reference is only for exact words/letter shapes. "
+                f"First VIEW THE EDIT TARGET {person_name} and the single attached "
+                f"role-labelled Embroidery Reference: {reference_lines}. "
+                "The saved embroidery reference supplies the EXACT letters, shapes, "
+                "line breaks, pigments, stitch direction and real yarn texture; "
+                "it is NOT a second edit target or background fabric to stamp on the cap. "
+                "Do not request or synthesize a flat artwork PNG or third reference. "
                 "Keep every non-embroidery element in the original photograph. "
                 "Do NOT produce a square guide, edit mask, inset, rectangle, patch "
                 "or synthetic cap. Do not run a second pass, call a paid API, "

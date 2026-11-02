@@ -1,8 +1,8 @@
-"""Stage 2 Slots 2-3: exactly one native Codex CLI edit, pinned 3-image contract.
+"""Stage 2 Slots 2-3: one native Codex edit with exactly TWO images.
 
 The real pipeline remains unchanged for historical queued V2 local transfers.
-New V3 jobs require the actual stock target, verified embroidery material and
-original design (optional visual check), then a single provider invocation.
+New V3 jobs require the official stock target and saved Slot 1 Embroidery
+Reference only. The original flat Stage 1 PNG is never fetched or passed.
 """
 import asyncio
 from contextlib import contextmanager
@@ -143,7 +143,9 @@ def test_stock_edit_invokes_single_native_model_without_mask_and_side_fallback(
         ))
         db.commit()
 
-    storage = Storage({"design": design, "front": stock, "macro": macro})
+    # The source PNG is deliberately NOT in storage. Any attempt to retrieve
+    # it for a direct angle edit must fail this integration test.
+    storage = Storage({"front": stock, "macro": macro})
     monkeypatch.setattr(pipeline, "_pinned_stock_refs",
                         lambda *args: ([("stock_three_quarter" if stage == "prod_s2_ec2"
                                          else "stock_side_90", stock)], False))
@@ -164,12 +166,14 @@ def test_stock_edit_invokes_single_native_model_without_mask_and_side_fallback(
             assert args["person"].image_bytes
             assert args["person"].width == 900 and args["person"].height == 1000
             assert [r.role for r in args["references"]] == [
-                "slot1_thread_material_reference", "design_reference",
+                "slot1_thread_material_reference",
             ]
             assert "ONE IMAGE-EDIT invocation only" in args["prompt"]
             assert "No mask image" in args["prompt"]
             assert "slot1_edit_mask" not in args["prompt"]
+            assert "REFERENCE C" not in args["prompt"]
             assert all("mask" not in r.role for r in args["references"])
+            assert "design_reference" not in [r.role for r in args["references"]]
             return GeneratedImageResult(
                 provider="codex", model="test", image_bytes=native,
                 mime_type="image/png",

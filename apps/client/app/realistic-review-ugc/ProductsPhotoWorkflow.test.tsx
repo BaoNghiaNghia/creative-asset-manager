@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductsPhotoWorkflow, legacyMissingAssetsForStep, slot1OutputPlaceholder, slot1FailureExplanation } from "./ProductsPhotoWorkflow";
+import { ProductsPhotoWorkflow, PHOTO_STEPS, legacyMissingAssetsForStep, slot1OutputPlaceholder, slot1FailureExplanation } from "./ProductsPhotoWorkflow";
 import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
@@ -24,6 +24,17 @@ describe("Products Stage 2 photo workflow", () => {
       expect(updated).toBeLessThan(duration);
     }
   });
+  it("shows only official stock and saved embroidery reference in Slots 2/3", () => {
+    const threeQuarter = PHOTO_STEPS.find(step => step.key === "prod_s2_ec2")!;
+    const side = PHOTO_STEPS.find(step => step.key === "prod_s2_ec3")!;
+    expect(threeQuarter.inputs?.map(input => input.kind)).toEqual(["angle", "embroidered_front"]);
+    expect(side.inputs?.map(input => input.kind)).toEqual(["side", "embroidered_front"]);
+    expect(threeQuarter.inputs).toHaveLength(2);
+    expect(side.inputs).toHaveLength(2);
+    expect(threeQuarter.inputs?.some(input => input.kind === "design")).toBe(false);
+    expect(side.inputs?.some(input => input.kind === "design")).toBe(false);
+  });
+
   it("does not apply obsolete four-image bundle requirements to independent Ecommerce slots", () => {
     const obsolete = ["SKILL.md", "references/SHOT_VISIBILITY_AND_QA.md", "scripts/release_check.py"];
     expect(legacyMissingAssetsForStep(true, obsolete)).toEqual([]);

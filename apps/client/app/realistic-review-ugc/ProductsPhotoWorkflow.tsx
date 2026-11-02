@@ -28,10 +28,10 @@ type StepDefinition = {
 };
 
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
-const PHOTO_STEPS: StepDefinition[] = [
+export const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "One Codex CLI image-edit call: original official 3/4 stock is the editable photo, with the saved Embroidery Reference as the thread authority. No rectangular mask or second pass. QA keeps original factory pixels outside genuine stitches." },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }, { label: "Right-side stock", kind: "side" }], inputInstruction: "One Codex CLI image edit on original side stock. Show only a tiny physically visible edge of front embroidery near the visor, never a whole slogan on the side. QA falls back to unedited side stock if geometry/thread quality fails." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "One Codex CLI image-edit call: original official 3/4 stock is the editable photo, with the saved Embroidery Reference as the thread authority. No rectangular mask or second pass. QA keeps original factory pixels outside genuine stitches." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side", number: 3 }], inputs: [{ label: "Right-side stock — edit target", kind: "side" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "One Codex CLI image edit on original side stock. Show only a tiny physically visible edge of front embroidery near the visor, never a whole slogan on the side. QA falls back to unedited side stock if geometry/thread quality fails." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
@@ -503,7 +503,7 @@ export function ProductsPhotoWorkflow({
           label: input.label,
           src: input.kind === "design" ? stage2OriginalUrl(designSrc) : input.kind === "embroidered_front"
             ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.embroidery_reference_url
-              || jobs.find(job => job.stage === "prod_s2_ec1")?.output_url || "")
+              || "")
             : input.kind === "angle" ? (selectedStockViews?.["three-quarter"] || "")
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))

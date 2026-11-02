@@ -17,8 +17,8 @@ class EcommerceShot:
 
 SHOTS = (
     EcommerceShot("prod_s2_ec1", "front", ("design", "stock_front"), "front"),
-    EcommerceShot("prod_s2_ec2", "three_quarter", ("design", "embroidered_front", "stock_three_quarter"), "front"),
-    EcommerceShot("prod_s2_ec3", "side_90", ("design", "embroidered_front", "stock_side_90"), "front"),
+    EcommerceShot("prod_s2_ec2", "three_quarter", ("stock_three_quarter", "embroidery_reference"), "front"),
+    EcommerceShot("prod_s2_ec3", "side_90", ("stock_side_90", "embroidery_reference"), "front"),
     EcommerceShot("prod_s2_ec4", "back", ("stock_back",), None),
 )
 SHOTS_BY_STAGE = {shot.stage: shot for shot in SHOTS}

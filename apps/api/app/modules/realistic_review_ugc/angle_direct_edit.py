@@ -58,9 +58,10 @@ def angle_direct_prompt(stage: str) -> str:
     common = (
         "ONE IMAGE-EDIT invocation only. The TARGET image (person) is the official "
         "unaltered factory cap stock photo for this exact angle and color. "
-        "REFERENCE B is the saved real embroidered thread macro from Slot 1. "
-        "REFERENCE C is the original flat typography design, for spelling and "
-        "layout verification ONLY; it is not a decal or edit target. "
+        "REFERENCE B is the SAVED photographic Embroidery Reference from Slot 1. "
+        "It is the ONLY reference image: copy its exact lettering, spacing, "
+        "line breaks, colors and real stitch texture, not its fabric background. "
+        "NO flat artwork PNG or third reference is provided or needed. "
         "EDIT THE TARGET PHOTO; do not generate a replacement hat. Preserve the "
         "camera, crown and visor silhouette, seams, eyelets, hardware, original "
         "GatorHats side logo, twill weave, shadow, background and framing. "
