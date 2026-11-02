@@ -2583,6 +2583,26 @@ def test_tiktokshop_agent_workspace_query_must_match_the_body(api):
     )
     assert mismatched.status_code == 422
     assert mismatched.json()["detail"]["code"] == "scout_workspace_mismatch"
+    missing_scope = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents",
+        json={"name": "Test Windows Scout", "workspace": "tiktokshop"},
+    )
+    assert missing_scope.status_code == 422
+    assert missing_scope.json()["detail"]["code"] == "scout_workspace_mismatch"
+
+
+def test_scout_agent_pairing_reset_and_archive_are_workspace_isolated(api):
+    base = "/api/v1/realistic-review-ugc/scout-agents"
+    created = api.post(
+        base + "?workspace=tiktokshop",
+        json={"name": "TikTokShop Agent Test", "workspace": "tiktokshop"},
+    )
+    assert created.status_code == 201, created.text
+    agent_id = created.json()["id"]
+    assert api.post(base + "/" + agent_id + "/reset-pairing").status_code == 404
+    assert api.delete(base + "/" + agent_id).status_code == 404
+    assert api.post(base + "/" + agent_id + "/reset-pairing?workspace=tiktokshop").status_code == 200
+    assert api.delete(base + "/" + agent_id + "?workspace=tiktokshop").status_code == 200
 
 
 def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeypatch):

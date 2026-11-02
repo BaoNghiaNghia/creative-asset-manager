@@ -84,6 +84,7 @@ _TIKTOKSHOP_WORKSPACE_ROUTES = tuple(re.compile(expr) for expr in (
     r"/stage4/jobs/[^/]+/(?:retry|regenerate)",
     r"/stage4/(?:completions|active-jobs)",
     r"/scout-agents",
+    r"/scout-agents/[^/]+(?:/reset-pairing)?",
 ))
 
 

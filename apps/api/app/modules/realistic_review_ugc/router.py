@@ -9595,7 +9595,8 @@ def create_scout_agent(
 ):
     # A body/query mismatch could otherwise use a TikTokShop-only grant
     # to pair a GatorHats Windows agent through this shared endpoint.
-    if workspace_scope is not None and workspace_scope != request.workspace:
+    if ((request.workspace == "tiktokshop" and workspace_scope != "tiktokshop")
+            or (workspace_scope is not None and workspace_scope != request.workspace)):
         raise HTTPException(status_code=422, detail={
             "code": "scout_workspace_mismatch",
             "message": "Agent workspace must match the authorized navbar scope.",
@@ -9613,15 +9614,30 @@ def create_scout_agent(
     return ScoutAgentCreatedResponse(**payload, agent_token=raw_token)
 
 
+def _require_agent_nav_workspace(session: Session, tenant_id: str,
+                                 agent_id: str, workspace_scope: str | None) -> None:
+    """ID substitution must not mutate a different workspace's scout agent."""
+    actual = session.scalar(select(RrugcScoutAgentModel.workspace).where(
+        RrugcScoutAgentModel.tenant_id == tenant_id,
+        RrugcScoutAgentModel.id == agent_id,
+    ))
+    if actual is None or actual != (workspace_scope or "gatorhats"):
+        raise HTTPException(status_code=404, detail={
+            "code": "rrugc_scout_agent_not_found", "message": "Scout Agent not found.",
+        })
+
+
 @router.post(
     "/scout-agents/{agent_id}/reset-pairing",
     response_model=ScoutAgentCreatedResponse,
 )
 def reset_scout_agent_pairing(
     agent_id: str,
+    workspace: str | None = Query(default=None, pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
+    _require_agent_nav_workspace(session, principal.active_tenant_id, agent_id, workspace)
     try:
         row, raw_token = RrugcAutoScoutService(session).reset_agent_pairing(
             tenant_id=principal.active_tenant_id,
@@ -9639,9 +9655,11 @@ def reset_scout_agent_pairing(
 )
 def archive_scout_agent(
     agent_id: str,
+    workspace: str | None = Query(default=None, pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
+    _require_agent_nav_workspace(session, principal.active_tenant_id, agent_id, workspace)
     try:
         row = RrugcAutoScoutService(session).archive_agent(
             tenant_id=principal.active_tenant_id,
