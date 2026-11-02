@@ -1,5 +1,17 @@
 # Implementation Roadmap
 
+## 2026-11-02 — TikTokShop Apparel Placement-Aware Scout
+
+- [x] Detect collar, center/left/right chest, sleeve and upper arm artwork in the existing source-image Gemini analysis.
+- [x] Reuse existing candidate Gemini analysis for per-zone visibility, occlusion, front/back pose and garment frame size; no additional AI call.
+- [x] Reject unusable front/primary design views and require manual review for uncertain/secondary areas; store reasons and zone fit for Stage 3.
+- [x] Protect TikTokShop Stage 4 from unverified reference photos while honoring explicit manual Good votes.
+- [x] Keep TikTokShop placement-isolated grouping, bounded v5 source reanalysis and GatorHats behavior unchanged.
+- [ ] Visually inspect sampled real TikTokShop source designs and candidate outputs after v5 reanalysis starts.
+
+Runbook: `docs/operations/CAM_TIKTOKSHOP_APPAREL_PLACEMENT_SCOUT.md`.
+
+
 ## 2026-11-02 — Reuse Slot 1 native fine-thread material throughout Stage 2
 
 - [x] Persist the byte-verified native ImageGen Pass A macro once per completed V2 Slot 1 design.

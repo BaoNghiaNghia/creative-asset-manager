@@ -1352,6 +1352,59 @@ def test_tiktokshop_metadata_only_import_creates_photos_without_analysis_jobs():
                    if p.status == "queued") == 2
 
 
+def test_tiktokshop_apparel_upgrade_queues_bounded_source_reanalysis_without_touching_old_campaigns():
+    """One profile-version upgrade, no new Gemini call per candidate or GatorHats replay."""
+    from app.modules.realistic_review_ugc.product_context import (
+        TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+    )
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+
+    factory = make_database()
+    with factory() as session:
+        asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            storage=FakeStorage.__new__(FakeStorage),
+            drive_client_factory=FakeTikTokDrive,
+            queue_analysis=False, source_only=True,
+        ))
+        plans = list(session.scalars(select(RrugcSourcePlanModel)))
+        for index, plan in enumerate(plans):
+            campaign = RrugcCampaignModel(
+                tenant_id="tenant-a", name="Existing TikTok campaign",
+                query="sweatshirt lifestyle", auto_scout=True,
+                target_count=50, scout_token_hash="a" * 64,
+                created_by_user_id="user-a",
+            )
+            session.add(campaign)
+            session.flush()
+            plan.campaign_id = campaign.id
+            plan.status = "ready"
+            plan.visual_context_json = {
+                "status": "ready",
+                "version": PRODUCT_VISUAL_CONTEXT_VERSION if index == 0
+                    else TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+                "embroidery_text": ["MAMA"],
+            }
+        target_id = plans[0].id
+        previous_campaign = plans[0].campaign_id
+        session.commit()
+
+        result = asyncio.run(sync_source_plans(
+            session, tenant_id="tenant-a", user_id="user-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            storage=FakeStorage.__new__(FakeStorage),
+            drive_client_factory=FakeTikTokDrive, analysis_job_limit=1,
+        ))
+        target = session.get(RrugcSourcePlanModel, target_id)
+        assert result.jobs_queued == 1
+        assert result.plans_updated == 1
+        assert target.status == "queued"
+        assert target.campaign_id == previous_campaign
+        assert target.visual_context_json["embroidery_text"] == ["MAMA"]
+        assert session.scalar(select(func.count(ProcessingJobModel.id))) == 1
+
+
 def test_sync_source_plans_tombstones_missing_source_without_deleting_history_identity():
     factory = make_database()
 

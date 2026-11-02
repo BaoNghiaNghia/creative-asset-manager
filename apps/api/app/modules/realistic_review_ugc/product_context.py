@@ -9,9 +9,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
+from app.modules.realistic_review_ugc.apparel_placement import (
+    SourceApparelPlacement, apparel_placement_queries, source_placements,
+)
 
 
 PRODUCT_VISUAL_CONTEXT_VERSION = "rrugc-product-visual-context-v4-hat-review-scenes"
+TIKTOKSHOP_APPAREL_CONTEXT_VERSION = "rrugc-product-visual-context-v5-apparel-placement"
 PRODUCT_CONTEXT_PROFILE_VERSION = "product-context-v6-hat-review-scenes"
 CONTEXT_FEEDBACK_MIN_MATCHES = 2
 CONTEXT_FEEDBACK_PROMOTION_SCORE = 0.20
@@ -39,6 +43,7 @@ class ProductVisualContextDocument(BaseModel):
     themes: list[ProductContextTheme] = Field(default_factory=list, max_length=6)
     embroidery_text: list[str] = Field(default_factory=list, max_length=6)
     embroidery_identity: str | None = Field(default=None, max_length=300)
+    apparel_placements: list[SourceApparelPlacement] = Field(default_factory=list, max_length=8)
     scene_hints: list[str] = Field(default_factory=list, max_length=8)
     audience_hints: list[str] = Field(default_factory=list, max_length=6)
     occasion_hints: list[str] = Field(default_factory=list, max_length=6)
@@ -755,6 +760,8 @@ def derive_product_context_profile(
         if visual_ready
         else []
     )
+    is_apparel = str((product_snapshot or {}).get("source_category") or "").casefold() == "embroidered apparel"
+    placements = source_placements(raw_visual) if visual_ready and is_apparel else []
 
     text = _product_context_text(
         product_snapshot,
@@ -808,8 +815,11 @@ def derive_product_context_profile(
     # broad theme templates so a design like "Best Grandpa By Par" searches
     # for a grandfather golfing context before generic family/sports scenes.
     direct: list[str] = [
-        f"{scene} candid phone photo"
-        for scene in [*visual_scene_hints, *preferred_scenes]
+        *(apparel_placement_queries(
+            str((product_snapshot or {}).get("product_type") or "shirt"), placements,
+        ) if is_apparel else []),
+        *(f"{scene} candid phone photo"
+          for scene in [*visual_scene_hints, *preferred_scenes]),
     ]
     text_match = _embroidery_text_search_queries(visual_embroidery_text)
     adjacent: list[str] = []
@@ -897,6 +907,7 @@ def derive_product_context_profile(
         "avoid": avoid,
         "notes": notes,
         "visual_context": visual_context,
+        "apparel_placements": [p.model_dump() for p in placements] if is_apparel else [],
         "reference_contexts": reference_contexts,
         "strict_context_exclusions": wedding_hat_context,
         "feedback_learning": feedback_learning,
@@ -964,6 +975,24 @@ def product_visual_context_prompt(
             details.append(f"- {label}: {value[:700]}")
     product_block = "\n".join(details) or "- no reliable text metadata"
     theme_ids = ", ".join(_CONTEXT_THEME_RULES)
+    apparel = str(product.get("source_category") or "").casefold() == "embroidered apparel"
+    apparel_instructions = """
+APPAREL DESIGN-PLACEMENT EXTRACTION (critical for downstream Pinterest reference filtering):
+- Set apparel_placements to all clearly visible PRINTED OR EMBROIDERED design zones in the
+  SOURCE garment photograph, not to approximate locations suggested by product names.
+- Each entry: zone, priority (primary or secondary), confidence (0..1).
+- Supported zones only: collar, center_chest, left_chest, right_chest,
+  left_sleeve, right_sleeve, left_upper_arm, right_upper_arm.
+- Collar means neckline/collar decoration; sleeve means fabric on the garment sleeve;
+  upper arm means decoration on upper bicep/sleeve region. Do not infer any hidden sleeve design.
+- Left/right are always the WEARER'S left/right, not image coordinates.
+  A selfie or mirrored garment may reverse visible screen positions.
+- Detect EVERY distinct location: a shirt can have center chest and collar and sleeve lettering.
+  Mark the most prominent artwork primary; other visible artwork secondary.
+- If garment is folded, cropped, reversed or a zone is uncertain, lower its
+  confidence or omit it. Do not invent invisible design. No apparel_placements on a hat.
+- Prioritize source image evidence rather than speculative metadata.
+""" if apparel else "Set apparel_placements to [] because this is not a garment."
     return f"""
 You are analyzing one product reference image to improve Pinterest lifestyle-reference discovery.
 Return exactly one JSON object matching the supplied schema and no prose.
@@ -985,6 +1014,7 @@ Allowed theme ids:
 {theme_ids}
 
 Guidance:
+{apparel_instructions}
 - themes: only allowed ids with meaningful visual/text evidence.
 - embroidery_text: transcribe only clearly visible embroidered wording verbatim, preserving word order.
   Use one list item per distinct phrase. Do not paraphrase, infer missing letters, or include decorative symbols alone.
@@ -1034,7 +1064,10 @@ async def analyze_product_visual_reference(
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             metadata_profile="rrugc_product_context_visual",
-            metadata_profile_version=PRODUCT_VISUAL_CONTEXT_VERSION,
+            metadata_profile_version=(TIKTOKSHOP_APPAREL_CONTEXT_VERSION
+                                      if str((product_snapshot or {}).get("source_category") or "").casefold()
+                                      == "embroidered apparel"
+                                      else PRODUCT_VISUAL_CONTEXT_VERSION),
             image_width=width,
             image_height=height,
             json_schema=ProductVisualContextDocument.model_json_schema(),
@@ -1067,6 +1100,7 @@ def merge_product_visual_context(
             "themes": [],
             "embroidery_text": [],
             "embroidery_identity": None,
+            "apparel_placements": [],
             "scene_hints": [],
             "audience_hints": [],
             "occasion_hints": [],
@@ -1085,6 +1119,7 @@ def merge_product_visual_context(
     theme_scores: dict[str, float] = {}
     embroidery_text_rows: list[str] = []
     embroidery_identity_rows: list[tuple[float, str]] = []
+    placement_rows: list[SourceApparelPlacement] = []
     scene_rows: list[str] = []
     audience_rows: list[str] = []
     occasion_rows: list[str] = []
@@ -1103,6 +1138,7 @@ def merge_product_visual_context(
         for theme in document.themes:
             theme_scores[theme] = theme_scores.get(theme, 0.0) + max(0.15, confidence)
         embroidery_text_rows.extend(document.embroidery_text)
+        placement_rows.extend(document.apparel_placements)
         embroidery_identity = str(document.embroidery_identity or "").strip()
         if embroidery_identity:
             embroidery_identity_rows.append((confidence, embroidery_identity))
@@ -1144,6 +1180,10 @@ def merge_product_visual_context(
             if embroidery_identity_rows
             else None
         ),
+        "apparel_placements": [row.model_dump() for row in
+                               source_placements({"apparel_placements": [
+                                   item.model_dump() for item in placement_rows
+                               ]})],
         "scene_hints": _clean_list(scene_rows, limit=8),
         "audience_hints": _clean_list(audience_rows, limit=6),
         "occasion_hints": _clean_list(occasion_rows, limit=6),

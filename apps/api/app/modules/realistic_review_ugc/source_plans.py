@@ -41,6 +41,7 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.product_context import (
     PRODUCT_CONTEXT_PROFILE_VERSION,
     PRODUCT_VISUAL_CONTEXT_VERSION,
+    TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
     analyze_product_visual_reference,
     derive_product_context_profile,
     merge_product_visual_context,
@@ -455,6 +456,27 @@ def embroidery_signature(visual_context: dict[str, Any] | None) -> str | None:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def source_plan_embroidery_signature(
+    visual_context: dict[str, Any] | None, root_folder_id: str,
+) -> str | None:
+    """Canonical artwork identity, including actual garment placement in TikTokShop.
+
+    GatorHats color variants retain their historical color-agnostic signature.
+    """
+    signature = embroidery_signature(visual_context)
+    if signature and root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+        placements = [
+            str(item.get("zone"))
+            for item in (visual_context or {}).get("apparel_placements") or []
+            if isinstance(item, dict) and item.get("zone")
+        ]
+        if placements:
+            signature = hashlib.sha256(
+                (signature + "|apparel-zones:" + ",".join(sorted(set(placements)))).encode()
+            ).hexdigest()
+    return signature
+
+
 def _lock_embroidery_group(
     session: Session,
     *,
@@ -654,7 +676,9 @@ def _reconcile_embroidery_groups(
                 plan.target_count = RRUGC_SOURCE_TARGET_COUNT
 
         if isinstance(plan.visual_context_json, dict):
-            recalculated_signature = embroidery_signature(plan.visual_context_json)
+            recalculated_signature = source_plan_embroidery_signature(
+                plan.visual_context_json, plan.root_folder_id
+            )
             if recalculated_signature != plan.embroidery_signature:
                 plan.embroidery_signature = recalculated_signature
         if plan.embroidery_signature:
@@ -695,7 +719,7 @@ def _reconcile_embroidery_groups(
                     else False
                 ),
                 -_source_campaign_progress(service, campaign),
-                campaign.created_at,
+                _as_utc(campaign.created_at) or active_now,
                 campaign.id,
             )
         )
@@ -785,7 +809,11 @@ async def sync_source_plans(
             and plan is not None
             and plan.status == "ready"
             and bool(existing_visual_context)
-            and str(existing_visual_context.get("version") or "") != PRODUCT_VISUAL_CONTEXT_VERSION
+            and str(existing_visual_context.get("version") or "") != (
+                TIKTOKSHOP_APPAREL_CONTEXT_VERSION
+                if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+                else PRODUCT_VISUAL_CONTEXT_VERSION
+            )
         )
         if plan is None:
             plan = RrugcSourcePlanModel(
@@ -1218,6 +1246,8 @@ class RrugcSourcePlanAnalyzeJobHandler:
             ),
             analyzed_at=datetime.now(timezone.utc).isoformat(),
         )
+        if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+            visual_context["version"] = TIKTOKSHOP_APPAREL_CONTEXT_VERSION
         profile = derive_product_context_profile(
             product_snapshot=product_snapshot,
             campaign_name=product_snapshot["name"],
@@ -1229,6 +1259,12 @@ class RrugcSourcePlanAnalyzeJobHandler:
         )
         anchors = _search_anchors(profile)
         if plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+            # Source-zone composition queries come first. A Pinterest search
+            # must discover visible sleeve/collar/chest poses, not only theme.
+            placement_queries = list(
+                (profile.get("search_clusters") or {}).get("direct") or []
+            )[:3]
+            anchors = [*placement_queries, *anchors]
             # Context queries must describe garments, never borrowed hat scenes.
             anchors = [value for value in anchors
                        if not re.search(r"\b(hats?|caps?|trucker|visor|brim)\b",
@@ -1236,10 +1272,10 @@ class RrugcSourcePlanAnalyzeJobHandler:
             garment = product_snapshot["product_type"]
             visible_words = " ".join(visual_context.get("embroidery_text") or [])[:80].strip()
             anchors = list(dict.fromkeys([
-                *(anchors[:1]),
+                *anchors[:3],
                 f"{visible_words} embroidered {garment} casual mirror selfie phone photo".strip(),
                 f"embroidered {garment} candid customer lifestyle photo natural light",
-            ]))[:3]
+            ]))[:4]
         queries = build_campaign_search_queries(
             name=product_snapshot["name"],
             queries=anchors,
@@ -1265,7 +1301,9 @@ class RrugcSourcePlanAnalyzeJobHandler:
             ):
                 return JobHandlerResult.completed()
 
-            signature = embroidery_signature(visual_context)
+            signature = source_plan_embroidery_signature(
+                visual_context, plan.root_folder_id,
+            )
             old_campaign_id = plan.campaign_id
             plan.embroidery_signature = signature
             if signature:

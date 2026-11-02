@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
-from app.modules.realistic_review_ugc.source_plans import embroidery_signature
+from app.modules.realistic_review_ugc.source_plans import source_plan_embroidery_signature
 
 
 def group_source_plan_rows(
@@ -24,7 +24,7 @@ def group_source_plan_rows(
     # A "strong" signature was recomputed from the analyzed image context;
     # persisted hashes without context are weaker legacy evidence.
     strong = [
-        embroidery_signature(row.visual_context_json)
+        source_plan_embroidery_signature(row.visual_context_json, row.root_folder_id)
         if isinstance(row.visual_context_json, dict) else None
         for row in rows
     ]

@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.modules.realistic_review_ugc.apparel_placement import CandidateApparelZone, source_placements
 
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiMetadataProvider
 
 
 ANALYZER_VERSION = "rrugc-reference-v11-hat-review-scenes"
+APPAREL_ANALYZER_VERSION = "rrugc-reference-v12-apparel-placement"
 QUALITY_FIRST_MAX_AI_RISK = 0.15
 QUALITY_FIRST_MIN_QUALITY = 0.60
 QUALITY_FIRST_MIN_UGC = 0.55
@@ -47,6 +49,9 @@ class ReferenceAnalysisDocument(BaseModel):
     ai_background_consistency_risk: float = Field(default=0.0, ge=0.0, le=1.0)
     ai_detector_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     product_fit_score: float = Field(ge=0.0, le=1.0)
+    garment_view: str = Field(default="unknown", max_length=32)
+    garment_frame_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    apparel_zone_visibility: list[CandidateApparelZone] = Field(default_factory=list, max_length=8)
     hand_visible: bool = False
     hat_held_in_hand: bool = False
     front_panel_visible: bool = False
@@ -786,7 +791,8 @@ one JSON object, no prose and no personal identity or demographic inference.
 
 Prefer real candid phone photos: people naturally wearing sweatshirts, hoodies,
 shirts, tees or sweaters, mirror selfies, home/cafe/street situations, ordinary
-fabric folds, realistic torso/body pose and usable front or back garment areas.
+fabric folds, realistic torso/body pose and usable garment areas. Front embroidery
+requires clear front or three-quarter views; back-facing subjects are unsuitable.
 Torso-only crops are valid; do NOT require a visible face, hat, crown or visor.
 An existing different garment may be suitable if its silhouette, seams and
 material plausibly fit the supplied product. Penalize catalog cutouts, floating
@@ -838,7 +844,8 @@ head_occlusion, mobile_ugc_score, phone_authenticity_score, artistic_editorial_r
 quality_score, ai_risk_score,
 ai_anatomy_risk, ai_text_symbol_risk, ai_geometry_risk, ai_texture_risk,
 ai_lighting_reflection_risk, ai_background_consistency_risk, ai_detector_confidence,
-product_fit_score, hand_visible, hat_held_in_hand, front_panel_visible,
+product_fit_score, garment_view, garment_frame_ratio, apparel_zone_visibility,
+hand_visible, hat_held_in_hand, front_panel_visible,
 embroidery_visible, context_match_score, context_match_evidence,
 matched_variant_id, matched_variant_name, matched_color,
 color_match_score, product_shape_score,
@@ -924,6 +931,44 @@ scene_type, framing_type, camera_angle, pose_type, summary.
     }
     if apparel:
         base = _apparel_analysis_prompt()
+        profile = (
+            dict(product.get("discovery_context"))
+            if isinstance(product.get("discovery_context"), dict)
+            else {}
+        )
+        placements = source_placements(profile)
+        if placements:
+            zone_list = ", ".join(
+                f"{item.zone} ({item.priority})" for item in placements
+            )
+            base += (
+                "\n\nMANDATORY APPAREL ZONE VISIBILITY ANALYSIS for this SOURCE garment: "
+                + zone_list
+                + "\nEvaluate only the CANDIDATE photo's replaceable garment, not the "
+                  "source photo or imaginary design already present on the model. "
+                  "Garment_view must be one of front, three_quarter, side, back, unknown. "
+                  "garment_frame_ratio = visible candidate shirt/sweatshirt area / whole image area "
+                  "(0..1); estimate conservatively. For EACH requested source zone, provide "
+                  "ONE apparel_zone_visibility item with exact zone, visible_ratio, "
+                  "occlusion_ratio, confidence (all 0..1). "
+                  "visible_ratio measures how much of that specific panel is both in frame "
+                  "and front-facing enough to transplant artwork; occlusion_ratio measures "
+                  "the part covered by hands, forearms, crossed arms, raised knees/legs, "
+                  "phone, bag, hair, child/pet, jacket or other objects. "
+                  "Also penalize tight garment folds. "
+                  "Left/right mean the WEARER'S actual side even in a mirrored selfie. "
+                  "A 3/4 view is valid if all required artwork zones remain visible. "
+                  "A full-body distant photo, back view, cropped sleeve or blocked neckline "
+                  "is not a safe fit. Do not guess invisible anatomy. If uncertain, "
+                  "use low confidence instead of fabricating visibility. "
+                  "Do not add marks or simulate a design on the candidate image."
+            )
+        else:
+            base += (
+                "\n\nAPPAREL placement has not yet been identified from the "
+                "source garment. Return garment_view and garment_frame_ratio; "
+                "set apparel_zone_visibility to []. Do not invent source design zones."
+            )
     variants = list(product.get("variants") or [])[:30]
     family_parts = [
         ("name", product.get("name")),
@@ -1021,7 +1066,9 @@ async def analyze_reference_image(
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             metadata_profile="rrugc_reference",
-            metadata_profile_version=ANALYZER_VERSION,
+            metadata_profile_version=(APPAREL_ANALYZER_VERSION if
+                str((product_context or {}).get("source_category") or "").casefold() == "embroidered apparel"
+                else ANALYZER_VERSION),
             image_width=width,
             image_height=height,
             json_schema=ReferenceAnalysisDocument.model_json_schema(),

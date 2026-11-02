@@ -3123,6 +3123,8 @@ def _source_plan_reference_preview(row: RrugcCandidateModel) -> SourcePlanRefere
             else None
         ),
         source_query=source_query,
+        apparel_fit=(dict(signal["apparel_visibility"])
+                     if isinstance(signal.get("apparel_visibility"), dict) else None),
         width=row.width,
         height=row.height,
         created_at=row.created_at,

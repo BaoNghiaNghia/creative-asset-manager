@@ -68,7 +68,11 @@ TIKTOKSHOP_APPAREL_PROMPT = (
     "Use selected lifestyle references only for candid phone-camera angle, wearer posture, "
     "natural garment drape, lighting and scene mood, never to replace the product. "
     "Real garment seams, collar, cuffs, fabric texture, folds and physically plausible "
-    "embroidery stitching are essential; no hat, cap, visor, detached decal, added text, "
+    "embroidery stitching are essential. Preserve EVERY visible design on collar, "
+    "center or side chest, sleeve and upper arm. Never cover embroidery with folded "
+    "arms, hands, hair, child/pet, bag straps, phones or outerwear; no back-view "
+    "substitute for front artwork. Keep anatomy and all panels physically consistent. "
+    "No hat, cap, visor, detached decal, added text, "
     "catalog copy or fictional review/testimonial. Reject uncertain source identity."
 )
 
@@ -317,6 +321,17 @@ class RrugcStage2Service:
                 raise RrugcStage2Error(
                     "stage2_reference_rejected",
                     "Rejected or AI-marked Pinterest references cannot be used for generation.",
+                    status_code=422,
+                )
+            if workspace == "tiktokshop" and (
+                (not isinstance(signal.get("apparel_visibility"), dict)
+                 or signal["apparel_visibility"].get("gate_status") != "passed")
+                and signal.get("reference_manual_label") != "good"
+            ):
+                raise RrugcStage2Error(
+                    "stage2_apparel_zone_fit_required",
+                    "The reference has not passed collar/chest/sleeve visibility checks. "
+                    "Choose an unoccluded photo or mark the reference suitable after manual review.",
                     status_code=422,
                 )
             if not row.remote_file_id:

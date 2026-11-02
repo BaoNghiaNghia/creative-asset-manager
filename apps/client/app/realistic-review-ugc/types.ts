@@ -152,6 +152,13 @@ export type SourcePlanReferencePreview = {
   rejected: boolean;
   manual_label?: "good" | "bad" | "ai" | null;
   source_query: string | null;
+  apparel_fit?: {
+    fit_score?: number;
+    garment_view?: string;
+    gate_status?: "passed" | "needs_review" | "rejected_context";
+    reject_reason?: string | null;
+    source_zones?: Array<{ zone: string; priority: "primary" | "secondary" }>;
+  } | null;
   width: number | null;
   height: number | null;
   created_at: string;
@@ -346,6 +353,7 @@ export type SourcePlan = {
     themes?: string[];
     embroidery_text?: string[];
     embroidery_identity?: string | null;
+    apparel_placements?: Array<{ zone: string; priority: "primary" | "secondary"; confidence: number }>;
     scene_hints?: string[];
     audience_hints?: string[];
     occasion_hints?: string[];

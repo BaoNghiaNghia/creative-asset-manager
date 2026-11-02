@@ -7,6 +7,9 @@ import httpx
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from app.modules.realistic_review_ugc.apparel_placement import (
+    evaluate_apparel_suitability, source_placements,
+)
 from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 
@@ -26,7 +29,9 @@ from app.infrastructure.downloader.secure_image import (
 )
 from app.modules.realistic_review_ugc.analysis import (
     ANALYZER_VERSION,
+    APPAREL_ANALYZER_VERSION,
     ReferenceAnalysisDocument,
+    ReferenceDecision,
     analyze_reference_image,
     assess_ai_risk,
     build_ai_risk_calibration,
@@ -745,6 +750,39 @@ class RrugcCandidateAnalyzeJobHandler:
                 allow_hand_held_hat=hand_holding_hat_context,
                 strict_context_exclusions=strict_context_exclusions,
             )
+            apparel_fit = None
+            if tiktok_plan:
+                placements = source_placements(discovery_context)
+                apparel_fit = evaluate_apparel_suitability(
+                    placements=placements,
+                    garment_view=document.garment_view,
+                    garment_frame_ratio=document.garment_frame_ratio,
+                    observations=document.apparel_zone_visibility,
+                )
+                # A relevance/quality rejection cannot become approved merely
+                # because garment zones are visible. Zone failures can always
+                # disqualify an otherwise appealing lifestyle candidate.
+                if decision.status in {"approved", "needs_review"}:
+                    if apparel_fit.status is not None:
+                        decision = ReferenceDecision(
+                            status=apparel_fit.status,
+                            reject_reason=apparel_fit.reason,
+                            final_score=round(min(decision.final_score, 0.50)
+                                              if apparel_fit.status == "rejected_context"
+                                              else decision.final_score, 4),
+                        )
+                    elif apparel_fit.score < 0.62:
+                        decision = ReferenceDecision(
+                            status="needs_review", reject_reason="APPAREL_ZONE_FIT_LOW",
+                            final_score=decision.final_score,
+                        )
+                    else:
+                        decision = ReferenceDecision(
+                            status=decision.status,
+                            reject_reason=decision.reject_reason,
+                            final_score=round(min(1.0, 0.82 * decision.final_score
+                                                  + 0.18 * apparel_fit.score), 4),
+                        )
 
             with context.dependencies.session_factory() as session:
                 repository = RrugcRepository(session)
@@ -826,6 +864,7 @@ class RrugcCandidateAnalyzeJobHandler:
                     diversity_signature,
                     context_matching_required,
                     context_binding_fingerprint,
+                    analyzer_version=APPAREL_ANALYZER_VERSION if tiktok_plan else ANALYZER_VERSION,
                 )
                 candidate.image_url = image.source_url
                 repository.replace_visual_fingerprints(candidate, fingerprints)
@@ -833,6 +872,19 @@ class RrugcCandidateAnalyzeJobHandler:
                     **(candidate.ai_signal_json or {}),
                     "reference_preference_adjustment": preference_adjustment,
                     "seed_visual": seed_visual_signal,
+                    **({"apparel_visibility": {
+                        "version": apparel_fit.placement_version,
+                        "source_zones": [
+                            {"zone": row.zone, "priority": row.priority}
+                            for row in placements
+                        ],
+                        "garment_view": document.garment_view,
+                        "garment_frame_ratio": document.garment_frame_ratio,
+                        "fit_score": apparel_fit.score,
+                        "gate_status": apparel_fit.status or "passed",
+                        "reject_reason": apparel_fit.reason,
+                        "zone_visibility": apparel_fit.visibility_by_zone,
+                    }} if apparel_fit is not None else {}),
                     "reference_manual_pending_approval": False,
                     "reference_manual_pending_analysis": False,
                     "reference_manual_approval_override": manual_reference_override,
@@ -898,6 +950,7 @@ class RrugcCandidateAnalyzeJobHandler:
         diversity_signature: str | None,
         context_matching_required: bool,
         context_binding_fingerprint: str | None,
+        analyzer_version: str = ANALYZER_VERSION,
     ) -> None:
         candidate.status = status
         candidate.people_count = document.people_count
@@ -958,7 +1011,7 @@ class RrugcCandidateAnalyzeJobHandler:
         candidate.reject_reason = reject_reason
         candidate.analyzer_provider = provider_name
         candidate.analyzer_model = model
-        candidate.analyzer_version = ANALYZER_VERSION
+        candidate.analyzer_version = analyzer_version
         candidate.analysis_summary = document.summary
         candidate.analyzed_at = datetime.now(timezone.utc)
         candidate.last_error_code = None

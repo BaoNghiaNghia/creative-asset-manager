@@ -414,6 +414,7 @@ class SourcePlanReferencePreviewResponse(BaseModel):
     rejected: bool = False
     manual_label: str | None = None
     source_query: str | None = None
+    apparel_fit: dict | None = None
     width: int | None = None
     height: int | None = None
     created_at: datetime

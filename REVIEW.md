@@ -1,3 +1,10 @@
+## 2026-11-02 — TikTokShop apparel placement-aware Pinterest Scout
+
+- Only TikTokShop Source Stage 3 and Stage 4: existing Gemini vision source and candidate analyses capture the exact visible collar, left/right chest, center chest, sleeve and upper-arm zones, priority, framing, visibility and occlusion; existing runner queries gain garment-specific compositions without extra provider calls. GatorHats scout and all past images/job IDs are unchanged.
+- Server gate rejects back-view/tiny-garment/blocked main-design references; uncertain secondary/missing/low-confidence evidence requires review, instead of auto-approval. Stage 4 requires an approved placement gate or explicit manual suitable approval. Expose zones/fit reasons to Stage 3 UI.
+- Schema is JSON-only, no migration, new dependency or Windows client update. TikTokShop source plan v5 incremental upgrade is bounded by existing 12 in-flight Gemini analyses, no bulk replay and no deleted generated outputs. Embroidery campaign signatures include garment design zones only for TikTokShop.
+- Tests and deployment runbook: `docs/operations/CAM_TIKTOKSHOP_APPAREL_PLACEMENT_SCOUT.md`. Real-photo confidence should be sampled after rollout; unit tests do not prove perfect pose recognition.
+
 ## 2026-11-02 — Stage 2 all-slot native material reuse
 
 - Scope: GatorHats **Products** Stage 2. Slot 1's byte-verified photographic Pass A macro becomes the single saved material source. New Slots 2/3 edit real angled factory photos, Slot 4 returns the original blank rear stock, Slots 5/6 edit only stitch material on completed scene photos, and Slot 7 edits each of the 12 natural-color factory photos. Reviews pipeline remains unchanged.
