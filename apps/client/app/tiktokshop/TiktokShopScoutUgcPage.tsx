@@ -15,12 +15,16 @@ import {
   listStage3ReviewGroups,
   listSourcePlanFolders,
   listSourcePlans,
+  markCandidateReferenceFeedback,
   regenerateStage4Job,
   retryStage4Job,
   syncSourcePlans,
   type SourcePlanFolders,
 } from "../realistic-review-ugc/api";
-import type { SourcePlan, SourcePlanPage, Stage2Job, Stage3ReviewGroupList } from "../realistic-review-ugc/types";
+import type {
+  ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview,
+  Stage2Job, Stage3ReviewGroupList,
+} from "../realistic-review-ugc/types";
 import "../realistic-review-ugc/ui-overhaul.css";
 import "../realistic-review-ugc/tablet-mobile-density.css";
 import "./tiktokshop.css";
@@ -69,6 +73,7 @@ export function TiktokShopScoutUgcPage() {
   const autoSourceImportAttempted = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [reviewingReferenceIds, setReviewingReferenceIds] = useState<Set<string>>(new Set());
   const [jobs, setJobs] = useState<Stage2Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsBusy, setJobsBusy] = useState(false);
@@ -231,6 +236,74 @@ export function TiktokShopScoutUgcPage() {
     finally { setReviewsMoreLoading(false); }
   };
 
+  async function setReferenceFeedback(
+    plan: SourcePlan,
+    reference: SourcePlanReferencePreview,
+    requestedLabel: ReferenceManualLabel | "clear",
+  ) {
+    if (!plan.campaign_id || reviewingReferenceIds.has(reference.id)) return;
+    const sameLabel = (requestedLabel === "good" && reference.picked)
+      || (requestedLabel === "bad" && (
+        reference.manual_label === "bad" || (!reference.manual_label && reference.rejected)
+      ))
+      || (requestedLabel === "ai" && reference.manual_label === "ai");
+    const label = sameLabel ? "clear" : requestedLabel;
+    const picked = label === "good";
+    const rejected = label === "bad" || label === "ai";
+    setReviewingReferenceIds(previous => new Set(previous).add(reference.id));
+    setError("");
+    setPage(previous => ({
+      ...previous,
+      items: previous.items.map(item => item.id !== plan.id ? item : {
+        ...item,
+        reference_previews: item.reference_previews.map(row => (
+          row.id === reference.id
+            ? { ...row, picked, rejected, manual_label: label === "clear" ? null : label }
+            : row
+        )),
+      }),
+    }));
+    try {
+      await markCandidateReferenceFeedback(
+        plan.campaign_id,
+        reference.id,
+        label,
+        label === "good"
+          ? "TikTokShop Stage 3: suitable apparel reference"
+          : label === "bad"
+            ? "TikTokShop Stage 3: unsuitable apparel reference"
+            : label === "ai"
+              ? "TikTokShop Stage 3: AI-generated reference"
+              : "TikTokShop Stage 3: feedback cleared",
+        "tiktokshop",
+      );
+      setMessage(label === "good"
+        ? "Reference approved. Scout will prioritize similar suitable images."
+        : label === "bad"
+          ? "Reference rejected. It will be excluded from usable images."
+          : label === "ai"
+            ? "AI-generated reference flagged and excluded from real photo selections."
+            : "Reference feedback cleared.");
+      await refresh();
+    } catch (reason) {
+      setPage(previous => ({
+        ...previous,
+        items: previous.items.map(item => item.id !== plan.id ? item : {
+          ...item,
+          reference_previews: item.reference_previews.map(row =>
+            row.id === reference.id ? reference : row),
+        }),
+      }));
+      setError(reason instanceof Error ? reason.message : "Unable to save TikTokShop reference feedback.");
+    } finally {
+      setReviewingReferenceIds(previous => {
+        const next = new Set(previous);
+        next.delete(reference.id);
+        return next;
+      });
+    }
+  }
+
   async function scanDrive() {
     if (syncing) return;
     setSyncing(true);
@@ -318,6 +391,8 @@ export function TiktokShopScoutUgcPage() {
             onQueryChange={value => { setQuery(value); setPageNumber(1); }}
             syncing={syncing}
             loading={loading || syncing}
+            reviewingReferenceIds={reviewingReferenceIds}
+            onSetReferenceFeedback={(plan, reference, label) => void setReferenceFeedback(plan, reference, label)}
             message={message}
             onSync={() => void scanDrive()}
             onPageChange={setPageNumber}

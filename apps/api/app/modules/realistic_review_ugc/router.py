@@ -9486,6 +9486,7 @@ def mark_candidate_reference_feedback(
     campaign_id: str,
     candidate_id: str,
     body: CandidateReferenceFeedbackRequest,
+    workspace: str | None = Query(default=None, pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
@@ -9495,6 +9496,20 @@ def mark_candidate_reference_feedback(
         principal.active_tenant_id,
         campaign_id,
     )
+    # Feedback changes both candidate eligibility and Scout learning. Never
+    # allow a TikTokShop navbar grant to label a GatorHats candidate (or the
+    # inverse), even if a caller substitutes a foreign campaign/candidate ID.
+    roots = set(session.scalars(
+        select(RrugcSourcePlanModel.root_folder_id).where(
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.campaign_id == campaign_id,
+        )
+    ))
+    if (
+        (workspace == "tiktokshop" and roots != {TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID})
+        or (workspace != "tiktokshop" and TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID in roots)
+    ):
+        raise HTTPException(status_code=404, detail="Campaign not found")
     candidate = repository.get_candidate(
         principal.active_tenant_id, campaign_id, candidate_id
     )

@@ -70,6 +70,7 @@ def permissions_for_modules(modules: set[str] | frozenset[str]) -> frozenset[str
 # unrelated GatorHats endpoint as TikTokShop.
 _TIKTOKSHOP_WORKSPACE_ROUTES = tuple(re.compile(expr) for expr in (
     r"/source-plans",
+    r"/campaigns/[^/]+/candidates/[^/]+/reference-feedback",
     r"/source-plans/folders",
     r"/source-plans/sync",
     r"/source-plans/[^/]+/image",

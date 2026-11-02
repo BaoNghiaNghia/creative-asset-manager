@@ -5488,6 +5488,51 @@ def test_candidate_ai_feedback_api_persists_human_label(api, database):
         assert rows[0].created_by_user_id == "user-a"
 
 
+def test_tiktokshop_stage3_reference_feedback_scope_and_persistence(api, database):
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    with database() as session:
+        service = RrugcService(session)
+        campaign, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Tiktok apparel reference",
+            query="front sweatshirt photo", target_count=50, max_scroll_batches=2,
+            auto_import=True,
+        )
+        rows, created, _ = service.ingest_candidates(
+            campaign=campaign, source_query=campaign.query,
+            submissions=[CandidateSubmission(
+                pin_url="https://www.pinterest.com/pin/991991/",
+                image_url="https://i.pinimg.com/736x/991991.jpg",
+                alt_text="person wearing sweatshirt",
+            )],
+        )
+        assert created == 1
+        candidate = rows[0]
+        candidate.status = "drive_ready"
+        candidate.analyzed_at = datetime.now(timezone.utc)
+        session.add(RrugcSourcePlanModel(
+            tenant_id="tenant-a", root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="source-tiktok", source_name="sweatshirt.jpg",
+            source_relative_path="Product/sweatshirt.jpg",
+            source_mime_type="image/jpeg", source_revision="source-v5",
+            campaign_id=campaign.id, status="ready", created_by_user_id="user-a",
+        ))
+        session.commit()
+        url = f"/api/v1/realistic-review-ugc/campaigns/{campaign.id}/candidates/{candidate.id}/reference-feedback"
+        candidate_id = candidate.id
+
+    assert api.post(url, json={"label": "good"}).status_code == 404
+    assert api.post(url + "?workspace=gatorhats", json={"label": "good"}).status_code == 404
+    for label in ("good", "bad", "ai", "clear"):
+        result = api.post(url + "?workspace=tiktokshop", json={"label": label})
+        assert result.status_code == 200, result.text
+        expected = None if label == "clear" else label
+        assert result.json()["candidate"]["reference_manual_label"] == expected
+        with database() as session:
+            assert session.get(RrugcCandidateModel, candidate_id).ai_signal_json.get(
+                "reference_manual_label",
+            ) == expected
+
+
 def test_candidate_reference_feedback_api_tracks_latest_mark_and_clear(api, database):
     with database() as session:
         campaign, _ = RrugcService(session).create_campaign(

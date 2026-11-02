@@ -153,6 +153,9 @@ class MemberNavigationAccessTests(unittest.TestCase):
         self.assertEqual(navigation_for_api_path(prefix + "/stage2-jobs/job-a/output", "tiktokshop"), "tiktokshop")
         self.assertEqual(navigation_for_api_path(prefix + "/stage3/review-groups/analyze", "tiktokshop"), "tiktokshop")
         self.assertEqual(navigation_for_api_path(prefix + "/scout-agents", "tiktokshop"), "tiktokshop")
+        feedback = prefix + "/campaigns/camp/candidates/photo/reference-feedback"
+        self.assertEqual(navigation_for_api_path(feedback, "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(feedback, "gatorhats"), "realistic-review-ugc")
         self.assertEqual(navigation_for_api_path(prefix + "/source-plans", "gatorhats"), "realistic-review-ugc")
         self.assertEqual(navigation_for_api_path(prefix + "/source-plans"), "realistic-review-ugc")
         # Unknown or GatorHats-only paths must not be reclassified by an
@@ -171,6 +174,9 @@ class MemberNavigationAccessTests(unittest.TestCase):
                 navigation_modules=frozenset({scope}),
             )
             _require_navigation_access(principal, prefix + "/source-plans", allowed_workspace)
+            _require_navigation_access(principal, feedback, allowed_workspace)
+            with self.assertRaises(HTTPException):
+                _require_navigation_access(principal, feedback, denied_workspace)
             with self.assertRaises(HTTPException) as denied:
                 _require_navigation_access(principal, prefix + "/source-plans", denied_workspace)
             self.assertEqual(denied.exception.detail["code"], "navigation_access_required")

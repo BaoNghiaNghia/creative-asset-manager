@@ -1611,13 +1611,14 @@ export const markCandidateReferenceFeedback = (
   candidateId: string,
   label: ReferenceManualLabel | "clear",
   note?: string,
+  workspace: "gatorhats" | "tiktokshop" = "gatorhats",
 ) =>
   request<{ candidate: Candidate; learning: { active: boolean; good_count: number; bad_count: number } }>(
     "/api/v1/realistic-review-ugc/campaigns/"
       + encodeURIComponent(campaignId)
       + "/candidates/"
       + encodeURIComponent(candidateId)
-      + "/reference-feedback",
+      + "/reference-feedback?workspace=" + encodeURIComponent(workspace),
     {
       method: "POST",
       body: JSON.stringify({ label, note: note || null }),
