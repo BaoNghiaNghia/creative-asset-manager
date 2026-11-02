@@ -404,6 +404,16 @@ class EcommerceService:
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
             ProcessingJobModel.entity_id == row.id,
         )) or 0)
+        # A saved reference makes V2.4 Retry Placement a CPU-only compositor.
+        # Do not subject it to Codex provider quota/policy admission controls.
+        local_transfer = bool(
+            row.stage == "prod_s2_ec1"
+            and row.skill_name == SLOT1_DIRECT_NAME
+            and row.skill_version == SLOT1_DIRECT_VERSION
+            and row.front_preview_remote_file_id
+            and row.front_preview_design_sha256
+            and not regenerate_material_reference
+        )
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
@@ -423,7 +433,8 @@ class EcommerceService:
                     "multihat_colorway_hashes": multihat_colorway_hashes}
                    if multihat_colorways else {}),
             }, priority=20, max_attempts=3,
-            provider_key="codex", provider_scope="ai",
+            provider_key=None if local_transfer else "codex",
+            provider_scope=None if local_transfer else "ai",
         )
         processing.priority = ECOMMERCE_INTERACTIVE_PRIORITY
         row.processing_job_id = processing.id

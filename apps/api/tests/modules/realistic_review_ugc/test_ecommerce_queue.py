@@ -111,6 +111,34 @@ def test_front_placement_is_pinned_for_new_job_and_regenerate_uses_updated_setti
     assert latest.payload_json["front_placement"] == {**newer, "design_size": 100}
 
 
+def test_saved_embroidery_reference_retry_is_queued_without_codex_quota(ecommerce_db):
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    created = service.queue(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", stage="prod_s2_ec1",
+    )
+    row = session.get(RrugcEcommerceJobModel, created["job_id"])
+    first = session.get(ProcessingJobModel, row.processing_job_id)
+    assert first.provider_key == "codex"
+    row.status = "completed"
+    row.output_remote_file_id = "old-front"
+    row.front_preview_remote_file_id = "saved-material"
+    row.front_preview_content_type = "image/png"
+    row.front_preview_size_bytes = 6000
+    row.front_preview_design_sha256 = "f" * 64
+    session.commit()
+    result = service.retry_inpaint(tenant_id="tenant-001", job_id=row.id)
+    assert result["embroidery_reference_reused"] is True
+    retry_job = session.get(ProcessingJobModel, row.processing_job_id)
+    assert retry_job.id != first.id
+    assert retry_job.provider_key is None
+    assert retry_job.provider_scope is None
+    assert retry_job.payload_json["front_placement"]
+    assert row.front_preview_remote_file_id == "saved-material"
+    assert row.output_remote_file_id == "old-front"
+
+
 def test_three_quarter_and_side_require_completed_front(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
