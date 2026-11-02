@@ -82,3 +82,66 @@
     padding: 11px 12px;
   }
 }
+
+/* TikTokShop Stage 3 only. The shared RRUGC Review rejected action inherits
+   oversized button typography; keep this an unobtrusive, inline recovery link
+   without changing the GatorHats/Realistic Review UGC empty state or modal. */
+.rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-empty:has(> .rrugc-source-ref-review-rejected) {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content;
+  justify-content: stretch;
+  align-items: center;
+  gap: 8px;
+  min-height: 66px;
+  padding: 9px 10px;
+}
+.rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-empty:has(> .rrugc-source-ref-review-rejected) > span:not(.rrugc-source-ref-empty-icon) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-review-rejected {
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  align-self: center;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+  height: 29px;
+  min-height: 29px;
+  margin: 0;
+  padding: 0 9px;
+  border: 1px solid #cbd7e4;
+  border-radius: 6px;
+  background: #fff;
+  color: #516781;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+}
+.rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-review-rejected:hover {
+  border-color: #aebed1;
+  background: #f3f6fb;
+  color: #344c70;
+}
+.rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-review-rejected:focus-visible {
+  outline: 2px solid #527db5;
+  outline-offset: 2px;
+}
+@media (max-width: 480px) {
+  .rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-empty:has(> .rrugc-source-ref-review-rejected) {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .rrugc-tiktokshop-workspace #tiktok-panel-stage3 .rrugc-source-ref-review-rejected {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

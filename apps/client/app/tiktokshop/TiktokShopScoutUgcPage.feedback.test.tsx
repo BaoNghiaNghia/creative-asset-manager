@@ -126,6 +126,32 @@ describe("TikTokShop Stage 3 Reference feedback", () => {
     await act(async () => root.unmount());
   });
 
+  it("opens the rejected-only recovery action and restores the reference in Stage 3", async () => {
+    const { host, root, update, buttons } = await mount();
+    await act(async () => { buttons()[1].click(); await Promise.resolve(); });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="Close reference review"]')!.click();
+    });
+    expect(host.textContent).toContain("No active references");
+    const action = host.querySelector<HTMLButtonElement>("#tiktok-panel-stage3 .rrugc-source-ref-review-rejected");
+    expect(action?.textContent).toBe("Review rejected");
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+
+    await act(async () => action!.click());
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain("Rejected (1)");
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="Restore rejected reference 1"]')!.click();
+      await Promise.resolve();
+    });
+    expect(update).toHaveBeenLastCalledWith(
+      source.campaign_id, ref.id, "clear", expect.any(String), "tiktokshop",
+    );
+    expect(host.querySelector(".rrugc-source-ref-review-rejected")).toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("restores the image and shows an error when saving feedback fails", async () => {
     const { host, root, update, buttons } = await mount();
     update.mockRejectedValueOnce(new Error("Access denied"));

@@ -10,9 +10,12 @@ APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 ALLOW_DIRTY=false
 REF=""
 ROLLBACK=false
+KEEP_RELEASES="${CAM_FRONTEND_RELEASE_KEEP:-1}"
 
 usage() { cat <<'USAGE'
 Usage: sudo scripts/deploy-cam-frontend.sh [--commit SHA|--branch NAME] [--rollback] [--allow-dirty]
+After verified activation, keeps only the current frontend release by default.
+Set CAM_FRONTEND_RELEASE_KEEP=2 to retain one rollback release.
 Validates and atomically activates a committed prebuilt frontend release.
 USAGE
 }
@@ -28,6 +31,7 @@ while (($#)); do
     *) die "Unknown option: $1" ;;
   esac
 done
+[[ "$KEEP_RELEASES" == "1" || "$KEEP_RELEASES" == "2" ]] || die "CAM_FRONTEND_RELEASE_KEEP must be 1 or 2."
 # Git linked worktrees use a .git *file*, not a directory. Accept a
 # checkout only when Git recognizes its exact top-level root. Never silently
 # deploy an unrelated parent checkout due to the metadata representation.
@@ -124,14 +128,20 @@ if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
   CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
     bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
 fi
-# Health checks passed. Preserve exactly the current and most recent
-# previous verified release for rollback. Avoid unbounded disk growth.
-# The previous symlink is retained until a future successful deployment.
+# Only after a successful activation and public health checks can the
+# optional single-release policy remove the previous rollback symlink/tree.
+# Explicit two-release policy preserves one verified rollback release.
+if [[ "$KEEP_RELEASES" == "1" ]]; then
+  [[ ! -L "$WEB_ROOT/previous" ]] || rm -f -- "$WEB_ROOT/previous"
+  OLD=""
+fi
 for release in "$RELEASES"/*; do
   [[ -d "$release" && ! -L "$release" ]] || continue
+  [[ "${release##*/}" =~ ^[0-9a-f]{40}$ ]] || continue
   [[ "$release" == "$TARGET" || ( -n "$OLD" && "$release" == "$OLD" ) ]] && continue
-  rm -rf -- "$release"
+  rm -rf --one-file-system -- "$release"
 done
+printf "Frontend release retention: $KEEP_RELEASES verified release(s).\n"
 # Post-success housekeeping: only Browser QA scratch evidence, never
 # production assets or model outputs. Cleanup warnings must not revert a
 # healthy deployment; failed and recent QA evidence is preserved.
