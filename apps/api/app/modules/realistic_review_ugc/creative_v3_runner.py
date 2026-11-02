@@ -131,46 +131,69 @@ async def generate_six(
                     digest, _ = _checked_png(data, seen)
                     seen.add(digest)
                 else:
-                    attempt_id = context.job.id + f"-v3-{slot:02}"
-                    try:
-                        result = await native_runner.generate_from_references(
-                            attempt_id=attempt_id, person=None, references=[],
-                            prompt=prompt_for_slot(
+                    # Retry only this failed slot once after actual PNG / alpha / duplicate
+                    # rejection. Never auto-retry provider quota/auth/network failures;
+                    # never regenerate already-verified sibling checkpoints.
+                    for qa_attempt in range(2):
+                        attempt_id = context.job.id + f"-v3-{slot:02}-qa{qa_attempt + 1}"
+                        try:
+                            prompt = prompt_for_slot(
                                 plan, slot,
                                 visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
-                            ),
-                        )
-                        native = result.image_bytes
-                        native_hash = hashlib.sha256(native).hexdigest()
-                        meta = result.provider_metadata or {}
-                        if (meta.get("typography_v2_native_verified") is not True
-                                or meta.get("native_sha256") != native_hash):
-                            raise _fail("creative_v3_native_unverified",
-                                        "ImageGen native output cannot be verified by SHA-256.")
-                        try:
-                            data, _padded_only = fit_native_on_stage1_canvas(native)
-                        except TypographyPilotError as exc:
-                            raise _fail("creative_v3_native_png_rejected",
-                                        "Native ImageGen returned a PNG without safe transparent margins.") from exc
-                        digest, qa = _checked_png(data, seen)
-                        # A brief source edit, rights revocation or feature
-                        # disable during provider execution must block writes.
-                        verify_snapshot(revalidate(), snapshot)
-                        if not enabled(settings, tenant_id) or context.is_cancelled:
-                            raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
-                        try:
-                            _store_new(target, data)
-                        except FileExistsError as exc:
-                            raise _fail("creative_v3_slot_exists",
-                                        "Stage 1 slot already exists; will not overwrite it.") from exc
-                        seen.add(digest)
-                        context.logger.info("rrugc_creative_v3_slot_qa", extra={
-                            "tenant_id": tenant_id, "job_id": context.job.id,
-                            "slot": slot, "technical_pass": qa["technical_pass"],
-                            "image_spelling_verified": False,
-                        })
-                    finally:
-                        native_runner.cleanup_attempt(attempt_id)
+                            )
+                            if qa_attempt:
+                                prompt += (
+                                    "\nTECHNICAL QA REPAIR: the previous PNG for THIS SLOT "
+                                    "failed validation. Create a new distinct image with "
+                                    "genuine transparency, safe alpha margins and crisp "
+                                    "legible typography; never reuse rejected pixels."
+                                )
+                            result = await native_runner.generate_from_references(
+                                attempt_id=attempt_id, person=None, references=[], prompt=prompt,
+                            )
+                            native = result.image_bytes
+                            native_hash = hashlib.sha256(native).hexdigest()
+                            meta = result.provider_metadata or {}
+                            if (meta.get("typography_v2_native_verified") is not True
+                                    or meta.get("native_sha256") != native_hash):
+                                raise _fail("creative_v3_native_unverified",
+                                            "ImageGen native output cannot be verified by SHA-256.")
+                            try:
+                                data, _padded_only = fit_native_on_stage1_canvas(native)
+                            except TypographyPilotError as exc:
+                                raise _fail("creative_v3_native_png_rejected",
+                                            "Native ImageGen returned a PNG without safe transparent margins.") from exc
+                            digest, qa = _checked_png(data, seen)
+                            verify_snapshot(revalidate(), snapshot)
+                            if not enabled(settings, tenant_id) or context.is_cancelled:
+                                raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
+                            try:
+                                _store_new(target, data)
+                            except FileExistsError as exc:
+                                raise _fail("creative_v3_slot_exists",
+                                            "Stage 1 slot already exists; will not overwrite it.") from exc
+                            seen.add(digest)
+                            context.logger.info("rrugc_creative_v3_slot_qa", extra={
+                                "tenant_id": tenant_id, "job_id": context.job.id,
+                                "slot": slot, "technical_pass": qa["technical_pass"],
+                                "image_spelling_verified": False,
+                                "visual_material_verified": False,
+                            })
+                            break
+                        except CodexImageProviderError as exc:
+                            if (qa_attempt == 0 and exc.code in {
+                                    "creative_v3_alpha_or_canvas_rejected",
+                                    "creative_v3_duplicate_image",
+                                    "creative_v3_native_png_rejected",
+                            }):
+                                context.logger.warning("rrugc_creative_v3_slot_technical_retry", extra={
+                                    "tenant_id": tenant_id, "job_id": context.job.id,
+                                    "slot": slot, "error_code": exc.code,
+                                })
+                                continue
+                            raise
+                        finally:
+                            native_runner.cleanup_attempt(attempt_id)
                 outputs.append(GeneratedImageFile(
                     path=str(target),
                     filename=f"output/final/design_{slot:02}.png",
@@ -188,5 +211,7 @@ async def generate_six(
             "technical_qa": "passed",
             "image_spelling_verified": False,
             "embroidery_fit_verified": False,
+            "visual_material_verified": False,
+            "technical_qa_slot_retry_max": 1,
         },
     )

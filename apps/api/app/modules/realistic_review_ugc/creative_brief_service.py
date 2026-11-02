@@ -35,6 +35,13 @@ BACKGROUND_BRIEF_PRIORITY = 51   # backfill must not starve behind storage backl
 # probe it at most every 30 minutes. The epoch-only gate survives worker
 # restarts; all durable job state remains in PostgreSQL.
 CODEX_THROTTLE_FILE = ".creative-brief-codex-throttle"
+MANUAL_RETRY_CODE = "creative_brief_manual_retry_required"
+
+
+def auto_retry_enabled(settings: Settings) -> bool:
+    return bool(getattr(settings, "RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED", False))
+
+
 CODEX_WAIT_CODES = frozenset({
     "creative_brief_codex_quota_wait",
     "creative_brief_codex_auth_wait",
@@ -145,13 +152,16 @@ def get_brief(session: Session, *, tenant_id: str, keyword_id: str) -> dict:
     stale = bool(row and (row.keyword_sha256 != _digest(keyword.keyword)
                           or row.prompt_version != PROMPT_VERSION))
     quota_waiting = bool(row and row.status == "queued" and row.last_error_code in CODEX_WAIT_CODES)
-    next_retry = session.get(ProcessingJobModel, row.processing_job_id) if quota_waiting and row.processing_job_id else None
+    retry_enabled = auto_retry_enabled(get_settings())
+    next_retry = (session.get(ProcessingJobModel, row.processing_job_id)
+                  if quota_waiting and retry_enabled and row.processing_job_id else None)
     return {
         "keyword_id": keyword.id,
         "keyword": keyword.keyword,
         "status": "stale" if stale else row.status if row else "not_analyzed",
         "brief": None if stale or not row or row.status != "completed" else row.brief_json,
         "error_code": row.last_error_code if row and (row.status == "failed" or quota_waiting) else None,
+        "automatic_retry_enabled": retry_enabled,
         "next_retry_at": (next_retry.next_attempt_at.isoformat()
                           if next_retry and next_retry.status in ("pending", "retry") and next_retry.next_attempt_at
                           else None),
@@ -232,7 +242,7 @@ def queue_brief(
         reusable.payload_json = {"keyword_id": keyword_id, "prompt_version": PROMPT_VERSION}
         reusable.status = "pending"
         reusable.attempt_count = 0
-        reusable.max_attempts = 2
+        reusable.max_attempts = 2 if auto_retry_enabled(settings) else 1
         reusable.next_attempt_at = _utcnow()
         reusable.claimed_by = None
         reusable.claimed_at = None
@@ -252,7 +262,7 @@ def queue_brief(
         entity_id=row.id,
         idempotency_key=f"creative-brief:{row.id}:{PROMPT_VERSION}:{uuid4().hex}",
         payload={"keyword_id":keyword_id, "prompt_version": PROMPT_VERSION},
-        priority=priority, max_attempts=2, provider_key=None, provider_scope=None,
+        priority=priority, max_attempts=(2 if auto_retry_enabled(settings) else 1), provider_key=None, provider_scope=None,
     )
     row.processing_job_id = task.id
     session.flush()
@@ -296,6 +306,13 @@ class CreativeBriefGenerateHandler:
             return JobHandlerResult.cancelled()
         if not self.settings.RRUGC_CREATIVE_BRIEF_ENABLED:
             return JobHandlerResult.non_retryable("creative_brief_disabled", "Creative Brief is disabled.")
+        # Drain old Codex-quota retry jobs safely without invoking Codex again.
+        # A fresh explicit Retry button creates a new job with a clean error code.
+        if not auto_retry_enabled(self.settings) and self._was_codex_retry(context):
+            self._set_status(context, "failed", MANUAL_RETRY_CODE)
+            return JobHandlerResult.non_retryable(
+                MANUAL_RETRY_CODE, "Automatic Creative Brief retry is paused; use Retry analysis manually.",
+            )
 
         # Use two bounded, cross-process Codex text slots rather than a
         # single global lock for hundreds of picked keywords. Keep the original
@@ -329,6 +346,17 @@ class CreativeBriefGenerateHandler:
             reason_message="Both Creative Brief Codex slots are busy; retry later.",
             retry_at=_utcnow() + timedelta(seconds=60),
         )
+
+    @staticmethod
+    def _was_codex_retry(context: JobHandlerContext) -> bool:
+        """Check durable processing state: ClaimedJob intentionally has no error_code."""
+        with context.dependencies.session_factory() as session:
+            job = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == context.job.id,
+                ProcessingJobModel.tenant_id == context.job.tenant_id,
+                ProcessingJobModel.job_type == JOB_TYPE,
+            ))
+            return bool(job and job.last_error_code in CODEX_WAIT_CODES)
 
     def _set_status(self, context: JobHandlerContext, state: str, error_code: str | None = None) -> None:
         with context.dependencies.session_factory() as session:
@@ -369,7 +397,12 @@ class CreativeBriefGenerateHandler:
 
     def _defer_codex_failure(
         self, context: JobHandlerContext, failure: CodexBriefUnavailable,
-    ) -> DeferredJobOutcome:
+    ) -> DeferredJobOutcome | JobHandlerResult:
+        if not auto_retry_enabled(self.settings):
+            self._set_status(context, "failed", MANUAL_RETRY_CODE)
+            return JobHandlerResult.non_retryable(
+                MANUAL_RETRY_CODE, "Codex is unavailable; automatic retry is paused. Retry manually.",
+            )
         retry_at, reason = _codex_cooldown(
             Path(self.settings.IMAGE_GENERATION_STAGING_ROOT), failure=failure,
         )

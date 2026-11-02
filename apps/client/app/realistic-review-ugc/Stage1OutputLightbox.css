@@ -67,3 +67,6 @@
   .rrugc-stage1-lightbox-toolbar{padding:6px 8px}
   .rrugc-stage1-lightbox-footer{padding:7px 10px}
 }
+
+.rrugc-stage1-lightbox-qa{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:5px;color:#526884;font-weight:650}
+.rrugc-stage1-lightbox-qa>span{white-space:nowrap}

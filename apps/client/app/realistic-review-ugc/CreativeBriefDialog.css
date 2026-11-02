@@ -457,7 +457,7 @@
   align-content: start;
   gap: 5px;
   min-width: 0;
-  min-height: 69px;
+  min-height: 78px;
   padding: 9px 11px;
   border: 1px solid #dfe6ef;
   border-radius: 9px;
@@ -503,7 +503,15 @@
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
-.rrugc-creative-brief-proposal > small { display: none; }
+.rrugc-creative-brief-proposal > small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: #667c96;
+  line-height: 1.4;
+  font-size: 10.5px;
+}
 .rrugc-creative-brief-concept {
   min-width: 0;
   overflow: hidden;
@@ -742,7 +750,7 @@
     scroll-snap-type: x mandatory;
     padding-bottom: 5px;
   }
-  .rrugc-creative-brief-proposal { min-height: 67px; padding: 9px 10px; scroll-snap-align: start; }
+  .rrugc-creative-brief-proposal { min-height: 78px; padding: 9px 10px; scroll-snap-align: start; }
   .rrugc-creative-brief-concept { padding: 11px; }
   .rrugc-creative-brief-concept-heading h4 { font-size: 14px; }
   .rrugc-creative-brief-concept-heading p { display: none; }
@@ -786,3 +794,12 @@
 .rrugc-creative-brief-prioritize:hover:not(:disabled) { background:#e8f0ff; }
 .rrugc-creative-brief-prioritize:focus-visible { outline:2px solid #5184d3; outline-offset:2px; }
 .rrugc-creative-brief-prioritize:disabled { opacity:.68; cursor:default; }
+
+/* Design-direction preview is a scrollable 9-slot gallery, not a generation selector. */
+.rrugc-brief-material-profile { display: grid; gap: 4px; }
+.rrugc-brief-material-profile strong { color: #7185a0; font-size: 10px; }
+.rrugc-brief-material-profile span { color: #375172; font-size: 11px; font-weight: 700; }
+.rrugc-brief-material-profile small { color: #8291a5; font-size: 10px; }
+@media (min-width: 681px) and (max-width: 960px) {
+  .rrugc-creative-brief-proposals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

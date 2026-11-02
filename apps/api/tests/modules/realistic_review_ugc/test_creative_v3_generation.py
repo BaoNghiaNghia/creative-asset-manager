@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
 from app.modules.realistic_review_ugc.creative_v3_generation import (
     SCHEMA, LEGACY_SCHEMA, SLOT_COUNT, LEGACY_SLOT_COUNT, SKILL, CONTRACT,
-    VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
+    VISUAL_PROFILE, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LEGACY_VISUAL_PROFILE,
     THREAD_PALETTES, NINE_THREAD_PALETTES, CreativeV3Error, _brief_plan, enabled,
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
@@ -119,53 +119,42 @@ def test_exact_unicode_punctuation_preserved(word):
     assert all(word in prompt_for_slot(data, i) for i in range(1, 10))
 
 
-def test_new_multicolor_profile_overrides_old_single_thread_creative_brief():
+def test_material_profile_does_not_inherit_obsolete_colors_or_thread_recipe():
     old = brief()
     for c in old["concepts"]:
-        # This is precisely the production issue: V1 concept data can say
-        # monochrome, even when colorful multi-thread satin art is wanted.
         c["description"] = "Giữ chỉ xanh trên tất cả chữ."
         c["embroidery_plan"] = "Dùng một màu chỉ, ưu tiên thêu phẳng."
     data = _brief_plan(keyword="CREATIVE DICTATOR", brief_json=old,
                        prompt_version=PROMPT_VERSION, brief_id="old-brief")
     prompts = [prompt_for_slot(data, i) for i in range(1, 10)]
     assert len(set(prompts)) == 9
-    assert len({family for family, _ in NINE_THREAD_PALETTES}) == 9
-    assert len({colors for _, colors in NINE_THREAD_PALETTES}) == 9
-    for i, prompt in enumerate(prompts):
-        assert "CREATIVE DICTATOR" in prompt
-        assert "Dùng một màu chỉ" in prompt  # original data remains untouched
-        assert "MULTICOLOR THREAD DIRECTIVE" in prompt
-        assert "TWO TO FOUR embroidery thread colors" in prompt
-        assert "uniform blue/navy/cobalt" in prompt
-        assert "LOW-RELIEF machine embroidery" in prompt
-        assert "No deep bevel" in prompt
-        assert "FINAL NO-TEXT-OUTLINE POLICY" in prompt
-        assert "No cream/ivory/white/black contrasting outline" in prompt
-        assert "accent/outline hues" not in prompt
-        assert "Use contrasting embroidered outlines" not in prompt
-        assert NINE_THREAD_PALETTES[i][0] in prompt
-        assert NINE_THREAD_PALETTES[i][1] in prompt
-        assert "no white canvas" in prompt
-        assert "FINAL ART DIRECTION" in prompt
+    for prompt in prompts:
+        assert "NATURAL EMBROIDERY MATERIAL PROFILE" in prompt
+        assert "low-relief machine embroidery" in prompt
+        assert "Dùng một màu chỉ" not in prompt
+        assert "Giữ chỉ xanh" not in prompt
+        assert "1-4 coordinated thread colors" in prompt
+        assert "no forced" in prompt.lower() or "No forced" in prompt
+        assert "no automatically verified" not in prompt
         assert '"exact_phrase": "CREATIVE DICTATOR"' in prompt
-        assert data["slots"][i]["variant_recipe"] in prompt
+        assert "transparent RGBA" in prompt
 
 
-def test_no_outline_profile_supersedes_explicit_outline_in_stored_brief():
+
+def test_lite_material_policy_does_not_receive_old_outline_plan():
     old = brief("Will travel for disco")
     for concept in old["concepts"]:
         concept["embroidery_plan"] = "Thêu viền trắng quanh từng chữ; contrast outlines"
-    data = _brief_plan(
-        keyword="Will travel for disco", brief_json=old,
-        prompt_version=PROMPT_VERSION, brief_id="existing-outline-brief",
-    )
+    data = _brief_plan(keyword="Will travel for disco", brief_json=old,
+                       prompt_version=PROMPT_VERSION, brief_id="existing-outline-brief")
     for slot in range(1, 10):
         prompt = prompt_for_slot(data, slot)
-        assert "Thêu viền trắng quanh từng chữ" in prompt  # immutable source DATA
-        assert "FINAL NO-TEXT-OUTLINE POLICY (OVERRIDES ALL OLDER BRIEF DATA)" in prompt
-        assert "Older brief references to 'contrast outlines'" in prompt
-        assert "Do not ring each letter with separate stitches" in prompt
+        assert "Thêu viền trắng quanh từng chữ" not in prompt
+        assert "WITHOUT a separately colored perimeter outline" in prompt
+    old_prompt = prompt_for_slot(data, 1, visual_profile=NO_OUTLINE_VISUAL_PROFILE)
+    assert "Thêu viền trắng quanh từng chữ" in old_prompt
+    assert "FINAL NO-TEXT-OUTLINE POLICY" in old_prompt
+
 
 
 def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
@@ -179,7 +168,8 @@ def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
     new_prompt = prompt_for_slot(data, 1, visual_profile=VISUAL_PROFILE)
     assert "Flat low-profile Valucap 8869 front-crown embroidery" in old_prompt
     assert "MULTICOLOR THREAD DIRECTIVE" not in old_prompt
-    assert "MULTICOLOR THREAD DIRECTIVE" in new_prompt
+    assert "NATURAL EMBROIDERY MATERIAL PROFILE" in new_prompt
+    assert "MULTICOLOR THREAD DIRECTIVE" not in new_prompt
     assert old_prompt != new_prompt
     # Failed/pending V2 retries retain their original visual contract rather
     # than silently changing the prompt under already-verified image slots.
@@ -189,7 +179,10 @@ def test_old_processing_snapshot_continues_its_unchanged_legacy_prompt():
     assert "accent/outline hues" in v2_prompt
     assert "Use contrasting embroidered outlines" in v2_prompt
     assert "FINAL NO-TEXT-OUTLINE POLICY" not in v2_prompt
-    assert "FINAL NO-TEXT-OUTLINE POLICY" in new_prompt
+    assert "WITHOUT a separately colored perimeter outline" in new_prompt
+    v3_snapshot = {**old, "visual_profile": NO_OUTLINE_VISUAL_PROFILE}
+    verify_snapshot(data, v3_snapshot)
+    assert "FINAL NO-TEXT-OUTLINE POLICY" in prompt_for_slot(data, 1, visual_profile=NO_OUTLINE_VISUAL_PROFILE)
     with pytest.raises(CreativeV3Error):
         verify_snapshot(data, {**old, "visual_profile": "unknown"})
     with pytest.raises(CreativeV3Error):
@@ -681,7 +674,7 @@ def test_native_v3_worker_creates_nine_verified_distinct_private_files(tmp_path,
     assert len(result.output_files) == 9
     assert len(generated_prompts) == 9
     assert len(set(generated_prompts)) == 9
-    assert all("MULTICOLOR THREAD DIRECTIVE" in p for p in generated_prompts)
+    assert all("NATURAL EMBROIDERY MATERIAL PROFILE" in p for p in generated_prompts)
     assert len(cleaned) == 9
     assert all(sha256(open(item.path, "rb").read()).hexdigest()
                for item in result.output_files)

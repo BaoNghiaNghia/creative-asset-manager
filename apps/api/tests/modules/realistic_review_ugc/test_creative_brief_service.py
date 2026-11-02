@@ -261,3 +261,36 @@ def test_interactive_priority_never_changes_running_or_completed_brief_jobs(db):
         db.commit()
         assert (state, created) == (initial_status, False)
         assert db.get(ProcessingJobModel, task_id).priority == 5
+
+
+def test_creative_brief_codex_failure_is_manual_when_retry_paused(monkeypatch):
+    from app.modules.realistic_review_ugc.creative_brief import CodexBriefUnavailable
+    from app.modules.realistic_review_ugc.creative_brief_service import (
+        MANUAL_RETRY_CODE, CreativeBriefGenerateHandler,
+    )
+    handler = CreativeBriefGenerateHandler(SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True, RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=False,
+    ))
+    statuses = []
+    monkeypatch.setattr(handler, "_set_status", lambda _ctx, state, error: statuses.append((state, error)))
+    result = handler._defer_codex_failure(SimpleNamespace(), CodexBriefUnavailable(
+        "creative_brief_codex_quota_wait", 1800,
+    ))
+    assert result.error_code == MANUAL_RETRY_CODE
+    assert result.outcome.value == "non_retryable_failure"
+    assert statuses == [("failed", MANUAL_RETRY_CODE)]
+
+
+def test_old_scheduled_codex_retry_is_drained_without_provider_call(monkeypatch):
+    from app.modules.realistic_review_ugc.creative_brief_service import (
+        MANUAL_RETRY_CODE, CreativeBriefGenerateHandler,
+    )
+    handler = CreativeBriefGenerateHandler(SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True, RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=False,
+    ))
+    statuses = []
+    monkeypatch.setattr(handler, "_was_codex_retry", lambda _ctx: True)
+    monkeypatch.setattr(handler, "_set_status", lambda _ctx, state, error: statuses.append((state, error)))
+    result = handler(SimpleNamespace(is_cancelled=False))
+    assert result.error_code == MANUAL_RETRY_CODE
+    assert statuses == [("failed", MANUAL_RETRY_CODE)]

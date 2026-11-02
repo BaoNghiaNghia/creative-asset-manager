@@ -248,6 +248,7 @@ export type KeywordCreativeConcept = {
   clarity_assessment: string;
   embroidery_fit: string;
   risks: string[];
+  design_variants?: string[];
 };
 export type KeywordCreativeBriefDetail = {
   keyword_id: string;
@@ -257,6 +258,7 @@ export type KeywordCreativeBriefDetail = {
   updated_at: string | null;
   error_code: string | null;
   next_retry_at?: string | null;
+  automatic_retry_enabled?: boolean;
   brief: null | {
     keyword_exact: string;
     strategy: string;

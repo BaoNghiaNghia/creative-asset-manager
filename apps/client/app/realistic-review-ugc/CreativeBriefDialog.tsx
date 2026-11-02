@@ -50,7 +50,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   stage1Status?: "not_run" | "queued" | "running" | "completed" | "failed";
 }) {
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
-  const [selected, setSelected] = useState(1);
+  const [selectedDirection, setSelectedDirection] = useState(0);
   const [busy, setBusy] = useState(false);
   const [priorityRequested, setPriorityRequested] = useState(false);
   const [error, setError] = useState("");
@@ -192,12 +192,17 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   };
 
   const brief = detail?.brief;
-  const concept = brief?.concepts[selected] || brief?.concepts[0];
+  const directions = brief?.concepts.flatMap((item, group) =>
+    (item.design_variants?.length ? item.design_variants : [item.description])
+      .map((direction, variant) => ({ item, group, variant, direction }))) || [];
+  const activeDirection = directions[selectedDirection] || directions[0];
+  const concept = activeDirection?.item;
+  const automaticRetryEnabled = detail?.automatic_retry_enabled !== false;
   const generating = detail?.status === "queued" || detail?.status === "running";
   const failed = detail?.status === "failed";
   const codexWaiting = detail?.status === "queued" && Boolean(detail.error_code?.startsWith("creative_brief_codex_"));
   const statusLabel = brief ? "Brief ready" : generating
-    ? (codexWaiting ? "Waiting for Codex" : detail?.status === "queued" ? "In queue" : "Analyzing")
+    ? (codexWaiting && !automaticRetryEnabled ? "Auto retry paused" : codexWaiting ? "Waiting for Codex" : detail?.status === "queued" ? "In queue" : "Analyzing")
     : failed ? "Needs retry" : !detail ? (error ? "Unavailable" : "Loading brief") : "Ready to analyze";
   const statusClass = brief ? "ready" : generating || (!detail && !error) ? "working" : failed || (!detail && error) ? "failed" : "idle";
 
@@ -211,7 +216,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
         <header className="rrugc-creative-brief-heading">
           <div className="rrugc-creative-brief-heading-icon"><RrugcActionIcon name="sparkles" /></div>
           <div className="rrugc-creative-brief-heading-copy">
-            <span className="rrugc-creative-brief-eyebrow">STAGE 1 <span aria-hidden="true">/</span> MEANING-FIRST CREATIVE BRIEF</span>
+            <span className="rrugc-creative-brief-eyebrow">STAGE 1 <span aria-hidden="true">/</span> CREATIVE BRIEF LITE V3</span>
             <h2 id="rrugc-creative-brief-title">{keyword}</h2>
           </div>
           <span className={"rrugc-creative-brief-status " + statusClass} role="status">
@@ -241,12 +246,14 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                 {generating ? "ANALYSIS IN PROGRESS" : failed ? "ANALYSIS NEEDS ATTENTION" : "START WITH INTENT"}
               </span>
               <h3>{generating
-                ? codexWaiting ? "Codex is temporarily unavailable." : detail.status === "queued" ? "Your brief is in the queue." : "Turning meaning into creative directions."
+                ? codexWaiting ? (automaticRetryEnabled ? "Codex is temporarily unavailable." : "Automatic Creative Brief retry is paused.") : detail.status === "queued" ? "Your brief is in the queue." : "Turning meaning into creative directions."
                 : failed ? "The analysis didn't finish." : "A stronger idea starts with the meaning."}</h3>
               <p className="rrugc-creative-brief-pre-description">
                 {generating
                   ? codexWaiting
-                    ? "The system will retry automatically once Codex quota is available. No manual Retry is needed; existing Stage 1 designs are preserved."
+                    ? automaticRetryEnabled
+                      ? "The system will retry automatically once Codex quota is available. No manual Retry is needed; existing Stage 1 designs are preserved."
+                      : "No automatic Codex retry will run. The current queued attempt will end without another Codex call; use Retry analysis manually afterward. Existing images remain unchanged."
                     : "Codex is preparing a text-only creative plan. This view updates automatically, and you can close it while the job runs."
                   : failed ? "Your existing artwork is safe. Retry the text-only analysis to prepare a new creative brief."
                     : "Explore what the quote really communicates, who it resonates with, and how it can become compelling embroidery."}
@@ -255,9 +262,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
               {generating ? <>
                 <div className="rrugc-creative-brief-progress" role="status">
                   <span className="rrugc-creative-brief-progress-indicator" aria-hidden="true" />
-                  <div><strong>{codexWaiting ? "Waiting for Codex quota · automatic retry"
+                  <div><strong>{codexWaiting ? automaticRetryEnabled ? "Waiting for Codex quota · automatic retry" : "Automatic retry paused · manual retry required"
                       : detail.status === "queued" ? "Waiting for a Codex worker" : "Codex is analyzing the keyword"}</strong>
-                    <small>{codexWaiting && detail.next_retry_at
+                    <small>{codexWaiting && automaticRetryEnabled && detail.next_retry_at
                       ? "Next automatic check: " + new Date(detail.next_retry_at).toLocaleString()
                       : "No images are being generated."}</small></div>
                 </div>
@@ -324,24 +331,25 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
             <section className="rrugc-creative-brief-routes" aria-label="Concept proposals">
               <div className="rrugc-creative-brief-section-heading">
                 <div><span className="rrugc-creative-brief-section-tag">02 / CONCEPT DIRECTIONS</span>
-                  <h3>Choose a design direction</h3></div>
-                <span>{brief.concepts.length} routes · 9 designs (1 / 4 / 4) · Select to compare</span>
+                  <h3>Preview 9 design directions</h3></div>
+                <span>1 Typography-First · 4 Creative Twist · 4 Explore · Preview only</span>
               </div>
               <div className="rrugc-creative-brief-workspace">
                 <div className="rrugc-creative-brief-proposals" role="group" aria-label="Select a concept">
-                  {brief.concepts.map((item, index) => {
+                  {directions.map(({ item, variant, direction }, index) => {
                     const mode = CONCEPT_MODES[item.mode];
-                    return <button type="button" key={item.mode} onClick={() => { setSelected(index); setShowConceptDetails(false); }}
-                      className={"rrugc-creative-brief-proposal" + (concept === item ? " active" : "")}
-                      aria-pressed={concept === item}
-                      aria-label={mode.label + ": " + item.name}>
+                    return <button type="button" key={item.mode + "-" + variant}
+                      onClick={() => { setSelectedDirection(index); setShowConceptDetails(false); }}
+                      className={"rrugc-creative-brief-proposal" + (activeDirection === directions[index] ? " active" : "")}
+                      aria-pressed={activeDirection === directions[index]}
+                      aria-label={mode.label + " direction " + (variant + 1) + ": " + item.name}>
                       <span className="rrugc-creative-brief-proposal-top">
-                        <span className="rrugc-creative-brief-proposal-number">{mode.number}</span>
-                        <span className="rrugc-creative-brief-proposal-mode">{mode.label}</span>
+                        <span className="rrugc-creative-brief-proposal-number">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="rrugc-creative-brief-proposal-mode">{mode.label} · {String.fromCharCode(65 + variant)}</span>
                         <RrugcActionIcon name="chevron-right" />
                       </span>
                       <strong>{item.name}</strong>
-                      <small>{item.description}</small>
+                      <small>{direction}</small>
                     </button>;
                   })}
                 </div>
@@ -358,17 +366,17 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                   <div className="rrugc-creative-brief-concept-grid">
                     <section className="rrugc-creative-brief-detail-section rrugc-creative-brief-visual-plan">
                       <h5><span>01</span> Visual direction</h5>
-                      <p className="rrugc-creative-brief-idea">{concept.creative_twist}</p>
+                      <p className="rrugc-creative-brief-idea">{activeDirection?.direction}</p>
                       <div className="rrugc-creative-brief-hook-line">
                         <strong>Creative hook</strong>
                         <p>{concept.creative_hook}</p>
                       </div>
                     </section>
                     <section className="rrugc-creative-brief-detail-section rrugc-creative-brief-production-plan">
-                      <h5><span>02</span> Production plan</h5>
+                      <h5><span>02</span> Typography hierarchy</h5>
                       <dl>
-                        <ConceptField title="Typography">{concept.typography_plan}</ConceptField>
-                        <ConceptField title="Embroidery">{concept.embroidery_plan}</ConceptField>
+                        <ConceptField title="Type & layout">{concept.typography_plan}</ConceptField>
+                        <div className="rrugc-brief-material-profile"><strong>Material profile</strong><span>Natural Satin · Low Relief · Thread Fill</span><small>Controlled centrally by ImageGen, not by this brief</small></div>
                       </dl>
                     </section>
                   </div>
@@ -387,6 +395,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                   <div className="rrugc-creative-brief-additional" id="rrugc-creative-brief-more-details" hidden={!showConceptDetails}>
                     <dl>
                       <ConceptField title="Familiar format">{concept.familiar_format}</ConceptField>
+                      <ConceptField title="Embroidery feasibility notes (non-binding)">{concept.embroidery_plan}</ConceptField>
                       <ConceptField title="Embroidery fit">{concept.embroidery_fit}</ConceptField>
                     </dl>
                   </div>
@@ -397,7 +406,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                 </article>}
               </div>
               <p className="rrugc-creative-brief-disclaimer">
-                Creative directions are planning data. Actual ImageGen artwork must be visually reviewed for exact spelling and embroidery suitability.
+                Selecting a direction only changes this preview. Generate always creates all 9 designs. ImageGen applies one central embroidery material profile; visual spelling and production-fit review are still required.
               </p>
             </section>
             {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
@@ -420,8 +429,8 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
         <footer className="rrugc-creative-brief-footer">
           <span className="rrugc-creative-brief-footer-meta">
             <RrugcActionIcon name="check" />
-            <span>{v3Queued ? "Stage 1 ImageGen queued · Old output history preserved" : "Brief analysis is text-only · Existing artwork unchanged"}</span>
-            <span className="rrugc-creative-brief-footer-version">{detail?.prompt_version || "Meaning-First V1"}</span>
+            <span>{v3Queued ? "Stage 1 ImageGen queued · Old output history preserved" : "Brief is text-only · No automatic Codex retry · Artwork unchanged"}</span>
+            <span className="rrugc-creative-brief-footer-version" title={detail?.prompt_version || undefined}>Creative Brief Lite V3</span>
           </span>
         </footer>
       </section>

@@ -64,7 +64,12 @@ export function Stage1OutputLightbox({
           } : undefined} />
       </div>
       <footer className="rrugc-stage1-lightbox-footer">
-        Full original PNG · no background removal or cropping · Esc to close · ←/→ to browse
+        <div className="rrugc-stage1-lightbox-qa" aria-label="Stage 1 quality review status">
+          <span>{version.font_info?.technical_qa_passed === true ? "PNG integrity: passed" : "PNG integrity: not recorded"}</span>
+          <span>Exact spelling: {version.font_info?.image_spelling_verified === true ? "verified" : "review required"}</span>
+          <span>Embroidery fit: {version.font_info?.embroidery_fit_verified === true ? "verified" : "review required"}</span>
+        </div>
+        <span>Visual QA checklist: check exact words, any plastic/foam effect, thread direction and small-size readability before starring for Stage 2.</span>
       </footer>
     </section>
   </div>;

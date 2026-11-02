@@ -31,6 +31,7 @@ const makeDetail = (
   prompt_version: "meaning-first-v1",
   updated_at: "2026-10-30T10:00:00Z",
   error_code: status === "failed" ? "temporary_provider_error" : null,
+  automatic_retry_enabled: false,
   brief: withBrief ? {
     keyword_exact: keyword,
     strategy: "Playful authority",
@@ -53,6 +54,8 @@ const makeDetail = (
       clarity_assessment: "Readable in 2 seconds",
       embroidery_fit: "Feasible on a crown",
       risks: mode === "explore" ? ["Avoid fine lines"] : [],
+      design_variants: Array.from({ length: mode === "safe" ? 1 : 4 }, (_, i) =>
+        `${name} direction ${i + 1}: unique original legible type hierarchy`),
     })),
   } : null,
 });
@@ -145,7 +148,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateKeywordCreativeBrief).toHaveBeenCalledOnce();
   });
 
-  it("shows automatic Codex quota recovery instead of a manual Retry button", async () => {
+  it("shows paused automatic Codex retry without advertising another scheduled call", async () => {
     const waiting = {
       ...makeDetail("queued"),
       error_code: "creative_brief_codex_quota_wait",
@@ -153,9 +156,9 @@ describe("Creative Brief V1 modal redesign", () => {
     };
     await renderDialog(waiting);
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toContain("Codex is temporarily unavailable.");
-    expect(dialog?.textContent).toContain("The system will retry automatically");
-    expect(dialog?.textContent).toContain("Next automatic check:");
+    expect(dialog?.textContent).toContain("Automatic Creative Brief retry is paused.");
+    expect(dialog?.textContent).toContain("No automatic Codex retry will run.");
+    expect(dialog?.textContent).not.toContain("Next automatic check:");
     expect(dialog?.querySelector(".rrugc-creative-brief-primary")).toBeNull();
     expect(dialog?.querySelector(".rrugc-creative-brief-prioritize")).toBeNull();
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
@@ -178,13 +181,14 @@ describe("Creative Brief V1 modal redesign", () => {
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("Playful authority");
     expect(dialog?.textContent).toContain("Confident and humorous");
-    expect(dialog?.querySelectorAll(".rrugc-creative-brief-proposal")).toHaveLength(3);
-    expect(dialog?.textContent).toContain("Embroidery for Creative Interruption");
+    expect(dialog?.querySelectorAll(".rrugc-creative-brief-proposal")).toHaveLength(9);
+    expect(dialog?.textContent).toContain("Natural Satin · Low Relief · Thread Fill");
+    expect(dialog?.textContent).toContain("Strong Type direction 1");
     expect(dialog?.textContent).not.toContain("Avoid fine lines");
-    const explore = dialog?.querySelector<HTMLButtonElement>('button[aria-label="Explore: Broken Grid"]');
+    const explore = dialog?.querySelector<HTMLButtonElement>('button[aria-label="Explore direction 1: Broken Grid"]');
     await act(async () => { explore?.click(); });
     expect(explore?.getAttribute("aria-pressed")).toBe("true");
-    expect(dialog?.textContent).toContain("Embroidery for Broken Grid");
+    expect(dialog?.textContent).toContain("Broken Grid direction 1");
     expect(dialog?.textContent).toContain("Avoid fine lines");
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
   });
@@ -213,11 +217,11 @@ describe("Creative Brief V1 modal redesign", () => {
     await act(async () => { more?.click(); });
     expect(extra?.hidden).toBe(false);
     expect(extra?.textContent).toContain("Feasible on a crown");
-    const explore = dialog?.querySelector<HTMLButtonElement>('button[aria-label="Explore: Broken Grid"]');
+    const explore = dialog?.querySelector<HTMLButtonElement>('button[aria-label="Explore direction 1: Broken Grid"]');
     await act(async () => { explore?.click(); });
     expect(dialog?.querySelector(".rrugc-creative-brief-more")?.getAttribute("aria-expanded")).toBe("false");
     expect(dialog?.querySelector<HTMLElement>(".rrugc-creative-brief-additional")?.hidden).toBe(true);
-    expect(dialog?.textContent).toContain("Embroidery for Broken Grid");
+    expect(dialog?.textContent).toContain("Broken Grid direction 1");
     expect(dialog?.textContent).toContain("Avoid fine lines");
   });
 
