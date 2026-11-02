@@ -1120,13 +1120,16 @@ class EcommerceGenerateHandler:
             return DeferredJobOutcome("codex_account_pool_busy", "All Codex profiles busy.",
                                       datetime.now(timezone.utc) + timedelta(seconds=60))
         except CodexImageProviderError as exc:
-            self._failure(context, exc.code, "Image provider unavailable.",
+            # Provider errors contain only curated, non-secret messages;
+            # surface them so the Slot 1 UI/Logs identify what actually failed.
+            reason = str(exc)[:500]
+            self._failure(context, exc.code, reason,
                           terminal=not (exc.retryable or exc.defer_seconds))
             if exc.defer_seconds:
-                return DeferredJobOutcome(exc.code, "Image provider busy.",
+                return DeferredJobOutcome(exc.code, reason,
                                           datetime.now(timezone.utc) + timedelta(seconds=max(60, exc.defer_seconds)))
-            return (JobHandlerResult.retryable(exc.code, "Image provider unavailable.")
-                    if exc.retryable else JobHandlerResult.non_retryable(exc.code, "Image provider unavailable."))
+            return (JobHandlerResult.retryable(exc.code, reason)
+                    if exc.retryable else JobHandlerResult.non_retryable(exc.code, reason))
         except (EcommerceError, Stage2SkillRegistryError) as exc:
             self._failure(context, exc.code, exc.message, terminal=True)
             return JobHandlerResult.non_retryable(exc.code, exc.message)

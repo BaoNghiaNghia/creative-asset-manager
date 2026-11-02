@@ -151,6 +151,59 @@ def test_codex_runner_classifies_usage_limit_as_deferred():
     assert error.retryable is False
 
 
+@pytest.mark.parametrize("message,code", [
+    ("The imagegen tool is not available in this session.", "codex_image_tool_unavailable"),
+    ("Unknown model for image generation.", "codex_image_model_unavailable"),
+    ("Connection reset by peer.", "codex_image_network_unavailable"),
+])
+def test_codex_runner_classifies_actionable_native_tool_failures(message, code):
+    classified = _classify_failure(message, "")
+    assert classified.code == code
+    assert "token" not in str(classified).lower()
+    if code == "codex_image_network_unavailable":
+        assert classified.defer_seconds == 300
+    else:
+        assert classified.retryable is False
+
+
+def test_slot1_cli_failure_before_imagegen_is_deferred_not_retried_three_times(tmp_path, monkeypatch):
+    from app.providers.ai.codex_image import SLOT1_DIRECT_NAME
+
+    class FakeFailedProcess:
+        returncode = 1
+        def __init__(self):
+            self.stdout = asyncio.StreamReader()
+            self.stdout.feed_data(b'{"type":"turn.failed","error":{"message":"Temporary upstream failure"}}\n')
+            self.stdout.feed_eof()
+            self.stderr = asyncio.StreamReader()
+            self.stderr.feed_data(b"Upstream process did not complete")
+            self.stderr.feed_eof()
+        async def wait(self):
+            return self.returncode
+        def kill(self):
+            self.returncode = -9
+
+    async def fail_cli(*args, **kwargs):
+        return FakeFailedProcess()
+
+    monkeypatch.setattr("app.providers.ai.codex_image.shutil.which", lambda _v: "/usr/bin/codex")
+    monkeypatch.setattr("app.providers.ai.codex_image.asyncio.create_subprocess_exec", fail_cli)
+    runner = CodexImageGenRunner(CodexImageRunnerConfig(
+        binary="codex", codex_home=str(tmp_path / "account"),
+        staging_root=str(tmp_path / "storage"), skill_name=SLOT1_DIRECT_NAME,
+        output_contract="slot1_v2_material_single",
+    ))
+    with pytest.raises(CodexImageProviderError) as raised:
+        asyncio.run(runner.generate_from_references(
+            attempt_id="slot1-failed-test",
+            person=_prepared(), references=[],
+            prompt="Embroider the same design.",
+        ))
+    assert raised.value.code == "slot1_codex_runtime_deferred"
+    assert raised.value.defer_seconds == 300
+    assert "before invoking native ImageGen" in str(raised.value)
+
+
 def test_codex_runner_requires_installed_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.providers.ai.codex_image.shutil.which",

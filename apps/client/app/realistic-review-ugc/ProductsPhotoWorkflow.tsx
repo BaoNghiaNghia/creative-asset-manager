@@ -80,6 +80,30 @@ function ActionIcon({ kind }: { kind: SkillActionIcon }) {
     aria-hidden="true" focusable="false">{paths[kind]}</svg>;
 }
 
+/** Never display an active "Waiting" state for a failed Slot 1 output. */
+export function slot1OutputPlaceholder(job: EcommerceJob | undefined, kind: "reference" | "front"): string {
+  if (job?.status === "failed") {
+    if (kind === "reference") return job.embroidery_reference_url ? "Reference saved" : "Reference generation failed";
+    return job.embroidery_reference_url ? "Cap transfer failed" : "Blocked · no reference";
+  }
+  if (job?.status === "queued" && job.error_code === "slot1_codex_runtime_deferred") {
+    return kind === "reference" ? "Waiting for Codex ImageGen" : "Waiting for reference";
+  }
+  return kind === "reference" ? "Waiting for reference" : "Waiting for transfer";
+}
+
+export function slot1FailureExplanation(code: string | null | undefined): string {
+  switch (code) {
+    case "codex_image_tool_unavailable": return "Native ImageGen is unavailable in this Codex CLI session. Check model/tool access, then regenerate.";
+    case "codex_image_auth_required": return "Codex authentication is unavailable. Check the Stage 2 account before trying again.";
+    case "codex_image_usage_limited": return "The Codex account has reached its usage limit. Retry when capacity returns.";
+    case "slot1_codex_runtime_deferred": return "Codex exited before calling ImageGen. The job will retry after the runtime recovers; no reference has been generated.";
+    case "codex_image_model_unavailable": return "Codex cannot use the configured image model. Check the selected model before regenerating.";
+    case "codex_image_network_unavailable": return "The Codex service connection failed. The job will retry after connectivity recovers.";
+    default: return "The image job failed. Open Logs to inspect the error; an Embroidery Reference has not been generated unless shown above.";
+  }
+}
+
 type SkillActionPhase = "ready" | "retry" | "completed" | "queueing" | "running" | "queued" | "failed" | "blocked" | "checking";
 
 function SkillRunControl({ phase, label, title, ariaLabel, disabled, onClick }: {
@@ -597,8 +621,10 @@ export function ProductsPhotoWorkflow({
                     alt={output.label} rootMargin="260px" />
                   <span className="rrugc-slot1-output-label">{output.label}</span>
                 </button>
-              : <span key={output.key} className="rrugc-products-photo-empty-shot rrugc-products-photo-slot1-output"
-                  title={output.label + " · Not generated"}>
+              : <span key={output.key} className={"rrugc-products-photo-empty-shot rrugc-products-photo-slot1-output"
+                    + (shotJob?.status === "failed" ? " is-failed" : "")}
+                  title={output.label + " · " + slot1OutputPlaceholder(
+                    shotJob, output.key.endsWith("reference") ? "reference" : "front")}>
                   <HatSlotIcon />
                   <span className="rrugc-slot1-output-label">{output.label}</span>
                 </span>)}
@@ -649,11 +675,22 @@ export function ProductsPhotoWorkflow({
                 })}
               </div>
               <p>{step.inputInstruction}</p>
-              <small>Inputs are verified on the server. Slots 2–3 each use one Codex CLI native image-edit call with original stock plus the saved Slot 1 Embroidery Reference; no rectangular mask or second pass. Slot 4 reuses original back stock. Slot 1 must be completed first.</small>
+              <small>{isBuiltInFront
+                ? "Slot 1 first generates and saves one photographic Embroidery Reference using Codex CLI; it then transfers real yarn locally onto the original factory front stock. A failed reference blocks both outputs; Retry Placement never generates new material."
+                : "Slots 2–3 each use one Codex CLI native image-edit call with original stock plus the saved Slot 1 Embroidery Reference; no rectangular mask or second pass. Slot 4 reuses original back stock."}</small>
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
               <strong>Outputs · Embroidery Reference → Cap Front</strong>
+              {shotJob?.error_code && (shotJob.status === "failed"
+                || shotJob.error_code === "slot1_codex_runtime_deferred"
+                || shotJob.error_code === "codex_image_usage_limited")
+                && <div className={"rrugc-slot1-failure-message" + (shotJob.status === "failed" ? " is-failed" : "")}
+                  role={shotJob.status === "failed" ? "alert" : "status"}>
+                    <strong>{shotJob.status === "failed" ? "Slot 1 failed" : "Codex ImageGen unavailable"}
+                      {" · " + shotJob.error_code}</strong>
+                    <small>{slot1FailureExplanation(shotJob.error_code)}</small>
+                  </div>}
               <div className="rrugc-products-photo-slot1-output-grid">
                 {[
                   { key: "prod_s2_ec1:reference", label: "1. Embroidery Reference",
@@ -672,9 +709,11 @@ export function ProductsPhotoWorkflow({
                         <DeferredImage src={stage2ThumbnailUrl(output.src, 512)}
                           alt={output.label} rootMargin="320px" />
                       </button>
-                    : <div className="rrugc-products-photo-slot1-output-placeholder">
+                    : <div className={"rrugc-products-photo-slot1-output-placeholder"
+                        + (shotJob?.status === "failed" ? " is-failed" : "")}>
                         <HatSlotIcon />
-                        <small>{output.key.endsWith("reference") ? "Waiting for reference" : "Waiting for transfer"}</small>
+                        <small>{slot1OutputPlaceholder(shotJob,
+                          output.key.endsWith("reference") ? "reference" : "front")}</small>
                       </div>}
                   <small>{output.label}</small>
                 </div>)}
@@ -737,9 +776,13 @@ export function ProductsPhotoWorkflow({
             <div className="rrugc-products-photo-detail-actions">
             {!isEcommerce && <small>One scene render per output using the saved Embroidery Reference. No second material or thread-refinement ImageGen pass. Scene composition still requires the assigned Skill.</small>}
             {isEcommerce && !isBuiltInPhoto && <button type="button" onClick={openSkillsManager}>Manage skill</button>}
-            {shotJob && (!isBuiltInFront || !shotJob.embroidery_reference_url)
+            {shotJob && !isBuiltInFront
               && <button type="button" disabled={shotJob.status !== "failed" || !!busyStage || shotJob.retry_count >= 3}
                 onClick={() => void invokeEcommerce(step.key, shotJob)}>Retry failed</button>}
+            {isBuiltInFront && shotJob?.status === "failed" && shotJob.retry_count >= 3
+              && <button type="button" disabled={!!busyStage}
+                title="Start a new reference generation after checking Codex account/tool availability. This calls ImageGen again."
+                onClick={() => void invokeEcommerce(step.key, shotJob, true)}>Regenerate Reference</button>}
             {isBuiltInFront && shotJob?.embroidery_reference_url
               && (shotJob.status === "completed" || shotJob.status === "failed")
               && <button type="button" disabled={!!busyStage}

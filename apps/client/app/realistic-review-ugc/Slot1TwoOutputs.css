@@ -38,6 +38,12 @@
 }
 .rrugc-products-photo-slot1-output-placeholder{cursor:default;gap:4px;color:#8396aa}
 .rrugc-products-photo-slot1-output-placeholder svg{width:24px;height:24px}
+.rrugc-products-photo-slot1-output-placeholder.is-failed{border-color:#efd7d1;background:#fff9f8;color:#a34737}
+.rrugc-products-photo-stage-row[data-skill="prod_s2_ec1"] .rrugc-products-photo-slot1-output.is-failed{border-color:#efd7d1;color:#a34737;background:#fff9f8}
+.rrugc-slot1-failure-message{display:grid;gap:3px;padding:9px 11px;border:1px solid #dedfeb;border-radius:7px;background:#fff;color:#394c67;font-size:11px}
+.rrugc-slot1-failure-message.is-failed{border-color:#efd7d1;background:#fff9f8}
+.rrugc-slot1-failure-message strong{font-weight:700}
+.rrugc-slot1-failure-message small{color:inherit;font-size:11px;line-height:1.45}
 .rrugc-products-photo-slot1-detail-output>small{font-size:10px!important;font-weight:750;color:#526b8b!important}
 .rrugc-products-photo-version-pair{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 @media(max-width:760px){

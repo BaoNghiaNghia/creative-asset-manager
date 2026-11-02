@@ -316,7 +316,29 @@ def _codex_env(codex_home: Path) -> dict[str, str]:
 
 
 def _classify_failure(stderr: str, stdout: str) -> CodexImageProviderError:
+    # Codex may describe built-in tool failures in JSONL agent messages,
+    # not just in stderr. Classify them without exposing any raw model text.
     combined = (stderr + "\n" + stdout).casefold()
+    if ("imagegen" in combined or "image_gen" in combined or "image generation" in combined) and any(
+        token in combined for token in (
+            "unknown tool", "no imagegen tool", "no image_gen tool", "not exposed",
+            "not provided", "cannot invoke", "can't invoke", "not available",
+            "tool unavailable", "not supported", "tool is disabled",
+        )
+    ):
+        return CodexImageProviderError(
+            "codex_image_tool_unavailable",
+            "The connected Codex CLI account cannot invoke native ImageGen. "
+            "Check the model/tool entitlement before regenerating the Embroidery Reference.",
+        )
+    if any(token in combined for token in (
+        "unknown model", "model not found", "unsupported model",
+        "invalid model", "model is not supported",
+    )):
+        return CodexImageProviderError(
+            "codex_image_model_unavailable",
+            "Codex could not use the selected image model. Check the configured Codex model.",
+        )
     if any(
         token in combined
         for token in (
@@ -354,6 +376,16 @@ def _classify_failure(stderr: str, stdout: str) -> CodexImageProviderError:
         return CodexImageProviderError(
             "codex_image_skill_unavailable",
             "The configured Codex image skill is unavailable.",
+        )
+    if any(token in combined for token in (
+        "connection reset", "network unreachable", "connection refused",
+        "dns error", "temporary failure in name resolution",
+        "failed to connect", "error sending request", "connection timed out",
+    )):
+        return CodexImageProviderError(
+            "codex_image_network_unavailable",
+            "Codex image request could not reach the service. It will retry after the connection recovers.",
+            defer_seconds=300,
         )
     return CodexImageProviderError(
         "codex_image_provider_error",
@@ -1180,7 +1212,29 @@ class CodexImageGenRunner:
                         "This requires a Codex entitlement/runtime fix, not a paid Image API fallback.",
                         retryable=False,
                     )
-            raise _classify_failure(stderr, stdout)
+            classified = _classify_failure(stderr, stdout)
+            if self.config.output_contract == "slot1_v2_material_single":
+                # Log only safe operational metadata, never prompts, account
+                # credentials, model text or raw stderr from private artwork.
+                native_calls = _distinct_imagegen_calls(stdout)
+                _cleanup_logger.warning(
+                    "slot1_reference_codex_cli_failed code=%s native_calls=%d "
+                    "exit_code=%d stdout_bytes=%d stderr_bytes=%d",
+                    classified.code, native_calls, process.returncode,
+                    len(stdout.encode("utf-8")), len(stderr.encode("utf-8")),
+                )
+                if classified.code == "codex_image_provider_error" and native_calls == 0:
+                    # Three immediate retries of a CLI session that never
+                    # reached ImageGen only burn Codex quota and leave two
+                    # empty Slot 1 outputs. Defer instead, preserving the
+                    # original reference and processing history.
+                    raise CodexImageProviderError(
+                        "slot1_codex_runtime_deferred",
+                        "Codex CLI exited before invoking native ImageGen. "
+                        "The reference is not available; retry after the CLI tool/account recovers.",
+                        defer_seconds=300,
+                    )
+            raise classified
         if (self.config.skill_name == "concept-short-v1"
                 and self.config.output_contract == "stage1_six_final_designs"):
             _assert_concept_short_plan(workspace)

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductsPhotoWorkflow, legacyMissingAssetsForStep } from "./ProductsPhotoWorkflow";
+import { ProductsPhotoWorkflow, legacyMissingAssetsForStep, slot1OutputPlaceholder, slot1FailureExplanation } from "./ProductsPhotoWorkflow";
 import type { ColorwayJob } from "./api";
 
 describe("Products Stage 2 photo workflow", () => {
@@ -71,7 +71,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain("Embroidery Reference");
     expect(html).toContain("rrugc-deferred-img");
     expect((html.match(/rrugc-products-photo-slot1-output is-completed/g) ?? []).length).toBe(1);
-    expect(html).toContain('title="Embroidery Reference · Not generated"');
+    expect(html).toContain('title="Embroidery Reference · Waiting for reference"');
     expect(html).toContain('title="Front Right 3/4 · Not generated"');
   });
 
@@ -87,7 +87,7 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).toContain('aria-label="Open Embroidery Reference output"');
     expect(html).toContain('alt="Embroidery Reference"');
     expect(html).toContain("Cap Front · ThreadTransfer");
-    expect(html).toContain('title="Cap Front · ThreadTransfer · Not generated"');
+    expect(html).toContain('title="Cap Front · ThreadTransfer · Waiting for transfer"');
   });
 
   it("shows both Slot 1 images after completion and retains the reference after retry failure", () => {
@@ -108,7 +108,55 @@ describe("Products Stage 2 photo workflow", () => {
         ...base, status: "failed", output_url: null,
       }]} />);
     expect(failed).toContain('aria-label="Open Embroidery Reference output"');
-    expect(failed).toContain("Cap Front · ThreadTransfer · Not generated");
+    expect(failed).toContain("Cap Front · ThreadTransfer · Cap transfer failed");
+  });
+
+  it("shows explicit Slot 1 reference failure instead of pretending both images are waiting", () => {
+    const job = {
+      id: "failed-front", source_plan_id: "source", stage: "prod_s2_ec1",
+      status: "failed" as const, retry_count: 0, attempt_count: 3,
+      error_code: "codex_image_provider_error", output_url: null,
+      embroidery_reference_url: null,
+      skill_name: "cam-slot1-thread-reference-inpaint-v2",
+    };
+    expect(slot1OutputPlaceholder(job, "reference")).toBe("Reference generation failed");
+    expect(slot1OutputPlaceholder(job, "front")).toBe("Blocked · no reference");
+    expect(slot1FailureExplanation(job.error_code)).toContain("Open Logs");
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="ORGY REFEREE"
+      readiness={null} ecommerceJobs={[job]} />);
+    expect(html).toContain("Reference generation failed");
+    expect(html).toContain("Blocked · no reference");
+    expect(html).not.toContain("Waiting for reference");
+    expect(html).not.toContain("Waiting for transfer");
+    expect(html).not.toContain("Regenerate Reference");
+    expect(html).not.toContain("Retry failed");
+  });
+
+  it("preserves saved Slot 1 material after transfer QA fails and indicates what to retry", () => {
+    const job = {
+      id: "failed-transfer", source_plan_id: "source", stage: "prod_s2_ec1",
+      status: "failed" as const, retry_count: 0, attempt_count: 1,
+      error_code: "slot1_thread_transfer_qa_failed", output_url: null,
+      embroidery_reference_url: "/api/verified-reference.png",
+      skill_name: "cam-slot1-thread-reference-inpaint-v2",
+    };
+    expect(slot1OutputPlaceholder(job, "reference")).toBe("Reference saved");
+    expect(slot1OutputPlaceholder(job, "front")).toBe("Cap transfer failed");
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow sourceName="design.png"
+      readiness={null} ecommerceJobs={[job]} />);
+    expect(html).toContain('aria-label="Open Embroidery Reference output"');
+    expect(html).toContain("Cap transfer failed");
+  });
+
+  it("shows deferred Codex runtime separately from failed reference generation", () => {
+    const job = {
+      id: "deferred-front", source_plan_id: "source", stage: "prod_s2_ec1",
+      status: "queued" as const, retry_count: 0, attempt_count: 1,
+      error_code: "slot1_codex_runtime_deferred", output_url: null,
+      skill_name: "cam-slot1-thread-reference-inpaint-v2",
+    };
+    expect(slot1OutputPlaceholder(job, "reference")).toBe("Waiting for Codex ImageGen");
+    expect(slot1FailureExplanation(job.error_code)).toContain("exited before calling ImageGen");
   });
 
   it("shows seven skill rows, with two Slot 1 outputs and 12 colors", () => {
