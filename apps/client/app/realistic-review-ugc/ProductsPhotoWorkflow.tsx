@@ -579,7 +579,7 @@ export function ProductsPhotoWorkflow({
               ? <button type="button" key={output.key}
                   className="rrugc-products-photo-empty-shot rrugc-products-photo-slot1-output is-completed"
                   onClick={() => setOutputGallery({
-                    title: "Slot 1 · Embroidery Reference → After Inpaint",
+                    title: "Slot 1 · Embroidery Reference → Cap Front",
                     items: allOutputItems,
                     initialIndex: allOutputItems.findIndex(item => item.key === output.key),
                   })} aria-label={"Open " + output.label + " output"}>
@@ -655,7 +655,7 @@ export function ProductsPhotoWorkflow({
                   {output.src
                     ? <button type="button" aria-label={"View " + output.label}
                         onClick={() => setOutputGallery({
-                          title: "Slot 1 · Embroidery Reference → After Inpaint",
+                          title: "Slot 1 · Embroidery Reference → Cap Front",
                           items: allOutputItems,
                           initialIndex: allOutputItems.findIndex(item => item.key === output.key),
                         })}>
