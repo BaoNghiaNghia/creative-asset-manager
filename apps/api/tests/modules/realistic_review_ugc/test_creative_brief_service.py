@@ -294,3 +294,71 @@ def test_old_scheduled_codex_retry_is_drained_without_provider_call(monkeypatch)
     result = handler(SimpleNamespace(is_cancelled=False))
     assert result.error_code == MANUAL_RETRY_CODE
     assert statuses == [("failed", MANUAL_RETRY_CODE)]
+
+
+def test_quota_wait_brief_with_busy_job_is_not_automatically_resumed(db):
+    """A deferred Oct-31 quota job can have 'busy' on ProcessingJob and 'quota' on Brief."""
+    from app.modules.realistic_review_ugc.creative_brief_service import (
+        MANUAL_RETRY_CODE, CreativeBriefGenerateHandler,
+    )
+    keyword = insert_keyword(db, word="OLD QUOTA WAIT")
+    queue_brief(db, tenant_id="tenant-a", keyword_id=keyword.id, settings=settings())
+    db.commit()
+    brief = db.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == keyword.id,
+    ))
+    brief.last_error_code = "creative_brief_codex_quota_wait"
+    db.add(ProcessingJobModel(
+        id=brief.processing_job_id, tenant_id="tenant-a", job_type=JOB_TYPE,
+        entity_type="rrugc_keyword_creative_brief", entity_id=brief.id,
+        idempotency_key="old-wait", payload_json={}, priority=51,
+        status="pending", attempt_count=0, max_attempts=2,
+        last_error_code="creative_brief_busy",
+    ))
+    db.commit()
+    handler = CreativeBriefGenerateHandler(SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True, RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=False,
+    ))
+    context = SimpleNamespace(is_cancelled=False, job=SimpleNamespace(
+        id=brief.processing_job_id, entity_id=brief.id, tenant_id="tenant-a",
+    ), dependencies=SimpleNamespace(session_factory=lambda: Session(db.bind)))
+    assert handler._was_codex_retry(context) is True
+    result = handler(context)
+    assert result.error_code == MANUAL_RETRY_CODE
+    assert result.outcome.value == "non_retryable_failure"
+    db.refresh(brief)
+    assert brief.status == "failed"
+    assert brief.last_error_code == MANUAL_RETRY_CODE
+    # A manual Retry creates a new clean job, not another old quota-wait defer.
+    old_id = brief.processing_job_id
+    db.get(ProcessingJobModel, old_id).status = "failed"
+    db.commit()
+    assert queue_brief(db, tenant_id="tenant-a", keyword_id=keyword.id,
+                       settings=settings(), retry=True)[1] is True
+    assert brief.processing_job_id != old_id
+    assert brief.last_error_code is None
+
+
+def test_codex_cooldown_is_terminal_not_deferred_when_auto_retry_paused(monkeypatch, tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from app.modules.realistic_review_ugc import creative_brief_service as module
+    from app.modules.realistic_review_ugc.creative_brief_service import (
+        MANUAL_RETRY_CODE, CreativeBriefGenerateHandler,
+    )
+    settings = SimpleNamespace(
+        RRUGC_CREATIVE_BRIEF_ENABLED=True, RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=False,
+        IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
+    )
+    handler = CreativeBriefGenerateHandler(settings)
+    updates = []
+    monkeypatch.setattr(handler, "_was_codex_retry", lambda _context: False)
+    monkeypatch.setattr(handler, "_set_status", lambda _context, status, code:
+                        updates.append((status, code)))
+    monkeypatch.setattr(module, "_codex_cooldown", lambda _root: (
+        datetime.now(timezone.utc) + timedelta(minutes=10),
+        "creative_brief_codex_quota_wait",
+    ))
+    result = handler(SimpleNamespace(is_cancelled=False))
+    assert result.error_code == MANUAL_RETRY_CODE
+    assert result.outcome.value == "non_retryable_failure"
+    assert updates == [("failed", MANUAL_RETRY_CODE)]

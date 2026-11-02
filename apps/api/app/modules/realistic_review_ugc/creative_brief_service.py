@@ -323,6 +323,12 @@ class CreativeBriefGenerateHandler:
         lock_root.mkdir(parents=True, exist_ok=True)
         cooldown = _codex_cooldown(lock_root)
         if cooldown is not None:
+            if not auto_retry_enabled(self.settings):
+                self._set_status(context, "failed", MANUAL_RETRY_CODE)
+                return JobHandlerResult.non_retryable(
+                    MANUAL_RETRY_CODE,
+                    "Codex is cooling down; automatic Creative Brief retry is paused. Retry manually.",
+                )
             self._set_status(context, "queued", cooldown[1])
             return DeferredJobOutcome(
                 reason_code=cooldown[1],
@@ -356,7 +362,23 @@ class CreativeBriefGenerateHandler:
                 ProcessingJobModel.tenant_id == context.job.tenant_id,
                 ProcessingJobModel.job_type == JOB_TYPE,
             ))
-            return bool(job and job.last_error_code in CODEX_WAIT_CODES)
+            if job is None:
+                return False
+            if job.last_error_code in CODEX_WAIT_CODES:
+                return True
+            # Old quota-wait backfills can be deferred as "creative_brief_busy"
+            # before being claimed again. Their ProcessingJob error no longer
+            # identifies the quota wait, but the paired Brief row still does.
+            # Do not silently resume these old jobs when retry is disabled.
+            brief = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+                RrugcKeywordCreativeBriefModel.id == context.job.entity_id,
+                RrugcKeywordCreativeBriefModel.tenant_id == context.job.tenant_id,
+                RrugcKeywordCreativeBriefModel.processing_job_id == job.id,
+            ))
+            return bool(
+                brief and brief.status == "queued"
+                and brief.last_error_code in CODEX_WAIT_CODES
+            )
 
     def _set_status(self, context: JobHandlerContext, state: str, error_code: str | None = None) -> None:
         with context.dependencies.session_factory() as session:

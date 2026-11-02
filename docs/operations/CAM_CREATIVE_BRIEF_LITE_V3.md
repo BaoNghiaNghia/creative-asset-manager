@@ -25,3 +25,16 @@
 - No migration, new provider, or new external dependency. Preserve Output History and all user assets.
 - Use backend release script with `--no-migrate` and verified schema compatibility, frontend deploy script with matching committed `dist` provenance. Release from the committed main branch with independent rollback release retained.
 - Note any unrelated pre-existing test failures separately; do not weaken tests or security gates to conceal them.
+
+## 2026-11-02 auto-resume incident and repair
+
+The original pause flag only stopped new Codex quota/auth/network failures.
+Old backfill Brief rows retained a quota-wait error, while their processing
+jobs recorded `creative_brief_busy` after a zero-attempt deferral. The guard
+now checks both rows. An active Codex cooldown now fails manual-only when
+automatic retry is disabled, rather than scheduling another call.
+
+The legacy quota-wait pending backlog was terminalized in one constrained
+operation without touching unrelated jobs, in-flight calls, saved images,
+or historical Brief content. Explicit Retry analysis still creates a fresh
+job. The Stage 1 table no longer claims auto retry based only on an old error.
