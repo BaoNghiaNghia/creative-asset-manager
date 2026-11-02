@@ -44,6 +44,21 @@ describe("Products Stage 2 photo workflow", () => {
     expect(html).not.toContain("rrugc-products-photo-run-button is-unavailable");
   });
 
+  it("explains when Ecommerce is waiting for an eligible Codex Stage 2 account", () => {
+    const html = renderToStaticMarkup(<ProductsPhotoWorkflow
+      sourceName="design.png" readiness={null}
+      ecommerceJobs={[{
+        id: "waiting-codex", source_plan_id: "plan-1", stage: "prod_s2_ec1",
+        status: "queued", retry_count: 0, attempt_count: 2,
+        error_code: "codex_account_pool_busy", output_url: null,
+        skill_name: "cam-slot1-thread-reference-inpaint-v2",
+      }]} />);
+    expect(html).toContain("Waiting Codex");
+    expect(html).toContain("Stage 2 enabled in Codex Account Manager");
+    expect(html).toContain("retries automatically without consuming an attempt");
+    expect(html).not.toContain("Queued Ecommerce · Image 01");
+  });
+
   it("renders completed Ecommerce photos as clickable filled tiles while leaving missing photos as placeholders", () => {
     const html = renderToStaticMarkup(<ProductsPhotoWorkflow
       sourceName="design.png" readiness={null}

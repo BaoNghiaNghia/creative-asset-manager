@@ -503,9 +503,13 @@ export function ProductsPhotoWorkflow({
           : shotJob?.status === "failed" || sceneFailed ? (canRetry ? "retry" : "failed")
           : runnable || sceneRunnable ? "ready"
           : checking && colorAvailable ? "checking" : "blocked";
+        // A pool deferral is not a generic queue delay: show the actionable
+        // provider reason without pretending that a Codex image call is running.
+        const waitingCodex = isEcommerce && phase === "queued"
+          && shotJob?.error_code === "codex_account_pool_busy";
         const actionLabel = phase === "completed" ? "Complete"
           : phase === "queueing" ? "Queueing…" : phase === "running" ? "Running"
-          : phase === "queued" ? "Queued" : phase === "retry" ? "Retry"
+          : phase === "queued" ? (waitingCodex ? "Waiting Codex" : "Queued") : phase === "retry" ? "Retry"
           : phase === "failed" ? "Failed" : phase === "ready"
             ? sceneJobs.some(job => job.status === "completed") ? "Continue" : "Run"
           : phase === "checking" ? "Checking…" : blockLabel;
@@ -513,7 +517,9 @@ export function ProductsPhotoWorkflow({
           <div className="rrugc-products-photo-stage-controls">
             <SkillRunControl phase={phase} label={actionLabel} ariaLabel={actionLabel + " " + step.title}
               disabled={Boolean(busyStage)}
-              title={!isEcommerce ? setupMessage : slotInputs?.missing_roles.length
+              title={waitingCodex
+                ? "Codex profile unavailable. Check that a logged-in account has Stage 2 enabled in Codex Account Manager. The job retries automatically without consuming an attempt."
+                : !isEcommerce ? setupMessage : slotInputs?.missing_roles.length
                 ? "Missing inputs: " + slotInputs.missing_roles.join(", ")
                 : phase === "completed" ? "Completed. Open Details to regenerate or view logs."
                 : "Open Details to inspect prerequisites, logs and output versions"}
