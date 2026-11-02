@@ -88,7 +88,11 @@ def test_slot1_composites_verified_thread_into_centered_master_and_saves_real_bo
     out = composite_reference_on_cap(stock_material, material(),
                                      scale_contract=contract)
     box = out.target_box
-    assert box == stock_material.thread_mask.getbbox()
+    approved = stock_material.thread_mask.getbbox()
+    assert approved[0] <= box[0] < box[2] <= approved[2]
+    assert approved[1] <= box[1] < box[3] <= approved[3]
+    assert abs((box[0]+box[2]) - (approved[0]+approved[2])) <= 2
+    assert abs((box[1]+box[3]) - (approved[1]+approved[3])) <= 2
     assert abs((box[0]+box[2])/2 / 900 - .5) < .01
     assert (box[2]-box[0])/900 > .32
     assert abs((box[1]+box[3])/2 / 1000 - contract["center_y"]) < .01

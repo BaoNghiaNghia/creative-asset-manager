@@ -8,7 +8,9 @@ from PIL import Image, ImageDraw
 from app.modules.realistic_review_ugc.slot1_embroidery import (
     Slot1EmbroideryQAError, build_slot1_material_pass,
 )
-from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
+from app.modules.realistic_review_ugc.threadtransfer import (
+    _trim_chromatic_gutters, composite_reference_on_cap,
+)
 
 
 def png(image: Image.Image) -> bytes:
@@ -88,6 +90,23 @@ def test_transparent_reference_does_not_transfer_backing_cloth():
     # Transparent corners of the reference leave the original cap untouched.
     src = np.asarray(stock)
     assert np.array_equal(frame[y0 + 2, x0 + 2], src[y0 + 2, x0 + 2])
+
+
+def test_dominant_colored_stitches_trim_faint_false_positive_gutters():
+    source = np.zeros((650, 1400, 4), dtype=np.uint8)
+    for x in range(12, 1395, 34):
+        source[15:630, x:x+3] = (126, 120, 113, 90)
+    source[158:515, 282:1118] = (25, 67, 181, 255)
+    source[175:500:3, 282:1118, :3] = (38, 86, 205)
+    layer = Image.fromarray(source, "RGBA")
+    cleaned = _trim_chromatic_gutters(layer)
+    assert 830 <= cleaned.width < 950
+    assert 350 <= cleaned.height < 420
+    assert np.asarray(cleaned.getchannel("A")).max() == 255
+    # Monochrome embroidery is not cropped using another word's chroma.
+    mono = np.array(source)
+    mono[158:515, 282:1118, :3] = (50, 50, 50)
+    assert _trim_chromatic_gutters(Image.fromarray(mono, "RGBA")).size == layer.size
 
 
 def test_uniform_fabric_only_and_flat_print_fail_without_publishing():

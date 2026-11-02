@@ -106,10 +106,14 @@ _lite_slot1_qa_error_code = lite_slot1_qa_error_code
 # All NEW EC2 jobs use the actual selected-color 3/4 photo as the edit target.
 # Legacy jobs keep their pinned front+side evidence until an EXPLICIT Retry/Regenerate.
 LEGACY_EC2_STOCK_ROLES = ("stock_front", "stock_side_90")
+LEGACY_EC3_STOCK_ROLES = ("stock_side_90",)
 STOCK_ROLES = {
     "prod_s2_ec1": ("stock_front",),
     "prod_s2_ec2": ("stock_three_quarter",),
-    "prod_s2_ec3": ("stock_side_90",),
+    # Side 90 shows almost none of the front artwork. Without a separate
+    # verified side-front photo, use the real 3/4 stock as an explicit fallback
+    # rather than fabricating embroidery on the lateral panel.
+    "prod_s2_ec3": ("stock_three_quarter",),
     "prod_s2_ec4": ("stock_back",),
 }
 
@@ -202,7 +206,8 @@ class EcommerceError(RuntimeError):
 
 
 def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black",
-                *, legacy_three_quarter: bool = False) -> tuple[list[tuple[str, bytes]], str]:
+                *, legacy_three_quarter: bool = False,
+                legacy_side_90: bool = False) -> tuple[list[tuple[str, bytes]], str]:
     if color_key not in COLORS:
         raise EcommerceError("ecommerce_color_invalid", "Unknown hat color.", 422)
     if stage not in STOCK_ROLES:
@@ -212,8 +217,8 @@ def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black"
     from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock
     try:
         with stock_read_lock(settings):
-            roles = (LEGACY_EC2_STOCK_ROLES
-                     if stage == "prod_s2_ec2" and legacy_three_quarter
+            roles = (LEGACY_EC2_STOCK_ROLES if stage == "prod_s2_ec2" and legacy_three_quarter
+                     else LEGACY_EC3_STOCK_ROLES if stage == "prod_s2_ec3" and legacy_side_90
                      else STOCK_ROLES[stage])
             refs = [(role, read_release_stock(role, project_root=project_root, color_key=color_key)[0])
                     for role in roles]
@@ -235,12 +240,16 @@ def _pinned_stock_refs(settings: Settings, stage: str, color_key: str,
         if digest == expected_sha256:
             return refs, False
     except EcommerceError:
-        if stage != "prod_s2_ec2":
+        if stage not in ("prod_s2_ec2", "prod_s2_ec3"):
             raise
     if stage == "prod_s2_ec2":
         old_refs, old_digest = _stock_refs(settings, stage, color_key, legacy_three_quarter=True)
         if old_digest == expected_sha256:
             return old_refs, True
+    elif stage == "prod_s2_ec3":
+        old_refs, old_digest = _stock_refs(settings, stage, color_key, legacy_side_90=True)
+        if old_digest == expected_sha256:
+            return old_refs, False
     raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
 
 
@@ -251,6 +260,11 @@ def _rebind_ec2_stock_for_explicit_action(settings: Settings, row: RrugcEcommerc
         return
     if row.stage == "prod_s2_ec2":
         _, old_sha = _stock_refs(settings, row.stage, row.color_key, legacy_three_quarter=True)
+        if old_sha == row.stock_sha256:
+            row.stock_sha256 = current_sha
+            return
+    elif row.stage == "prod_s2_ec3":
+        _, old_sha = _stock_refs(settings, row.stage, row.color_key, legacy_side_90=True)
         if old_sha == row.stock_sha256:
             row.stock_sha256 = current_sha
             return
@@ -1934,6 +1948,8 @@ class EcommerceGenerateHandler:
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
         if local_stock:
+            side_front_fallback = (stage == "prod_s2_ec3" and deterministic_angle
+                                   and refs[0][0] == "stock_three_quarter")
             # V4 needs only original immutable stock + SAVED reference bytes.
             # V2 historical jobs retain the prepared native macro contract.
             pinned = next((ref for ref in references
@@ -1955,6 +1971,7 @@ class EcommerceGenerateHandler:
                         reference_remote_file_id=preview_remote_id,
                         source_revision=source_revision,
                     ) if deterministic_angle else None),
+                    side_front_fallback=side_front_fallback,
                 )
             except Slot1EmbroideryQAError as exc:
                 raise RrugcGenerationHandlerError(
@@ -1964,13 +1981,16 @@ class EcommerceGenerateHandler:
                 provider="codex", model=None,
                 image_bytes=transferred.output_png, mime_type="image/png",
                 provider_metadata={
-                    "transfer_engine": ("threadtransfer-v3-deterministic-quad"
+                    "transfer_engine": ("threadtransfer-v4-calibrated-quad"
                                         if deterministic_angle else "threadtransfer-v2-angle"),
                     "native_passes": 0,
                     "thread_layer_sha256": transferred.thread_layer_sha256,
                     "transfer_box": list(transferred.target_box),
                     "reference_sha256": hashlib.sha256(material_bytes).hexdigest(),
                     "original_stock_pixels_protected": True,
+                    "side_front_stock_fallback": side_front_fallback,
+                    "side_front_stock_view": ("verified_three_quarter"
+                                              if side_front_fallback else None),
                 },
             )
         elif (is_threadtransfer and preview_remote_id
@@ -2227,7 +2247,7 @@ class EcommerceGenerateHandler:
                                 )} if (direct_angle or deterministic_angle)
                                 and context.job.payload.get("embroidery_placement_v1") else {}),
                                 **({"slot1_embroidery_pipeline": {
-                                    "version": ("threadtransfer-v1-raster"
+                                    "version": ("threadtransfer-v2-tight-yarn"
                                                 if is_threadtransfer else
                                                 "thread-reference-inpaint-v2.3-checkpointed"
                                                 if checkpointed_reference else
@@ -2261,7 +2281,7 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": ("threadtransfer-v3-deterministic-quad"
+                                    "version": ("threadtransfer-v4-calibrated-quad"
                                                 if deterministic_angle else
                                                 "angle-direct-v3-single-edit" if direct_angle else
                                                 "threadtransfer-v2-angle" if local_stock else
@@ -2275,6 +2295,8 @@ class EcommerceGenerateHandler:
                                     "transfer_box": generated.provider_metadata.get("transfer_box"),
                                     "accepted_thread_pixels": generated.provider_metadata.get("accepted_thread_pixels"),
                                     "side_stock_fallback": generated.provider_metadata.get("side_stock_fallback", False),
+                                    "side_front_stock_fallback": generated.provider_metadata.get("side_front_stock_fallback", False),
+                                    "side_front_stock_view": generated.provider_metadata.get("side_front_stock_view"),
                                     "fallback_reason": generated.provider_metadata.get("fallback_reason"),
                                     "original_stock_pixels_protected": bool(builtin_stock or builtin_back),
                                     "scene_photo_preserved_by_edit_gate": bool(

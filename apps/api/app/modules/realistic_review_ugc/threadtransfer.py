@@ -22,6 +22,47 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
 _MAX_REFERENCE_PIXELS = 8_000_000
 
 
+def _trim_chromatic_gutters(layer: Image.Image) -> Image.Image:
+    """Trim low-contrast cloth/fringe mistakenly retained around colorful yarn.
+
+    The native material can contain a huge, barely visible fabric border. Its
+    alpha bbox is NOT the actual text bbox: mapping it into the saved placement
+    shrinks the visible letters by 30-40%. Only tighten when a dominant,
+    high-chroma contiguous glyph body proves the outer area is incidental.
+    Monochrome/mixed-color embroidery remains on the conservative original path.
+    """
+    if layer.width < 96 or layer.height < 48:
+        return layer
+    rgba = np.asarray(layer.convert("RGBA"), dtype=np.uint8)
+    alpha = rgba[:, :, 3] >= 55
+    foreground_count = int(np.count_nonzero(alpha))
+    if foreground_count < 250:
+        return layer
+    hsv = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2HSV)
+    strong = alpha & (hsv[:, :, 1] >= 110) & (hsv[:, :, 2] >= 50)
+    if int(np.count_nonzero(strong)) < foreground_count * .72:
+        return layer
+    ys, xs = np.where(strong)
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    # Retain fine colored stitch strands, edge highlights and contact shadows.
+    px, py = max(3, round((x1-x0)*.016)), max(3, round((y1-y0)*.025))
+    x0, x1 = max(0, x0-px), min(layer.width, x1+px)
+    y0, y1 = max(0, y0-py), min(layer.height, y1+py)
+    width_fraction = (x1-x0)/layer.width
+    height_fraction = (y1-y0)/layer.height
+    if not (.48 <= width_fraction < .93 and .42 <= height_fraction < .94):
+        return layer
+    # Preserve minority dark/neutral glyphs that extend outside the saturated
+    # center; do not mistakenly trim a black word just because another is blue.
+    core = rgba[:, :, 3] >= 160
+    total_core = int(np.count_nonzero(core))
+    outside_core = (total_core - int(np.count_nonzero(core[y0:y1, x0:x1])))
+    if total_core and outside_core > foreground_count*.16:
+        return layer
+    return layer.crop((x0, y0, x1, y1))
+
+
 @dataclass(frozen=True)
 class ThreadTransferResult:
     output_png: bytes
@@ -113,7 +154,12 @@ def _layer_from_reference(image_bytes: bytes) -> tuple[Image.Image, int]:
         high = gray - cv2.GaussianBlur(gray, (0, 0), 1.2)
         if float(np.std(high[core])) < 1.1:
             raise Slot1EmbroideryQAError("Reference lacks visible thread texture.")
-    return Image.fromarray(raw, "RGBA"), count
+    cleaned = _trim_chromatic_gutters(Image.fromarray(raw, "RGBA"))
+    # The output count and tight geometry now describe actual yarn, not the
+    # near-invisible border originally mistaken for stitches.
+    visible_count = int(np.count_nonzero(
+        np.asarray(cleaned.getchannel("A"), dtype=np.uint8) >= 55))
+    return cleaned, visible_count
 
 
 def composite_reference_on_cap(
@@ -154,7 +200,7 @@ def composite_reference_on_cap(
                 px, py, rx, by = visible_box
                 visual_ratio = (rx - px) / (by - py)
                 material_ratio = layer.width / layer.height
-                if not .75 <= material_ratio / visual_ratio <= 1.33:
+                if not .82 <= material_ratio / visual_ratio <= 1.20:
                     raise Slot1EmbroideryQAError(
                         "Embroidery Reference proportions differ from the approved front design."
                     )
@@ -166,6 +212,15 @@ def composite_reference_on_cap(
         except EmbroideryScaleError as exc:
             raise Slot1EmbroideryQAError(str(exc)) from exc
         tw, th = rx-px, by-py
+        if scale_contract.get("version") == "front-guide-v3":
+            # Preserve glyph proportions when the true yarn crop and original
+            # artwork differ slightly. Fit within the APPROVED box; never
+            # stretch the lettering in either axis to fill it.
+            fit = min(tw / layer.width, th / layer.height)
+            final_w, final_h = round(layer.width*fit), round(layer.height*fit)
+            px += (tw-final_w)//2
+            py += (th-final_h)//2
+            tw, th = final_w, final_h
         safe = scale_contract["safe_box"]
         x0, y0, x1, y1 = (
             round(material.stock.width * safe[0]),

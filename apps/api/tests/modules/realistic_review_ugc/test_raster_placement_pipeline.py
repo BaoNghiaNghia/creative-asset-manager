@@ -111,6 +111,25 @@ def test_wide_front_placement_uses_the_full_three_quarter_crown_safely():
     assert y0 >= 300 and y1 <= 620
 
 
+def test_fresh_side_front_fallback_keeps_full_readable_yarn_on_real_three_quarter_photo():
+    stock, ref = photo(), embroidery()
+    master = saved_master_box((230, 380, 720, 560), 900, 1000, "rev", "macro")
+    out = composite_reference_on_stock_view(
+        stock, ref, stage="prod_s2_ec3", placement=master,
+        side_front_fallback=True,
+    )
+    expected = projected_raster_box(
+        master, "prod_s2_ec3", (900, 1000), side_front_fallback=True,
+    )
+    assert out.target_box[2]-out.target_box[0] > 250
+    assert expected[0] <= out.target_box[0] < out.target_box[2] <= expected[2]
+    before = np.asarray(Image.open(BytesIO(stock)).convert("RGB"))
+    after = np.asarray(Image.open(BytesIO(out.output_png)).convert("RGB"))
+    assert np.array_equal(before[:, 720:], after[:, 720:])
+    assert np.array_equal(before[:expected[1]], after[:expected[1]])
+    assert np.array_equal(before[expected[3]:], after[expected[3]:])
+
+
 @pytest.mark.parametrize("stage", ["prod_s2_ec2", "prod_s2_ec3"])
 def test_raster_projection_preserves_factory_stock_outside_thread_pixels(stage):
     stock, ref = photo(), embroidery()
@@ -210,7 +229,7 @@ def test_angle_worker_publishes_without_codex_or_png_artwork(monkeypatch, stage,
         output = db.query(RrugcImageOutputVersionModel).one()
         info = output.font_info_json
         assert info["embroidery_placement_v1"] == master
-        assert info["thread_inpaint_pipeline"]["version"] == "threadtransfer-v3-deterministic-quad"
+        assert info["thread_inpaint_pipeline"]["version"] == "threadtransfer-v4-calibrated-quad"
         assert info["thread_inpaint_pipeline"]["native_passes"] == 0
         row = db.get(RrugcEcommerceJobModel, "job")
         assert row.status == "completed"

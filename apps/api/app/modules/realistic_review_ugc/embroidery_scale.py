@@ -181,7 +181,8 @@ _RASTER_ANGLE_ZONE = {
 
 
 def projected_raster_box(master: dict, stage: str,
-                         photo_size: tuple[int, int]) -> tuple[int, int, int, int]:
+                         photo_size: tuple[int, int], *,
+                         side_front_fallback: bool = False) -> tuple[int, int, int, int]:
     """Fixed template-dependent target preserving physical Slot 1 size.
 
     The original Slot 1 box is actual sewn yarn, not the macro photo extent.
@@ -194,17 +195,24 @@ def projected_raster_box(master: dict, stage: str,
     width, height = photo_size
     if min(width, height) < 512:
         raise EmbroideryScaleError("Manufacturer stock resolution is too small.")
-    z0, z1, z2, z3 = _RASTER_ANGLE_ZONE[stage]
+    # When the actual side stock hides the FRONT crown, a new Slot 3 job
+    # uses the verified front-right 3/4 photograph as a clearly marked
+    # temporary side-front fallback. Never fabricate a camera angle.
+    zone = ("prod_s2_ec2" if stage == "prod_s2_ec3" and side_front_fallback
+            else stage)
+    z0, z1, z2, z3 = _RASTER_ANGLE_ZONE[zone]
     front_w, front_h = source[2]-source[0], source[3]-source[1]
-    if stage == "prod_s2_ec2":
-        # A single shrink factor keeps the original perspective ratio; the
-        # formerly independent width/height clips could squash the lettering.
-        projected_w, projected_h = front_w*.82, front_h*.90
-        field_fit = min(1., ((z2-z0)*.92)/projected_w,
-                        ((z3-z1)*.85)/projected_h)
+    if stage == "prod_s2_ec2" or side_front_fallback:
+        # Single uniform field fit; never distort typography. The second
+        # view is slightly more foreshortened but retains all visible letters.
+        projected_w = front_w*(.90 if stage == "prod_s2_ec2" else .78)
+        projected_h = front_h*(.93 if stage == "prod_s2_ec2" else .89)
+        field_fit = min(1., ((z2-z0)*.93)/projected_w,
+                        ((z3-z1)*.89)/projected_h)
         target_w, target_h = projected_w*field_fit, projected_h*field_fit
-        cx, cy = .490, .454
+        cx, cy = (.490, .454) if stage == "prod_s2_ec2" else (.50, .454)
     else:
+        # Already-pinned side-90 jobs retain historic physical edge geometry.
         target_w = min(front_w*.13, .060, (z2-z0)*.72)
         target_h = min(front_h*.91, (z3-z1)*.82)
         cx, cy = .318, .434

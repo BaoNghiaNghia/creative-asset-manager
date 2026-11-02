@@ -34,6 +34,8 @@ def _composite_pinned_view(
     layer: Image.Image,
     stage: str,
     master: dict,
+    *,
+    side_front_fallback: bool = False,
 ) -> ThreadTransferResult:
     """V3: perspective-warp SAME real yarn with one predefined stock quad.
 
@@ -46,19 +48,22 @@ def _composite_pinned_view(
 
     height, width = original.shape[:2]
     try:
-        x0, y0, x1, y1 = projected_raster_box(master, stage, (width, height))
+        x0, y0, x1, y1 = projected_raster_box(
+            master, stage, (width, height),
+            side_front_fallback=side_front_fallback,
+        )
     except EmbroideryScaleError as exc:
         raise Slot1EmbroideryQAError(str(exc)) from exc
     rgba = np.asarray(layer.convert("RGBA"), dtype=np.uint8)
-    if stage == "prod_s2_ec3":
-        # Viewer faces the right side. Only the rightmost end of the
-        # FRONT embroidery (not a scaled-down entire slogan) is visible.
+    if stage == "prod_s2_ec3" and not side_front_fallback:
+        # Historical side-90 jobs physically expose only the front-edge
+        # sliver. Fresh jobs with the front-visible fallback use full yarn.
         rgba = rgba[:, max(0, round(rgba.shape[1] * .82)):, :].copy()
     src_h, src_w = rgba.shape[:2]
     if min(src_w, src_h) < 10:
         raise Slot1EmbroideryQAError("Saved thread layer has insufficient visible detail.")
     tw, th = x1-x0, y1-y0
-    if stage == "prod_s2_ec2":
+    if stage == "prod_s2_ec2" or side_front_fallback:
         quad = np.float32([
             [x0+tw*.055, y0+th*.025],
             [x1-tw*.085, y0+th*.095],
@@ -95,13 +100,13 @@ def _composite_pinned_view(
     )
     selected = alpha > .5
     accepted = int(np.count_nonzero(selected))
-    if accepted < (100 if stage == "prod_s2_ec2" else 35):
+    if accepted < (100 if stage == "prod_s2_ec2" or side_front_fallback else 35):
         raise Slot1EmbroideryQAError("Embroidery reference contains no visible yarn at this angle.")
     ys, xs = np.where(selected)
     # Ensure the warp actually occupies its calibrated target, rather than
     # silently publishing a microscopic or clipped glyph.
     visible_w = int(xs.max()-xs.min()+1)
-    if visible_w < tw*(.50 if stage == "prod_s2_ec2" else .28):
+    if visible_w < tw*(.50 if stage == "prod_s2_ec2" or side_front_fallback else .28):
         raise Slot1EmbroideryQAError("Calibrated embroidery width is insufficient.")
     yarn = np.divide(premul, np.maximum(alpha[:, :, None], .001))
     background = original[top:bottom, left:right].astype(np.float32)
@@ -144,6 +149,7 @@ def composite_reference_on_stock_view(
     stage: str,
     design_size: int = 100,
     placement: dict | None = None,
+    side_front_fallback: bool = False,
 ) -> ThreadTransferResult:
     """Project yarn onto a real angle; protect every pixel outside target ROI.
 
@@ -167,7 +173,12 @@ def composite_reference_on_stock_view(
     layer, _count = _layer_from_reference(reference_png)
     original = np.asarray(img, dtype=np.uint8)
     if placement is not None:
-        return _composite_pinned_view(original, layer, stage, placement)
+        return _composite_pinned_view(
+            original, layer, stage, placement,
+            side_front_fallback=side_front_fallback,
+        )
+    if side_front_fallback:
+        raise Slot1EmbroideryQAError("Front-visible fallback requires a saved Slot 1 master.")
     # Pre-V3 pinned work uses the historical stock-safe v2 fields.
     height, width = original.shape[:2]
     fx0, fy0, fx1, fy1 = _VIEW_CROWN[stage]
