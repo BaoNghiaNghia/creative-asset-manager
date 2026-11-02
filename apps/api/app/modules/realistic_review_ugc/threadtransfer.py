@@ -143,9 +143,26 @@ def composite_reference_on_cap(
             EmbroideryScaleError, front_transfer_box,
         )
         try:
-            px, py, rx, by = front_transfer_box(
-                scale_contract, layer.width / layer.height, material.stock.size,
-            )
+            if scale_contract.get("version") == "front-guide-v3":
+                # The Blueprint already painted the exact saved artwork size
+                # into this same unmodified stock. Use its visible alpha bbox
+                # instead of fitting the AI macro independently a second time.
+                # Macro margins/aspect ratio must never shrink the typography.
+                visible_box = material.thread_mask.getbbox()
+                if visible_box is None:
+                    raise Slot1EmbroideryQAError("Approved front artwork has no visible yarn.")
+                px, py, rx, by = visible_box
+                visual_ratio = (rx - px) / (by - py)
+                material_ratio = layer.width / layer.height
+                if not .75 <= material_ratio / visual_ratio <= 1.33:
+                    raise Slot1EmbroideryQAError(
+                        "Embroidery Reference proportions differ from the approved front design."
+                    )
+            else:
+                # Historical queued v1/v2 contracts remain byte-compatible.
+                px, py, rx, by = front_transfer_box(
+                    scale_contract, layer.width / layer.height, material.stock.size,
+                )
         except EmbroideryScaleError as exc:
             raise Slot1EmbroideryQAError(str(exc)) from exc
         tw, th = rx-px, by-py

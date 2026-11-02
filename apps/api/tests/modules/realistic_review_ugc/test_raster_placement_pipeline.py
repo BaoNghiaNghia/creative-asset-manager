@@ -86,12 +86,12 @@ def test_user_placement_guide_is_master_not_old_38_percent_clamp():
     guide = dict(left=.23, top=.34, width=.54, height=.22,
                  upper_line=.23, lower_line=.65, design_size=100)
     pin = front_scale_contract(guide)
-    assert pin["version"] == "front-guide-v2"
+    assert pin["version"] == "front-guide-v3"
     assert pin["safe_box"] == [.23, .34, .77, .56]
     fitted = front_transfer_box(pin, 3.3, (1000, 1200))
     center = ((fitted[0]+fitted[2])/2/1000, (fitted[1]+fitted[3])/2/1200)
     assert center == pytest.approx((.50, .45), abs=.002)
-    assert .46 < (fitted[2]-fitted[0])/1000 < .50
+    assert .50 < (fitted[2]-fitted[0])/1000 < .52
     assert fitted[1] >= 1200*.34
     assert fitted[3] <= 1200*.56
     old = {
@@ -100,6 +100,15 @@ def test_user_placement_guide_is_master_not_old_38_percent_clamp():
     }
     assert (front_transfer_box(old, 3.3, (1000,1200))[2]
             - front_transfer_box(old, 3.3, (1000,1200))[0]) <= 380
+
+
+def test_wide_front_placement_uses_the_full_three_quarter_crown_safely():
+    master = saved_master_box((150, 310, 850, 540), 1000, 1000, "rev", "macro")
+    x0, y0, x1, y1 = projected_raster_box(master, "prod_s2_ec2", (1000, 1000))
+    assert x0 >= 230 and x1 <= 750
+    assert (x1 - x0) > 450  # Front-sized yarn, not a tiny central decal.
+    assert abs((x0 + x1)/2 - 490) <= 2
+    assert y0 >= 300 and y1 <= 620
 
 
 @pytest.mark.parametrize("stage", ["prod_s2_ec2", "prod_s2_ec3"])

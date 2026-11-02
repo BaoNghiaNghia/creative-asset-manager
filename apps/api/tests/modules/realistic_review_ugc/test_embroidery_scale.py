@@ -13,7 +13,7 @@ from app.modules.realistic_review_ugc.embroidery_scale import (
 from app.modules.realistic_review_ugc.angle_direct_edit import (
     angle_direct_prompt, process_direct_angle_edit,
 )
-from app.modules.realistic_review_ugc.slot1_embroidery import build_slot1_material_pass
+from app.modules.realistic_review_ugc.slot1_embroidery import Slot1EmbroideryQAError, build_slot1_material_pass
 from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
 
 
@@ -47,11 +47,11 @@ def generator(image):
 
 def test_slot1_default_master_is_bigger_than_previous_height_limited_projection():
     contract = front_scale_contract(None)
-    assert contract["version"] == "front-guide-v2"
+    assert contract["version"] == "front-guide-v3"
     assert contract["guide_source"] == "saved_front_embroidery_area"
     box = front_transfer_box(contract, 2.6, (900, 1000))
     assert abs((box[0]+box[2]) / 2 / 900 - .5) < .006
-    assert .47 < (box[2]-box[0])/900 < .55
+    assert .61 < (box[2]-box[0])/900 < .62
     assert box[1] > 250 and box[3] < 620
 
 
@@ -88,6 +88,7 @@ def test_slot1_composites_verified_thread_into_centered_master_and_saves_real_bo
     out = composite_reference_on_cap(stock_material, material(),
                                      scale_contract=contract)
     box = out.target_box
+    assert box == stock_material.thread_mask.getbbox()
     assert abs((box[0]+box[2])/2 / 900 - .5) < .01
     assert (box[2]-box[0])/900 > .32
     assert abs((box[1]+box[3])/2 / 1000 - contract["center_y"]) < .01
@@ -100,6 +101,17 @@ def test_slot1_composites_verified_thread_into_centered_master_and_saves_real_bo
         original = np.asarray(image.convert("RGB"))
     assert np.array_equal(result[:, :120], original[:, :120])
     assert np.array_equal(result[700:], original[700:])
+
+
+def test_new_slot1_rejects_macro_with_wrong_letter_proportions():
+    stock = source()
+    art = Image.new("RGBA", (600, 420), (0, 0, 0, 0))
+    ImageDraw.Draw(art).rectangle((50, 140, 550, 230), fill=(180, 90, 12, 255))
+    stock_material = build_slot1_material_pass(stock, png(art), {}, localized_edit=True)
+    rotated_macro = Image.open(BytesIO(material())).transpose(Image.Transpose.ROTATE_90)
+    with pytest.raises(Slot1EmbroideryQAError, match="proportions differ"):
+        composite_reference_on_cap(stock_material, png(rotated_macro),
+                                   scale_contract=front_scale_contract(None))
 
 
 def test_3_4_oversized_off_center_native_edit_is_locally_normalized():
