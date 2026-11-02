@@ -18,6 +18,21 @@ export function productEmbroideryArtworkUrl(src: string, size = 384): string {
   return path + "?" + params.toString();
 }
 
+/** Stage 2 source-tree previews must show the actual saved Stage 1 PNG with
+ * its alpha channel intact, not a Drive-flattened thumbnail or a regenerated
+ * thread-geometry interpretation. Non-PNG sources retain their normal view.
+ */
+export function productSourceAlphaThumbnailUrl(src: string, size = 128): string {
+  if (!src || !src.startsWith("/") || src.startsWith("//")) return src;
+  const [path] = src.split("?");
+  if (!SOURCE_PLAN_IMAGE_PATH.test(path)) return src;
+  const params = new URLSearchParams(src.includes("?") ? src.slice(path.length + 1) : "");
+  params.set("thumbnail", "true");
+  params.set("size", String(size));
+  params.set("artwork", "stage1-source-alpha-v2");
+  return path + "?" + params.toString();
+}
+
 /** Original product artwork remains a visible fabric photograph; only the
  * hat-placement canvas uses the transient verified thread view above.
  */

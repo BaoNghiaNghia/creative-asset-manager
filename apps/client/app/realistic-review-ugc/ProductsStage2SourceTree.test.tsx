@@ -95,7 +95,8 @@ describe("Products Stage 2 thumbnail + keyword source tree", () => {
     expect(image).not.toBeNull();
     // The source-tree preview must request the transparent Stage 1 artwork,
     // rather than a Drive-derived thumbnail with a flattened black backdrop.
-    expect(image?.getAttribute("src") ?? "").toContain("artwork=stage1-thread-geometry-v1");
+    expect(image?.getAttribute("src") ?? "").toContain("artwork=stage1-source-alpha-v2");
+    expect(image?.getAttribute("src") ?? "").not.toContain("stage1-thread-geometry-v1");
     expect(image?.getAttribute("src") ?? "").toContain("size=128");
     await act(async () => root.unmount());
   });

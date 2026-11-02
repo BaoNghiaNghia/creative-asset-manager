@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { productEmbroideryArtworkUrl, productFabricArtworkUrl, publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
+import { productEmbroideryArtworkUrl, productFabricArtworkUrl, productSourceAlphaThumbnailUrl, publicHatStockUrl, stage2OriginalUrl, stage2PinterestThumbnailUrl, stage2ThumbnailUrl } from "./stage2Media";
 
 describe("GatorHats Stage 2 media authorization", () => {
   it("uses authenticated small previews only for supported routes", () => {
@@ -23,6 +23,15 @@ describe("GatorHats Stage 2 media authorization", () => {
     expect(productEmbroideryArtworkUrl("https://evil.example.com/image.png")).toBe("https://evil.example.com/image.png");
     expect(productEmbroideryArtworkUrl("//cdn.example.com/image.png")).toBe("//cdn.example.com/image.png");
     expect(productEmbroideryArtworkUrl("/api/v1/realistic-review-ugc/stage2-jobs/one/output")).toBe("/api/v1/realistic-review-ugc/stage2-jobs/one/output");
+  });
+
+  it("requests source PNG alpha-preserving thumbnails for the Stage 2 source tree", () => {
+    const source = "/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=512&v=rev123";
+    const alpha = "/api/v1/realistic-review-ugc/source-plans/plan-01/image?thumbnail=true&size=128&v=rev123&artwork=stage1-source-alpha-v2";
+    expect(productSourceAlphaThumbnailUrl(source)).toBe(alpha);
+    expect(productSourceAlphaThumbnailUrl(alpha)).toBe(alpha);
+    expect(productSourceAlphaThumbnailUrl("https://evil.example.com/image.png")).toBe("https://evil.example.com/image.png");
+    expect(productSourceAlphaThumbnailUrl("/api/v1/realistic-review-ugc/stage2-jobs/one/output")).toBe("/api/v1/realistic-review-ugc/stage2-jobs/one/output");
   });
 
   it("requests actual Pinterest CDN thumbnails and never rewrites other origins", () => {
