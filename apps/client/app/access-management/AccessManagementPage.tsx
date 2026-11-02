@@ -174,7 +174,7 @@ function MembersTab(props: ContentProps) {
         const selected = member.navigation_modules;
         return <tr key={member.membership_id}>
           <td><div className="access-member-profile"><MemberAvatar member={member} /><span><strong>{member.display_name || "Unnamed user"}</strong><small>{member.email || member.user_id}</small></span></div></td>
-          <td><span className={"access-nav-badge " + (admin ? "admin" : selected === undefined || selected === null ? "legacy" : "scoped")}>{admin ? "All modules · Admin" : selected == null ? "Role-based access" : selected.length + " / 9 modules"}</span>{selected && selected.length > 0 && <small className="access-nav-preview">{selected.map(key => props.navigationCatalog?.find(item => item.key === key)?.label || key).join(", ")}</small>}</td>
+          <td><span className={"access-nav-badge " + (admin ? "admin" : selected === undefined || selected === null ? "legacy" : "scoped")}>{admin ? "All modules · Admin" : selected == null ? "Role-based access" : selected.length + " / " + (props.navigationCatalog?.length ?? 0) + " modules"}</span>{selected && selected.length > 0 && <small className="access-nav-preview">{selected.map(key => props.navigationCatalog?.find(item => item.key === key)?.label || key).join(", ")}</small>}</td>
           <td><div className="access-compact-roles">{member.roles.length ? <><span>{member.roles[0].name}</span>{member.roles.length > 1 && <small>+{member.roles.length - 1}</small>}</> : <em>No roles</em>}</div></td>
           <td><StatusBadge status={member.status} /></td>
           <td className="access-joined">{formatDate(member.joined_at)}</td>

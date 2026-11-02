@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, ROUTE_READINESS_TIMEOUT_MS, useRouteAccessGate } from "./routePermissionGate";
+import { ROUTE_IDENTITY_CONFIRM_RETRY_MS, ROUTE_IDENTITY_RETRY_MS, ROUTE_IDENTITY_TIMEOUT_MS, ROUTE_READINESS_TIMEOUT_MS, isWorkspaceRouteAuthorized, useRouteAccessGate } from "./routePermissionGate";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let currentRoot: Root | null = null;
@@ -36,6 +36,15 @@ const identity = (permissions: string[] = ["inventory.read"]) =>
   new Response(JSON.stringify({ permissions }), { status: 200, headers: { "Content-Type": "application/json" } });
 
 describe("production deploy permissions gate", () => {
+  it("requires a matching navbar scope even when GatorHats and TikTokShop share operation permissions", () => {
+    const tiktok = { permissions: ["realistic_review_ugc.read"], navigation_modules: ["tiktokshop"] };
+    expect(isWorkspaceRouteAuthorized(tiktok, "realistic_review_ugc.read", "tiktokshop")).toBe(true);
+    expect(isWorkspaceRouteAuthorized(tiktok, "realistic_review_ugc.read", "realistic-review-ugc")).toBe(false);
+    const gator = { permissions: ["realistic_review_ugc.read"], navigation_modules: ["realistic-review-ugc"] };
+    expect(isWorkspaceRouteAuthorized(gator, "realistic_review_ugc.read", "tiktokshop")).toBe(false);
+    expect(isWorkspaceRouteAuthorized(gator, "realistic_review_ugc.read", "realistic-review-ugc")).toBe(true);
+    expect(isWorkspaceRouteAuthorized({ permissions: ["realistic_review_ugc.read"], navigation_modules: null }, "realistic_review_ugc.read", "tiktokshop")).toBe(true);
+  });
   it("shows maintenance on 503 and reloads the original route once identity recovers", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))

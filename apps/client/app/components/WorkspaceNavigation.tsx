@@ -34,7 +34,9 @@ export function roleBasedNavbarModules(permissions: readonly string[]): Workspac
     "assets",
     ...(allowed.has("inventory.read") ? ["inventory" as const] : []),
     ...(canViewOperations ? ["operations" as const, "branding-dna" as const] : []),
-    ...(allowed.has("realistic_review_ugc.read") ? ["realistic-review-ugc" as const] : []),
+    ...(allowed.has("realistic_review_ugc.read") ? [
+      "realistic-review-ugc" as const, "tiktokshop" as const,
+    ] : []),
     ...(canViewOperations ? ["queue" as const] : []),
     "generation",
     ...(mayViewReviewBoard(permissions) ? ["review-board" as const] : []),
@@ -120,9 +122,9 @@ export function WorkspaceNavigation({
   const canViewBranding = granted("branding-dna") && allowed("ai_operations.read");
   const canViewInventory = granted("inventory") && allowed("inventory.read");
   const canViewRrugc = granted("realistic-review-ugc") && allowed("realistic_review_ugc.read");
-  // Alias the existing UGC navbar grant until TikTokShop has a dedicated RBAC module.
-  const canViewTiktokshop = (granted("tiktokshop") || granted("realistic-review-ugc"))
-    && allowed("realistic_review_ugc.read");
+  // Explicit TikTokShop grants are independent from GatorHats.
+  // Legacy role-based members still see both when their role permits UGC.
+  const canViewTiktokshop = granted("tiktokshop") && allowed("realistic_review_ugc.read");
   const canViewAccess = granted("access") && allowed("tenant_members.read");
 
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [

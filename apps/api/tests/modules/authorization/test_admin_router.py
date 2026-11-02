@@ -87,6 +87,9 @@ class TenantAccessAdminRouterTest(unittest.TestCase):
         catalog_by_key = {item["key"]: item for item in catalog.json()["items"]}
         self.assertTrue(catalog_by_key["inventory"]["can_grant"])
         self.assertIn("inventory.finalize", catalog_by_key["inventory"]["permissions"])
+        self.assertEqual(len(catalog_by_key), 10)
+        self.assertTrue(catalog_by_key["tiktokshop"]["can_grant"])
+        self.assertEqual(catalog_by_key["tiktokshop"]["label"], "TikTokShop · Scout & UGC")
         changed = self.request(
             "PUT", f"/api/v1/tenants/{self.tenant.id}/members/{member_id}/navigation-access",
             json={"modules": ["inventory", "review-board"], "reason": "Inventory and review responsibilities"},

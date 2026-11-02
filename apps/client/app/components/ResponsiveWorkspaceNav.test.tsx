@@ -33,7 +33,9 @@ describe("responsive mobile workspace navigation", () => {
     expect(queue.map(item => item.id)).toEqual(["queue"]);
     expect(availableMobileDestinations(["assets.read", "inventory.read"], []).length).toBe(0);
     expect(availableMobileDestinations(["realistic_review_ugc.read"], ["realistic-review-ugc"])
-      .map(item => item.id)).toEqual(["realistic-review-ugc", "tiktokshop"]);
+      .map(item => item.id)).toEqual(["realistic-review-ugc"]);
+    expect(availableMobileDestinations(["realistic_review_ugc.read"], ["tiktokshop"])
+      .map(item => item.id)).toEqual(["tiktokshop"]);
   });
 
   it("keeps at most four discoverable tabs and exposes the rest in More", () => {

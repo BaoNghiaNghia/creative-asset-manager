@@ -10,6 +10,7 @@ describe("responsive workspace routing", () => {
     expect(workspaceRouteForApplicationRoute("job-queue")).toBe("queue");
     expect(workspaceRouteForApplicationRoute("video-generation")).toBe("generation");
     expect(workspaceRouteForApplicationRoute("realistic-review-ugc")).toBe("realistic-review-ugc");
+    expect(workspaceRouteForApplicationRoute("tiktokshop-scout-ugc")).toBe("tiktokshop");
     expect(workspaceRouteForApplicationRoute("review-board")).toBe("review-board");
     expect(workspaceRouteForApplicationRoute("access-management")).toBe("access");
   });
@@ -29,6 +30,7 @@ describe("responsive workspace routing", () => {
     expect(routeForPath("/branding-character")).toBe("branding-dna");
     expect(routeForPath("/branding-character/products")).toBe("branding-dna");
     expect(routeForPath("/settings/access")).toBe("access-management");
+    expect(routeForPath("/tiktokshop/scout-ugc")).toBe("tiktokshop-scout-ugc");
     expect(routeForPath("/under-construction")).toBe("under-construction");
     expect(routeForPath("/under-construction/")).toBe("under-construction");
   });
@@ -39,6 +41,7 @@ describe("responsive workspace routing", () => {
     expect(requiredPermissionForApplicationRoute("inventory")).toBe("inventory.read");
     expect(requiredPermissionForApplicationRoute("job-queue")).toBe("ai_operations.read");
     expect(requiredPermissionForApplicationRoute("realistic-review-ugc")).toBe("realistic_review_ugc.read");
+    expect(requiredPermissionForApplicationRoute("tiktokshop-scout-ugc")).toBe("realistic_review_ugc.read");
     expect(requiredPermissionForApplicationRoute("access-management")).toBe("tenant_members.read");
     expect(requiredPermissionForApplicationRoute("explorer")).toBeNull();
     expect(requiredPermissionForApplicationRoute("video-generation")).toBeNull();

@@ -138,7 +138,7 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         cloud_session.session_id_hash, cloud_session.active_tenant_id
     )
     if cached is not None:
-        _require_navigation_access(cached, _request_path(request))
+        _require_navigation_access(cached, _request_path(request), _request_workspace(request))
         return cached
 
     with SessionLocal() as database:
@@ -206,7 +206,7 @@ def require_authenticated_principal(request: Request) -> CurrentPrincipal:
         navigation_modules=effective.navigation_modules,
     )
     principal_cache.put(principal)
-    _require_navigation_access(principal, _request_path(request))
+    _require_navigation_access(principal, _request_path(request), _request_workspace(request))
     return principal
 
 
@@ -219,8 +219,14 @@ def _request_path(request: Request) -> str:
     return str(getattr(url, "path", "") or "")
 
 
-def _require_navigation_access(principal: CurrentPrincipal, path: str) -> None:
-    module = navigation_for_api_path(path)
+def _request_workspace(request: Request) -> str | None:
+    params = getattr(request, "query_params", None)
+    return params.get("workspace") if params is not None else None
+
+
+def _require_navigation_access(principal: CurrentPrincipal, path: str,
+                               workspace: str | None = None) -> None:
+    module = navigation_for_api_path(path, workspace)
     if (module is not None and not principal.platform_admin
             and principal.navigation_modules is not None
             and module not in principal.navigation_modules

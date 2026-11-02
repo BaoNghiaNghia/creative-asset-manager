@@ -35,7 +35,7 @@ const viewerRole: AccessRole = {
   ],
 };
 const allNavigationModules: AccessNavigationModule[] = [
-  "assets", "inventory", "operations", "branding-dna", "realistic-review-ugc",
+  "assets", "inventory", "operations", "branding-dna", "realistic-review-ugc", "tiktokshop",
   "queue", "generation", "review-board", "access",
 ].map(key => ({ key, label: key, permissions: [], can_grant: true }));
 
@@ -61,8 +61,8 @@ describe("Compact member navbar access editor", () => {
     const checked = [...host.querySelectorAll<HTMLLabelElement>(".access-nav-module")]
       .filter(label => label.querySelector<HTMLInputElement>('input')?.checked)
       .map(label => label.textContent?.trim());
-    expect(checked).toEqual(["assets", "realistic-review-ugc", "generation", "review-board"]);
-    expect(host.textContent).toContain("4 selected");
+    expect(checked).toEqual(["assets", "realistic-review-ugc", "tiktokshop", "generation", "review-board"]);
+    expect(host.textContent).toContain("5 selected");
     expect(host.textContent).toContain("viewing this preview does not change access");
     expect(fetcher).not.toHaveBeenCalled();
     await act(async () => root.unmount());
@@ -82,7 +82,7 @@ describe("Compact member navbar access editor", () => {
       onTab={() => {}} onFilters={() => {}} onTenant={() => {}}
       onRetry={() => {}} onMutation={done} onMessage={() => {}}
     />));
-    expect(host.textContent).toContain("0 / 9 modules");
+    expect(host.textContent).toContain("0 / 3 modules");
     expect(host.querySelectorAll("tbody tr")).toHaveLength(1);
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Test Member"]')!.click());
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
@@ -103,6 +103,47 @@ describe("Compact member navbar access editor", () => {
     const sent = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
     expect(sent.method).toBe("PUT");
     expect(JSON.parse(String(sent.body))).toEqual({ modules: ["inventory"], reason: "Assigned inventory responsibilities" });
+    expect(done).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("lists the new TikTokShop navbar and grants it independently without silently changing existing scopes", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      membership_id: member.membership_id, navigation_modules: ["assets", "tiktokshop"],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const done = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<AccessManagementContent
+      state="ready" identity={identity}
+      members={{ items: [{ ...member, navigation_modules: ["assets"] }], page: 1, page_size: 25, total: 1 }}
+      roles={[viewerRole]} permissions={[]} navigationCatalog={allNavigationModules}
+      filters={{ query: "", status: "", role: "", page: 1 }} tab="members"
+      onTab={() => {}} onFilters={() => {}} onTenant={() => {}}
+      onRetry={() => {}} onMutation={done} onMessage={() => {}}
+    />));
+    expect(host.textContent).toContain("1 / 10 modules");
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Manage access for Test Member"]')!.click());
+    const labels = [...host.querySelectorAll<HTMLLabelElement>(".access-nav-module")];
+    expect(labels).toHaveLength(10);
+    const tiktok = labels.find(label => label.textContent?.includes("tiktokshop"))!;
+    expect(tiktok.querySelector<HTMLInputElement>("input")!.checked).toBe(false);
+    await act(async () => tiktok.querySelector<HTMLInputElement>("input")!.click());
+    expect(tiktok.querySelector<HTMLInputElement>("input")!.checked).toBe(true);
+    expect(host.textContent).toContain("2 selected");
+    const reason = host.querySelector<HTMLInputElement>('.access-nav-save input')!;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      set.call(reason, "Allow TikTokShop Scout");
+      reason.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { host.querySelector<HTMLButtonElement>(".access-nav-save button")!.click(); await Promise.resolve(); });
+    const sent = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(sent.body))).toEqual({
+      modules: ["assets", "tiktokshop"], reason: "Allow TikTokShop Scout",
+    });
     expect(done).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
   });

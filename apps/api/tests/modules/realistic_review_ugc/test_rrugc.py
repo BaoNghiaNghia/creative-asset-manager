@@ -2574,6 +2574,17 @@ def test_stage5_review_copy_refresh_preserves_editorial_and_image_metadata(datab
 
 
 
+def test_tiktokshop_agent_workspace_query_must_match_the_body(api):
+    # The shared scout creation endpoint is accessible to a TikTokShop-only
+    # navbar grant only when the body cannot secretly request a GatorHats agent.
+    mismatched = api.post(
+        "/api/v1/realistic-review-ugc/scout-agents?workspace=tiktokshop",
+        json={"name": "Test Windows Scout", "workspace": "gatorhats"},
+    )
+    assert mismatched.status_code == 422
+    assert mismatched.json()["detail"]["code"] == "scout_workspace_mismatch"
+
+
 def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeypatch):
     from types import SimpleNamespace
     from app.modules.realistic_review_ugc.source_plans import (
@@ -2599,15 +2610,24 @@ def test_tiktokshop_stage3_lists_and_sync_are_root_scoped(api, database, monkeyp
         session.commit()
 
     base = "/api/v1/realistic-review-ugc"
+    scoped_plan_ids = {}
     for workspace, expected in (("gatorhats", "GatorOnly.png"),
                                 ("tiktokshop", "TikTokOnly.png")):
         response = api.get(base + "/source-plans?workspace=" + workspace)
         assert response.status_code == 200
         assert response.json()["total"] == 1
-        assert response.json()["items"][0]["source_name"] == expected
+        plan = response.json()["items"][0]
+        assert plan["source_name"] == expected
+        scoped_plan_ids[workspace] = plan["id"]
+        if workspace == "tiktokshop":
+            assert "&workspace=tiktokshop" in plan["source_preview_url"]
+            assert "&workspace=tiktokshop" in plan["source_group_images"][0]["source_preview_url"]
         folders = api.get(base + "/source-plans/folders?workspace=" + workspace)
         assert folders.status_code == 200
         assert folders.json()["total_groups"] == 1
+    # ID substitution must fail before the remote storage provider is opened.
+    assert api.get(base + "/source-plans/" + scoped_plan_ids["tiktokshop"] + "/image").status_code == 404
+    assert api.get(base + "/source-plans/" + scoped_plan_ids["gatorhats"] + "/image?workspace=tiktokshop").status_code == 404
     assert api.get(base + "/source-plans?workspace=unknown").status_code == 422
     assert api.get(base + "/source-plans?workspace=tiktokshop&colorway_sources=true").status_code == 422
 

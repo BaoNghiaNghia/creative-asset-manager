@@ -3139,6 +3139,7 @@ def _source_plan_group_image_response(
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
             f"?thumbnail=true&size=128&v={row.source_revision[:16]}"
+            + ("&workspace=tiktokshop" if row.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID else "")
         ),
         source_web_url=row.source_web_url,
         source_width=row.source_width,
@@ -3342,6 +3343,7 @@ def _source_plan_response(
         source_preview_url=(
             f"/api/v1/realistic-review-ugc/source-plans/{row.id}/image"
             f"?thumbnail=true&size=128&v={row.source_revision[:16]}"
+            + ("&workspace=tiktokshop" if row.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID else "")
         ),
         source_revision=row.source_revision,
         source_keyword=source_keyword,
@@ -4947,6 +4949,7 @@ async def quote_scout_extract_hat_quote(
 async def get_source_plan_image(
     source_plan_id: str,
     request: Request,
+    workspace: str | None = Query(default=None, pattern="^(gatorhats|tiktokshop)$"),
     thumbnail: bool = Query(default=False),
     size: int = Query(default=128, ge=128, le=1024),
     artwork: str | None = Query(default=None, max_length=64),
@@ -4960,6 +4963,10 @@ async def get_source_plan_image(
         )
     )
     if row is None:
+        raise HTTPException(status_code=404, detail="Source plan not found")
+    # An explicit TikTokShop grant must never resolve a GatorHats source
+    # image, even if somebody substitutes a foreign source-plan ID.
+    if (row.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID) != (workspace == "tiktokshop"):
         raise HTTPException(status_code=404, detail="Source plan not found")
     asset_id = row.id
     remote_file_id = row.source_file_id
@@ -9582,9 +9589,17 @@ def list_scout_agents(
 )
 def create_scout_agent(
     request: ScoutAgentCreateRequest,
+    workspace_scope: str | None = Query(default=None, alias="workspace", pattern="^(gatorhats|tiktokshop)$"),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(RUN),
 ):
+    # A body/query mismatch could otherwise use a TikTokShop-only grant
+    # to pair a GatorHats Windows agent through this shared endpoint.
+    if workspace_scope is not None and workspace_scope != request.workspace:
+        raise HTTPException(status_code=422, detail={
+            "code": "scout_workspace_mismatch",
+            "message": "Agent workspace must match the authorized navbar scope.",
+        })
     try:
         row, raw_token = RrugcAutoScoutService(session).create_agent(
             tenant_id=principal.active_tenant_id,

@@ -22,13 +22,11 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
 /** Navigation on phones uses the same permission model as the desktop sidebar. */
 export function availableMobileDestinations(permissions: readonly string[], navigationModules: readonly string[] | null = null): readonly MobileDestination[] {
   return ALL_MOBILE_DESTINATIONS.filter(item => {
-    if (navigationModules !== null && !navigationModules.includes(item.id)
-        && !(item.id === "tiktokshop" && navigationModules.includes("realistic-review-ugc"))) return false;
+    if (navigationModules !== null && !navigationModules.includes(item.id)) return false;
     if (item.id === "operations" || item.id === "queue" || item.id === "branding-dna") return permissions.includes("ai_operations.read");
     if (item.id === "inventory") return permissions.includes("inventory.read");
     if (item.id === "realistic-review-ugc") return permissions.includes("realistic_review_ugc.read");
-    if (item.id === "tiktokshop") return permissions.includes("realistic_review_ugc.read")
-      && (navigationModules === null || navigationModules.includes("tiktokshop") || navigationModules.includes("realistic-review-ugc"));
+    if (item.id === "tiktokshop") return permissions.includes("realistic_review_ugc.read");
     if (item.id === "review-board") return mayViewReviewBoard(permissions);
     if (item.id === "access") return permissions.includes("tenant_members.read");
     return true;

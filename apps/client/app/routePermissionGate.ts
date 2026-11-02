@@ -15,6 +15,18 @@ export type RouteAccessState =
   | { status: "reconnecting" }
   | { status: "maintenance" };
 
+/** Shared operation permissions are insufficient if a scoped member lacks
+ * the requested navbar module (notably GatorHats vs TikTokShop). */
+export function isWorkspaceRouteAuthorized(
+  identity: { permissions: readonly string[]; navigation_modules?: readonly string[] | null },
+  requiredPermission: string,
+  requiredModule?: string | null,
+): boolean {
+  return identity.permissions.includes(requiredPermission) &&
+    (identity.navigation_modules == null || !requiredModule ||
+      identity.navigation_modules.includes(requiredModule));
+}
+
 function unavailable(error: unknown): boolean {
   // Never disguise explicit authorization failures as maintenance.
   if (error instanceof AccessApiError) {
@@ -53,6 +65,7 @@ export function useRouteAccessGate(
   requiredPermission: string | null,
   onRecovered: () => void = reloadAfterMaintenance,
   retryKey = 0,
+  requiredModule?: string | null,
 ): RouteAccessState {
   const [state, setState] = useState<RouteAccessState>(
     requiredPermission ? { status: "checking" } : { status: "allowed", permissions: [] },
@@ -93,7 +106,7 @@ export function useRouteAccessGate(
           onRecovered();
           return;
         }
-        setState(identity.permissions.includes(requiredPermission!)
+        setState(isWorkspaceRouteAuthorized(identity, requiredPermission!, requiredModule)
           ? { status: "allowed", permissions: identity.permissions }
           : { status: "denied" });
       } catch (error) {
@@ -131,7 +144,7 @@ export function useRouteAccessGate(
       abort?.abort();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
-  }, [requiredPermission, onRecovered, retryKey]);
+  }, [requiredPermission, requiredModule, onRecovered, retryKey]);
 
   return state;
 }

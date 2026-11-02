@@ -74,6 +74,7 @@ export function AppRoute() {
     || window.location.pathname.startsWith("/branding-character/");
   const route = routeForPath(legacyInventoryTab ? "/inventory" : window.location.pathname);
   const requiredPermission = requiredPermissionForApplicationRoute(route);
+  const workspaceRoute = workspaceRouteForApplicationRoute(route);
   useEffect(() => {
     if (legacyInventoryTab) window.history.replaceState(window.history.state, "", "/inventory");
     else if (legacyBrandingPath) {
@@ -82,7 +83,7 @@ export function AppRoute() {
     }
   }, [legacyInventoryTab, legacyBrandingPath]);
   const [accessRetryKey, setAccessRetryKey] = useState(0);
-  const access = useRouteAccessGate(requiredPermission, undefined, accessRetryKey);
+  const access = useRouteAccessGate(requiredPermission, undefined, accessRetryKey, workspaceRoute);
   const watchBackend = route !== "public-review" && route !== "privacy"
     && route !== "terms" && route !== "under-construction"
     && (!requiredPermission || access.status === "allowed");
@@ -96,7 +97,6 @@ export function AppRoute() {
     return <WorkspaceConnectionState mode={access.status} onRetry={() => setAccessRetryKey(value => value + 1)} />;
   }
 
-  const workspaceRoute = workspaceRouteForApplicationRoute(route);
   const routeAllowed = !requiredPermission || access.status === "allowed";
   const page = requiredPermission && access.status === "checking"
     ? <CenteredLoadingState

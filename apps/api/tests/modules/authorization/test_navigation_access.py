@@ -1,4 +1,6 @@
+import re
 import unittest
+from pathlib import Path
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -68,6 +70,13 @@ class MemberNavigationAccessTests(unittest.TestCase):
         self.assertIn("assets.generate", ugc.permissions)
         self.assertIn("realistic_review_ugc.run", ugc.permissions)
         self.assertNotIn("ai_provider.configure", ugc.permissions)
+        self.assertEqual(len(NAVIGATION_MODULES), 10)
+        self.assertEqual(NAVIGATION_MODULES["tiktokshop"], NAVIGATION_MODULES["realistic-review-ugc"])
+        self.change(["tiktokshop"])
+        separate_tiktok = self.authz.get_effective_permissions(tenant_id=self.tenant.id, user_id=self.user.id)
+        self.assertEqual(separate_tiktok.navigation_modules, {"tiktokshop"})
+        self.assertIn("realistic_review_ugc.run", separate_tiktok.permissions)
+        self.assertNotIn("tenant_members.manage", separate_tiktok.permissions)
         self.change(["inventory", "review-board"])
         self.assertNotIn("tenant_members.manage", restricted.permissions)
         self.assertNotIn("ai_provider.configure", restricted.permissions)
@@ -126,6 +135,59 @@ class MemberNavigationAccessTests(unittest.TestCase):
         self.assertEqual(denied.exception.status_code, 403)
         self.assertEqual(denied.exception.detail["code"], "navigation_access_required")
         _require_navigation_access(principal, "/api/v1/auth/identity")
+
+    def test_navbar_catalog_matches_the_live_desktop_and_mobile_route_types(self):
+        # Catch the exact regression: a new sidebar route was added to React,
+        # but the API catalog in Member Access still offered only nine modules.
+        root = Path(__file__).resolve().parents[5]
+        navigation = (root / "apps/client/app/components/WorkspaceNavigation.tsx").read_text(encoding="utf-8")
+        definition = re.search(r"export type WorkspaceRoute\s*=\s*([^;]+);", navigation)
+        self.assertIsNotNone(definition)
+        routes = set(re.findall(r'"([^"]+)"', definition.group(1)))
+        self.assertEqual(routes, set(NAVIGATION_MODULES))
+
+    def test_tiktokshop_independent_route_scope_and_workspace_query_is_not_a_bypass(self):
+        prefix = "/api/v1/realistic-review-ugc"
+        self.assertEqual(navigation_for_api_path(prefix + "/source-plans", "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(prefix + "/source-plans/plan-a/image", "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(prefix + "/stage2-jobs/job-a/output", "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(prefix + "/stage3/review-groups/analyze", "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(prefix + "/scout-agents", "tiktokshop"), "tiktokshop")
+        self.assertEqual(navigation_for_api_path(prefix + "/source-plans", "gatorhats"), "realistic-review-ugc")
+        self.assertEqual(navigation_for_api_path(prefix + "/source-plans"), "realistic-review-ugc")
+        # Unknown or GatorHats-only paths must not be reclassified by an
+        # untrusted query string; otherwise a TikTok grant leaks the keyword library.
+        self.assertEqual(navigation_for_api_path(prefix + "/keyword-images", "tiktokshop"), "realistic-review-ugc")
+        self.assertEqual(navigation_for_api_path(prefix + "/scout-agents/agent/keyword-analysis/query/claim", "tiktokshop"), "realistic-review-ugc")
+        for scope, allowed_workspace, denied_workspace in (
+            ("tiktokshop", "tiktokshop", "gatorhats"),
+            ("realistic-review-ugc", "gatorhats", "tiktokshop"),
+        ):
+            principal = CurrentPrincipal(
+                user_id=self.user.id, active_tenant_id=self.tenant.id, membership_id=self.member.id,
+                external_identity=None, effective_roles=frozenset({"viewer"}),
+                effective_permissions=frozenset(NAVIGATION_MODULES[scope]),
+                platform_admin=False, session_id="session", authorization_source="tenant_rbac",
+                navigation_modules=frozenset({scope}),
+            )
+            _require_navigation_access(principal, prefix + "/source-plans", allowed_workspace)
+            with self.assertRaises(HTTPException) as denied:
+                _require_navigation_access(principal, prefix + "/source-plans", denied_workspace)
+            self.assertEqual(denied.exception.detail["code"], "navigation_access_required")
+            if scope == "tiktokshop":
+                with self.assertRaises(HTTPException):
+                    _require_navigation_access(principal, prefix + "/keyword-images", "tiktokshop")
+        # Legacy role-based users remain compatible; existing explicit scoped
+        # grants never silently acquire the new module.
+        legacy = CurrentPrincipal(
+            user_id=self.user.id, active_tenant_id=self.tenant.id, membership_id=self.member.id,
+            external_identity=None, effective_roles=frozenset({"viewer"}),
+            effective_permissions=frozenset(NAVIGATION_MODULES["realistic-review-ugc"]),
+            platform_admin=False, session_id="session", authorization_source="tenant_rbac",
+            navigation_modules=None,
+        )
+        _require_navigation_access(legacy, prefix + "/source-plans", "gatorhats")
+        _require_navigation_access(legacy, prefix + "/source-plans", "tiktokshop")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ describe("WorkspaceNavigation permissions", () => {
       "realistic_review_ugc.run", "realistic_review_ugc.configure",
     ];
     expect(roleBasedNavbarModules(viewerPermissions)).toEqual([
-      "assets", "realistic-review-ugc", "generation", "review-board",
+      "assets", "realistic-review-ugc", "tiktokshop", "generation", "review-board",
     ]);
     const html = renderToStaticMarkup(
       <WorkspaceNavigation active="assets" permissions={viewerPermissions}
@@ -60,6 +60,20 @@ describe("WorkspaceNavigation permissions", () => {
     expect(jobs).toContain('href="/job-queue"');
     expect(jobs).not.toContain('href="/ai-operations"');
     expect(jobs).not.toContain('href="/branding-dna"');
+  });
+
+  it("keeps TikTokShop and GatorHats independent for explicitly scoped accounts", () => {
+    const shared = ["realistic_review_ugc.read", "realistic_review_ugc.run"];
+    const tiktok = renderToStaticMarkup(<WorkspaceNavigation active="tiktokshop"
+      permissions={shared} navigationModules={["tiktokshop"]}
+      showOperations={false} showReviewBoard={false} />);
+    expect(tiktok).toContain('href="/tiktokshop/scout-ugc"');
+    expect(tiktok).not.toContain('href="/realistic-review-ugc');
+    const gatorhats = renderToStaticMarkup(<WorkspaceNavigation active="realistic-review-ugc"
+      permissions={shared} navigationModules={["realistic-review-ugc"]}
+      showOperations={false} showReviewBoard={false} />);
+    expect(gatorhats).toContain('href="/realistic-review-ugc');
+    expect(gatorhats).not.toContain('href="/tiktokshop/scout-ugc"');
   });
 
   it("shows Viewer review workflows while hiding admin destinations", () => {

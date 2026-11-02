@@ -530,7 +530,9 @@ export const listScoutAgents = (
 
 export const createScoutAgent = (
   name: string, workspace: "gatorhats" | "tiktokshop" = "gatorhats",
-) => request<ScoutAgentCreated>("/api/v1/realistic-review-ugc/scout-agents", {
+) => request<ScoutAgentCreated>(
+  "/api/v1/realistic-review-ugc/scout-agents"
+    + (workspace === "tiktokshop" ? "?workspace=tiktokshop" : ""), {
     method: "POST",
     body: JSON.stringify({ name, workspace }),
   });
