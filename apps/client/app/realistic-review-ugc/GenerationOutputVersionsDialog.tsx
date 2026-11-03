@@ -41,6 +41,7 @@ export function GenerationOutputVersionsDialog({
   const [placementReady, setPlacementReady] = useState(false);
   const [hatStockCatalog, setHatStockCatalog] = useState<HatStockCatalog | null>(null);
   const [threeQuarterPlacements, setThreeQuarterPlacements] = useState<Record<string, ThreeQuarterPlacement>>({});
+  const [threeQuarterActiveColor, setThreeQuarterActiveColor] = useState<string | null>(null);
   const [hatStockLoading, setHatStockLoading] = useState(stage === "stage1");
   const [lightboxVersion, setLightboxVersion] = useState<number | null>(null);
 
@@ -53,6 +54,7 @@ export function GenerationOutputVersionsDialog({
     setPlacementReady(false);
     setHatStockCatalog(null);
     setThreeQuarterPlacements({});
+    setThreeQuarterActiveColor(null);
     setHatStockLoading(stage === "stage1");
     const controller = new AbortController();
     if (stage === "stage1") {
@@ -158,16 +160,18 @@ export function GenerationOutputVersionsDialog({
     return saved;
   }
 
+  // Only the selected 3/4 cap needs calibration. Fetching all 12 color records
+  // on every modal open created a burst of needless authenticated API calls.
   useEffect(() => {
-    if (stage !== "stage1" || !hatStockCatalog) return;
+    if (stage !== "stage1" || !hatStockCatalog || !threeQuarterActiveColor
+      || !hatStockCatalog.colors[threeQuarterActiveColor]?.views["three-quarter"]
+      || threeQuarterPlacements[threeQuarterActiveColor]) return;
     const controller = new AbortController();
-    const colors = Object.entries(hatStockCatalog.colors)
-      .filter(([, v]) => Boolean(v.views["three-quarter"])).map(([key]) => key);
-    void Promise.all(colors.map(color => getThreeQuarterPlacement(color, controller.signal)
-      .then(value => { if (!controller.signal.aborted) setThreeQuarterPlacements(current => ({ ...current, [color]: value })); })
-      .catch(() => undefined)));
+    void getThreeQuarterPlacement(threeQuarterActiveColor, controller.signal)
+      .then(value => { if (!controller.signal.aborted) setThreeQuarterPlacements(current => ({ ...current, [value.color_key]: value })); })
+      .catch(() => undefined);
     return () => controller.abort();
-  }, [stage, hatStockCatalog]);
+  }, [stage, hatStockCatalog, threeQuarterActiveColor, threeQuarterPlacements]);
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
   const starredCount = versions.filter(version => version.selected_for_products_stage2).length;
@@ -309,6 +313,7 @@ export function GenerationOutputVersionsDialog({
             placement={frontPlacement} placementReady={placementReady}
             onSavePlacement={updateFrontPlacement} onSaveDesignSize={updateFrontDesignSize}
             threeQuarterPlacements={threeQuarterPlacements} onSaveThreeQuarterPlacement={updateThreeQuarterPlacement}
+            onNeedThreeQuarterPlacement={setThreeQuarterActiveColor}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry

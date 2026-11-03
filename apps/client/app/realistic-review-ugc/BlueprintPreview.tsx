@@ -77,7 +77,7 @@ type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
 export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
   placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize, stockCatalog = null, stockCatalogLoading = false,
-  threeQuarterPlacements = {}, onSaveThreeQuarterPlacement,
+  threeQuarterPlacements = {}, onSaveThreeQuarterPlacement, onNeedThreeQuarterPlacement,
 }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
@@ -93,6 +93,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   stockCatalogLoading?: boolean;
   threeQuarterPlacements?: Record<string, ThreeQuarterPlacement>;
   onSaveThreeQuarterPlacement?: (value: ThreeQuarterPlacement) => Promise<ThreeQuarterPlacement>;
+  onNeedThreeQuarterPlacement?: (colorKey: string) => void;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
@@ -179,6 +180,9 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const frontHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "front");
   const sideHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "side");
   const threeQuarterHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "three-quarter");
+  useEffect(() => {
+    if (threeQuarterHatSrc) onNeedThreeQuarterPlacement?.(activeColor.key);
+  }, [activeColor.key, threeQuarterHatSrc, onNeedThreeQuarterPlacement]);
   // Only the cap canvas requests ephemeral stitch geometry. The thumbnail,
   // original and downloaded Stage 1 design stay RGB embroidery-on-fabric.
   // Keep the routine cap compositor at preview resolution. Only the zoom

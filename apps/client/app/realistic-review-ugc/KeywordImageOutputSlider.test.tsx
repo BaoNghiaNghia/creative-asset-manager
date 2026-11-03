@@ -86,6 +86,17 @@ describe("Stage 1 draggable image strip", () => {
   });
 
 
+  it("defers out-of-view output bytes and reuses the Blueprint WebP thumbnail variant", async () => {
+    await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    const cards = Array.from(host.querySelectorAll<HTMLImageElement>(".rrugc-keyword-output-image img"));
+    expect(cards).toHaveLength(8);
+    expect(cards[0].getAttribute("src")).toContain("thumbnail=true&size=224&preview_format=webp");
+    expect(cards[0].getAttribute("src")).not.toContain("artwork=stage1-source-alpha-v2");
+    // All cards are still selectable, but only nearby ones fetch image bytes.
+    expect(cards.slice(3).some(img => !img.getAttribute("src"))).toBe(true);
+  });
+
   it("shows gold-picked thumbnails from saved selections and updates just the changed design", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));

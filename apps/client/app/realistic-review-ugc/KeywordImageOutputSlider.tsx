@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { listGenerationOutputVersions, type GenerationOutputVersion } from "./api";
 import type { KeywordImageRow } from "./types";
 import { OutputActivityLoader } from "./OutputActivityLoader";
+import { stage1OutputThumbnailUrl } from "./outputThumbnail";
 
 /**
  * Stage 1 table output strip. Fetch only when this row enters the viewport;
@@ -23,6 +24,10 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
   const [scroll, setScroll] = useState({ left: 0, end: true });
   const [reload, setReload] = useState(0);
   const [imageRetry, setImageRetry] = useState(0);
+  // Native lazy loading may prefetch an entire horizontal strip even when the
+  // visible card shows just two images. Give src only to the first few cards,
+  // then reveal the next batch as the user scrolls the strip.
+  const [imageWindowEnd, setImageWindowEnd] = useState(3);
   const [brokenVersions, setBrokenVersions] = useState<ReadonlySet<number>>(new Set());
   useEffect(() => {
     const retry = () => { setBrokenVersions(new Set()); setImageRetry(n => n + 1); };
@@ -37,6 +42,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     setError(false);
     setBrokenVersions(new Set());
     setScroll({ left: 0, end: true });
+    setImageWindowEnd(3);
   }, [row.job_id]);
 
   useEffect(() => {
@@ -72,6 +78,12 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     const node = viewportRef.current;
     if (!node) return;
     setScroll({ left: node.scrollLeft, end: node.scrollLeft + node.clientWidth >= node.scrollWidth - 2 });
+    const cards = Array.from(node.querySelectorAll<HTMLElement>(".rrugc-keyword-output-image"));
+    // Use actual card bounds (varied aspect ratios), not a guessed image width.
+    const end = node.scrollLeft + node.clientWidth + 190;
+    const trackLeft = node.getBoundingClientRect().left;
+    const nearCount = cards.filter(card => card.getBoundingClientRect().left - trackLeft + node.scrollLeft < end).length;
+    setImageWindowEnd(current => Math.max(current, Math.min(cards.length, Math.max(3, nearCount))));
   };
   useEffect(() => {
     // New versions, or a failed thumbnail fallback, can change the strip width.
@@ -147,14 +159,16 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
               const picked = pickedOverrides?.[image.version] ?? Boolean(image.selected_for_products_stage2);
               return <button type="button" key={image.version}
                 className={"rrugc-keyword-output-image" + (picked ? " is-stage2-picked" : "")}
+                style={{ width: Math.min(180, Math.max(45, Math.round(50 * (image.width || 1) / (image.height || 1)))) }}
                 onClick={() => onOpenVersion(image.version)}
                 title={(image.output_name || `Image ${index + 1} · Version ${image.version}`) + (picked ? " · Picked for Products Stage 2" : "")}
                 aria-label={`View generated image ${index + 1} of ${slides.length} for ${row.keyword}${picked ? " · Picked for Products Stage 2" : ""}`}
                 draggable={false}>
                 {brokenVersions.has(image.version)
                   ? <span className="rrugc-output-image-failed">Tạm không tải được ảnh</span>
-                  : <img src={image.url + (image.url.includes("?") ? "&" : "?") + "thumbnail=true&size=256&artwork=stage1-source-alpha-v2" + (imageRetry ? "&retry=" + imageRetry : "")}
-                    alt={`Generated image ${index + 1}`} loading="lazy" draggable={false}
+                  : <img src={index < imageWindowEnd ? stage1OutputThumbnailUrl(image.url, 224)
+                    + (imageRetry ? "&retry=" + imageRetry : "") : undefined}
+                    alt={`Generated image ${index + 1}`} loading="lazy" decoding="async" draggable={false}
                     onLoad={updateScroll}
                     onError={() => setBrokenVersions(current => new Set([...current, image.version]))} /> }
                 {picked && <span className="rrugc-keyword-output-picked-mark" aria-hidden="true">✓</span>}
