@@ -49,6 +49,21 @@ class RrugcFrontPlacementSettingModel(Base):
     )
 
 
+class RrugcThreeQuarterPlacementSettingModel(Base):
+    """Per-tenant, per-8869-color 3/4 stock perspective calibration."""
+
+    __tablename__ = "rrugc_three_quarter_placement_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    color_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    corners_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
 class RrugcStage4QueueControlModel(Base):
     """Tenant-scoped durable pause switch for Stage 4 image generation."""
 

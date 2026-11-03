@@ -5342,6 +5342,50 @@ class FrontPlacementRequest(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class ThreeQuarterPlacementRequest(BaseModel):
+    corners: list[list[float]]
+    expected_revision: int = Field(ge=0)
+
+
+@router.get("/blueprint/three-quarter-placement/{color_key}")
+def get_products_three_quarter_placement(
+    color_key: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    from app.modules.realistic_review_ugc.three_quarter_placement import (
+        read_three_quarter_placement, ThreeQuarterPlacementInvalid,
+    )
+    try:
+        return read_three_quarter_placement(session, principal.active_tenant_id, color_key)
+    except ThreeQuarterPlacementInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/blueprint/three-quarter-placement/{color_key}")
+def put_products_three_quarter_placement(
+    color_key: str,
+    body: ThreeQuarterPlacementRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    from app.modules.realistic_review_ugc.three_quarter_placement import (
+        save_three_quarter_placement, ThreeQuarterPlacementInvalid, ThreeQuarterPlacementConflict,
+    )
+    try:
+        return save_three_quarter_placement(
+            session, principal.active_tenant_id, principal.user_id,
+            color_key, body.corners, body.expected_revision,
+        )
+    except ThreeQuarterPlacementInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ThreeQuarterPlacementConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Placement changed. Reload before saving.") from exc
+
+
 @router.get("/blueprint/front-placement")
 def get_products_front_placement(
     session: Session = Depends(get_db),

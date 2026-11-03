@@ -1,0 +1,13 @@
+.rrugc-blueprint-preview-area>.rrugc-blueprint-three-quarter-card{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:#fff;border:1px solid #dbe5f0;border-radius:10px}
+.rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-visual{min-height:0}
+.rrugc-blueprint-three-quarter-scene{position:relative;aspect-ratio:1;max-height:100%;max-width:100%;width:auto;height:100%;touch-action:none;overflow:hidden;background:#fff}
+.rrugc-blueprint-three-quarter-scene>img,.rrugc-blueprint-three-quarter-scene>canvas,.rrugc-blueprint-three-quarter-outline{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.rrugc-blueprint-three-quarter-handle{position:absolute;z-index:3;transform:translate(-50%,-50%);display:grid;place-items:center;border:2px solid #fff;border-radius:50%;background:#008cbb;color:#fff;width:28px;height:28px;font-size:12px;touch-action:none;cursor:grab;box-shadow:0 1px 5px #1235}
+.rrugc-blueprint-three-quarter-handle:focus-visible{outline:3px solid #f9c34d;outline-offset:3px}
+.rrugc-blueprint-three-quarter-outline polygon{stroke:#0099c4;stroke-width:3;stroke-dasharray:10 7;fill:#00a5d111}
+.rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button{border:1px solid #cbdce9;border-radius:6px;padding:5px 8px;font-weight:700;font-size:10px;color:#375777;background:#fff;cursor:pointer}
+.rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button:disabled{opacity:.4;cursor:default}
+.rrugc-blueprint-3q-message{margin:0;padding:5px 10px;font-size:10px;color:#506986}
+@media(min-width:1051px){.rrugc-blueprint-preview-area:has(.rrugc-blueprint-three-quarter-card){grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(min-width:681px) and (max-width:1050px){.rrugc-blueprint-preview-area:has(.rrugc-blueprint-three-quarter-card){grid-template-columns:repeat(2,minmax(0,1fr));overflow-y:auto}.rrugc-blueprint-three-quarter-card{min-height:275px;grid-column:1 / -1}}
+@media(max-width:680px){.rrugc-blueprint-preview-area>.rrugc-blueprint-three-quarter-card{flex:0 0 auto;height:320px;min-height:320px;width:100%}}

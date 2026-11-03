@@ -10,6 +10,8 @@ import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroi
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
 import { FrontPlacementEditor } from "./FrontPlacementEditor";
+import { ThreeQuarterPreview } from "./ThreeQuarterPreview";
+import type { ThreeQuarterPlacement } from "./api";
 import { DEFAULT_FRONT_PLACEMENT, frontPlacementChanged, frontPlacementStyle, type FrontPlacement } from "./FrontPlacement";
 import "./BlueprintPreview.css";
 
@@ -30,7 +32,7 @@ export const BLUEPRINT_HAT_COLORS = [
 ] as const;
 
 export function blueprintHatPhoto(
-  colorId: string, catalog: HatStockCatalog | null = null, view: "front" | "side" = "front",
+  colorId: string, catalog: HatStockCatalog | null = null, view: "front" | "side" | "three-quarter" = "front",
 ) {
   const color = BLUEPRINT_HAT_COLORS.find(item => item.id === colorId);
   if (!color) return "";
@@ -75,6 +77,7 @@ type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
 export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
   placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize, stockCatalog = null, stockCatalogLoading = false,
+  threeQuarterPlacements = {}, onSaveThreeQuarterPlacement,
 }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
@@ -88,6 +91,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   onSaveDesignSize?: (version: number, percent: number) => Promise<number>;
   stockCatalog?: HatStockCatalog | null;
   stockCatalogLoading?: boolean;
+  threeQuarterPlacements?: Record<string, ThreeQuarterPlacement>;
+  onSaveThreeQuarterPlacement?: (value: ThreeQuarterPlacement) => Promise<ThreeQuarterPlacement>;
 }) {
   const initialIndex = initialVersion ? versions.findIndex(item => item.version === initialVersion) : 0;
   const [designIndex, setDesignIndex] = useState(Math.max(0, initialIndex));
@@ -173,6 +178,7 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const activeColor = synchronizedColors[selectedColorIndex] ?? BLUEPRINT_HAT_COLORS[0];
   const frontHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "front");
   const sideHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "side");
+  const threeQuarterHatSrc = blueprintHatPhoto(activeColor.id, stockCatalog, "three-quarter");
   // Only the cap canvas requests ephemeral stitch geometry. The thumbnail,
   // original and downloaded Stage 1 design stay RGB embroidery-on-fabric.
   // Keep the routine cap compositor at preview resolution. Only the zoom
@@ -519,6 +525,11 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                 </div>}
           </div>
         </article>
+        {onSaveThreeQuarterPlacement && <ThreeQuarterPreview key={activeColor.key}
+          stockSrc={threeQuarterHatSrc} artworkSrc={tintedFrontSrc || activeDesignSrc}
+          colorKey={activeColor.key} front={visiblePlacement} designSize={frontDesignSize}
+          saved={threeQuarterPlacements[activeColor.key] ?? null}
+          onSave={onSaveThreeQuarterPlacement}/>}
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
       </div>
     </div>

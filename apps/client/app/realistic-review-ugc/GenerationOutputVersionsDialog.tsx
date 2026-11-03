@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getFrontPlacement, getHatStockCatalog, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, type GenerationOutputVersion, type HatStockCatalog } from "./api";
 import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
+import { getThreeQuarterPlacement, saveThreeQuarterPlacement, type ThreeQuarterPlacement } from "./api";
 import { DeferredImage } from "./DeferredImage";
 import { StableMasonryGrid, stableMasonryRatio } from "./StableMasonryGrid";
 import { BlueprintPreview } from "./BlueprintPreview";
@@ -39,6 +40,7 @@ export function GenerationOutputVersionsDialog({
   const [frontPlacement, setFrontPlacement] = useState<FrontPlacement>(DEFAULT_FRONT_PLACEMENT);
   const [placementReady, setPlacementReady] = useState(false);
   const [hatStockCatalog, setHatStockCatalog] = useState<HatStockCatalog | null>(null);
+  const [threeQuarterPlacements, setThreeQuarterPlacements] = useState<Record<string, ThreeQuarterPlacement>>({});
   const [hatStockLoading, setHatStockLoading] = useState(stage === "stage1");
   const [lightboxVersion, setLightboxVersion] = useState<number | null>(null);
 
@@ -50,6 +52,7 @@ export function GenerationOutputVersionsDialog({
     setFrontPlacement(DEFAULT_FRONT_PLACEMENT);
     setPlacementReady(false);
     setHatStockCatalog(null);
+    setThreeQuarterPlacements({});
     setHatStockLoading(stage === "stage1");
     const controller = new AbortController();
     if (stage === "stage1") {
@@ -134,6 +137,12 @@ export function GenerationOutputVersionsDialog({
     }
   }
 
+  async function updateThreeQuarterPlacement(value: ThreeQuarterPlacement) {
+    const saved = await saveThreeQuarterPlacement(value);
+    setThreeQuarterPlacements(current => ({ ...current, [saved.color_key]: saved }));
+    return saved;
+  }
+
   async function updateFrontDesignSize(version: number, percent: number): Promise<number> {
     const result = await saveStage1FrontDesignSize(jobId, version, percent);
     setVersions(current => current.map(item => item.version === version
@@ -148,6 +157,17 @@ export function GenerationOutputVersionsDialog({
     setBlueprintGuides(true);
     return saved;
   }
+
+  useEffect(() => {
+    if (stage !== "stage1" || !hatStockCatalog) return;
+    const controller = new AbortController();
+    const colors = Object.entries(hatStockCatalog.colors)
+      .filter(([, v]) => Boolean(v.views["three-quarter"])).map(([key]) => key);
+    void Promise.all(colors.map(color => getThreeQuarterPlacement(color, controller.signal)
+      .then(value => { if (!controller.signal.aborted) setThreeQuarterPlacements(current => ({ ...current, [color]: value })); })
+      .catch(() => undefined)));
+    return () => controller.abort();
+  }, [stage, hatStockCatalog]);
 
   const compared = versions.filter(version => selectedVersions.has(version.version));
   const starredCount = versions.filter(version => version.selected_for_products_stage2).length;
@@ -288,6 +308,7 @@ export function GenerationOutputVersionsDialog({
             stockCatalog={hatStockCatalog} stockCatalogLoading={hatStockLoading}
             placement={frontPlacement} placementReady={placementReady}
             onSavePlacement={updateFrontPlacement} onSaveDesignSize={updateFrontDesignSize}
+            threeQuarterPlacements={threeQuarterPlacements} onSaveThreeQuarterPlacement={updateThreeQuarterPlacement}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry

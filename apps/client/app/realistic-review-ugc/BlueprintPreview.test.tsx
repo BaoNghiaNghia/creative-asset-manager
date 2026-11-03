@@ -49,6 +49,30 @@ async function clickButton(label: string) {
   });
 }
 
+describe("Three-quarter blueprint frame", () => {
+  it("projects the same selected front artwork onto synchronized 3/4 stock without altering the side panel", async () => {
+    const withThreeQuarter = stock();
+    withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
+    await mount({ stockCatalog: withThreeQuarter, threeQuarterPlacements: {
+      "white-black": { color_key: "white-black", revision: 0, corners: [
+        [0.30, 0.36], [0.63, 0.37], [0.65, 0.56], [0.28, 0.53],
+      ] },
+    }, onSaveThreeQuarterPlacement: async value => ({ ...value, revision: value.revision + 1 }) });
+    const card = host.querySelector(".rrugc-blueprint-three-quarter-card")!;
+    expect(card.querySelector("img")?.getAttribute("src")).toBe("/official/white-black/three-quarter.jpg");
+    expect(card.querySelector("canvas")).not.toBeNull();
+    expect(card.querySelector("button")?.textContent).toContain("Edit 4 points");
+    await close();
+  });
+
+  it("shows an explicit missing-stock state instead of displaying a wrong angle", async () => {
+    await mount({ onSaveThreeQuarterPlacement: async value => value });
+    expect(host.querySelector(".rrugc-blueprint-three-quarter-card")?.textContent).toContain("three-quarter stock missing");
+    expect(host.querySelector(".rrugc-blueprint-three-quarter-card button")?.hasAttribute("disabled")).toBe(true);
+    await close();
+  });
+});
+
 describe("Blueprint 8869 official stock and embroidery", () => {
   it("uses one verified Front + Side source for every offered color, with no Roberts atlas", () => {
     expect(BLUEPRINT_HAT_COLORS).toHaveLength(12);

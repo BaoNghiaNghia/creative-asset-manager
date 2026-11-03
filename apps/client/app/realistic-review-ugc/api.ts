@@ -964,6 +964,18 @@ export const updateStageSkillDefault = (stage: import("./workflowSkillSlots").Wo
 
 import type { FrontPlacement } from "./FrontPlacement";
 
+export type ThreeQuarterPlacement = {
+  color_key: string;
+  corners: [number, number][];
+  revision: number;
+  updated_at?: string | null;
+};
+export const getThreeQuarterPlacement = (color: string, signal?: AbortSignal) =>
+  request<ThreeQuarterPlacement>("/api/v1/realistic-review-ugc/blueprint/three-quarter-placement/" + encodeURIComponent(color), { signal });
+export const saveThreeQuarterPlacement = (value: ThreeQuarterPlacement) =>
+  request<ThreeQuarterPlacement>("/api/v1/realistic-review-ugc/blueprint/three-quarter-placement/" + encodeURIComponent(value.color_key),
+    { method: "PUT", body: JSON.stringify({ corners: value.corners, expected_revision: value.revision }) });
+
 export const getFrontPlacement = (signal?: AbortSignal) =>
   request<FrontPlacement>("/api/v1/realistic-review-ugc/blueprint/front-placement", { signal });
 
