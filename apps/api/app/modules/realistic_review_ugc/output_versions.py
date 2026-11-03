@@ -3,11 +3,33 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
+import json
 
+import numpy as np
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.model import RrugcImageOutputVersionModel, RrugcStage2JobModel
+
+
+def _json_safe_output_metadata(metadata: dict | None) -> dict | None:
+    """Convert NumPy pixel/quad scalars at the JSONB boundary.
+
+    ThreadTransfer's perspective math uses NumPy int64 coordinates. Persist
+    those as native JSON numbers rather than failing AFTER uploading the PNG.
+    Keep other metadata strict: never silently stringify arbitrary objects.
+    """
+    if metadata is None:
+        return None
+
+    def encode_scalar(value: object):
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        raise TypeError(f"Unsupported output metadata type: {type(value).__name__}")
+
+    return json.loads(json.dumps(metadata, default=encode_scalar, allow_nan=False))
 
 
 def save_output_version(
@@ -48,7 +70,7 @@ def save_output_version(
         id=str(uuid4()), tenant_id=tenant_id, stage=stage, job_id=job.id,
         version=version, processing_job_id=processing_job_id,
         output_name=(output_name or "")[:255] or None,
-        font_info_json=font_info,
+        font_info_json=_json_safe_output_metadata(font_info),
         remote_file_id=remote_file_id, content_type=content_type,
         size_bytes=size_bytes, width=width, height=height,
         created_at=datetime.now(timezone.utc),

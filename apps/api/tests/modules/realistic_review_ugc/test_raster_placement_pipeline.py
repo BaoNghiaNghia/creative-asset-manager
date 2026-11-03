@@ -168,6 +168,11 @@ def test_saved_freehand_quad_places_real_yarn_outside_legacy_crown_box():
     before = np.asarray(Image.open(BytesIO(stock)).convert("RGB"))
     after = np.asarray(Image.open(BytesIO(outcome.output_png)).convert("RGB"))
     assert outcome.target_box[0] > 540
+    # Freehand quad calculations use NumPy; persisted bbox must be JSON-native
+    # Python ints or Psycopg fails after the PNG was already uploaded.
+    assert all(type(value) is int for value in outcome.target_box)
+    import json
+    assert json.loads(json.dumps({"box": outcome.target_box}))["box"] == list(outcome.target_box)
     assert outcome.target_box[2] > .76 * 900  # No obsolete fixed 3/4 box
     assert outcome.extracted_pixels > 100
     assert np.array_equal(after[:, :540], before[:, :540])

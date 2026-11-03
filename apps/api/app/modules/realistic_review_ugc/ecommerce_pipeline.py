@@ -2070,7 +2070,7 @@ class EcommerceGenerateHandler:
                                         if deterministic_angle else "threadtransfer-v2-angle"),
                     "native_passes": 0,
                     "thread_layer_sha256": transferred.thread_layer_sha256,
-                    "transfer_box": list(transferred.target_box),
+                    "transfer_box": [int(coord) for coord in transferred.target_box],
                     "reference_sha256": hashlib.sha256(material_bytes).hexdigest(),
                     "original_stock_pixels_protected": True,
                     "side_front_stock_fallback": side_front_fallback,

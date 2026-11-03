@@ -174,8 +174,10 @@ def _composite_pinned_view(
             or not np.array_equal(result[:, :left], original[:, :left])
             or not np.array_equal(result[:, right:], original[:, right:])):
         raise Slot1EmbroideryQAError("Local transfer modified protected factory stock.")
-    mask_box = (left+int(xs.min()), top+int(ys.min()),
-                left+int(xs.max())+1, top+int(ys.max())+1)
+    # numpy scalar coordinates (np.int64) cannot be stored as JSONB when
+    # this result is recorded in immutable Ecommerce output history.
+    mask_box = (int(left) + int(xs.min()), int(top) + int(ys.min()),
+                int(left) + int(xs.max()) + 1, int(top) + int(ys.max()) + 1)
     encoded = BytesIO()
     Image.fromarray(result, "RGB").save(encoded, "PNG", optimize=True)
     layer_png = BytesIO()

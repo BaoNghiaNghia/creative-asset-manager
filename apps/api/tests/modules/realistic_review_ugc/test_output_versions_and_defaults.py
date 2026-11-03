@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,47 @@ def test_output_generations_preserve_v1_and_record_v2():
         assert (v1, v2) == (1, 2)
         assert [item["remote_file_id"] for item in history] == ["file-v2", "file-v1"]
 
+
+
+def test_ecommerce_history_serializes_numpy_perspective_coordinates_without_losing_types():
+    """Regression: Slot 2 previously failed AFTER PNG upload with np.int64 JSONB."""
+    engine = create_engine("sqlite://")
+    RrugcImageOutputVersionModel.__table__.create(engine)
+    with Session(engine) as session:
+        job = SimpleNamespace(id="slot-2-job", output_remote_file_id=None)
+        version = save_output_version(
+            session, tenant_id="tenant-a", stage="ecommerce", job=job,
+            remote_file_id="uploaded-3q-png", content_type="image/png",
+            size_bytes=12345, width=900, height=1000, processing_job_id="attempt-3q",
+            font_info={
+                "thread_inpaint_pipeline": {
+                    "version": "threadtransfer-v4-calibrated-quad",
+                    "transfer_box": [np.int64(550), np.int64(312),
+                                     np.int64(795), np.int64(552)],
+                    "accepted_thread_pixels": np.int32(1987),
+                    "normal": np.float32(.75),
+                    "qa_passed": np.bool_(True),
+                    "example_vector": np.array([np.int64(1), np.int64(2)]),
+                },
+            },
+        )
+        session.commit()
+        assert version == 1
+        history = output_versions(session, tenant_id="tenant-a", stage="ecommerce", job=job)
+        details = history[0]["font_info"]["thread_inpaint_pipeline"]
+        assert details["transfer_box"] == [550, 312, 795, 552]
+        assert all(type(value) is int for value in details["transfer_box"])
+        assert details["accepted_thread_pixels"] == 1987
+        assert details["qa_passed"] is True
+        assert details["example_vector"] == [1, 2]
+        assert abs(details["normal"] - .75) < 1e-6
+    engine.dispose()
+
+
+def test_history_rejects_arbitrary_metadata_objects_not_stringifying_them():
+    with pytest.raises(TypeError, match="Unsupported output metadata"):
+        from app.modules.realistic_review_ugc.output_versions import _json_safe_output_metadata
+        _json_safe_output_metadata({"invalid": object()})
 
 
 def test_default_skill_isolated_by_tenant_and_stage(monkeypatch):
