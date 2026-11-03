@@ -33,6 +33,7 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.creative_brief_service import brief_summary
 from app.modules.realistic_review_ugc.skill_registry import assert_skill_enabled, ensure_skill_registry
 from app.modules.realistic_review_ugc.output_versions import save_output_version
+from app.modules.realistic_review_ugc.stage1_preview_batch import stage1_page_previews
 from app.modules.realistic_review_ugc.stage2_skills import (
     Stage2SkillRegistryError, installed_stage2_skill_sha256,
     resolve_stage2_skill, verify_stage2_skill_runtime,
@@ -933,6 +934,9 @@ class KeywordImageService:
                 RrugcImageOutputVersionModel.job_id.in_(visible_job_ids),
             ).group_by(RrugcImageOutputVersionModel.job_id)
         ).all()) if visible_job_ids else {}
+        preview_versions = stage1_page_previews(
+            self.session, tenant_id=tenant_id, job_ids=visible_job_ids,
+        ) if visible_job_ids else {}
         # One bounded tenant-scoped lookup per page, never a join in the
         # frequently polled global status/count query.
         visible_keyword_ids = [keyword.id for keyword, _, _ in rows]
@@ -999,6 +1003,7 @@ class KeywordImageService:
                                   if processing and processing.status in ("pending", "retry")
                                   and job and int(job.retry_count or 0) > 0 else None),
                 "saved_output_count": int(saved_counts.get(job.id, 0)) if job else 0,
+                "output_preview_versions": preview_versions.get(job.id, []) if job and not replacing else [],
                 "attempt_count": processing.attempt_count if processing else 0,
                 "max_attempts": processing.max_attempts if processing else STAGE1_MAX_ATTEMPTS,
                 "upload_recovery_available": bool(

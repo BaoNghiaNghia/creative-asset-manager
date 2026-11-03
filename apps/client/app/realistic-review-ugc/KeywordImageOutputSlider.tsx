@@ -19,6 +19,9 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
   const suppressClick = useRef(false);
   const [visible, setVisible] = useState(false);
   const [images, setImages] = useState<GenerationOutputVersion[]>([]);
+  const [fullRequested, setFullRequested] = useState(false);
+  const pendingNextPage = useRef(false);
+  const firstPaintPreviews = row.output_preview_versions ?? [];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [scroll, setScroll] = useState({ left: 0, end: true });
@@ -39,6 +42,8 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
   useEffect(() => {
     setVisible(false);
     setImages([]);
+    setFullRequested(false);
+    pendingNextPage.current = false;
     setError(false);
     setBrokenVersions(new Set());
     setScroll({ left: 0, end: true });
@@ -63,7 +68,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
   }, [row.job_id, hasOutput]);
 
   useEffect(() => {
-    if (!hasOutput || !visible || !row.job_id) return;
+    if (!hasOutput || !visible || !row.job_id || (firstPaintPreviews.length > 0 && !fullRequested)) return;
     const controller = new AbortController();
     setLoading(true);
     setError(false);
@@ -72,7 +77,16 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
       .catch(() => { if (!controller.signal.aborted) setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [row.job_id, row.saved_output_count, hasOutput, visible, reload]);
+  }, [row.job_id, row.saved_output_count, hasOutput, visible, reload, firstPaintPreviews.length, fullRequested]);
+
+  useEffect(() => {
+    if (!pendingNextPage.current || images.length === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      pendingNextPage.current = false;
+      viewportRef.current?.scrollBy({ left: viewportRef.current.clientWidth, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [images.length]);
 
   const updateScroll = () => {
     const node = viewportRef.current;
@@ -124,15 +138,23 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     window.setTimeout(() => { suppressClick.current = false; }, 0);
   };
   const moveByPage = (direction: number) => {
+    if (direction > 0 && !images.length && firstPaintPreviews.length > 0
+        && row.saved_output_count > firstPaintPreviews.length) {
+      pendingNextPage.current = true;
+      setFullRequested(true);
+      return;
+    }
     viewportRef.current?.scrollBy({ left: direction * viewportRef.current.clientWidth, behavior: "smooth" });
   };
 
   const slides: GenerationOutputVersion[] = images.length > 0
     ? images
+    : firstPaintPreviews.length > 0
+      ? firstPaintPreviews
     : !loading && row.output_url
       ? [{ version: 1, url: row.output_url, created_at: "", width: null, height: null }]
       : [];
-  const count = Math.max(row.saved_output_count, images.length);
+  const count = Math.max(row.saved_output_count, images.length, firstPaintPreviews.length);
   return <div className="rrugc-keyword-output" ref={rootRef} aria-label={`Generated images for ${row.keyword}`}>
     {slides.length > 0
       ? <div className="rrugc-keyword-output-gallery" role="group"
@@ -175,7 +197,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
               </button>;
             })}
           </div>
-          {!scroll.end && <button type="button" className="rrugc-keyword-output-arrow is-next"
+          {(!scroll.end || count > slides.length) && <button type="button" className="rrugc-keyword-output-arrow is-next"
             aria-label={`Next images for ${row.keyword}`} title="Next images"
             onClick={() => moveByPage(1)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"

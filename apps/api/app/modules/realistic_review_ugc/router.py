@@ -5448,12 +5448,16 @@ def list_generation_output_versions(
     # They are eligible for Products Stage 2 even if the retry never completes.
     rows = output_versions(session, tenant_id=principal.active_tenant_id, stage=stage, job=job)
     selected_products_sources = set()
-    if stage == "stage1":
+    if stage == "stage1" and rows:
         from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+        # Do not scan every picked source plan on every gallery open. Only
+        # query the remote file IDs that belong to this job's output history.
+        remote_ids = {item["remote_file_id"] for item in rows}
         selected_products_sources = set(session.scalars(select(RrugcSourcePlanModel.source_file_id).where(
             RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
             RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
             RrugcSourcePlanModel.status != "missing",
+            RrugcSourcePlanModel.source_file_id.in_(remote_ids),
         )))
     front_design_sizes: dict[int, int] = {}
     if stage == "stage1":

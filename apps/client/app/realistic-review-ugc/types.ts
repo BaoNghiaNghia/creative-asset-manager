@@ -300,6 +300,11 @@ export type KeywordImageRow = {
   partial_publish_available?: boolean;
   expected_output_count?: number;
   saved_output_count: number;
+  output_preview_versions?: Array<{
+    version: number; url: string; width: number | null; height: number | null;
+    created_at: string; output_name?: string | null;
+    selected_for_products_stage2?: boolean;
+  }>;
   upload_recovery_available?: boolean;
   attempt_count: number;
   max_attempts: number;

@@ -954,6 +954,7 @@ class KeywordImageRowResponse(BaseModel):
     checkpoint_count: int = 0
     partial_publish_available: bool = False
     saved_output_count: int = 0
+    output_preview_versions: list[dict] = Field(default_factory=list)
     attempt_count: int = 0
     max_attempts: int = 1
     error_code: str | None = None

@@ -97,6 +97,30 @@ describe("Stage 1 draggable image strip", () => {
     expect(cards.slice(3).some(img => !img.getAttribute("src"))).toBe(true);
   });
 
+  it("uses first-paint preview metadata without a per-row API request until the user asks for more", async () => {
+    const previewRow: KeywordImageRow = {
+      ...row,
+      output_preview_versions: [8, 7, 6].map(version => ({
+        version, url: "/api/v1/image/" + version, width: 2048, height: 1024,
+        created_at: "2026-10-10T00:00:00Z", output_name: "design_" + version + ".png",
+        selected_for_products_stage2: version === 7,
+      })),
+    };
+    await act(async () => root.render(<KeywordImageOutputSlider row={previewRow} onOpenVersion={onOpenVersion} />));
+    await act(async () => notifyVisibility?.(true));
+    expect(listGenerationOutputVersions).not.toHaveBeenCalled();
+    expect(host.querySelectorAll(".rrugc-keyword-output-image")).toHaveLength(3);
+    expect(host.querySelectorAll(".rrugc-keyword-output-picked-mark")).toHaveLength(1);
+    expect(host.querySelector(".rrugc-keyword-output-arrow.is-next")).not.toBeNull();
+    const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
+    Object.defineProperty(track, "scrollBy", { configurable: true, value: vi.fn() });
+    await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!.click());
+    expect(listGenerationOutputVersions).toHaveBeenCalledTimes(1);
+    expect(host.querySelectorAll(".rrugc-keyword-output-image")).toHaveLength(8);
+    await act(async () => host.querySelectorAll<HTMLButtonElement>(".rrugc-keyword-output-image")[5].click());
+    expect(onOpenVersion).toHaveBeenCalledWith(3);
+  });
+
   it("shows gold-picked thumbnails from saved selections and updates just the changed design", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
