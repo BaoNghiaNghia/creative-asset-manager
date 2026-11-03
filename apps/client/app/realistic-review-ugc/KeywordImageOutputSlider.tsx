@@ -36,6 +36,7 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     setImages([]);
     setError(false);
     setBrokenVersions(new Set());
+    setScroll({ left: 0, end: true });
   }, [row.job_id]);
 
   useEffect(() => {
@@ -126,7 +127,8 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
           aria-label={`Browse generated images for ${row.keyword}`}>
           <button type="button" className="rrugc-keyword-output-arrow is-prev"
             aria-label={`Previous images for ${row.keyword}`} title="Previous images"
-            onClick={() => moveByPage(-1)} disabled={scroll.left < 2}>
+            onClick={() => moveByPage(-1)} disabled={scroll.left < 2}
+            style={{ visibility: scroll.left < 2 ? "hidden" : "visible" }}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
           </button>
@@ -162,7 +164,8 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
           </div>
           <button type="button" className="rrugc-keyword-output-arrow is-next"
             aria-label={`Next images for ${row.keyword}`} title="Next images"
-            onClick={() => moveByPage(1)} disabled={scroll.end}>
+            onClick={() => moveByPage(1)} disabled={scroll.end}
+            style={{ visibility: scroll.end ? "hidden" : "visible" }}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
           </button>
