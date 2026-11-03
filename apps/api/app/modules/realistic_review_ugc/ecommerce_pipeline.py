@@ -44,6 +44,10 @@ from app.modules.realistic_review_ugc.threadtransfer_stock import composite_refe
 from app.modules.realistic_review_ugc.angle_direct_edit import (
     AngleDirectEditError, angle_direct_prompt, process_direct_angle_edit,
 )
+from app.modules.realistic_review_ugc.three_quarter_placement import (
+    ThreeQuarterPlacementInvalid, read_three_quarter_placement,
+    validate_three_quarter_corners,
+)
 from app.modules.realistic_review_ugc.generation_handler import (
     RrugcGenerationHandlerError, _bytes_body, _output_extension, _prepared_image,
     MAX_REFERENCE_BYTES, MAX_REFERENCE_PIXELS,
@@ -459,6 +463,29 @@ def _saved_front_placement_for_angle(
     }
 
 
+def _pinned_three_quarter_for_angle(session: Session, row: RrugcEcommerceJobModel) -> dict:
+    """Snapshot the tenant/color-specific freely adjusted four-point guide.
+
+    The same pinned guide informs Slot 2 placement and Slot 3 consistency,
+    but Slot 3 MUST NOT use the 3/4 photo's coordinates on its distinct angle.
+    A later Blueprint Save only affects newly queued or regenerated attempts.
+    """
+    guide = read_three_quarter_placement(session, row.tenant_id, row.color_key)
+    try:
+        corners = validate_three_quarter_corners(guide["corners"])
+    except (KeyError, TypeError, ThreeQuarterPlacementInvalid) as exc:
+        raise EcommerceError(
+            "ecommerce_three_quarter_guide_invalid",
+            "Saved 3/4 FRONT guide is invalid. Open Blueprint, Reset or adjust the four points, and Save.",
+        ) from exc
+    return {
+        "version": "3q-free-v1",
+        "color_key": row.color_key,
+        "revision": int(guide["revision"]),
+        "corners": corners,
+    }
+
+
 def _effective_status(row: RrugcEcommerceJobModel, processing: ProcessingJobModel | None):
     if row.status == "completed":
         return "completed"
@@ -524,14 +551,10 @@ class EcommerceService:
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
             ProcessingJobModel.entity_id == row.id,
         )) or 0)
-        # A saved reference makes V2.4 Retry Placement a CPU-only compositor.
-        # Do not subject it to Codex provider quota/policy admission controls.
+        # New angle jobs use ONE Codex edit; only the rear view and existing
+        # Slot 1 reference-reuse path are local, quota-free operations.
         local_transfer = bool(
-            (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
-             and row.skill_name == SLOT1_DIRECT_NAME
-             and row.front_preview_remote_file_id
-             and row.front_preview_design_sha256)
-            or (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
+            (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
             or (row.stage == "prod_s2_ec1"
                 and row.skill_name == SLOT1_DIRECT_NAME
                 and row.skill_version == SLOT1_DIRECT_VERSION
@@ -554,6 +577,12 @@ class EcommerceService:
                and row.front_preview_remote_file_id
             else None
         )
+        angle_guide = (
+            _pinned_three_quarter_for_angle(self.session, row)
+            if row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+               and row.skill_source == "internal" and master_contract
+            else None
+        )
         processing = ProcessingRepository(self.session, self.settings).create_job(
             tenant_id=row.tenant_id, job_type=JOB_TYPE, entity_type="rrugc_ecommerce_job",
             entity_id=row.id, idempotency_key=f"rrugc-ecommerce:{row.id}:{count}",
@@ -561,7 +590,7 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v4-raster-placement"} if (
+                **({"thread_material_pipeline": "v5-codex-angle-inference"} if (
                     row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
                     and row.skill_source == "internal"
                     and row.skill_name == SLOT1_DIRECT_NAME
@@ -575,6 +604,7 @@ class EcommerceService:
                 **({"front_placement": front_placement} if front_placement is not None else {}),
                 **({"embroidery_scale_front_v1": front_contract} if front_contract else {}),
                 **({"embroidery_placement_v1": master_contract} if master_contract else {}),
+                **({"three_quarter_placement_v1": angle_guide} if angle_guide else {}),
                 **({"scout_reference": scout_reference} if scout_reference else {}),
                 **({"multihat_references": multihat_references} if multihat_references else {}),
                 **({"multihat_colorways": multihat_colorways,
@@ -592,7 +622,7 @@ class EcommerceService:
               multihat_colorways=None, multihat_colorway_hashes=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
-        uses_native_codex = stage not in ("prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")
+        uses_native_codex = stage != "prod_s2_ec4"
         if not all((
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
@@ -1636,7 +1666,8 @@ class EcommerceGenerateHandler:
             front_asset = None
             if (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
                     and context.job.payload.get("thread_material_pipeline") not in (
-                        "v3-direct-edit", "v4-raster-placement")) or (
+                        "v3-direct-edit", "v4-raster-placement",
+                        "v5-codex-angle-inference")) or (
                 row.stage in SCENE_STAGE_SLOTS and
                 (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
@@ -1669,17 +1700,19 @@ class EcommerceGenerateHandler:
         is_direct_legacy = stage == "prod_s2_ec1" and skill_name == SLOT1_LEGACY_DIRECT_NAME
         is_direct = is_reference or is_direct_legacy
         transfer_mode = context.job.payload.get("thread_material_pipeline")
-        material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit", "v4-raster-placement")
+        material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit", "v4-raster-placement",
+                                              "v5-codex-angle-inference")
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
         deterministic_angle = builtin_stock and transfer_mode == "v4-raster-placement"
         local_stock = builtin_stock and transfer_mode in ("v2", "v4-raster-placement")
-        direct_angle = builtin_stock and transfer_mode == "v3-direct-edit"
+        direct_angle = builtin_stock and transfer_mode in ("v3-direct-edit", "v5-codex-angle-inference")
+        codex_inference = direct_angle and transfer_mode == "v5-codex-angle-inference"
         scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
         builtin_back = stage == "prod_s2_ec4" and skill_name == SLOT1_DIRECT_NAME
         references = []
         if stage != "prod_s2_ec4":
             if direct_angle or deterministic_angle:
-                # Native V3 and local V4 angle jobs use only TWO images:
+                # Native V3/V5 and local V4 angle jobs use only TWO images:
                 # original manufacturer stock (person) and the saved Slot 1
                 # Embroidery Reference. Never fetch the Stage 1 flat PNG.
                 # Keep the Slot 1 design fingerprint for pinned provenance.
@@ -1945,8 +1978,9 @@ class EcommerceGenerateHandler:
                 "Preserve all original words/colors/position. Two images, no extras."
             )
         if direct_angle:
-            # A: original stock IMAGE-EDIT TARGET; B: sole saved embroidery
-            # reference. No artwork PNG is loaded, uploaded or sent to Codex.
+            # A: original factory stock IMAGE-EDIT TARGET; B: sole saved
+            # Embroidery Reference. V5 adds only TEXT of the pinned Blueprint
+            # guide; never send flat artwork, a synthetic image or a mask.
             material_ref = next((ref for ref in references
                                  if ref.role == "slot1_thread_material_reference"), None)
             if material_ref is None:
@@ -1955,6 +1989,8 @@ class EcommerceGenerateHandler:
             references = [material_ref]
             prompt = angle_direct_prompt(
                 stage, placement=context.job.payload.get("embroidery_placement_v1"),
+                guide=context.job.payload.get("three_quarter_placement_v1") if codex_inference else None,
+                stock_role=refs[0][0], autonomous=codex_inference,
             )
         elif builtin_stock and not deterministic_angle:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):
@@ -2165,6 +2201,8 @@ class EcommerceGenerateHandler:
                 validated = process_direct_angle_edit(
                     refs[0][1], generated, preview_bytes, stage=stage,
                     placement=context.job.payload.get("embroidery_placement_v1"),
+                    guide=context.job.payload.get("three_quarter_placement_v1") if codex_inference else None,
+                    stock_role=refs[0][0], autonomous=codex_inference,
                 )
             except AngleDirectEditError as exc:
                 raise RrugcGenerationHandlerError(
@@ -2176,7 +2214,13 @@ class EcommerceGenerateHandler:
                 **(generated.provider_metadata or {}),
                 "native_sha256": validated.native_sha256,
                 "native_passes": 1,
-                "transfer_engine": "angle-direct-v3-single-codex-edit",
+                "transfer_engine": ("angle-direct-v5-codex-guided-inference"
+                                    if codex_inference else "angle-direct-v3-single-codex-edit"),
+                **({"guide_revision": context.job.payload["three_quarter_placement_v1"]["revision"],
+                    "guide_corners": context.job.payload["three_quarter_placement_v1"]["corners"],
+                    "input_stock_role": refs[0][0],
+                    "codex_output_position_preserved": True}
+                   if codex_inference else {}),
                 "accepted_thread_pixels": validated.accepted_pixels,
                 "transfer_box": list(validated.edit_box) if validated.edit_box else None,
                 "side_stock_fallback": validated.fallback_stock,
@@ -2291,6 +2335,9 @@ class EcommerceGenerateHandler:
                                     source_revision=row.source_revision,
                                 )} if (direct_angle or deterministic_angle)
                                 and context.job.payload.get("embroidery_placement_v1") else {}),
+                                **({"three_quarter_placement_v1":
+                                       context.job.payload["three_quarter_placement_v1"]}
+                                   if codex_inference else {}),
                                 **({"slot1_embroidery_pipeline": {
                                     "version": ("threadtransfer-v2-tight-yarn"
                                                 if is_threadtransfer else
@@ -2328,6 +2375,8 @@ class EcommerceGenerateHandler:
                                 **({"thread_inpaint_pipeline": {
                                     "version": ("threadtransfer-v4-calibrated-quad"
                                                 if deterministic_angle else
+                                                "angle-direct-v5-codex-guided-inference"
+                                                if codex_inference else
                                                 "angle-direct-v3-single-edit" if direct_angle else
                                                 "threadtransfer-v2-angle" if local_stock else
                                                 "scene-single-pass-v2" if scene_one_pass else
@@ -2343,6 +2392,10 @@ class EcommerceGenerateHandler:
                                     "side_front_stock_fallback": generated.provider_metadata.get("side_front_stock_fallback", False),
                                     "side_front_stock_view": generated.provider_metadata.get("side_front_stock_view"),
                                     "fallback_reason": generated.provider_metadata.get("fallback_reason"),
+                                    "guide_revision": generated.provider_metadata.get("guide_revision"),
+                                    "input_stock_role": generated.provider_metadata.get("input_stock_role"),
+                                    "codex_output_position_preserved": generated.provider_metadata.get(
+                                        "codex_output_position_preserved", False),
                                     "original_stock_pixels_protected": bool(builtin_stock or builtin_back),
                                     "scene_photo_preserved_by_edit_gate": bool(
                                         stage in SCENE_STAGE_SLOTS and not scene_one_pass),

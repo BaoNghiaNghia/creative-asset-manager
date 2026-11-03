@@ -17,6 +17,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcSourcePlanModel, RrugcCampaignModel, RrugcProductsRunAllModel,
     RrugcEcommerceJobModel, RrugcColorwayJobModel,
     RrugcFrontPlacementSettingModel, RrugcImageOutputVersionModel,
+    RrugcThreeQuarterPlacementSettingModel,
 )
 from app.modules.realistic_review_ugc.products_run_all import ProductsRunAllService, ProductsRunAllScheduler, SLOT_GROUPS
 from app.modules.realistic_review_ugc.stage2_skills import ResolvedStage2Skill
@@ -44,6 +45,7 @@ def context(monkeypatch):
         ProcessingJobModel.__table__, TenantProcessingPolicyModel.__table__,
         RrugcCapStackImageModel.__table__, RrugcFrontPlacementSettingModel.__table__,
         RrugcImageOutputVersionModel.__table__,
+        RrugcThreeQuarterPlacementSettingModel.__table__,
     ])
     import app.modules.realistic_review_ugc.ecommerce_pipeline as ep
     import app.modules.realistic_review_ugc.products_run_all as mod

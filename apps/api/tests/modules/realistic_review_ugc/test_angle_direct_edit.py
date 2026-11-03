@@ -65,6 +65,105 @@ def gen(data):
                                 provider_metadata={})
 
 
+def test_codex_inference_prompt_uses_saved_four_points_without_a_fixed_center():
+    from app.modules.realistic_review_ugc.embroidery_scale import saved_master_box
+    guide = {
+        "version": "3q-free-v1", "revision": 3, "color_key": "natural-black",
+        "corners": [[.12, .18], [.75, .23], [.72, .71], [.08, .61]],
+    }
+    master = saved_master_box((255, 340, 615, 540), 900, 1000)
+    front = angle_direct_prompt(
+        "prod_s2_ec2", placement=master, guide=guide,
+        stock_role="stock_three_quarter", autonomous=True,
+    )
+    side = angle_direct_prompt(
+        "prod_s2_ec3", placement=master, guide=guide,
+        stock_role="stock_side_90", autonomous=True,
+    )
+    side_front = angle_direct_prompt(
+        "prod_s2_ec3", placement=master, guide=guide,
+        stock_role="stock_side_front", autonomous=True,
+    )
+    assert "USER-SAVED FREE FOUR-POINT" in front
+    assert "1 top-left=(12.0% x, 18.0% y)" in front
+    assert "4 bottom-left=(8.0% x, 61.0% y)" in front
+    assert "fixed-center" in front
+    assert "PHYSICALLY LOCKED EMBROIDERY SIZE" not in front
+    for prompt in (front, side, side_front):
+        assert "ONE IMAGE-EDIT invocation only" in prompt
+        assert "REFERENCE B" in prompt
+        assert "No mask image" in prompt
+        assert "original" in prompt.lower()
+    assert "NOT a coordinate map" in side
+    assert "vis or" not in side_front.lower()
+    assert "SIDE-FRONT" in side_front and "TRUE RIGHT SIDE" not in side_front
+    assert "TINY" in side and "TRUE RIGHT SIDE" in side
+
+
+def test_codex_inference_accepts_freehand_guide_outside_old_crown_and_preserves_geometry():
+    from app.modules.realistic_review_ugc.embroidery_scale import saved_master_box
+    original = png(stock())
+    image = stock()
+    draw = ImageDraw.Draw(image)
+    # Real user dragged this field toward the right, beyond legacy x=.76.
+    draw.rectangle((625, 350, 746, 430), fill=(187, 59, 12))
+    for x in range(625, 746, 3):
+        draw.line((x, 350, x, 429), fill=(215, 86, 30), width=1)
+    # Simulate model repainting protected side-logo/shadow area.
+    draw.rectangle((780, 660, 880, 690), fill=(187, 59, 12))
+    guide = {
+        "version": "3q-free-v1", "color_key": "natural-black", "revision": 5,
+        "corners": [[.54, .28], [.94, .31], [.94, .60], [.52, .58]],
+    }
+    master = saved_master_box((255, 340, 615, 540), 900, 1000)
+    result = process_direct_angle_edit(
+        original, gen(png(image)), reference(), stage="prod_s2_ec2",
+        placement=master, guide=guide, stock_role="stock_three_quarter",
+        autonomous=True,
+    )
+    assert not result.fallback_stock
+    assert result.edit_box is not None
+    assert result.edit_box[0] >= 615
+    assert result.edit_box[2] > round(.76 * 900)  # past obsolete red bounds
+    after = np.asarray(Image.open(BytesIO(result.output_png)).convert("RGB"))
+    before = np.asarray(Image.open(BytesIO(original)).convert("RGB"))
+    assert np.count_nonzero(after[355:420, 690:740] != before[355:420, 690:740]) > 100
+    assert np.array_equal(after[660:691, 780:881], before[660:691, 780:881])
+    assert np.array_equal(after[:250], before[:250])
+
+
+def test_codex_inference_distinguishes_side_front_from_true_90_side():
+    from app.modules.realistic_review_ugc.embroidery_scale import saved_master_box
+    master = saved_master_box((255, 340, 615, 540), 900, 1000)
+    guide = {
+        "version": "3q-free-v1", "color_key": "natural-black", "revision": 0,
+        "corners": [[.12, .18], [.75, .23], [.72, .71], [.08, .61]],
+    }
+    original = png(stock())
+    frame = stock()
+    d = ImageDraw.Draw(frame)
+    d.rectangle((300, 365, 433, 445), fill=(187, 59, 12))
+    for x in range(300, 433, 3):
+        d.line((x, 365, x, 444), fill=(215, 86, 30), width=1)
+    native = gen(png(frame))
+    side = process_direct_angle_edit(
+        original, native, reference(), stage="prod_s2_ec3",
+        placement=master, guide=guide, stock_role="stock_side_90",
+        autonomous=True,
+    )
+    side_front = process_direct_angle_edit(
+        original, native, reference(), stage="prod_s2_ec3",
+        placement=master, guide=guide, stock_role="stock_side_front",
+        autonomous=True,
+    )
+    assert side.fallback_stock
+    assert not side_front.fallback_stock
+    assert side_front.accepted_pixels > 500
+    before = np.asarray(Image.open(BytesIO(original)).convert("RGB"))
+    after = np.asarray(Image.open(BytesIO(side_front.output_png)).convert("RGB"))
+    assert np.array_equal(after[610:680, 690:890], before[610:680, 690:890])
+
+
 def test_direct_prompts_lock_stock_and_side_geometry():
     front = angle_direct_prompt("prod_s2_ec2")
     side = angle_direct_prompt("prod_s2_ec3")
