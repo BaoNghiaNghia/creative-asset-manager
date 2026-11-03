@@ -16,17 +16,6 @@ DEFAULT_THREE_QUARTER_CORNERS = (
     (0.336, 0.320), (0.638, 0.335), (0.652, 0.548), (0.296, 0.534),
 )
 
-# Same verified factory photo coordinates as ThreeQuarterProjection.ts.
-# Each corner is confined to its own inner front-panel window, excluding
-# the side embroidery/visor. Both field dimensions must remain usable.
-THREE_QUARTER_CORNER_LIMITS = (
-    ((0.310, 0.435), (0.305, 0.405)),  # top left
-    ((0.555, 0.662), (0.305, 0.405)),  # top right
-    ((0.570, 0.676), (0.458, 0.568)),  # bottom right
-    ((0.274, 0.400), (0.458, 0.555)),  # bottom left
-)
-
-
 class ThreeQuarterPlacementInvalid(ValueError):
     pass
 
@@ -51,21 +40,15 @@ def validate_three_quarter_corners(raw: object) -> list[list[float]]:
                     not math.isfinite(float(v)) or not 0 <= float(v) <= 1 for v in point)):
             raise ThreeQuarterPlacementInvalid("Each point must contain two finite 0–1 coordinates.")
         result.append([round(float(v), 6) for v in point])
-    tl, tr, br, bl = result
-    # Ordered clockwise TL, TR, BR, BL. Reject crossed/flat warps and extreme distortions.
+    # The operator may fit any part of the stock photo. Only reject crossed,
+    # reversed or near-zero-area fields; no per-handle crown boxes or fixed
+    # minimum width/height. Must match the frontend isValidQuad contract.
     cross = lambda a, b, c: (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
     turns = [cross(result[i], result[(i+1)%4], result[(i+2)%4]) for i in range(4)]
-    if (any(turn <= 0.002 for turn in turns) or tr[0] - tl[0] < 0.22 or
-            br[0] - bl[0] < 0.23 or bl[1] - tl[1] < 0.12 or
-            br[1] - tr[1] < 0.12):
-        raise ThreeQuarterPlacementInvalid("The four points must form a readable, non-crossing front embroidery field.")
-    for index, point in enumerate(result):
-        x_limit, y_limit = THREE_QUARTER_CORNER_LIMITS[index]
-        if not (x_limit[0] <= point[0] <= x_limit[1] and
-                y_limit[0] <= point[1] <= y_limit[1]):
-            raise ThreeQuarterPlacementInvalid(
-                f"Point {index + 1} must stay inside the safe front crown bounds."
-            )
+    if any(turn < 0.002 for turn in turns):
+        raise ThreeQuarterPlacementInvalid(
+            "The four points must remain ordered, non-crossing and non-collapsed."
+        )
     return result
 
 

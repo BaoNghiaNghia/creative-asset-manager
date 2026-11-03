@@ -4,8 +4,9 @@
  * Source artwork is stitched/alpha-only; do not run AI generation here.
  * Each saved quad is an OUTER embroidery field, not a bounding box to be
  * distorted blindly: trim transparent padding, preserve apparent glyph
- * proportions, respect FRONT master size, project with a curved mesh, then
- * intersect with both the 4-point field and the stock crown panel mask.
+ * proportions, respect FRONT master size and project with a curved mesh.
+ * The user's editable four-point polygon is the placement boundary. The
+ * optional stock mask is only applied when explicitly requested by the caller.
  */
 import type { FrontPlacement } from "./FrontPlacement";
 import { DEFAULT_FRONT_PLACEMENT } from "./FrontPlacement";
@@ -47,18 +48,6 @@ export const CROWN_FIT_CORNERS_8869: Point[] = [
   [0.296, 0.534], // 4: bottom left
 ];
 
-/** Per-handle limits entirely inside the official 8869 visible front crown.
- * These intentionally exclude the brim and the GatorHats side-logo panel.
- * Backend has identical limits and rejects out-of-range writes.
- */
-export type CrownCornerLimit = { x: readonly [number, number]; y: readonly [number, number] };
-export const CROWN_FIT_POINT_LIMITS_8869: readonly CrownCornerLimit[] = [
-  { x: [0.310, 0.435], y: [0.305, 0.405] }, // 1 top-left
-  { x: [0.555, 0.662], y: [0.305, 0.405] }, // 2 top-right
-  { x: [0.570, 0.676], y: [0.458, 0.568] }, // 3 bottom-right
-  { x: [0.274, 0.400], y: [0.458, 0.555] }, // 4 bottom-left
-];
-
 export function isValidQuad(points: readonly Point[]): boolean {
   if (points.length !== 4 || points.some(p => p.length !== 2 || p.some(n => !Number.isFinite(n) || n < 0 || n > 1))) return false;
   const cross = (a: Point, b: Point, c: Point) =>
@@ -78,51 +67,17 @@ export function insideCrown(point: Point, polygon: readonly Point[] = FRONT_CROW
   return isInside;
 }
 
-/** Both the position and the usable SIZE of the embroidery field are
- * constrained; being inside the overall crown silhouette is not sufficient.
- * FRONT size is still controlled independently by the stored FRONT master.
+/** Free drag: accept any point inside the image. The edited quad may be
+ * temporarily crossed while moving a handle; only Save validates geometry.
  */
-export function insideCrownFitLimit(point: Point, index: number): boolean {
-  const range = CROWN_FIT_POINT_LIMITS_8869[index];
-  return Boolean(range && Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
-    point[0] >= range.x[0] && point[0] <= range.x[1] &&
-    point[1] >= range.y[0] && point[1] <= range.y[1] &&
-    insideCrown(point));
-}
-
-export function isValidCrownField(points: readonly Point[]): boolean {
-  if (!isValidQuad(points) || !points.every((p, i) => insideCrownFitLimit(p, i))) return false;
-  const [tl, tr, br, bl] = points;
-  return tr[0] - tl[0] >= 0.22 && br[0] - bl[0] >= 0.23 &&
-    bl[1] - tl[1] >= 0.12 && br[1] - tr[1] >= 0.12;
-}
-
-/** Stop mouse/touch/keyboard movement at the last valid position, rather
- * than allowing a handle to escape the crown and disabling Save. An invalid
- * saved legacy field is never rewritten until the user explicitly saves.
- */
-export function moveCrownFieldPoint(
+export function moveThreeQuarterPoint(
   points: readonly Point[], index: number, x: number, y: number,
 ): Point[] {
-  if (!isValidCrownField(points) || !Number.isInteger(index) ||
-      index < 0 || index >= 4 || !Number.isFinite(x) || !Number.isFinite(y)) {
-    return points.map(p => [...p] as Point);
-  }
-  const range = CROWN_FIT_POINT_LIMITS_8869[index];
-  const next: Point = [clamp(x, ...range.x), clamp(y, ...range.y)];
-  const field = (t: number): Point[] => points.map((p, i) => i === index
-    ? [mix(p[0], next[0], t), mix(p[1], next[1], t)] as Point
+  if (!Number.isInteger(index) || index < 0 || index >= 4 ||
+      !Number.isFinite(x) || !Number.isFinite(y)) return points.map(p => [...p] as Point);
+  return points.map((p, i) => i === index
+    ? [clamp(x, 0, 1), clamp(y, 0, 1)] as Point
     : [...p] as Point);
-  const target = field(1);
-  if (isValidCrownField(target)) return target;
-  let lo = 0, hi = 1;
-  // Binary-search the furthest valid position along the pointer path.
-  for (let step = 0; step < 16; step++) {
-    const mid = (lo + hi) / 2;
-    if (isValidCrownField(field(mid))) lo = mid;
-    else hi = mid;
-  }
-  return field(lo);
 }
 
 /** Scan only alpha, at preview resolution. A fully opaque reference uses its
@@ -289,9 +244,9 @@ export function renderCrownProjection(
   ];
   ctx.save();
   polygonClip(ctx, options.corners, w, h);
-  // The crown silhouette is a second hard clipping boundary; the art can
-  // never spill onto the side logo, seam or visor even with old bad anchors.
-  polygonClip(ctx, options.mask ?? FRONT_CROWN_MASK_8869, w, h);
+  // Honor the user's manually fitted quadrilateral. A stock crown mask
+  // would cut off valid, freely moved placements after the user adjusted them.
+  if (options.mask) polygonClip(ctx, options.mask, w, h);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {

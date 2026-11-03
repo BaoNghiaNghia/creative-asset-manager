@@ -5,10 +5,7 @@
 .rrugc-blueprint-three-quarter-scene>canvas{z-index:1}
 .rrugc-blueprint-three-quarter-outline{z-index:2}
 .rrugc-blueprint-three-quarter-field{stroke:#0891b2;stroke-width:2.6;stroke-dasharray:9 7;fill:#0099c411}
-.rrugc-blueprint-three-quarter-crown-mask{stroke:#42a96a;stroke-width:2.1;stroke-dasharray:5 5;fill:none}
-.rrugc-blueprint-three-quarter-allowed{stroke:#4b99a2;stroke-width:1.3;stroke-dasharray:4 7;fill:#4b99a20a}
 .rrugc-blueprint-three-quarter-handle{position:absolute;z-index:3;transform:translate(-50%,-50%);display:grid;place-items:center;border:2px solid #fff;border-radius:50%;background:#008cbb;color:#fff;width:28px;height:28px;font-size:12px;touch-action:none;cursor:grab;box-shadow:0 1px 5px #1235}
-.rrugc-blueprint-three-quarter-handle.is-outside-crown{background:#d45c45;outline:2px solid #d45c45;outline-offset:2px}
 .rrugc-blueprint-three-quarter-handle:focus-visible{outline:3px solid #f9c34d;outline-offset:3px}
 .rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button{border:1px solid #cbdce9;border-radius:6px;padding:5px 8px;font-weight:700;font-size:10px;color:#375777;background:#fff;cursor:pointer}
 .rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button:disabled{opacity:.4;cursor:default}

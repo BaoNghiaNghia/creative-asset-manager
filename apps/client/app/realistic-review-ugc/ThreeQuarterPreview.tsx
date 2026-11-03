@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { FrontPlacement } from "./FrontPlacement";
 import type { ThreeQuarterPlacement } from "./api";
 import {
-  CROWN_FIT_CORNERS_8869, FRONT_CROWN_MASK_8869, CROWN_FIT_POINT_LIMITS_8869,
-  insideCrownFitLimit, isValidCrownField, moveCrownFieldPoint,
+  CROWN_FIT_CORNERS_8869, isValidQuad, moveThreeQuarterPoint,
   renderCrownProjection, type Point,
 } from "./ThreeQuarterProjection";
 import "./ThreeQuarterPreview.css";
@@ -21,7 +20,7 @@ type Props = {
 export function ThreeQuarterPreview({
   stockSrc, artworkSrc, colorKey, front, designSize, saved, onSave,
 }: Props) {
-  const savedUsable = Boolean(saved?.corners && isValidCrownField(saved.corners));
+  const savedUsable = Boolean(saved?.corners && isValidQuad(saved.corners));
   const initialCorners = savedUsable && saved ? saved.corners : CROWN_FIT_CORNERS_8869;
   const [draft, setDraft] = useState<Point[]>(initialCorners);
   const [editing, setEditing] = useState(false);
@@ -32,7 +31,7 @@ export function ThreeQuarterPreview({
   const surface = useRef<HTMLDivElement>(null);
   const dragging = useRef<number | null>(null);
   const changed = JSON.stringify(draft) !== JSON.stringify(saved?.corners ?? CROWN_FIT_CORNERS_8869);
-  const validField = isValidCrownField(draft);
+  const validField = isValidQuad(draft);
   const saveAllowed = validField && changed && !saving && Boolean(saved);
 
   // Reuse the decoded, stitched/alpha artwork on every point drag. Never
@@ -70,7 +69,7 @@ export function ThreeQuarterPreview({
   }, [draft, artworkSrc, loaded, stockSrc, front, designSize]);
 
   function changePoint(index: number, x: number, y: number) {
-    setDraft(points => moveCrownFieldPoint(points, index, x, y));
+    setDraft(points => moveThreeQuarterPoint(points, index, x, y));
   }
 
   function movePointer(event: PointerEvent<HTMLDivElement>) {
@@ -88,7 +87,7 @@ export function ThreeQuarterPreview({
     try {
       await onSave({ ...saved, corners: draft });
       setEditing(false);
-      setMessage("3/4 placement saved. Projected embroidery follows the crown.");
+      setMessage("3/4 placement saved. Embroidery follows your four-point field.");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not save 3/4 placement");
     } finally {
@@ -99,7 +98,7 @@ export function ThreeQuarterPreview({
   return <article className="rrugc-blueprint-three-quarter-card" aria-label="Three-quarter embroidery preview">
     <header className="rrugc-blueprint-panel-header">
       <div className="rrugc-blueprint-panel-heading">
-        <strong>3/4 FRONT</strong><small>Fit to crown · saved FRONT size</small>
+        <strong>3/4 FRONT</strong><small>Drag 4 points freely · saved FRONT size</small>
       </div>
       <div className="rrugc-blueprint-panel-header-actions">
         {editing ? <>
@@ -111,7 +110,7 @@ export function ThreeQuarterPreview({
           }}>Cancel</button>
           <button type="button" disabled={saving} onClick={() => {
             setDraft(CROWN_FIT_CORNERS_8869.map(point => [...point] as Point)); setMessage("");
-          }} title="Fit all four points to the verified crown area">Reset</button>
+          }} title="Restore the recommended starting four-point field">Reset</button>
         </> : <button type="button" disabled={!stockSrc || !saved} onClick={() => {
           setEditing(true); setMessage("");
         }}>Edit 4 points</button>}
@@ -132,22 +131,15 @@ export function ThreeQuarterPreview({
             }}
             onPointerCancel={() => { dragging.current = null; }}>
             <img src={stockSrc} alt="Official 8869 three-quarter stock" draggable={false}/>
-            <canvas ref={canvas} aria-label="Four-point projected embroidery, curved and clipped to front crown"/>
+            <canvas ref={canvas} aria-label="Embroidery projected within the freely adjusted four-point field"/>
             {editing && <>
               <svg className="rrugc-blueprint-three-quarter-outline" viewBox="0 0 1000 1000"
                 preserveAspectRatio="none" aria-hidden="true">
-                <polygon className="rrugc-blueprint-three-quarter-crown-mask"
-                  points={FRONT_CROWN_MASK_8869.map(p => p[0] * 1000 + "," + p[1] * 1000).join(" ")}/>
                 <polygon className="rrugc-blueprint-three-quarter-field"
                   points={draft.map(p => p[0] * 1000 + "," + p[1] * 1000).join(" ")}/>
-                {CROWN_FIT_POINT_LIMITS_8869.map((range, i) =>
-                  <rect key={i} className="rrugc-blueprint-three-quarter-allowed"
-                    x={range.x[0] * 1000} y={range.y[0] * 1000}
-                    width={(range.x[1] - range.x[0]) * 1000}
-                    height={(range.y[1] - range.y[0]) * 1000}/>)}
               </svg>
               {draft.map(([x, y], i) => <button key={i} type="button"
-                className={"rrugc-blueprint-three-quarter-handle" + (!insideCrownFitLimit([x, y], i) ? " is-outside-crown" : "")}
+                className="rrugc-blueprint-three-quarter-handle"
                 style={{ left: (x * 100) + "%", top: (y * 100) + "%" }}
                 aria-label={["Top left", "Top right", "Bottom right", "Bottom left"][i] + " embroidery corner"}
                 onPointerDown={event => {
@@ -167,9 +159,9 @@ export function ThreeQuarterPreview({
             </>}
           </div>}
     </div>
-    {saved && !savedUsable && !editing && <p className="rrugc-blueprint-3q-message" role="status">Previous 3/4 anchors were outside the safe front crown field. Preview uses the corrected field; choose Edit 4 points → Save to keep it.</p>}
+    {saved && !savedUsable && !editing && <p className="rrugc-blueprint-3q-message" role="status">The saved points were crossed or collapsed. Preview uses the starting field; choose Edit 4 points → Save to replace it.</p>}
     {editing && !validField && <p className="rrugc-blueprint-3q-message is-warning" role="alert">
-      The four points must stay in their numbered crown limits with sufficient width and height. Use Reset to restore the safe field.
+      Keep the four corners in order (1 → 2 → 3 → 4), without crossing or collapsing the field.
     </p>}
     {message && <p className="rrugc-blueprint-3q-message" role="status">{message}</p>}
   </article>;
