@@ -33,6 +33,8 @@ def test_classifies_color_name_from_filename_or_folder():
     assert classify("Natural-Navy/3.4.jpeg")["view"] == "three-quarter"
     assert classify("Natural/Black/Back.jpg")["color"] == "natural-black"
     assert classify("Natural/Black/Back.jpg")["view"] == "back"
+    assert classify("Natural Charcoal Side Front.jpg")["view"] == "side-front"
+    assert classify("Natural Charcoal Front Side.jpg")["view"] == "side-front"
     assert classify("Natural Blue Front.jpg")["error"] == "unknown_or_ambiguous_color"
 
 
@@ -75,6 +77,24 @@ def test_partial_import_is_atomic_versioned_and_keeps_existing(tmp_path):
     assert read_managed_stock(settings, "natural-black", "front") is None
     assert read_versioned_stock(settings, "natural-black", "front", first[1]) == first
     assert read_versioned_stock(settings, "../../", "front", first[1]) is None
+
+
+def test_optional_distinct_side_front_stock_is_imported_without_replacing_side_90(tmp_path):
+    settings = SimpleNamespace(CODEX_IMAGE_HOME=str(tmp_path))
+    bundle = archive([
+        "Natural Charcoal Front.jpg", "Natural Charcoal Back.jpg",
+        "Natural Charcoal Side.jpg", "Natural Charcoal 3-4.jpg",
+        "Natural Charcoal Side Front.jpg",
+    ])
+    preview, _ready = scan_archive(bundle)
+    assert preview["ready_count"] == 1
+    result = apply_archive(bundle, settings, expected_sha256=preview["sha256"])
+    assert result["applied_count"] == 1
+    assert read_managed_stock(settings, "natural-charcoal", "side") is not None
+    actual = read_managed_stock(settings, "natural-charcoal", "side-front")
+    assert actual is not None
+    assert actual[0].read_bytes() == photo()
+    assert "/side-front?" in list_stock(settings)["colors"]["natural-charcoal"]["views"]["side-front"]
 
 
 def test_rejects_path_traversal_and_bad_image(tmp_path):

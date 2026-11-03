@@ -15,6 +15,7 @@ from PIL import Image, UnidentifiedImageError
 STOCK_FILES = {
     "stock_front": "front.jpg",
     "stock_side_90": "side.jpg",
+    "stock_side_front": "side-front.jpg",
     "stock_three_quarter": "three-quarter.jpg",
     "stock_back": "back.jpg",
 }

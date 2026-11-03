@@ -23,7 +23,7 @@ type StepDefinition = {
   title: string;
   skillName: string;
   shots: ReadonlyArray<{ label: string; number: number }>;
-  inputs?: ReadonlyArray<{ label: string; kind: "design" | "front" | "embroidered_front" | "angle" | "side" | "back" }>;
+  inputs?: ReadonlyArray<{ label: string; kind: "design" | "front" | "embroidered_front" | "angle" | "side" | "side-front" | "back" }>;
   inputInstruction?: string;
 };
 
@@ -31,7 +31,7 @@ type StepDefinition = {
 export const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
   { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Fixed raster transfer: use the exact saved Slot 1 embroidery footprint and the original factory 3/4 stock. One locally calibrated perspective warp of photographic yarn only; no Codex/ImageGen call, no flat PNG artwork or cap redraw." },
-  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Front-visible fallback", number: 3 }], inputs: [{ label: "Verified 3/4 stock — fallback edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Temporary front-visible fallback: the synchronized true side-90 photo cannot display most front embroidery. Reuse the genuine manufacturer 3/4 stock without changing camera angle, then apply the entire saved yarn design in a calibrated raster warp. Slot 2 and Slot 3 will share the same base angle until a separately verified side-front stock is provided." },
+  { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side / Side-front", number: 3 }], inputs: [{ label: "Distinct side stock — edit target", kind: "side-front" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Use a real, DISTINCT side stock. An approved side-front photograph displays the legible front design; if unavailable the true 90-degree side shows only the physically visible front edge. Never reuse Slot 2's 3/4 image or invent a camera angle." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
     { label: "Multi-hat 1", number: 5 }, { label: "Multi-hat 2", number: 6 }, { label: "Multi-hat 3", number: 7 },
@@ -143,9 +143,9 @@ type Props = {
   lastUpdated?: string | null;
   sourcePlanId?: string;
   designSrc?: string;
-  stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter", string>>;
+  stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter" | "side-front", string>>;
   selectedColor?: string;
-  stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back" | "three-quarter", string>> }>;
+  stockCatalog?: Record<string, { views: Partial<Record<"front" | "side" | "back" | "three-quarter" | "side-front", string>> }>;
   ecommerceJobs?: EcommerceJob[];
   onEcommerceJobChange?: () => void | Promise<void>;
   readiness: ProductsStage2PhotoReadiness | null;
@@ -492,7 +492,7 @@ export function ProductsPhotoWorkflow({
         const skillName = isBuiltInFront
           ? "ThreadTransfer V2 · Blueprint-locked yarn"
           : step.key === "prod_s2_ec2" ? "ThreadTransfer V4 · Calibrated raster 3/4"
-          : step.key === "prod_s2_ec3" ? "ThreadTransfer V4 · Front-visible stock fallback"
+          : step.key === "prod_s2_ec3" ? "ThreadTransfer V5 · Distinct side stock"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
           : configured || step.skillName;
         const hasRequiredEngine = isBuiltInPhoto || Boolean(configured);
@@ -506,6 +506,7 @@ export function ProductsPhotoWorkflow({
             ? stage2OriginalUrl(jobs.find(job => job.stage === "prod_s2_ec1")?.embroidery_reference_url
               || "")
             : input.kind === "angle" ? (selectedStockViews?.["three-quarter"] || "")
+            : input.kind === "side-front" ? (selectedStockViews?.["side-front"] || selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : ""))
             : input.kind === "front" ? (selectedStockViews?.front || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/front.jpg" : ""))
             : input.kind === "back" ? (selectedStockViews?.back || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/back.jpg" : ""))
             : (selectedStockViews?.side || (selectedColor === "natural-black" ? "/rrugc/blueprint/stock/natural-black/side.jpg" : "")),
@@ -790,7 +791,7 @@ export function ProductsPhotoWorkflow({
               <p>{isBuiltInFront
                 ? "ThreadTransfer V2: separate true colored stitches from loose reference-cloth margins, preserve original lettering proportions and fit the saved Blueprint placement on the unedited factory front. Saved reference reapplication needs no ImageGen call."
                 : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
-                  ? "ThreadTransfer V4: exact official stock + saved Slot 1 Embroidery Reference, zero Codex calls. Slot 2 uses the calibrated 3/4 front. Slot 3 temporarily uses that verified 3/4 photo as a front-visible fallback because the current 90° side stock cannot show readable front embroidery; it does not pretend to be a different camera angle. Both preserve stock pixels outside actual yarn."
+                  ? "ThreadTransfer raster: exact manufacturer stock + saved Slot 1 Embroidery Reference, zero Codex calls. Slot 2 uses real front-right 3/4; Slot 3 uses a DIFFERENT verified side-front photo when available, or the true 90° side showing naturally occluded front yarn. Missing side-front is never hidden by duplicating Slot 2. Stock outside yarn stays unchanged."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto

@@ -63,6 +63,48 @@ def _trim_chromatic_gutters(layer: Image.Image) -> Image.Image:
     return layer.crop((x0, y0, x1, y1))
 
 
+def _blueprint_locked_front_target(
+    approved_bbox: tuple[int, int, int, int],
+    layer_size: tuple[int, int],
+    stock_size: tuple[int, int],
+    safe_box: list[float],
+) -> tuple[int, int, int, int]:
+    """Honor the saved blueprint *field*, not the potentially short alpha bbox.
+
+    The previous height contain-fit compressed otherwise wide typography. Use
+    the actual front-field height for an aspect-preserving slight enlargement,
+    with a subtle factory optical-center correction to the left. This never
+    crosses the user's saved safe rectangle or rescales the crown.
+    """
+    stock_w, stock_h = stock_size
+    yarn_w, yarn_h = layer_size
+    ax0, ay0, ax1, ay1 = approved_bbox
+    sx0, sy0, sx1, sy1 = (
+        round(safe_box[0] * stock_w), round(safe_box[1] * stock_h),
+        round(safe_box[2] * stock_w), round(safe_box[3] * stock_h),
+    )
+    if yarn_w < 10 or yarn_h < 10 or ax1 <= ax0 or ay1 <= ay0:
+        raise Slot1EmbroideryQAError("Approved embroidery bounds are invalid.")
+    field_w, field_h = sx1-sx0, sy1-sy0
+    # 100% on the Blueprint means actual sewn artwork, not the cloth border.
+    # 1.10 compensates for the previous contain-fit's unused crown height.
+    desired_w = (ax1-ax0)*1.10
+    scale = min(desired_w/yarn_w,
+                field_w*.98/yarn_w,
+                field_h*.96/yarn_h)
+    tw = max(1, round(yarn_w*scale))
+    th = max(1, round(yarn_h*scale))
+    # On the official frontal 8869 photo the visible front-panel optical
+    # center sits slightly left of the geometric image center.
+    target_cx = (sx0+sx1)/2 - min(stock_w*.012, field_w*.025)
+    target_cy = (ay0+ay1)/2
+    px = max(sx0, min(sx1-tw, round(target_cx-tw/2)))
+    py = max(sy0, min(sy1-th, round(target_cy-th/2)))
+    if tw < 12 or th < 10 or px < sx0 or py < sy0 or px+tw > sx1 or py+th > sy1:
+        raise Slot1EmbroideryQAError("Blueprint-locked yarn does not fit the approved front.")
+    return px, py, px+tw, py+th
+
+
 @dataclass(frozen=True)
 class ThreadTransferResult:
     output_png: bytes
@@ -213,14 +255,13 @@ def composite_reference_on_cap(
             raise Slot1EmbroideryQAError(str(exc)) from exc
         tw, th = rx-px, by-py
         if scale_contract.get("version") == "front-guide-v3":
-            # Preserve glyph proportions when the true yarn crop and original
-            # artwork differ slightly. Fit within the APPROVED box; never
-            # stretch the lettering in either axis to fill it.
-            fit = min(tw / layer.width, th / layer.height)
-            final_w, final_h = round(layer.width*fit), round(layer.height*fit)
-            px += (tw-final_w)//2
-            py += (th-final_h)//2
-            tw, th = final_w, final_h
+            # Keep original glyph aspect and reuse available guide height.
+            # The macro's loose cloth border is never a size authority.
+            px, py, rx, by = _blueprint_locked_front_target(
+                visible_box, layer.size, material.stock.size,
+                scale_contract["safe_box"],
+            )
+            tw, th = rx-px, by-py
         safe = scale_contract["safe_box"]
         x0, y0, x1, y1 = (
             round(material.stock.width * safe[0]),

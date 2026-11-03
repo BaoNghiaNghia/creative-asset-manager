@@ -89,11 +89,13 @@ def test_slot1_composites_verified_thread_into_centered_master_and_saves_real_bo
                                      scale_contract=contract)
     box = out.target_box
     approved = stock_material.thread_mask.getbbox()
-    assert approved[0] <= box[0] < box[2] <= approved[2]
-    assert approved[1] <= box[1] < box[3] <= approved[3]
-    assert abs((box[0]+box[2]) - (approved[0]+approved[2])) <= 2
-    assert abs((box[1]+box[3]) - (approved[1]+approved[3])) <= 2
-    assert abs((box[0]+box[2])/2 / 900 - .5) < .01
+    safe = contract["safe_box"]
+    assert box[0] >= round(safe[0]*900)-1
+    assert box[2] <= round(safe[2]*900)+1
+    assert box[1] >= round(safe[1]*1000)-1
+    assert box[3] <= round(safe[3]*1000)+1
+    assert (box[2]-box[0]) > (approved[2]-approved[0])*.98
+    assert abs((box[0]+box[2])/2 / 900 - .5) < .02
     assert (box[2]-box[0])/900 > .32
     assert abs((box[1]+box[3])/2 / 1000 - contract["center_y"]) < .01
     master = saved_master_box(box, 900, 1000, "rev", "material")
@@ -105,6 +107,19 @@ def test_slot1_composites_verified_thread_into_centered_master_and_saves_real_bo
         original = np.asarray(image.convert("RGB"))
     assert np.array_equal(result[:, :120], original[:, :120])
     assert np.array_equal(result[700:], original[700:])
+
+
+def test_roomy_front_guide_fills_more_yarn_and_shifts_optically_left_without_stretching():
+    from app.modules.realistic_review_ugc.threadtransfer import _blueprint_locked_front_target
+    approved = (320, 415, 720, 590)
+    safe = [.20, .28, .80, .70]
+    result = _blueprint_locked_front_target(approved, (600, 260), (1000, 1000), safe)
+    x0, y0, x1, y1 = result
+    assert 434 <= x1-x0 <= 442  # original 400px width, +10% if guide allows
+    assert abs(((x1-x0)/(y1-y0)) - (600/260)) < .025
+    assert (x0+x1)/2 == pytest.approx(488, abs=1)
+    assert 200 <= x0 < x1 <= 800
+    assert 280 <= y0 < y1 <= 700
 
 
 def test_new_slot1_rejects_macro_with_wrong_letter_proportions():

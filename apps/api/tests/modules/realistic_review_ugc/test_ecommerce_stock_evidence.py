@@ -53,6 +53,43 @@ def test_managed_three_quarter_is_real_verified_stock_and_never_front_or_side(tm
     assert proof["stock_side_90"]["ready"] is False
 
 
+def test_slot3_stock_is_distinct_and_prefers_verified_side_front(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc import ecommerce_pipeline, hat_stock_sync
+    settings = SimpleNamespace(CODEX_IMAGE_HOME=str(tmp_path))
+    monkeypatch.setattr(ecommerce_pipeline, "read_release_stock",
+                        lambda role, **kwargs: (role.encode(), {"role": role}))
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock",
+                        lambda *_args: None)
+    three_quarter, digest2 = ecommerce_pipeline._stock_refs(
+        settings, "prod_s2_ec2", "natural-charcoal")
+    actual_side, digest3 = ecommerce_pipeline._stock_refs(
+        settings, "prod_s2_ec3", "natural-charcoal")
+    assert three_quarter[0][0] == "stock_three_quarter"
+    assert actual_side[0][0] == "stock_side_90"
+    assert digest2 != digest3
+
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock",
+                        lambda _s, _c, view: (tmp_path/"side-front.jpg", "revision")
+                        if view == "side-front" else None)
+    side_front, digest3_front = ecommerce_pipeline._stock_refs(
+        settings, "prod_s2_ec3", "natural-charcoal")
+    assert side_front[0][0] == "stock_side_front"
+    assert digest3_front != digest2 and digest3_front != digest3
+
+
+def test_side_stock_cannot_be_byte_identical_to_three_quarter(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.modules.realistic_review_ugc import ecommerce_pipeline, hat_stock_sync
+    settings = SimpleNamespace(CODEX_IMAGE_HOME=str(tmp_path))
+    monkeypatch.setattr(hat_stock_sync, "read_managed_stock", lambda *_args: None)
+    monkeypatch.setattr(ecommerce_pipeline, "read_release_stock",
+                        lambda role, **kwargs: (b"same-photo", {"role": role}))
+    with pytest.raises(ecommerce_pipeline.EcommerceError,
+                       match="distinct side view"):
+        ecommerce_pipeline._stock_refs(settings, "prod_s2_ec3", "natural-charcoal")
+
+
 def test_malformed_reference_fails_validation(tmp_path):
     _stock(tmp_path, "side.jpg", valid=False)
     with pytest.raises(ValueError):

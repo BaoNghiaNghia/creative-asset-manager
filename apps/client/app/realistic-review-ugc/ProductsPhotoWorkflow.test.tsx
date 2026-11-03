@@ -28,7 +28,7 @@ describe("Products Stage 2 photo workflow", () => {
     const threeQuarter = PHOTO_STEPS.find(step => step.key === "prod_s2_ec2")!;
     const side = PHOTO_STEPS.find(step => step.key === "prod_s2_ec3")!;
     expect(threeQuarter.inputs?.map(input => input.kind)).toEqual(["angle", "embroidered_front"]);
-    expect(side.inputs?.map(input => input.kind)).toEqual(["angle", "embroidered_front"]);
+    expect(side.inputs?.map(input => input.kind)).toEqual(["side-front", "embroidered_front"]);
     expect(threeQuarter.inputs).toHaveLength(2);
     expect(side.inputs).toHaveLength(2);
     expect(threeQuarter.inputs?.some(input => input.kind === "design")).toBe(false);
@@ -269,7 +269,7 @@ describe("Products Stage 2 photo workflow", () => {
       expect(html).toContain(skill);
     }
     expect(html).toContain("ThreadTransfer V4 · Calibrated raster 3/4");
-    expect(html).toContain("ThreadTransfer V4 · Front-visible stock fallback");
+    expect(html).toContain("ThreadTransfer V5 · Distinct side stock");
     expect(html).toContain("Built-in · Original Back Stock");
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);
     expect(html).toContain('class="rrugc-products-photo-stage-list is-two-column"');

@@ -106,14 +106,15 @@ _lite_slot1_qa_error_code = lite_slot1_qa_error_code
 # All NEW EC2 jobs use the actual selected-color 3/4 photo as the edit target.
 # Legacy jobs keep their pinned front+side evidence until an EXPLICIT Retry/Regenerate.
 LEGACY_EC2_STOCK_ROLES = ("stock_front", "stock_side_90")
-LEGACY_EC3_STOCK_ROLES = ("stock_side_90",)
+LEGACY_EC3_STOCK_ROLES = ("stock_three_quarter",)
+LEGACY_EC3_SIDE_STOCK_ROLES = ("stock_side_90",)
 STOCK_ROLES = {
     "prod_s2_ec1": ("stock_front",),
     "prod_s2_ec2": ("stock_three_quarter",),
-    # Side 90 shows almost none of the front artwork. Without a separate
-    # verified side-front photo, use the real 3/4 stock as an explicit fallback
-    # rather than fabricating embroidery on the lateral panel.
-    "prod_s2_ec3": ("stock_three_quarter",),
+    # Never reuse Slot 2's stock: prefer a distinct verified side-front
+    # photograph; otherwise use the genuine 90-degree side with natural
+    # occlusion. A full slogan cannot be shown from a true 90-degree side.
+    "prod_s2_ec3": ("stock_side_90",),
     "prod_s2_ec4": ("stock_back",),
 }
 
@@ -214,14 +215,36 @@ def _stock_refs(settings: Settings, stage: str, color_key: str = "natural-black"
         raise EcommerceError("ecommerce_stage_invalid", "Unknown Ecommerce photo slot.", 422)
     # The checkout root is also available in the immutable production release.
     project_root = Path(__file__).resolve().parents[5]
-    from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock
+    from app.modules.realistic_review_ugc.hat_stock_sync import stock_read_lock, read_managed_stock
     try:
         with stock_read_lock(settings):
-            roles = (LEGACY_EC2_STOCK_ROLES if stage == "prod_s2_ec2" and legacy_three_quarter
-                     else LEGACY_EC3_STOCK_ROLES if stage == "prod_s2_ec3" and legacy_side_90
-                     else STOCK_ROLES[stage])
+            if stage == "prod_s2_ec2" and legacy_three_quarter:
+                roles = LEGACY_EC2_STOCK_ROLES
+            elif stage == "prod_s2_ec3" and legacy_three_quarter:
+                roles = LEGACY_EC3_STOCK_ROLES
+            elif stage == "prod_s2_ec3" and legacy_side_90:
+                roles = LEGACY_EC3_SIDE_STOCK_ROLES
+            elif stage == "prod_s2_ec3" and read_managed_stock(settings, color_key, "side-front"):
+                roles = ("stock_side_front",)
+            else:
+                roles = STOCK_ROLES[stage]
             refs = [(role, read_release_stock(role, project_root=project_root, color_key=color_key)[0])
                     for role in roles]
+            if stage == "prod_s2_ec3" and roles != LEGACY_EC3_STOCK_ROLES:
+                # A renamed/reencoded 3/4 source must not silently become a
+                # fake side view. Reject byte-identical camera evidence.
+                try:
+                    three_quarter, _ = read_release_stock(
+                        "stock_three_quarter", project_root=project_root,
+                        color_key=color_key,
+                    )
+                except (OSError, ValueError):
+                    three_quarter = None
+                if three_quarter is not None and hashlib.sha256(refs[0][1]).digest() == hashlib.sha256(three_quarter).digest():
+                    raise EcommerceError(
+                        "ecommerce_duplicate_stock_angle",
+                        "Slot 3 needs a distinct side view. It cannot reuse Slot 2's 3/4 stock.",
+                    )
     except (OSError, ValueError) as exc:
         raise EcommerceError("ecommerce_stock_unavailable",
                              "A verified GatorHats stock photo is unavailable.", 503) from exc
@@ -247,9 +270,16 @@ def _pinned_stock_refs(settings: Settings, stage: str, color_key: str,
         if old_digest == expected_sha256:
             return old_refs, True
     elif stage == "prod_s2_ec3":
-        old_refs, old_digest = _stock_refs(settings, stage, color_key, legacy_side_90=True)
-        if old_digest == expected_sha256:
-            return old_refs, False
+        # Older completed/queued jobs may still pin the 3/4 fallback.
+        # Do not silently republish a duplicate; a manual regenerate repins.
+        for old_style in ("three-quarter", "side"):
+            old_refs, old_digest = _stock_refs(
+                settings, stage, color_key,
+                legacy_three_quarter=(old_style == "three-quarter"),
+                legacy_side_90=(old_style == "side"),
+            )
+            if old_digest == expected_sha256:
+                return old_refs, old_style == "three-quarter"
     raise EcommerceError("ecommerce_stock_changed", "Pinned stock content changed.")
 
 
@@ -264,10 +294,15 @@ def _rebind_ec2_stock_for_explicit_action(settings: Settings, row: RrugcEcommerc
             row.stock_sha256 = current_sha
             return
     elif row.stage == "prod_s2_ec3":
-        _, old_sha = _stock_refs(settings, row.stage, row.color_key, legacy_side_90=True)
-        if old_sha == row.stock_sha256:
-            row.stock_sha256 = current_sha
-            return
+        for old_style in ("three-quarter", "side"):
+            _, old_sha = _stock_refs(
+                settings, row.stage, row.color_key,
+                legacy_three_quarter=(old_style == "three-quarter"),
+                legacy_side_90=(old_style == "side"),
+            )
+            if old_sha == row.stock_sha256:
+                row.stock_sha256 = current_sha
+                return
     raise EcommerceError("ecommerce_stock_changed", "Official stock reference changed.")
 
 
@@ -1948,8 +1983,16 @@ class EcommerceGenerateHandler:
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
         if local_stock:
-            side_front_fallback = (stage == "prod_s2_ec3" and deterministic_angle
-                                   and refs[0][0] == "stock_three_quarter")
+            if stage == "prod_s2_ec3" and refs[0][0] == "stock_three_quarter":
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_duplicate_stock_angle",
+                    "Slot 3 was pinned to Slot 2's 3/4 view. Regenerate Slot 3 to use its real side stock.",
+                    retryable=False,
+                )
+            side_front_fallback = (
+                stage == "prod_s2_ec3" and deterministic_angle
+                and refs[0][0] == "stock_side_front"
+            )
             # V4 needs only original immutable stock + SAVED reference bytes.
             # V2 historical jobs retain the prepared native macro contract.
             pinned = next((ref for ref in references
@@ -1989,8 +2032,10 @@ class EcommerceGenerateHandler:
                     "reference_sha256": hashlib.sha256(material_bytes).hexdigest(),
                     "original_stock_pixels_protected": True,
                     "side_front_stock_fallback": side_front_fallback,
-                    "side_front_stock_view": ("verified_three_quarter"
-                                              if side_front_fallback else None),
+                    "side_front_stock_view": (
+                        "verified_side_front" if side_front_fallback
+                        else "true_side_90" if stage == "prod_s2_ec3" else None
+                    ),
                 },
             )
         elif (is_threadtransfer and preview_remote_id

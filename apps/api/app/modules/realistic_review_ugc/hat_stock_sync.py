@@ -26,7 +26,7 @@ COLORS = (
     "natural-mossy-oak-breakup", "natural-navy", "natural-realtree-all-purpose",
     "natural-red", "natural-royal", "white-black", "white-navy", "white-red",
 )
-VIEWS = ("front", "side", "back", "three-quarter")
+VIEWS = ("front", "side", "back", "three-quarter", "side-front")
 REQUIRED_VIEWS = ("front", "side", "back")
 EXTENSIONS = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 NOISE = {"8869", "valucap", "gatorhats", "hat", "cap", "view", "views", "image", "img",
@@ -63,6 +63,7 @@ def storage_root(settings: Any) -> Path:
 
 
 def _tokens(value: str) -> list[str]:
+    value = re.sub(r"(?i)\b(?:side[\s._/-]*front|front[\s._/-]*side)\b", " sidefront ", value)
     value = re.sub(r"(?i)\b3[\s._/-]*4\b", " threequarter ", value)
     value = re.sub(r"(?i)three[\s._/-]*quarters?\b", " threequarter ", value)
     value = re.sub(r"(?i)3[\s._/-]*quarter\b", " threequarter ", value)
@@ -78,6 +79,7 @@ def classify(name: str) -> dict[str, str]:
         "side": "side", "profile": "side", "left": "side", "right": "side",
         "back": "back", "rear": "back", "reverse": "back",
         "threequarter": "three-quarter", "angle": "three-quarter",
+        "sidefront": "side-front",
     }
     angle_names = {positions[token] for token in tokens if token in positions}
     # Names such as 'Front Right 3/4' are explicitly three-quarter shots.
@@ -230,7 +232,7 @@ def read_managed_stock(settings: Any, color: str, view: str) -> tuple[Path, str]
     revision = entry.get("revision", "")
     if not isinstance(filename, str) or not re.fullmatch(r"[a-f0-9]{64}", revision):
         return None
-    if not re.fullmatch(r"(?:front|side|back|three-quarter)\.(?:jpg|jpeg|png|webp)", filename):
+    if not re.fullmatch(r"(?:front|side|back|three-quarter|side-front)\.(?:jpg|jpeg|png|webp)", filename):
         return None
     path = root / "sets" / color / revision / filename
     if not path.is_file() or not path.resolve().is_relative_to(root):

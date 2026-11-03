@@ -699,7 +699,7 @@ export type HatStockPreview = {
 };
 export type HatStockCatalog = {
   can_sync: boolean;
-  colors: Record<string, { revision: string; views: Partial<Record<"front" | "side" | "back" | "three-quarter", string>> }>;
+  colors: Record<string, { revision: string; views: Partial<Record<"front" | "side" | "back" | "three-quarter" | "side-front", string>> }>;
 };
 const HAT_STOCK_PATH = "/api/v1/realistic-review-ugc/products/hat-stock";
 export const getHatStockCatalog = (signal?: AbortSignal) =>

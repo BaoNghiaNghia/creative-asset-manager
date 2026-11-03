@@ -18,7 +18,9 @@ class EcommerceShot:
 SHOTS = (
     EcommerceShot("prod_s2_ec1", "front", ("design", "stock_front"), "front"),
     EcommerceShot("prod_s2_ec2", "three_quarter", ("stock_three_quarter", "embroidery_reference"), "front"),
-    EcommerceShot("prod_s2_ec3", "front_visible_fallback", ("stock_three_quarter", "embroidery_reference"), "front"),
+    # A genuine right-side source is mandatory; optional approved side-front
+    # stock may supersede it at execution time, never the EC2 3/4 image.
+    EcommerceShot("prod_s2_ec3", "side", ("stock_side_90", "embroidery_reference"), "front"),
     EcommerceShot("prod_s2_ec4", "back", ("stock_back",), None),
 )
 SHOTS_BY_STAGE = {shot.stage: shot for shot in SHOTS}

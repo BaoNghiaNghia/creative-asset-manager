@@ -80,7 +80,7 @@ function HatSlotIcon() {
   </svg>;
 }
 
-function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange, placement }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void; placement?: FrontPlacement }) {
+function DesignSource({ plan, productLayout = false, stockViews, color, colors, onColorChange, placement }: { plan: SourcePlan; productLayout?: boolean; stockViews?: Partial<Record<"front" | "side" | "back" | "three-quarter" | "side-front", string>>; color?: string; colors?: string[]; onColorChange?: (color: string) => void; placement?: FrontPlacement }) {
   if (productLayout) {
     return <div className="rrugc-colorway-source is-product-card">
       <AppliedHatPreview
