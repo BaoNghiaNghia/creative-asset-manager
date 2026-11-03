@@ -465,6 +465,12 @@ export const listScoutMetrics = (signal?: AbortSignal) =>
     period: string;
   }>("/api/v1/realistic-review-ugc/scout-metrics", { signal });
 
+export const getKeywordIntelligence = (keywordId: string, signal?: AbortSignal) =>
+  request<import("./types").KeywordIntelligence>(
+    "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/intelligence",
+    { signal },
+  );
+
 export const setKeywordAnalysisPicked = (keywordId: string, picked: boolean) =>
   request<import("./types").KeywordVolume>(
     "/api/v1/realistic-review-ugc/keyword-analysis/" + encodeURIComponent(keywordId) + "/pick",

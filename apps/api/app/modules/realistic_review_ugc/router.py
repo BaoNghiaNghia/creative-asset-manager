@@ -6931,6 +6931,31 @@ def get_keyword_analysis_detail(
     return _keyword_volume_response(row, statuses_for_rows(session, principal.active_tenant_id, [row]))
 
 
+@router.get("/keyword-analysis/{keyword_id}/intelligence")
+def get_keyword_intelligence(
+    keyword_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """Read-only, on-demand profile for one keyword; no AI calls or new jobs."""
+    from app.modules.realistic_review_ugc.keyword_intelligence import build_keyword_intelligence
+    from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel
+    from app.modules.realistic_review_ugc.stage1_design_learning import learning_profile
+
+    row = session.scalar(select(RrugcKeywordVolumeModel).where(
+        RrugcKeywordVolumeModel.id == keyword_id,
+        RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Keyword not found")
+    brief = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+        RrugcKeywordCreativeBriefModel.keyword_id == keyword_id,
+        RrugcKeywordCreativeBriefModel.tenant_id == principal.active_tenant_id,
+    ))
+    feedback = learning_profile(session, tenant_id=principal.active_tenant_id, keyword=row.keyword)
+    return build_keyword_intelligence(row, brief, feedback)
+
+
 @router.post("/keyword-images/manual", status_code=202)
 def create_manual_keyword_image(
     request: KeywordImageManualCreateRequest,

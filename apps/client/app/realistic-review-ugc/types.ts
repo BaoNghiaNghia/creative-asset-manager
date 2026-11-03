@@ -235,6 +235,77 @@ export type KeywordVolumeOverview = {
 };
 
 
+export type KeywordIntelligenceDimension = {
+  key: "buyer" | "creative" | "embroidery" | "market" | "originality";
+  label: string;
+  weight: number;
+  score: number | null;
+  source: string;
+  note: string;
+};
+export type KeywordIntelligence = {
+  version: string;
+  keyword_id: string;
+  keyword_exact: string;
+  generated_at: string;
+  brief_status: string;
+  brief_updated_at: string | null;
+  score: {
+    value: number | null;
+    coverage: number;
+    confidence: "low" | "medium";
+    recommendation: "prioritize" | "explore" | "hold" | "needs_analysis";
+    explanation: string;
+    dimensions: KeywordIntelligenceDimension[];
+    is_preliminary: boolean;
+  };
+  buyer: {
+    audience: string | null;
+    purchase_motivation: string | null;
+    emotion: string | null;
+    strategy: string | null;
+    source: "ai_hypothesis" | "not_analyzed";
+  };
+  creative: {
+    hook: string | null;
+    direction_count: number;
+    directions: Array<{
+      mode: "safe" | "creative_twist" | "explore";
+      label: string;
+      name: string | null;
+      familiar_format: string | null;
+      creative_twist: string | null;
+      creative_hook: string | null;
+      variants: string[];
+    }>;
+    originality_checked: boolean;
+  };
+  embroidery: {
+    word_count: number;
+    character_count: number;
+    preflight_score: number;
+    warnings: string[];
+    physical_fit_verified: boolean;
+  };
+  evidence: {
+    provider: string;
+    volume: number | null;
+    competition: string | null;
+    source_pin_available: boolean;
+    source_image_available: boolean;
+    trademark_status: string;
+    trademark_legal_clearance: boolean;
+  };
+  learning: {
+    total_votes: number;
+    picked_votes: number;
+    rejected_votes: number;
+    rejected: Array<{mode: string; variant: string; count: number; reason: string; guidance: string}>;
+    general_rejections: Array<{reason: string; count: number; guidance: string}>;
+    scope: string;
+  };
+};
+
 export type KeywordCreativeBriefSummary = {
   status: "queued" | "running" | "completed" | "failed";
   strategy: string | null;

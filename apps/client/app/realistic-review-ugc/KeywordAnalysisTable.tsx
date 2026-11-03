@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { attachKeywordSourceImage } from "./api";
 import { KeywordSearchInput } from "./KeywordSearchInput";
+import { KeywordInsightDrawer } from "./KeywordInsightDrawer";
 import { formatRelativeDateTime } from "./RelativeDateTime";
 import { SortDirectionIndicator } from "./SortDirectionIndicator";
 import "./SortColumnHighlight.css";
@@ -791,6 +792,7 @@ export function KeywordAnalysisTable({
     : tailFilter !== "all" ? tailFilter
     : "all";
   const [detailItem, setDetailItem] = useState<KeywordVolume | null>(null);
+  const [insightItem, setInsightItem] = useState<KeywordVolume | null>(null);
   const [sourceImageOverrides, setSourceImageOverrides] = useState<Record<string, string>>({});
 
   const selectOverviewFilter = (filter: "all" | "short" | "mid" | "long" | "used" | "suggested" | "zero") => {
@@ -997,6 +999,10 @@ export function KeywordAnalysisTable({
               <td className="rrugc-stage0-created-date"><strong title={item.created_at ? new Date(item.created_at).toLocaleString() : "—"}>{formatTableDate(item.created_at)}</strong></td>
               <td className="rrugc-stage0-pick-cell">
                 <div className="rrugc-stage0-row-actions-v2">
+                  <button type="button" className="rrugc-stage0-icon-action insight"
+                    aria-label={"Open Keyword Intelligence for " + item.keyword}
+                    title="Keyword Intelligence · Buyer, Creative DNA, Opportunity, Learning"
+                    onClick={() => setInsightItem(item)}>IQ</button>
                   <button type="button" className={"rrugc-stage0-icon-action pick" + (item.picked ? " active" : "")} data-pick-state={item.picked ? "picked" : "unpicked"} aria-pressed={item.picked} aria-label={(item.picked ? "Mark unused: " : "Pick keyword: ") + item.keyword} title={item.picked ? "Đã Pick · Bấm để bỏ chọn" : "Chưa Pick · Bấm để chọn"} disabled={pickingIds.has(item.id)} onClick={() => onPickChange(item.id, !item.picked)}><Icon name={item.picked ? "circle-check" : "circle-plus"} /></button>
                 </div>
               </td>
@@ -1027,6 +1033,12 @@ export function KeywordAnalysisTable({
     })()}
     onClose={() => setDetailItem(null)} onResolveMetrics={onResolveMetrics}
     onSourceImageSaved={(keywordId, imageUrl) => setSourceImageOverrides(previous => ({ ...previous, [keywordId]: imageUrl }))}
+  />
+  <KeywordInsightDrawer
+    item={data.items.find(entry => entry.id === insightItem?.id) || insightItem}
+    onClose={() => setInsightItem(null)}
+    onPickChange={onPickChange}
+    onOpenMetrics={item => setDetailItem(item)}
   />
   </>;
 }

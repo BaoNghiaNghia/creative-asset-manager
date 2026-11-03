@@ -2961,6 +2961,45 @@ def test_tiktokshop_apparel_context_skips_hat_head_crop_policy():
     assert not policy.require_head_visible
     assert not policy.require_head_ratio
 
+def test_keyword_intelligence_is_read_only_and_tenant_scoped(api, database):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel
+
+    own, other = str(uuid4()), str(uuid4())
+    with database() as session:
+        session.add_all([
+            RrugcKeywordVolumeModel(
+                id=own, tenant_id="tenant-a", keyword="THIS IS MY COWBOY HAT",
+                keyword_normalized="this is my cowboy hat", search_volume=0,
+                provider="pending", picked=False,
+            ),
+            RrugcKeywordVolumeModel(
+                id=other, tenant_id="tenant-b", keyword="PRIVATE OTHER TENANT",
+                keyword_normalized="private other tenant", search_volume=75,
+                provider="aebrowse_google_ads", picked=True,
+            ),
+        ])
+        session.commit()
+    root = "/api/v1/realistic-review-ugc/keyword-analysis/"
+    response = api.get(root + own + "/intelligence")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["keyword_exact"] == "THIS IS MY COWBOY HAT"
+    assert data["score"]["value"] is None
+    assert data["score"]["coverage"] == 20
+    assert data["buyer"]["source"] == "not_analyzed"
+    assert data["creative"]["originality_checked"] is False
+    assert data["embroidery"]["physical_fit_verified"] is False
+    assert data["learning"]["total_votes"] == 0
+    assert api.get(root + other + "/intelligence").status_code == 404
+    with database() as session:
+        keyword = session.get(RrugcKeywordVolumeModel, own)
+        assert keyword.picked is False
+        assert session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+            RrugcKeywordCreativeBriefModel.keyword_id == own,
+        )) is None
+
+
 def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database):
     from uuid import uuid4
     from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
