@@ -8,6 +8,7 @@ import "./SortColumnHighlight.css";
 import { DeferredImage } from "./DeferredImage";
 import { RrugcStageHeader } from "./RrugcStageHeader";
 import "./KeywordAnalysisPlatform.css";
+import "./Stage0OpportunityRanking.css";
 import "./KeywordAgentColumn.css";
 import type {
   KeywordAnalysisSortBy,
@@ -15,6 +16,7 @@ import type {
   KeywordTailFilter,
   KeywordUsageFilter,
   KeywordVolumeFilter,
+  KeywordOpportunityFilter,
   ScoutFeedbackAction,
   ScoutFeedbackScope,
 } from "./api";
@@ -735,12 +737,14 @@ export function KeywordAnalysisTable({
   usageFilter,
   tailFilter,
   volumeFilter,
+  opportunityFilter = "all",
   suggestedOnly,
   pickingIds,
   feedbackUpdatingIds,
   onFeedbackChange,
   onResolveMetrics,
   onSortChange,
+  onOpportunityFilterChange = () => undefined,
   onUsageFilterChange,
   onTailFilterChange,
   onVolumeFilterChange,
@@ -761,12 +765,14 @@ export function KeywordAnalysisTable({
   usageFilter: KeywordUsageFilter;
   tailFilter: KeywordTailFilter;
   volumeFilter: KeywordVolumeFilter;
+  opportunityFilter?: KeywordOpportunityFilter;
   suggestedOnly: boolean;
   pickingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
   onFeedbackChange: (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) => void;
   onResolveMetrics?: (keyword: string) => Promise<void>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
+  onOpportunityFilterChange?: (value: KeywordOpportunityFilter) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
   onVolumeFilterChange: (filter: KeywordVolumeFilter) => void;
@@ -830,7 +836,23 @@ export function KeywordAnalysisTable({
     <div className="rrugc-stage0-unified-toolbar">
     <div className="rrugc-stage0-controlbar">
       <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
-
+      <div className="rrugc-stage0-opportunity-controls">
+        <button type="button" className={"rrugc-stage0-rank-btn" + (sortBy === "opportunity" ? " active" : "")}
+          aria-pressed={sortBy === "opportunity"} title="Sort all matching tenant keywords before pagination"
+          onClick={() => onSortChange("opportunity")}>
+          Rank: Opportunity {sortBy === "opportunity" ? (sortDirection === "desc" ? "↓" : "↑") : ""}
+        </button>
+        <label htmlFor="stage0-opportunity-filter">Opportunity</label>
+        <select id="stage0-opportunity-filter" aria-label="Filter all keyword opportunities"
+          value={opportunityFilter}
+          onChange={event => onOpportunityFilterChange(event.target.value as KeywordOpportunityFilter)}>
+          <option value="all">All</option>
+          <option value="prioritize">Prioritize</option>
+          <option value="explore">Explore</option>
+          <option value="hold">Hold</option>
+          <option value="needs_analysis">Needs analysis</option>
+        </select>
+      </div>
     </div>
       <div className="rrugc-stage0-header-tools">
         <button type="button" className="rrugc-stage0-intelligence-trigger rrugc-stage0-research-trigger"
@@ -961,6 +983,11 @@ export function KeywordAnalysisTable({
                 <button type="button" className="rrugc-stage0-keyword-link" onClick={() => setDetailItem(item)} title="Open keyword details">
                   <strong>{item.keyword}</strong>
                   <small>{providerLabel(item.provider)} · {item.provider === "pending" ? "added" : "checked"} {new Date(item.provider === "pending" ? item.created_at || item.fetched_at : item.fetched_at).toLocaleDateString()}</small>
+                  {item.opportunity_recommendation && <span
+                    className={"rrugc-stage0-opportunity-chip is-" + item.opportunity_recommendation}
+                    title={"Preliminary opportunity · coverage " + (item.opportunity_coverage ?? 0) + "%"}
+                  >{item.opportunity_score == null ? "—" : item.opportunity_score + "/100"}
+                    {" · " + item.opportunity_recommendation.replace("_", " ")}</span>}
                 </button>
                 <div className="rrugc-scout-feedback-control">
                   {hasFeedback && <span className={"rrugc-scout-feedback-state is-" + feedbackStatus} aria-label={"Trạng thái Scout: " + (feedbackStatus === "suggested" ? "Đã đề xuất" : feedbackStatus === "blocked" ? "Đã bỏ đề xuất" : "Đã phản hồi")}>

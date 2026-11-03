@@ -159,6 +159,10 @@ from app.modules.realistic_review_ugc.supervisor import (
     evaluate_supervisor,
 )
 from app.modules.realistic_review_ugc.router import router
+from app.modules.realistic_review_ugc.typography_model import (
+    RrugcTypographyReferenceModel,
+    RrugcTypographyStyleDnaModel,
+)
 from app.modules.realistic_review_ugc.schema import CandidateSubmission, ProductCreateRequest
 from app.providers.ai.codex_image import CodexSkillManifest
 from app.providers.decision.jev import JevCallResult, JevUsage
@@ -218,6 +222,8 @@ def database():
     RrugcProductReferenceModel.__table__.create(engine)
     RrugcCandidateModel.__table__.create(engine)
     RrugcReferenceAssetModel.__table__.create(engine)
+    RrugcTypographyReferenceModel.__table__.create(engine)
+    RrugcTypographyStyleDnaModel.__table__.create(engine)
     RrugcReferenceSetModel.__table__.create(engine)
     RrugcReferenceSetItemModel.__table__.create(engine)
     RrugcReferenceSeedModel.__table__.create(engine)
@@ -775,6 +781,64 @@ def test_keyword_analysis_volume_filters_match_overview_and_paginate_in_sql(api,
     assert api.get(endpoint, params={"volume": "zero", "query": "NO"}).json()["total"] == 2
     assert api.get(endpoint, params={"volume": "zero", "query": "ROCK"}).json()["total"] == 0
     assert api.get(endpoint, params={"volume": "invalid"}).status_code == 422
+
+
+def test_keyword_opportunity_filter_and_sort_are_global_and_tenant_scoped(api, database):
+    from hashlib import sha256
+    from app.modules.realistic_review_ugc.creative_brief_service import PROMPT_VERSION
+    from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel
+    from uuid import uuid4
+
+    phrase_high = "MUSIC LOVER"
+    phrase_mid = "COWBOY HAT"
+    phrase_missing = "GREAT IDEA WITHOUT PROVIDER"
+    with database() as session:
+        for phrase, tenant, volume, verified in (
+            (phrase_missing, "tenant-a", 0, False),
+            (phrase_high, "tenant-a", 450, True),
+            (phrase_mid, "tenant-a", 3, True),
+            ("PRIVATE COMPETITOR", "tenant-b", 150000, True),
+        ):
+            row = RrugcKeywordVolumeModel(
+                id=str(uuid4()), tenant_id=tenant, keyword=phrase,
+                keyword_normalized=phrase.casefold(), search_volume=volume,
+                provider="aebrowse_google_ads" if verified else "pending",
+            )
+            session.add(row)
+            session.flush()
+            if verified:
+                session.add(RrugcKeywordCreativeBriefModel(
+                    id=str(uuid4()), tenant_id=tenant, keyword_id=row.id,
+                    keyword_sha256=sha256(phrase.encode()).hexdigest(),
+                    status="completed", prompt_version=PROMPT_VERSION,
+                    brief_json={
+                        "keyword_exact": phrase, "target_audience": "Audience",
+                        "purchase_motivation": "Self expression",
+                        "concepts": [
+                            {"mode": mode, "name": mode, "design_variants": [
+                                mode + str(i) for i in range(count)
+                            ]} for mode, count in (
+                                ("safe", 1), ("creative_twist", 4), ("explore", 4),
+                            )
+                        ],
+                    },
+                ))
+        session.commit()
+    endpoint = "/api/v1/realistic-review-ugc/keyword-analysis"
+    first = api.get(endpoint, params={"sort_by": "opportunity", "page_size": 1})
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 3
+    assert first.json()["items"][0]["keyword"] == phrase_high
+    assert first.json()["items"][0]["opportunity_score"] is not None
+    second = api.get(endpoint, params={"sort_by": "opportunity", "page_size": 1, "page": 2})
+    assert second.status_code == 200
+    assert second.json()["items"][0]["keyword"] == phrase_mid
+    missing = api.get(endpoint, params={"opportunity": "needs_analysis"})
+    assert missing.status_code == 200
+    assert missing.json()["total"] == 1
+    assert missing.json()["items"][0]["keyword"] == phrase_missing
+    assert missing.json()["items"][0]["opportunity_score"] is None
+    assert api.get(endpoint, params={"opportunity": "invalid"}).status_code == 422
 
 
 def test_keyword_analysis_sort_by_platform_agent_and_trend_across_pages(api, database):

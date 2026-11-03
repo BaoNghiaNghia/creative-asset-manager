@@ -22,7 +22,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcKeywordVolumeModel as KeywordRow,
 )
 
-VERSION = "keyword-intelligence-v2-preflight-1"
+VERSION = "keyword-intelligence-v2-evidence-2"
 WEIGHTS = {
     "buyer": 25,
     "creative": 25,
@@ -131,6 +131,8 @@ def _component(key: str, value: int | None, source: str, note: str) -> dict:
 def build_keyword_intelligence(
     row: KeywordRow, brief_row: CreativeBriefRow | None,
     learning: dict | None = None,
+    cross_learning: dict | None = None,
+    visual_evidence: dict | None = None,
 ) -> dict:
     """Pure, bounded scoring; no market claims without real stored evidence."""
     brief = _current_brief(row, brief_row)
@@ -172,7 +174,7 @@ def build_keyword_intelligence(
     elif total_score is None:
         recommendation = "needs_analysis"
         explanation = "Chưa đủ dữ liệu để chấm cơ hội; hãy phân tích Creative Brief và/hoặc lấy volume."
-    elif total_score >= 80 and coverage >= 70 and trademark in {"safe", "no_exact_match"}:
+    elif total_score >= 80 and coverage >= 70 and market_score is not None and trademark in {"safe", "no_exact_match"}:
         recommendation = "prioritize"
         explanation = "Có tín hiệu đáng ưu tiên để thử thiết kế; điểm không phải dự báo doanh số."
     elif total_score < 53 and coverage >= 70:
@@ -190,6 +192,13 @@ def build_keyword_intelligence(
         int(item.get("count", 0)) for item in learn.get("general_rejections", [])
     )
     words = _WORD_RE.findall(row.keyword)
+    market_raw = row.provider_raw_json if isinstance(row.provider_raw_json, dict) else {}
+    visual_summary = dict(visual_evidence or {
+        "status": "no_approved_g3_reference", "analyzed_count": 0,
+        "items": [], "similar_pairs": [],
+        "candidate_image_checked": False, "originality_verified": False,
+    })
+    visual_summary["rejected_stage1_fingerprint_count"] = len(learn.get("rejected_visual_hashes", []))
     return {
         "version": VERSION,
         "keyword_id": row.id,
@@ -229,12 +238,28 @@ def build_keyword_intelligence(
         "evidence": {
             "provider": row.provider, "volume": None if row.provider == "pending" else max(0, int(row.search_volume or 0)),
             "competition": row.competition,
+            "fetched_at": row.fetched_at.isoformat() if row.fetched_at else None,
+            "three_month_change_pct": (
+                float(market_raw["three_month_change_pct"])
+                if row.provider == "aebrowse_google_ads"
+                and type(market_raw.get("three_month_change_pct")) in (int, float) else None
+            ),
+            "yoy_change_pct": (
+                float(market_raw["yoy_change_pct"])
+                if row.provider == "aebrowse_google_ads"
+                and type(market_raw.get("yoy_change_pct")) in (int, float) else None
+            ),
             "source_pin_available": bool(row.source_pin_url),
             "source_image_available": bool(row.source_image_url),
             "trademark_status": trademark,
             "trademark_legal_clearance": False,
         },
+        "visual": visual_summary,
         "learning": {
+            "cross_keyword": cross_learning or {
+                "version": 1, "cohort": None, "eligible": False,
+                "distinct_keywords": 0, "vote_count": 0, "patterns": [],
+            },
             "total_votes": learn.get("total_votes", 0),
             "picked_votes": picked_votes,
             "rejected_votes": rejected_votes,

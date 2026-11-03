@@ -32,6 +32,7 @@ import {
   type KeywordUsageFilter,
   type KeywordTailFilter,
   type KeywordVolumeFilter,
+  type KeywordOpportunityFilter,
 } from "./api";
 import { RrugcWorkflowSettingsModal } from "./RrugcWorkflowSettingsModal";
 import { SkillManagerModal } from "./SkillManagerModal";
@@ -158,6 +159,7 @@ export function RealisticReviewUgcPage() {
   const [keywordUsageFilter, setKeywordUsageFilter] = useState<KeywordUsageFilter>("all");
   const [keywordTailFilter, setKeywordTailFilter] = useState<KeywordTailFilter>("all");
   const [keywordVolumeFilter, setKeywordVolumeFilter] = useState<KeywordVolumeFilter>("nonzero");
+  const [keywordOpportunityFilter, setKeywordOpportunityFilter] = useState<KeywordOpportunityFilter>("all");
   const keywordRequestSequence = useRef(0);
   const [keywordSuggestedOnly, setKeywordSuggestedOnly] = useState(false);
   const [keywordPickingIds, setKeywordPickingIds] = useState<Set<string>>(new Set());
@@ -252,6 +254,7 @@ export function RealisticReviewUgcPage() {
         usage: keywordUsageFilter,
         tail: keywordTailFilter,
         volume: keywordVolumeFilter,
+        opportunity: keywordOpportunityFilter,
         suggestedOnly: keywordSuggestedOnly,
       },
       signal,
@@ -805,7 +808,7 @@ export function RealisticReviewUgcPage() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordVolumeFilter, keywordSuggestedOnly]);
+  }, [activeStage, keywordPageNumber, keywordPageSize, debouncedKeywordQuery, keywordSortBy, keywordSortDirection, keywordUsageFilter, keywordTailFilter, keywordVolumeFilter, keywordOpportunityFilter, keywordSuggestedOnly]);
 
   useEffect(() => {
     if (activeStage !== "stage0") return;
@@ -1078,6 +1081,7 @@ export function RealisticReviewUgcPage() {
             usageFilter={keywordUsageFilter}
             tailFilter={keywordTailFilter}
             volumeFilter={keywordVolumeFilter}
+            opportunityFilter={keywordOpportunityFilter}
             suggestedOnly={keywordSuggestedOnly}
             pickingIds={keywordPickingIds}
             feedbackUpdatingIds={keywordFeedbackIds}
@@ -1086,6 +1090,11 @@ export function RealisticReviewUgcPage() {
             onOpenResearchInbox={() => setResearchInboxOpen(true)}
             onOpenSearchIntelligence={() => setSearchIntelligenceOpen(true)}
             onSortChange={changeKeywordSort}
+            onOpportunityFilterChange={value => {
+              setKeywordLoading(true);
+              setKeywordPageNumber(1);
+              setKeywordOpportunityFilter(value);
+            }}
             onUsageFilterChange={value => {
               setKeywordLoading(true);
               setKeywordPageNumber(1);
@@ -1115,6 +1124,7 @@ export function RealisticReviewUgcPage() {
               setKeywordUsageFilter("all");
               setKeywordTailFilter("all");
               setKeywordVolumeFilter("nonzero");
+              setKeywordOpportunityFilter("all");
               setKeywordSuggestedOnly(false);
             }}
             onPageChange={value => {

@@ -1864,11 +1864,24 @@ class KeywordImageGenerateHandler:
                 # Older version records preserve their historical font details.
                 # The active renderer has no per-job font plan.
                 v3 = getattr(context.job, "payload", {}).get("creative_v3")
+                # A near-duplicate fingerprint is best effort only; the image
+                # is already validated and uploaded. Never fail history writes
+                # solely because this optional diagnostic is unavailable.
+                visual_fingerprint = None
+                if isinstance(v3, dict):
+                    try:
+                        from app.modules.realistic_review_ugc.stage1_visual_similarity import stage1_visual_dhash
+                        visual_fingerprint = stage1_visual_dhash(
+                            path.read_bytes() if path is not None else body
+                        )
+                    except (OSError, ValueError):
+                        visual_fingerprint = None
                 font_info = ({
                     "engine": "creative-v3",
                     "source": "creative-brief-v1",
                     "brief_sha256": v3.get("source_sha256"),
                     "content_sha256": content_hash,
+                    "stage1_visual_dhash": visual_fingerprint,
                     "plan_fingerprint": v3.get("fingerprint"),
                     "concept_mode": ("safe" if expected_count == 9 and index == 0 else "creative_twist" if expected_count == 9 and index < 5 else "explore" if expected_count == 9 else ("safe", "creative_twist", "explore")[min(index // 2, 2)]),
                     "concept_variant": (("A", "A", "B", "C", "D", "A", "B", "C", "D")[index] if expected_count == 9 else "A" if index % 2 == 0 else "B"),

@@ -239,10 +239,11 @@ export type SourcePlanFolders = {
 };
 export const listSourcePlanFolders = (signal?: AbortSignal, workspace: "gatorhats" | "tiktokshop" = "gatorhats") =>
   request<SourcePlanFolders>("/api/v1/realistic-review-ugc/source-plans/folders?workspace=" + workspace, { signal });
-export type KeywordAnalysisSortBy = "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
+export type KeywordAnalysisSortBy = "opportunity" | "keyword" | "trend" | "platform" | "agent" | "search_volume" | "three_month_change" | "yoy_change" | "competition" | "cpc" | "high_cpc" | "trademark" | "created_at" | "fetched_at";
 export type KeywordAnalysisSortDirection = "asc" | "desc";
 export type KeywordUsageFilter = "all" | "unused" | "used";
 export type KeywordVolumeFilter = "all" | "nonzero" | "zero";
+export type KeywordOpportunityFilter = "all" | "prioritize" | "explore" | "hold" | "needs_analysis";
 export type KeywordTailFilter = "all" | "short" | "mid" | "long";
 
 export const listSourcePlans = (
@@ -406,6 +407,7 @@ export const listKeywordAnalysis = (
     tail?: KeywordTailFilter;
     volume?: KeywordVolumeFilter;
     suggestedOnly?: boolean;
+    opportunity?: KeywordOpportunityFilter;
   } = {},
   signal?: AbortSignal,
 ) => {
@@ -413,6 +415,7 @@ export const listKeywordAnalysis = (
     page: String(filters.page ?? 1),
     page_size: String(filters.pageSize ?? 20),
     sort_by: filters.sortBy ?? "search_volume",
+    opportunity: filters.opportunity ?? "all",
     sort_dir: filters.sortDirection ?? "desc",
     usage: filters.usage ?? "all",
     tail: filters.tail ?? "all",

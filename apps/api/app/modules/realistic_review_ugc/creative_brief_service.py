@@ -465,6 +465,14 @@ class CreativeBriefGenerateHandler:
             feedback_context = learning_prompt_context(learning_profile(
                 session, tenant_id=context.job.tenant_id, keyword=phrase,
             ))
+            from app.modules.realistic_review_ugc.keyword_cohort_learning import (
+                cross_keyword_learning, cross_keyword_guidance,
+            )
+            cohort_context = cross_keyword_guidance(cross_keyword_learning(
+                session, tenant_id=context.job.tenant_id, keyword=phrase,
+            ))
+            if cohort_context:
+                feedback_context = (feedback_context + "\n" + cohort_context).strip()
             session.commit()
         try:
             brief: CreativeBrief = asyncio.run(generate_brief(

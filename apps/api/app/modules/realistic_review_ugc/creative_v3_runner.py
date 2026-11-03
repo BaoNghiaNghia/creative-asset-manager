@@ -28,6 +28,9 @@ from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
     TypographyPilotError, fit_native_on_stage1_canvas, _store_new,
 )
 from app.modules.realistic_review_ugc.typography_quality_gate import inspect_typography_png
+from app.modules.realistic_review_ugc.stage1_visual_similarity import (
+    stage1_visual_dhash, matches_rejected_visual,
+)
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageProviderError, CodexImageRunnerConfig,
 )
@@ -68,6 +71,15 @@ def _checked_png(data: bytes, previous: set[str]) -> tuple[str, dict]:
     digest = hashlib.sha256(data).hexdigest()
     if digest in previous:
         raise _fail("creative_v3_duplicate_image", "Two V3 concepts generated identical image pixels.")
+    qa = dict(qa)
+    # G5 has ALREADY decoded this PNG and computed a transparent-crop dHash.
+    # Reuse it to avoid another expensive 2048x1024 decode on every slot.
+    signature = qa.get("perceptual_hash")
+    qa["stage1_visual_dhash"] = (
+        "tdh1:" + signature if isinstance(signature, str) and len(signature) == 16
+        and all(ch in "0123456789abcdef" for ch in signature)
+        else stage1_visual_dhash(data)
+    )
     return digest, qa
 
 
@@ -100,6 +112,7 @@ async def generate_six(
     final_dir.chmod(0o700)
     seen: set[str] = set()
     rejected_hashes = set((plan.get("learning_profile") or {}).get("rejected_hashes", []))
+    rejected_visual_hashes = (plan.get("learning_profile") or {}).get("rejected_visual_hashes", [])
     outputs: list[GeneratedImageFile] = []
     cap_fit_reports: list[dict] = []
 
@@ -130,7 +143,9 @@ async def generate_six(
             # Only a verified native checkpoint may be reused.
             data = target.read_bytes()
             digest, qa = _checked_png(data, seen)
-            if digest in rejected_hashes:
+            if digest in rejected_hashes or matches_rejected_visual(
+                qa["stage1_visual_dhash"], rejected_visual_hashes,
+            ):
                 raise _fail("creative_v3_previously_rejected_image",
                             "Saved checkpoint matches an explicitly rejected Stage 1 design.")
         else:
@@ -164,10 +179,12 @@ async def generate_six(
                         raise _fail("creative_v3_native_png_rejected",
                                     "Native ImageGen returned a PNG without safe transparent margins.") from exc
                     digest, qa = _checked_png(data, seen)
-                    if digest in rejected_hashes:
+                    if digest in rejected_hashes or matches_rejected_visual(
+                        qa["stage1_visual_dhash"], rejected_visual_hashes,
+                    ):
                         raise _fail(
                             "creative_v3_previously_rejected_image",
-                            "Image matches the SHA-256 of a rejected design. "
+                            "Image is identical or visually very close to a rejected design. "
                             "Generate a substantially different arrangement.",
                         )
                     verify_snapshot(revalidate(), snapshot)

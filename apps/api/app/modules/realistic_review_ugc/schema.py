@@ -490,6 +490,9 @@ class KeywordVolumeResponse(BaseModel):
     last_requested_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    opportunity_score: int | None = None
+    opportunity_coverage: int | None = None
+    opportunity_recommendation: str | None = None
 
 
 class KeywordSuggestionResponse(BaseModel):

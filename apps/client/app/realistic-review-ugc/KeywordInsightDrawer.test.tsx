@@ -96,7 +96,7 @@ describe("Keyword Insight Drawer", () => {
     await act(async () => drawer.querySelector<HTMLButtonElement>(".rrugc-insight-tabs button:nth-child(4)")?.click());
     expect(drawer.textContent).toContain("poor cap fit");
     await act(async () => drawer.querySelector<HTMLButtonElement>(".rrugc-insight-tabs button:nth-child(5)")?.click());
-    expect(drawer.textContent).toContain("Chưa liên kết");
+    expect(drawer.textContent).toContain("Chưa có reference G3");
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });

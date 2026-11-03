@@ -264,7 +264,22 @@ export function KeywordInsightDrawer({
                   <span>{entry.reason.replace(/_/g, " ")}</span><p>{entry.guidance}</p>
                 </article>)}
               </>}
-            <div className="rrugc-insight-note">Các phản hồi hiện áp dụng cho đúng câu này. Chưa có cơ chế tự học liên-keyword hoặc đánh giá thành công thương mại.</div>
+            <div className="rrugc-insight-section-heading"><strong>Cross-keyword feedback</strong>
+              <small>{current.learning.cross_keyword?.cohort || "Chưa phân nhóm"}</small></div>
+            {current.learning.cross_keyword?.eligible ? <>
+              <div className="rrugc-insight-metrics-row">
+                <div><strong>{current.learning.cross_keyword.distinct_keywords}</strong><small>Keyword tương đồng</small></div>
+                <div><strong>{current.learning.cross_keyword.vote_count}</strong><small>Lượt đánh giá</small></div>
+                <div><strong>{current.learning.cross_keyword.patterns.length}</strong><small>Bài học đủ ngưỡng</small></div>
+              </div>
+              {current.learning.cross_keyword.patterns.map(pattern => <article key={pattern.reason} className="rrugc-insight-learning-row">
+                <strong>{pattern.reason.replace(/_/g, " ")}</strong>
+                <span>{pattern.distinct_keywords} keyword · {pattern.rejected_outputs} ảnh Reject</span>
+                <p>{pattern.guidance}</p>
+              </article>)}
+              {!current.learning.cross_keyword.patterns.length && <p className="rrugc-insight-note">Đã có phản hồi liên-keyword nhưng chưa có một lỗi lặp lại đủ mạnh để điều chỉnh prompt.</p>}
+            </> : <div className="rrugc-insight-note">Chưa đủ mẫu để học liên-keyword. Yêu cầu tối thiểu 3 keyword khác nhau và 6 lượt đánh giá trong cùng nhóm chủ đề. Không tự cấm cả phong cách từ một ảnh Reject.</div>}
+            <div className="rrugc-insight-note">Học liên-keyword chỉ là gợi ý điều chỉnh bố cục. Reject một ảnh không đồng nghĩa Reject keyword hoặc dự đoán doanh số.</div>
           </div>}
           {tab === "evidence" && <div className="rrugc-insight-stack">
             <div className="rrugc-insight-section-heading"><strong>Market & Visual Evidence</strong><small>Dữ liệu đã lưu, không tìm kiếm mới</small></div>
@@ -278,10 +293,29 @@ export function KeywordInsightDrawer({
             <div className="rrugc-insight-evidence-grid">
               <span>Source Pin <b>{current.evidence.source_pin_available ? "Đã lưu" : "Chưa có"}</b></span>
               <span>Source Image <b>{current.evidence.source_image_available ? "Đã lưu" : "Chưa có"}</b></span>
-              <span>G3 Typography DNA <b>Chưa liên kết</b></span>
-              <span>Originality / similarity QA <b>Chưa kiểm tra</b></span>
+              <span>G3 Typography DNA <b>{current.visual?.analyzed_count ? current.visual.analyzed_count + " approved reference(s)" : "Chưa có"}</b></span>
+              <span>Output đã Reject có hash <b>{current.visual?.rejected_stage1_fingerprint_count ?? 0}</b></span>
             </div>
-            <div className="rrugc-insight-note">Không đồng nhất Google Ads volume với doanh số Etsy. G3 chỉ được phân tích trên ảnh tham khảo có quyền sử dụng phù hợp.</div>
+            <div className="rrugc-insight-metrics-row">
+              <div><strong>{current.evidence.three_month_change_pct == null ? "—" : current.evidence.three_month_change_pct.toFixed(1) + "%"}</strong><small>3-mo trend</small></div>
+              <div><strong>{current.evidence.yoy_change_pct == null ? "—" : current.evidence.yoy_change_pct.toFixed(1) + "%"}</strong><small>YoY trend</small></div>
+              <div><strong>{current.evidence.fetched_at ? new Date(current.evidence.fetched_at).toLocaleDateString() : "—"}</strong><small>Market checked</small></div>
+            </div>
+            {current.visual?.items?.length ? <>
+              <div className="rrugc-insight-section-heading"><strong>G3 Typography DNA · approved references</strong>
+                <small>{current.visual.analyzed_count} kết quả</small></div>
+              {current.visual.items.slice(0, 8).map(dna => <article key={dna.reference_id} className="rrugc-insight-concept">
+                <div><span>{dna.style_family}</span><small>Confidence {Math.round(dna.confidence * 100)}%</small></div>
+                <strong>{dna.font_mood || "Typography profile"}</strong>
+                <p>{dna.layout_nodes} text nodes · {dna.layout_edges} layout relations · fingerprint {dna.perceptual_hash_available ? "available" : "unavailable"}</p>
+              </article>)}
+              <div className="rrugc-insight-note">{current.visual.similar_pairs.length} cặp reference có bố cục gần giống (dHash distance ≤ 6). Đây là so sánh vùng typography của reference, không phải xác minh design Stage 1.</div>
+              {current.visual.similar_pairs.slice(0, 5).map(pair => <div key={pair.left_reference_id + pair.right_reference_id} className="rrugc-insight-learning-row">
+                <strong>Similar typography ROI · distance {pair.distance}</strong>
+                <span>{pair.left_reference_id.slice(0, 8)} · {pair.right_reference_id.slice(0, 8)}</span>
+              </div>)}
+            </> : <p className="rrugc-insight-note">Chưa có reference G3 được duyệt, được phép sử dụng và phân tích thành công gắn với keyword này. CAM không tự quét ảnh Scout khi mở panel.</p>}
+            <div className="rrugc-insight-note">Không đồng nhất Google Ads volume với doanh số Etsy. G3 chỉ dùng dữ liệu tham khảo có xác nhận quyền sử dụng; perceptual hash chỉ là tín hiệu giống hình, không phải chứng nhận bản quyền hay độ độc đáo.</div>
           </div>}
         </>}
       </div>

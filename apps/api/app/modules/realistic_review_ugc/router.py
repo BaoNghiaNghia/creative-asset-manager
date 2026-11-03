@@ -4054,9 +4054,10 @@ def list_keyword_analysis(
     # requests nonzero or zero, filtering in SQL before count/pagination.
     volume: str = Query(default="all", pattern="^(all|nonzero|zero)$"),
     suggested_only: bool = Query(default=False),
+    opportunity: str = Query(default="all", pattern="^(all|prioritize|explore|hold|needs_analysis)$"),
     sort_by: str = Query(
         default="search_volume",
-        pattern="^(keyword|trend|platform|agent|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at)$",
+        pattern="^(keyword|trend|platform|agent|search_volume|three_month_change|yoy_change|competition|cpc|high_cpc|trademark|created_at|fetched_at|opportunity)$",
     ),
     sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
     session: Session = Depends(get_db),
@@ -4135,11 +4136,24 @@ def list_keyword_analysis(
     elif usage == "unused":
         conditions.append(RrugcKeywordVolumeModel.picked.is_(False))
 
-    total = int(
-        session.scalar(
-            select(func.count(RrugcKeywordVolumeModel.id)).where(*conditions)
-        ) or 0
-    )
+    needs_opportunity = sort_by == "opportunity" or opportunity != "all"
+    score_expr = recommendation_expr = coverage_expr = None
+    brief_join = None
+    if needs_opportunity:
+        from app.modules.realistic_review_ugc.keyword_opportunity_ranking import opportunity_sql
+        from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel
+        score_expr, recommendation_expr, coverage_expr = opportunity_sql()
+        brief_join = and_(
+            RrugcKeywordCreativeBriefModel.tenant_id == principal.active_tenant_id,
+            RrugcKeywordCreativeBriefModel.keyword_id == RrugcKeywordVolumeModel.id,
+        )
+        if opportunity != "all":
+            conditions.append(recommendation_expr == opportunity)
+
+    count_query = select(func.count(RrugcKeywordVolumeModel.id)).where(*conditions)
+    if brief_join is not None:
+        count_query = count_query.outerjoin(RrugcKeywordCreativeBriefModel, brief_join)
+    total = int(session.scalar(count_query) or 0)
     total_keywords = int(
         session.scalar(
             select(func.count(RrugcKeywordVolumeModel.id)).where(*base_conditions)
@@ -4287,7 +4301,16 @@ def list_keyword_analysis(
         (RrugcKeywordVolumeModel.provider == "pending", None),
         else_=three_month_change,
     )
-    if sort_by == "keyword":
+    if sort_by == "opportunity" and score_expr is not None:
+        primary_order = [
+            score_expr.asc().nulls_last() if sort_dir == "asc"
+            else score_expr.desc().nulls_last(),
+            # Missing buyer/market evidence must remain unscored. For that
+            # cohort, rank deterministic cap preflight length without falsely
+            # representing it as a commercial Opportunity Score.
+            func.length(RrugcKeywordVolumeModel.keyword).asc(),
+        ]
+    elif sort_by == "keyword":
         primary_order = [
             RrugcKeywordVolumeModel.keyword.asc()
             if sort_dir == "asc"
@@ -4372,25 +4395,46 @@ def list_keyword_analysis(
             else RrugcKeywordVolumeModel.search_volume.desc()
         ]
 
-    rows = list(
-        session.scalars(
-            select(RrugcKeywordVolumeModel)
-            .where(*conditions)
-            .order_by(
-                *primary_order,
-                RrugcKeywordVolumeModel.keyword.asc(),
-                RrugcKeywordVolumeModel.id.asc(),
+    keyword_query = select(RrugcKeywordVolumeModel).where(*conditions)
+    if brief_join is not None:
+        keyword_query = keyword_query.outerjoin(RrugcKeywordCreativeBriefModel, brief_join)
+    rows = list(session.scalars(
+        keyword_query.order_by(
+            *primary_order,
+            RrugcKeywordVolumeModel.keyword.asc(),
+            RrugcKeywordVolumeModel.id.asc(),
+        ).offset((page - 1) * page_size).limit(page_size)
+    ))
+    opportunity_by_id = {}
+    if needs_opportunity and rows:
+        calculated = session.execute(
+            select(RrugcKeywordVolumeModel.id, score_expr, recommendation_expr, coverage_expr)
+            .outerjoin(RrugcKeywordCreativeBriefModel, brief_join)
+            .where(
+                RrugcKeywordVolumeModel.tenant_id == principal.active_tenant_id,
+                RrugcKeywordVolumeModel.id.in_([row.id for row in rows]),
             )
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
-    )
+        ).all()
+        opportunity_by_id = {
+            row_id: (int(score) if score is not None else None, recommendation, int(coverage))
+            for row_id, score, recommendation, coverage in calculated
+        }
     feedback = statuses_for_rows(session, principal.active_tenant_id, rows)
     from app.modules.realistic_review_ugc.keyword_agent_origins import origins_for_keywords
     origins = origins_for_keywords(session, tenant_id=principal.active_tenant_id,
                                   keywords=[row.keyword_normalized for row in rows])
     return KeywordVolumePageResponse(
-        items=[_keyword_volume_response(row, feedback, origins.get(row.keyword_normalized)) for row in rows],
+        items=[
+            _keyword_volume_response(row, feedback, origins.get(row.keyword_normalized)).model_copy(
+                update={
+                    "opportunity_score": opportunity_by_id[row.id][0],
+                    "opportunity_recommendation": opportunity_by_id[row.id][1],
+                    "opportunity_coverage": opportunity_by_id[row.id][2],
+                }
+            ) if row.id in opportunity_by_id
+            else _keyword_volume_response(row, feedback, origins.get(row.keyword_normalized))
+            for row in rows
+        ],
         page=page,
         page_size=page_size,
         total=total,
@@ -6941,6 +6985,8 @@ def get_keyword_intelligence(
     from app.modules.realistic_review_ugc.keyword_intelligence import build_keyword_intelligence
     from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel
     from app.modules.realistic_review_ugc.stage1_design_learning import learning_profile
+    from app.modules.realistic_review_ugc.keyword_cohort_learning import cross_keyword_learning
+    from app.modules.realistic_review_ugc.keyword_visual_evidence import keyword_visual_evidence
 
     row = session.scalar(select(RrugcKeywordVolumeModel).where(
         RrugcKeywordVolumeModel.id == keyword_id,
@@ -6953,7 +6999,12 @@ def get_keyword_intelligence(
         RrugcKeywordCreativeBriefModel.tenant_id == principal.active_tenant_id,
     ))
     feedback = learning_profile(session, tenant_id=principal.active_tenant_id, keyword=row.keyword)
-    return build_keyword_intelligence(row, brief, feedback)
+    cohort = cross_keyword_learning(session, tenant_id=principal.active_tenant_id, keyword=row.keyword)
+    visual = keyword_visual_evidence(
+        session, tenant_id=principal.active_tenant_id,
+        keyword_id=row.id, user_id=principal.user_id,
+    )
+    return build_keyword_intelligence(row, brief, feedback, cohort, visual)
 
 
 @router.post("/keyword-images/manual", status_code=202)

@@ -218,6 +218,9 @@ export type KeywordVolume = {
   last_requested_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  opportunity_score?: number | null;
+  opportunity_coverage?: number | null;
+  opportunity_recommendation?: "prioritize" | "explore" | "hold" | "needs_analysis" | null;
 };
 
 export type KeywordVolumeOverview = {
@@ -287,16 +290,39 @@ export type KeywordIntelligence = {
     warnings: string[];
     physical_fit_verified: boolean;
   };
+  visual?: {
+    status: "no_approved_g3_reference" | "approved_g3_references";
+    analyzed_count: number;
+    items: Array<{
+      reference_id: string; style_family: string; font_mood: string;
+      layout_nodes: number; layout_edges: number; confidence: number;
+      perceptual_hash_available: boolean;
+    }>;
+    similar_pairs: Array<{
+      left_reference_id: string; right_reference_id: string;
+      distance: number; assessment: string;
+    }>;
+    candidate_image_checked: boolean; originality_verified: boolean;
+    rejected_stage1_fingerprint_count?: number;
+  };
   evidence: {
     provider: string;
     volume: number | null;
     competition: string | null;
+    fetched_at?: string | null;
+    three_month_change_pct?: number | null;
+    yoy_change_pct?: number | null;
     source_pin_available: boolean;
     source_image_available: boolean;
     trademark_status: string;
     trademark_legal_clearance: boolean;
   };
   learning: {
+    cross_keyword?: {
+      version: number; cohort: string | null; eligible: boolean;
+      distinct_keywords: number; vote_count: number;
+      patterns: Array<{reason: string; distinct_keywords: number; rejected_outputs: number; guidance: string}>;
+    };
     total_votes: number;
     picked_votes: number;
     rejected_votes: number;

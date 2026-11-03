@@ -70,7 +70,8 @@ def learning_profile(session: Session, *, tenant_id: str, keyword: str) -> dict:
     """
     if not tenant_id or not keyword:
         return {"version": 1, "rejected": [], "picked": [],
-                "general_rejections": [], "rejected_hashes": [], "total_votes": 0}
+                "general_rejections": [], "rejected_hashes": [],
+                "rejected_visual_hashes": [], "total_votes": 0}
     rows = session.execute(select(
         RrugcImageOutputVersionModel.font_info_json,
     ).join(RrugcKeywordImageJobModel,
@@ -79,10 +80,12 @@ def learning_profile(session: Session, *, tenant_id: str, keyword: str) -> dict:
         RrugcKeywordImageJobModel.tenant_id == tenant_id,
         RrugcKeywordImageJobModel.keyword_text == keyword,
         RrugcImageOutputVersionModel.stage == "stage1",
+        RrugcImageOutputVersionModel.font_info_json["creative_feedback"]["decision"].as_string().in_(("picked", "rejected")),
     ).order_by(RrugcImageOutputVersionModel.created_at.desc()).limit(400)).scalars().all()
     signals: dict[tuple[str, str], Counter] = {}
     votes = 0
     blocked_hashes: set[str] = set()
+    blocked_visual: set[str] = set()
     general_reasons: Counter = Counter()
     for raw in rows:
         metadata = raw if isinstance(raw, dict) else {}
@@ -95,6 +98,10 @@ def learning_profile(session: Session, *, tenant_id: str, keyword: str) -> dict:
                 ch in "0123456789abcdef" for ch in digest
             ):
                 blocked_hashes.add(digest)
+            from app.modules.realistic_review_ugc.typography_similarity import is_typography_dhash
+            visual = metadata.get("stage1_visual_dhash")
+            if is_typography_dhash(visual):
+                blocked_visual.add(visual)
         mode, variant = metadata.get("concept_mode"), metadata.get("concept_variant")
         if mode not in MODE_LABELS or variant not in {"A", "B", "C", "D"} or (
             mode == "safe" and variant != "A"
@@ -131,7 +138,9 @@ def learning_profile(session: Session, *, tenant_id: str, keyword: str) -> dict:
     ]
     return {"version": 1, "rejected": rejects, "picked": picked,
             "general_rejections": general,
-            "rejected_hashes": sorted(blocked_hashes), "total_votes": votes}
+            "rejected_hashes": sorted(blocked_hashes),
+            "rejected_visual_hashes": sorted(blocked_visual),
+            "total_votes": votes}
 
 
 def learning_prompt_context(profile: dict) -> str:
@@ -170,6 +179,7 @@ def learning_fingerprint(profile: dict) -> str:
         "rejected": profile["rejected"], "picked": profile["picked"],
         "total_votes": profile["total_votes"],
         "rejected_hashes": profile.get("rejected_hashes", []),
+        "rejected_visual_hashes": profile.get("rejected_visual_hashes", []),
         "general_rejections": profile.get("general_rejections", []),
     }
     return hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()

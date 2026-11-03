@@ -232,14 +232,23 @@ def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str,
             profile = learning_profile(
                 session, tenant_id=tenant_id, keyword=keyword.keyword,
             )
-            if profile["total_votes"]:
+            from app.modules.realistic_review_ugc.keyword_cohort_learning import (
+                cross_keyword_learning, cross_keyword_guidance,
+            )
+            cohort = cross_keyword_learning(
+                session, tenant_id=tenant_id, keyword=keyword.keyword,
+            )
+            if profile["total_votes"] or cohort.get("patterns"):
                 plan["learning_profile"] = profile
-                plan["learning_context"] = learning_prompt_context(profile)
+                plan["learning_context"] = (
+                    learning_prompt_context(profile) + "\n" + cross_keyword_guidance(cohort)
+                ).strip()
                 # The feedback is pinned on a NEW attempt. If a user rejects
                 # during generation, stop rather than keep producing a now-
                 # rejected direction from an outdated processing snapshot.
                 plan["fingerprint"] = hashlib.sha256((
                     plan["fingerprint"] + "|" + learning_fingerprint(profile)
+                    + "|" + hashlib.sha256(cross_keyword_guidance(cohort).encode()).hexdigest()
                 ).encode()).hexdigest()
         return plan
     except ValueError as exc:
