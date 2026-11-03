@@ -127,7 +127,7 @@ def test_version_upgrade_force_requeues_completed_briefs_without_touching_images
 
     summary = queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())
     assert summary == {"examined": 1, "queued": 1, "skipped": 0}
-    assert row.prompt_version == PROMPT_VERSION == "meaning-first-144-v2"
+    assert row.prompt_version == PROMPT_VERSION == "meaning-first-144-v3"
     assert row.status == "queued"
     assert row.processing_job_id != prior_job
     assert queue_picked_backfill(db, tenant_id="tenant-a", settings=settings())["queued"] == 0

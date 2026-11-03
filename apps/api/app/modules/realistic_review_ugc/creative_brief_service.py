@@ -26,7 +26,7 @@ from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
 )
 
-PROMPT_VERSION = "meaning-first-144-v2"
+PROMPT_VERSION = "meaning-first-144-v3"
 JOB_TYPE = "rrugc_creative_brief_generate"
 INTERACTIVE_BRIEF_PRIORITY = 65  # above general aged 50 / Stage 1 queued 51
 BACKGROUND_BRIEF_PRIORITY = 51   # backfill must not starve behind storage backlog
