@@ -1,4 +1,2 @@
-export type Corner = [number, number];
-export const DEFAULT_THREE_QUARTER_CORNERS: Corner[] = [
-  [0.30, 0.36], [0.63, 0.37], [0.65, 0.56], [0.28, 0.53],
-];
+export type { Point as Corner } from "./ThreeQuarterProjection";
+export { CROWN_FIT_CORNERS_8869 as DEFAULT_THREE_QUARTER_CORNERS } from "./ThreeQuarterProjection";

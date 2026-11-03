@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BlueprintPreview, BLUEPRINT_HAT_COLORS, blueprintAvailableColors,
   blueprintHatPhoto, blueprintNavigate, blueprintWindow,
@@ -50,6 +50,32 @@ async function clickButton(label: string) {
 }
 
 describe("Three-quarter blueprint frame", () => {
+  it("repairs outdated out-of-crown points without silently saving them", async () => {
+    const withThreeQuarter = stock();
+    withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
+    const save = vi.fn(async (data: { corners: [number, number][]; color_key: string; revision: number }) => ({ ...data, revision: data.revision + 1 }));
+    await mount({ stockCatalog: withThreeQuarter, threeQuarterPlacements: {
+      "white-black": { color_key: "white-black", revision: 2, corners: [
+        [0.18, 0.12], [0.75, 0.24], [0.69, 0.69], [0.11, 0.56],
+      ] },
+    }, onSaveThreeQuarterPlacement: save });
+    const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
+    expect(card.textContent).toContain("outside the front crown");
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
+    expect(card.querySelectorAll(".rrugc-blueprint-three-quarter-handle")).toHaveLength(4);
+    expect(card.querySelectorAll(".rrugc-blueprint-three-quarter-handle.is-outside-crown")).toHaveLength(0);
+    const saveButton = [...card.querySelectorAll<HTMLButtonElement>("button")].find(btn => btn.textContent === "Save")!;
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => saveButton.click());
+    expect(save).toHaveBeenCalledOnce();
+    const saved = save.mock.calls[0][0];
+    expect(saved.color_key).toBe("white-black");
+    expect(saved.revision).toBe(2);
+    expect(saved.corners[0][0]).toBeCloseTo(0.316);
+    expect(saved.corners[3][1]).toBeCloseTo(0.529);
+    await close();
+  });
   it("projects the same selected front artwork onto synchronized 3/4 stock without altering the side panel", async () => {
     const withThreeQuarter = stock();
     withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
@@ -62,6 +88,34 @@ describe("Three-quarter blueprint frame", () => {
     expect(card.querySelector("img")?.getAttribute("src")).toBe("/official/white-black/three-quarter.jpg");
     expect(card.querySelector("canvas")).not.toBeNull();
     expect(card.querySelector("button")?.textContent).toContain("Edit 4 points");
+    await close();
+  });
+
+  it("updates the four-point outline from keyboard dragging and Reset restores the stored field", async () => {
+    const catalog3q = stock();
+    catalog3q.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
+    const corners: [number, number][] = [
+      [0.316, 0.351], [0.647, 0.356], [0.657, 0.552], [0.294, 0.529],
+    ];
+    const save = vi.fn(async (value: { color_key: string; corners: [number, number][]; revision: number }) => value);
+    await mount({ stockCatalog: catalog3q, threeQuarterPlacements: {
+      "white-black": { color_key: "white-black", corners, revision: 3 },
+    }, onSaveThreeQuarterPlacement: save });
+    const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
+    await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
+    const outline = card.querySelector<SVGPolygonElement>(".rrugc-blueprint-three-quarter-field")!;
+    const originalPoints = outline.getAttribute("points");
+    const button = card.querySelector<HTMLButtonElement>('[aria-label="Top left embroidery corner"]')!;
+    await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })));
+    expect(outline.getAttribute("points")).not.toBe(originalPoints);
+    expect(card.querySelector<HTMLButtonElement>(".rrugc-blueprint-three-quarter-handle")!.style.left).toBe("32.1%");
+    const saveButton = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Save")!;
+    expect(saveButton.disabled).toBe(false);
+    const reset = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Reset")!;
+    await act(async () => reset.click());
+    expect(outline.getAttribute("points")).toBe(originalPoints);
+    expect(saveButton.disabled).toBe(true);
+    expect(save).not.toHaveBeenCalled();
     await close();
   });
 

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.modules.realistic_review_ugc.model import RrugcThreeQuarterPlacementSettingModel
 
 DEFAULT_THREE_QUARTER_CORNERS = (
-    (0.30, 0.36), (0.63, 0.37), (0.65, 0.56), (0.28, 0.53),
+    (0.316, 0.351), (0.647, 0.356), (0.657, 0.552), (0.294, 0.529),
 )
 
 
