@@ -12,7 +12,7 @@ from app.modules.realistic_review_ugc.keyword_visual_evidence import keyword_vis
 
 
 def add_dna(session, *, tenant="tenant-a", keyword_id="keyword-a",
-            rights="owned", editorial="approved", status="ready", fingerprint="tdh1:0f0f0f0f0f0f0f0f"):
+            rights="owned", editorial="approved", status="ready", fingerprint="tdh1:0f0f0f0f0f0f0f0f", reviewed=True):
     content = uuid4().hex + uuid4().hex
     aid, rid = str(uuid4()), str(uuid4())
     session.add(Asset(
@@ -29,16 +29,22 @@ def add_dna(session, *, tenant="tenant-a", keyword_id="keyword-a",
         analysis_status=status, created_by_user_id="user-a",
     ))
     session.flush()
+    review = ({
+        "schema_version": "typography-review/v1", "decision": "accepted",
+        "reason_code": "approved", "analyzer_version": "g3-test",
+        "image_hash": content, "override": None,
+    } if reviewed else None)
     session.add(Dna(
         id=str(uuid4()), tenant_id=tenant, reference_id=rid,
         schema_version="typography-dna/v1", analyzer_version="g3-test",
         image_hash=content,
         typography_region_json={"x": 0.1, "y": 0.2, "w": 0.7, "h": 0.5},
         style_family="Western",
-        font_mood_json={"primary": "serif"},
-        layout_graph_json={"nodes": [{"id": "a"}], "edges": []},
+        font_mood_json={"primary": "serif", "weight": "bold", "contrast": "low", "proportions": "normal"},
+        layout_graph_json={"nodes": [{"id": "n1", "role": "primary", "size_ratio": 1.0,
+                                      "path_type": "straight", "align": "center"}], "edges": []},
         overlap_rules_json=[], perceptual_hash=fingerprint,
-        confidence=.9,
+        confidence=.9, manual_override_json=review,
     ))
     session.flush()
     return rid
@@ -54,6 +60,10 @@ def test_g3_evidence_is_keyword_tenant_and_rights_scoped():
         add_dna(session, rights="blocked")
         add_dna(session, editorial="candidate")
         add_dna(session, status="pending")
+        add_dna(session, reviewed=False)  # Raw analysis is NOT approved DNA.
+        invalid = add_dna(session)
+        stale_review = session.query(Dna).filter(Dna.reference_id == invalid).one()
+        stale_review.manual_override_json = {**stale_review.manual_override_json, "image_hash": "0" * 64}
         add_dna(session, tenant="tenant-b")
         add_dna(session, keyword_id="keyword-b")
         evidence = keyword_visual_evidence(session, tenant_id="tenant-a", keyword_id="keyword-a", user_id="user-a")
@@ -83,7 +93,11 @@ def test_g3_hash_with_stale_manual_roi_does_not_qualify_for_similarity():
         one = add_dna(session)
         two = add_dna(session)
         dna = session.query(Dna).filter(Dna.reference_id == one).one()
-        dna.manual_override_json = {"override": {"typography_region": {"x": .3}}}
+        dna.manual_override_json = {
+            **dna.manual_override_json,
+            "reason_code": "region_corrected",
+            "override": {"typography_region": {"x": .3, "y": .2, "w": .5, "h": .5}},
+        }
         evidence = keyword_visual_evidence(session, tenant_id="tenant-a", keyword_id="keyword-a", user_id="user-a")
         assert evidence["analyzed_count"] == 2
         assert evidence["similar_pairs"] == []

@@ -20,6 +20,9 @@ provider billing, auto-scanning, auto-approval or unbounded retries.
 ## Phase 4 — Visual + Market evidence
 - G3 read-only evidence: keyword-scoped, tenant-owned/authorized and editorial
   approved references, current matching source hash and confidence >= 0.65.
+  A source approval is NOT a Style DNA approval: only explicit human-Accepted,
+  still-valid reviewed DNA is eligible. Revoked rights, stale reviewer hashes,
+  rejected/pending DNA and invalid structural overrides remain excluded.
   Show style family, font mood, compact layout graph features and similarity pairs
   (dHash Hamming <=6); stale manual ROI hashes are not considered.
 - G3 is opt-in and does not run provider analysis on reading Stage 0.

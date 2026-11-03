@@ -11,6 +11,9 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.realistic_review_ugc.typography_analysis_queue import VERIFIED_RIGHTS
+from app.modules.realistic_review_ugc.typography_dna_review import (
+    REVIEW_SCHEMA, effective_reviewed_dna,
+)
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel as Reference,
     RrugcTypographyStyleDnaModel as Dna,
@@ -49,6 +52,9 @@ def keyword_visual_evidence(session: Session, *, tenant_id: str, keyword_id: str
             Reference.analysis_status == "ready",
             Dna.confidence >= .65,
             Dna.schema_version == "typography-dna/v1",
+            # Approved source != accepted Style DNA; filter before LIMIT.
+            Dna.manual_override_json["schema_version"].as_string() == REVIEW_SCHEMA,
+            Dna.manual_override_json["decision"].as_string() == "accepted",
         )
         .order_by(Dna.analyzed_at.desc(), Dna.id.desc())
         .limit(MAX_REFERENCES)
@@ -61,19 +67,26 @@ def keyword_visual_evidence(session: Session, *, tenant_id: str, keyword_id: str
         selected.setdefault(reference.id, (reference, dna))
     items = []
     for reference, dna in selected.values():
-        graph = dna.layout_graph_json if isinstance(dna.layout_graph_json, dict) else {}
-        font = dna.font_mood_json if isinstance(dna.font_mood_json, dict) else {}
+        # Accepted human review can be invalidated by revoked rights, stale
+        # source hashes or unsafe structural overrides; share G4's validator.
+        reviewed = effective_reviewed_dna(reference, dna)
+        if reviewed is None:
+            continue
+        graph = reviewed["layout_graph"]
+        font = reviewed["font_mood"]
         hash_ok = is_typography_dhash(dna.perceptual_hash) and not has_stale_roi_hash(dna.manual_override_json)
         items.append({
             "reference_id": reference.id,
-            "style_family": dna.style_family,
+            "style_family": reviewed["style_family"],
             "font_mood": str(font.get("primary") or "")[:80],
             "layout_nodes": len(graph.get("nodes", [])) if isinstance(graph.get("nodes"), list) else 0,
             "layout_edges": len(graph.get("edges", [])) if isinstance(graph.get("edges"), list) else 0,
-            "confidence": round(float(dna.confidence), 3),
+            "confidence": round(float(reviewed["confidence"]), 3),
             "perceptual_hash_available": bool(hash_ok),
             "fingerprint": dna.perceptual_hash if hash_ok else None,
         })
+    if not items:
+        return empty
     pairs = []
     for left, right in combinations(items, 2):
         if not (left["fingerprint"] and right["fingerprint"]):
