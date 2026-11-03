@@ -32,6 +32,9 @@ VERIFIED_RIGHTS = frozenset({"owned", "licensed", "permitted_reference"})
 VERSION = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 LEASE_SECONDS = 120
+# Hard upper bound for the manual eight-reference pilot. Count attempted claims
+# conservatively (not completed DNA) to include failed and retried provider work.
+DAILY_ATTEMPT_LIMIT = 8
 
 
 def _clock(now: datetime | None) -> datetime:
@@ -192,6 +195,21 @@ class TypographyAnalysisQueue:
             )
         ) or 0
         if running >= concurrency:
+            return None
+
+        # Daily cost safeguard shared by UI one-shot and CLI pilot. The
+        # tenant advisory lock protects concurrent PostgreSQL claimers. Each
+        # job stores only its most recent started_at: counting all its lifetime
+        # attempts when it has started today may overcount cross-day retries,
+        # but NEVER undercounts today's claims. No schema migration required.
+        day_start = clock.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_attempts = self.session.scalar(
+            select(func.coalesce(func.sum(Job.attempt_count), 0)).where(
+                Job.tenant_id == tenant_id,
+                Job.started_at >= day_start,
+            )
+        ) or 0
+        if int(today_attempts) >= DAILY_ATTEMPT_LIMIT:
             return None
 
         # Process a bounded number of stale cached rows without any AI calls.

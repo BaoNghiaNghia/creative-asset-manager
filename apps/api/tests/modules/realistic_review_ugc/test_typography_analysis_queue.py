@@ -162,6 +162,62 @@ def test_single_lease_token_heartbeat_capacity_and_retries(engine):
         assert first.next_attempt_at is None
 
 
+
+
+def test_g3_daily_claim_budget_is_tenant_scoped_and_resets_at_utc_midnight(engine):
+    from app.modules.realistic_review_ugc.typography_analysis_queue import DAILY_ATTEMPT_LIMIT
+
+    with Session(engine) as db:
+        q = TypographyAnalysisQueue(db)
+        refs = [add_ref(db, name=chr(97 + i)) for i in range(DAILY_ATTEMPT_LIMIT + 1)]
+        outsider = add_ref(db, tenant="tenant-b", name="z")
+        for ref in (*refs, outsider):
+            assert enqueue(q, ref)[1] == "created"
+        for _ in range(DAILY_ATTEMPT_LIMIT):
+            active = claim(q)
+            assert active is not None
+            assert q.fail(
+                tenant_id="tenant-a", job_id=active.id, token=active.lease_token,
+                code="manual_review", retryable=False, now=CLOCK,
+            ) == "needs_review"
+        assert claim(q) is None
+        assert claim(q, tenant="tenant-b") is not None
+        midnight = CLOCK.replace(hour=0, minute=0) + timedelta(days=1)
+        assert claim(q, tenant="tenant-a", now=midnight) is not None
+
+
+def test_g3_daily_limit_counts_retry_attempts_not_only_unique_jobs(engine):
+    from app.modules.realistic_review_ugc.typography_analysis_queue import DAILY_ATTEMPT_LIMIT
+
+    with Session(engine) as db:
+        q = TypographyAnalysisQueue(db)
+        enqueue(q, add_ref(db, name="a"))
+        first = claim(q)
+        assert first is not None
+        assert q.fail(
+            tenant_id="tenant-a", job_id=first.id,
+            token=first.lease_token, code="transient", now=CLOCK,
+        ) == "queued"
+        second = claim(q, now=CLOCK + timedelta(seconds=31))
+        assert second is first and second.attempt_count == 2
+        for char in "bcdefghi":
+            enqueue(q, add_ref(db, name=char))
+        assert q.fail(
+            tenant_id="tenant-a", job_id=second.id, token=second.lease_token,
+            code="manual_review", retryable=False, now=CLOCK + timedelta(seconds=31),
+        ) == "needs_review"
+        for _ in range(DAILY_ATTEMPT_LIMIT - 2):
+            active = claim(q, now=CLOCK + timedelta(seconds=32))
+            assert active is not None
+            q.fail(tenant_id="tenant-a", job_id=active.id, token=active.lease_token,
+                   code="manual_review", retryable=False,
+                   now=CLOCK + timedelta(seconds=32))
+        # Count both attempts of the initial reference, not only the job row.
+        total = sum(job.attempt_count for job in db.scalars(select(Job)).all()
+                    if job.tenant_id == "tenant-a" and job.started_at)
+        assert total >= 2
+        assert claim(q, now=CLOCK + timedelta(seconds=32)) is None
+
 def test_expired_lease_recovered_without_reusing_stale_token(engine):
     with Session(engine) as db:
         ref = add_ref(db)
