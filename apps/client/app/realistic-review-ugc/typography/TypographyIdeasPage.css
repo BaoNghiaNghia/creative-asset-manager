@@ -70,6 +70,12 @@
 .typography-upload-settings label:last-child{grid-column:1/-1}
 .typography-upload-settings :is(input,select),.typography-editor-fields :is(input:not([type=checkbox]),select,textarea){width:100%;min-width:0;min-height:34px;border:1px solid #d4deec;border-radius:7px;padding:7px 9px;background:white;color:#344c70;font:inherit;font-size:11px}
 .typography-rights-notice{padding:10px;border-radius:8px;background:#faf6ec;color:#8a7052;font-size:11px;line-height:1.45}
+.typography-rights-verification{grid-column:1/-1;display:grid;gap:7px;padding:12px;border:1px solid #e1cfaa;border-radius:8px;background:#fbf8ef;color:#685435;font-size:11px;line-height:1.45}
+.typography-rights-verification strong{color:#64491f;font-size:12px}
+.typography-rights-verification p{margin:0}
+.typography-rights-verification label{display:flex;align-items:flex-start;gap:8px;color:#594b36;font-size:11px;font-weight:600;cursor:pointer}
+.typography-rights-verification input[type=checkbox]{flex:none;width:16px;height:16px;margin-top:1px}
+.typography-rights-verification small{color:#8b542c;font-size:10px}
 .typography-upload-list{max-height:230px;overflow:auto;margin:10px 0}
 .typography-upload-file{display:grid;grid-template-columns:minmax(80px,1fr) 58px minmax(70px,1.2fr) auto;align-items:center;gap:8px;padding:7px;border-bottom:1px solid #e7edf6;font-size:10px}
 .typography-upload-file>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.typography-upload-file small{color:#96a1b0}.typography-upload-file b{color:#5376aa;font-weight:720;overflow-wrap:anywhere}

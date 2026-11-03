@@ -19,6 +19,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FORMAT = new Set(["image/jpeg", "image/png", "image/webp"]);
 const PAGE_SIZE = 80;
 const RIGHTS: TypographyRights[] = ["unknown", "owned", "licensed", "permitted_reference", "blocked"];
+const RIGHTS_VERIFIED = new Set<TypographyRights>(["owned", "licensed", "permitted_reference"]);
 const STATUS: TypographyEditorialStatus[] = ["candidate", "approved", "rejected", "archived"];
 type UploadState = "queued" | "uploading" | "created" | "duplicate" | "error";
 type UploadItem = { id: number; file: File; state: UploadState; error?: string };
@@ -342,6 +343,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
   const [tab, setTab] = useState<"overview" | "dna" | "usage">("overview");
   const [editing, setEditing] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const archiveCancelRef = useRef<HTMLButtonElement>(null);
@@ -383,8 +385,15 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
       reference_roles: reference.reference_roles,
     });
   }, [reference, editing]);
+  const verifyTransition = RIGHTS_VERIFIED.has(draft.source_rights_status) &&
+    !RIGHTS_VERIFIED.has(reference.source_rights_status);
+  const rightsEvidenceMissing = verifyTransition && (!rightsConfirmed || !draft.source_attribution.trim());
   const save = async (status?: TypographyEditorialStatus) => {
     if (busy) return;
+    if (rightsEvidenceMissing) {
+      setError("Record the source or license attribution and confirm the rights review before saving.");
+      return;
+    }
     setBusy(true); setError("");
     try {
       const data = await patchTypographyReference(reference.id, {
@@ -401,7 +410,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         reference_roles: draft.reference_roles,
         ...(status ? { editorial_status: status } : {}),
       });
-      onUpdate(data); setEditing(false);
+      onUpdate(data); setEditing(false); setRightsConfirmed(false);
     } catch (reason) { setError(feedback(reason)); }
     finally { setBusy(false); }
   };
@@ -454,7 +463,13 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
                 placeholder="e.g. concept-short-v2" /></label>}
               <label>Priority<input type="number" min={-100} max={100} value={draft.priority} onChange={e => setDraft(prev => ({ ...prev, priority: Number(e.target.value) }))} /></label>
               <label>Tags<input value={draft.tags} placeholder="Serif, Script, Interlock…" onChange={e => setDraft(prev => ({ ...prev, tags: e.target.value }))} /></label>
-              <label>Attribution<input value={draft.source_attribution} maxLength={400} onChange={e => setDraft(prev => ({ ...prev, source_attribution: e.target.value }))} /></label>
+              <label>Attribution / license source<input value={draft.source_attribution} maxLength={400} onChange={e => setDraft(prev => ({ ...prev, source_attribution: e.target.value }))} placeholder="Owner, license reference or permission record" /></label>
+              {verifyTransition && <div className="typography-rights-verification" role="group" aria-label="Rights verification checklist">
+                <strong>Verify rights before approving</strong>
+                <p>Check the original source and written ownership, license or permission record. A Pinterest or Scout URL alone does not establish rights. Do not confirm without evidence.</p>
+                <label><input type="checkbox" checked={rightsConfirmed} onChange={event => setRightsConfirmed(event.target.checked)} /> I reviewed the original source and can substantiate this rights status.</label>
+                {!draft.source_attribution.trim() && <small>Source attribution or permission reference is required to save verified rights.</small>}
+              </div>}
               <label>Notes<textarea value={draft.notes} maxLength={2000} onChange={e => setDraft(prev => ({ ...prev, notes: e.target.value }))} /></label>
               <fieldset><legend>Style components</legend>
                 {(["layout", "font_mood", "overlap"] as const).map(role => <label key={role}><input type="checkbox"
@@ -464,8 +479,8 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
                   }))} />{role === "font_mood" ? "Font" : role}</label>)}
               </fieldset>
             </div>
-            <div className="typography-editor-actions"><button type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
-              <button type="button" disabled={busy || !draft.reference_roles.length} className="typography-primary" onClick={() => void save()}>{busy ? "Saving…" : "Save changes"}</button>
+            <div className="typography-editor-actions"><button type="button" disabled={busy} onClick={() => { setEditing(false); setRightsConfirmed(false); }}>Cancel</button>
+              <button type="button" disabled={busy || !draft.reference_roles.length || rightsEvidenceMissing} className="typography-primary" onClick={() => void save()}>{busy ? "Saving…" : "Save changes"}</button>
             </div>
           </> : <>
             <dl className="typography-info-grid">
@@ -478,7 +493,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
             </dl>
             <p>{reference.notes || "No notes added yet."}</p>
             <div className="typography-reference-tags">{reference.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
-            <p className="typography-rights-notice">References provide layout, font mood and overlap ideas only. They must not be copied literally.</p>
+            <p className="typography-rights-notice">References provide layout, font mood and overlap ideas only. Rights metadata is not proof of ownership or a license. Verify the source independently before approval.</p>
           </>}
         </div>}
         {tab === "dna" && <div className="typography-drawer-content">

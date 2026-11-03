@@ -134,6 +134,41 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
   });
 
 
+  it("requires rights evidence and explicit reviewer confirmation before upgrading unknown rights", async () => {
+    await renderPage();
+    const detail = await openReference();
+    await click([...(detail?.querySelectorAll("button") || [])].find(button => button.textContent === "Edit metadata") || null);
+    const rights = [...(detail?.querySelectorAll("select") || [])].find(
+      select => select.parentElement?.textContent?.includes("Source rights"),
+    )!;
+    await act(async () => {
+      rights.value = "licensed";
+      rights.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const verification = detail?.querySelector<HTMLElement>(".typography-rights-verification");
+    expect(verification?.textContent).toContain("Verify rights before approving");
+    const save = [...(detail?.querySelectorAll<HTMLButtonElement>("button") || [])]
+      .find(button => button.textContent === "Save changes")!;
+    expect(save.disabled).toBe(true);
+    expect(patchTypographyReference).not.toHaveBeenCalled();
+    const attribution = [...(detail?.querySelectorAll("input") || [])].find(
+      input => input.parentElement?.textContent?.includes("Attribution / license source"),
+    )!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(attribution, "License record stored with legal reviewer");
+      attribution.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(save.disabled).toBe(true);
+    const checkbox = verification?.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => checkbox.click());
+    expect(save.disabled).toBe(false);
+    await click(save);
+    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, expect.objectContaining({
+      source_rights_status: "licensed", source_attribution: "License record stored with legal reviewer",
+    }));
+  });
+
   it("allows a rights-approved reviewer to request one real G3 job and shows pending status", async () => {
     const eligible = { ...reference, source_rights_status: "owned" as const, editorial_status: "approved" as const };
     vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [eligible] });
