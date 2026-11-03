@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { listSourcePlans, listGenerationOutputVersions, selectStage1ProductDesign } from "./api";
 import type { SourcePlan } from "./types";
+import { productSourceAlphaThumbnailUrl } from "./stage2Media";
 import "./PickedDesignModal.css";
 
 type PickedItem = { plan: SourcePlan; jobId: string; version: number | null };
@@ -66,7 +67,7 @@ export function PickedDesignModal({ onClose, onUnpick }: { onClose: () => void; 
       {error && <p role="alert" className="rrugc-picked-error">{error}</p>}
       <div className="rrugc-picked-content">{loading ? <p>Loading picked designs…</p> : !items.length ? <p>No picked designs.</p> :
         <div className="rrugc-picked-masonry">{items.map(item => <article key={item.plan.id}>
-          <img src={item.plan.source_preview_url} loading="lazy" alt={item.plan.source_name}/>
+          <img src={productSourceAlphaThumbnailUrl(item.plan.source_preview_url, 384)} loading="lazy" decoding="async" alt={item.plan.source_name}/>
           <div><strong title={item.plan.source_name}>{item.plan.source_name}</strong><button type="button" disabled={item.version === null || working !== null} onClick={() => void unpick(item)} title={item.version === null ? "Version could not be identified" : "Remove picked design"}>{working === item.plan.id ? "Removing…" : "Unpick"}</button></div>
         </article>)}</div>}</div>
     </section>
