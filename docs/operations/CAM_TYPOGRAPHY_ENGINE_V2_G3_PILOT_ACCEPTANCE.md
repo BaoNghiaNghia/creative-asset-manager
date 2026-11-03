@@ -30,6 +30,21 @@ The authorized operator must record evidence privately outside Git for **each** 
 
 **Any unchecked item means DO NOT set `TYPOGRAPHY_V2_PILOT_ROLLBACK_VERIFIED=true`, and do not invoke `--execute`.** Passing CI does not replace this manual release gate.
 
+### Operator inventory (read-only)
+
+Run from the deployed release as an authorized VPS operator:
+
+`python3 scripts/cam-g3-pilot-inventory.py --all-tenants`
+
+The command executes metadata-only SELECTs under a PostgreSQL read-only
+transaction, aggregates candidate counts, DNA review state and queue state,
+and redacts tenant/asset/keyword identifiers. To inspect an authorized tenant
+only, pass `--tenant-id` privately instead. Neither mode views source images,
+validates license documents, changes rights, queues jobs, or contacts the AI
+provider. The inventory's `candidate_rights_and_editorial_count` verifies
+only stored metadata; a human must independently verify actual usage rights
+for each of the eight pilot images before any live analysis.
+
 ## 1. Pilot scope
 
 Use **exactly eight** distinct, rights-verified typography references from the CAM-managed image library. Plan a mix of straight/arched/curved letter arrangements, one/two relative text layers, and realistic cases where background or product fabric could confuse the region detector. Each can be queued only once per `image_hash + analyzer_version` and tenant.
