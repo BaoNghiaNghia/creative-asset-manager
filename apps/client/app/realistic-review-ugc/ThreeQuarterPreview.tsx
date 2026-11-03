@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { FrontPlacement } from "./FrontPlacement";
 import type { ThreeQuarterPlacement } from "./api";
 import {
-  CROWN_FIT_CORNERS_8869, FRONT_CROWN_MASK_8869,
-  insideCrown, isValidQuad, renderCrownProjection, type Point,
+  CROWN_FIT_CORNERS_8869, FRONT_CROWN_MASK_8869, CROWN_FIT_POINT_LIMITS_8869,
+  insideCrownFitLimit, isValidCrownField, moveCrownFieldPoint,
+  renderCrownProjection, type Point,
 } from "./ThreeQuarterProjection";
 import "./ThreeQuarterPreview.css";
 
@@ -17,12 +18,10 @@ type Props = {
   onSave: (value: ThreeQuarterPlacement) => Promise<ThreeQuarterPlacement>;
 };
 
-const bound = (x: number) => Math.min(1, Math.max(0, x));
-
 export function ThreeQuarterPreview({
   stockSrc, artworkSrc, colorKey, front, designSize, saved, onSave,
 }: Props) {
-  const savedUsable = Boolean(saved?.corners && isValidQuad(saved.corners) && saved.corners.every(point => insideCrown(point)));
+  const savedUsable = Boolean(saved?.corners && isValidCrownField(saved.corners));
   const initialCorners = savedUsable && saved ? saved.corners : CROWN_FIT_CORNERS_8869;
   const [draft, setDraft] = useState<Point[]>(initialCorners);
   const [editing, setEditing] = useState(false);
@@ -33,9 +32,8 @@ export function ThreeQuarterPreview({
   const surface = useRef<HTMLDivElement>(null);
   const dragging = useRef<number | null>(null);
   const changed = JSON.stringify(draft) !== JSON.stringify(saved?.corners ?? CROWN_FIT_CORNERS_8869);
-  const validQuad = isValidQuad(draft);
-  const withinCrown = draft.every(point => insideCrown(point));
-  const saveAllowed = validQuad && withinCrown && changed && !saving && Boolean(saved);
+  const validField = isValidCrownField(draft);
+  const saveAllowed = validField && changed && !saving && Boolean(saved);
 
   // Reuse the decoded, stitched/alpha artwork on every point drag. Never
   // refetch the 1024px PNG just because a guide point moved.
@@ -72,7 +70,7 @@ export function ThreeQuarterPreview({
   }, [draft, artworkSrc, loaded, stockSrc, front, designSize]);
 
   function changePoint(index: number, x: number, y: number) {
-    setDraft(points => points.map((p, i) => i === index ? [bound(x), bound(y)] : p));
+    setDraft(points => moveCrownFieldPoint(points, index, x, y));
   }
 
   function movePointer(event: PointerEvent<HTMLDivElement>) {
@@ -142,9 +140,14 @@ export function ThreeQuarterPreview({
                   points={FRONT_CROWN_MASK_8869.map(p => p[0] * 1000 + "," + p[1] * 1000).join(" ")}/>
                 <polygon className="rrugc-blueprint-three-quarter-field"
                   points={draft.map(p => p[0] * 1000 + "," + p[1] * 1000).join(" ")}/>
+                {CROWN_FIT_POINT_LIMITS_8869.map((range, i) =>
+                  <rect key={i} className="rrugc-blueprint-three-quarter-allowed"
+                    x={range.x[0] * 1000} y={range.y[0] * 1000}
+                    width={(range.x[1] - range.x[0]) * 1000}
+                    height={(range.y[1] - range.y[0]) * 1000}/>)}
               </svg>
               {draft.map(([x, y], i) => <button key={i} type="button"
-                className={"rrugc-blueprint-three-quarter-handle" + (!insideCrown([x, y]) ? " is-outside-crown" : "")}
+                className={"rrugc-blueprint-three-quarter-handle" + (!insideCrownFitLimit([x, y], i) ? " is-outside-crown" : "")}
                 style={{ left: (x * 100) + "%", top: (y * 100) + "%" }}
                 aria-label={["Top left", "Top right", "Bottom right", "Bottom left"][i] + " embroidery corner"}
                 onPointerDown={event => {
@@ -164,10 +167,9 @@ export function ThreeQuarterPreview({
             </>}
           </div>}
     </div>
-    {saved && !savedUsable && !editing && <p className="rrugc-blueprint-3q-message" role="status">Previous 3/4 anchors were outside the front crown. Preview uses a safe field; choose Edit 4 points → Save to keep it.</p>}
-    {editing && (!validQuad || !withinCrown) && <p className="rrugc-blueprint-3q-message is-warning" role="alert">
-      {!validQuad ? "The four points must not overlap or cross." :
-        "A point is outside the front crown. Drag it inside the dotted crown boundary, or use Reset."}
+    {saved && !savedUsable && !editing && <p className="rrugc-blueprint-3q-message" role="status">Previous 3/4 anchors were outside the safe front crown field. Preview uses the corrected field; choose Edit 4 points → Save to keep it.</p>}
+    {editing && !validField && <p className="rrugc-blueprint-3q-message is-warning" role="alert">
+      The four points must stay in their numbered crown limits with sufficient width and height. Use Reset to restore the safe field.
     </p>}
     {message && <p className="rrugc-blueprint-3q-message" role="status">{message}</p>}
   </article>;

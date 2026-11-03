@@ -1,11 +1,49 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FRONT_PLACEMENT } from "./FrontPlacement";
 import {
-  CROWN_FIT_CORNERS_8869, FRONT_CROWN_MASK_8869,
-  insideCrown, isValidQuad, projectCrownPoint, projectionFit,
+  CROWN_FIT_CORNERS_8869, CROWN_FIT_POINT_LIMITS_8869, FRONT_CROWN_MASK_8869,
+  insideCrown, insideCrownFitLimit, isValidCrownField, isValidQuad,
+  moveCrownFieldPoint, projectCrownPoint, projectionFit,
 } from "./ThreeQuarterProjection";
 
 describe("8869 crown-aware three-quarter artwork projection", () => {
+  it("calibrates all four limits to the actual front panel (not top of cap or visor)", () => {
+    expect(CROWN_FIT_CORNERS_8869).toEqual([
+      [0.336, 0.320], [0.638, 0.335], [0.652, 0.548], [0.296, 0.534],
+    ]);
+    expect(isValidCrownField(CROWN_FIT_CORNERS_8869)).toBe(true);
+    expect(CROWN_FIT_CORNERS_8869.every((p, i) => insideCrownFitLimit(p, i))).toBe(true);
+    for (const range of CROWN_FIT_POINT_LIMITS_8869) {
+      for (const x of range.x) for (const y of range.y) {
+        expect(insideCrown([x, y])).toBe(true);
+      }
+    }
+    expect(isValidCrownField([
+      [0.18, 0.12], [0.75, 0.24], [0.69, 0.69], [0.11, 0.56],
+    ])).toBe(false); // screenshot's old oversize saved field
+    expect(isValidCrownField([
+      [0.336, 0.415], [0.638, 0.335], [0.652, 0.548], [0.296, 0.534],
+    ])).toBe(false); // still crown interior but outside top-left safe window
+    expect(isValidCrownField([
+      [0.434, 0.400], [0.555, 0.401], [0.570, 0.458], [0.399, 0.459],
+    ])).toBe(false); // collapse into unreadably small embroidery
+  });
+
+  it("constrains pointer and keyboard movement at crown limits with valid dimensions", () => {
+    let next = moveCrownFieldPoint(CROWN_FIT_CORNERS_8869, 0, -10, -10);
+    expect(next[0]).toEqual([0.310, 0.305]);
+    expect(isValidCrownField(next)).toBe(true);
+    next = moveCrownFieldPoint(next, 2, 20, 20);
+    expect(next[2]).toEqual([0.676, 0.568]);
+    expect(isValidCrownField(next)).toBe(true);
+    const squeezed = moveCrownFieldPoint(CROWN_FIT_CORNERS_8869, 1, 0.555, 0.405);
+    expect(squeezed[1][0]).toBeGreaterThan(0.555); // respects minimum upper width
+    expect(isValidCrownField(squeezed)).toBe(true);
+    expect(moveCrownFieldPoint(next, 1, Number.NaN, 0.36)).toEqual(next);
+    expect(moveCrownFieldPoint(next, 9, 0.6, 0.3)).toEqual(next);
+    expect(CROWN_FIT_CORNERS_8869[0]).toEqual([0.336, 0.320]); // immutable preset
+  });
+
   it("provides safe factory points within the front panel instead of the brim or side seam", () => {
     expect(CROWN_FIT_CORNERS_8869).toHaveLength(4);
     expect(FRONT_CROWN_MASK_8869.length).toBeGreaterThan(15);

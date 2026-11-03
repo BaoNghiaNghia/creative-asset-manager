@@ -60,7 +60,7 @@ describe("Three-quarter blueprint frame", () => {
       ] },
     }, onSaveThreeQuarterPlacement: save });
     const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
-    expect(card.textContent).toContain("outside the front crown");
+    expect(card.textContent).toContain("outside the safe front crown field");
     expect(save).not.toHaveBeenCalled();
     await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
     expect(card.querySelectorAll(".rrugc-blueprint-three-quarter-handle")).toHaveLength(4);
@@ -72,8 +72,8 @@ describe("Three-quarter blueprint frame", () => {
     const saved = save.mock.calls[0][0];
     expect(saved.color_key).toBe("white-black");
     expect(saved.revision).toBe(2);
-    expect(saved.corners[0][0]).toBeCloseTo(0.316);
-    expect(saved.corners[3][1]).toBeCloseTo(0.529);
+    expect(saved.corners[0][0]).toBeCloseTo(0.336);
+    expect(saved.corners[3][1]).toBeCloseTo(0.534);
     await close();
   });
   it("projects the same selected front artwork onto synchronized 3/4 stock without altering the side panel", async () => {
@@ -81,7 +81,7 @@ describe("Three-quarter blueprint frame", () => {
     withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
     await mount({ stockCatalog: withThreeQuarter, threeQuarterPlacements: {
       "white-black": { color_key: "white-black", revision: 0, corners: [
-        [0.30, 0.36], [0.63, 0.37], [0.65, 0.56], [0.28, 0.53],
+        [0.34, 0.36], [0.63, 0.37], [0.65, 0.56], [0.30, 0.53],
       ] },
     }, onSaveThreeQuarterPlacement: async value => ({ ...value, revision: value.revision + 1 }) });
     const card = host.querySelector(".rrugc-blueprint-three-quarter-card")!;
@@ -91,7 +91,7 @@ describe("Three-quarter blueprint frame", () => {
     await close();
   });
 
-  it("updates the four-point outline from keyboard dragging and Reset restores the stored field", async () => {
+  it("keeps keyboard edits in-bounds and Reset restores the newly calibrated factory field", async () => {
     const catalog3q = stock();
     catalog3q.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
     const corners: [number, number][] = [
@@ -113,9 +113,11 @@ describe("Three-quarter blueprint frame", () => {
     expect(saveButton.disabled).toBe(false);
     const reset = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Reset")!;
     await act(async () => reset.click());
-    expect(outline.getAttribute("points")).toBe(originalPoints);
-    expect(saveButton.disabled).toBe(true);
-    expect(save).not.toHaveBeenCalled();
+    expect(outline.getAttribute("points")).not.toBe(originalPoints);
+    expect(saveButton.disabled).toBe(false);
+    await act(async () => saveButton.click());
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0][0].corners[0]).toEqual([0.336, 0.320]);
     await close();
   });
 

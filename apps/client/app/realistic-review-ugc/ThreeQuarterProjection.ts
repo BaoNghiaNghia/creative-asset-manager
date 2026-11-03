@@ -35,9 +35,28 @@ export const FRONT_CROWN_MASK_8869: readonly Point[] = Object.freeze([
   [0.330, 0.564],
 ]);
 
-/** A safe factory-field preset contained in the crown mask above. */
+/** Front-panel embroidery field, not the whole hat silhouette.
+ * Coordinates are normalized to the same square verified factory 3/4 photo.
+ * Top corners sit below the curved crown top; bottom corners end ABOVE the
+ * visor seam; the bottom is wider to follow the perspective of the panel.
+ */
 export const CROWN_FIT_CORNERS_8869: Point[] = [
-  [0.316, 0.351], [0.647, 0.356], [0.657, 0.552], [0.294, 0.529],
+  [0.336, 0.320], // 1: top left
+  [0.638, 0.335], // 2: top right
+  [0.652, 0.548], // 3: bottom right
+  [0.296, 0.534], // 4: bottom left
+];
+
+/** Per-handle limits entirely inside the official 8869 visible front crown.
+ * These intentionally exclude the brim and the GatorHats side-logo panel.
+ * Backend has identical limits and rejects out-of-range writes.
+ */
+export type CrownCornerLimit = { x: readonly [number, number]; y: readonly [number, number] };
+export const CROWN_FIT_POINT_LIMITS_8869: readonly CrownCornerLimit[] = [
+  { x: [0.310, 0.435], y: [0.305, 0.405] }, // 1 top-left
+  { x: [0.555, 0.662], y: [0.305, 0.405] }, // 2 top-right
+  { x: [0.570, 0.676], y: [0.458, 0.568] }, // 3 bottom-right
+  { x: [0.274, 0.400], y: [0.458, 0.555] }, // 4 bottom-left
 ];
 
 export function isValidQuad(points: readonly Point[]): boolean {
@@ -57,6 +76,53 @@ export function insideCrown(point: Point, polygon: readonly Point[] = FRONT_CROW
         point[0] < (xj - xi) * (point[1] - yi) / (yj - yi) + xi) isInside = !isInside;
   }
   return isInside;
+}
+
+/** Both the position and the usable SIZE of the embroidery field are
+ * constrained; being inside the overall crown silhouette is not sufficient.
+ * FRONT size is still controlled independently by the stored FRONT master.
+ */
+export function insideCrownFitLimit(point: Point, index: number): boolean {
+  const range = CROWN_FIT_POINT_LIMITS_8869[index];
+  return Boolean(range && Number.isFinite(point[0]) && Number.isFinite(point[1]) &&
+    point[0] >= range.x[0] && point[0] <= range.x[1] &&
+    point[1] >= range.y[0] && point[1] <= range.y[1] &&
+    insideCrown(point));
+}
+
+export function isValidCrownField(points: readonly Point[]): boolean {
+  if (!isValidQuad(points) || !points.every((p, i) => insideCrownFitLimit(p, i))) return false;
+  const [tl, tr, br, bl] = points;
+  return tr[0] - tl[0] >= 0.22 && br[0] - bl[0] >= 0.23 &&
+    bl[1] - tl[1] >= 0.12 && br[1] - tr[1] >= 0.12;
+}
+
+/** Stop mouse/touch/keyboard movement at the last valid position, rather
+ * than allowing a handle to escape the crown and disabling Save. An invalid
+ * saved legacy field is never rewritten until the user explicitly saves.
+ */
+export function moveCrownFieldPoint(
+  points: readonly Point[], index: number, x: number, y: number,
+): Point[] {
+  if (!isValidCrownField(points) || !Number.isInteger(index) ||
+      index < 0 || index >= 4 || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return points.map(p => [...p] as Point);
+  }
+  const range = CROWN_FIT_POINT_LIMITS_8869[index];
+  const next: Point = [clamp(x, ...range.x), clamp(y, ...range.y)];
+  const field = (t: number): Point[] => points.map((p, i) => i === index
+    ? [mix(p[0], next[0], t), mix(p[1], next[1], t)] as Point
+    : [...p] as Point);
+  const target = field(1);
+  if (isValidCrownField(target)) return target;
+  let lo = 0, hi = 1;
+  // Binary-search the furthest valid position along the pointer path.
+  for (let step = 0; step < 16; step++) {
+    const mid = (lo + hi) / 2;
+    if (isValidCrownField(field(mid))) lo = mid;
+    else hi = mid;
+  }
+  return field(lo);
 }
 
 /** Scan only alpha, at preview resolution. A fully opaque reference uses its
