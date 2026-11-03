@@ -29,10 +29,11 @@ function summary(value: Record<string, unknown> | unknown[] | null | undefined):
   return entries.length ? entries.map(([key, entry]) => `${key.replace(/_/g, " ")}: ${String(entry)}`).join(" · ") : "See structure below";
 }
 
-export function StyleDnaPanel({ reference, canManage, onReviewed }: {
+export function StyleDnaPanel({ reference, canManage, onReviewed, onVerifyRights }: {
   reference: TypographyReference;
   canManage: boolean;
   onReviewed: (analysisStatus: TypographyReference["analysis_status"]) => void;
+  onVerifyRights?: () => void;
 }) {
   const [dna, setDna] = useState<TypographyDna[]>([]);
   const [status, setStatus] = useState<TypographyAnalysisState | null>(null);
@@ -120,7 +121,7 @@ export function StyleDnaPanel({ reference, canManage, onReviewed }: {
           {busy ? "Starting…" : "Analyze Style DNA"}
         </button>}
       </div>
-      {blocker && <p className="typography-dna-hint">{blocker}</p>}
+      {blocker && <div className="typography-dna-blocker"><div>{!dna.length && !queued && !running && <strong>No analysis yet · </strong>}<span>{blocker}</span></div>{status?.analysis_blocker === "rights_unverified" && canManage && onVerifyRights && <button type="button" onClick={onVerifyRights}>Verify source rights</button>}</div>}
       {canAnalyze && <p className="typography-dna-hint">Manual request only · may incur a vision-provider charge · no bulk processing</p>}
       {(queued || running) && <p className="typography-dna-hint" role="status">
         {running ? "Processing image and typography geometry" : "Queued for the analyzer"} · updates automatically
@@ -128,10 +129,7 @@ export function StyleDnaPanel({ reference, canManage, onReviewed }: {
       {status?.job?.last_error_code && <p className="typography-dna-hint is-error">
         Last analysis error: {status.job.last_error_code.replace(/_/g, " ")} · attempts: {status.job.attempt_count}
       </p>}
-      {!dna.length && !queued && !running && <div className="typography-dna-empty">
-        <strong>No analysis yet</strong>
-        <p>{blocker || "Run the analyzer after verifying the source. No analysis starts just by opening this drawer."}</p>
-      </div>}
+      {!dna.length && !queued && !running && !blocker && <div className="typography-dna-empty">No analysis yet. Verify source rights, then run G3 manually.</div>}
       {dna.map(result => <article className="typography-dna-result" key={result.id}>
         <header><h4>{result.style_family}</h4><strong>{Math.round(result.confidence * 100)}% confidence</strong></header>
         <dl>

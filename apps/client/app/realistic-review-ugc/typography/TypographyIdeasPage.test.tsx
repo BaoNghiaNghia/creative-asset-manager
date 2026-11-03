@@ -127,6 +127,10 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(patchTypographyReference).not.toHaveBeenCalled();
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
     expect(detail?.textContent).toContain("Source rights are unverified");
+    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Verify source rights") || null);
+    expect(detail?.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Overview");
+    expect(detail?.querySelector(".typography-editor-fields select")).not.toBeNull();
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
   });
 
 

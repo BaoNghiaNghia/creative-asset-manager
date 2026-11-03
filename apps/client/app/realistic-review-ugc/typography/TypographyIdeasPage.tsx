@@ -414,7 +414,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
       onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
     <section className="typography-detail-drawer" ref={dialogRef as React.RefObject<HTMLElement>} role="dialog" aria-modal="true"
       aria-label={"Typography reference " + displayTitle(reference)} data-testid="typography-detail-drawer">
-      <header><div><small>REFERENCE / {reference.influence.toUpperCase()}</small><h2>{displayTitle(reference)}</h2>
+      <header><div><small>REFERENCE / {reference.influence.toUpperCase()}</small><h2 title={displayTitle(reference)}>{compactTitle(reference)}</h2>
         <p>{reference.editorial_status} · {reference.analysis_status} · {reference.privacy}</p></div>
         <button type="button" className="typography-close" aria-label="Close details" onClick={onClose}>×</button></header>
       <div className="typography-drawer-body">
@@ -483,6 +483,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         </div>}
         {tab === "dna" && <div className="typography-drawer-content">
           <StyleDnaPanel reference={reference} canManage={canManage}
+            onVerifyRights={() => { setTab("overview"); setEditing(true); }}
             onReviewed={analysis_status => onUpdate({ ...reference, analysis_status })} />
         </div>}
         {tab === "usage" && <div className="typography-drawer-content typography-lineage">
