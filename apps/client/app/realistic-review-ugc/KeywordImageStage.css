@@ -330,8 +330,7 @@
 .rrugc-keyword-gen-output-column { min-width: 0; }
 .rrugc-keyword-output { min-width: 0; width: 100%; max-width: 340px; }
 .rrugc-keyword-output-gallery {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  display: flex;
   align-items: stretch;
   gap: 5px;
   width: 100%;
@@ -339,6 +338,7 @@
 }
 .rrugc-keyword-output-arrow {
   display: grid;
+  flex: 0 0 24px;
   width: 24px;
   min-height: 48px;
   align-self: stretch;
@@ -372,7 +372,8 @@
   display: flex;
   align-items: stretch;
   gap: 5px;
-  width: 100%;
+  flex: 1 1 0%;
+  min-width: 0;
   height: 50px;
   overflow-x: auto;
   overflow-y: hidden;

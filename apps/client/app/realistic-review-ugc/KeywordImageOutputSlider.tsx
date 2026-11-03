@@ -125,13 +125,12 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
     {slides.length > 0
       ? <div className="rrugc-keyword-output-gallery" role="group"
           aria-label={`Browse generated images for ${row.keyword}`}>
-          <button type="button" className="rrugc-keyword-output-arrow is-prev"
+          {scroll.left >= 2 && <button type="button" className="rrugc-keyword-output-arrow is-prev"
             aria-label={`Previous images for ${row.keyword}`} title="Previous images"
-            onClick={() => moveByPage(-1)} disabled={scroll.left < 2}
-            style={{ visibility: scroll.left < 2 ? "hidden" : "visible" }}>
+            onClick={() => moveByPage(-1)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-          </button>
+          </button>}
           <div ref={viewportRef} className="rrugc-keyword-output-track" role="group"
             aria-label={`Drag to browse ${count || slides.length} generated images for ${row.keyword}`}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerEnd}
@@ -162,13 +161,12 @@ export function KeywordImageOutputSlider({ row, onOpenVersion, pickedOverrides }
               </button>;
             })}
           </div>
-          <button type="button" className="rrugc-keyword-output-arrow is-next"
+          {!scroll.end && <button type="button" className="rrugc-keyword-output-arrow is-next"
             aria-label={`Next images for ${row.keyword}`} title="Next images"
-            onClick={() => moveByPage(1)} disabled={scroll.end}
-            style={{ visibility: scroll.end ? "hidden" : "visible" }}>
+            onClick={() => moveByPage(1)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
-          </button>
+          </button>}
         </div>
       : <div className="rrugc-keyword-output-placeholder">
           {error ? "Could not load images"

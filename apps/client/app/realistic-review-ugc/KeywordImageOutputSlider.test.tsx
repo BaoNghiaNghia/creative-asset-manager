@@ -74,10 +74,14 @@ describe("Stage 1 draggable image strip", () => {
     expect(host.querySelectorAll('img[loading="lazy"]')).toHaveLength(8);
     const gallery = host.querySelector(".rrugc-keyword-output-gallery");
     expect(gallery).not.toBeNull();
+    const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 600 });
+    await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
     expect(Array.from(gallery!.children).map(item => item.classList.contains("rrugc-keyword-output-arrow")
       ? item.classList.contains("is-prev") ? "previous" : "next"
-      : "track")).toEqual(["previous", "track", "next"]);
-    expect(host.querySelectorAll(".rrugc-keyword-output-arrow")).toHaveLength(2);
+      : "track")).toEqual(["track", "next"]);
+    expect(host.querySelectorAll(".rrugc-keyword-output-arrow")).toHaveLength(1);
     expect(host.querySelector(".rrugc-keyword-output-nav")).toBeNull();
   });
 
@@ -99,12 +103,17 @@ describe("Stage 1 draggable image strip", () => {
     expect(listGenerationOutputVersions).toHaveBeenCalledTimes(1);
   });
 
-  it("hides edge arrows without shifting the output strip and restores them in the middle", async () => {
+  it("removes edge buttons from the DOM so thumbnails reclaim their space", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
     const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
-    const prev = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-prev")!;
-    const next = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!;
+    const arrows = () => ({
+      prev: host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-prev"),
+      next: host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next"),
+    });
+    const childNames = () => Array.from(host.querySelector(".rrugc-keyword-output-gallery")!.children)
+      .map(item => item.classList.contains("rrugc-keyword-output-track") ? "track"
+        : item.classList.contains("is-prev") ? "previous" : "next");
     Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
     Object.defineProperty(track, "scrollWidth", { configurable: true, value: 600 });
     Object.defineProperty(track, "scrollBy", { configurable: true, value: ({ left }: { left: number }) => {
@@ -112,28 +121,25 @@ describe("Stage 1 draggable image strip", () => {
       track.dispatchEvent(new Event("scroll", { bubbles: true }));
     } });
     await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
-    expect(prev.disabled).toBe(true);
-    expect(prev.style.visibility).toBe("hidden");
-    expect(next.disabled).toBe(false);
-    expect(next.style.visibility).toBe("visible");
-    await act(async () => next.click());
+    expect(arrows().prev).toBeNull();
+    expect(arrows().next).not.toBeNull();
+    expect(childNames()).toEqual(["track", "next"]);
+    await act(async () => arrows().next!.click());
     expect(track.scrollLeft).toBe(240);
-    expect(prev.disabled).toBe(false);
-    expect(prev.style.visibility).toBe("visible");
-    expect(next.style.visibility).toBe("visible");
-    await act(async () => next.click());
+    expect(arrows().prev).not.toBeNull();
+    expect(arrows().next).not.toBeNull();
+    expect(childNames()).toEqual(["previous", "track", "next"]);
+    await act(async () => arrows().next!.click());
     expect(track.scrollLeft).toBe(360);
-    expect(next.disabled).toBe(true);
-    expect(next.style.visibility).toBe("hidden");
-    expect(prev.style.visibility).toBe("visible");
-    await act(async () => prev.click());
+    expect(arrows().next).toBeNull();
+    expect(childNames()).toEqual(["previous", "track"]);
+    await act(async () => arrows().prev!.click());
     expect(track.scrollLeft).toBe(120);
-    expect(next.disabled).toBe(false);
-    expect(next.style.visibility).toBe("visible");
-    await act(async () => prev.click());
+    expect(childNames()).toEqual(["previous", "track", "next"]);
+    await act(async () => arrows().prev!.click());
     expect(track.scrollLeft).toBe(0);
-    expect(prev.style.visibility).toBe("hidden");
-    expect(next.style.visibility).toBe("visible");
+    expect(childNames()).toEqual(["track", "next"]);
+    expect(arrows().prev).toBeNull();
   });
 
   it("hides both arrows when all images fit the visible output area", async () => {
@@ -143,33 +149,27 @@ describe("Stage 1 draggable image strip", () => {
     Object.defineProperty(track, "clientWidth", { configurable: true, value: 420 });
     Object.defineProperty(track, "scrollWidth", { configurable: true, value: 420 });
     await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
-    const prev = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-prev")!;
-    const next = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!;
-    expect(prev.style.visibility).toBe("hidden");
-    expect(next.style.visibility).toBe("hidden");
-    expect(prev.disabled).toBe(true);
-    expect(next.disabled).toBe(true);
-    expect(host.querySelector(".rrugc-keyword-output-track")).not.toBeNull();
+    expect(host.querySelector(".rrugc-keyword-output-arrow.is-prev")).toBeNull();
+    expect(host.querySelector(".rrugc-keyword-output-arrow.is-next")).toBeNull();
+    expect(Array.from(host.querySelector(".rrugc-keyword-output-gallery")!.children))
+      .toEqual([track]);
   });
 
   it("enables the next arrow when wide thumbnails finish loading after initial layout", async () => {
     await act(async () => root.render(<KeywordImageOutputSlider row={row} onOpenVersion={onOpenVersion} />));
     await act(async () => notifyVisibility?.(true));
     const track = host.querySelector<HTMLElement>(".rrugc-keyword-output-track")!;
-    const next = host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")!;
     Object.defineProperty(track, "clientWidth", { configurable: true, value: 240 });
     let contentWidth = 240;
     Object.defineProperty(track, "scrollWidth", { configurable: true, get: () => contentWidth });
     await act(async () => track.dispatchEvent(new Event("scroll", { bubbles: true })));
-    expect(next.disabled).toBe(true);
-    expect(next.style.visibility).toBe("hidden");
+    expect(host.querySelector(".rrugc-keyword-output-arrow.is-next")).toBeNull();
     // The image now occupies its natural 16:9 width, increasing scrollWidth.
     contentWidth = 420;
     await act(async () => {
       track.querySelector<HTMLImageElement>("img")!.dispatchEvent(new Event("load", { bubbles: false }));
     });
-    expect(next.disabled).toBe(false);
-    expect(next.style.visibility).toBe("visible");
+    expect(host.querySelector<HTMLButtonElement>(".rrugc-keyword-output-arrow.is-next")).not.toBeNull();
   });
 
   it("supports mouse drag-scrolling without opening thumbnails by mistake", async () => {
