@@ -64,6 +64,17 @@ def cap_first_direction(plan: Mapping[str, Any], slot: int) -> dict[str, Any]:
     spec = plan["slots"][slot - 1]
     concept = spec["concept"]
     phrase = plan["keyword_exact"]
+    rejected_variants = [
+        item for item in (plan.get("learning_profile") or {}).get("rejected", [])
+        if item.get("mode") == spec["mode"] and item.get("variant") == spec["variant"]
+    ]
+    blueprint = (
+        "REPLACEMENT CONCEPT: previous layout in this exact variant was rejected. "
+        "Invent a different compact letter silhouette and word hierarchy, "
+        "not the original slot blueprint or a palette swap. "
+        + rejected_variants[0]["guidance"]
+        if rejected_variants else CAP_LAYOUT_BLUEPRINTS[slot - 1]
+    )
     return {
         "exact_phrase": phrase,
         "suggested_two_line_break": list(balanced_line_groups(phrase)),
@@ -74,7 +85,7 @@ def cap_first_direction(plan: Mapping[str, Any], slot: int) -> dict[str, Any]:
         "concept_name": concept["name"],
         "creative_hook": concept["creative_hook"],
         "brief_variant_direction": spec["variant_recipe"],
-        "cap_layout_blueprint": CAP_LAYOUT_BLUEPRINTS[slot - 1],
+        "cap_layout_blueprint": blueprint,
         "cap_fit_profile": CAP_FIT_PROFILE,
     }
 

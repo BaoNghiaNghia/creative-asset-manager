@@ -3043,6 +3043,65 @@ def test_products_stage2_selected_stage1_and_reviews_strict_prefix(api, database
         )).status == "missing"
 
 
+def test_stage1_reject_is_durable_and_unpicks_without_deleting_output(api, database):
+    from uuid import uuid4
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+
+    keyword_id, job_id, file_id = str(uuid4()), str(uuid4()), "review-signal-design-file"
+    with database() as session:
+        session.add(RrugcKeywordVolumeModel(
+            id=keyword_id, tenant_id="tenant-a", keyword="NEVER COPY THIS LAYOUT",
+            keyword_normalized="never copy this layout", picked=True,
+            search_volume=1,
+        ))
+        session.flush()
+        session.add(RrugcKeywordImageJobModel(
+            id=job_id, tenant_id="tenant-a", keyword_id=keyword_id,
+            keyword_text="NEVER COPY THIS LAYOUT", skill_source="local",
+            skill_name="creative-brief-v3", prompt_text="test",
+            status="completed", created_by_user_id="user-a",
+        ))
+        session.add(RrugcImageOutputVersionModel(
+            tenant_id="tenant-a", stage="stage1", job_id=job_id,
+            version=1, output_name="design_01.png", remote_file_id=file_id,
+            content_type="image/png", font_info_json={
+                "engine": "creative-v3", "concept_mode": "creative_twist",
+                "concept_variant": "A", "content_sha256": "f" * 64,
+            },
+        ))
+        session.commit()
+    base = "/api/v1/realistic-review-ugc"
+    selection = base + f"/keyword-images/jobs/{job_id}/versions/1/products-stage2"
+    feedback = base + f"/keyword-images/jobs/{job_id}/versions/1/design-feedback"
+    assert api.post(selection + "?selected=true").status_code == 200
+    saved = api.post(feedback, json={
+        "decision": "rejected", "reason": "generic_layout",
+    })
+    assert saved.status_code == 200
+    assert saved.json()["feedback"]["decision"] == "rejected"
+    versions = api.get(base + f"/generation-jobs/stage1/{job_id}/outputs").json()["versions"]
+    assert len(versions) == 1
+    assert versions[0]["creative_feedback"]["reason"] == "generic_layout"
+    assert versions[0]["selected_for_products_stage2"] is False
+    with database() as session:
+        plan = session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == "tenant-a",
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+            RrugcSourcePlanModel.source_file_id == file_id,
+        ))
+        assert plan.status == "missing"
+        row = session.scalar(select(RrugcImageOutputVersionModel).where(
+            RrugcImageOutputVersionModel.tenant_id == "tenant-a",
+            RrugcImageOutputVersionModel.job_id == job_id,
+        ))
+        assert row.remote_file_id == file_id
+    bad = api.post(feedback, json={"decision": "rejected", "reason": "arbitrary_ai_payload"})
+    assert bad.status_code == 422
+    restored = api.post(feedback, json={"decision": "neutral"})
+    assert restored.status_code == 200
+    assert restored.json()["feedback"]["decision"] == "neutral"
+
+
 @pytest.mark.parametrize("state,replace_pending", [
     ("failed", False), ("queued", False), ("running", False),
     ("queued", True), ("running", True), ("completed", False),

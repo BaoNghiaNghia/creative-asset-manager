@@ -75,13 +75,14 @@ type DragAxis = "horizontal" | "vertical" | "both";
 type DragOrigin = { x: number; y: number; pointerId: number; axis: DragAxis };
 
 /** Only near neighbors are mounted; the active thumbnail and hat stay physically centered. */
-export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, savingSelectionVersion, guides = false, threadMode = "auto",
+export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selection, onRejectDesign, savingSelectionVersion, guides = false, threadMode = "auto",
   placement = DEFAULT_FRONT_PLACEMENT, placementReady = false, onSavePlacement, onSaveDesignSize, stockCatalog = null, stockCatalogLoading = false,
   threeQuarterPlacements = {}, onSaveThreeQuarterPlacement, onNeedThreeQuarterPlacement,
 }: {
   versions: GenerationOutputVersion[];
   initialVersion?: number;
   onToggleStage2Selection?: (version: GenerationOutputVersion) => void;
+  onRejectDesign?: (version: GenerationOutputVersion) => void;
   savingSelectionVersion?: number | null;
   guides?: boolean;
   threadMode?: ThreadMode;
@@ -341,6 +342,16 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
                   <path d="m12 2.5 2.95 6 6.6.96-4.77 4.65 1.13 6.57L12 17.57l-5.91 3.11 1.13-6.57-4.77-4.65 6.6-.96Z" />
                 </svg>
+              </button>}
+              {onRejectDesign && <button type="button"
+                data-blueprint-design-action="reject"
+                className={"rrugc-blueprint-design-reject" + (design.creative_feedback?.decision === "rejected" ? " is-rejected" : "")}
+                aria-label={(design.creative_feedback?.decision === "rejected" ? "Undo rejection for " : "Reject ") + designName(design)}
+                title={design.creative_feedback?.decision === "rejected" ? "Undo rejection" : "Reject and teach future generation"}
+                disabled={savingSelectionVersion != null}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={event => { event.stopPropagation(); onRejectDesign(design); }}>
+                {design.creative_feedback?.decision === "rejected" ? "↶" : "✕"}
               </button>}
               <a data-blueprint-design-action="download" className="rrugc-blueprint-design-download"
                 href={design.url + (design.url.includes("?") ? "&" : "?") + "download=true"}

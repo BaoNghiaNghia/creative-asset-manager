@@ -1868,6 +1868,7 @@ class KeywordImageGenerateHandler:
                     "engine": "creative-v3",
                     "source": "creative-brief-v1",
                     "brief_sha256": v3.get("source_sha256"),
+                    "content_sha256": content_hash,
                     "plan_fingerprint": v3.get("fingerprint"),
                     "concept_mode": ("safe" if expected_count == 9 and index == 0 else "creative_twist" if expected_count == 9 and index < 5 else "explore" if expected_count == 9 else ("safe", "creative_twist", "explore")[min(index // 2, 2)]),
                     "concept_variant": (("A", "A", "B", "C", "D", "A", "B", "C", "D")[index] if expected_count == 9 else "A" if index % 2 == 0 else "B"),

@@ -5270,6 +5270,11 @@ def select_stage1_design_for_products_stage2(
         RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
         RrugcSourcePlanModel.source_file_id == version_row.remote_file_id,
     ).with_for_update())
+    from app.modules.realistic_review_ugc.stage1_design_learning import set_design_feedback
+    set_design_feedback(
+        version_row, decision="picked" if selected else "neutral",
+        reason="unspecified", actor_id=principal.user_id,
+    )
     if selected and plan is None:
         plan = RrugcSourcePlanModel(
             tenant_id=principal.active_tenant_id,
@@ -5297,6 +5302,58 @@ def select_stage1_design_for_products_stage2(
     else:
         session.commit()
     return {"selected": bool(selected), "source_plan_id": plan.id if plan else None}
+
+
+class Stage1DesignFeedbackRequest(BaseModel):
+    decision: str = Field(pattern="^(picked|rejected|neutral)$")
+    reason: str = Field(default="unspecified", max_length=40)
+
+
+@router.post("/keyword-images/jobs/{job_id}/versions/{version}/design-feedback")
+def save_stage1_design_feedback(
+    job_id: str, version: int, body: Stage1DesignFeedbackRequest,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(RUN),
+):
+    """Persist human feedback; rejecting a picked image also unpicks Stage 2.
+
+    Images and historical jobs remain immutable. No automatic new AI jobs.
+    """
+    from app.modules.realistic_review_ugc.colorways import PRODUCTS_STAGE1_SELECTED_ROOT
+    from app.modules.realistic_review_ugc.stage1_design_learning import (
+        DECISIONS, REASONS, set_design_feedback,
+    )
+    if body.decision not in DECISIONS or body.reason not in REASONS:
+        raise HTTPException(status_code=422, detail="Invalid design feedback")
+    row = session.scalar(select(RrugcImageOutputVersionModel).where(
+        RrugcImageOutputVersionModel.tenant_id == principal.active_tenant_id,
+        RrugcImageOutputVersionModel.stage == "stage1",
+        RrugcImageOutputVersionModel.job_id == job_id,
+        RrugcImageOutputVersionModel.version == version,
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(status_code=404, detail="Stage 1 design not found")
+    job = session.scalar(select(RrugcKeywordImageJobModel.id).where(
+        RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
+        RrugcKeywordImageJobModel.id == job_id,
+    ))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Stage 1 job not found")
+    review = set_design_feedback(
+        row, decision=body.decision,
+        reason=body.reason, actor_id=principal.user_id,
+    )
+    if body.decision == "rejected":
+        plan = session.scalar(select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == principal.active_tenant_id,
+            RrugcSourcePlanModel.root_folder_id == PRODUCTS_STAGE1_SELECTED_ROOT,
+            RrugcSourcePlanModel.source_file_id == row.remote_file_id,
+        ).with_for_update())
+        if plan is not None:
+            plan.status = "missing"
+    session.commit()
+    return {"job_id": job_id, "version": version, "feedback": review,
+            "selected_for_products_stage2": False if body.decision == "rejected" else None}
 
 
 class FrontDesignSizeRequest(BaseModel):
@@ -5491,6 +5548,10 @@ def list_generation_output_versions(
          ),
          "output_name": row.get("output_name"),
          "font_info": row.get("font_info") if stage == "stage1" else None,
+         "creative_feedback": (
+             (row.get("font_info") or {}).get("creative_feedback")
+             if stage == "stage1" and isinstance(row.get("font_info"), dict) else None
+         ),
          "front_design_size": front_design_sizes.get(row["version"], 100) if stage == "stage1" else None,
          "selected_for_products_stage2": stage == "stage1" and row["remote_file_id"] in selected_products_sources,
          "url": f"/api/v1/realistic-review-ugc/generation-jobs/{stage}/{job_id}/outputs/{row['version']}"}

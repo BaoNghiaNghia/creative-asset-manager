@@ -117,7 +117,7 @@ def validate_brief(raw: object, keyword: str) -> CreativeBrief:
     return brief
 
 
-def build_prompt(keyword: str) -> str:
+def build_prompt(keyword: str, *, learning_context: str = "") -> str:
     """Brief Lite: semantics, hierarchy and distinct original compositions only.
 
     Stitch simulation, color-count rules and visual-material constraints belong
@@ -175,6 +175,7 @@ def build_prompt(keyword: str) -> str:
         "Do not copy references, licensed glyphs, trademarks or slogans. "
         "Output only JSON matching the supplied schema.\n"
         "Exact keyword JSON string: " + json.dumps(keyword, ensure_ascii=False)
+        + ("\n" + learning_context if learning_context else "")
     )
 
 
@@ -226,9 +227,10 @@ async def generate_brief(
     model: str | None = None,
     timeout_seconds: int = 180,
     codex_home: str | None = None,
+    learning_context: str = "",
 ) -> CreativeBrief:
     """One bounded text-only Codex request; schema/output isolated per invocation."""
-    prompt = build_prompt(keyword)
+    prompt = build_prompt(keyword, learning_context=learning_context)
     if timeout_seconds < 5 or timeout_seconds > 600:
         raise ValueError("invalid timeout")
     with tempfile.TemporaryDirectory(prefix="cam-creative-brief-") as tmp:

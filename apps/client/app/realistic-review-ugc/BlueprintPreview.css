@@ -45,6 +45,9 @@
 .rrugc-blueprint-design-choice strong{overflow:hidden;color:#36516d;font-size:9px;text-overflow:ellipsis;white-space:nowrap;padding-right:28px}
 .rrugc-blueprint-design-star,.rrugc-blueprint-design-download{position:absolute;z-index:5;display:grid;place-items:center;width:28px;height:28px;box-sizing:border-box;border:1px solid #d1ddec;border-radius:7px;background:rgba(255,255,255,.94);color:#60758c;cursor:pointer;box-shadow:0 1px 3px rgba(27,45,70,.10)}
 .rrugc-blueprint-design-star{top:6px;right:6px}
+.rrugc-blueprint-design-reject{position:absolute;z-index:5;top:6px;right:39px;display:grid;place-items:center;width:28px;height:28px;border:1px solid #e7d3d3;border-radius:7px;background:rgba(255,255,255,.95);color:#ab6666;font-weight:800;cursor:pointer;box-shadow:0 1px 3px rgba(27,45,70,.10)}
+.rrugc-blueprint-design-reject:hover:not(:disabled),.rrugc-blueprint-design-reject.is-rejected{color:#a32525;border-color:#dba2a2;background:#fff0f0}
+.rrugc-blueprint-design-reject:disabled{opacity:.5;cursor:wait}
 .rrugc-blueprint-design-download{right:6px;bottom:6px;text-decoration:none}
 .rrugc-blueprint-design-star svg,.rrugc-blueprint-design-download svg{display:block;width:17px;height:17px}
 .rrugc-blueprint-design-star.is-starred{color:#bf8412;border-color:#f1c963;background:#fff4c8}

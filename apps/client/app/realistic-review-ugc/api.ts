@@ -996,7 +996,8 @@ export const saveStage1FrontDesignSize = (jobId: string, version: number, percen
     { method: "PUT", body: JSON.stringify({ front_design_size: percent }) },
   );
 
-export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; front_design_size?: number | null; version: number; created_at: string; width: number | null;
+export type Stage1DesignFeedback = { decision: "picked" | "rejected" | "neutral"; reason: string; updated_at: string; updated_by: string };
+export type GenerationOutputVersion = { selected_for_products_stage2?: boolean; creative_feedback?: Stage1DesignFeedback | null; front_design_size?: number | null; version: number; created_at: string; width: number | null;
   height: number | null; url: string; output_role?: "design_concepts" | "colorways" | null; output_name?: string | null;
   font_info?: { font_name?: string; font_style?: string; layout_name?: string; font_source?: string; font_url?: string; font_license?: string; font_status?: string;
     engine?: string; concept_mode?: string; concept_variant?: string; technical_qa_passed?: boolean;
@@ -1013,6 +1014,16 @@ export const selectStage1ProductDesign = (jobId: string, version: number, select
     + "/versions/" + version + "/products-stage2?selected=" + selected,
     { method: "POST" },
   );
+
+export const saveStage1DesignFeedback = (
+  jobId: string, version: number,
+  decision: "picked" | "rejected" | "neutral",
+  reason = "unspecified",
+) => request<{ job_id: string; version: number; feedback: Stage1DesignFeedback; selected_for_products_stage2: boolean | null }>(
+  "/api/v1/realistic-review-ugc/keyword-images/jobs/" + encodeURIComponent(jobId)
+  + "/versions/" + version + "/design-feedback",
+  { method: "POST", body: JSON.stringify({ decision, reason }) },
+);
 
 export const publishAvailableKeywordImages = (keywordId: string) =>
   request<{ job_id: string; status: string }>(

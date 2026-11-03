@@ -21,7 +21,10 @@ from app.modules.realistic_review_ugc.creative_v3_generation import (
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.creative_v3_runner import _checked_png
-from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
+    RrugcKeywordImageJobModel, RrugcImageOutputVersionModel,
+)
 
 
 def brief(keyword="CREATIVE DICTATOR"):
@@ -242,6 +245,8 @@ def test_stale_or_unpicked_brief_cannot_generate():
     engine = create_engine("sqlite://")
     RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcKeywordCreativeBriefModel.__table__.create(engine)
+    RrugcKeywordImageJobModel.__table__.create(engine)
+    RrugcImageOutputVersionModel.__table__.create(engine)
     try:
         with Session(engine) as session:
             word = "CREATIVE DICTATOR"

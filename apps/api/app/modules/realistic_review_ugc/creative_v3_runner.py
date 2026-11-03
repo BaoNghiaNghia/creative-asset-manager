@@ -99,6 +99,7 @@ async def generate_six(
     final_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     final_dir.chmod(0o700)
     seen: set[str] = set()
+    rejected_hashes = set((plan.get("learning_profile") or {}).get("rejected_hashes", []))
     outputs: list[GeneratedImageFile] = []
     cap_fit_reports: list[dict] = []
 
@@ -129,6 +130,9 @@ async def generate_six(
             # Only a verified native checkpoint may be reused.
             data = target.read_bytes()
             digest, qa = _checked_png(data, seen)
+            if digest in rejected_hashes:
+                raise _fail("creative_v3_previously_rejected_image",
+                            "Saved checkpoint matches an explicitly rejected Stage 1 design.")
         else:
             for qa_attempt in range(2):
                 attempt_id = context.job.id + f"-v3-{slot:02}-qa{qa_attempt + 1}"
@@ -160,6 +164,12 @@ async def generate_six(
                         raise _fail("creative_v3_native_png_rejected",
                                     "Native ImageGen returned a PNG without safe transparent margins.") from exc
                     digest, qa = _checked_png(data, seen)
+                    if digest in rejected_hashes:
+                        raise _fail(
+                            "creative_v3_previously_rejected_image",
+                            "Image matches the SHA-256 of a rejected design. "
+                            "Generate a substantially different arrangement.",
+                        )
                     verify_snapshot(revalidate(), snapshot)
                     if not enabled(settings, tenant_id) or context.is_cancelled:
                         raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
@@ -179,6 +189,7 @@ async def generate_six(
                     if (qa_attempt == 0 and exc.code in {
                             "creative_v3_alpha_or_canvas_rejected",
                             "creative_v3_duplicate_image",
+                            "creative_v3_previously_rejected_image",
                             "creative_v3_native_png_rejected",
                     }):
                         context.logger.warning("rrugc_creative_v3_slot_technical_retry", extra={

@@ -459,10 +459,17 @@ class CreativeBriefGenerateHandler:
             row.status = "running"
             row.last_error_code = None
             phrase = keyword.keyword
+            from app.modules.realistic_review_ugc.stage1_design_learning import (
+                learning_profile, learning_prompt_context,
+            )
+            feedback_context = learning_prompt_context(learning_profile(
+                session, tenant_id=context.job.tenant_id, keyword=phrase,
+            ))
             session.commit()
         try:
             brief: CreativeBrief = asyncio.run(generate_brief(
                 phrase,
+                learning_context=feedback_context,
                 codex_binary=self.settings.CODEX_IMAGE_BINARY,
                 codex_home=self.settings.CODEX_IMAGE_HOME,
                 model=self.settings.RRUGC_CREATIVE_BRIEF_MODEL.strip() or None,

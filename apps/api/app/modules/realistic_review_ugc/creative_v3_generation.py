@@ -220,11 +220,28 @@ def resolve_plan(session: Session, *, tenant_id: str, keyword_id: str,
             not isinstance(brief.brief_json, dict)):
         raise CreativeV3Error("creative_v3_brief_not_ready", "Complete Creative Brief V1 before creating images.")
     try:
-        return _brief_plan(
+        plan = _brief_plan(
             keyword=keyword.keyword, brief_json=brief.brief_json,
             prompt_version=brief.prompt_version, brief_id=brief.id,
             schema_version=schema_version,
         )
+        if schema_version == SCHEMA:
+            from app.modules.realistic_review_ugc.stage1_design_learning import (
+                learning_profile, learning_prompt_context, learning_fingerprint,
+            )
+            profile = learning_profile(
+                session, tenant_id=tenant_id, keyword=keyword.keyword,
+            )
+            if profile["total_votes"]:
+                plan["learning_profile"] = profile
+                plan["learning_context"] = learning_prompt_context(profile)
+                # The feedback is pinned on a NEW attempt. If a user rejects
+                # during generation, stop rather than keep producing a now-
+                # rejected direction from an outdated processing snapshot.
+                plan["fingerprint"] = hashlib.sha256((
+                    plan["fingerprint"] + "|" + learning_fingerprint(profile)
+                ).encode()).hexdigest()
+        return plan
     except ValueError as exc:
         if isinstance(exc, CreativeV3Error):
             raise
@@ -387,7 +404,14 @@ def prompt_for_slot(
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     if visual_profile == VISUAL_PROFILE:
         if plan["identity"]["schema_version"] == SCHEMA:
-            return _cap_first_prompt_for_slot(plan, slot)
+            prompt = _cap_first_prompt_for_slot(plan, slot)
+            feedback = plan.get("learning_context")
+            if isinstance(feedback, str) and feedback:
+                prompt += (
+                    "\nHUMAN REJECTION LEARNING OVERRIDES REPEATED OLD LAYOUTS: "
+                    + feedback
+                )
+            return prompt
         visual_profile = NO_OUTLINE_VISUAL_PROFILE
     if visual_profile == LITE_V4_VISUAL_PROFILE:
         if plan["identity"]["schema_version"] == SCHEMA:

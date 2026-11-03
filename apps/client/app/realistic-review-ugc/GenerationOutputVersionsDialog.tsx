@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getFrontPlacement, getHatStockCatalog, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, type GenerationOutputVersion, type HatStockCatalog } from "./api";
+import { getFrontPlacement, getHatStockCatalog, listGenerationOutputVersions, saveFrontPlacement, saveStage1FrontDesignSize, selectStage1ProductDesign, saveStage1DesignFeedback, type GenerationOutputVersion, type HatStockCatalog } from "./api";
 import { DEFAULT_FRONT_PLACEMENT, type FrontPlacement } from "./FrontPlacement";
 import { getThreeQuarterPlacement, saveThreeQuarterPlacement, type ThreeQuarterPlacement } from "./api";
 import { DeferredImage } from "./DeferredImage";
@@ -33,6 +33,8 @@ export function GenerationOutputVersionsDialog({
   const [error, setError] = useState("");
   const [selectionError, setSelectionError] = useState("");
   const [savingSelectionVersion, setSavingSelectionVersion] = useState<number | null>(null);
+  const [rejectCandidate, setRejectCandidate] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("unspecified");
   const [loading, setLoading] = useState(true);
   const [galleryMode, setGalleryMode] = useState<"auto" | "masonry" | "compare" | "blueprint">(stage === "stage1" ? "blueprint" : "auto");
   const [blueprintGuides, setBlueprintGuides] = useState(false);
@@ -80,6 +82,8 @@ export function GenerationOutputVersionsDialog({
     setSelectionError("");
     setVersions([]);
     setSelectedVersions(new Set());
+    setRejectCandidate(null);
+    setRejectReason("unspecified");
     void listGenerationOutputVersions(stage, jobId, controller.signal)
       .then(data => {
         if (!controller.signal.aborted) {
@@ -130,12 +134,42 @@ export function GenerationOutputVersionsDialog({
     try {
       const result = await selectStage1ProductDesign(jobId, version.version, !version.selected_for_products_stage2);
       setVersions(current => current.map(item => item.version === version.version
-        ? { ...item, selected_for_products_stage2: result.selected } : item));
+        ? { ...item, selected_for_products_stage2: result.selected, creative_feedback: {
+            decision: result.selected ? "picked" : "neutral",
+            reason: "unspecified", updated_at: new Date().toISOString(), updated_by: "",
+          } } : item));
       onProductSelectionChange?.(version.version, result.selected);
     } catch (cause) {
       setSelectionError(cause instanceof Error ? cause.message : "Unable to save Stage 1 design selection.");
     } finally {
       setSavingSelectionVersion(null);
+    }
+  }
+
+  async function saveDesignFeedback(version: GenerationOutputVersion, decision: "rejected" | "neutral", reason = "unspecified") {
+    if (stage !== "stage1" || savingSelectionVersion !== null) return;
+    setSavingSelectionVersion(version.version);
+    setSelectionError("");
+    try {
+      const result = await saveStage1DesignFeedback(jobId, version.version, decision, reason);
+      setVersions(current => current.map(item => item.version === version.version
+        ? { ...item, creative_feedback: result.feedback,
+            selected_for_products_stage2: decision === "rejected" ? false : item.selected_for_products_stage2 } : item));
+      if (decision === "rejected") onProductSelectionChange?.(version.version, false);
+      setRejectCandidate(null);
+    } catch (cause) {
+      setSelectionError(cause instanceof Error ? cause.message : "Unable to save design feedback.");
+    } finally {
+      setSavingSelectionVersion(null);
+    }
+  }
+
+  function handleRejectAction(version: GenerationOutputVersion) {
+    if (version.creative_feedback?.decision === "rejected") {
+      void saveDesignFeedback(version, "neutral");
+    } else {
+      setRejectCandidate(version.version);
+      setRejectReason("unspecified");
     }
   }
 
@@ -202,6 +236,14 @@ export function GenerationOutputVersionsDialog({
             <path d="m12 2.5 2.95 6 6.6.96-4.77 4.65 1.13 6.57L12 17.57l-5.91 3.11 1.13-6.57-4.77-4.65 6.6-.96Z"/>
           </svg>
         </button> : version.version === versions[0]?.version && <span>Latest</span>}
+        {stage === "stage1" && <button type="button"
+          className={"rrugc-version-design-reject" + (version.creative_feedback?.decision === "rejected" ? " is-rejected" : "")}
+          title={version.creative_feedback?.decision === "rejected" ? "Undo rejection" : "Reject this design and teach future generation"}
+          aria-label={(version.creative_feedback?.decision === "rejected" ? "Undo rejection for " : "Reject ") + (version.output_name?.split("/").pop() || "design " + version.version)}
+          disabled={savingSelectionVersion !== null}
+          onClick={() => handleRejectAction(version)}>
+          {version.creative_feedback?.decision === "rejected" ? "↶" : "✕"}
+        </button>}
       </div>
       <a className="rrugc-version-image-link"
         style={masonry ? { aspectRatio: stableMasonryRatio(version.width, version.height, 1) } : undefined}
@@ -289,6 +331,29 @@ export function GenerationOutputVersionsDialog({
       </div>
 
       {selectionError && <p role="alert" className="rrugc-stage2-selection-error">{selectionError}</p>}
+      {stage === "stage1" && rejectCandidate !== null && <div className="rrugc-design-reject-review" role="group"
+        aria-label={"Reject design " + rejectCandidate}>
+        <strong>Reject design v{rejectCandidate}</strong>
+        <span>Future generation will avoid this rejected layout.</span>
+        <select aria-label="Reason for rejecting design" value={rejectReason}
+          onChange={event => setRejectReason(event.target.value)}>
+          <option value="unspecified">Not suitable</option>
+          <option value="unreadable_text">Hard to read</option>
+          <option value="wrong_spelling">Incorrect lettering</option>
+          <option value="poor_cap_fit">Does not fit cap</option>
+          <option value="generic_layout">Generic layout</option>
+          <option value="too_busy">Too many details</option>
+          <option value="wrong_style">Wrong style</option>
+          <option value="duplicate">Too similar / duplicate</option>
+          <option value="poor_embroidery">Poor embroidery structure</option>
+        </select>
+        <button type="button" disabled={savingSelectionVersion !== null}
+          onClick={() => { const version = versions.find(item => item.version === rejectCandidate);
+            if (version) void saveDesignFeedback(version, "rejected", rejectReason); }}>
+          Confirm Reject
+        </button>
+        <button type="button" onClick={() => setRejectCandidate(null)}>Cancel</button>
+      </div>}
       {stage !== "stage1" && !loading && !error && versions.length > 1 && versions.length <= 24 && <div className="rrugc-version-filter" role="group" aria-label="Versions to compare">
         {versions.map((version, index) => <button type="button" key={version.version}
           aria-label={"Compare version " + version.version} aria-pressed={selectedVersions.has(version.version)}
@@ -315,6 +380,7 @@ export function GenerationOutputVersionsDialog({
             threeQuarterPlacements={threeQuarterPlacements} onSaveThreeQuarterPlacement={updateThreeQuarterPlacement}
             onNeedThreeQuarterPlacement={setThreeQuarterActiveColor}
             onToggleStage2Selection={version => void toggleProductStage2Selection(version)}
+            onRejectDesign={handleRejectAction}
             savingSelectionVersion={savingSelectionVersion} />
         : masonry
         ? <StableMasonryGrid className="rrugc-version-grid is-masonry"
