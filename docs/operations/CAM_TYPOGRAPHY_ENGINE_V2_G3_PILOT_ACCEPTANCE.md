@@ -4,6 +4,18 @@
 
 ## 0. Hard preflight: no provider execution until completed
 
+A safe, redacted, **read-only** operator preflight is available at
+`python3 scripts/cam-g3-readiness.py --env-file /etc/creative-asset-manager/production.env --release-root /opt/creative-asset-manager`
+(run from the deployed backend release as root). It reports configured boolean
+feature/worker/rollback flags, canary presence, distinct release targets, disk and
+available-memory thresholds without printing secret values, tenant IDs, or
+creating DB/provider objects. Pass an existing approved tenant with `--tenant-id`
+only to evaluate that tenant's allowlist membership. Even when all automated
+checks pass, the status is `pending_manual_signoff`: this cannot validate DB
+backup/restore, migration safety, eight image rights, provider billing caps,
+RBAC, or private browser QA. A passing report is NEVER activation approval.
+
+
 The authorized operator must record evidence privately outside Git for **each** item:
 
 - [ ] Backend `current` and a genuinely usable `previous` release were verified: correct code, Python environment, matching schema compatibility and tested rollback procedure. A symlink to the same release does **not** count.
