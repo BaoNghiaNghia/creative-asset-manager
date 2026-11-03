@@ -155,6 +155,48 @@ def test_raster_projection_preserves_factory_stock_outside_thread_pixels(stage):
         assert c-a > 260  # 3/4: actual slogan, not tiny right-edge crop
 
 
+def test_saved_freehand_quad_places_real_yarn_outside_legacy_crown_box():
+    stock, reference = photo(), embroidery()
+    master = saved_master_box((230, 380, 720, 560), 900, 1000, "rev", "macro")
+    guide = {
+        "version": "3q-free-v1", "revision": 7, "color_key": "natural-black",
+        "corners": [[.61, .30], [.95, .32], [.95, .60], [.60, .58]],
+    }
+    outcome = composite_reference_on_stock_view(
+        stock, reference, stage="prod_s2_ec2", placement=master, guide=guide,
+    )
+    before = np.asarray(Image.open(BytesIO(stock)).convert("RGB"))
+    after = np.asarray(Image.open(BytesIO(outcome.output_png)).convert("RGB"))
+    assert outcome.target_box[0] > 540
+    assert outcome.target_box[2] > .76 * 900  # No obsolete fixed 3/4 box
+    assert outcome.extracted_pixels > 100
+    assert np.array_equal(after[:, :540], before[:, :540])
+    assert np.array_equal(after[630:], before[630:])
+    assert np.array_equal(after[665:710, 705:850], before[665:710, 705:850])
+    assert np.count_nonzero(after[350:590, 560:855] != before[350:590, 560:855]) > 400
+
+
+def test_invalid_or_unpinned_freehand_quad_cannot_publish():
+    from app.modules.realistic_review_ugc.slot1_embroidery import Slot1EmbroideryQAError
+    stock, reference = photo(), embroidery()
+    master = saved_master_box((230, 380, 720, 560), 900, 1000, "rev", "macro")
+    invalid = {
+        "version": "3q-free-v1",
+        "corners": [[.9, .3], [.5, .3], [.5, .6], [.9, .6]],
+    }
+    with pytest.raises(Slot1EmbroideryQAError, match="Invalid saved"):
+        composite_reference_on_stock_view(
+            stock, reference, stage="prod_s2_ec2", placement=master, guide=invalid,
+        )
+    with pytest.raises(Slot1EmbroideryQAError, match="pinned Slot 1 master"):
+        composite_reference_on_stock_view(
+            stock, reference, stage="prod_s2_ec2", guide={
+                "version": "3q-free-v1",
+                "corners": [[.61, .3], [.95, .32], [.95, .6], [.6, .58]],
+            },
+        )
+
+
 @pytest.mark.parametrize("stage", ["prod_s2_ec2", "prod_s2_ec3"])
 @pytest.mark.parametrize("codex_enabled", [True, False])
 def test_angle_worker_publishes_without_codex_or_png_artwork(monkeypatch, stage, codex_enabled):

@@ -143,7 +143,7 @@ def test_saved_embroidery_reference_retry_is_queued_without_codex_quota(ecommerc
     assert row.output_remote_file_id == "old-front"
 
 
-def test_new_stock_angles_are_one_codex_edit_with_pinned_3q_and_back_is_local(ecommerce_db):
+def test_new_stock_angles_reuse_saved_reference_locally_with_pinned_3q(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
     first = service.queue(tenant_id="tenant-001", user_id="operator",
@@ -163,9 +163,9 @@ def test_new_stock_angles_are_one_codex_edit_with_pinned_3q_and_back_is_local(ec
         row = session.get(RrugcEcommerceJobModel, queued["job_id"])
         processing = session.get(ProcessingJobModel, row.processing_job_id)
         if slot in ("prod_s2_ec2", "prod_s2_ec3"):
-            assert processing.provider_key == "codex"
-            assert processing.provider_scope == "ai"
-            assert processing.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
+            assert processing.provider_key is None
+            assert processing.provider_scope is None
+            assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
             assert processing.payload_json["three_quarter_placement_v1"]["version"] == "3q-free-v1"
             assert len(processing.payload_json["three_quarter_placement_v1"]["corners"]) == 4
             assert processing.payload_json["embroidery_placement_v1"]["version"] == "front-locked-v1"
@@ -177,7 +177,7 @@ def test_new_stock_angles_are_one_codex_edit_with_pinned_3q_and_back_is_local(ec
             assert "thread_material_pipeline" not in processing.payload_json
 
 
-def test_new_angles_require_codex_and_do_not_silently_fallback_to_raster(ecommerce_db):
+def test_new_angles_need_no_codex_when_saved_reference_is_available(ecommerce_db):
     session, settings = ecommerce_db
     service = EcommerceService(session, settings)
     queued = service.queue(tenant_id="tenant-001", user_id="operator",
@@ -191,13 +191,17 @@ def test_new_angles_require_codex_and_do_not_silently_fallback_to_raster(ecommer
     session.commit()
     settings.CODEX_IMAGE_GENERATION_ENABLED = False
     for stage in ("prod_s2_ec2", "prod_s2_ec3"):
-        with pytest.raises(EcommerceError, match="disabled"):
-            service.queue(tenant_id="tenant-001", user_id="operator",
-                          source_plan_id="plan-001", stage=stage)
-    assert session.query(RrugcEcommerceJobModel).count() == 1
+        queued = service.queue(tenant_id="tenant-001", user_id="operator",
+                               source_plan_id="plan-001", stage=stage)
+        row = session.get(RrugcEcommerceJobModel, queued["job_id"])
+        processing = session.get(ProcessingJobModel, row.processing_job_id)
+        assert processing.provider_key is None
+        assert processing.provider_scope is None
+        assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
+    assert session.query(RrugcEcommerceJobModel).count() == 3
 
 
-def test_codex_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecommerce_db):
+def test_raster_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecommerce_db):
     from app.modules.realistic_review_ugc.three_quarter_placement import (
         save_three_quarter_placement,
     )
@@ -225,8 +229,8 @@ def test_codex_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecomm
         "version": "3q-free-v1", "color_key": "natural-black",
         "revision": 1, "corners": wide,
     }
-    assert previous.provider_key == "codex"
-    assert previous.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
+    assert previous.provider_key is None
+    assert previous.payload_json["thread_material_pipeline"] == "v4-raster-placement"
     assert previous.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "verified-embroidery-reference"
 
     updated = [[.24, .32], [.67, .32], [.67, .56], [.23, .55]]
@@ -242,8 +246,52 @@ def test_codex_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecomm
     assert new_job.id != previous.id
     assert new_job.payload_json["three_quarter_placement_v1"]["corners"] == updated
     assert new_job.payload_json["three_quarter_placement_v1"]["revision"] == 2
-    assert new_job.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
+    assert new_job.payload_json["thread_material_pipeline"] == "v4-raster-placement"
     assert slot.output_remote_file_id == "old-angle-output"
+
+
+def test_retry_of_failed_codex_patch_reuses_reference_without_another_codex_call(ecommerce_db):
+    session, settings = ecommerce_db
+    service = EcommerceService(session, settings)
+    queued = service.queue(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", stage="prod_s2_ec1",
+    )
+    front = session.get(RrugcEcommerceJobModel, queued["job_id"])
+    front.status = "completed"
+    front.output_remote_file_id = "preserved-front-output"
+    front.front_preview_remote_file_id = "saved-reference"
+    front.front_preview_content_type = "image/png"
+    front.front_preview_design_sha256 = "f" * 64
+    session.commit()
+    created = service.queue(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", stage="prod_s2_ec2",
+    )
+    row = session.get(RrugcEcommerceJobModel, created["job_id"])
+    old = session.get(ProcessingJobModel, row.processing_job_id)
+    old.provider_key, old.provider_scope = "codex", "ai"
+    old.payload_json = {
+        **old.payload_json,
+        "thread_material_pipeline": "v5-codex-angle-inference",
+    }
+    old.status = "failed"
+    row.status = "failed"
+    row.last_error_code = "ecommerce_angle_direct_qa_failed"
+    row.last_error_message = "Edited area resembles a filled patch rather than individual stitches."
+    session.commit()
+
+    result = service.retry(tenant_id="tenant-001", job_id=row.id)
+    replacement = session.get(ProcessingJobModel, row.processing_job_id)
+    assert result["status"] == "queued"
+    assert replacement.id != old.id
+    assert replacement.provider_key is None and replacement.provider_scope is None
+    assert replacement.payload_json["thread_material_pipeline"] == "v4-raster-placement"
+    assert replacement.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-reference"
+    assert replacement.payload_json["three_quarter_placement_v1"]["version"] == "3q-free-v1"
+    assert old.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
+    assert old.status == "failed"
+    assert row.front_preview_remote_file_id == "saved-reference"
 
 
 def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerce_db):

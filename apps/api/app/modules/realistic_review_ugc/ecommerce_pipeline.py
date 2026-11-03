@@ -551,10 +551,14 @@ class EcommerceService:
             ProcessingJobModel.entity_type == "rrugc_ecommerce_job",
             ProcessingJobModel.entity_id == row.id,
         )) or 0)
-        # New angle jobs use ONE Codex edit; only the rear view and existing
-        # Slot 1 reference-reuse path are local, quota-free operations.
+        # All newly queued stock-angle jobs reuse the verified Slot 1 yarn
+        # locally. Never reserve Codex quota for a pure raster placement.
         local_transfer = bool(
-            (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
+            (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+             and row.skill_name == SLOT1_DIRECT_NAME
+             and row.front_preview_remote_file_id
+             and row.front_preview_design_sha256)
+            or (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
             or (row.stage == "prod_s2_ec1"
                 and row.skill_name == SLOT1_DIRECT_NAME
                 and row.skill_version == SLOT1_DIRECT_VERSION
@@ -562,7 +566,7 @@ class EcommerceService:
                 and row.front_preview_design_sha256
                 and not regenerate_material_reference)
         )
-        # Each newly queued direct job has one fixed placement contract.
+        # New attempts pin the master and the user-saved 3/4 four-point guide.
         # Existing in-flight jobs are not mutated by later deployments.
         front_contract = (
             front_scale_contract(front_placement)
@@ -590,7 +594,7 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v5-codex-angle-inference"} if (
+                **({"thread_material_pipeline": "v4-raster-placement"} if (
                     row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
                     and row.skill_source == "internal"
                     and row.skill_name == SLOT1_DIRECT_NAME
@@ -622,7 +626,7 @@ class EcommerceService:
               multihat_colorways=None, multihat_colorway_hashes=None) -> dict:
         if stage not in SHOTS_BY_STAGE and stage not in SCENE_STAGE_SLOTS:
             raise EcommerceError("ecommerce_stage_invalid", "Unknown photo skill slot.", 422)
-        uses_native_codex = stage != "prod_s2_ec4"
+        uses_native_codex = stage not in ("prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4")
         if not all((
             self.settings.PROCESSING_JOBS_ENABLED,
             self.settings.IMAGE_GENERATION_ENABLED,
@@ -2050,6 +2054,8 @@ class EcommerceGenerateHandler:
                         reference_remote_file_id=preview_remote_id,
                         source_revision=source_revision,
                     ) if deterministic_angle else None),
+                    guide=(context.job.payload.get("three_quarter_placement_v1")
+                           if deterministic_angle and stage == "prod_s2_ec2" else None),
                     side_front_fallback=side_front_fallback,
                 )
             except Slot1EmbroideryQAError as exc:
@@ -2337,7 +2343,8 @@ class EcommerceGenerateHandler:
                                 and context.job.payload.get("embroidery_placement_v1") else {}),
                                 **({"three_quarter_placement_v1":
                                        context.job.payload["three_quarter_placement_v1"]}
-                                   if codex_inference else {}),
+                                   if (codex_inference or deterministic_angle)
+                                   and context.job.payload.get("three_quarter_placement_v1") else {}),
                                 **({"slot1_embroidery_pipeline": {
                                     "version": ("threadtransfer-v2-tight-yarn"
                                                 if is_threadtransfer else

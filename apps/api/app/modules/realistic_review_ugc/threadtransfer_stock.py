@@ -36,6 +36,7 @@ def _composite_pinned_view(
     master: dict,
     *,
     side_front_fallback: bool = False,
+    guide: dict | None = None,
 ) -> ThreadTransferResult:
     """V3: perspective-warp SAME real yarn with one predefined stock quad.
 
@@ -47,13 +48,38 @@ def _composite_pinned_view(
     )
 
     height, width = original.shape[:2]
-    try:
-        x0, y0, x1, y1 = projected_raster_box(
-            master, stage, (width, height),
-            side_front_fallback=side_front_fallback,
+    saved_quad: np.ndarray | None = None
+    if guide is not None:
+        # Slot 2 only: the saved, freely positioned 3/4 quadrilateral is the
+        # authority. A template crown box must not clip or recenter its yarn.
+        from app.modules.realistic_review_ugc.three_quarter_placement import (
+            ThreeQuarterPlacementInvalid, validate_three_quarter_corners,
         )
-    except EmbroideryScaleError as exc:
-        raise Slot1EmbroideryQAError(str(exc)) from exc
+        if stage != "prod_s2_ec2" or not isinstance(guide, dict) or guide.get("version") != "3q-free-v1":
+            raise Slot1EmbroideryQAError("Invalid saved 3/4 embroidery guide.")
+        try:
+            corners = validate_three_quarter_corners(guide["corners"])
+        except (KeyError, TypeError, ThreeQuarterPlacementInvalid) as exc:
+            raise Slot1EmbroideryQAError("Invalid saved 3/4 embroidery guide.") from exc
+        raw_quad = np.float32([(x*(width-1), y*(height-1)) for x, y in corners])
+        center = raw_quad.mean(axis=0)
+        # A 2% inset leaves a small seam margin without introducing any
+        # rectangular stamp or modifying pixels outside the saved field.
+        saved_quad = center + (raw_quad - center)*.96
+        x0, y0 = np.floor(saved_quad.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(saved_quad.max(axis=0)).astype(int) + 1
+        x0, y0 = max(0, int(x0)), max(0, int(y0))
+        x1, y1 = min(width, int(x1)), min(height, int(y1))
+        if x1-x0 < 12 or y1-y0 < 12:
+            raise Slot1EmbroideryQAError("Saved 3/4 embroidery field is too small.")
+    else:
+        try:
+            x0, y0, x1, y1 = projected_raster_box(
+                master, stage, (width, height),
+                side_front_fallback=side_front_fallback,
+            )
+        except EmbroideryScaleError as exc:
+            raise Slot1EmbroideryQAError(str(exc)) from exc
     rgba = np.asarray(layer.convert("RGBA"), dtype=np.uint8)
     if stage == "prod_s2_ec3" and not side_front_fallback:
         # Historical side-90 jobs physically expose only the front-edge
@@ -62,8 +88,28 @@ def _composite_pinned_view(
     src_h, src_w = rgba.shape[:2]
     if min(src_w, src_h) < 10:
         raise Slot1EmbroideryQAError("Saved thread layer has insufficient visible detail.")
+    if saved_quad is not None:
+        # The four handles define the available seam-safe field, not a
+        # command to stretch lettering. Keep the reference glyph proportions
+        # with the natural ~12% foreshortening of a 3/4 camera angle.
+        top_w = np.linalg.norm(saved_quad[1] - saved_quad[0])
+        bottom_w = np.linalg.norm(saved_quad[2] - saved_quad[3])
+        left_h = np.linalg.norm(saved_quad[3] - saved_quad[0])
+        right_h = np.linalg.norm(saved_quad[2] - saved_quad[1])
+        field_aspect = (top_w + bottom_w) / max(left_h + right_h, 1.)
+        yarn_aspect = (src_w / src_h) * .88
+        sx = min(1., yarn_aspect / max(field_aspect, .001))
+        sy = min(1., field_aspect / max(yarn_aspect, .001))
+        center = saved_quad.mean(axis=0)
+        saved_quad = center + (saved_quad - center)*np.float32([sx, sy])
+        x0, y0 = np.floor(saved_quad.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(saved_quad.max(axis=0)).astype(int) + 1
     tw, th = x1-x0, y1-y0
-    if stage == "prod_s2_ec2" or side_front_fallback:
+    if min(tw, th) < 12:
+        raise Slot1EmbroideryQAError("Calibrated 3/4 embroidery is too small.")
+    if saved_quad is not None:
+        quad = saved_quad
+    elif stage == "prod_s2_ec2" or side_front_fallback:
         quad = np.float32([
             [x0+tw*.055, y0+th*.025],
             [x1-tw*.085, y0+th*.095],
@@ -150,6 +196,7 @@ def composite_reference_on_stock_view(
     design_size: int = 100,
     placement: dict | None = None,
     side_front_fallback: bool = False,
+    guide: dict | None = None,
 ) -> ThreadTransferResult:
     """Project yarn onto a real angle; protect every pixel outside target ROI.
 
@@ -175,8 +222,10 @@ def composite_reference_on_stock_view(
     if placement is not None:
         return _composite_pinned_view(
             original, layer, stage, placement,
-            side_front_fallback=side_front_fallback,
+            side_front_fallback=side_front_fallback, guide=guide,
         )
+    if guide is not None:
+        raise Slot1EmbroideryQAError("Saved 3/4 guide requires a pinned Slot 1 master.")
     if side_front_fallback:
         raise Slot1EmbroideryQAError("Front-visible fallback requires a saved Slot 1 master.")
     # Pre-V3 pinned work uses the historical stock-safe v2 fields.
