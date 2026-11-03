@@ -4,6 +4,8 @@
 # No changes to databases, Docker, Codex, models, backups, media or syslog.
 set -Eeuo pipefail
 export LC_ALL=C
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/cam-backup-override-guard.sh"
 MODE=dry-run
 VACUUM=0
 MIN_AGE=8
@@ -90,8 +92,10 @@ if ! release_ok "$rollback" || [[ "$active" == "$rollback" ]]; then safe=0; fi
 BACKUP_OVERRIDE=/etc/systemd/system/creative-asset-manager-db-backup.service.d/90-cam-isolated-backup-runtime.conf
 pinned_backup=""
 if [[ -e "$BACKUP_OVERRIDE" || -L "$BACKUP_OVERRIDE" ]]; then
-  if [[ -L "$BACKUP_OVERRIDE" || ! -f "$BACKUP_OVERRIDE" ]] ||
-     ! grep -Fxq "# CAM isolated backup runtime v1" "$BACKUP_OVERRIDE"; then
+  if cam_backup_override_uses_current_only "$BACKUP_OVERRIDE"; then
+    echo "VERIFIED: backup runtime uses CURRENT and pins no old immutable release"
+  elif [[ -L "$BACKUP_OVERRIDE" || ! -f "$BACKUP_OVERRIDE" ]] ||
+       ! grep -Fxq "# CAM isolated backup runtime v1" "$BACKUP_OVERRIDE"; then
     safe=0
     echo "SKIP: untrusted isolated backup runtime override"
   else
