@@ -36,6 +36,7 @@ def creative_v3_generation_status(principal: CurrentPrincipal = Depends(READ)):
 
 class CreativeV3GenerateRequest(BaseModel):
     expected_brief_updated_at: str = Field(min_length=10, max_length=70)
+    design_style: str = Field(default="balanced", pattern="^(balanced|heritage|experimental)$")
 
 
 @router.post("/{keyword_id}/v3-generate", status_code=202)
@@ -55,6 +56,7 @@ def creative_v3_generate(
             tenant_id=principal.active_tenant_id, user_id=principal.user_id,
             keyword_id=keyword_id,
             expected_brief_updated_at=body.expected_brief_updated_at,
+            design_style=body.design_style,
         )
         return {"keyword_id": keyword_id, "job_id": job.id,
                 "status": job.status, "queued": True,
@@ -88,6 +90,7 @@ def creative_v3_regenerate(
             user_id=principal.user_id,
             keyword_id=keyword_id,
             expected_brief_updated_at=body.expected_brief_updated_at,
+            design_style=body.design_style,
             regenerate=True,
         )
         return {

@@ -264,7 +264,8 @@ def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
             or snapshot.get("keyword_sha256") != plan.get("identity", {}).get("keyword_sha256")
             or snapshot.get("brief_id") != plan.get("identity", {}).get("brief_id")
             or snapshot.get("source_sha256") != plan.get("identity", {}).get("source_sha256")
-            or snapshot.get("visual_profile") not in (None, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LITE_V4_VISUAL_PROFILE, VISUAL_PROFILE)):
+            or snapshot.get("visual_profile") not in (None, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LITE_V4_VISUAL_PROFILE, VISUAL_PROFILE)
+            or snapshot.get("design_style", "balanced") not in ("balanced", "heritage", "experimental")):
         raise CreativeV3Error("creative_v3_source_changed", "Creative Brief or exact keyword changed after queueing.")
 
 
@@ -352,9 +353,11 @@ def _lite_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
     )
 
 
-def _cap_first_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
+def _cap_first_prompt_for_slot(plan: Mapping[str, Any], slot: int, *, design_style: str = "balanced") -> str:
     """A cap-first ImageGen contract independent from stale Brief styling prose."""
     brief_data = cap_first_direction(plan, slot)
+    from app.modules.realistic_review_ugc.heritage_lettering import style_guidance
+    layout_guidance = style_guidance(design_style, slot)
     return (
         "Create EXACTLY ONE original transparent RGBA artwork of REAL machine-embroidered "
         "typography ready to place on the front of a Valucap 8869 five-panel cap. "
@@ -384,6 +387,7 @@ def _cap_first_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
         "NO cap, mockup, background, cloth photograph, text outside the quote, "
         "thick contours, fake 3D plastic, poster panel, frame or flat printed ink. "
         + CAP_MATERIAL_INSTRUCTIONS
+        + "\nSTYLE ART DIRECTION (OVERRIDES CONFLICTING GENERIC RECIPES): " + layout_guidance
         + "\nCAP-FIRST ART DIRECTION (JSON): "
         + json.dumps({**brief_data, "material_profile": CAP_MATERIAL_PROFILE},
                      ensure_ascii=False, sort_keys=True)
@@ -395,6 +399,7 @@ def _cap_first_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
 def prompt_for_slot(
     plan: Mapping[str, Any], slot: int, *,
     visual_profile: str = VISUAL_PROFILE,
+    design_style: str = "balanced",
 ) -> str:
     """Pin one art direction per processing attempt, keeping legacy retries stable.
 
@@ -413,7 +418,7 @@ def prompt_for_slot(
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     if visual_profile == VISUAL_PROFILE:
         if plan["identity"]["schema_version"] == SCHEMA:
-            prompt = _cap_first_prompt_for_slot(plan, slot)
+            prompt = _cap_first_prompt_for_slot(plan, slot, design_style=design_style)
             feedback = plan.get("learning_context")
             if isinstance(feedback, str) and feedback:
                 prompt += (

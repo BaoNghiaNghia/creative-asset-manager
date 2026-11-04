@@ -75,8 +75,10 @@ def keyword_visual_evidence(session: Session, *, tenant_id: str, keyword_id: str
         graph = reviewed["layout_graph"]
         font = reviewed["font_mood"]
         hash_ok = is_typography_dhash(dna.perceptual_hash) and not has_stale_roi_hash(dna.manual_override_json)
+        from app.modules.realistic_review_ugc.heritage_letterform_dna import derive_letterform_traits
         items.append({
             "reference_id": reference.id,
+            "letterform_traits": derive_letterform_traits(reviewed),
             "style_family": reviewed["style_family"],
             "font_mood": str(font.get("primary") or "")[:80],
             "layout_nodes": len(graph.get("nodes", [])) if isinstance(graph.get("nodes"), list) else 0,

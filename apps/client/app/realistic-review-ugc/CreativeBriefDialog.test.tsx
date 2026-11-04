@@ -260,9 +260,26 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(button?.textContent).toContain("Confirm new nine-design batch");
     expect(regenerateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
-    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
+    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "heritage");
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     expect(button?.disabled).toBe(true);
+  });
+
+  it("lets the operator explicitly switch Heritage to Balanced before queueing", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
+    });
+    await renderDialog(makeDetail("completed", true));
+    const options = document.querySelectorAll<HTMLButtonElement>(".rrugc-creative-style-option");
+    expect(options).toHaveLength(3);
+    expect(options[0].getAttribute("aria-pressed")).toBe("true");
+    await act(async () => { options[1].click(); });
+    expect(options[1].getAttribute("aria-pressed")).toBe("true");
+    const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
+    await act(async () => { button?.click(); await Promise.resolve(); });
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(
+      keywordId, "2026-10-30T10:00:00Z", "balanced",
+    );
   });
 
   it("queues nine 1/4/4 embroidery slots only on a direct user click", async () => {
@@ -275,7 +292,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
-    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z");
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "heritage");
     expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("9 images queued");
     expect(button?.disabled).toBe(true);
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();

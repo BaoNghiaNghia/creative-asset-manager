@@ -115,6 +115,7 @@ async def generate_six(
     rejected_visual_hashes = (plan.get("learning_profile") or {}).get("rejected_visual_hashes", [])
     outputs: list[GeneratedImageFile] = []
     cap_fit_reports: list[dict] = []
+    heritage_reports: list[dict] = []
 
     # New nine-slot jobs can use two independently leased Codex accounts.
     # Older in-flight / historical jobs default to their pinned serial path.
@@ -155,6 +156,7 @@ async def generate_six(
                     prompt = prompt_for_slot(
                         plan, slot,
                         visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
+                        design_style=snapshot.get("design_style", "balanced"),
                     )
                     if qa_attempt:
                         prompt += (
@@ -309,6 +311,9 @@ async def generate_six(
             raise _fail("creative_v3_outputs_required", "Stage 1 slot did not finish.")
         if snapshot.get("visual_profile") == VISUAL_PROFILE:
             cap_fit_reports.append({"slot": slot, **cap_fit_advisory(qa.get("alpha_bbox"))})
+            if snapshot.get("design_style") == "heritage":
+                from app.modules.realistic_review_ugc.heritage_lettering import heritage_fit_advisory
+                heritage_reports.append({"slot": slot, **heritage_fit_advisory(qa.get("alpha_bbox"))})
         outputs.append(GeneratedImageFile(
             path=str(final_dir / f"design_{slot:02}.png"),
             filename=f"output/final/design_{slot:02}.png",
@@ -331,6 +336,7 @@ async def generate_six(
             "parallel_lanes_requested": requested_lanes,
             "parallel_lanes_used": actual_lanes,
             "cap_fit_advisory": cap_fit_reports,
+            "heritage_fit_advisory": heritage_reports,
             "cap_fit_visual_verified": False,
         },
     )

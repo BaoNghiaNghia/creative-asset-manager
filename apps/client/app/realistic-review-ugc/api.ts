@@ -336,17 +336,19 @@ export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status", { signal },
   );
 
-export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string) =>
+export type CreativeV3DesignStyle = "balanced" | "heritage" | "experimental";
+
+export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "balanced") =>
   request<{ keyword_id: string; job_id: string; status: string; queued: boolean; expected_output_count: number }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-generate",
-    { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt }) },
+    { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle }) },
   );
 
-export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string) =>
+export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "balanced") =>
   request<{ keyword_id: string; job_id: string; processing_job_id: string; queued: boolean; action: "regenerate" }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-regenerate",
     { method: "POST", body: JSON.stringify({
-      expected_brief_updated_at: expectedBriefUpdatedAt, confirm_regenerate: true,
+      expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle, confirm_regenerate: true,
     }) },
   );
 

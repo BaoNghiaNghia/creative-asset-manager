@@ -6,6 +6,7 @@ import {
   getCreativeV3GenerationStatus, generateCreativeV3Stage1Images, regenerateCreativeV3Stage1Images,
 } from "./api";
 import { RrugcActionIcon } from "./RrugcActionIcon";
+import type { CreativeV3DesignStyle } from "./api";
 import type { KeywordCreativeBriefDetail, KeywordCreativeConcept } from "./types";
 import "./CreativeBriefDialog.css";
 
@@ -51,6 +52,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
 }) {
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
   const [selectedDirection, setSelectedDirection] = useState(0);
+  const [designStyle, setDesignStyle] = useState<CreativeV3DesignStyle>("heritage");
   const [busy, setBusy] = useState(false);
   const [priorityRequested, setPriorityRequested] = useState(false);
   const [error, setError] = useState("");
@@ -158,9 +160,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
     try {
       if (hasExistingStage1Job) {
         if (!confirmImageRegenerate) { setConfirmImageRegenerate(true); return; }
-        await regenerateCreativeV3Stage1Images(keywordId, detail.updated_at);
+        await regenerateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle);
       } else {
-        await generateCreativeV3Stage1Images(keywordId, detail.updated_at);
+        await generateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle);
       }
       setV3Queued(true);
     } catch (reason) {
@@ -409,11 +411,23 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                 Selecting a direction only changes this preview. Generate always creates all 9 designs. ImageGen applies one central embroidery material profile; visual spelling and production-fit review are still required.
               </p>
             </section>
+            {v3Available && <section className="rrugc-creative-style-picker" aria-label="Select design style">
+              <div className="rrugc-creative-style-heading"><strong>Design Style</strong><span>Applies to the next 9-image batch</span></div>
+              <div className="rrugc-creative-style-options" role="group" aria-label="Design style">
+                {([ ["heritage", "Heritage Lettering", "Serif · Script · Swash · Collegiate"], ["balanced", "Balanced", "Mix of design approaches"], ["experimental", "Experimental", "Bolder typography architecture"] ] as const).map(([value, label, hint]) =>
+                  <button key={value} type="button" aria-pressed={designStyle === value}
+                    disabled={imageBusy || v3Queued || stage1Busy}
+                    className={"rrugc-creative-style-option" + (designStyle === value ? " selected" : "")}
+                    onClick={() => { setDesignStyle(value); setConfirmImageRegenerate(false); }}>
+                    <strong>{label}</strong><small>{hint}</small>
+                  </button>)}
+              </div>
+            </section>}
             {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
               <div>
                 <strong>Creative Engine V3 · Embroidery masters</strong>
                 <p>{hasExistingStage1Job ? "Regenerate a completely new 9-design V3 batch without reusing previous images." : "Generate 9 transparent Stage 1 embroidery artworks: 1 Typography-First · 4 Creative Twist · 4 Explore."} Existing Output History is preserved.</p>
-                <small>Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
+                <small>Style: {designStyle === "heritage" ? "Heritage Lettering H1" : designStyle === "balanced" ? "Balanced" : "Experimental"} · Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
               </div>
               <button type="button" className="rrugc-creative-brief-primary"
                 onClick={() => void generateImages()}

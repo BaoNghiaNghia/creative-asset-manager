@@ -387,6 +387,7 @@ class KeywordImageService:
     def queue_creative_v3(
         self, *, tenant_id: str, user_id: str, keyword_id: str,
         expected_brief_updated_at: str, regenerate: bool = False,
+        design_style: str = "balanced",
     ) -> RrugcKeywordImageJobModel:
         """Explicit Stage 1 action: 3 Creative Brief V1 concepts x 2 variants.
 
@@ -398,6 +399,11 @@ class KeywordImageService:
             SKILL, CONTRACT, SLOT_COUNT, enabled, resolve_plan, snapshot_for_job,
             image_provider, CreativeV3Error,
         )
+        from app.modules.realistic_review_ugc.heritage_lettering import validate_style_mode
+        try:
+            validate_style_mode(design_style)
+        except ValueError as exc:
+            raise KeywordImageError("creative_v3_style_invalid", str(exc), 422) from exc
         if not enabled(self.settings, tenant_id):
             raise KeywordImageError("creative_v3_disabled", "Creative V3 ImageGen is not enabled for this tenant.", 404)
         if not isinstance(expected_brief_updated_at, str) or not expected_brief_updated_at.strip():
@@ -508,6 +514,7 @@ class KeywordImageService:
             "creative_v3_parallel_slots": 2,
             "creative_v3": {
                 **snapshot_for_job(plan),
+                "design_style": design_style,
                 "provider": provider,
                 "provider_sha256": skill_hash,
             },
