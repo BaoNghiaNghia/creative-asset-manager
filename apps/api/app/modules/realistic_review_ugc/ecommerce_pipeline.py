@@ -43,6 +43,7 @@ from app.modules.realistic_review_ugc.threadtransfer import composite_reference_
 from app.modules.realistic_review_ugc.threadtransfer_stock import composite_reference_on_stock_view
 from app.modules.realistic_review_ugc.slot2_fixed_uv import (
     PIPELINE_VERSION as SLOT2_FIXED_UV_PIPELINE,
+    LEGACY_PIPELINE_VERSION as SLOT2_LEGACY_UV_PIPELINE,
     FixedUvProjectionError, load_profile as load_slot2_fixed_uv_profile,
     render_fixed_uv_slot2,
 )
@@ -583,6 +584,15 @@ class EcommerceService:
                and row.skill_name == SLOT1_DIRECT_NAME
             else None
         )
+        if fixed_uv_profile_sha:
+            # Required for deterministic UV placement. Never substitute the
+            # default guide just because an older queue payload omits it.
+            if not isinstance(front_placement, dict) or "design_size" not in front_placement:
+                raise EcommerceError(
+                    "ecommerce_front_placement_missing",
+                    "Pin the saved FRONT guide and Stage 1 design size before Slot 2.", 409,
+                )
+            job_front_placement(front_placement)
         # Slot 3 retains its saved 3/4 guide and pinned Slot 1 master.
         # Existing in-flight jobs are not mutated by later deployments.
         front_contract = (
@@ -613,7 +623,7 @@ class EcommerceService:
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
                 **({"thread_material_pipeline": SLOT2_FIXED_UV_PIPELINE,
                     "uv_profile_sha256": fixed_uv_profile_sha,
-                    "uv_profile_id": "cream-navy-user-axis-v1"} if fixed_uv_profile_sha
+                    "uv_profile_id": "white-navy-1254-front-v2"} if fixed_uv_profile_sha
                     else {"thread_material_pipeline": "v4-raster-placement"} if (
                     row.stage == "prod_s2_ec3"
                     and row.skill_source == "internal"
@@ -1631,7 +1641,8 @@ class EcommerceGenerateHandler:
             local_execution = bool(
                 (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
                  and row.skill_name == SLOT1_DIRECT_NAME
-                 and transfer_mode in ("v2", "v4-raster-placement", SLOT2_FIXED_UV_PIPELINE))
+                 and transfer_mode in ("v2", "v4-raster-placement",
+                                       SLOT2_FIXED_UV_PIPELINE, SLOT2_LEGACY_UV_PIPELINE))
                 or (row.stage == "prod_s2_ec4"
                     and row.skill_name == SLOT1_DIRECT_NAME)
                 or (row.stage == "prod_s2_ec1"
@@ -1691,7 +1702,8 @@ class EcommerceGenerateHandler:
             if (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
                     and context.job.payload.get("thread_material_pipeline") not in (
                         "v3-direct-edit", "v4-raster-placement",
-                        "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE)) or (
+                        "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE,
+                        SLOT2_LEGACY_UV_PIPELINE)) or (
                 row.stage in SCENE_STAGE_SLOTS and
                 (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
@@ -1725,11 +1737,15 @@ class EcommerceGenerateHandler:
         is_direct = is_reference or is_direct_legacy
         transfer_mode = context.job.payload.get("thread_material_pipeline")
         material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit", "v4-raster-placement",
-                                              "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE)
+                                              "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE,
+                                              SLOT2_LEGACY_UV_PIPELINE)
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
         deterministic_angle = builtin_stock and transfer_mode == "v4-raster-placement"
-        fixed_uv_slot2 = stage == "prod_s2_ec2" and builtin_stock and transfer_mode == SLOT2_FIXED_UV_PIPELINE
-        local_stock = builtin_stock and transfer_mode in ("v2", "v4-raster-placement", SLOT2_FIXED_UV_PIPELINE)
+        fixed_uv_slot2 = (stage == "prod_s2_ec2" and builtin_stock and
+                          transfer_mode in (SLOT2_FIXED_UV_PIPELINE, SLOT2_LEGACY_UV_PIPELINE))
+        local_stock = builtin_stock and transfer_mode in (
+            "v2", "v4-raster-placement", SLOT2_FIXED_UV_PIPELINE, SLOT2_LEGACY_UV_PIPELINE,
+        )
         direct_angle = builtin_stock and transfer_mode in ("v3-direct-edit", "v5-codex-angle-inference")
         codex_inference = direct_angle and transfer_mode == "v5-codex-angle-inference"
         scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
@@ -2058,7 +2074,8 @@ class EcommerceGenerateHandler:
                     retryable=False,
                 )
             pinned_uv_sha = context.job.payload.get("uv_profile_sha256")
-            if (context.job.payload.get("uv_profile_id") != "cream-navy-user-axis-v1"
+            if (context.job.payload.get("uv_profile_id") not in (
+                        "cream-navy-user-axis-v1", "white-navy-1254-front-v2")
                     or not isinstance(pinned_uv_sha, str)
                     or len(pinned_uv_sha) != 64
                     or any(char not in "0123456789abcdef" for char in pinned_uv_sha)):
@@ -2068,8 +2085,16 @@ class EcommerceGenerateHandler:
                     retryable=False,
                 )
             try:
+                saved_front_snapshot = context.job.payload.get("front_placement")
+                if (transfer_mode == SLOT2_FIXED_UV_PIPELINE and
+                        not isinstance(saved_front_snapshot, dict)):
+                    raise FixedUvProjectionError("Saved FRONT placement is missing from this job.")
+                pinned_profile, _ = load_slot2_fixed_uv_profile(pinned_uv_sha)
+                if pinned_profile["profileId"] != context.job.payload["uv_profile_id"]:
+                    raise FixedUvProjectionError("Pinned UV profile ID/hash mismatch.")
                 projected = render_fixed_uv_slot2(
                     design_bytes, refs[0][1],
+                    front_placement=saved_front_snapshot,
                     expected_profile_sha256=pinned_uv_sha,
                 )
             except FixedUvProjectionError as exc:
@@ -2080,9 +2105,9 @@ class EcommerceGenerateHandler:
                 provider="local", model=None,
                 image_bytes=projected.output_png, mime_type="image/png",
                 provider_metadata={
-                    "transfer_engine": SLOT2_FIXED_UV_PIPELINE,
+                    "transfer_engine": transfer_mode,
                     "native_passes": 0,
-                    "profile_id": "cream-navy-user-axis-v1",
+                    "profile_id": projected.profile_id,
                     "profile_sha256": projected.profile_sha256,
                     "shared_atlas_sha256": projected.atlas_sha256,
                     "design_sha256": projected.design_sha256,
@@ -2090,8 +2115,11 @@ class EcommerceGenerateHandler:
                         projected.front_layer_png
                     ).hexdigest(),
                     "source": "original_stage1_design_png",
-                    "uv_center": [0.5, 0.5],
+                    "uv_center": [(projected.uv_box[0] + projected.uv_box[2]) / 2,
+                                  (projected.uv_box[1] + projected.uv_box[3]) / 2],
                     "uv_box": list(projected.uv_box),
+                    "pinned_front_placement": saved_front_snapshot,
+                    "uv_mapping_version": projected.uv_mapping_version,
                     "front_uv_anchor": list(projected.front_anchor),
                     "three_quarter_uv_anchor": list(projected.three_quarter_anchor),
                     "visible_pixels": projected.visible_pixel_count,
@@ -2462,7 +2490,7 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": (SLOT2_FIXED_UV_PIPELINE
+                                    "version": (transfer_mode
                                                 if fixed_uv_slot2 else
                                                 "threadtransfer-v4-calibrated-quad"
                                                 if deterministic_angle else
@@ -2485,8 +2513,10 @@ class EcommerceGenerateHandler:
                                         "shared_atlas_sha256": generated.provider_metadata["shared_atlas_sha256"],
                                         "design_sha256": generated.provider_metadata["design_sha256"],
                                         "front_layer_sha256": generated.provider_metadata["front_layer_sha256"],
-                                        "uv_center": [0.5, 0.5],
+                                        "uv_center": generated.provider_metadata["uv_center"],
                                         "uv_box": generated.provider_metadata["uv_box"],
+                                        "pinned_front_placement": generated.provider_metadata["pinned_front_placement"],
+                                        "uv_mapping_version": generated.provider_metadata["uv_mapping_version"],
                                         "front_uv_anchor": generated.provider_metadata["front_uv_anchor"],
                                         "three_quarter_uv_anchor": generated.provider_metadata["three_quarter_uv_anchor"],
                                         "visible_pixels": generated.provider_metadata["visible_pixels"],

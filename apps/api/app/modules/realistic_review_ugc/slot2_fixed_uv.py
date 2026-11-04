@@ -20,8 +20,10 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-PROFILE_FILE = Path(__file__).with_name("assets") / "slot2_hat_grid_v1.json"
-PIPELINE_VERSION = "fixed-shared-uv-v1"
+PROFILE_FILE = Path(__file__).with_name("assets") / "slot2_hat_grid_v2.json"
+LEGACY_PROFILE_FILE = Path(__file__).with_name("assets") / "slot2_hat_grid_v1.json"
+PIPELINE_VERSION = "fixed-shared-uv-v2"
+LEGACY_PIPELINE_VERSION = "fixed-shared-uv-v1"
 MAX_DESIGN_BYTES = 25_000_000
 MAX_STOCK_BYTES = 25_000_000
 MAX_SOURCE_PIXELS = 16_000_000
@@ -38,6 +40,8 @@ class FixedUvProjection:
     output_png: bytes
     front_layer_png: bytes
     profile_sha256: str
+    profile_id: str
+    uv_mapping_version: str
     atlas_sha256: str
     design_sha256: str
     visible_pixel_count: int
@@ -48,13 +52,21 @@ class FixedUvProjection:
     three_quarter_anchor: tuple[float, float]
 
 
-def load_profile() -> tuple[dict, str]:
-    """Use the committed profile, never a user-supplied or mutable remote URL."""
+def load_profile(expected_profile_sha256: str | None = None) -> tuple[dict, str]:
+    """Select immutable pinned v1 or native-front v2, never a mutable remote file."""
     data = PROFILE_FILE.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
+    if expected_profile_sha256 is not None and expected_profile_sha256 != digest:
+        legacy = LEGACY_PROFILE_FILE.read_bytes()
+        legacy_digest = hashlib.sha256(legacy).hexdigest()
+        if expected_profile_sha256 != legacy_digest:
+            raise FixedUvProjectionError("Pinned Slot 2 UV profile changed during this job.")
+        data, digest = legacy, legacy_digest
     raw = json.loads(data)
-    if (raw.get("schemaVersion") != 1
-            or raw.get("profileId") != "cream-navy-user-axis-v1"
+    if ((raw.get("schemaVersion"), raw.get("profileId")) not in (
+                (1, "cream-navy-user-axis-v1"),
+                (2, "white-navy-1254-front-v2"),
+            )
             or raw.get("placementDefaults") != {
                 "centerU": .5, "centerV": .5,
                 "maxWidth": .9, "maxHeight": .85, "trimAlpha": True,
@@ -124,27 +136,109 @@ def _original_stock(data: bytes) -> Image.Image:
     return img
 
 
-def _shared_texture(source: Image.Image, logical_area: dict) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+def _legacy_texture(source: Image.Image, logical_area: dict) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Exact v1 placement for already-queued jobs with the old pinned hash."""
     alpha_box = source.getchannel("A").getbbox()
     if alpha_box is None:
         raise FixedUvProjectionError("Design has no nontransparent pixels.")
     left, top, right, bottom = alpha_box
     src_width, src_height = right-left, bottom-top
     lwidth, lheight = logical_area["width"], logical_area["height"]
-    # Physical scale is calculated ONCE in canonical UV units.
     scale = min(.90*lwidth/src_width, .85*lheight/src_height)
     width_uv = scale*src_width/lwidth
     height_uv = scale*src_height/lheight
     box = (.5-width_uv/2, .5-height_uv/2,
            .5+width_uv/2, .5+height_uv/2)
-    if not 0 <= min(box) <= max(box) <= 1:
-        raise FixedUvProjectionError("Computed shared UV placement is outside the grid.")
     atlas_height = round(ATLAS_WIDTH*lheight/lwidth)
-    x0 = int(round(box[0]*ATLAS_WIDTH))
-    x1 = int(round(box[2]*ATLAS_WIDTH))
-    y0 = int(round(box[1]*atlas_height))
-    y1 = int(round(box[3]*atlas_height))
+    x0, x1 = int(round(box[0]*ATLAS_WIDTH)), int(round(box[2]*ATLAS_WIDTH))
+    y0, y1 = int(round(box[1]*atlas_height)), int(round(box[3]*atlas_height))
     texture = Image.new("RGBA", (ATLAS_WIDTH, atlas_height), (0, 0, 0, 0))
+    scaled = source.crop(alpha_box).resize(
+        (max(1, x1-x0), max(1, y1-y0)), Image.Resampling.LANCZOS,
+    )
+    texture.paste(scaled, (x0, y0))
+    return np.asarray(texture, dtype=np.uint8), box
+
+
+def _shared_texture(
+    source: Image.Image, logical_area: dict, front_view: dict,
+    front_placement: dict,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Crop once, then place painted pixels using the PINNED front field.
+
+    Front and 3/4 sample the same atlas. Neither a destination silhouette nor
+    the visible subset of the typography influences this box.
+    """
+    from app.modules.realistic_review_ugc.front_placement import (
+        FrontPlacementInvalid, job_front_placement,
+    )
+
+    # Missing / legacy snapshots are NOT an invitation to invent placement.
+    if not isinstance(front_placement, dict) or "design_size" not in front_placement:
+        raise FixedUvProjectionError("Slot 2 needs the saved FRONT placement and design size.")
+    try:
+        placement = job_front_placement(front_placement)
+    except (FrontPlacementInvalid, KeyError, TypeError, ValueError) as exc:
+        raise FixedUvProjectionError("Pinned FRONT placement is invalid.") from exc
+
+    alpha = source.getchannel("A")
+    # Identical threshold + one pixel fringe to the painted front footprint.
+    ink = alpha.point(lambda value: 255 if value >= 24 else 0)
+    bounds = ink.getbbox()
+    if bounds is None:
+        raise FixedUvProjectionError("Design has no visible alpha pixels.")
+    left, top, right, bottom = bounds
+    alpha_box = (max(0, left - 1), max(0, top - 1),
+                 min(source.width, right + 1), min(source.height, bottom + 1))
+    ink_width = alpha_box[2] - alpha_box[0]
+    ink_height = alpha_box[3] - alpha_box[1]
+
+    fwidth, fheight = int(front_view["width"]), int(front_view["height"])
+    field_width = placement["width"] * fwidth
+    field_height = placement["height"] * fheight
+    base = min(field_width * .95 / ink_width, field_height * .92 / ink_height)
+    zoom = placement["design_size"] / 100
+    # The same saved FRONT contain-fit and 98% cap as Blueprint/front renderer.
+    scale = base * min(
+        zoom, field_width * .98 / (ink_width * base),
+        field_height * .98 / (ink_height * base),
+    )
+    painted_width, painted_height = ink_width * scale, ink_height * scale
+    center_x = (placement["left"] + placement["width"] / 2) * fwidth
+    center_y = (placement["top"] + placement["height"] / 2) * fheight
+
+    nodes = front_view["nodes"]
+    grid_left, grid_right = nodes[2][0][0], nodes[2][4][0]
+    grid_top, grid_bottom = nodes[0][2][1], nodes[4][2][1]
+    span_x, span_y = grid_right - grid_left, grid_bottom - grid_top
+    if span_x <= 0 or span_y <= 0:
+        raise FixedUvProjectionError("FRONT grid axes need calibration.")
+
+    # Preserve the saved front center *exactly*: even a 1px intentional
+    # offset must survive. A centered design lands on u=0.5 because the
+    # front profile's physical middle column is correctly calibrated.
+    u_center = (center_x - grid_left) / span_x
+    v_center = (center_y - grid_top) / span_y
+    u_span, v_span = painted_width / span_x, painted_height / span_y
+    box = (u_center - u_span/2, v_center - v_span/2,
+           u_center + u_span/2, v_center + v_span/2)
+    if not all(math.isfinite(value) for value in box) or (
+        min(box) < -1e-8 or max(box) > 1 + 1e-8
+    ):
+        # Never shrink / move an oversized reference to satisfy a 3/4 mask.
+        raise FixedUvProjectionError(
+            "Saved FRONT artwork falls outside the calibrated UV grid. "
+            "Correct the grid profile, not this design's angle transform."
+        )
+
+    lwidth, lheight = logical_area["width"], logical_area["height"]
+    atlas_height = round(ATLAS_WIDTH * lheight / lwidth)
+    x0 = round(box[0] * ATLAS_WIDTH)
+    x1 = round(box[2] * ATLAS_WIDTH)
+    y0 = round(box[1] * atlas_height)
+    y1 = round(box[3] * atlas_height)
+    texture = Image.new("RGBA", (ATLAS_WIDTH, atlas_height), (0, 0, 0, 0))
+    # One alpha crop, one resolution conversion, shared by both views.
     scaled = source.crop(alpha_box).resize(
         (max(1, x1-x0), max(1, y1-y0)), Image.Resampling.LANCZOS,
     )
@@ -222,6 +316,7 @@ def _project_atlas(
     nodes[..., 1] *= height/ref_h
     mapx = np.full((height, width), -1, dtype=np.float32)
     mapy = np.full((height, width), -1, dtype=np.float32)
+    grid_coverage = np.zeros((height, width), dtype=np.uint8)
     tex_h, tex_w = texture.shape[:2]
     for row in range(4):
         for col in range(4):
@@ -256,6 +351,7 @@ def _project_atlas(
             my = mapy[top:bottom, left:right]
             mx[inside] = (((col+a[inside])/4)*(tex_w-1)).astype(np.float32)
             my[inside] = (((row+b[inside])/4)*(tex_h-1)).astype(np.float32)
+            grid_coverage[top:bottom, left:right][inside] = 1
     # Premultiply BEFORE bilinear interpolation; transparent pixels cannot
     # introduce dark/light halos around letters.
     prepared = texture.astype(np.float32)
@@ -274,21 +370,27 @@ def _project_atlas(
     outline[:, 1] *= height/ref_h
     mask = np.zeros((height, width), dtype=np.uint8)
     cv2.fillPoly(mask, [np.rint(outline).astype(np.int32)], 255)
-    sampled *= mask[:, :, None]/255
+    # Exactly alphaOut = alphaDesign * gridCoverage * visibilityMask.
+    # The polygon mask has true 0-alpha outside it, not opaque black pixels.
+    sampled *= (grid_coverage * (mask / 255.0))[:, :, None]
     return sampled
 
 
 def render_fixed_uv_slot2(
     design_png: bytes, stock_three_quarter: bytes, *,
+    front_placement: dict | None = None,
     expected_profile_sha256: str | None = None,
 ) -> FixedUvProjection:
     """Return the clean 3/4 Slot 2 output plus a transparent front audit layer."""
-    profile, profile_sha = load_profile()
-    if expected_profile_sha256 and expected_profile_sha256 != profile_sha:
-        raise FixedUvProjectionError("Pinned Slot 2 UV profile changed during this job.")
+    profile, profile_sha = load_profile(expected_profile_sha256)
     source = _input_design(design_png)
     photo = _original_stock(stock_three_quarter)
-    texture, uv_box = _shared_texture(source, profile["logicalArea"])
+    legacy = profile["schemaVersion"] == 1
+    texture, uv_box = (
+        _legacy_texture(source, profile["logicalArea"])
+        if legacy else
+        _shared_texture(source, profile["logicalArea"], profile["views"]["front"], front_placement)
+    )
     atlas_sha = hashlib.sha256(texture.tobytes()).hexdigest()
     front_profile = profile["views"]["front"]
     angle_profile = profile["views"]["threeQuarter"]
@@ -328,6 +430,8 @@ def render_fixed_uv_slot2(
         output_png=_png_bytes(Image.fromarray(composited, "RGB")),
         front_layer_png=_png_bytes(Image.fromarray(front_layer, "RGBA")),
         profile_sha256=profile_sha,
+        profile_id=profile["profileId"],
+        uv_mapping_version="legacy-centered-v1" if legacy else "saved-front-uv-v2",
         atlas_sha256=atlas_sha,
         design_sha256=hashlib.sha256(design_png).hexdigest(),
         visible_pixel_count=count,

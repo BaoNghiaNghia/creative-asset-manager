@@ -50,92 +50,40 @@ async function clickButton(label: string) {
 }
 
 describe("Three-quarter blueprint frame", () => {
-  it("keeps manually saved positions outside the former red crown limits", async () => {
-    const withThreeQuarter = stock();
-    withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
-    const corners: [number, number][] = [
-      [0.18, 0.12], [0.75, 0.24], [0.69, 0.69], [0.11, 0.56],
-    ];
-    const save = vi.fn(async (data: { corners: [number, number][]; color_key: string; revision: number }) => ({ ...data, revision: data.revision + 1 }));
-    await mount({ stockCatalog: withThreeQuarter, threeQuarterPlacements: {
-      "white-black": { color_key: "white-black", revision: 2, corners },
+  it("uses pinned 5x5 UV grid, not a different four-corner fit per color", async () => {
+    const catalog = stock();
+    catalog.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
+    const save = vi.fn(async (value: { color_key: string; revision: number; corners: [number, number][] }) => value);
+    await mount({ stockCatalog: catalog, threeQuarterPlacements: {
+      "white-black": { color_key: "white-black", revision: 2, corners: [
+        [0.18, 0.12], [0.75, 0.24], [0.69, 0.69], [0.11, 0.56],
+      ] },
     }, onSaveThreeQuarterPlacement: save });
     const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
-    expect(card.textContent).not.toContain("outside the");
-    expect(card.querySelector("canvas")?.getAttribute("aria-label")).toContain("freely adjusted");
-    await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
-    expect(card.querySelectorAll(".rrugc-blueprint-three-quarter-handle")).toHaveLength(4);
-    expect(card.querySelector(".rrugc-blueprint-three-quarter-crown-mask")).toBeNull();
-    expect(card.querySelector(".rrugc-blueprint-three-quarter-allowed")).toBeNull();
-    expect(card.querySelector(".is-outside-crown")).toBeNull();
-    expect(card.querySelector<HTMLElement>('[aria-label="Top left embroidery corner"]')?.style.left).toBe("18%");
-    const scene = card.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-scene")!;
-    scene.getBoundingClientRect = () => ({
-      left: 0, top: 0, width: 400, height: 400, right: 400, bottom: 400,
-    } as DOMRect);
-    const handle = card.querySelector<HTMLButtonElement>('[aria-label="Top left embroidery corner"]')!;
-    await act(async () => {
-      const down = new Event("pointerdown", { bubbles: true });
-      Object.defineProperty(down, "pointerId", { value: 1 });
-      handle.dispatchEvent(down);
-      const move = new Event("pointermove", { bubbles: true });
-      Object.defineProperties(move, {
-        clientX: { value: 32 }, clientY: { value: 32 }, pointerId: { value: 1 },
-      });
-      scene.dispatchEvent(move);
-    });
-    expect(handle.style.left).toBe("8%");
-    expect(handle.style.top).toBe("8%");
-    const saveButton = [...card.querySelectorAll<HTMLButtonElement>("button")].find(btn => btn.textContent === "Save")!;
-    expect(saveButton.disabled).toBe(false);
-    await act(async () => saveButton.click());
-    expect(save).toHaveBeenCalledOnce();
-    expect(save.mock.calls[0][0].corners[0]).toEqual([0.08, 0.08]);
-    expect(save.mock.calls[0][0].corners[1]).toEqual(corners[1]);
-    await close();
-  });
-  it("projects the same selected front artwork onto synchronized 3/4 stock without altering the side panel", async () => {
-    const withThreeQuarter = stock();
-    withThreeQuarter.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
-    await mount({ stockCatalog: withThreeQuarter, threeQuarterPlacements: {
-      "white-black": { color_key: "white-black", revision: 0, corners: [
-        [0.34, 0.36], [0.63, 0.37], [0.65, 0.56], [0.30, 0.53],
-      ] },
-    }, onSaveThreeQuarterPlacement: async value => ({ ...value, revision: value.revision + 1 }) });
-    const card = host.querySelector(".rrugc-blueprint-three-quarter-card")!;
-    expect(card.querySelector("img")?.getAttribute("src")).toBe("/official/white-black/three-quarter.jpg");
-    expect(card.querySelector("canvas")).not.toBeNull();
-    expect(card.querySelector("button")?.textContent).toContain("Edit 4 points");
+    expect(card.textContent).toContain("SHARED UV");
+    expect(card.textContent).toContain("5×5 mesh");
+    expect(card.querySelector("canvas")?.getAttribute("aria-label")).toContain("5x5 UV mesh");
+    expect(card.querySelector(".rrugc-blueprint-three-quarter-handle")).toBeNull();
+    expect(card.textContent).not.toContain("Edit 4 points");
+    expect(save).not.toHaveBeenCalled();
     await close();
   });
 
-  it("keeps keyboard edits in-bounds and Reset restores the newly calibrated factory field", async () => {
-    const catalog3q = stock();
-    catalog3q.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
-    const corners: [number, number][] = [
-      [0.316, 0.351], [0.647, 0.356], [0.657, 0.552], [0.294, 0.529],
-    ];
-    const save = vi.fn(async (value: { color_key: string; corners: [number, number][]; revision: number }) => value);
-    await mount({ stockCatalog: catalog3q, threeQuarterPlacements: {
-      "white-black": { color_key: "white-black", corners, revision: 3 },
-    }, onSaveThreeQuarterPlacement: save });
+  it("shows verified 3/4 stock and toggles the native front/3/4 debug", async () => {
+    const catalog = stock();
+    catalog.colors["white-black"].views["three-quarter"] = "/official/white-black/three-quarter.jpg";
+    await mount({ stockCatalog: catalog, onSaveThreeQuarterPlacement: async value => value });
     const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
-    await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
-    const outline = card.querySelector<SVGPolygonElement>(".rrugc-blueprint-three-quarter-field")!;
-    const originalPoints = outline.getAttribute("points");
-    const button = card.querySelector<HTMLButtonElement>('[aria-label="Top left embroidery corner"]')!;
-    await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" })));
-    expect(outline.getAttribute("points")).not.toBe(originalPoints);
-    expect(card.querySelector<HTMLButtonElement>(".rrugc-blueprint-three-quarter-handle")!.style.left).toBe("32.1%");
-    const saveButton = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Save")!;
-    expect(saveButton.disabled).toBe(false);
-    const reset = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Reset")!;
-    await act(async () => reset.click());
-    expect(outline.getAttribute("points")).not.toBe(originalPoints);
-    expect(saveButton.disabled).toBe(false);
-    await act(async () => saveButton.click());
-    expect(save).toHaveBeenCalledOnce();
-    expect(save.mock.calls[0][0].corners[0]).toEqual([0.336, 0.320]);
+    expect(card.querySelector("img")?.getAttribute("src")).toBe("/official/white-black/three-quarter.jpg");
+    expect(card.querySelector("canvas")).not.toBeNull();
+    const button = card.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')!;
+    expect(button.textContent).toContain("Debug UV");
+    await act(async () => button.click());
+    expect(card.querySelector(".rrugc-blueprint-uv-debug")).not.toBeNull();
+    expect(card.textContent).toContain("UV:");
+    expect(card.querySelectorAll("canvas")).toHaveLength(2);
+    await act(async () => button.click());
+    expect(card.querySelector(".rrugc-blueprint-uv-debug")).toBeNull();
     await close();
   });
 

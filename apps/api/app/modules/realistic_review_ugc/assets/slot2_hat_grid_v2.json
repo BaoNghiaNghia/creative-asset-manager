@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 2,
+  "profileId": "white-navy-1254-front-v2",
+  "calibrationStatus": "front-panel-native-square-estimated-from-stock-3q-estimated",
+  "logicalArea": {
+    "width": 268,
+    "height": 150,
+    "unit": "reference-front-pixel"
+  },
+  "placementDefaults": {
+    "centerU": 0.5,
+    "centerV": 0.5,
+    "maxWidth": 0.9,
+    "maxHeight": 0.85,
+    "trimAlpha": true
+  },
+  "rules": {
+    "extraRotationDegrees": 0,
+    "autoFitToVisibleMask": false,
+    "autoRecoverHiddenArtwork": false,
+    "extraDomeWarp": false,
+    "geometrySource": "frozen JSON nodes, not image generation",
+    "frontAuthority": "saved front placement and design_size pinned per job"
+  },
+  "views": {
+    "front": {
+      "id": "front",
+      "width": 1254,
+      "height": 1254,
+      "nodes": [
+        [
+          [
+            150,
+            300
+          ],
+          [
+            383.800949,
+            300
+          ],
+          [
+            617.601897,
+            300
+          ],
+          [
+            851.402846,
+            300
+          ],
+          [
+            1085.203794,
+            300
+          ]
+        ],
+        [
+          [
+            150,
+            428.75
+          ],
+          [
+            383.800949,
+            428.75
+          ],
+          [
+            617.601897,
+            428.75
+          ],
+          [
+            851.402846,
+            428.75
+          ],
+          [
+            1085.203794,
+            428.75
+          ]
+        ],
+        [
+          [
+            150,
+            557.5
+          ],
+          [
+            383.800949,
+            557.5
+          ],
+          [
+            617.601897,
+            557.5
+          ],
+          [
+            851.402846,
+            557.5
+          ],
+          [
+            1085.203794,
+            557.5
+          ]
+        ],
+        [
+          [
+            150,
+            686.25
+          ],
+          [
+            383.800949,
+            686.25
+          ],
+          [
+            617.601897,
+            686.25
+          ],
+          [
+            851.402846,
+            686.25
+          ],
+          [
+            1085.203794,
+            686.25
+          ]
+        ],
+        [
+          [
+            150,
+            815
+          ],
+          [
+            383.800949,
+            815
+          ],
+          [
+            617.601897,
+            815
+          ],
+          [
+            851.402846,
+            815
+          ],
+          [
+            1085.203794,
+            815
+          ]
+        ]
+      ],
+      "visibleMaskPath": "M116,820 C116,690 140,438 190,338 C274,198 465,178 627,178 C815,182 1020,236 1092,418 C1124,513 1125,720 1102,820 Z"
+    },
+    "threeQuarter": {
+      "id": "threeQuarter",
+      "width": 1254,
+      "height": 1254,
+      "nodes": [
+        [
+          [
+            353.909242,
+            339.557615
+          ],
+          [
+            414.504758,
+            353.494583
+          ],
+          [
+            508.169868,
+            375.037559
+          ],
+          [
+            628.368819,
+            402.683318
+          ],
+          [
+            781.637365,
+            437.935083
+          ]
+        ],
+        [
+          [
+            329.432563,
+            412.620995
+          ],
+          [
+            390.028079,
+            426.557964
+          ],
+          [
+            483.693189,
+            448.100939
+          ],
+          [
+            603.892141,
+            475.746698
+          ],
+          [
+            757.160687,
+            510.998463
+          ]
+        ],
+        [
+          [
+            301.688341,
+            485.684375
+          ],
+          [
+            362.283856,
+            499.621344
+          ],
+          [
+            455.948967,
+            521.164319
+          ],
+          [
+            576.147918,
+            548.810078
+          ],
+          [
+            729.416464,
+            584.061844
+          ]
+        ],
+        [
+          [
+            277.525546,
+            558.747756
+          ],
+          [
+            338.121061,
+            572.684724
+          ],
+          [
+            431.786172,
+            594.2277
+          ],
+          [
+            551.985123,
+            621.873458
+          ],
+          [
+            705.253669,
+            657.125224
+          ]
+        ],
+        [
+          [
+            254.104429,
+            631.811136
+          ],
+          [
+            314.699945,
+            645.748104
+          ],
+          [
+            408.365055,
+            667.29108
+          ],
+          [
+            528.564007,
+            694.936839
+          ],
+          [
+            681.832553,
+            730.188604
+          ]
+        ]
+      ],
+      "visibleMaskPath": "M312,698 C338,620 365,510 396,410 C416,356 448,314 484,294 C549,265 694,258 790,255 C849,261 881,312 895,371 C918,469 867,656 822,799 C673,778 468,736 312,698 Z"
+    }
+  },
+  "provenance": {
+    "frontArea": [
+      266.026068,
+      411.617976,
+      703.151658,
+      291.68667
+    ],
+    "frontVerticalReference": [
+      187,
+      400
+    ],
+    "obliqueAxisVerticalReference": [
+      301,
+      716
+    ],
+    "imageScaleEstimate": 1.948356807511737,
+    "frontRadiusEstimate": 195,
+    "yawDegreesEstimate": 35,
+    "baselineSlopeEstimate": 0.23,
+    "note": "1254x1254 front mesh spans crown panel, not just design box. Saved front rectangle rev12 is converted to fractional UV within this same mesh; 3/4 control nodes and mask remain reference-estimated, not physical calibration.",
+    "frontStockImageSize": [
+      1254,
+      1254
+    ],
+    "frontPlacementRevision": 12,
+    "frontStockColor": "white-navy",
+    "frontMeshPanelRect": [
+      150,
+      300,
+      935.203794,
+      515
+    ]
+  }
+}

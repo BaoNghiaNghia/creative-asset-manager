@@ -285,10 +285,11 @@ def test_angle_worker_publishes_without_codex_or_png_artwork(monkeypatch, stage,
 
 
 @pytest.mark.parametrize("codex_enabled", [False, True])
-def test_slot2_worker_uses_original_png_frozen_uv_with_no_front_reference(monkeypatch, codex_enabled):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_slot2_worker_uses_original_png_frozen_uv_with_no_front_reference(monkeypatch, codex_enabled, legacy):
     """Exercise real job persistence, provider bypass, metadata and masked stock."""
     from app.modules.realistic_review_ugc.slot2_fixed_uv import (
-        PIPELINE_VERSION, load_profile,
+        PIPELINE_VERSION, LEGACY_PIPELINE_VERSION, LEGACY_PROFILE_FILE, load_profile,
     )
     artwork = embroidery()
     stock = png(Image.new("RGB", (1024, 1024), (233, 227, 212)))
@@ -334,9 +335,19 @@ def test_slot2_worker_uses_original_png_frozen_uv_with_no_front_reference(monkey
             id="uv-processing", job_type=pipeline.JOB_TYPE,
             entity_id="uv-job", tenant_id="tenant",
             payload={
-                "ecommerce_job_id": "uv-job", "thread_material_pipeline": PIPELINE_VERSION,
-                "uv_profile_id": "cream-navy-user-axis-v1",
-                "uv_profile_sha256": load_profile()[1],
+                "ecommerce_job_id": "uv-job",
+                "thread_material_pipeline": LEGACY_PIPELINE_VERSION if legacy else PIPELINE_VERSION,
+                "uv_profile_id": "cream-navy-user-axis-v1" if legacy else "white-navy-1254-front-v2",
+                "uv_profile_sha256": (
+                    sha256(LEGACY_PROFILE_FILE.read_bytes()).hexdigest()
+                    if legacy else load_profile()[1]
+                ),
+                "front_placement": {
+                    "left": .212142, "top": .328244,
+                    "width": .560727, "height": .232605,
+                    "upper_line": .270188, "lower_line": .597924,
+                    "design_size": 100,
+                },
             },
         ),
         dependencies=SimpleNamespace(
@@ -368,11 +379,21 @@ def test_slot2_worker_uses_original_png_frozen_uv_with_no_front_reference(monkey
     with Session(engine) as db:
         version = db.query(RrugcImageOutputVersionModel).one()
         metadata = version.font_info_json["thread_inpaint_pipeline"]
-        assert metadata["version"] == PIPELINE_VERSION
+        assert metadata["version"] == (LEGACY_PIPELINE_VERSION if legacy else PIPELINE_VERSION)
         assert metadata["material_source"] == "original-stage1-transparent-design"
         assert metadata["material_remote_file_id"] is None
-        assert metadata["profile_sha256"] == load_profile()[1]
-        assert metadata["uv_center"] == [.5, .5]
+        assert metadata["profile_sha256"] == (
+            sha256(LEGACY_PROFILE_FILE.read_bytes()).hexdigest()
+            if legacy else load_profile()[1]
+        )
+        assert metadata["uv_center"][0] == pytest.approx(.5)
+        assert metadata["uv_center"][1] == pytest.approx(
+            .5 if legacy else ((.328244 + .232605/2)*1254 - 300)/515
+        )
+        assert metadata["pinned_front_placement"]["design_size"] == 100
+        assert metadata["uv_mapping_version"] == (
+            "legacy-centered-v1" if legacy else "saved-front-uv-v2"
+        )
         assert metadata["visible_pixels"] > 100
         assert metadata["native_passes"] == 0
         assert metadata["auto_rotate"] is False

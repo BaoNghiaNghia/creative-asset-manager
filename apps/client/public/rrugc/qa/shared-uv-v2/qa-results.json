@@ -1,0 +1,73 @@
+{
+  "passed": true,
+  "profileId": "white-navy-1254-front-v2",
+  "profile_sha256": "88e865cc4d75fec538e1310c8c0f0d90394f0a66e60a80187036e01155fe3eb0",
+  "frontPlacement": {
+    "left": 0.212142,
+    "top": 0.328244,
+    "width": 0.560727,
+    "height": 0.232605,
+    "upper_line": 0.270188,
+    "lower_line": 0.597924,
+    "design_size": 100
+  },
+  "uv_box": [
+    0.19285981946194686,
+    0.23938920932038815,
+    0.8071401805380531,
+    0.7604605421359221
+  ],
+  "uv_u_center": 0.5,
+  "actual_alpha_bbox_not_recropped_after_mask": true,
+  "same_atlas_for_both_views": true,
+  "mask_before_composite": true,
+  "visible_fraction": 0.926086,
+  "clean_png_no_debug_overlays": true,
+  "unchanged_stock_pixels_outside_alpha": 0,
+  "views": {
+    "front": {
+      "image_px": [
+        1254,
+        1254
+      ],
+      "mask_escape_pixels": 0,
+      "grid_escape_pixels": 0,
+      "visible_design_pixels": 141732,
+      "uv_center_projected": [
+        617.601897,
+        557.5
+      ],
+      "painted_center_projected": [
+        617.601897,
+        557.4613109999999
+      ],
+      "uv_v_half_row_nodes_exact": true
+    },
+    "threeQuarter": {
+      "image_px": [
+        1254,
+        1254
+      ],
+      "mask_escape_pixels": 0,
+      "grid_escape_pixels": 0,
+      "visible_design_pixels": 36870,
+      "uv_center_projected": [
+        455.948967,
+        521.164319
+      ],
+      "painted_center_projected": [
+        455.95730405790255,
+        521.1423636671159
+      ],
+      "uv_v_half_row_nodes_exact": true
+    }
+  },
+  "files": [
+    "design-qa-grid.png",
+    "debug-front.png",
+    "debug-3q.png",
+    "export-clean-3q.png",
+    "visibility-mask-3q.png",
+    "front-design-layer.png"
+  ]
+}

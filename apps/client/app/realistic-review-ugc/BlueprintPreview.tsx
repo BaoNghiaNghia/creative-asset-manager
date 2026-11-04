@@ -551,10 +551,8 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
           </div>
         </article>
         {onSaveThreeQuarterPlacement && <ThreeQuarterPreview key={activeColor.key}
-          stockSrc={threeQuarterHatSrc} artworkSrc={tintedFrontSrc || activeDesignSrc}
-          colorKey={activeColor.key} front={visiblePlacement} designSize={frontDesignSize}
-          saved={threeQuarterPlacements[activeColor.key] ?? null}
-          onSave={onSaveThreeQuarterPlacement}/>}
+          stockSrc={threeQuarterHatSrc} artworkSrc={activeDesignSrc}
+          colorKey={activeColor.key} front={visiblePlacement} designSize={frontDesignSize}/>}
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
       </div>
     </div>

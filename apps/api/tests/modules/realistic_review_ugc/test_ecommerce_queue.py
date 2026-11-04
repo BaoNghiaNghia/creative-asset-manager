@@ -167,9 +167,9 @@ def test_new_stock_angles_reuse_saved_reference_locally_with_pinned_3q(ecommerce
             assert processing.provider_scope is None
             if slot == "prod_s2_ec2":
                 from app.modules.realistic_review_ugc.slot2_fixed_uv import load_profile
-                assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+                assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
                 assert processing.payload_json["uv_profile_sha256"] == load_profile()[1]
-                assert processing.payload_json["uv_profile_id"] == "cream-navy-user-axis-v1"
+                assert processing.payload_json["uv_profile_id"] == "white-navy-1254-front-v2"
                 assert "three_quarter_placement_v1" not in processing.payload_json
                 assert "embroidery_placement_v1" not in processing.payload_json
             else:
@@ -206,7 +206,7 @@ def test_new_angles_need_no_codex_when_saved_reference_is_available(ecommerce_db
         assert processing.provider_key is None
         assert processing.provider_scope is None
         assert processing.payload_json["thread_material_pipeline"] == (
-            "fixed-shared-uv-v1" if stage == "prod_s2_ec2"
+            "fixed-shared-uv-v2" if stage == "prod_s2_ec2"
             else "v4-raster-placement"
         )
     assert session.query(RrugcEcommerceJobModel).count() == 3
@@ -237,7 +237,7 @@ def test_raster_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecom
     previous = session.get(ProcessingJobModel, slot.processing_job_id)
     from app.modules.realistic_review_ugc.slot2_fixed_uv import load_profile
     assert previous.provider_key is None
-    assert previous.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert previous.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
     assert previous.payload_json["uv_profile_sha256"] == load_profile()[1]
     assert "three_quarter_placement_v1" not in previous.payload_json
     assert "embroidery_placement_v1" not in previous.payload_json
@@ -255,7 +255,7 @@ def test_raster_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecom
     assert new_job.id != previous.id
     assert "three_quarter_placement_v1" not in new_job.payload_json
     assert new_job.payload_json["uv_profile_sha256"] == load_profile()[1]
-    assert new_job.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert new_job.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
     assert slot.output_remote_file_id == "old-angle-output"
 
 
@@ -295,8 +295,8 @@ def test_retry_of_failed_codex_patch_reuses_reference_without_another_codex_call
     assert result["status"] == "queued"
     assert replacement.id != old.id
     assert replacement.provider_key is None and replacement.provider_scope is None
-    assert replacement.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
-    assert replacement.payload_json["uv_profile_id"] == "cream-navy-user-axis-v1"
+    assert replacement.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
+    assert replacement.payload_json["uv_profile_id"] == "white-navy-1254-front-v2"
     assert "embroidery_placement_v1" not in replacement.payload_json
     assert "three_quarter_placement_v1" not in replacement.payload_json
     assert old.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
@@ -328,7 +328,7 @@ def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerc
                           source_plan_id="plan-001", stage="prod_s2_ec2")
     row = session.get(RrugcEcommerceJobModel, angle["job_id"])
     processing = session.get(ProcessingJobModel, row.processing_job_id)
-    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
     assert "embroidery_placement_v1" not in processing.payload_json
     # A change to tenant global placement must not affect this already pinned
     # job's projection or historical output.
@@ -379,7 +379,7 @@ def test_fixed_uv_slot2_runs_independently_of_slot1_and_codex(ecommerce_db):
     assert slot.front_preview_remote_file_id is None
     assert processing.provider_key is None
     assert processing.provider_scope is None
-    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v2"
     assert processing.payload_json["uv_profile_sha256"] == load_profile()[1]
     assert "embroidery_placement_v1" not in processing.payload_json
     assert "three_quarter_placement_v1" not in processing.payload_json
