@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "profileId": "cream-navy-user-axis-v1",
+  "calibrationStatus": "estimated-from-reference-images-not-camera-calibrated",
+  "logicalArea": {
+    "width": 268,
+    "height": 150,
+    "unit": "reference-front-pixel"
+  },
+  "placementDefaults": {
+    "centerU": 0.5,
+    "centerV": 0.5,
+    "maxWidth": 0.9,
+    "maxHeight": 0.85,
+    "trimAlpha": true
+  },
+  "rules": {
+    "extraRotationDegrees": 0,
+    "autoFitToVisibleMask": false,
+    "autoRecoverHiddenArtwork": false,
+    "extraDomeWarp": false,
+    "geometrySource": "frozen JSON nodes, not image generation"
+  },
+  "views": {
+    "front": {
+      "id": "front",
+      "width": 399,
+      "height": 598,
+      "nodes": [
+        [
+          [
+            64,
+            225
+          ],
+          [
+            131,
+            225
+          ],
+          [
+            198,
+            225
+          ],
+          [
+            265,
+            225
+          ],
+          [
+            332,
+            225
+          ]
+        ],
+        [
+          [
+            64,
+            262.5
+          ],
+          [
+            131,
+            262.5
+          ],
+          [
+            198,
+            262.5
+          ],
+          [
+            265,
+            262.5
+          ],
+          [
+            332,
+            262.5
+          ]
+        ],
+        [
+          [
+            64,
+            300
+          ],
+          [
+            131,
+            300
+          ],
+          [
+            198,
+            300
+          ],
+          [
+            265,
+            300
+          ],
+          [
+            332,
+            300
+          ]
+        ],
+        [
+          [
+            64,
+            337.5
+          ],
+          [
+            131,
+            337.5
+          ],
+          [
+            198,
+            337.5
+          ],
+          [
+            265,
+            337.5
+          ],
+          [
+            332,
+            337.5
+          ]
+        ],
+        [
+          [
+            64,
+            375
+          ],
+          [
+            131,
+            375
+          ],
+          [
+            198,
+            375
+          ],
+          [
+            265,
+            375
+          ],
+          [
+            332,
+            375
+          ]
+        ]
+      ],
+      "visibleMaskPath": "M0,187 H399 V400 H0 Z"
+    },
+    "threeQuarter": {
+      "id": "threeQuarter",
+      "width": 1254,
+      "height": 1254,
+      "nodes": [
+        [
+          [
+            353.909242,
+            339.557615
+          ],
+          [
+            414.504758,
+            353.494583
+          ],
+          [
+            508.169868,
+            375.037559
+          ],
+          [
+            628.368819,
+            402.683318
+          ],
+          [
+            781.637365,
+            437.935083
+          ]
+        ],
+        [
+          [
+            329.432563,
+            412.620995
+          ],
+          [
+            390.028079,
+            426.557964
+          ],
+          [
+            483.693189,
+            448.100939
+          ],
+          [
+            603.892141,
+            475.746698
+          ],
+          [
+            757.160687,
+            510.998463
+          ]
+        ],
+        [
+          [
+            301.688341,
+            485.684375
+          ],
+          [
+            362.283856,
+            499.621344
+          ],
+          [
+            455.948967,
+            521.164319
+          ],
+          [
+            576.147918,
+            548.810078
+          ],
+          [
+            729.416464,
+            584.061844
+          ]
+        ],
+        [
+          [
+            277.525546,
+            558.747756
+          ],
+          [
+            338.121061,
+            572.684724
+          ],
+          [
+            431.786172,
+            594.2277
+          ],
+          [
+            551.985123,
+            621.873458
+          ],
+          [
+            705.253669,
+            657.125224
+          ]
+        ],
+        [
+          [
+            254.104429,
+            631.811136
+          ],
+          [
+            314.699945,
+            645.748104
+          ],
+          [
+            408.365055,
+            667.29108
+          ],
+          [
+            528.564007,
+            694.936839
+          ],
+          [
+            681.832553,
+            730.188604
+          ]
+        ]
+      ],
+      "visibleMaskPath": "M312,698 C338,620 365,510 396,410 C416,356 448,314 484,294 C549,265 694,258 790,255 C849,261 881,312 895,371 C918,469 867,656 822,799 C673,778 468,736 312,698 Z"
+    }
+  },
+  "provenance": {
+    "frontArea": [
+      64,
+      225,
+      268,
+      150
+    ],
+    "frontVerticalReference": [
+      187,
+      400
+    ],
+    "obliqueAxisVerticalReference": [
+      301,
+      716
+    ],
+    "imageScaleEstimate": 1.948356807511737,
+    "frontRadiusEstimate": 195,
+    "yawDegreesEstimate": 35,
+    "baselineSlopeEstimate": 0.23,
+    "note": "Frozen approximate geometry. No per-design rotation or dome warp. Recalibrate only when manufacturer stock differs from user reference."
+  }
+}

@@ -165,12 +165,20 @@ def test_new_stock_angles_reuse_saved_reference_locally_with_pinned_3q(ecommerce
         if slot in ("prod_s2_ec2", "prod_s2_ec3"):
             assert processing.provider_key is None
             assert processing.provider_scope is None
-            assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
-            assert processing.payload_json["three_quarter_placement_v1"]["version"] == "3q-free-v1"
-            assert len(processing.payload_json["three_quarter_placement_v1"]["corners"]) == 4
-            assert processing.payload_json["embroidery_placement_v1"]["version"] == "front-locked-v1"
-            assert processing.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-thread-macro"
-            assert row.front_preview_remote_file_id == "saved-thread-macro"
+            if slot == "prod_s2_ec2":
+                from app.modules.realistic_review_ugc.slot2_fixed_uv import load_profile
+                assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+                assert processing.payload_json["uv_profile_sha256"] == load_profile()[1]
+                assert processing.payload_json["uv_profile_id"] == "cream-navy-user-axis-v1"
+                assert "three_quarter_placement_v1" not in processing.payload_json
+                assert "embroidery_placement_v1" not in processing.payload_json
+            else:
+                assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
+                assert processing.payload_json["three_quarter_placement_v1"]["version"] == "3q-free-v1"
+                assert len(processing.payload_json["three_quarter_placement_v1"]["corners"]) == 4
+                assert processing.payload_json["embroidery_placement_v1"]["version"] == "front-locked-v1"
+                assert processing.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-thread-macro"
+            assert row.front_preview_remote_file_id == ("saved-thread-macro" if slot == "prod_s2_ec3" else None)
         else:
             assert processing.provider_key is None
             assert processing.provider_scope is None
@@ -197,7 +205,10 @@ def test_new_angles_need_no_codex_when_saved_reference_is_available(ecommerce_db
         processing = session.get(ProcessingJobModel, row.processing_job_id)
         assert processing.provider_key is None
         assert processing.provider_scope is None
-        assert processing.payload_json["thread_material_pipeline"] == "v4-raster-placement"
+        assert processing.payload_json["thread_material_pipeline"] == (
+            "fixed-shared-uv-v1" if stage == "prod_s2_ec2"
+            else "v4-raster-placement"
+        )
     assert session.query(RrugcEcommerceJobModel).count() == 3
 
 
@@ -224,29 +235,27 @@ def test_raster_angle_pins_saved_freehand_guide_and_regenerate_reads_latest(ecom
                            source_plan_id="plan-001", stage="prod_s2_ec2")
     slot = session.get(RrugcEcommerceJobModel, queued["job_id"])
     previous = session.get(ProcessingJobModel, slot.processing_job_id)
-    guide = previous.payload_json["three_quarter_placement_v1"]
-    assert guide == {
-        "version": "3q-free-v1", "color_key": "natural-black",
-        "revision": 1, "corners": wide,
-    }
+    from app.modules.realistic_review_ugc.slot2_fixed_uv import load_profile
     assert previous.provider_key is None
-    assert previous.payload_json["thread_material_pipeline"] == "v4-raster-placement"
-    assert previous.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "verified-embroidery-reference"
+    assert previous.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert previous.payload_json["uv_profile_sha256"] == load_profile()[1]
+    assert "three_quarter_placement_v1" not in previous.payload_json
+    assert "embroidery_placement_v1" not in previous.payload_json
 
     updated = [[.24, .32], [.67, .32], [.67, .56], [.23, .55]]
     save_three_quarter_placement(
         session, "tenant-001", "operator", "natural-black", updated, saved["revision"],
     )
-    assert previous.payload_json["three_quarter_placement_v1"] == guide
+    assert previous.payload_json["uv_profile_sha256"] == load_profile()[1]
     slot.status = "completed"
     slot.output_remote_file_id = "old-angle-output"
     session.commit()
     service.regenerate(tenant_id="tenant-001", job_id=slot.id)
     new_job = session.get(ProcessingJobModel, slot.processing_job_id)
     assert new_job.id != previous.id
-    assert new_job.payload_json["three_quarter_placement_v1"]["corners"] == updated
-    assert new_job.payload_json["three_quarter_placement_v1"]["revision"] == 2
-    assert new_job.payload_json["thread_material_pipeline"] == "v4-raster-placement"
+    assert "three_quarter_placement_v1" not in new_job.payload_json
+    assert new_job.payload_json["uv_profile_sha256"] == load_profile()[1]
+    assert new_job.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
     assert slot.output_remote_file_id == "old-angle-output"
 
 
@@ -286,12 +295,13 @@ def test_retry_of_failed_codex_patch_reuses_reference_without_another_codex_call
     assert result["status"] == "queued"
     assert replacement.id != old.id
     assert replacement.provider_key is None and replacement.provider_scope is None
-    assert replacement.payload_json["thread_material_pipeline"] == "v4-raster-placement"
-    assert replacement.payload_json["embroidery_placement_v1"]["reference_remote_file_id"] == "saved-reference"
-    assert replacement.payload_json["three_quarter_placement_v1"]["version"] == "3q-free-v1"
+    assert replacement.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert replacement.payload_json["uv_profile_id"] == "cream-navy-user-axis-v1"
+    assert "embroidery_placement_v1" not in replacement.payload_json
+    assert "three_quarter_placement_v1" not in replacement.payload_json
     assert old.payload_json["thread_material_pipeline"] == "v5-codex-angle-inference"
     assert old.status == "failed"
-    assert row.front_preview_remote_file_id == "saved-reference"
+    assert row.front_preview_remote_file_id is None
 
 
 def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerce_db):
@@ -318,7 +328,8 @@ def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerc
                           source_plan_id="plan-001", stage="prod_s2_ec2")
     row = session.get(RrugcEcommerceJobModel, angle["job_id"])
     processing = session.get(ProcessingJobModel, row.processing_job_id)
-    assert processing.payload_json["embroidery_placement_v1"] == exact
+    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert "embroidery_placement_v1" not in processing.payload_json
     # A change to tenant global placement must not affect this already pinned
     # job's projection or historical output.
     from app.modules.realistic_review_ugc.front_placement import (
@@ -326,7 +337,7 @@ def test_angle_pins_immutable_transfer_box_from_completed_slot1_history(ecommerc
     )
     changed = {**DEFAULT_FRONT_PLACEMENT, "top": .19, "width": .62}
     save_front_placement(session, "tenant-001", "operator", changed, 0)
-    assert processing.payload_json["embroidery_placement_v1"] == exact
+    assert "embroidery_placement_v1" not in processing.payload_json
 
 
 def test_angle_falls_back_to_historical_transfer_box_without_scale_contract(ecommerce_db):
@@ -353,13 +364,34 @@ def test_angle_falls_back_to_historical_transfer_box_without_scale_contract(ecom
     assert pinned["reference_remote_file_id"] == "legacy-thread-macro"
 
 
-def test_three_quarter_and_side_require_completed_front(ecommerce_db):
+def test_fixed_uv_slot2_runs_independently_of_slot1_and_codex(ecommerce_db):
+    from app.modules.realistic_review_ugc.slot2_fixed_uv import load_profile
     session, settings = ecommerce_db
+    settings.CODEX_IMAGE_GENERATION_ENABLED = False
     service = EcommerceService(session, settings)
-    for stage in ("prod_s2_ec2", "prod_s2_ec3"):
-        with pytest.raises(EcommerceError, match="Slot 1"):
-            service.queue(tenant_id="tenant-001", user_id="operator",
-                          source_plan_id="plan-001", stage=stage)
+    created = service.queue(
+        tenant_id="tenant-001", user_id="operator",
+        source_plan_id="plan-001", stage="prod_s2_ec2",
+    )
+    slot = session.get(RrugcEcommerceJobModel, created["job_id"])
+    processing = session.get(ProcessingJobModel, slot.processing_job_id)
+    assert slot.front_reference_remote_file_id is None
+    assert slot.front_preview_remote_file_id is None
+    assert processing.provider_key is None
+    assert processing.provider_scope is None
+    assert processing.payload_json["thread_material_pipeline"] == "fixed-shared-uv-v1"
+    assert processing.payload_json["uv_profile_sha256"] == load_profile()[1]
+    assert "embroidery_placement_v1" not in processing.payload_json
+    assert "three_quarter_placement_v1" not in processing.payload_json
+
+
+def test_side_slot3_still_requires_completed_front(ecommerce_db):
+    session, settings = ecommerce_db
+    with pytest.raises(EcommerceError, match="Slot 1"):
+        EcommerceService(session, settings).queue(
+            tenant_id="tenant-001", user_id="operator",
+            source_plan_id="plan-001", stage="prod_s2_ec3",
+        )
 
 
 def test_slot2_fails_closed_without_real_three_quarter_stock(ecommerce_db, monkeypatch):
@@ -438,7 +470,9 @@ def test_angle_stage_can_queue_after_front_output_persisted(ecommerce_db):
                                source_plan_id="plan-001", stage=stage)
         assert result["status"] == "queued" and result["already_exists"] is False
         child = session.get(RrugcEcommerceJobModel, result["job_id"])
-        assert child.front_reference_remote_file_id == "front-remote"
+        assert child.front_reference_remote_file_id == (
+            "front-remote" if stage == "prod_s2_ec3" else None
+        )
 
 
 
@@ -451,21 +485,20 @@ def test_run_all_queues_front_back_and_durable_dependent_intent(ecommerce_db):
     states = {step["stage"]: step["status"] for step in result["steps"]}
     assert states == {
         "prod_s2_ec1": "queued",
-        "prod_s2_ec2": "waiting_for_front",
+        "prod_s2_ec2": "queued",
         "prod_s2_ec3": "waiting_for_front",
         "prod_s2_ec4": "queued",
     }
     jobs = list(session.scalars(select(RrugcEcommerceJobModel)))
-    assert len(jobs) == 2
+    assert len(jobs) == 3
     front = next(j for j in jobs if j.stage == "prod_s2_ec1")
     processing = session.get(ProcessingJobModel, front.processing_job_id)
     assert processing.payload_json["run_all_user_id"] == "operator"
-    assert processing.payload_json["run_all_followups"] == [
-        "prod_s2_ec2", "prod_s2_ec3"]
+    assert processing.payload_json["run_all_followups"] == ["prod_s2_ec3"]
     again = service.queue_all(tenant_id="tenant-001", user_id="operator",
                               source_plan_id="plan-001")
-    assert len(list(session.scalars(select(RrugcEcommerceJobModel)))) == 2
-    assert again["steps"][1]["status"] == "waiting_for_front"
+    assert len(list(session.scalars(select(RrugcEcommerceJobModel)))) == 3
+    assert again["steps"][1]["status"] == "queued"
 
 
 def test_run_all_front_completion_queues_angles_even_without_browser(ecommerce_db):
@@ -498,7 +531,9 @@ def test_run_all_front_completion_queues_angles_even_without_browser(ecommerce_d
     assert {row.stage for row in rows} == {
         "prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec3", "prod_s2_ec4"}
     for row in rows:
-        if row.stage in ("prod_s2_ec2", "prod_s2_ec3"):
+        if row.stage == "prod_s2_ec2":
+            assert row.front_reference_remote_file_id is None
+        elif row.stage == "prod_s2_ec3":
             assert row.front_reference_remote_file_id == "front-output-remote-id"
     # Worker replay and button double click cannot enqueue extra jobs.
     EcommerceGenerateHandler(settings)._dispatch_run_all_followups(
@@ -663,12 +698,12 @@ def test_run_all_records_individual_failures_without_blocking_other_slots(ecomme
     states = {step["stage"]: step for step in response["steps"]}
     assert states["prod_s2_ec4"]["status"] == "queued"
     assert states["prod_s2_ec1"]["status"] == "queued"
-    assert states["prod_s2_ec2"]["status"] == "waiting_for_front"
+    assert states["prod_s2_ec2"]["status"] == "queued"
     assert states["prod_s2_ec3"]["status"] == "waiting_for_front"
     front = next(row for row in session.scalars(select(RrugcEcommerceJobModel))
                  if row.stage == "prod_s2_ec1")
     processing = session.get(ProcessingJobModel, front.processing_job_id)
-    assert processing.payload_json["run_all_followups"] == ["prod_s2_ec2", "prod_s2_ec3"]
+    assert processing.payload_json["run_all_followups"] == ["prod_s2_ec3"]
 
 
 def test_run_all_retries_a_failed_dependent_when_front_is_completed(ecommerce_db):
@@ -698,7 +733,7 @@ def test_run_all_retries_a_failed_dependent_when_front_is_completed(ecommerce_db
     assert steps["prod_s2_ec3"]["status"] == "queued"
     assert existing.retry_count == 1
     assert existing.processing_job_id != previous_processing
-    assert existing.front_reference_remote_file_id == "front-original"
+    assert existing.front_reference_remote_file_id is None
 
 
 def test_run_all_fails_closed_for_other_tenant(ecommerce_db):

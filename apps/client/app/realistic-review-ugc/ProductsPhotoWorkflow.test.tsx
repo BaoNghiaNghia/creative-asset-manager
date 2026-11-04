@@ -24,14 +24,14 @@ describe("Products Stage 2 photo workflow", () => {
       expect(updated).toBeLessThan(duration);
     }
   });
-  it("shows only official stock and saved embroidery reference in Slots 2/3", () => {
+  it("shows original PNG + stock for Slot 2 and saved yarn for Slot 3", () => {
     const threeQuarter = PHOTO_STEPS.find(step => step.key === "prod_s2_ec2")!;
     const side = PHOTO_STEPS.find(step => step.key === "prod_s2_ec3")!;
-    expect(threeQuarter.inputs?.map(input => input.kind)).toEqual(["angle", "embroidered_front"]);
+    expect(threeQuarter.inputs?.map(input => input.kind)).toEqual(["design", "angle"]);
     expect(side.inputs?.map(input => input.kind)).toEqual(["side-front", "embroidered_front"]);
     expect(threeQuarter.inputs).toHaveLength(2);
     expect(side.inputs).toHaveLength(2);
-    expect(threeQuarter.inputs?.some(input => input.kind === "design")).toBe(false);
+    expect(threeQuarter.inputs?.some(input => input.kind === "design")).toBe(true);
     expect(side.inputs?.some(input => input.kind === "design")).toBe(false);
   });
 
@@ -71,7 +71,7 @@ describe("Products Stage 2 photo workflow", () => {
       }]} />);
     expect(html).toContain("Slot 2 failed · ecommerce_angle_direct_qa_failed");
     expect(html).toContain("No credible front embroidery detected inside the visible front crown.");
-    expect(html).toContain("Retry reuses the Saved Embroidery Reference with fixed local raster placement.");
+    expect(html).toContain("Retry projects the original PNG with the same shared UV profile and mask.");
     expect(html).toContain("2m 4s");
     expect(html).not.toContain("Storage or image input unavailable.");
   });
@@ -268,7 +268,7 @@ describe("Products Stage 2 photo workflow", () => {
     for (const skill of ["multihat-v2", "ugc-v3"]) {
       expect(html).toContain(skill);
     }
-    expect(html).toContain("ThreadTransfer V4 · Calibrated raster 3/4");
+    expect(html).toContain("Shared UV V1 · Frozen 5×5 grid");
     expect(html).toContain("ThreadTransfer V5 · Distinct side stock");
     expect(html).toContain("Built-in · Original Back Stock");
     expect((html.match(/rrugc-products-photo-duration/g) || []).length).toBe(7);

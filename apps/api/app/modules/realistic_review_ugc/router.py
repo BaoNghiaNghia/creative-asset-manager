@@ -6640,8 +6640,8 @@ def ecommerce_input_readiness(
             assets[role] = "sha256:" + evidence["sha256"]
     try:
         front = _front_material_job(session, plan, color_key)
-        # Direct Slots 2-3 must depend on the SAVED yarn photograph, never
-        # on the flat artwork PNG or a separately composited front output.
+        # Slot 3 needs the saved Slot 1 yarn; Slot 2 now projects the
+        # original PNG through a frozen UV mesh and does not depend on Slot 1.
         assets["embroidery_reference"] = front.front_preview_remote_file_id
     except EcommerceError:
         pass
@@ -6656,8 +6656,9 @@ def ecommerce_input_readiness(
             skill_ready=skill_ready,
         )
         entry["pipeline"] = ("thread-reference-inpaint-v2" if shot.stage == "prod_s2_ec1"
+                             else "fixed-shared-uv-v1" if shot.stage == "prod_s2_ec2"
                              else "threadtransfer-v3-deterministic-quad"
-                             if shot.stage in ("prod_s2_ec2", "prod_s2_ec3")
+                             if shot.stage == "prod_s2_ec3"
                              else "unaltered-back-stock-v1")
         entry["custom_skill_required"] = False
         slots.append(entry)

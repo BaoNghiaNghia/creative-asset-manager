@@ -30,7 +30,7 @@ type StepDefinition = {
 /** Explicit 1-to-1 Skill → Ecommerce photo mapping; ten existing photos total. */
 export const PHOTO_STEPS: StepDefinition[] = [
   { key: "prod_s2_ec1", readinessKey: "ecommerce", title: "Ecommerce · Image 01", skillName: "Not assigned", shots: [{ label: "Front High", number: 1 }], inputs: [{ label: "Embroidery artwork", kind: "design" }, { label: "Front stock", kind: "front" }], inputInstruction: "Hat Front Embroidery: preserve the original design within the calibrated front embroidery area." },
-  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Official 3/4 stock — edit target", kind: "angle" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Fixed raster transfer: use the exact saved Slot 1 embroidery footprint and the original factory 3/4 stock. One locally calibrated perspective warp of photographic yarn only; no Codex/ImageGen call, no flat PNG artwork or cap redraw." },
+  { key: "prod_s2_ec2", readinessKey: "ecommerce", title: "Ecommerce · Image 02", skillName: "Not assigned", shots: [{ label: "Front Right 3/4", number: 2 }], inputs: [{ label: "Original transparent PNG", kind: "design" }, { label: "Official 3/4 stock", kind: "angle" }], inputInstruction: "Fixed shared UV v1: center (0.5, 0.5), original aspect ratio, one texture atlas for front + 3/4, frozen 5×5 grid, visibility mask clips hidden letters. No auto-rotate, dome warp, fit-to-visible, new AI lettering or Codex. Profile is an estimated stock geometry; a different camera crop fails QA until calibrated." },
   { key: "prod_s2_ec3", readinessKey: "ecommerce", title: "Ecommerce · Image 03", skillName: "Not assigned", shots: [{ label: "Right Side / Side-front", number: 3 }], inputs: [{ label: "Distinct side stock — edit target", kind: "side-front" }, { label: "Saved Embroidery Reference", kind: "embroidered_front" }], inputInstruction: "Use a real, DISTINCT side stock. An approved side-front photograph displays the legible front design; if unavailable the true 90-degree side shows only the physically visible front edge. Never reuse Slot 2's 3/4 image or invent a camera angle." },
   { key: "prod_s2_ec4", readinessKey: "ecommerce", title: "Ecommerce · Image 04", skillName: "Not assigned", shots: [{ label: "Back High", number: 4 }], inputs: [{ label: "Back stock reference", kind: "back" }], inputInstruction: "Reuse the complete official back stock unchanged, with its genuine adjustable strap, fabric and side branding. Zero ImageGen calls." },
   { key: "prod_s2_mh", readinessKey: "multihat", title: "Multi-hat", skillName: "gatorhats-8869-multihat-v2-4", shots: [
@@ -491,7 +491,7 @@ export function ProductsPhotoWorkflow({
         const isBuiltInPhoto = index < 4;
         const skillName = isBuiltInFront
           ? "ThreadTransfer V2 · Blueprint-locked yarn"
-          : step.key === "prod_s2_ec2" ? "ThreadTransfer V4 · Calibrated raster 3/4"
+          : step.key === "prod_s2_ec2" ? "Shared UV V1 · Frozen 5×5 grid"
           : step.key === "prod_s2_ec3" ? "ThreadTransfer V5 · Distinct side stock"
           : step.key === "prod_s2_ec4" ? "Built-in · Original Back Stock"
           : configured || step.skillName;
@@ -601,7 +601,7 @@ export function ProductsPhotoWorkflow({
           <div className="rrugc-products-photo-stage-title">
             <span className="rrugc-products-photo-number">{index + 1}</span>
             <div><strong>{isBuiltInFront ? "ThreadTransfer · Front Cap"
-              : step.key === "prod_s2_ec2" ? "ThreadTransfer · 3/4"
+              : step.key === "prod_s2_ec2" ? "Fixed UV · 3/4"
               : step.key === "prod_s2_ec3" ? "ThreadTransfer · Side"
               : step.key === "prod_s2_ec4" ? "Original Back Stock" : step.title}</strong><small>{isBuiltInFront ? "Reference + Cap Front" : configured && isEcommerce ? step.shots[0].label
                 : step.shots.length + (step.shots.length === 1 ? " shot" : " shots")}</small></div>
@@ -657,9 +657,11 @@ export function ProductsPhotoWorkflow({
             && <div className="rrugc-slot1-failure-message is-failed rrugc-products-photo-stage-error" role="alert">
                 <strong>{"Slot " + (index + 1) + " failed · " + (shotJob.error_code || "unknown_error")}</strong>
                 <small>{shotJob.error_message || "The generated photo was rejected. Open Logs for the processing reason."}</small>
-                <small>{step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
-                  ? "Retry reuses the Saved Embroidery Reference with fixed local raster placement. No Codex/ImageGen call."
-                  : "Saved output references remain unchanged; Retry follows this slot's engine."}</small>
+                <small>{step.key === "prod_s2_ec2"
+                  ? "Retry projects the original PNG with the same shared UV profile and mask. No Codex/ImageGen call."
+                  : step.key === "prod_s2_ec3"
+                    ? "Retry reuses the Saved Embroidery Reference with fixed local raster placement. No Codex/ImageGen call."
+                    : "Saved output references remain unchanged; Retry follows this slot's engine."}</small>
               </div>}
           {opened && <div id={"rrugc-stage2-details-" + step.key} className={"rrugc-products-photo-stage-detail " + (isEcommerce ? "is-ecommerce-detail" : "is-bundled-skill-detail")}>
             {isEcommerce && <div className="rrugc-products-photo-inputs" aria-label={step.title + " input references"}>
@@ -687,7 +689,9 @@ export function ProductsPhotoWorkflow({
               <p>{step.inputInstruction}</p>
               <small>{isBuiltInFront
                 ? "Slot 1 first generates and saves one photographic Embroidery Reference using Codex CLI; it then transfers real yarn locally onto the original factory front stock. A failed reference blocks both outputs; Retry Placement never generates new material."
-                : "Slots 2–3 use exactly two images, official stock + Saved Embroidery Reference. Both reuse the actual Slot 1 footprint via fixed, local raster perspective placement with zero new ImageGen calls. True side 90° reveals only the visible front-edge part; Slot 4 remains original stock."}</small>
+                : step.key === "prod_s2_ec2"
+                  ? "Slot 2 uses only the original PNG + genuine 3/4 stock. Fixed shared UV mesh, same atlas as front, crop hidden artwork by mask, no model calls and no need to finish Slot 1 first."
+                  : "Slot 3 reuses genuine side stock + Saved Embroidery Reference, with its own angle projection. Slot 4 remains original stock."}</small>
             </div>}
             {isBuiltInFront && <section className="rrugc-products-photo-slot1-details"
               aria-label="Slot 1 generated outputs">
@@ -790,8 +794,10 @@ export function ProductsPhotoWorkflow({
               <strong>{skillName}</strong>
               <p>{isBuiltInFront
                 ? "ThreadTransfer V2: separate true colored stitches from loose reference-cloth margins, preserve original lettering proportions and fit the saved Blueprint placement on the unedited factory front. Saved reference reapplication needs no ImageGen call."
-                : step.key === "prod_s2_ec2" || step.key === "prod_s2_ec3"
-                  ? "ThreadTransfer raster: exact manufacturer stock + saved Slot 1 Embroidery Reference, zero Codex calls. Slot 2 uses real front-right 3/4; Slot 3 uses a DIFFERENT verified side-front photo when available, or the true 90° side showing naturally occluded front yarn. Missing side-front is never hidden by duplicating Slot 2. Stock outside yarn stays unchanged."
+                : step.key === "prod_s2_ec2"
+                  ? "Shared UV V1: original transparent PNG + real 3/4 factory stock. The frozen 5×5 mesh samples the same centered texture atlas used for the front audit layer; a visibility mask simply drops hidden artwork. No auto-rotate, extra bending, AI redraw or fit to visible area. Stock pixels outside projected lettering stay untouched."
+                : step.key === "prod_s2_ec3"
+                  ? "ThreadTransfer raster: exact manufacturer side-front/side stock + saved Slot 1 Embroidery Reference, zero Codex calls. Uses its OWN side projection, never Slot 2's 3/4 stock. Missing side-front cannot be hidden by duplicating Slot 2."
                 : step.key === "prod_s2_ec4"
                   ? "Keeps the real factory back photograph unchanged. No rear embroidery is invented and no ImageGen call is needed."
                   : isBuiltInPhoto

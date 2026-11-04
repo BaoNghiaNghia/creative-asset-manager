@@ -4,7 +4,7 @@ import type { RrugcWorkflowGroup } from "./workflowRouting";
  * and UGC scene-composition slots need configurable image Skills. */
 export const PRODUCT_STAGE2_SKILL_SLOTS = [
   { key: "prod_s2_ec1", title: "Slot 1", label: "Front · Thread Inpaint V2", detail: "Built-in · 2 native ImageGen edits: fine thread reference → original cap inpaint · no custom Skill", expectedSkill: null, active: true },
-  { key: "prod_s2_ec2", title: "Slot 2", label: "Three-quarter · Satin Inpaint", detail: "Built-in · reuse Slot 1 native thread material on the original 3/4 stock photo", expectedSkill: null, active: true },
+  { key: "prod_s2_ec2", title: "Slot 2", label: "Three-quarter · Fixed Shared UV V1", detail: "Built-in · original transparent PNG + genuine 3/4 stock · one frozen 5x5 UV grid and mask · zero AI calls", expectedSkill: null, active: true },
   { key: "prod_s2_ec3", title: "Slot 3", label: "Right Side · Satin Inpaint", detail: "Built-in · perspective-limited front edge on original right-side stock photo", expectedSkill: null, active: true },
   { key: "prod_s2_ec4", title: "Slot 4", label: "Back · Original Stock", detail: "Built-in · exact original rear photograph; no invented rear embroidery", expectedSkill: null, active: true },
   { key: "prod_s2_mh", title: "Skill 5", label: "Multi-hat", detail: "Images 05–07 · 3 photo outputs", expectedSkill: "gatorhats-8869-multihat-v2-4", active: true },

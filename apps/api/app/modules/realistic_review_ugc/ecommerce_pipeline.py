@@ -41,6 +41,11 @@ from app.modules.realistic_review_ugc.slot1_embroidery import (
 from app.modules.realistic_review_ugc.stage2_stock_inpaint import native_thread_macro
 from app.modules.realistic_review_ugc.threadtransfer import composite_reference_on_cap
 from app.modules.realistic_review_ugc.threadtransfer_stock import composite_reference_on_stock_view
+from app.modules.realistic_review_ugc.slot2_fixed_uv import (
+    PIPELINE_VERSION as SLOT2_FIXED_UV_PIPELINE,
+    FixedUvProjectionError, load_profile as load_slot2_fixed_uv_profile,
+    render_fixed_uv_slot2,
+)
 from app.modules.realistic_review_ugc.angle_direct_edit import (
     AngleDirectEditError, angle_direct_prompt, process_direct_angle_edit,
 )
@@ -554,10 +559,12 @@ class EcommerceService:
         # All newly queued stock-angle jobs reuse the verified Slot 1 yarn
         # locally. Never reserve Codex quota for a pure raster placement.
         local_transfer = bool(
-            (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
-             and row.skill_name == SLOT1_DIRECT_NAME
-             and row.front_preview_remote_file_id
-             and row.front_preview_design_sha256)
+            (row.stage == "prod_s2_ec2"
+             and row.skill_name == SLOT1_DIRECT_NAME)
+            or (row.stage == "prod_s2_ec3"
+                and row.skill_name == SLOT1_DIRECT_NAME
+                and row.front_preview_remote_file_id
+                and row.front_preview_design_sha256)
             or (row.stage == "prod_s2_ec4" and row.skill_name == SLOT1_DIRECT_NAME)
             or (row.stage == "prod_s2_ec1"
                 and row.skill_name == SLOT1_DIRECT_NAME
@@ -566,7 +573,17 @@ class EcommerceService:
                 and row.front_preview_design_sha256
                 and not regenerate_material_reference)
         )
-        # New attempts pin the master and the user-saved 3/4 four-point guide.
+        # New Slot 2 attempts use the frozen 5x5 shared UV profile from the
+        # user-supplied hat-grid-system-v1 package. No saved freehand guide or
+        # Slot 1 material is an input to this renderer.
+        fixed_uv_profile_sha = (
+            load_slot2_fixed_uv_profile()[1]
+            if row.stage == "prod_s2_ec2"
+               and row.skill_source == "internal"
+               and row.skill_name == SLOT1_DIRECT_NAME
+            else None
+        )
+        # Slot 3 retains its saved 3/4 guide and pinned Slot 1 master.
         # Existing in-flight jobs are not mutated by later deployments.
         front_contract = (
             front_scale_contract(front_placement)
@@ -576,14 +593,14 @@ class EcommerceService:
         )
         master_contract = (
             _saved_front_placement_for_angle(self.session, row, front_placement)
-            if row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+            if row.stage == "prod_s2_ec3"
                and row.skill_source == "internal"
                and row.front_preview_remote_file_id
             else None
         )
         angle_guide = (
             _pinned_three_quarter_for_angle(self.session, row)
-            if row.stage in ("prod_s2_ec2", "prod_s2_ec3")
+            if row.stage == "prod_s2_ec3"
                and row.skill_source == "internal" and master_contract
             else None
         )
@@ -594,8 +611,11 @@ class EcommerceService:
                 "ecommerce_job_id": row.id,
                 **({"regenerate_material_reference": True}
                    if regenerate_material_reference and row.stage == "prod_s2_ec1" else {}),
-                **({"thread_material_pipeline": "v4-raster-placement"} if (
-                    row.stage in {"prod_s2_ec2", "prod_s2_ec3"}
+                **({"thread_material_pipeline": SLOT2_FIXED_UV_PIPELINE,
+                    "uv_profile_sha256": fixed_uv_profile_sha,
+                    "uv_profile_id": "cream-navy-user-axis-v1"} if fixed_uv_profile_sha
+                    else {"thread_material_pipeline": "v4-raster-placement"} if (
+                    row.stage == "prod_s2_ec3"
                     and row.skill_source == "internal"
                     and row.skill_name == SLOT1_DIRECT_NAME
                     and row.front_preview_remote_file_id
@@ -638,7 +658,7 @@ class EcommerceService:
         skill = (_slot1_direct_selection() if stage in SHOTS_BY_STAGE
                  else _assigned_skill(self.session, self.settings, tenant_id, stage))
         front = (_front_material_job(self.session, plan, color_key)
-                 if stage in {"prod_s2_ec2", "prod_s2_ec3", *SCENE_STAGE_SLOTS}
+                 if stage in {"prod_s2_ec3", *SCENE_STAGE_SLOTS}
                  else None)
         row = self.session.scalar(select(RrugcEcommerceJobModel).where(
             RrugcEcommerceJobModel.tenant_id == tenant_id,
@@ -929,7 +949,7 @@ class EcommerceService:
                     "job_id": queued["job_id"]}
 
         # Front and Back never require another Ecommerce output.
-        for stage in ("prod_s2_ec1", "prod_s2_ec4"):
+        for stage in ("prod_s2_ec1", "prod_s2_ec2", "prod_s2_ec4"):
             try:
                 stages[stage] = enqueue(stage)
             except EcommerceError as exc:
@@ -946,7 +966,7 @@ class EcommerceService:
         ))
 
         deferred = []
-        for stage in ("prod_s2_ec2", "prod_s2_ec3"):
+        for stage in ("prod_s2_ec3",):
             try:
                 if front and front.status == "completed" and front.output_remote_file_id:
                     stages[stage] = enqueue(stage)
@@ -1022,7 +1042,7 @@ class EcommerceService:
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
         _rebind_ec2_stock_for_explicit_action(self.settings, row)
-        if row.stage in ("prod_s2_ec2", "prod_s2_ec3") and not row.front_reference_remote_file_id:
+        if row.stage == "prod_s2_ec3" and not row.front_reference_remote_file_id:
             raise EcommerceError("ecommerce_front_reference_missing", "Pinned Front reference is missing.")
         if row.stage in SHOTS_BY_STAGE:
             if row.stage == "prod_s2_ec1":
@@ -1032,7 +1052,7 @@ class EcommerceService:
                 row.skill_source, row.skill_id = selected.source, None
                 row.skill_name, row.skill_version = selected.skill_name, selected.skill_version
                 row.skill_bundle_sha256 = SLOT1_DIRECT_SHA256
-                if row.stage in {"prod_s2_ec2", "prod_s2_ec3"}:
+                if row.stage == "prod_s2_ec3":
                     front = _front_material_job(self.session, plan, row.color_key)
                     row.front_reference_remote_file_id = front.output_remote_file_id
                     row.front_reference_content_type = front.output_content_type
@@ -1124,7 +1144,7 @@ class EcommerceService:
         if plan.source_revision != row.source_revision:
             raise EcommerceError("ecommerce_source_changed", "Design revision changed.")
         _rebind_ec2_stock_for_explicit_action(self.settings, row)
-        if row.stage in ("prod_s2_ec2", "prod_s2_ec3") or row.stage in SCENE_STAGE_SLOTS:
+        if row.stage == "prod_s2_ec3" or row.stage in SCENE_STAGE_SLOTS:
             front = _front_material_job(self.session, plan, row.color_key)
             row.front_reference_remote_file_id = front.output_remote_file_id
             row.front_reference_content_type = front.output_content_type
@@ -1611,7 +1631,7 @@ class EcommerceGenerateHandler:
             local_execution = bool(
                 (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
                  and row.skill_name == SLOT1_DIRECT_NAME
-                 and transfer_mode in ("v2", "v4-raster-placement"))
+                 and transfer_mode in ("v2", "v4-raster-placement", SLOT2_FIXED_UV_PIPELINE))
                 or (row.stage == "prod_s2_ec4"
                     and row.skill_name == SLOT1_DIRECT_NAME)
                 or (row.stage == "prod_s2_ec1"
@@ -1671,7 +1691,7 @@ class EcommerceGenerateHandler:
             if (row.stage in ("prod_s2_ec2", "prod_s2_ec3")
                     and context.job.payload.get("thread_material_pipeline") not in (
                         "v3-direct-edit", "v4-raster-placement",
-                        "v5-codex-angle-inference")) or (
+                        "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE)) or (
                 row.stage in SCENE_STAGE_SLOTS and
                 (context.job.payload.get("thread_material_pipeline") in ("v1", "v2"))
             ):
@@ -1705,10 +1725,11 @@ class EcommerceGenerateHandler:
         is_direct = is_reference or is_direct_legacy
         transfer_mode = context.job.payload.get("thread_material_pipeline")
         material_transfer = transfer_mode in ("v1", "v2", "v3-direct-edit", "v4-raster-placement",
-                                              "v5-codex-angle-inference")
+                                              "v5-codex-angle-inference", SLOT2_FIXED_UV_PIPELINE)
         builtin_stock = stage in ("prod_s2_ec2", "prod_s2_ec3") and material_transfer and skill_name == SLOT1_DIRECT_NAME
         deterministic_angle = builtin_stock and transfer_mode == "v4-raster-placement"
-        local_stock = builtin_stock and transfer_mode in ("v2", "v4-raster-placement")
+        fixed_uv_slot2 = stage == "prod_s2_ec2" and builtin_stock and transfer_mode == SLOT2_FIXED_UV_PIPELINE
+        local_stock = builtin_stock and transfer_mode in ("v2", "v4-raster-placement", SLOT2_FIXED_UV_PIPELINE)
         direct_angle = builtin_stock and transfer_mode in ("v3-direct-edit", "v5-codex-angle-inference")
         codex_inference = direct_angle and transfer_mode == "v5-codex-angle-inference"
         scene_one_pass = stage in SCENE_STAGE_SLOTS and transfer_mode == "v2"
@@ -1727,11 +1748,16 @@ class EcommerceGenerateHandler:
             else:
                 design_bytes = await self._open_bytes(storage, context,
                         "rrugc-ecommerce-design:" + plan_id, source_file_id, mime, size)
-                references.append(ReferenceImageInput(
-                    image=_prepared_image(design_bytes), role="design_reference",
-                    label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
+                if not fixed_uv_slot2:
+                    references.append(ReferenceImageInput(
+                        image=_prepared_image(design_bytes), role="design_reference",
+                        label="canonical embroidery design: preserve exact typography, silhouette, layout and colors; no fabric patch"))
                 design_sha = hashlib.sha256(design_bytes).hexdigest()
-            if is_reference:
+            if fixed_uv_slot2:
+                # No saved embroidered photo or material macro enters fixed
+                # projection. The one Stage 1 source PNG is the sole texture.
+                preview_bytes = None
+            elif is_reference:
                 # V2 edits the original stock with its own material reference.
                 # Do not render/upload a second flat-painted full-hat preview:
                 # it is not an ImageGen input and can mislead downstream slots.
@@ -1996,6 +2022,8 @@ class EcommerceGenerateHandler:
                 guide=context.job.payload.get("three_quarter_placement_v1") if codex_inference else None,
                 stock_role=refs[0][0], autonomous=codex_inference,
             )
+        elif fixed_uv_slot2:
+            prompt = "Fixed shared-UV raster projection, no AI invocation."
         elif builtin_stock and not deterministic_angle:
             if not any(ref.role == "slot1_thread_material_reference" for ref in references):
                 raise EcommerceError("ecommerce_thread_material_missing",
@@ -2022,7 +2050,61 @@ class EcommerceGenerateHandler:
                                    "/var/lib/creative-asset-manager/codex"))
         material_reference_remote_id: str | None = None
         material_reference_bytes: bytes | None = None
-        if local_stock:
+        if fixed_uv_slot2:
+            if refs[0][0] != "stock_three_quarter" or legacy_three_quarter:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_uv_stock_invalid",
+                    "Fixed UV Slot 2 requires verified genuine 3/4 manufacturer stock.",
+                    retryable=False,
+                )
+            pinned_uv_sha = context.job.payload.get("uv_profile_sha256")
+            if (context.job.payload.get("uv_profile_id") != "cream-navy-user-axis-v1"
+                    or not isinstance(pinned_uv_sha, str)
+                    or len(pinned_uv_sha) != 64
+                    or any(char not in "0123456789abcdef" for char in pinned_uv_sha)):
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_uv_profile_invalid",
+                    "Missing/invalid pinned shared UV profile hash.",
+                    retryable=False,
+                )
+            try:
+                projected = render_fixed_uv_slot2(
+                    design_bytes, refs[0][1],
+                    expected_profile_sha256=pinned_uv_sha,
+                )
+            except FixedUvProjectionError as exc:
+                raise RrugcGenerationHandlerError(
+                    "ecommerce_uv_projection_qa_failed", str(exc), retryable=False,
+                ) from exc
+            generated = GeneratedImageResult(
+                provider="local", model=None,
+                image_bytes=projected.output_png, mime_type="image/png",
+                provider_metadata={
+                    "transfer_engine": SLOT2_FIXED_UV_PIPELINE,
+                    "native_passes": 0,
+                    "profile_id": "cream-navy-user-axis-v1",
+                    "profile_sha256": projected.profile_sha256,
+                    "shared_atlas_sha256": projected.atlas_sha256,
+                    "design_sha256": projected.design_sha256,
+                    "front_layer_sha256": hashlib.sha256(
+                        projected.front_layer_png
+                    ).hexdigest(),
+                    "source": "original_stage1_design_png",
+                    "uv_center": [0.5, 0.5],
+                    "uv_box": list(projected.uv_box),
+                    "front_uv_anchor": list(projected.front_anchor),
+                    "three_quarter_uv_anchor": list(projected.three_quarter_anchor),
+                    "visible_pixels": projected.visible_pixel_count,
+                    "visible_fraction": projected.visible_fraction,
+                    "transfer_box": list(projected.target_box),
+                    "hidden_details_recovered": False,
+                    "auto_rotation": False,
+                    "extra_dome_warp": False,
+                    "outside_stock_preserved": True,
+                    "stock_geometry_calibration": "estimated_from_reference_images",
+                },
+            )
+        elif local_stock:
             if stage == "prod_s2_ec3" and refs[0][0] == "stock_three_quarter":
                 raise RrugcGenerationHandlerError(
                     "ecommerce_duplicate_stock_angle",
@@ -2380,7 +2462,9 @@ class EcommerceGenerateHandler:
                                        if (is_lite or is_direct) and slot1_material.edit_roi_box else {}),
                                 }} if stage == "prod_s2_ec1" else {}),
                                 **({"thread_inpaint_pipeline": {
-                                    "version": ("threadtransfer-v4-calibrated-quad"
+                                    "version": (SLOT2_FIXED_UV_PIPELINE
+                                                if fixed_uv_slot2 else
+                                                "threadtransfer-v4-calibrated-quad"
                                                 if deterministic_angle else
                                                 "angle-direct-v5-codex-guided-inference"
                                                 if codex_inference else
@@ -2388,8 +2472,29 @@ class EcommerceGenerateHandler:
                                                 "threadtransfer-v2-angle" if local_stock else
                                                 "scene-single-pass-v2" if scene_one_pass else
                                                 "reference-reuse-v1"),
-                                    "material_remote_file_id": row.front_preview_remote_file_id,
-                                    "material_source": "slot1-native-pass-a",
+                                    "material_remote_file_id": (
+                                        None if fixed_uv_slot2 else row.front_preview_remote_file_id
+                                    ),
+                                    "material_source": (
+                                        "original-stage1-transparent-design"
+                                        if fixed_uv_slot2 else "slot1-native-pass-a"
+                                    ),
+                                    **({
+                                        "profile_id": generated.provider_metadata["profile_id"],
+                                        "profile_sha256": generated.provider_metadata["profile_sha256"],
+                                        "shared_atlas_sha256": generated.provider_metadata["shared_atlas_sha256"],
+                                        "design_sha256": generated.provider_metadata["design_sha256"],
+                                        "front_layer_sha256": generated.provider_metadata["front_layer_sha256"],
+                                        "uv_center": [0.5, 0.5],
+                                        "uv_box": generated.provider_metadata["uv_box"],
+                                        "front_uv_anchor": generated.provider_metadata["front_uv_anchor"],
+                                        "three_quarter_uv_anchor": generated.provider_metadata["three_quarter_uv_anchor"],
+                                        "visible_pixels": generated.provider_metadata["visible_pixels"],
+                                        "visible_fraction": generated.provider_metadata["visible_fraction"],
+                                        "auto_rotate": False, "auto_bend": False,
+                                        "occlusion_mask": True,
+                                        "profile_geometry": "estimated-not-calibrated",
+                                    } if fixed_uv_slot2 else {}),
                                     "native_sha256": generated.provider_metadata.get("native_sha256"),
                                     "native_passes": generated.provider_metadata.get("native_passes", 1),
                                     "thread_layer_sha256": generated.provider_metadata.get("thread_layer_sha256"),

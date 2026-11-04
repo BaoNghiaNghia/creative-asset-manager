@@ -17,7 +17,9 @@ class EcommerceShot:
 
 SHOTS = (
     EcommerceShot("prod_s2_ec1", "front", ("design", "stock_front"), "front"),
-    EcommerceShot("prod_s2_ec2", "three_quarter", ("stock_three_quarter", "embroidery_reference"), "front"),
+    # Slot 2 fixed UV consumes the ORIGINAL PNG directly, not the saved
+    # Slot 1 embroidery reference. A new image can run before Slot 1 finishes.
+    EcommerceShot("prod_s2_ec2", "three_quarter", ("design", "stock_three_quarter"), "front"),
     # A genuine right-side source is mandatory; optional approved side-front
     # stock may supersede it at execution time, never the EC2 3/4 image.
     EcommerceShot("prod_s2_ec3", "side", ("stock_side_90", "embroidery_reference"), "front"),

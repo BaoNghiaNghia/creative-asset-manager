@@ -282,3 +282,103 @@ def test_angle_worker_publishes_without_codex_or_png_artwork(monkeypatch, stage,
         assert row.status == "completed"
         assert row.front_preview_remote_file_id == "macro"
     engine.dispose()
+
+
+@pytest.mark.parametrize("codex_enabled", [False, True])
+def test_slot2_worker_uses_original_png_frozen_uv_with_no_front_reference(monkeypatch, codex_enabled):
+    """Exercise real job persistence, provider bypass, metadata and masked stock."""
+    from app.modules.realistic_review_ugc.slot2_fixed_uv import (
+        PIPELINE_VERSION, load_profile,
+    )
+    artwork = embroidery()
+    stock = png(Image.new("RGB", (1024, 1024), (233, 227, 212)))
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:", poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine, tables=[
+        RrugcSourcePlanModel.__table__, RrugcEcommerceJobModel.__table__,
+        ProcessingJobModel.__table__, RrugcImageOutputVersionModel.__table__,
+    ])
+    with Session(engine) as db:
+        db.add(RrugcSourcePlanModel(
+            id="uv-plan", tenant_id="tenant", root_folder_id=PRODUCTS_STAGE1_SELECTED_ROOT,
+            source_file_id="original-design-png", source_name="original.png",
+            source_relative_path="original.png", source_revision="rev",
+            source_mime_type="image/png", source_size_bytes=len(artwork),
+            created_by_user_id="operator",
+        ))
+        db.add(RrugcEcommerceJobModel(
+            id="uv-job", tenant_id="tenant", source_plan_id="uv-plan",
+            source_revision="rev", stage="prod_s2_ec2", color_key="natural-black",
+            stock_sha256="f"*64, skill_source="internal",
+            skill_name=pipeline.SLOT1_DIRECT_NAME,
+            skill_version=pipeline.SLOT1_DIRECT_VERSION,
+            skill_bundle_sha256=pipeline.SLOT1_DIRECT_SHA256,
+            created_by_user_id="operator", status="queued",
+        ))
+        db.commit()
+    storage = Storage({"original-design-png": artwork})
+    monkeypatch.setattr(
+        pipeline, "_pinned_stock_refs",
+        lambda *_args: ([("stock_three_quarter", stock)], False),
+    )
+    def no_codex(*_args, **_kwargs):
+        raise AssertionError("Fixed UV must not acquire Codex or perform an image edit.")
+    monkeypatch.setattr(pipeline, "CodexImageGenRunner", no_codex)
+    monkeypatch.setattr(pipeline, "acquire_worker_profile", no_codex)
+    from app.modules.realistic_review_ugc import products_run_all
+    monkeypatch.setattr(products_run_all, "advance_after_output", lambda *_a, **_kw: None)
+    context = SimpleNamespace(
+        job=SimpleNamespace(
+            id="uv-processing", job_type=pipeline.JOB_TYPE,
+            entity_id="uv-job", tenant_id="tenant",
+            payload={
+                "ecommerce_job_id": "uv-job", "thread_material_pipeline": PIPELINE_VERSION,
+                "uv_profile_id": "cream-navy-user-axis-v1",
+                "uv_profile_sha256": load_profile()[1],
+            },
+        ),
+        dependencies=SimpleNamespace(
+            session_factory=lambda: Session(engine), storage_provider=storage,
+        ),
+        is_cancelled=False,
+        logger=SimpleNamespace(info=lambda *_a, **_kw: None,
+                               exception=lambda *_a, **_kw: None),
+    )
+    settings = SimpleNamespace(
+        PROCESSING_JOBS_ENABLED=True,
+        IMAGE_GENERATION_ENABLED=True,
+        MANAGED_ASSET_STORAGE_ENABLED=True,
+        CODEX_IMAGE_GENERATION_ENABLED=codex_enabled,
+        CODEX_IMAGE_BINARY="codex", CODEX_IMAGE_HOME="/fake",
+        CODEX_IMAGE_TIMEOUT_SECONDS=120, CODEX_IMAGE_MODEL=None,
+    )
+    result = asyncio.run(pipeline.EcommerceGenerateHandler(settings)._execute(context))
+    assert result.outcome.value == "completed"
+    assert len(storage.saved) == 1
+    saved = storage.data[storage.saved[0]]
+    image = Image.open(BytesIO(saved))
+    assert image.format == "PNG" and image.size == (1024, 1024)
+    output = np.asarray(image.convert("RGB"))
+    before = np.asarray(Image.open(BytesIO(stock)))
+    assert np.array_equal(output[0:150], before[0:150])
+    assert np.array_equal(output[900:], before[900:])
+    assert int(np.count_nonzero(output != before)) > 100
+    with Session(engine) as db:
+        version = db.query(RrugcImageOutputVersionModel).one()
+        metadata = version.font_info_json["thread_inpaint_pipeline"]
+        assert metadata["version"] == PIPELINE_VERSION
+        assert metadata["material_source"] == "original-stage1-transparent-design"
+        assert metadata["material_remote_file_id"] is None
+        assert metadata["profile_sha256"] == load_profile()[1]
+        assert metadata["uv_center"] == [.5, .5]
+        assert metadata["visible_pixels"] > 100
+        assert metadata["native_passes"] == 0
+        assert metadata["auto_rotate"] is False
+        assert metadata["auto_bend"] is False
+        assert len(metadata["shared_atlas_sha256"]) == 64
+        row = db.get(RrugcEcommerceJobModel, "uv-job")
+        assert row.status == "completed"
+        assert row.front_preview_remote_file_id is None
+    engine.dispose()
