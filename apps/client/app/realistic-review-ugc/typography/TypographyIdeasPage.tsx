@@ -6,12 +6,12 @@ import { StyleDnaPanel } from "./StyleDnaPanel";
 import {
   archiveTypographyReference, getTypographyReference,
   listTypographyReferences, patchTypographyReference, uploadTypographyReferences,
-  listTypographyPilotShortlist, addTypographyPilotShortlist, removeTypographyPilotShortlist,
+  voteTypographyReference,
 } from "./api";
 import type {
   TypographyEditorialStatus, TypographyPrivacy, TypographyReference,
   TypographyReferenceFilters, TypographyReferencePage, TypographyRights, TypographyScope,
-  TypographySourceType, TypographyStyleRole, TypographyPilotShortlist,
+  TypographySourceType, TypographyStyleRole,
 } from "./types";
 import "./TypographyIdeasPage.css";
 
@@ -75,7 +75,8 @@ function imageThumbnailUrl(url: string): string {
 }
 
 function statusLabel(ref: TypographyReference) {
-  if (ref.source_rights_status === "blocked") return "Blocked rights";
+  if (ref.preference === "positive") return "Picked";
+  if (ref.preference === "negative") return "Rejected";
   if (ref.editorial_status === "archived") return "Archived";
   if (ref.editorial_status === "rejected") return "Rejected";
   if (ref.analysis_status === "failed") return "Analysis failed";
@@ -106,9 +107,13 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailRow, setDetailRow] = useState<TypographyReference | null>(null);
-  const [pilot, setPilot] = useState<TypographyPilotShortlist | null>(null);
-  const [pilotBusy, setPilotBusy] = useState<string | null>(null);
-  const [pilotError, setPilotError] = useState("");
+  const [voteBusy, setVoteBusy] = useState<Set<string>>(new Set());
+  const votingRef = useRef(new Set<string>());
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  useEffect(() => () => {
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0); }, 275);
@@ -132,28 +137,32 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
     return () => ctrl.abort();
   }, [active, debouncedSearch, status, sourceType, scope, styleRole, sort, myUploadsOnly, offset, revision, onCountChange]);
 
-  useEffect(() => {
-    if (!active) return;
-    const controller = new AbortController();
-    void listTypographyPilotShortlist(controller.signal)
-      .then(result => { if (!controller.signal.aborted) { setPilot(result); setPilotError(""); } })
-      .catch(reason => { if (!controller.signal.aborted) setPilotError(feedback(reason)); });
-    return () => controller.abort();
-  }, [active, revision]);
-
-  const changePilot = async (referenceId: string, selected: boolean) => {
-    if (pilotBusy || !page.capabilities.manage) return;
-    setPilotBusy(referenceId);
-    setPilotError("");
+  const vote = async (ref: TypographyReference, choice: "picked" | "rejected") => {
+    if (votingRef.current.has(ref.id) || !page.capabilities.manage) return;
+    const decision = ref.preference === (choice === "picked" ? "positive" : "negative")
+      ? "clear" : choice;
+    votingRef.current.add(ref.id);
+    setVoteBusy(new Set(votingRef.current));
+    setError("");
     try {
-      const updated = selected
-        ? await removeTypographyPilotShortlist(referenceId)
-        : await addTypographyPilotShortlist(referenceId);
-      setPilot(updated);
-      setNotice(selected ? "Reference removed from G3 pilot shortlist." : "Reference added for manual pilot review.");
-    } catch (reason) {
-      setPilotError(feedback(reason));
-    } finally { setPilotBusy(null); }
+      const result = await voteTypographyReference(ref.id, decision);
+      setPage(current => ({
+        ...current,
+        items: current.items.map(item => item.id === ref.id ? result.reference : item),
+      }));
+      if (detailId === ref.id) setDetailRow(result.reference);
+      setNotice(decision === "clear" ? "Preference cleared. Future designs will use the latest votes."
+        : choice === "picked" ? "Picked. CAM is learning the style automatically."
+        : "Rejected. CAM will learn what to avoid.");
+      // Coalesce multiple fast votes into one aggregate refresh.
+      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = window.setTimeout(() => setRevision(value => value + 1), 750);
+    } catch (cause) {
+      setError(feedback(cause));
+    } finally {
+      votingRef.current.delete(ref.id);
+      setVoteBusy(new Set(votingRef.current));
+    }
   };
 
   const selected = useMemo(
@@ -176,68 +185,26 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
   return <div className="typography-ideas" data-testid="typography-ideas" aria-busy={loading}>
     <div className="typography-ideas-heading">
       <div className="typography-ideas-copy">
-        <p className="typography-eyebrow">BALANCED · STYLE REFERENCE LIBRARY</p>
+        <p className="typography-eyebrow">STAGE 1 · AUTOMATIC STYLE LEARNING</p>
         <h3>Typography ideas</h3>
-        <p>Explore letter layouts, font combinations and overlaps. References inspire new concepts; they are not copied or generated automatically.</p>
+        <p>One-click feedback for better typography. Pick what works, reject what does not; CAM learns for the next batch.</p>
       </div>
       {page.capabilities.upload && <button type="button" className="typography-primary" onClick={() => setUploadOpen(true)} data-testid="typography-upload-open">
         <span aria-hidden="true">＋</span> Upload ideas
       </button>}
     </div>
-    <div className="typography-ideas-counters" aria-label="Typography library summary">
-      <span><strong>{page.stats.total}</strong> Visible references</span>
-      <span><strong>{page.stats.approved}</strong> Approved</span>
-      <span><strong>{page.stats.needs_review}</strong> Needs review</span>
-      <span><strong>{page.stats.analyzing}</strong> Pending / analyzing</span>
+    <div className="typography-ideas-counters" aria-label="Typography learning summary">
+      <span><strong>{page.stats.total}</strong> References</span>
+      <span><strong>{page.stats.picked ?? page.stats.approved}</strong> Picked</span>
+      <span><strong>{page.stats.rejected ?? 0}</strong> Rejected</span>
+      <span><strong>{page.stats.learned ?? 0}</strong> Patterns learned</span>
     </div>
-    <section className="typography-pilot-panel" aria-label="G3 pilot shortlist" data-testid="typography-pilot-shortlist">
-      <div className="typography-pilot-header">
-        <div><strong>G3 pilot shortlist · {pilot?.count ?? 0}/8</strong>
-          <p>Choose up to 8 references for manual rights and editorial review. Selection does not approve images or start AI analysis.</p>
-        </div>
-        <span className="typography-pilot-state">Pilot activation not authorized</span>
-      </div>
-      <div className="typography-pilot-progress" aria-label="G3 pilot metadata review progress">
-        <span><strong>{pilot?.progress?.selected ?? pilot?.count ?? 0}/8</strong> Selected</span>
-        <span><strong>{pilot?.progress?.rights_metadata_verified ?? pilot?.items.filter(item => item.rights_metadata_verified).length ?? 0}/8</strong> Rights metadata</span>
-        <span><strong>{pilot?.progress?.editorial_approved ?? pilot?.items.filter(item => item.editorial_approved).length ?? 0}/8</strong> Editorial approved</span>
-        <span><strong>{pilot?.progress?.metadata_ready ?? pilot?.items.filter(item => item.rights_metadata_verified && item.editorial_approved && item.ready_for_rights_review).length ?? 0}/8</strong> Metadata ready</span>
-      </div>
-      <p className="typography-pilot-explainer">Progress reflects stored declarations only, not independent license verification. Pilot activation also requires budget, rollback and manual sign-off; selecting eight images does not start AI jobs.</p>
-      {pilotError && <p role="alert" className="typography-pilot-error">{pilotError}</p>}
-      <div className="typography-pilot-slots">
-        {Array.from({ length: 8 }, (_, index) => {
-          const chosen = pilot?.items.find(item => item.slot === index + 1);
-          return <div className={"typography-pilot-slot" + (chosen ? " is-selected" : "")} key={index}>
-            <span className="typography-pilot-number">{index + 1}</span>
-            {chosen ? <>
-              <button type="button" className="typography-pilot-open"
-                onClick={() => { setDetailId(chosen.reference.id); setDetailRow(chosen.reference); }}
-                title={displayTitle(chosen.reference)}>
-                <DeferredImage src={imageThumbnailUrl(chosen.reference.image_url)} rootMargin="80px 0px"
-                  embeddedInButton alt={displayTitle(chosen.reference)} loading="lazy" />
-                <span>{compactTitle(chosen.reference)}</span>
-              </button>
-              <small>{chosen.rights_metadata_verified ? "Rights metadata set" : "Rights pending"} · {chosen.editorial_approved ? "Editorial approved" : "Editorial pending"}</small>
-              <small className="typography-pilot-next">{({
-                replace_ineligible: "Next: Replace image",
-                verify_rights: "Next: Verify rights",
-                approve_editorial: "Next: Approve editorial",
-                manual_pilot_signoff: "Next: Manual sign-off",
-              } as const)[chosen.next_action ?? (
-                !chosen.ready_for_rights_review ? "replace_ineligible" :
-                !chosen.rights_metadata_verified ? "verify_rights" :
-                !chosen.editorial_approved ? "approve_editorial" : "manual_pilot_signoff"
-              )]}</small>
-              {page.capabilities.manage && <button type="button" className="typography-quiet"
-                disabled={!!pilotBusy} onClick={() => void changePilot(chosen.reference.id, true)}>
-                Remove
-              </button>}
-            </> : <span className="typography-pilot-empty">Empty</span>}
-          </div>;
-        })}
-      </div>
-    </section>
+    <div className="typography-auto-learning" role="status" aria-label="Automatic typography learning">
+      <span className="typography-learning-dot" aria-hidden="true" />
+      <div><strong>Auto-learning is on</strong>
+        <span>Pick or reject a reference. CAM saves your preference, analyzes visual patterns locally and uses aggregated feedback in the next Generate / Regenerate batch.</span></div>
+      <small>No pilot · No extra approval · No AI provider calls per vote</small>
+    </div>
     <div className="typography-ideas-filterbar" role="search" aria-label="Filter typography ideas">
       <label className="typography-filter-search"><span className="sr-only">Search typography references</span>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style, notes or source…" />
@@ -247,18 +214,22 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
         <option value="">All styles</option><option value="layout">Layout</option><option value="font_mood">Font</option><option value="overlap">Overlap</option>
       </select></label>
       <label><span className="sr-only">Status</span><select value={status} onChange={e => { setStatus(e.target.value as typeof status); setOffset(0); }} aria-label="Typography approval status">
-        <option value="">All statuses</option>{STATUS.map(value => <option key={value} value={value}>{value === "candidate" ? "Needs review" : value}</option>)}
+        <option value="">All decisions</option>{STATUS.map(value => <option key={value} value={value}>{value === "candidate" ? "Unreviewed" : value === "approved" ? "Picked" : value}</option>)}
       </select></label>
+      {showMoreFilters && <>
       <label><span className="sr-only">Source</span><select value={sourceType} onChange={e => { setSourceType(e.target.value as typeof sourceType); setOffset(0); }} aria-label="Typography source">
         <option value="">All sources</option><option value="upload">My / team uploads</option><option value="scout">Scout</option><option value="internal">Internal</option>
       </select></label>
       <label><span className="sr-only">Scope</span><select value={scope} onChange={e => { setScope(e.target.value as typeof scope); setOffset(0); }} aria-label="Typography scope">
         <option value="">All scopes</option><option value="workspace">Workspace</option><option value="campaign">Campaign</option><option value="keyword">Keyword</option><option value="skill">Skill</option>
       </select></label>
+      </>}
       <label><span className="sr-only">Sort</span><select value={sort} onChange={e => { setSort(e.target.value as typeof sort); setOffset(0); }} aria-label="Sort typography ideas">
         <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="priority">Priority</option>
       </select></label>
-      <label className="typography-toggle"><input type="checkbox" checked={myUploadsOnly} onChange={e => { setMyUploadsOnly(e.target.checked); setOffset(0); }} /> My uploads</label>
+      {showMoreFilters && <label className="typography-toggle"><input type="checkbox" checked={myUploadsOnly} onChange={e => { setMyUploadsOnly(e.target.checked); setOffset(0); }} /> My uploads</label>}
+      <button type="button" className="typography-more-filters" aria-expanded={showMoreFilters}
+        onClick={() => setShowMoreFilters(value => !value)}>{showMoreFilters ? "Less" : "More filters"}</button>
       <button type="button" className="typography-quiet" onClick={reset}>Reset</button>
     </div>
     {notice && <div className="typography-notice" role="status">{notice}<button type="button" onClick={() => setNotice("")} aria-label="Dismiss message">×</button></div>}
@@ -270,23 +241,27 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
             aria-label={"View typography reference " + displayTitle(ref)}>
             <DeferredImage src={imageThumbnailUrl(ref.image_url)} rootMargin="120px 0px"
               embeddedInButton alt={displayTitle(ref)} loading="lazy" decoding="async" />
-            <span className={"typography-status-pill typography-status-" + ref.editorial_status}>{statusLabel(ref)}</span>
+            <span className={"typography-status-pill typography-status-" + (ref.preference === "positive" ? "approved" : ref.preference === "negative" ? "rejected" : ref.editorial_status)}>{statusLabel(ref)}</span>
           </button>
           <div className="typography-reference-info">
             <strong title={displayTitle(ref)}>{compactTitle(ref)}</strong>
-            <span>{ref.source_type} · {ref.scope} · {ref.influence}</span>
-            <div className="typography-reference-tags">
-              {ref.reference_roles.map(role => <span key={role}>{role === "font_mood" ? "Font" : role}</span>)}
+            <div className="typography-reference-actions" role="group" aria-label={"Style preference for " + compactTitle(ref)}>
+              {page.capabilities.manage && <>
+                <button type="button" className={"typography-vote typography-vote-pick" + (ref.preference === "positive" ? " is-selected" : "")}
+                  data-testid="typography-pick" aria-pressed={ref.preference === "positive"}
+                  aria-label={"Pick " + compactTitle(ref)} title="Pick · teach CAM to favor this style"
+                  disabled={voteBusy.has(ref.id) || ref.editorial_status === "archived"}
+                  onClick={() => void vote(ref, "picked")}>✓</button>
+                <button type="button" className={"typography-vote typography-vote-reject" + (ref.preference === "negative" ? " is-selected" : "")}
+                  data-testid="typography-reject" aria-pressed={ref.preference === "negative"}
+                  aria-label={"Reject " + compactTitle(ref)} title="Reject · teach CAM to avoid this style"
+                  disabled={voteBusy.has(ref.id) || ref.editorial_status === "archived"}
+                  onClick={() => void vote(ref, "rejected")}>×</button>
+              </>}
+              <button type="button" className="typography-reference-details" aria-label={"View details for " + compactTitle(ref)}
+                onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}>Details</button>
             </div>
-            <div className="typography-reference-actions">
-              <button type="button" className="typography-quiet" onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}>View details</button>
-              {page.capabilities.manage && <button type="button" className="typography-quiet" data-testid="typography-pilot-toggle"
-                disabled={!!pilotBusy || (!pilot?.items.some(item => item.reference.id === ref.id) && (pilot?.count ?? 8) >= 8)
-                  || ref.editorial_status === "archived" || ref.source_rights_status === "blocked"}
-                onClick={() => void changePilot(ref.id, !!pilot?.items.some(item => item.reference.id === ref.id))}>
-                {pilot?.items.some(item => item.reference.id === ref.id) ? "Remove pilot" : "Add to pilot"}
-              </button>}
-            </div>
+            <span className="typography-reference-source">{ref.source_type} · {ref.analysis_status === "ready" && ref.preference !== "neutral" ? "Pattern learned" : ref.preference !== "neutral" ? "Learning" : "Awaiting vote"}</span>
           </div>
         </article>)}
       </div> : !loading && !error ? <div className="typography-empty">
@@ -302,7 +277,8 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
     </footer>
     {uploadOpen && <TypographyUploadDialog onClose={() => setUploadOpen(false)} onUpdated={() => { refresh(); setNotice("Upload finished. Review the status of each image below."); }} />}
     {selected && detailId && <TypographyDetailDrawer reference={selected} canManage={page.capabilities.manage}
-      onClose={() => { setDetailId(null); setDetailRow(null); }} onUpdate={onUpdate} onArchive={onArchive} />}
+      onClose={() => { setDetailId(null); setDetailRow(null); }} onUpdate={onUpdate} onArchive={onArchive}
+      onVote={vote} />}
   </div>;
 }
 
@@ -384,7 +360,7 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
     <section className="typography-upload-dialog" ref={dialogRef as React.RefObject<HTMLElement>} role="dialog"
       aria-modal="true" aria-label="Upload typography ideas" data-testid="typography-upload-dialog">
       <header><div><small>TYPOGRAPHY IDEAS / REFERENCE LIBRARY</small><h2>Upload ideas</h2>
-        <p>Images are saved as private candidates. No automatic approval or generation.</p></div>
+        <p>Images are saved privately. Pick or reject them in the grid to teach CAM automatically.</p></div>
         <button type="button" className="typography-close" aria-label="Close upload" disabled={busy} onClick={onClose}>×</button></header>
       <div className={"typography-dropzone" + (dragging ? " is-dragging" : "")}
         onDragOver={event => { event.preventDefault(); setDragging(true); }}
@@ -395,6 +371,8 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
           aria-label="Choose typography reference images" onChange={event => { if (event.target.files) addFiles(event.target.files); event.target.value = ""; }} hidden />
         <button type="button" disabled={busy || items.length >= BATCH_LIMIT} onClick={() => inputRef.current?.click()}>Choose images</button>
       </div>
+      <details className="typography-upload-advanced">
+        <summary>Advanced source settings (optional)</summary>
       <div className="typography-upload-settings">
         <label>Source rights<select value={rights} disabled={busy} onChange={event => setRights(event.target.value as TypographyRights)}>
           {RIGHTS.map(value => <option key={value} value={value}>{value === "permitted_reference" ? "Permitted reference" : value}</option>)}
@@ -410,7 +388,8 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
         <p>A source URL alone is not proof of a license or ownership. Provide the original source or permission reference.</p>
         <label><input type="checkbox" checked={uploadRightsConfirmed} onChange={event => setUploadRightsConfirmed(event.target.checked)} /> I reviewed the supporting rights evidence.</label>
       </div>}
-      <p className="typography-rights-notice">Uploading does not independently verify copyright or approve use. A rights claim records the reviewer’s declaration only.</p>
+      <p className="typography-rights-notice">Uploading does not verify copyright or grant rights to copy. The default private reference can still teach generalized styles.</p>
+      </details>
       <div className="typography-upload-list" aria-live="polite">
         {items.map(item => <div className="typography-upload-file" key={item.id}>
           <span title={item.file.name}>{item.file.name}</span><small>{(item.file.size / (1024 * 1024)).toFixed(1)} MB</small>
@@ -430,9 +409,10 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
   </div>, document.body);
 }
 
-function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArchive }: {
+function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArchive, onVote }: {
   reference: TypographyReference; canManage: boolean;
   onClose: () => void; onUpdate: (next: TypographyReference) => void; onArchive: () => void;
+  onVote: (ref: TypographyReference, decision: "picked" | "rejected") => Promise<void>;
 }) {
   const [tab, setTab] = useState<"overview" | "dna" | "usage">("overview");
   const [editing, setEditing] = useState(false);
@@ -482,17 +462,6 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
   const verifyTransition = RIGHTS_VERIFIED.has(draft.source_rights_status) &&
     !RIGHTS_VERIFIED.has(reference.source_rights_status);
   const rightsEvidenceMissing = verifyTransition && (!rightsConfirmed || !draft.source_attribution.trim());
-  const requestApproval = async () => {
-    if (busy) return;
-    // Only change the editorial decision; do not overwrite unrelated metadata
-    // from a stale form snapshot when the reference is already rights-reviewed.
-    setBusy(true); setError("");
-    try {
-      const data = await patchTypographyReference(reference.id, { editorial_status: "approved" });
-      onUpdate(data);
-    } catch (reason) { setError(feedback(reason)); }
-    finally { setBusy(false); }
-  };
   const save = async () => {
     if (busy) return;
     if (rightsEvidenceMissing) {
@@ -599,7 +568,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
             </dl>
             <p>{reference.notes || "No notes added yet."}</p>
             <div className="typography-reference-tags">{reference.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
-            <p className="typography-rights-notice">Approve selects a design idea only. G3 analysis, matching and generation remain blocked until source rights are independently verified.</p>
+            <p className="typography-learning-note">CAM learns your Pick / Reject preferences for future batches. Style features are approximate and are never copied from this source image.</p>
           </>}
         </div>}
         {tab === "dna" && <div className="typography-drawer-content">
@@ -620,10 +589,12 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         {canManage ? <>
           <button type="button" disabled={busy || editing || reference.editorial_status === "archived"} onClick={() => setArchiveConfirm(true)}>Archive</button>
           {!editing && <button type="button" disabled={busy} onClick={() => setEditing(true)}>Edit metadata</button>}
-          {!editing && reference.editorial_status !== "approved" && reference.editorial_status !== "archived" &&
-            <button type="button" className="typography-primary" disabled={busy}
-              title="Approve design preference only; G3 requires separate verified source rights"
-              onClick={() => void requestApproval()}>{busy ? "Approving…" : "Approve"}</button>}
+          {!editing && reference.editorial_status !== "archived" && <>
+            <button type="button" className="typography-vote typography-vote-pick" aria-pressed={reference.preference === "positive"}
+              onClick={() => void onVote(reference, "picked")} title="Learn styles you like">✓ Pick</button>
+            <button type="button" className="typography-vote typography-vote-reject" aria-pressed={reference.preference === "negative"}
+              onClick={() => void onVote(reference, "rejected")} title="Learn styles you dislike">× Reject</button>
+          </>}
         </> : <span>Read-only reference · your role cannot edit or approve</span>}
       </footer>
       {archiveConfirm && <div className="typography-archive-confirm" role="alertdialog" aria-label="Confirm archive">

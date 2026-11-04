@@ -884,6 +884,67 @@ def remove_g3_pilot_shortlist(
     return list_g3_pilot_shortlist(session, principal)
 
 
+class TypographyVoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["picked", "rejected", "clear"]
+
+
+@router.post("/references/{reference_id}/feedback")
+def vote_typography_reference(
+    reference_id: str,
+    vote: TypographyVoteRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    """One-click, tenant-scoped signal; never auto-approves rights or bills AI.
+
+    A preference vote updates only the reference and a bounded local geometry
+    worker. Existing G3's rights/paid-analysis gates are unaffected.
+    """
+    tenant = principal.active_tenant_id
+    ref = session.scalar(select(RrugcTypographyReferenceModel).where(
+        RrugcTypographyReferenceModel.tenant_id == tenant,
+        RrugcTypographyReferenceModel.id == reference_id,
+    ).with_for_update())
+    if ref is None:
+        raise _error("typography_reference_not_found", "Typography reference not found", status_code=404)
+    if ref.editorial_status == "archived":
+        raise _error("typography_reference_archived", "Archived reference cannot be voted on", status_code=409)
+    preference, editorial = {
+        "picked": ("positive", "approved" if ref.source_rights_status != "blocked" else "candidate"),
+        "rejected": ("negative", "rejected"),
+        "clear": ("neutral", "candidate"),
+    }[vote.decision]
+    changed = ref.preference != preference or ref.editorial_status != editorial
+    if changed:
+        ref.preference = preference
+        ref.editorial_status = editorial
+        ref.reviewed_by_user_id = principal.user_id
+        ref.reviewed_at = datetime.now(timezone.utc)
+        _audit(session, principal, "reference_feedback", reference_id,
+               decision=vote.decision, source_rights_unchanged=True, provider_calls=0)
+    session.commit()
+    session.refresh(ref)
+    names = _asset_names(session, tenant, {ref.asset_id})
+    from app.modules.realistic_review_ugc.typography_feedback_learning import (
+        ANALYZER_VERSION, analyze_voted_reference,
+    )
+    learned = session.scalar(select(RrugcTypographyStyleDnaModel.id).where(
+        RrugcTypographyStyleDnaModel.tenant_id == tenant,
+        RrugcTypographyStyleDnaModel.reference_id == ref.id,
+        RrugcTypographyStyleDnaModel.image_hash == ref.content_hash,
+        RrugcTypographyStyleDnaModel.analyzer_version == ANALYZER_VERSION,
+    )) is not None
+    if preference != "neutral" and not learned:
+        background_tasks.add_task(analyze_voted_reference, tenant, ref.id, ref.content_hash)
+    return {
+        "reference": _view(ref, names.get(ref.asset_id)),
+        "learning": "ready" if learned else "queued" if preference != "neutral" else "cleared",
+        "provider_calls": 0,
+    }
+
+
 @router.get("/references/{reference_id}")
 def get_typography_reference(
     reference_id: str,
@@ -916,6 +977,9 @@ def list_typography_style_dna(
         principal.active_tenant_id, reference_id,
         user_id=principal.user_id, manage=_can_manage(principal),
     )
+    # Local low-confidence feedback geometry is internal, not manually accepted
+    # G3 DNA. Keep it separate from the advanced rights-gated analyzer UI.
+    versions = [row for row in versions if row.analyzer_version == G3_ANALYZER_VERSION]
     return {"items": [{
         "id": row.id, "schema_version": row.schema_version,
         "analyzer_version": row.analyzer_version, "style_family": row.style_family,

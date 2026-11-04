@@ -112,6 +112,14 @@ export function uploadTypographyReferences(
   return jsonRequest(BASE + "/uploads", { method: "POST", body: form, signal });
 }
 
+export function voteTypographyReference(
+  id: string, decision: "picked" | "rejected" | "clear",
+): Promise<{ reference: TypographyReference; learning: "ready" | "queued" | "cleared"; provider_calls: 0 }> {
+  return jsonRequest(BASE + "/" + encodeURIComponent(id) + "/feedback", {
+    method: "POST", body: JSON.stringify({ decision }),
+  });
+}
+
 export function patchTypographyReference(id: string, changes: TypographyReferencePatch): Promise<TypographyReference> {
   return jsonRequest(BASE + "/" + encodeURIComponent(id), {
     method: "PATCH", body: JSON.stringify(changes),

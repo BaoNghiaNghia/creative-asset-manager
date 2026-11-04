@@ -182,3 +182,45 @@
 .typography-dna-review-actions button:disabled{opacity:.48;cursor:not-allowed}
 .typography-dna-review-actions select{max-width:100%;flex:1 1 180px}
 .typography-dna-review-actions button:first-child:not(:disabled){background:#e8f5ed;border-color:#a2d2ae;color:#277247}
+
+/* Auto-learning view: compact review grid */
+.typography-ideas-heading{margin:8px 0 7px;align-items:center}
+.typography-ideas-copy h3{font-size:19px;margin-bottom:3px}
+.typography-ideas-copy>p:last-child{font-size:11px}
+.typography-ideas-counters{margin:9px 0;gap:7px}
+.typography-ideas-counters span{min-height:40px;padding:8px 11px}
+.typography-ideas-counters strong{font-size:17px}
+.typography-auto-learning{display:flex;align-items:center;gap:10px;margin:7px 0;padding:9px 12px;background:#f2f8f5;border:1px solid #d8eae0;border-radius:8px;min-width:0}
+.typography-auto-learning>div{display:grid;gap:2px;flex:1;min-width:0}
+.typography-auto-learning strong{color:#28583e;font-weight:800;font-size:11px}
+.typography-auto-learning span:not(.typography-learning-dot){color:#5d796c;font-size:10px;line-height:1.4}
+.typography-auto-learning small{flex:none;font-size:10px;color:#4c715e;white-space:nowrap}
+.typography-learning-dot{flex:none;height:8px;width:8px;border-radius:50%;background:#3e8e62;box-shadow:0 0 0 3px #dceee3}
+.typography-ideas-filterbar{padding:7px;margin:9px 0;gap:6px}
+.typography-ideas-filterbar select,.typography-ideas-filterbar input:not([type="checkbox"]){height:32px}
+.typography-more-filters{border:0;background:transparent;color:#5272aa;font-size:11px;font-weight:750;padding:5px;white-space:nowrap}
+.typography-more-filters:hover{text-decoration:underline}
+.typography-ideas-grid{gap:7px}
+.typography-reference-card{border-radius:9px}
+.typography-reference-card:has(.typography-vote-pick.is-selected){border-color:#7fc2a2}
+.typography-reference-card:has(.typography-vote-reject.is-selected){border-color:#e3a4a5}
+.typography-reference-image{aspect-ratio:1.08;background:#f4f5f8}
+.typography-reference-info{gap:5px;padding:7px}
+.typography-reference-info strong{font-size:10px;line-height:1.35}
+.typography-reference-source{font-size:9px;color:#8494a7}
+.typography-reference-actions{display:flex;align-items:center;flex-wrap:nowrap;gap:5px}
+.typography-vote{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;min-height:31px;border-radius:7px;border:1px solid #d6e2e9;background:#fff;color:#65809a;font-size:17px;font-weight:800;line-height:1}
+.typography-vote-pick:hover,.typography-vote-pick.is-selected{background:#e6f5eb;border-color:#7dbe97;color:#23754a}
+.typography-vote-reject:hover,.typography-vote-reject.is-selected{background:#fff0f0;border-color:#e4a0a0;color:#b34b51}
+.typography-vote[aria-pressed="true"]{box-shadow:inset 0 0 0 1px currentColor}
+.typography-reference-details{flex:1;min-width:0;min-height:31px;border:1px solid #e2eaf4;border-radius:7px;background:#fafcff;color:#617b9f;font-size:10px;font-weight:720;padding:4px 3px}
+.typography-reference-details:hover{background:#ecf3ff;color:#315ac1}
+.typography-upload-advanced{margin:10px 0;padding:10px;border:1px solid #dbe5f0;border-radius:8px}
+.typography-upload-advanced summary{cursor:pointer;color:#5b7095;font-size:11px;font-weight:750}
+.typography-upload-advanced .typography-upload-settings{margin:12px 0 8px}
+.typography-learning-note{padding:10px;border:1px solid #d5e9dd;border-radius:7px;background:#f3f8f4;color:#49745c;line-height:1.5}
+.typography-detail-drawer>footer .typography-vote{font-size:12px;flex:0 0 auto;padding:7px 12px}
+@media(max-width:1400px){.typography-ideas-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:1000px){.typography-ideas-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.typography-auto-learning small{display:none}}
+@media(max-width:650px){.typography-ideas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.typography-ideas-counters{grid-template-columns:repeat(2,minmax(0,1fr))}.typography-ideas-heading{gap:8px}.typography-ideas-copy h3{font-size:17px}.typography-auto-learning{align-items:flex-start}}
+@media(max-width:370px){.typography-ideas-grid{gap:6px}.typography-reference-info{padding:6px}.typography-reference-actions{gap:3px}.typography-vote{flex-basis:30px;min-height:30px}}

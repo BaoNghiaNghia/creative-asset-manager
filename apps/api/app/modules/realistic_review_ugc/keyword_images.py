@@ -505,6 +505,13 @@ class KeywordImageService:
         processing = self.session.get(ProcessingJobModel, job.processing_job_id)
         if processing is None:
             raise KeywordImageError("creative_v3_queue_failed", "Could not reserve Creative V3 processing.", 503)
+        from app.modules.realistic_review_ugc.typography_feedback_learning import (
+            reference_feedback_summary,
+        )
+        reference_learning = reference_feedback_summary(
+            self.session, tenant_id=tenant_id,
+            keyword_id=keyword_id, user_id=user_id,
+        )
         processing.payload_json = {
             **(processing.payload_json or {}),
             "expected_output_count": SLOT_COUNT,
@@ -517,6 +524,9 @@ class KeywordImageService:
                 "design_style": resolved_style,
                 "design_style_version": pinned_style_version,
                 "style_policy_version": STYLE_POLICY_VERSION,
+                "reference_guidance": reference_learning["guidance"],
+                "reference_feedback_digest": reference_learning["digest"],
+                "reference_feedback_votes": reference_learning["votes"],
                 "provider": provider,
                 "provider_sha256": skill_hash,
             },

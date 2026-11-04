@@ -158,6 +158,7 @@ async def generate_six(
                         visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
                         design_style=snapshot.get("design_style", "balanced"),
                         design_style_version=snapshot.get("design_style_version"),
+                        reference_guidance=snapshot.get("reference_guidance", ""),
                     )
                     if qa_attempt:
                         prompt += (
@@ -337,6 +338,8 @@ async def generate_six(
             "design_style": snapshot.get("design_style", "balanced"),
             "design_style_version": snapshot.get("design_style_version"),
             "style_policy_version": snapshot.get("style_policy_version"),
+            "reference_feedback_votes": snapshot.get("reference_feedback_votes", 0),
+            "reference_feedback_digest": snapshot.get("reference_feedback_digest"),
             "technical_qa": "passed",
             "image_spelling_verified": False,
             "embroidery_fit_verified": False,

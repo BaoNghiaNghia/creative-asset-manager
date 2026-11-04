@@ -707,7 +707,8 @@ def test_typography_library_filters_stats_capabilities_and_private_scopes(env):
         "source_attribution": "Source author", "priority": 4,
     })
     page = env.client.get(BASE).json()
-    assert page["stats"] == {"total": 3, "approved": 1, "needs_review": 2, "analyzing": 3}
+    assert page["stats"] == {"total": 3, "approved": 1, "needs_review": 2, "analyzing": 3,
+                              "picked": 0, "rejected": 0, "learned": 0}
     assert page["capabilities"] == {"read": True, "upload": True, "manage": True}
     assert env.client.get(BASE, params={"query": "Interlocking"}).json()["total"] == 1
     assert env.client.get(BASE, params={"query": "MagAziNe"}).json()["total"] == 1
@@ -1457,3 +1458,55 @@ def test_g3_one_shot_dispatch_requires_enabled_worker_verified_rights_and_permis
 
     env.identity("reader", permissions={"typography_reference.read"})
     assert env.client.post(endpoint).status_code == 403
+
+
+def test_feedback_votes_learn_locally_without_rights_approval_or_provider(env, monkeypatch):
+    """Single-click votes persist atomically, tenant safely, with zero AI cost."""
+    import app.modules.realistic_review_ugc.typography_feedback_learning as learning
+
+    enabled(env)
+    monkeypatch.setattr(learning, "SessionLocal",
+                        lambda: Session(env.engine, expire_on_commit=False), raising=False)
+    monkeypatch.setattr(learning, "build_managed_storage_provider", lambda _: env.storage)
+    first, second = (
+        env.upload(color).json()["items"][0]["reference"]["id"] for color in (80, 120)
+    )
+    for identifier in (first, second):
+        result = env.client.post(BASE + "/" + identifier + "/feedback", json={"decision": "picked"})
+        assert result.status_code == 200, result.text
+        assert result.json()["provider_calls"] == 0
+        assert result.json()["reference"]["preference"] == "positive"
+        assert result.json()["reference"]["source_rights_status"] == "unknown"
+    with Session(env.engine) as db:
+        assert db.query(RrugcTypographyStyleDnaModel).filter_by(
+            analyzer_version=learning.ANALYZER_VERSION).count() == 2
+        summary = learning.reference_feedback_summary(
+            db, tenant_id="tenant-a", keyword_id="key", user_id="owner")
+        assert summary["votes"] == 2
+        assert summary["hints"] >= 2
+        assert "PICKED signal" in summary["guidance"]
+        other = learning.reference_feedback_summary(
+            db, tenant_id="tenant-a", keyword_id="key", user_id="unrelated")
+        assert other["votes"] == 0
+        assert "PICKED" not in other["guidance"]
+    # Change mind: the same reference becomes a negative training example,
+    # with no second analysis/provider call or duplicate DNA.
+    rejected = env.client.post(BASE + "/" + first + "/feedback", json={"decision": "rejected"})
+    assert rejected.status_code == 200
+    assert rejected.json()["reference"]["preference"] == "negative"
+    assert rejected.json()["reference"]["editorial_status"] == "rejected"
+    with Session(env.engine) as db:
+        assert db.query(RrugcTypographyStyleDnaModel).filter_by(
+            analyzer_version=learning.ANALYZER_VERSION).count() == 2
+    cleared = env.client.post(BASE + "/" + first + "/feedback", json={"decision": "clear"})
+    assert cleared.status_code == 200
+    assert cleared.json()["reference"]["preference"] == "neutral"
+    assert env.client.get(BASE).json()["stats"]["picked"] == 1
+    assert env.client.get(BASE).json()["stats"]["rejected"] == 0
+    # A tenant may never see, vote on or learn another tenant's references.
+    env.identity("outside", tenant="tenant-b")
+    assert env.client.post(BASE + "/" + second + "/feedback",
+                           json={"decision": "picked"}).status_code == 404
+    env.identity("read-only", permissions={"typography_reference.read"})
+    assert env.client.post(BASE + "/" + second + "/feedback",
+                           json={"decision": "rejected"}).status_code == 403

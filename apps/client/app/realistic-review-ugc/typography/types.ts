@@ -42,7 +42,10 @@ export type TypographyReferencePage = {
   limit: number;
   offset: number;
   capabilities: { read: boolean; upload: boolean; manage: boolean };
-  stats: { total: number; approved: number; needs_review: number; analyzing: number };
+  stats: {
+    total: number; approved: number; needs_review: number; analyzing: number;
+    picked?: number; rejected?: number; learned?: number;
+  };
 };
 export type TypographyPilotShortlist = {
   limit: 8;

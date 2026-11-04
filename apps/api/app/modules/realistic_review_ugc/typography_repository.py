@@ -116,6 +116,17 @@ class TypographyReferenceRepository:
                 func.sum(case((model.editorial_status == "approved", 1), else_=0)),
                 func.sum(case((model.editorial_status == "candidate", 1), else_=0)),
                 func.sum(case((model.analysis_status.in_(["pending", "running"]), 1), else_=0)),
+                func.sum(case((model.preference == "positive", 1), else_=0)),
+                func.sum(case((model.preference == "negative", 1), else_=0)),
+                func.sum(case((
+                    (model.preference.in_(("positive", "negative"))) &
+                    select(RrugcTypographyStyleDnaModel.id).where(
+                        RrugcTypographyStyleDnaModel.tenant_id == model.tenant_id,
+                        RrugcTypographyStyleDnaModel.reference_id == model.id,
+                        RrugcTypographyStyleDnaModel.image_hash == model.content_hash,
+                        RrugcTypographyStyleDnaModel.analyzer_version == "feedback-geometry-v1",
+                    ).correlate(model).exists(), 1,
+                ), else_=0)),
             ).where(
                 model.tenant_id == tenant_id,
                 model.editorial_status != "archived",
@@ -123,7 +134,7 @@ class TypographyReferenceRepository:
             )
         ).one()
         return {key: int(row[index] or 0) for index, key in enumerate(
-            ("total", "approved", "needs_review", "analyzing")
+            ("total", "approved", "needs_review", "analyzing", "picked", "rejected", "learned")
         )}
 
     def link_asset(

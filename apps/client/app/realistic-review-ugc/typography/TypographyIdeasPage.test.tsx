@@ -7,7 +7,7 @@ import { TypographyIdeasPage } from "./TypographyIdeasPage";
 import {
   archiveTypographyReference, getTypographyAnalysisStatus, listTypographyDna, listTypographyReferences,
   patchTypographyReference, reviewTypographyDna, runTypographyAnalysis, uploadTypographyReferences,
-  listTypographyPilotShortlist, addTypographyPilotShortlist, removeTypographyPilotShortlist,
+  voteTypographyReference,
 } from "./api";
 import type { TypographyReference, TypographyReferencePage } from "./types";
 
@@ -23,9 +23,7 @@ vi.mock("./api", () => ({
   uploadTypographyReferences: vi.fn(),
   patchTypographyReference: vi.fn(),
   archiveTypographyReference: vi.fn(),
-  listTypographyPilotShortlist: vi.fn(),
-  addTypographyPilotShortlist: vi.fn(),
-  removeTypographyPilotShortlist: vi.fn(),
+  voteTypographyReference: vi.fn(),
 }));
 
 const reference: TypographyReference = {
@@ -54,9 +52,8 @@ let root: Root;
 beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(listTypographyReferences).mockResolvedValue(fixture());
-  vi.mocked(listTypographyPilotShortlist).mockResolvedValue({
-    limit: 8, count: 0, items: [], ai_jobs_created: 0, provider_calls: 0,
-    rights_independently_verified: false,
+  vi.mocked(voteTypographyReference).mockResolvedValue({
+    reference, learning: "queued", provider_calls: 0,
   });
   vi.mocked(listTypographyDna).mockResolvedValue({ items: [] });
   vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
@@ -99,31 +96,38 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(host.querySelectorAll("[data-testid=typography-reference-card]")).toHaveLength(1);
     expect(host.textContent).toContain("Typography ideas");
     expect(host.textContent).toContain("Needs review");
-    expect(host.textContent?.toLowerCase()).toContain("balanced");
+    expect(host.textContent).toContain("Auto-learning is on");
     expect(host.textContent).not.toContain("Generate eligible");
     expect(host.textContent).not.toContain("Auto match");
-    expect(host.querySelector(".typography-ideas-counters")?.textContent).toContain("Approved");
+    expect(host.querySelector(".typography-ideas-counters")?.textContent).toContain("Picked");
     expect(host.querySelector(".typography-reference-image img")?.getAttribute("src")).toBe(
       reference.image_url + "?thumbnail=true&size=320",
     );
     expect(vi.mocked(listTypographyReferences)).toHaveBeenCalled();
   });
 
-  it("selects one human pilot candidate without verifying rights or running AI", async () => {
-    const result = {
-      limit: 8 as const, count: 1,
-      items: [{ slot: 1, reference, ready_for_rights_review: true,
-        rights_metadata_verified: false, editorial_approved: false }],
-      ai_jobs_created: 0 as const, provider_calls: 0 as const,
-      rights_independently_verified: false as const,
-    };
-    vi.mocked(addTypographyPilotShortlist).mockResolvedValue(result);
+  it("pick, reject and unpick use one low-cost vote endpoint without pilot or G3", async () => {
+    let current: TypographyReference = reference;
+    vi.mocked(voteTypographyReference).mockImplementation(async (_id, decision) => {
+      current = {
+        ...current,
+        preference: decision === "picked" ? "positive" : decision === "rejected" ? "negative" : "neutral",
+        editorial_status: decision === "picked" ? "approved" : decision === "rejected" ? "rejected" : "candidate",
+      };
+      vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [current] });
+      return { reference: current, learning: decision === "clear" ? "cleared" : "queued", provider_calls: 0 };
+    });
     await renderPage();
-    expect(host.textContent).toContain("G3 pilot shortlist · 0/8");
-    await click(host.querySelector('[data-testid="typography-pilot-toggle"]'));
-    expect(addTypographyPilotShortlist).toHaveBeenCalledWith(reference.id);
-    expect(host.textContent).toContain("G3 pilot shortlist · 1/8");
-    expect(host.textContent).toContain("Rights pending");
+    expect(host.querySelector("[data-testid=typography-pilot-shortlist]")).toBeNull();
+    await click(host.querySelector("[data-testid=typography-pick]"));
+    expect(voteTypographyReference).toHaveBeenLastCalledWith(reference.id, "picked");
+    expect(host.textContent).toContain("CAM is learning");
+    expect(host.querySelector("[data-testid=typography-pick]")?.getAttribute("aria-pressed")).toBe("true");
+    await click(host.querySelector("[data-testid=typography-reject]"));
+    expect(voteTypographyReference).toHaveBeenLastCalledWith(reference.id, "rejected");
+    await click(host.querySelector("[data-testid=typography-reject]"));
+    expect(voteTypographyReference).toHaveBeenLastCalledWith(reference.id, "clear");
+    expect(voteTypographyReference).toHaveBeenCalledTimes(3);
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
     expect(patchTypographyReference).not.toHaveBeenCalled();
   });
@@ -145,8 +149,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
   it("blocks rights-unverified approval and shows DNA empty without invoking analyzer", async () => {
     await renderPage();
     const detail = await openReference();
-    const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve");
-    expect(approve?.disabled).toBe(false);
+    expect(host.querySelector("[data-testid=typography-pick]")).not.toBeNull();
     await click([...(detail?.querySelectorAll("button[role=tab]") || [])].find(element => element.textContent === "Style DNA") || null);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(detail?.textContent).toContain("No analysis yet");
@@ -161,29 +164,24 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
   });
 
 
-  it("Approve selects a design in one click without granting rights or calling AI", async () => {
+  it("drawer uses the same one-click vote even if rights are unknown", async () => {
     await renderPage();
     const detail = await openReference();
-    const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve")!;
-    expect(approve.disabled).toBe(false);
-    await click(approve);
-    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, {
-      editorial_status: "approved",
-    });
-    expect(detail?.textContent).not.toContain("Verify & Approve");
+    const pick = [...(detail?.querySelectorAll("button") || [])]
+      .find(button => button.textContent?.trim() === "✓ Pick");
+    await click(pick || null);
+    expect(voteTypographyReference).toHaveBeenCalledWith(reference.id, "picked");
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
     expect(uploadTypographyReferences).not.toHaveBeenCalled();
   });
 
-  it("already rights-verified reference approves with a minimal editorial update", async () => {
-    const eligible = { ...reference, source_rights_status: "owned" as const };
-    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [eligible] });
-    await renderPage({ ...fixture(), items: [eligible] });
-    const detail = await openReference();
-    const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve");
-    await click(approve || null);
-    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, { editorial_status: "approved" });
-    expect(runTypographyAnalysis).not.toHaveBeenCalled();
+  it("read-only viewers see no vote controls", async () => {
+    const readonly = { read: true, upload: false, manage: false };
+    vi.mocked(listTypographyReferences).mockResolvedValue(fixture(readonly));
+    await renderPage(fixture(readonly));
+    expect(host.querySelector("[data-testid=typography-pick]")).toBeNull();
+    expect(host.querySelector("[data-testid=typography-reject]")).toBeNull();
+    expect(voteTypographyReference).not.toHaveBeenCalled();
   });
 
   it("requires rights evidence and explicit reviewer confirmation before upgrading unknown rights", async () => {
@@ -280,7 +278,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     await click(host.querySelector<HTMLButtonElement>("[data-testid=typography-upload-open]"));
     const modal = document.querySelector<HTMLElement>("[data-testid=typography-upload-dialog]");
     expect(modal).not.toBeNull();
-    expect(modal?.textContent).toContain("No automatic approval");
+    expect(modal?.textContent).toContain("Pick or reject them");
     const fileField = modal?.querySelector<HTMLInputElement>('input[type=file]');
     expect(fileField).not.toBeNull();
     const supported = new File(["test image bytes"], "idea.png", { type: "image/png" });

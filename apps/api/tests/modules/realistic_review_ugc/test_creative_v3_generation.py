@@ -25,6 +25,9 @@ from app.modules.realistic_review_ugc.heritage_lettering import (
     DEFAULT_DESIGN_STYLE, HERITAGE_VERSION, STYLE_POLICY_VERSION,
     resolve_style_policy, style_guidance, verify_style_snapshot,
 )
+from app.modules.realistic_review_ugc.typography_model import (
+    RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
     RrugcKeywordImageJobModel, RrugcImageOutputVersionModel,
@@ -71,6 +74,33 @@ def settings(on=True):
         CODEX_IMAGE_GENERATION_ENABLED=True,
         CREATIVE_ENGINE_V3_IMAGE_PROVIDER="codex",
     )
+
+
+
+def test_reference_preference_hints_pin_only_to_new_cap_first_batch():
+    """Current Generate/Regenerate gets fixed, bounded vote guidance; old Retry does not."""
+    data = plan("ONE NATION UNDER GOD")
+    hints = "PICKED signal from 2 user-voted examples: Favor generous negative space."
+    current = prompt_for_slot(
+        data, 1, design_style="heritage",
+        design_style_version=HERITAGE_VERSION,
+        reference_guidance=hints,
+    )
+    assert hints in current
+    assert "TYPOGRAPHY PREFERENCE MEMORY (AGGREGATED)" in current
+    assert "ONE NATION UNDER GOD" in current
+    assert hints not in prompt_for_slot(
+        data, 1, design_style="heritage",
+        design_style_version=HERITAGE_VERSION,
+    )
+    legacy = prompt_for_slot(
+        data, 1, visual_profile=NO_OUTLINE_VISUAL_PROFILE,
+        reference_guidance=hints,
+    )
+    assert hints not in legacy
+    assert len(current) > len(prompt_for_slot(
+        data, 1, design_style="heritage", design_style_version=HERITAGE_VERSION,
+    ))
 
 
 def test_generate_request_without_style_defaults_to_active_policy():
@@ -319,6 +349,8 @@ def test_stale_or_unpicked_brief_cannot_generate():
     RrugcKeywordCreativeBriefModel.__table__.create(engine)
     RrugcKeywordImageJobModel.__table__.create(engine)
     RrugcImageOutputVersionModel.__table__.create(engine)
+    RrugcTypographyReferenceModel.__table__.create(engine)
+    RrugcTypographyStyleDnaModel.__table__.create(engine)
     try:
         with Session(engine) as session:
             word = "CREATIVE DICTATOR"
@@ -634,7 +666,9 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
     engine = create_engine("sqlite://")
     for table in (RrugcKeywordVolumeModel.__table__, RrugcKeywordCreativeBriefModel.__table__,
                   RrugcKeywordImageJobModel.__table__, ProcessingJobModel.__table__,
-                  RrugcImageOutputVersionModel.__table__):
+                  RrugcImageOutputVersionModel.__table__,
+                  RrugcTypographyReferenceModel.__table__,
+                  RrugcTypographyStyleDnaModel.__table__):
         table.create(engine)
     try:
         with Session(engine) as session:
@@ -754,7 +788,9 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
     engine = create_engine("sqlite://")
     for table in (RrugcKeywordVolumeModel.__table__, RrugcKeywordCreativeBriefModel.__table__,
                   RrugcKeywordImageJobModel.__table__, ProcessingJobModel.__table__,
-                  RrugcImageOutputVersionModel.__table__):
+                  RrugcImageOutputVersionModel.__table__,
+                  RrugcTypographyReferenceModel.__table__,
+                  RrugcTypographyStyleDnaModel.__table__):
         table.create(engine)
     try:
         with Session(engine) as session:

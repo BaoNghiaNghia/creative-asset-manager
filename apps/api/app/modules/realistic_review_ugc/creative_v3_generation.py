@@ -412,6 +412,7 @@ def prompt_for_slot(
     visual_profile: str = VISUAL_PROFILE,
     design_style: str = "balanced",
     design_style_version: str | None = None,
+    reference_guidance: str = "",
 ) -> str:
     """Pin one art direction per processing attempt, keeping legacy retries stable.
 
@@ -440,6 +441,11 @@ def prompt_for_slot(
                     "\nHUMAN REJECTION LEARNING OVERRIDES REPEATED OLD LAYOUTS: "
                     + feedback
                 )
+            # Explicit human votes on reference images are sampled only once
+            # at Generate/Regenerate, then pinned in the processing snapshot.
+            # Do not re-read private reference pixels or mutable user text.
+            if isinstance(reference_guidance, str) and reference_guidance:
+                prompt += "\nTYPOGRAPHY PREFERENCE MEMORY (AGGREGATED): " + reference_guidance[:1050]
             return prompt
         visual_profile = NO_OUTLINE_VISUAL_PROFILE
     if visual_profile == LITE_V4_VISUAL_PROFILE:
