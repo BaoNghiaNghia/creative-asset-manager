@@ -29,6 +29,8 @@ export type TypographyReference = {
   tags: string[];
   notes: string | null;
   analysis_status: TypographyAnalysisStatus;
+  /** Cached, no-provider feedback learning; independent from G3 manual analysis. */
+  feedback_learning_state?: "unreviewed" | "queued" | "ready" | "excluded";
   editorial_status: TypographyEditorialStatus;
   created_by_user_id: string;
   created_at: string;

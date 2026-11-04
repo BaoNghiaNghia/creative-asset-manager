@@ -20,6 +20,7 @@ from app.modules.realistic_review_ugc.creative_brief_service import (
 )
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
+    RrugcKeywordImageJobModel, RrugcImageOutputVersionModel,
 )
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerResult
 
@@ -71,6 +72,8 @@ def test_worker_quota_defers_all_queued_briefs_and_resumes_once_available(monkey
     )
     RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcKeywordCreativeBriefModel.__table__.create(engine)
+    RrugcKeywordImageJobModel.__table__.create(engine)
+    RrugcImageOutputVersionModel.__table__.create(engine)
     ProcessingJobModel.__table__.create(engine)
 
     def make_brief(session, quote, state):
@@ -126,6 +129,11 @@ def test_worker_quota_defers_all_queued_briefs_and_resumes_once_available(monkey
         CODEX_IMAGE_BINARY="codex", CODEX_IMAGE_HOME="",
         RRUGC_CREATIVE_BRIEF_MODEL="",
         RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS=30,
+        RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=True,
+    )
+    monkeypatch.setattr(
+        "app.modules.realistic_review_ugc.creative_brief_service.get_settings",
+        lambda: settings,
     )
     handler = CreativeBriefGenerateHandler(settings)
     first = handler(context(brief_a, job_a))

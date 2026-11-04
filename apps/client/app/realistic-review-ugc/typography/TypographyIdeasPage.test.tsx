@@ -7,7 +7,7 @@ import { TypographyIdeasPage } from "./TypographyIdeasPage";
 import {
   archiveTypographyReference, getTypographyAnalysisStatus, listTypographyDna, listTypographyReferences,
   patchTypographyReference, reviewTypographyDna, runTypographyAnalysis, uploadTypographyReferences,
-  voteTypographyReference,
+  voteTypographyReference, reconcileTypographyFeedback,
 } from "./api";
 import type { TypographyReference, TypographyReferencePage } from "./types";
 
@@ -24,6 +24,7 @@ vi.mock("./api", () => ({
   patchTypographyReference: vi.fn(),
   archiveTypographyReference: vi.fn(),
   voteTypographyReference: vi.fn(),
+  reconcileTypographyFeedback: vi.fn(),
 }));
 
 const reference: TypographyReference = {
@@ -54,6 +55,10 @@ beforeEach(() => {
   vi.mocked(listTypographyReferences).mockResolvedValue(fixture());
   vi.mocked(voteTypographyReference).mockResolvedValue({
     reference, learning: "queued", provider_calls: 0,
+  });
+  vi.mocked(reconcileTypographyFeedback).mockResolvedValue({
+    legacy_imported: 0, queued: 0, remaining: 0,
+    provider_calls: 0, stage1_jobs_created: 0,
   });
   vi.mocked(listTypographyDna).mockResolvedValue({ items: [] });
   vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
@@ -104,6 +109,34 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
       reference.image_url + "?thumbnail=true&size=320",
     );
     expect(vi.mocked(listTypographyReferences)).toHaveBeenCalled();
+    expect(reconcileTypographyFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the independent local-learning cache, not the G3 analysis status", async () => {
+    const queued = { ...reference, preference: "positive" as const,
+      analysis_status: "ready" as const, feedback_learning_state: "queued" as const };
+    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [queued] });
+    await renderPage({ ...fixture(), items: [queued] });
+    expect(host.textContent).toContain("Learning pending");
+    expect(host.textContent).not.toContain("Pattern learned");
+    const ready = { ...queued, analysis_status: "pending" as const,
+      feedback_learning_state: "ready" as const };
+    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [ready] });
+    await act(async () => root.render(<TypographyIdeasPage active firstPage={{
+      ...fixture(), items: [ready] }} onCountChange={() => undefined} />));
+    expect(host.textContent).toContain("Pattern learned");
+  });
+
+  it("automatically imports earlier approved references without a manual pilot", async () => {
+    vi.mocked(reconcileTypographyFeedback).mockResolvedValue({
+      legacy_imported: 2, queued: 2, remaining: 0,
+      provider_calls: 0, stage1_jobs_created: 0,
+    });
+    await renderPage();
+    expect(reconcileTypographyFeedback).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("Imported 2 earlier approved ideas");
+    expect(host.textContent).not.toContain("G3 pilot shortlist");
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
   });
 
   it("pick, reject and unpick use one low-cost vote endpoint without pilot or G3", async () => {

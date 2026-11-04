@@ -112,6 +112,13 @@ export function uploadTypographyReferences(
   return jsonRequest(BASE + "/uploads", { method: "POST", body: form, signal });
 }
 
+export function reconcileTypographyFeedback(): Promise<{
+  legacy_imported: number; queued: number; remaining: number;
+  provider_calls: 0; stage1_jobs_created: 0;
+}> {
+  return jsonRequest(BASE + "/feedback/reconcile", { method: "POST" });
+}
+
 export function voteTypographyReference(
   id: string, decision: "picked" | "rejected" | "clear",
 ): Promise<{ reference: TypographyReference; learning: "ready" | "queued" | "cleared"; provider_calls: 0 }> {

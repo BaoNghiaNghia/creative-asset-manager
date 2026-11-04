@@ -10,13 +10,18 @@ from app.modules.realistic_review_ugc.creative_brief import CreativeBrief
 from app.modules.realistic_review_ugc.creative_brief_service import (
     CreativeBriefGenerateHandler, queue_brief,
 )
-from app.modules.realistic_review_ugc.model import RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel
+from app.modules.realistic_review_ugc.model import (
+    RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
+    RrugcKeywordImageJobModel, RrugcImageOutputVersionModel,
+)
 
 
 def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
     engine = create_engine("sqlite://")
     RrugcKeywordVolumeModel.__table__.create(engine)
     RrugcKeywordCreativeBriefModel.__table__.create(engine)
+    RrugcKeywordImageJobModel.__table__.create(engine)
+    RrugcImageOutputVersionModel.__table__.create(engine)
     provider_job_id = str(uuid4())
     monkeypatch.setattr(
         "app.modules.realistic_review_ugc.creative_brief_service.ProcessingRepository.create_job",
@@ -28,7 +33,7 @@ def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
         session.add(RrugcKeywordVolumeModel(
             id=keyword_id, tenant_id="tenant-test", keyword=keyword,
             keyword_normalized=keyword.lower(), picked=True,
-            search_volume=260,
+            picked_by_user_id="owner", search_volume=260,
         ))
         session.commit()
         queue_brief(
@@ -47,7 +52,16 @@ def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
              embroidery_fit="feasible", risks=[])
         for mode in ("safe", "creative_twist", "explore")
     ]
+    import app.modules.realistic_review_ugc.typography_feedback_learning as feedback_learning
+    seen = []
+    def fake_reference_feedback(_session, *, tenant_id, keyword_id, user_id):
+        seen.append((tenant_id, keyword_id, user_id))
+        return {"guidance": "PICKED soft hint from a vote: Favor generous negative space."}
+    monkeypatch.setattr(
+        feedback_learning, "reference_feedback_summary", fake_reference_feedback,
+    )
     async def fake_codex(*_args, **_kwargs):
+        assert "Favor generous negative space" in _kwargs["learning_context"]
         return CreativeBrief.model_validate(dict(
             keyword_exact=keyword, strategy="identity_first", meaning_emotion="support",
             target_audience="musicians", purchase_motivation="identity",
@@ -62,6 +76,9 @@ def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
         CODEX_IMAGE_HOME=str(tmp_path),
         RRUGC_CREATIVE_BRIEF_MODEL="",
         RRUGC_CREATIVE_BRIEF_TIMEOUT_SECONDS=60,
+        RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=True,
+        TYPOGRAPHY_V2_ENABLED=True,
+        TYPOGRAPHY_V2_CANARY_TENANT_IDS="tenant-test",
     )
     context = SimpleNamespace(
         is_cancelled=False,
@@ -71,6 +88,7 @@ def test_worker_persists_valid_brief_without_imagegen(monkeypatch, tmp_path):
     result = CreativeBriefGenerateHandler(settings)(context)
     assert isinstance(result, JobHandlerResult)
     assert result == JobHandlerResult.completed()
+    assert seen == [("tenant-test", keyword_id, "owner")]
 
     with Session(engine) as session:
         stored = session.get(RrugcKeywordCreativeBriefModel, row_id)
@@ -84,6 +102,7 @@ def test_creative_brief_can_use_second_shared_codex_slot_when_first_is_busy(monk
         RRUGC_CREATIVE_BRIEF_ENABLED=True,
         IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
         RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY=2,
+        RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=True,
     )
     handler = CreativeBriefGenerateHandler(settings)
     calls = []
@@ -112,6 +131,7 @@ def test_creative_brief_respects_single_slot_fallback(monkeypatch, tmp_path):
         RRUGC_CREATIVE_BRIEF_ENABLED=True,
         IMAGE_GENERATION_STAGING_ROOT=str(tmp_path),
         RRUGC_CREATIVE_BRIEF_MAX_CONCURRENCY=1,
+        RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED=True,
     )
     handler = CreativeBriefGenerateHandler(settings)
     monkeypatch.setattr(handler, "_execute_locked", lambda _context: JobHandlerResult.completed())

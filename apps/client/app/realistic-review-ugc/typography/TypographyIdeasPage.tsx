@@ -6,7 +6,7 @@ import { StyleDnaPanel } from "./StyleDnaPanel";
 import {
   archiveTypographyReference, getTypographyReference,
   listTypographyReferences, patchTypographyReference, uploadTypographyReferences,
-  voteTypographyReference,
+  voteTypographyReference, reconcileTypographyFeedback,
 } from "./api";
 import type {
   TypographyEditorialStatus, TypographyPrivacy, TypographyReference,
@@ -111,6 +111,7 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
   const votingRef = useRef(new Set<string>());
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const requestedReconcile = useRef(false);
   useEffect(() => () => {
     if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
   }, []);
@@ -136,6 +137,43 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
     }).finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
   }, [active, debouncedSearch, status, sourceType, scope, styleRole, sort, myUploadsOnly, offset, revision, onCountChange]);
+
+  useEffect(() => {
+    if (!active) {
+      requestedReconcile.current = false;
+      return;
+    }
+    if (!page.capabilities.manage || requestedReconcile.current) return;
+    requestedReconcile.current = true;
+    let alive = true;
+    let rounds = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const catchUp = async () => {
+      try {
+        const result = await reconcileTypographyFeedback();
+        if (!alive) return;
+        if (result.legacy_imported > 0) {
+          setNotice(`Imported ${result.legacy_imported} earlier approved ideas into auto-learning.`);
+        }
+        if (result.legacy_imported || result.queued) {
+          setRevision(value => value + 1);
+          timers.push(window.setTimeout(() => {
+            if (alive) setRevision(value => value + 1);
+          }, 5000));
+        }
+        if (result.remaining > 0 && ++rounds < 4) {
+          timers.push(window.setTimeout(() => { if (alive) void catchUp(); }, 12000));
+        }
+      } catch (cause) {
+        if (alive) setError(feedback(cause));
+      }
+    };
+    void catchUp();
+    return () => {
+      alive = false;
+      timers.forEach(timer => window.clearTimeout(timer));
+    };
+  }, [active, page.capabilities.manage]);
 
   const vote = async (ref: TypographyReference, choice: "picked" | "rejected") => {
     if (votingRef.current.has(ref.id) || !page.capabilities.manage) return;
@@ -203,7 +241,7 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
       <span className="typography-learning-dot" aria-hidden="true" />
       <div><strong>Auto-learning is on</strong>
         <span>Pick or reject a reference. CAM saves your preference, analyzes visual patterns locally and uses aggregated feedback in the next Generate / Regenerate batch.</span></div>
-      <small>No pilot · No extra approval · No AI provider calls per vote</small>
+      <small>Auto-recovery · No pilot · No paid AI calls per vote</small>
     </div>
     <div className="typography-ideas-filterbar" role="search" aria-label="Filter typography ideas">
       <label className="typography-filter-search"><span className="sr-only">Search typography references</span>
@@ -261,7 +299,12 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
               <button type="button" className="typography-reference-details" aria-label={"View details for " + compactTitle(ref)}
                 onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}>Details</button>
             </div>
-            <span className="typography-reference-source">{ref.source_type} · {ref.analysis_status === "ready" && ref.preference !== "neutral" ? "Pattern learned" : ref.preference !== "neutral" ? "Learning" : "Awaiting vote"}</span>
+            <span className="typography-reference-source">{ref.source_type} · {
+              ref.preference === "neutral" ? "Awaiting vote" :
+              ref.feedback_learning_state === "ready" ? "Pattern learned" :
+              ref.feedback_learning_state === "excluded" ? "Excluded from learning" :
+              "Learning pending"
+            }</span>
           </div>
         </article>)}
       </div> : !loading && !error ? <div className="typography-empty">

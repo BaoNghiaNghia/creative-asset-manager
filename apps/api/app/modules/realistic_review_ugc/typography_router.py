@@ -749,7 +749,19 @@ def list_typography_references(
     )
     names = _asset_names(session, principal.active_tenant_id, {row.asset_id for row in rows})
     rights = principal.effective_permissions
-    return {"items": [_view(row, names.get(row.asset_id)) for row in rows],
+    from app.modules.realistic_review_ugc.typography_feedback_learning import learned_reference_ids
+    learned = learned_reference_ids(
+        session, tenant_id=principal.active_tenant_id, references=rows,
+    )
+    return {"items": [
+        {**_view(row, names.get(row.asset_id)),
+         "feedback_learning_state": (
+             "unreviewed" if row.preference == "neutral" else
+             "excluded" if row.source_rights_status == "blocked" else
+             "ready" if row.id in learned else "queued"
+         )}
+        for row in rows
+    ],
             "total": total, "limit": limit, "offset": offset,
             "stats": repo.stats(principal.active_tenant_id, user_id=principal.user_id, manage=_can_manage(principal)),
             "capabilities": {
@@ -936,12 +948,91 @@ def vote_typography_reference(
         RrugcTypographyStyleDnaModel.image_hash == ref.content_hash,
         RrugcTypographyStyleDnaModel.analyzer_version == ANALYZER_VERSION,
     )) is not None
-    if preference != "neutral" and not learned:
+    if preference != "neutral" and not learned and ref.source_rights_status != "blocked":
         background_tasks.add_task(analyze_voted_reference, tenant, ref.id, ref.content_hash)
+    learning_state = (
+        "unreviewed" if preference == "neutral" else
+        "excluded" if ref.source_rights_status == "blocked" else
+        "ready" if learned else "queued"
+    )
     return {
-        "reference": _view(ref, names.get(ref.asset_id)),
-        "learning": "ready" if learned else "queued" if preference != "neutral" else "cleared",
+        "reference": {**_view(ref, names.get(ref.asset_id)),
+                      "feedback_learning_state": learning_state},
+        "learning": "ready" if learned else "queued" if learning_state == "queued" else "cleared",
         "provider_calls": 0,
+    }
+
+
+@router.post("/references/feedback/reconcile")
+def reconcile_typography_feedback(
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    """Bounded, zero-provider catch-up when the Ideas tab opens.
+
+    Import only earlier human-approved, neutral preferences; never change
+    source-rights metadata. Recover missing local analyses after an API
+    restart, without auto-running the paid G3 pipeline or any Stage 1 jobs.
+    """
+    from app.modules.realistic_review_ugc.typography_feedback_learning import (
+        ANALYZER_VERSION, learned_reference_ids, analyze_voted_reference,
+        MAX_VOTED,
+    )
+    tenant = principal.active_tenant_id
+    ref_model = RrugcTypographyReferenceModel
+    legacy = list(session.scalars(select(ref_model).where(
+        ref_model.tenant_id == tenant,
+        ref_model.editorial_status == "approved",
+        ref_model.preference == "neutral",
+        ref_model.reviewed_by_user_id.is_not(None),
+        ref_model.source_rights_status != "blocked",
+    ).order_by(ref_model.updated_at.desc(), ref_model.id.desc())
+     .limit(8).with_for_update(skip_locked=True)))
+    for ref in legacy:
+        ref.preference = "positive"
+        _audit(session, principal, "legacy_feedback_imported", ref.id,
+               source_rights_unchanged=True, provider_calls=0)
+
+    voted = list(session.scalars(select(ref_model).where(
+        ref_model.tenant_id == tenant,
+        ref_model.editorial_status != "archived",
+        ref_model.source_rights_status != "blocked",
+        ref_model.preference.in_(("positive", "negative")),
+    ).order_by(ref_model.updated_at.desc(), ref_model.id.desc()).limit(MAX_VOTED)))
+    ready_ids = learned_reference_ids(session, tenant_id=tenant, references=voted)
+
+    # Repair V1's incorrect G3 status for locally analyzed references only.
+    # Genuine G3 results and existing G3 work are never touched.
+    polluted = [ref for ref in voted if ref.id in ready_ids and ref.analysis_status == "ready"]
+    if polluted:
+        ids = [ref.id for ref in polluted]
+        g3_results = set(session.scalars(select(RrugcTypographyStyleDnaModel.reference_id).where(
+            RrugcTypographyStyleDnaModel.tenant_id == tenant,
+            RrugcTypographyStyleDnaModel.reference_id.in_(ids),
+            RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
+        )))
+        g3_jobs = set(session.scalars(select(RrugcTypographyAnalysisJobModel.reference_id).where(
+            RrugcTypographyAnalysisJobModel.tenant_id == tenant,
+            RrugcTypographyAnalysisJobModel.reference_id.in_(ids),
+            RrugcTypographyAnalysisJobModel.analyzer_version == G3_ANALYZER_VERSION,
+            RrugcTypographyAnalysisJobModel.status.in_(("queued", "running", "completed")),
+        )))
+        for ref in polluted:
+            if ref.id not in g3_results and ref.id not in g3_jobs:
+                ref.analysis_status = "pending"
+
+    missing = [ref for ref in voted if ref.id not in ready_ids]
+    batch = [(ref.id, ref.content_hash) for ref in missing[:4]]
+    session.commit()
+    for reference_id, image_hash in batch:
+        background_tasks.add_task(analyze_voted_reference, tenant, reference_id, image_hash)
+    return {
+        "legacy_imported": len(legacy),
+        "queued": len(batch),
+        "remaining": max(0, len(missing) - len(batch)),
+        "provider_calls": 0,
+        "stage1_jobs_created": 0,
     }
 
 

@@ -143,6 +143,7 @@ async def analyze_voted_reference(tenant_id: str, reference_id: str, source_hash
                     Reference.tenant_id == tenant_id, Reference.id == reference_id,
                     Reference.content_hash == source_hash,
                     Reference.editorial_status != "archived",
+                    Reference.source_rights_status != "blocked",
                     Reference.preference.in_(("positive", "negative")),
                 ))
                 if ref is None:
@@ -182,6 +183,7 @@ async def analyze_voted_reference(tenant_id: str, reference_id: str, source_hash
                     Reference.content_hash == source_hash,
                     Reference.preference.in_(("positive", "negative")),
                     Reference.editorial_status != "archived",
+                    Reference.source_rights_status != "blocked",
                 ).with_for_update())
                 if ref is None or session.scalar(select(Dna.id).where(
                     Dna.tenant_id == tenant_id, Dna.reference_id == reference_id,
@@ -200,8 +202,8 @@ async def analyze_voted_reference(tenant_id: str, reference_id: str, source_hash
                         k + ":" + v for k, v in sorted(features.items())],
                     manual_override_json={"analysis_kind": "local_feedback", "features": features},
                 ))
-                if ref.analysis_status in ("pending", "failed", "needs_review"):
-                    ref.analysis_status = "ready"
+                # Local feedback hints are NOT G3 Style DNA. Never change
+                # Reference.analysis_status: that field belongs to G3 jobs.
                 try:
                     session.commit()
                 except IntegrityError:
@@ -211,19 +213,36 @@ async def analyze_voted_reference(tenant_id: str, reference_id: str, source_hash
             return
 
 
+def learned_reference_ids(
+    session: Session, *, tenant_id: str, references: list[Reference],
+) -> set[str]:
+    """Single tenant/hash/version lookup for all visible references (no N+1)."""
+    if not tenant_id or not references:
+        return set()
+    hashes = {ref.id: ref.content_hash for ref in references}
+    rows = session.execute(select(Dna.reference_id, Dna.image_hash).where(
+        Dna.tenant_id == tenant_id,
+        Dna.reference_id.in_(list(hashes)),
+        Dna.analyzer_version == ANALYZER_VERSION,
+        Dna.schema_version == SCHEMA_VERSION,
+    )).all()
+    return {ref_id for ref_id, image_hash in rows if hashes.get(ref_id) == image_hash}
+
+
 def reference_feedback_summary(
-    session: Session, *, tenant_id: str, keyword_id: str, user_id: str,
+    session: Session, *, tenant_id: str, keyword_id: str, user_id: str = "",
 ) -> dict:
     """Read only voted tenant-visible references, capped and versioned.
 
     A private source contributes only for the user who selected it. All
     guidance is produced from our fixed vocabulary, never image/text content.
     """
-    if not tenant_id or not keyword_id or not user_id:
-        return {"version": 1, "votes": 0, "hints": 0, "guidance": "", "digest": ""}
+    if not tenant_id or not keyword_id:
+        return {"version": 2, "votes": 0, "hints": 0, "guidance": "", "digest": ""}
     refs = list(session.scalars(select(Reference).where(
         Reference.tenant_id == tenant_id,
         Reference.editorial_status != "archived",
+        Reference.source_rights_status != "blocked",
         Reference.preference.in_(("positive", "negative")),
         or_(
             Reference.privacy == "workspace",
@@ -266,19 +285,46 @@ def reference_feedback_summary(
         ((key, n) for (direction, key), n in counter.items() if direction == "negative"),
         key=lambda item: (-item[1], item[0]),
     )
+    # A vote should influence the very next batch, but one example cannot
+    # establish a universal rule. Apply it softly; when picks/rejects disagree
+    # on the same feature, do not emit contradictory instructions.
     lines = ["REFERENCE PREFERENCE LEARNING (approximate color/geometry only; never copy reference pixels):"]
+    emitted = 0
     for label, values in (("PICKED", positives), ("REJECTED", negatives)):
-        for key, count in values[:3]:
-            if count < 2:
+        if not values:
+            continue
+        other_direction = "negative" if label == "PICKED" else "positive"
+        label_emitted = 0
+        candidates = sorted(
+            values, key=lambda item: (
+                -(item[1] - counter[(other_direction, item[0])]),
+                {"density": 0, "placement": 1, "contrast": 2, "palette": 3}.get(
+                    item[0].split(":")[0], 9,
+                ),
+                item[0],
+            ),
+        )
+        for key, count in candidates:
+            if label_emitted >= 2 or emitted >= 4 or count <= counter[(other_direction, key)]:
+                continue
+            # At most two independent hints per direction.
+            if count == 1 and label_emitted >= 2:
                 continue
             rule = FEATURE_RULES[key] if label == "PICKED" else NEGATIVE_RULES[key]
-            lines.append(f"{label} signal from {count} user-voted examples: {rule}")
-    if len(lines) == 1 and refs:
-        lines.append("Votes collected; geometry inference is limited or insufficient to change typography rules yet.")
+            strength = (
+                f"{label} signal from {count} voted references"
+                if count >= 2 else
+                f"{label} soft hint from one voted reference (tie-breaker only)"
+            )
+            lines.append(f"{strength}: {rule}")
+            emitted += 1
+            label_emitted += 1
+    if not emitted and refs:
+        lines.append("Votes conflict or remain too uncertain; preserve diverse original lettering.")
     lines.append("These are weak aggregate preferences, not font identification or permission to reuse logos, words or glyph outlines.")
     guidance = "\n".join(lines)[:MAX_GUIDANCE] if refs else ""
-    stable = {"version": 1, "votes": len(refs), "signals": samples, "guidance": guidance}
+    stable = {"version": 2, "votes": len(refs), "signals": samples, "guidance": guidance}
     digest = sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
-    return {"version": 1, "votes": len(refs),
+    return {"version": 2, "votes": len(refs),
             "hints": sum(n for _, _, n in samples),
             "guidance": guidance, "digest": digest}

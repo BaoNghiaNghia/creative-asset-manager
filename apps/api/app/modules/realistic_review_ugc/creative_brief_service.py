@@ -473,6 +473,28 @@ class CreativeBriefGenerateHandler:
             ))
             if cohort_context:
                 feedback_context = (feedback_context + "\n" + cohort_context).strip()
+            # Reference learning is opt-in and tenant-gated; never add extra
+            # queries to tenants that have not enabled Typography V2.
+            allowed = {
+                item.strip() for item in str(getattr(
+                    self.settings, "TYPOGRAPHY_V2_CANARY_TENANT_IDS", ""
+                )).split(",") if item.strip()
+            }
+            if (getattr(self.settings, "TYPOGRAPHY_V2_ENABLED", False)
+                    and context.job.tenant_id in allowed):
+                from app.modules.realistic_review_ugc.typography_feedback_learning import (
+                    reference_feedback_summary,
+                )
+                # The Stage 0 picker owns private signals. If no picker was
+                # stored, read workspace-visible feedback only.
+                reference_learning = reference_feedback_summary(
+                    session, tenant_id=context.job.tenant_id,
+                    keyword_id=keyword.id, user_id=keyword.picked_by_user_id or "",
+                )
+                if reference_learning["guidance"]:
+                    feedback_context = (
+                        feedback_context + "\n" + reference_learning["guidance"]
+                    ).strip()[:4500]
             session.commit()
         try:
             brief: CreativeBrief = asyncio.run(generate_brief(

@@ -1477,6 +1477,12 @@ def test_feedback_votes_learn_locally_without_rights_approval_or_provider(env, m
         assert result.json()["provider_calls"] == 0
         assert result.json()["reference"]["preference"] == "positive"
         assert result.json()["reference"]["source_rights_status"] == "unknown"
+        if identifier == first:
+            with Session(env.engine) as db:
+                weak = learning.reference_feedback_summary(
+                    db, tenant_id="tenant-a", keyword_id="key", user_id="owner")
+                assert "soft hint from one voted reference" in weak["guidance"]
+                assert weak["version"] == 2
     with Session(env.engine) as db:
         assert db.query(RrugcTypographyStyleDnaModel).filter_by(
             analyzer_version=learning.ANALYZER_VERSION).count() == 2
@@ -1510,3 +1516,86 @@ def test_feedback_votes_learn_locally_without_rights_approval_or_provider(env, m
     env.identity("read-only", permissions={"typography_reference.read"})
     assert env.client.post(BASE + "/" + second + "/feedback",
                            json={"decision": "rejected"}).status_code == 403
+
+
+
+def test_auto_reconcile_imports_prior_picks_and_repairs_g3_status(env, monkeypatch):
+    """Opening Ideas repairs orphaned local learning without paid AI or rights changes."""
+    import app.modules.realistic_review_ugc.typography_feedback_learning as learning
+
+    enabled(env)
+    monkeypatch.setattr(learning, "SessionLocal",
+                        lambda: Session(env.engine, expire_on_commit=False))
+    monkeypatch.setattr(learning, "build_managed_storage_provider", lambda _: env.storage)
+    reference = env.upload(115).json()["items"][0]["reference"]
+    ref_id = reference["id"]
+    chosen = env.client.patch(BASE + "/" + ref_id,
+                              json={"editorial_status": "approved"})
+    assert chosen.status_code == 200
+    assert chosen.json()["preference"] == "neutral"
+    assert chosen.json()["source_rights_status"] == "unknown"
+
+    response = env.client.post(BASE + "/feedback/reconcile")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "legacy_imported": 1, "queued": 1, "remaining": 0,
+        "provider_calls": 0, "stage1_jobs_created": 0,
+    }
+    listing = env.client.get(BASE).json()
+    assert listing["stats"]["picked"] == 1
+    assert listing["stats"]["learned"] == 1
+    item = listing["items"][0]
+    assert item["preference"] == "positive"
+    assert item["source_rights_status"] == "unknown"
+    assert item["feedback_learning_state"] == "ready"
+    assert item["analysis_status"] == "pending"  # G3 untouched
+    assert env.client.get(BASE + "/" + ref_id + "/analysis").json()["dna_available"] is False
+
+    # Repair the incorrect G3 status written by the earlier learning release.
+    with Session(env.engine) as session:
+        row = session.get(RrugcTypographyReferenceModel, ref_id)
+        row.analysis_status = "ready"
+        session.commit()
+    again = env.client.post(BASE + "/feedback/reconcile")
+    assert again.status_code == 200
+    assert again.json()["legacy_imported"] == 0
+    assert again.json()["queued"] == 0
+    assert env.client.get(BASE).json()["items"][0]["analysis_status"] == "pending"
+
+    env.identity("viewer", permissions={"typography_reference.read"})
+    assert env.client.post(BASE + "/feedback/reconcile").status_code == 403
+    env.identity("manager", tenant="tenant-b")
+    other = env.client.post(BASE + "/feedback/reconcile")
+    assert other.status_code == 404  # Tenant-b is not enabled for Typography V2.
+    assert env.client.get(BASE).status_code == 404
+
+
+def test_local_feedback_bounded_reconciliation_and_blocked_rights(env, monkeypatch):
+    import app.modules.realistic_review_ugc.typography_feedback_learning as learning
+
+    enabled(env)
+    monkeypatch.setattr(learning, "SessionLocal",
+                        lambda: Session(env.engine, expire_on_commit=False))
+    monkeypatch.setattr(learning, "build_managed_storage_provider", lambda _: env.storage)
+    refs = [env.upload(color).json()["items"][0]["reference"]
+            for color in (60, 75, 90, 105, 120, 135)]
+    # Create six verified human decisions, one blocked from automatic learning.
+    for ref in refs:
+        result = env.client.patch(BASE + "/" + ref["id"],
+                                  json={"editorial_status": "approved"})
+        assert result.status_code == 200, result.text
+    env.client.patch(BASE + "/" + refs[-1]["id"], json={"source_rights_status": "blocked"})
+    first = env.client.post(BASE + "/feedback/reconcile")
+    assert first.status_code == 200, first.text
+    assert first.json()["legacy_imported"] == 5
+    assert first.json()["queued"] == 4
+    assert first.json()["remaining"] == 1
+    second = env.client.post(BASE + "/feedback/reconcile")
+    assert second.status_code == 200, second.text
+    assert second.json()["queued"] == 1
+    assert second.json()["remaining"] == 0
+    page = env.client.get(BASE).json()
+    assert page["stats"]["learned"] == 5
+    blocked = next(ref for ref in page["items"] if ref["id"] == refs[-1]["id"])
+    assert blocked["source_rights_status"] == "blocked"
+    assert blocked["feedback_learning_state"] == "unreviewed"
