@@ -438,7 +438,9 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
   const [editing, setEditing] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [approvalIntent, setApprovalIntent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const rightsSelectRef = useRef<HTMLSelectElement>(null);
   const [error, setError] = useState("");
   const archiveCancelRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useDialogKeyboard(() => {
@@ -482,6 +484,29 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
   const verifyTransition = RIGHTS_VERIFIED.has(draft.source_rights_status) &&
     !RIGHTS_VERIFIED.has(reference.source_rights_status);
   const rightsEvidenceMissing = verifyTransition && (!rightsConfirmed || !draft.source_attribution.trim());
+  const canSubmitApproval = RIGHTS_VERIFIED.has(draft.source_rights_status)
+    && !rightsEvidenceMissing && draft.reference_roles.length > 0;
+  useEffect(() => {
+    if (approvalIntent && editing && tab === "overview") rightsSelectRef.current?.focus();
+  }, [approvalIntent, editing, tab]);
+  const requestApproval = async () => {
+    if (busy) return;
+    if (!RIGHTS_VERIFIED.has(reference.source_rights_status)) {
+      setTab("overview");
+      setEditing(true);
+      setApprovalIntent(true);
+      setError("");
+      return;
+    }
+    // Only change the editorial decision; do not overwrite unrelated metadata
+    // from a stale form snapshot when the reference is already rights-reviewed.
+    setBusy(true); setError("");
+    try {
+      const data = await patchTypographyReference(reference.id, { editorial_status: "approved" });
+      onUpdate(data);
+    } catch (reason) { setError(feedback(reason)); }
+    finally { setBusy(false); }
+  };
   const save = async (status?: TypographyEditorialStatus) => {
     if (busy) return;
     if (rightsEvidenceMissing) {
@@ -505,7 +530,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         reference_roles: draft.reference_roles,
         ...(status ? { editorial_status: status } : {}),
       });
-      onUpdate(data); setEditing(false); setRightsConfirmed(false);
+      onUpdate(data); setEditing(false); setRightsConfirmed(false); setApprovalIntent(false);
     } catch (reason) { setError(feedback(reason)); }
     finally { setBusy(false); }
   };
@@ -531,8 +556,12 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         </div>
         {tab === "overview" && <div className="typography-drawer-content">
           {editing && canManage ? <>
+            {approvalIntent && <div className="typography-approval-guidance" role="status">
+              <strong>Approve this reference</strong>
+              <p>To approve, select a verified rights status, enter the original owner or license evidence, and confirm that you have reviewed it. Unknown or blocked rights cannot be approved.</p>
+            </div>}
             <div className="typography-editor-fields">
-              <label>Source rights<select value={draft.source_rights_status} onChange={e => setDraft(prev => ({ ...prev, source_rights_status: e.target.value as TypographyRights }))}>
+              <label>Source rights<select ref={rightsSelectRef} value={draft.source_rights_status} onChange={e => setDraft(prev => ({ ...prev, source_rights_status: e.target.value as TypographyRights }))}>
                 {RIGHTS.map(value => <option key={value} value={value}>{value}</option>)}
               </select></label>
               <label>Visibility<select value={draft.privacy} onChange={e => setDraft(prev => ({ ...prev, privacy: e.target.value as TypographyPrivacy }))}>
@@ -574,8 +603,10 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
                   }))} />{role === "font_mood" ? "Font" : role}</label>)}
               </fieldset>
             </div>
-            <div className="typography-editor-actions"><button type="button" disabled={busy} onClick={() => { setEditing(false); setRightsConfirmed(false); }}>Cancel</button>
-              <button type="button" disabled={busy || !draft.reference_roles.length || rightsEvidenceMissing} className="typography-primary" onClick={() => void save()}>{busy ? "Saving…" : "Save changes"}</button>
+            <div className="typography-editor-actions"><button type="button" disabled={busy} onClick={() => { setEditing(false); setRightsConfirmed(false); setApprovalIntent(false); }}>Cancel</button>
+              <button type="button" disabled={busy || (approvalIntent ? !canSubmitApproval : !draft.reference_roles.length || rightsEvidenceMissing)} className="typography-primary"
+                title={approvalIntent && !canSubmitApproval ? "Select verified rights, provide attribution and confirm evidence review first" : undefined}
+                onClick={() => void save(approvalIntent ? "approved" : undefined)}>{busy ? "Saving…" : approvalIntent ? "Verify & Approve" : "Save changes"}</button>
             </div>
           </> : <>
             <dl className="typography-info-grid">
@@ -610,9 +641,9 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
           <button type="button" disabled={busy || editing || reference.editorial_status === "archived"} onClick={() => setArchiveConfirm(true)}>Archive</button>
           {!editing && <button type="button" disabled={busy} onClick={() => setEditing(true)}>Edit metadata</button>}
           {!editing && reference.editorial_status !== "approved" && reference.editorial_status !== "archived" &&
-            <button type="button" className="typography-primary" disabled={busy || !["owned", "licensed", "permitted_reference"].includes(reference.source_rights_status)}
-              title={["owned", "licensed", "permitted_reference"].includes(reference.source_rights_status) ? "Approve for future matching; no generation is started" : "Verify source rights first"}
-              onClick={() => void save("approved")}>{busy ? "Approving…" : "Approve"}</button>}
+            <button type="button" className="typography-primary" disabled={busy}
+              title={RIGHTS_VERIFIED.has(reference.source_rights_status) ? "Approve for future matching; no generation is started" : "Open source rights verification before approval"}
+              onClick={() => void requestApproval()}>{busy ? "Approving…" : "Approve"}</button>}
         </> : <span>Read-only reference · your role cannot edit or approve</span>}
       </footer>
       {archiveConfirm && <div className="typography-archive-confirm" role="alertdialog" aria-label="Confirm archive">

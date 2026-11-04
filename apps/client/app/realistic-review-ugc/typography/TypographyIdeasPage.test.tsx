@@ -146,7 +146,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     await renderPage();
     const detail = await openReference();
     const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve");
-    expect(approve?.disabled).toBe(true);
+    expect(approve?.disabled).toBe(false);
     await click([...(detail?.querySelectorAll("button[role=tab]") || [])].find(element => element.textContent === "Style DNA") || null);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(detail?.textContent).toContain("No analysis yet");
@@ -160,6 +160,71 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
   });
 
+
+  it("Approve leads to rights verification and never approves without evidence", async () => {
+    await renderPage();
+    const detail = await openReference();
+    const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve")!;
+    expect(approve.disabled).toBe(false);
+    await click(approve);
+    expect(detail?.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Overview");
+    expect(detail?.textContent).toContain("Approve this reference");
+    const verify = [...(detail?.querySelectorAll<HTMLButtonElement>("button") || [])].find(
+      button => button.textContent === "Verify & Approve",
+    )!;
+    expect(verify.disabled).toBe(true);
+    expect(patchTypographyReference).not.toHaveBeenCalled();
+
+    const rights = [...(detail?.querySelectorAll("select") || [])].find(
+      select => select.parentElement?.textContent?.includes("Source rights"),
+    )!;
+    await act(async () => {
+      rights.value = "licensed";
+      rights.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(verify.disabled).toBe(true);
+    const attribution = [...(detail?.querySelectorAll("input") || [])].find(
+      input => input.parentElement?.textContent?.includes("Attribution / license source"),
+    )!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(attribution, "Verified license document on file");
+      attribution.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(verify.disabled).toBe(true);
+    const checkbox = detail?.querySelector<HTMLInputElement>('.typography-rights-verification input[type="checkbox"]')!;
+    await act(async () => checkbox.click());
+    expect(verify.disabled).toBe(false);
+    await click(verify);
+    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, expect.objectContaining({
+      editorial_status: "approved", source_rights_status: "licensed",
+      source_attribution: "Verified license document on file", rights_review_confirmed: true,
+    }));
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("already rights-verified reference approves with a minimal editorial update", async () => {
+    const eligible = { ...reference, source_rights_status: "owned" as const };
+    vi.mocked(listTypographyReferences).mockResolvedValue({ ...fixture(), items: [eligible] });
+    await renderPage({ ...fixture(), items: [eligible] });
+    const detail = await openReference();
+    const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve");
+    await click(approve || null);
+    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, { editorial_status: "approved" });
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("canceling verification clears approval intent", async () => {
+    await renderPage();
+    const detail = await openReference();
+    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve") || null);
+    expect(detail?.textContent).toContain("Verify & Approve");
+    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Cancel") || null);
+    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Edit metadata") || null);
+    expect(detail?.textContent).toContain("Save changes");
+    expect(detail?.textContent).not.toContain("Verify & Approve");
+    expect(patchTypographyReference).not.toHaveBeenCalled();
+  });
 
   it("requires rights evidence and explicit reviewer confirmation before upgrading unknown rights", async () => {
     await renderPage();

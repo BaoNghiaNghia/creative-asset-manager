@@ -95,6 +95,9 @@
 @media(max-width:1150px){.typography-pilot-slots{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:560px){.typography-pilot-header{flex-direction:column}.typography-pilot-slots{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .typography-rights-notice{padding:10px;border-radius:8px;background:#faf6ec;color:#8a7052;font-size:11px;line-height:1.45}
+.typography-approval-guidance{padding:12px;margin:0 0 12px;border-radius:8px;border:1px solid #c6d5f3;background:#f0f5ff;color:#365581;font-size:11px;line-height:1.5}
+.typography-approval-guidance strong{display:block;margin-bottom:3px;font-size:12px}
+.typography-approval-guidance p{margin:0}
 .typography-rights-verification{grid-column:1/-1;display:grid;gap:7px;padding:12px;border:1px solid #e1cfaa;border-radius:8px;background:#fbf8ef;color:#685435;font-size:11px;line-height:1.45}
 .typography-rights-verification strong{color:#64491f;font-size:12px}
 .typography-rights-verification p{margin:0}
