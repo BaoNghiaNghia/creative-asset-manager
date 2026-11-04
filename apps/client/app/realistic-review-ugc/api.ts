@@ -334,6 +334,8 @@ export const listKeywordImages = (
 export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
   request<{
     available: boolean; schema_version: string; output_count: number;
+    image_engines?: { default_engine: CreativeV3ImageEngine;
+      modes: { id: CreativeV3ImageEngine; label: string; ready: boolean; description: string; status?: string }[] };
     default_design_style?: "heritage" | "balanced" | "experimental";
     default_style_version?: string;
     style_policy_version?: string;
@@ -346,18 +348,19 @@ export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
   );
 
 export type CreativeV3DesignStyle = "auto" | "balanced" | "heritage" | "experimental";
+export type CreativeV3ImageEngine = "codex_cli" | "browser_extension";
 
-export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto") =>
+export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto", imageEngine: CreativeV3ImageEngine = "codex_cli") =>
   request<{ keyword_id: string; job_id: string; status: string; queued: boolean; expected_output_count: number }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-generate",
-    { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle }) },
+    { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle, image_engine: imageEngine }) },
   );
 
-export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto") =>
+export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto", imageEngine: CreativeV3ImageEngine = "codex_cli") =>
   request<{ keyword_id: string; job_id: string; processing_job_id: string; queued: boolean; action: "regenerate" }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-regenerate",
     { method: "POST", body: JSON.stringify({
-      expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle, confirm_regenerate: true,
+      expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle, image_engine: imageEngine, confirm_regenerate: true,
     }) },
   );
 

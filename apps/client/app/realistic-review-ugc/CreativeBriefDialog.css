@@ -1,4 +1,21 @@
 /* Stage 1 — Creative Brief. Compact editorial layout. */
+/* Image engine choice — browser option is visible but production-locked. */
+.rrugc-creative-engine-picker { padding: 10px 14px; border-top: 1px solid #e7edf4; }
+.rrugc-creative-engine-options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
+.rrugc-creative-engine-options button {
+  border: 1px solid #cfd8e8; background: white; border-radius: 8px;
+  padding: 7px 11px; text-align: left; color: #29415f; font-size: 12px;
+  cursor: pointer; display: flex; align-items: center; gap: 9px;
+}
+.rrugc-creative-engine-options button.selected {
+  border-color: #4668d8; background: #eef2ff; color: #2446b4;
+}
+.rrugc-creative-engine-options small { color: #677890; font-size: 10px; }
+.rrugc-creative-engine-options button:disabled { opacity: .55; cursor: not-allowed; }
+.rrugc-creative-engine-warning {
+  font-size: 11px; color: #805524; margin: 7px 0 0; line-height: 1.45;
+}
+
 .rrugc-creative-brief-backdrop {
   position: fixed;
   inset: 0;

@@ -280,7 +280,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(button?.textContent).toContain("Confirm new nine-design batch");
     expect(regenerateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
-    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto");
+    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto", "codex_cli");
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     expect(button?.disabled).toBe(true);
   });
@@ -298,7 +298,38 @@ describe("Creative Brief V1 modal redesign", () => {
     const button = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(
-      keywordId, "2026-10-30T10:00:00Z", "balanced",
+      keywordId, "2026-10-30T10:00:00Z", "balanced", "codex_cli",
+    );
+  });
+
+  it("shows two image engines but keeps browser extension locked until verified", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
+      image_engines: {
+        default_engine: "codex_cli",
+        modes: [
+          { id: "codex_cli", ready: true, label: "Codex CLI", description: "production" },
+          { id: "browser_extension", ready: false, label: "Browser Extension", description: "testing" },
+        ],
+      },
+    });
+    await renderDialog(makeDetail("completed", true));
+    const choices = document.querySelectorAll<HTMLButtonElement>(".rrugc-creative-engine-options button");
+    expect(choices).toHaveLength(2);
+    expect(choices[0].getAttribute("aria-pressed")).toBe("true");
+    const generate = document.querySelector<HTMLButtonElement>(".rrugc-creative-v3-generate button");
+    expect(generate?.disabled).toBe(false);
+    await act(async () => { choices[1].click(); });
+    expect(choices[1].getAttribute("aria-pressed")).toBe("true");
+    expect(generate?.disabled).toBe(true);
+    expect(document.querySelector(".rrugc-creative-engine-warning")?.textContent)
+      .toContain("Codex CLI");
+    expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+    await act(async () => { choices[0].click(); });
+    expect(generate?.disabled).toBe(false);
+    await act(async () => { generate?.click(); await Promise.resolve(); });
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(
+      keywordId, "2026-10-30T10:00:00Z", "auto", "codex_cli",
     );
   });
 
@@ -312,7 +343,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
-    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto");
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto", "codex_cli");
     expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("9 images queued");
     expect(button?.disabled).toBe(true);
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();

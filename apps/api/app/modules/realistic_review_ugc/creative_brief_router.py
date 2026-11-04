@@ -35,7 +35,9 @@ def creative_v3_generation_status(principal: CurrentPrincipal = Depends(READ)):
     from app.modules.realistic_review_ugc.madeira_visor_threads import (
         PALETTE_VERSION, MADEIRA_VISOR_THREADS,
     )
+    from app.modules.realistic_review_ugc.browser_image_mode import selectable_modes
     return {
+        "image_engines": selectable_modes(),
         "thread_palette_version": PALETTE_VERSION,
         "verified_visor_thread_count": len(MADEIRA_VISOR_THREADS),
         "available": enabled(get_settings(), principal.active_tenant_id),
@@ -53,6 +55,7 @@ class CreativeV3GenerateRequest(BaseModel):
     # "auto" resolves the latest server-side style policy at fresh job queue
     # time. Retry reuses its original processing snapshot instead.
     design_style: str = Field(default="auto", pattern="^(auto|balanced|heritage|experimental)$")
+    image_engine: str = Field(default="codex_cli", pattern="^(codex_cli|browser_extension)$")
 
 
 @router.post("/{keyword_id}/v3-generate", status_code=202)
@@ -73,6 +76,7 @@ def creative_v3_generate(
             keyword_id=keyword_id,
             expected_brief_updated_at=body.expected_brief_updated_at,
             design_style=body.design_style,
+            image_engine=body.image_engine,
         )
         return {"keyword_id": keyword_id, "job_id": job.id,
                 "status": job.status, "queued": True,
@@ -107,6 +111,7 @@ def creative_v3_regenerate(
             keyword_id=keyword_id,
             expected_brief_updated_at=body.expected_brief_updated_at,
             design_style=body.design_style,
+            image_engine=body.image_engine,
             regenerate=True,
         )
         return {

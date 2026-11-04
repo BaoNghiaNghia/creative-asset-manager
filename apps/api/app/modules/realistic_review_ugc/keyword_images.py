@@ -388,6 +388,7 @@ class KeywordImageService:
         self, *, tenant_id: str, user_id: str, keyword_id: str,
         expected_brief_updated_at: str, regenerate: bool = False,
         design_style: str = "auto",
+        image_engine: str = "codex_cli",
     ) -> RrugcKeywordImageJobModel:
         """Explicit Stage 1 action: 1 Typography-First + 4 Twist + 4 Explore.
 
@@ -401,6 +402,13 @@ class KeywordImageService:
         )
         from app.modules.realistic_review_ugc.heritage_lettering import resolve_style_policy, STYLE_POLICY_VERSION
         from app.modules.realistic_review_ugc.madeira_visor_threads import PALETTE_VERSION
+        from app.modules.realistic_review_ugc.browser_image_mode import (
+            BrowserImageModeUnavailable, require_ready_engine,
+        )
+        try:
+            image_engine = require_ready_engine(image_engine)
+        except (BrowserImageModeUnavailable, ValueError) as exc:
+            raise KeywordImageError("browser_extension_not_verified", str(exc), 503) from exc
         try:
             resolved_style, pinned_style_version = resolve_style_policy(design_style)
         except ValueError as exc:
@@ -530,6 +538,7 @@ class KeywordImageService:
                 "reference_feedback_digest": reference_learning["digest"],
                 "reference_feedback_votes": reference_learning["votes"],
                 "provider": provider,
+                "image_engine": image_engine,
                 "provider_sha256": skill_hash,
             },
         }

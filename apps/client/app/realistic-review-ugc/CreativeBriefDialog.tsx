@@ -6,7 +6,7 @@ import {
   getCreativeV3GenerationStatus, generateCreativeV3Stage1Images, regenerateCreativeV3Stage1Images,
 } from "./api";
 import { RrugcActionIcon } from "./RrugcActionIcon";
-import type { CreativeV3DesignStyle } from "./api";
+import type { CreativeV3DesignStyle, CreativeV3ImageEngine } from "./api";
 import type { KeywordCreativeBriefDetail, KeywordCreativeConcept } from "./types";
 import "./CreativeBriefDialog.css";
 
@@ -53,6 +53,8 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
   const [selectedDirection, setSelectedDirection] = useState(0);
   const [designStyle, setDesignStyle] = useState<CreativeV3DesignStyle>("auto");
+  const [imageEngine, setImageEngine] = useState<CreativeV3ImageEngine>("codex_cli");
+  const [browserExtensionReady, setBrowserExtensionReady] = useState(false);
   const [stylePolicy, setStylePolicy] = useState({
     defaultStyle: "heritage" as "heritage" | "balanced" | "experimental",
     defaultVersion: "heritage-lettering-h1",
@@ -90,6 +92,10 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
     void getCreativeV3GenerationStatus(controller.signal).then(result => {
       if (controller.signal.aborted) return;
       setV3Available(result.available && result.output_count === 9);
+      setBrowserExtensionReady(
+        result.image_engines?.modes.some(mode =>
+          mode.id === "browser_extension" && mode.ready) === true,
+      );
       if (result.default_design_style && result.default_style_version) {
         setStylePolicy({
           defaultStyle: result.default_design_style,
@@ -166,6 +172,10 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
 
   const generateImages = async () => {
     if (!v3Available || imageBusy || v3Queued || stage1Busy || !detail?.brief || !detail.updated_at) return;
+    if (imageEngine === "browser_extension" && !browserExtensionReady) {
+      setError("Browser Extension is in testing. Codex CLI remains active until the browser worker passes production QA.");
+      return;
+    }
     if (detail.brief.keyword_exact !== keyword) {
       setError("The original keyword changed. Reopen the Creative Brief before generating.");
       return;
@@ -175,9 +185,9 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
     try {
       if (hasExistingStage1Job) {
         if (!confirmImageRegenerate) { setConfirmImageRegenerate(true); return; }
-        await regenerateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle);
+        await regenerateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle, imageEngine);
       } else {
-        await generateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle);
+        await generateCreativeV3Stage1Images(keywordId, detail.updated_at, designStyle, imageEngine);
       }
       setV3Queued(true);
     } catch (reason) {
@@ -446,6 +456,30 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
                   </button>)}
               </div>
             </section>}
+            {v3Available && <section className="rrugc-creative-engine-picker" aria-label="Select image generation engine">
+              <div className="rrugc-creative-style-heading">
+                <strong>Image Engine</strong>
+                <span>Codex CLI stays default until extension QA passes</span>
+              </div>
+              <div className="rrugc-creative-engine-options" role="group" aria-label="Image engine">
+                <button type="button" aria-pressed={imageEngine === "codex_cli"}
+                  className={imageEngine === "codex_cli" ? "selected" : ""}
+                  onClick={() => { setImageEngine("codex_cli"); setError(""); setConfirmImageRegenerate(false); }}
+                  disabled={imageBusy || v3Queued || stage1Busy}>
+                  Codex CLI <small>Production ready</small>
+                </button>
+                <button type="button" aria-pressed={imageEngine === "browser_extension"}
+                  className={imageEngine === "browser_extension" ? "selected" : ""}
+                  onClick={() => { setImageEngine("browser_extension"); setError(""); setConfirmImageRegenerate(false); }}
+                  disabled={imageBusy || v3Queued || stage1Busy}>
+                  Browser Extension <small>{browserExtensionReady ? "Ready" : "Testing — not yet enabled"}</small>
+                </button>
+              </div>
+              {imageEngine === "browser_extension" && !browserExtensionReady &&
+                <p className="rrugc-creative-engine-warning" role="status">
+                  Extension pipeline is being tested on Windows Tool. Production generation is locked; select Codex CLI to generate now.
+                </p>}
+            </section>}
             {v3Available && <section className="rrugc-creative-v3-generate" aria-label="Generate Creative Brief artwork">
               <div>
                 <strong>Creative Engine V3 · Embroidery masters</strong>
@@ -454,7 +488,8 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
               </div>
               <button type="button" className="rrugc-creative-brief-primary"
                 onClick={() => void generateImages()}
-                disabled={imageBusy || v3Queued || stage1Busy || !detail?.updated_at}>
+                disabled={imageBusy || v3Queued || stage1Busy || !detail?.updated_at ||
+                  (imageEngine === "browser_extension" && !browserExtensionReady)}>
                 <RrugcActionIcon name="sparkles" />
                 {v3Queued ? "9 images queued" : stage1Busy ? "Stage 1 job active" : imageBusy ? "Adding to queue…" : hasExistingStage1Job ? confirmImageRegenerate ? "Confirm new nine-design batch" : "Regenerate 9 designs" : "Generate 9 embroidery designs"}
               </button>
