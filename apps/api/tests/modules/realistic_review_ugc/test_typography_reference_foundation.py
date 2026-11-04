@@ -122,9 +122,12 @@ def test_editorial_requires_verified_rights_and_cannot_cross_tenant(engine):
             tenant_id="tenant-a", workspace_id="tenant-a", asset_id=a.id,
             user_id="owner", rights="unknown",
         )
-        with pytest.raises(TypographyReferenceError) as unverified:
-            repo.update_editorial("tenant-a", row.id, user_id="manager", status="approved")
-        assert unverified.value.code == "reference_rights_unverified"
+        preferred = repo.update_editorial("tenant-a", row.id, user_id="manager", status="approved")
+        assert preferred.editorial_status == "approved"
+        assert preferred.source_rights_status == "unknown"
+        with pytest.raises(TypographyReferenceError) as blocked:
+            repo.update_editorial("tenant-a", row.id, user_id="manager", status="approved", rights="blocked")
+        assert blocked.value.code == "reference_rights_blocked"
         with pytest.raises(TypographyReferenceError) as no_cross_tenant:
             repo.update_editorial("tenant-b", row.id, user_id="manager", status="approved", rights="owned")
         assert no_cross_tenant.value.code == "reference_not_found"

@@ -136,7 +136,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(detail).not.toBeNull();
     expect(detail?.textContent).toContain("Read-only reference");
     expect(detail?.textContent).not.toContain("Edit metadata");
-    expect(detail?.textContent).not.toContain("Approve");
+    expect([...detail!.querySelectorAll("button")].some(button => button.textContent?.trim() === "Approve")).toBe(false);
     expect(patchTypographyReference).not.toHaveBeenCalled();
     await click(detail?.querySelector<HTMLButtonElement>('button[aria-label="Close details"]') ?? null);
     expect(document.querySelector("[data-testid=typography-detail-drawer]")).toBeNull();
@@ -161,46 +161,18 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
   });
 
 
-  it("Approve leads to rights verification and never approves without evidence", async () => {
+  it("Approve selects a design in one click without granting rights or calling AI", async () => {
     await renderPage();
     const detail = await openReference();
     const approve = [...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve")!;
     expect(approve.disabled).toBe(false);
     await click(approve);
-    expect(detail?.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Overview");
-    expect(detail?.textContent).toContain("Approve this reference");
-    const verify = [...(detail?.querySelectorAll<HTMLButtonElement>("button") || [])].find(
-      button => button.textContent === "Verify & Approve",
-    )!;
-    expect(verify.disabled).toBe(true);
-    expect(patchTypographyReference).not.toHaveBeenCalled();
-
-    const rights = [...(detail?.querySelectorAll("select") || [])].find(
-      select => select.parentElement?.textContent?.includes("Source rights"),
-    )!;
-    await act(async () => {
-      rights.value = "licensed";
-      rights.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, {
+      editorial_status: "approved",
     });
-    expect(verify.disabled).toBe(true);
-    const attribution = [...(detail?.querySelectorAll("input") || [])].find(
-      input => input.parentElement?.textContent?.includes("Attribution / license source"),
-    )!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      setter.call(attribution, "Verified license document on file");
-      attribution.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(verify.disabled).toBe(true);
-    const checkbox = detail?.querySelector<HTMLInputElement>('.typography-rights-verification input[type="checkbox"]')!;
-    await act(async () => checkbox.click());
-    expect(verify.disabled).toBe(false);
-    await click(verify);
-    expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, expect.objectContaining({
-      editorial_status: "approved", source_rights_status: "licensed",
-      source_attribution: "Verified license document on file", rights_review_confirmed: true,
-    }));
+    expect(detail?.textContent).not.toContain("Verify & Approve");
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
+    expect(uploadTypographyReferences).not.toHaveBeenCalled();
   });
 
   it("already rights-verified reference approves with a minimal editorial update", async () => {
@@ -212,18 +184,6 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     await click(approve || null);
     expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, { editorial_status: "approved" });
     expect(runTypographyAnalysis).not.toHaveBeenCalled();
-  });
-
-  it("canceling verification clears approval intent", async () => {
-    await renderPage();
-    const detail = await openReference();
-    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Approve") || null);
-    expect(detail?.textContent).toContain("Verify & Approve");
-    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Cancel") || null);
-    await click([...(detail?.querySelectorAll("button") || [])].find(element => element.textContent === "Edit metadata") || null);
-    expect(detail?.textContent).toContain("Save changes");
-    expect(detail?.textContent).not.toContain("Verify & Approve");
-    expect(patchTypographyReference).not.toHaveBeenCalled();
   });
 
   it("requires rights evidence and explicit reviewer confirmation before upgrading unknown rights", async () => {
@@ -238,7 +198,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
       rights.dispatchEvent(new Event("change", { bubbles: true }));
     });
     const verification = detail?.querySelector<HTMLElement>(".typography-rights-verification");
-    expect(verification?.textContent).toContain("Verify rights before approving");
+    expect(verification?.textContent).toContain("Verify source rights for G3");
     const save = [...(detail?.querySelectorAll<HTMLButtonElement>("button") || [])]
       .find(button => button.textContent === "Save changes")!;
     expect(save.disabled).toBe(true);

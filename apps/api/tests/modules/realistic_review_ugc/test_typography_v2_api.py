@@ -232,9 +232,11 @@ def test_design_scout_requires_agent_and_explicit_flag_and_preserves_review_gate
         assert db.query(RrugcTypographyStyleDnaModel).count() == 0
         assert any(event.action == "typography_reference.scout_candidate"
                    for event in db.query(AuthAuditEventModel).all())
-    # Unverified rights remain unapprovable, even after an agent upload.
-    assert env.client.patch(BASE + "/" + created.json()["reference_id"],
-                            json={"editorial_status": "approved"}).status_code == 422
+    # Editorial selection must not change the scout asset's unknown rights.
+    chosen = env.client.patch(BASE + "/" + created.json()["reference_id"],
+                              json={"editorial_status": "approved"})
+    assert chosen.status_code == 200
+    assert chosen.json()["source_rights_status"] == "unknown"
 
 def test_design_scout_seed_queue_skips_imported_pins_and_tenant_collisions(env, monkeypatch):
     """Fresh Stage 0 seeds advance on every run, even after rejection/archival."""
@@ -356,10 +358,12 @@ def test_upload_three_items_partial_failure_dedup_and_rights_review(env):
     preview = env.client.get(BASE + "/" + reference_id + "/image")
     assert preview.status_code == 200 and preview.content == payload
     assert preview.headers["cache-control"].startswith("private")
-    # Rights are verified by a manager, not silently assigned during upload.
-    reject = env.client.patch(BASE + "/" + reference_id, json={"editorial_status": "approved"})
-    assert reject.status_code == 422
-    assert reject.json()["detail"]["code"] == "reference_rights_unverified"
+    # Approve marks an editorial preference, but never silently grants rights.
+    chosen = env.client.patch(BASE + "/" + reference_id, json={"editorial_status": "approved"})
+    assert chosen.status_code == 200
+    assert chosen.json()["editorial_status"] == "approved"
+    assert chosen.json()["source_rights_status"] == "unknown"
+    assert env.client.get(BASE + "/" + reference_id + "/dna").json()["items"] == []
     approved = env.client.patch(BASE + "/" + reference_id, json={
         "editorial_status": "approved", "source_rights_status": "licensed",
         "source_attribution": "Fixture license", "rights_review_confirmed": True,

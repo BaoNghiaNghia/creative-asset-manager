@@ -1433,13 +1433,11 @@ def patch_typography_reference(
             or "source_rights_status" in update.model_fields_set):
         try:
             desired_status = update.editorial_status or row.editorial_status
-            # A rights revocation must always be possible for an approved
-            # reference. If editorial_status was not explicitly supplied,
-            # revoke the approval rather than retain an approved/blocked row.
-            # Explicit attempts to approve unknown/blocked rights still fail.
+            # Editorial approval and source-rights verification are separate.
+            # Revoking rights to unknown preserves editorial preference, while
+            # blocked rights cannot retain an approved editorial decision.
             if ("editorial_status" not in update.model_fields_set
-                    and update.source_rights_status is not None
-                    and update.source_rights_status not in VERIFIED_RIGHTS
+                    and update.source_rights_status == "blocked"
                     and desired_status == "approved"):
                 desired_status = "candidate"
             row = repo.update_editorial(

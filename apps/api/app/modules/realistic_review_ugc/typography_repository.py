@@ -189,8 +189,11 @@ class TypographyReferenceRepository:
         effective_rights = rights if rights is not None else row.source_rights_status
         if effective_rights not in {"owned", "licensed", "permitted_reference", "unknown", "blocked"}:
             raise TypographyReferenceError("reference_rights_invalid", "Reference rights status is invalid")
-        if status == "approved" and effective_rights not in {"owned", "licensed", "permitted_reference"}:
-            raise TypographyReferenceError("reference_rights_unverified", "Unknown or blocked rights cannot be approved")
+        # Editorial approval only records a human preference for the design.
+        # A separate verified-rights gate remains mandatory for G3, previews,
+        # matching, DNA acceptance and image generation.
+        if status == "approved" and effective_rights == "blocked":
+            raise TypographyReferenceError("reference_rights_blocked", "Blocked references cannot be approved")
         row.editorial_status = status
         row.source_rights_status = effective_rights
         row.reviewed_by_user_id = user_id
