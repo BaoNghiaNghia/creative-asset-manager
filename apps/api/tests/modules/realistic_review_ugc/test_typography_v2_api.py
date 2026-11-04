@@ -361,6 +361,7 @@ def test_upload_three_items_partial_failure_dedup_and_rights_review(env):
     assert reject.json()["detail"]["code"] == "reference_rights_unverified"
     approved = env.client.patch(BASE + "/" + reference_id, json={
         "editorial_status": "approved", "source_rights_status": "licensed",
+        "source_attribution": "Fixture license", "rights_review_confirmed": True,
         "preference": "positive", "priority": 6,
         "tags": ["serif", "script", "serif"],
         "reference_roles": ["layout", "overlap"],
@@ -381,6 +382,76 @@ def test_upload_three_items_partial_failure_dedup_and_rights_review(env):
         assert sum(event.action == "typography_reference.archive" for event in audit) == 1
         assert all(event.tenant_id == "tenant-a" and event.actor_id == "owner" for event in audit)
         assert all("source_url" not in event.detail_json for event in audit)
+
+
+
+def test_upload_verified_rights_requires_explicit_review(env):
+    enabled(env)
+    denied = env.upload(121, rights="owned", source_attribution="Fixture record")
+    assert denied.status_code == 422
+    assert denied.json()["detail"]["code"] == "typography_rights_review_required"
+    denied_no_source = env.upload(122, rights="owned", rights_review_confirmed="true")
+    assert denied_no_source.status_code == 422
+    assert env.client.get(BASE).json()["total"] == 0
+    permitted = env.upload(
+        123, rights="owned", source_attribution="Fixture record",
+        rights_review_confirmed="true",
+    )
+    assert permitted.status_code == 200, permitted.text
+    assert permitted.json()["items"][0]["reference"]["source_rights_status"] == "owned"
+    with Session(env.engine) as session:
+        audit = session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.upload",
+        ).all()
+        assert len(audit) == 1
+        assert audit[0].detail_json["rights_review_confirmed"] is True
+
+
+def test_rights_upgrade_rejects_bypassing_ui_confirmation(env):
+    enabled(env)
+    ref = env.upload(122).json()["items"][0]["reference"]
+    url = BASE + "/" + ref["id"]
+    without_evidence = env.client.patch(url, json={
+        "source_rights_status": "licensed",
+        "editorial_status": "approved",
+    })
+    assert without_evidence.status_code == 422
+    assert without_evidence.json()["detail"]["code"] == "typography_rights_review_required"
+
+    without_confirmation = env.client.patch(url, json={
+        "source_rights_status": "licensed",
+        "source_attribution": "Documented test license",
+        "editorial_status": "approved",
+    })
+    assert without_confirmation.status_code == 422
+    assert env.client.get(url).json()["source_rights_status"] == "unknown"
+
+    without_attribution = env.client.patch(url, json={
+        "source_rights_status": "licensed",
+        "rights_review_confirmed": True,
+    })
+    assert without_attribution.status_code == 422
+    assert env.client.get(url).json()["editorial_status"] == "candidate"
+
+    verified = env.client.patch(url, json={
+        "source_rights_status": "licensed",
+        "source_attribution": "Documented test license",
+        "rights_review_confirmed": True,
+    })
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["editorial_status"] == "candidate"
+    assert verified.json()["source_rights_status"] == "licensed"
+    with Session(env.engine) as session:
+        events = session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.update",
+        ).all()
+        assert len(events) == 1
+        assert events[0].detail_json["rights_review_confirmed"] is True
+        assert "Documented test license" not in str(events[0].detail_json)
+
+    revoked = env.client.patch(url, json={"source_rights_status": "blocked"})
+    assert revoked.status_code == 200
+    assert revoked.json()["source_rights_status"] == "blocked"
 
 
 def test_legacy_rrugc_routes_cannot_reveal_private_typography_only_image(env):
@@ -544,6 +615,7 @@ def test_typography_library_filters_stats_capabilities_and_private_scopes(env):
     first, second, third = (ref["id"] for ref in refs)
     env.client.patch(BASE + "/" + first, json={
         "editorial_status": "approved", "source_rights_status": "owned",
+        "source_attribution": "Fixture owner", "rights_review_confirmed": True,
         "priority": 25, "tags": ["interlocking", "script"], "notes": "High contrast serif",
         "privacy": "workspace",
     })
@@ -625,6 +697,7 @@ def test_explicit_analysis_enqueue_status_is_flagged_rights_checked_and_idempote
     assert denied.json()["detail"]["code"] == "typography_analysis_unavailable"
     approved = env.client.patch(BASE + "/" + ref["id"], json={
         "source_rights_status": "licensed", "editorial_status": "approved",
+        "source_attribution": "Fixture license", "rights_review_confirmed": True,
     })
     assert approved.status_code == 200, approved.text
     created = env.client.post(endpoint)
@@ -670,6 +743,7 @@ def test_analysis_endpoint_reports_existing_versioned_dna_cache_without_ai(env):
     ref = env.upload(161).json()["items"][0]["reference"]
     assert env.client.patch(BASE + "/" + ref["id"], json={
         "source_rights_status": "owned",
+        "source_attribution": "Fixture owner", "rights_review_confirmed": True,
     }).status_code == 200
     with Session(env.engine) as session:
         session.add(RrugcTypographyStyleDnaModel(
@@ -696,6 +770,7 @@ def _reviewable_reference_and_dna(env, color: int = 177):
     ref = env.upload(color).json()["items"][0]["reference"]
     assert env.client.patch(BASE + "/" + ref["id"], json={
         "source_rights_status": "owned", "editorial_status": "approved",
+        "source_attribution": "Fixture owner", "rights_review_confirmed": True,
     }).status_code == 200
     with Session(env.engine) as session:
         dna = RrugcTypographyStyleDnaModel(
@@ -1227,7 +1302,8 @@ def test_g3_one_shot_dispatch_requires_enabled_worker_verified_rights_and_permis
     monkeypatch.setattr(mod, "_g3_one_shot_background", fake_worker)
     approved = env.client.patch(
         BASE + "/" + ref["id"],
-        json={"source_rights_status": "owned", "editorial_status": "approved"},
+        json={"source_rights_status": "owned", "editorial_status": "approved",
+              "source_attribution": "Fixture owner", "rights_review_confirmed": True},
     )
     assert approved.status_code == 200, approved.text
     started = env.client.post(endpoint)

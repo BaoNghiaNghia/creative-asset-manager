@@ -166,6 +166,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     await click(save);
     expect(patchTypographyReference).toHaveBeenCalledWith(reference.id, expect.objectContaining({
       source_rights_status: "licensed", source_attribution: "License record stored with legal reviewer",
+      rights_review_confirmed: true,
     }));
   });
 
@@ -240,7 +241,7 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
     expect(uploadTypographyReferences).not.toHaveBeenCalled();
     await click([...modal!.querySelectorAll("button")].find(btn => btn.textContent?.includes("Upload 1 images")) || null);
     expect(uploadTypographyReferences).toHaveBeenCalledWith(
-      [supported], { rights: "unknown", privacy: "private", sourceAttribution: "" }, expect.anything(),
+      [supported], { rights: "unknown", privacy: "private", sourceAttribution: "", rightsReviewConfirmed: false }, expect.anything(),
     );
     expect(modal?.textContent).toContain("created");
   });

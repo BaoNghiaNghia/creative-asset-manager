@@ -86,7 +86,7 @@ export function reviewTypographyDna(
 }
 
 export function uploadTypographyReferences(
-  files: File[], options: { rights: TypographyRights; privacy: TypographyPrivacy; sourceAttribution: string },
+  files: File[], options: { rights: TypographyRights; privacy: TypographyPrivacy; sourceAttribution: string; rightsReviewConfirmed?: boolean },
   signal?: AbortSignal,
 ): Promise<TypographyUploadBatch> {
   const form = new FormData();
@@ -94,6 +94,7 @@ export function uploadTypographyReferences(
   form.set("rights", options.rights);
   form.set("privacy", options.privacy);
   if (options.sourceAttribution.trim()) form.set("source_attribution", options.sourceAttribution.trim());
+  if (options.rightsReviewConfirmed) form.set("rights_review_confirmed", "true");
   return jsonRequest(BASE + "/uploads", { method: "POST", body: form, signal });
 }
 

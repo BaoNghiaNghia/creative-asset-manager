@@ -227,6 +227,7 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
   const [rights, setRights] = useState<TypographyRights>("unknown");
   const [privacy, setPrivacy] = useState<TypographyPrivacy>("private");
   const [sourceAttribution, setSourceAttribution] = useState("");
+  const [uploadRightsConfirmed, setUploadRightsConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -253,6 +254,10 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
   const submit = async (specific?: UploadItem) => {
     const pending = specific ? [specific] : items.filter(item => item.state === "queued");
     if (!pending.length || busy) return;
+    if (RIGHTS_VERIFIED.has(rights) && (!uploadRightsConfirmed || !sourceAttribution.trim())) {
+      setError("Verify the source rights, add attribution and confirm the review before upload.");
+      return;
+    }
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true); setError("");
@@ -268,7 +273,7 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
         for (const item of chunk) updateItem(item.id, "uploading");
         try {
           const result = await uploadTypographyReferences(chunk.map(item => item.file),
-            { rights, privacy, sourceAttribution }, controller.signal);
+            { rights, privacy, sourceAttribution, rightsReviewConfirmed: uploadRightsConfirmed }, controller.signal);
           result.items.forEach(item => {
             const target = chunk[item.index];
             if (target) {
@@ -316,7 +321,12 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
         <label>Source / attribution<input value={sourceAttribution} disabled={busy} maxLength={400}
           onChange={event => setSourceAttribution(event.target.value)} placeholder="Optional source or author…" /></label>
       </div>
-      <p className="typography-rights-notice">Uploading does not verify copyright or approve use. An authorized reviewer must confirm the source rights.</p>
+      {RIGHTS_VERIFIED.has(rights) && <div className="typography-rights-verification" role="group" aria-label="Upload rights verification">
+        <strong>Source rights must be independently verified</strong>
+        <p>A source URL alone is not proof of a license or ownership. Provide the original source or permission reference.</p>
+        <label><input type="checkbox" checked={uploadRightsConfirmed} onChange={event => setUploadRightsConfirmed(event.target.checked)} /> I reviewed the supporting rights evidence.</label>
+      </div>}
+      <p className="typography-rights-notice">Uploading does not independently verify copyright or approve use. A rights claim records the reviewer’s declaration only.</p>
       <div className="typography-upload-list" aria-live="polite">
         {items.map(item => <div className="typography-upload-file" key={item.id}>
           <span title={item.file.name}>{item.file.name}</span><small>{(item.file.size / (1024 * 1024)).toFixed(1)} MB</small>
@@ -329,7 +339,7 @@ function TypographyUploadDialog({ onClose, onUpdated }: { onClose: () => void; o
       </div>
       {error && <p className="typography-error" role="alert">{error}</p>}
       <footer><button type="button" className="typography-quiet" disabled={busy} onClick={onClose}>Close</button>
-        <button type="button" className="typography-primary" disabled={busy || !items.some(item => item.state === "queued")}
+        <button type="button" className="typography-primary" disabled={busy || !items.some(item => item.state === "queued") || (RIGHTS_VERIFIED.has(rights) && (!uploadRightsConfirmed || !sourceAttribution.trim()))}
           onClick={() => void submit()}>{busy ? "Uploading…" : "Upload " + items.filter(item => item.state === "queued").length + " images"}</button>
       </footer>
     </section>
@@ -407,6 +417,7 @@ function TypographyDetailDrawer({ reference, canManage, onClose, onUpdate, onArc
         priority: draft.priority,
         tags: draft.tags.split(",").map(v => v.trim()).filter(Boolean).slice(0, 32),
         notes: draft.notes, source_attribution: draft.source_attribution,
+        ...(verifyTransition ? { rights_review_confirmed: rightsConfirmed } : {}),
         reference_roles: draft.reference_roles,
         ...(status ? { editorial_status: status } : {}),
       });

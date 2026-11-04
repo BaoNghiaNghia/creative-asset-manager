@@ -84,6 +84,7 @@ export type TypographyReferencePatch = {
   reference_roles?: TypographyStyleRole[];
   notes?: string | null;
   source_attribution?: string | null;
+  rights_review_confirmed?: boolean;
 };
 export type TypographyDna = {
   id: string;

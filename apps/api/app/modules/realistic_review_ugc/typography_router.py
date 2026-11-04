@@ -964,11 +964,16 @@ async def upload_typography_references(
     rights: Literal["owned", "licensed", "permitted_reference", "unknown", "blocked"] = Form("unknown"),
     privacy: Literal["private", "workspace"] = Form("private"),
     source_attribution: str | None = Form(default=None, max_length=400),
+    rights_review_confirmed: bool = Form(False),
     session: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(UPLOAD),
 ):
     if not (1 <= len(files) <= MAX_BATCH_FILES):
         raise _error("typography_batch_invalid", "Upload 1-12 reference images at a time.")
+    if rights in VERIFIED_RIGHTS and (not rights_review_confirmed or not (source_attribution or "").strip()):
+        raise _error("typography_rights_review_required",
+                     "Verified rights require explicit reviewer confirmation and source attribution.",
+                     status_code=422)
     storage = build_managed_storage_provider(get_settings())
     if isinstance(storage, UnconfiguredAssetStorageProvider):
         raise _error("managed_storage_unavailable", "Managed Storage is unavailable.", status_code=503)
@@ -1008,7 +1013,8 @@ async def upload_typography_references(
             )
             if created:
                 _audit(session, principal, "upload", row.id, asset_id=row.asset_id,
-                       privacy=row.privacy, source_rights_status=row.source_rights_status)
+                       privacy=row.privacy, source_rights_status=row.source_rights_status,
+                       rights_review_confirmed=bool(rights in VERIFIED_RIGHTS and rights_review_confirmed))
             session.commit()
             session.refresh(row)
             results.append({"index": index, "filename": filename,
@@ -1237,6 +1243,7 @@ class TypographyReferencePatch(BaseModel):
     reference_roles: list[Literal["layout", "font_mood", "overlap"]] | None = Field(default=None, max_length=3)
     source_attribution: str | None = Field(default=None, max_length=400)
     notes: str | None = Field(default=None, max_length=2000)
+    rights_review_confirmed: bool = False
 
 
 @router.patch("/references/{reference_id}")
@@ -1282,6 +1289,21 @@ def patch_typography_reference(
             raise _error("typography_scope_not_found", "Keyword not found.", status_code=404)
         row.scope = target_scope
         row.campaign_id, row.keyword_id, row.skill_name = campaign, keyword, skill
+    upgrading_rights = (
+        update.source_rights_status in VERIFIED_RIGHTS
+        and row.source_rights_status not in VERIFIED_RIGHTS
+    )
+    if upgrading_rights:
+        attribution = (
+            update.source_attribution if "source_attribution" in update.model_fields_set
+            else row.source_attribution
+        )
+        if not update.rights_review_confirmed or not (attribution or "").strip():
+            raise _error(
+                "typography_rights_review_required",
+                "Rights upgrade requires explicit reviewer confirmation and source attribution.",
+                status_code=422,
+            )
     if ("editorial_status" in update.model_fields_set
             or "source_rights_status" in update.model_fields_set):
         try:
@@ -1325,8 +1347,9 @@ def patch_typography_reference(
     if "source_attribution" in update.model_fields_set:
         row.source_attribution = update.source_attribution
     _audit(session, principal, "update", row.id,
-           changed_fields=",".join(sorted(update.model_fields_set)),
-           editorial_status=row.editorial_status, privacy=row.privacy)
+           changed_fields=",".join(sorted(update.model_fields_set - {"rights_review_confirmed"})),
+           editorial_status=row.editorial_status, privacy=row.privacy,
+           rights_review_confirmed=bool(upgrading_rights))
     session.commit()
     session.refresh(row)
     names = _asset_names(session, principal.active_tenant_id, {row.asset_id})
