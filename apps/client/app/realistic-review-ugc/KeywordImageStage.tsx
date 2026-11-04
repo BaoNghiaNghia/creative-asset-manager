@@ -610,10 +610,10 @@ export function KeywordImageStage({
   return <div className="rrugc-keyword-gen">
     <RrugcStageHeader
       kicker={showKeywordJobs ? "STAGE 1 / KEYWORD-TO-IMAGE" : stageView === "ideas" ? "STAGE 1 / TYPOGRAPHY IDEAS" : "STAGE 1 / STYLE LAB"}
-      title={showKeywordJobs ? "Generate images from used keywords" : stageView === "ideas" ? "Typography Ideas Library" : "Balanced Typography Style Lab"}
+      title={showKeywordJobs ? "Generate images from used keywords" : stageView === "ideas" ? "Typography Ideas Library" : "Typography Auto Preview"}
       description={showKeywordJobs ? "Generate nine original artwork designs per keyword from its Creative Brief: 1 Typography-First, 4 Creative Twist, 4 Explore. Legacy Google Fonts generation is retired."
         : stageView === "ideas" ? "Explore, upload and review typography references before using them in new keyword designs."
-          : "Explore original vector drafts with approved Style DNA. No AI generation or job is created."}
+          : "Automatically preview three original SVG layouts from picked keywords and approved Style DNA; no ImageGen or jobs."}
       actions={showKeywordJobs ? <div className="rrugc-keyword-gen-actions">
         <button type="button" className="typography-v2-entry" data-testid="typography-v2-entry"
           onClick={() => changeStageView("style-lab")} title="Open Typography V2 MVP workspace">
@@ -651,9 +651,9 @@ export function KeywordImageStage({
     </div>}
     {ideasAccess && stageView === "style-lab" && <TypographyStyleLab
       active={active}
-      keywords={data.items.map(item => ({ keyword_id: item.keyword_id, keyword: item.keyword }))}
       selectedKeyword={selectedStyleKeyword}
-      onBack={() => changeStageView("jobs")} />}
+      onBack={() => changeStageView("jobs")}
+      onOpenIdeas={() => changeStageView("ideas")} />}
     <div hidden={!showKeywordJobs} className="typography-keyword-jobs-shell">
     <div className="rrugc-keyword-gen-stats" aria-label="Stage 1 generation status">
       <button type="button" aria-pressed={status === "all"} className={status === "all" ? "active" : ""} onClick={() => { setStatus("all"); setPage(1); }}>

@@ -523,6 +523,74 @@ def select_saved_typography_v2_source(
                      "Stage 2 source has changed.", status_code=409) from exc
 
 
+@router.get("/style-lab/options", dependencies=[Depends(require_permission("realistic_review_ugc.read"))])
+def typography_style_lab_options(
+    selected_keyword_id: str | None = Query(default=None, max_length=36),
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    """One cheap, read-only bootstrap for Style Lab automatic SVG previews.
+
+    Only return picked keywords and visible, rights-approved references with
+    *current, human-accepted* G3 DNA. Never approve a reference, invoke an AI
+    provider, create a job, persist a draft or auto-publish an image.
+    """
+    tenant = principal.active_tenant_id
+    keywords = session.scalars(
+        select(RrugcKeywordVolumeModel).where(
+            RrugcKeywordVolumeModel.tenant_id == tenant,
+            RrugcKeywordVolumeModel.picked.is_(True),
+        ).order_by(
+            RrugcKeywordVolumeModel.picked_at.desc().nulls_last(),
+            RrugcKeywordVolumeModel.id.asc(),
+        ).limit(100)
+    ).all()
+    if selected_keyword_id and not any(row.id == selected_keyword_id for row in keywords):
+        selected = session.scalar(select(RrugcKeywordVolumeModel).where(
+            RrugcKeywordVolumeModel.tenant_id == tenant,
+            RrugcKeywordVolumeModel.id == selected_keyword_id,
+            RrugcKeywordVolumeModel.picked.is_(True),
+        ))
+        if selected is not None:
+            keywords.insert(0, selected)
+
+    repo = TypographyReferenceRepository(session)
+    refs, total = repo.list(
+        tenant, user_id=principal.user_id, manage=_can_manage(principal),
+        status="approved", sort="priority", limit=100,
+    )
+    candidates = [
+        ref for ref in refs
+        if ref.source_rights_status in VERIFIED_RIGHTS
+        and ref.analysis_status == "ready"
+        and ref.preference != "negative"
+    ]
+    dna_by_reference = {}
+    if candidates:
+        dna_rows = session.scalars(
+            select(RrugcTypographyStyleDnaModel).where(
+                RrugcTypographyStyleDnaModel.tenant_id == tenant,
+                RrugcTypographyStyleDnaModel.reference_id.in_([ref.id for ref in candidates]),
+                RrugcTypographyStyleDnaModel.analyzer_version == G3_ANALYZER_VERSION,
+            )
+        ).all()
+        dna_by_reference = {item.reference_id: item for item in dna_rows}
+    accepted = [
+        ref for ref in candidates
+        if (dna := dna_by_reference.get(ref.id)) is not None
+        and effective_reviewed_dna(ref, dna) is not None
+    ]
+    names = _asset_names(session, tenant, {ref.asset_id for ref in accepted})
+    return {
+        "keywords": [{"keyword_id":row.id, "keyword":row.keyword} for row in keywords],
+        "references": [_view(ref, names.get(ref.asset_id)) for ref in accepted],
+        "approved_reference_count": total,
+        "more_references": total > len(refs),
+        "preview_only": True,
+        "provider_calls": 0,
+    }
+
+
 class TypographyPreviewRequest(BaseModel):
     """No arbitrary prompt or client-provided DNA: sources are resolved by tenant."""
     model_config = ConfigDict(extra="forbid")

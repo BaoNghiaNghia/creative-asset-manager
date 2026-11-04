@@ -122,6 +122,23 @@ export function archiveTypographyReference(id: string): Promise<{ id: string; ed
   return jsonRequest(BASE + "/" + encodeURIComponent(id), { method: "DELETE" });
 }
 
+/** Read-only Stage 1 bootstrap: picked keywords and only human-approved, current G3 styles. */
+export type TypographyStyleLabOptions = {
+  keywords: { keyword_id: string; keyword: string }[];
+  references: TypographyReference[];
+  approved_reference_count: number;
+  more_references: boolean;
+  preview_only: true;
+  provider_calls: 0;
+};
+
+export function getTypographyStyleLabOptions(
+  selectedKeywordId?: string, signal?: AbortSignal,
+): Promise<TypographyStyleLabOptions> {
+  const query = selectedKeywordId ? "?selected_keyword_id=" + encodeURIComponent(selectedKeywordId) : "";
+  return jsonRequest(BASE.replace("/references", "") + "/style-lab/options" + query, { signal });
+}
+
 /** G4 low-cost preview: no image generation, job, storage write or publication. */
 export function previewTypographyStyle(
   input: { reference_id: string; keyword_id: string; count?: number }, signal?: AbortSignal,

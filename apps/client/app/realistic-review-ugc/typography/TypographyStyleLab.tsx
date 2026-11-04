@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listTypographyReferences, previewTypographyStyle, saveReviewedTypographyBatch, listSavedTypographyV2, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
+import { getTypographyStyleLabOptions, previewTypographyStyle, saveReviewedTypographyBatch, listSavedTypographyV2, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
 import type { TypographySavedVersion, CreativeV3Preview } from "./api";
 import type {
   TypographyReference, TypographyPreviewResponse, TypographySvgPreview,
@@ -18,16 +18,22 @@ function vectorSource(preview: TypographySvgPreview): string {
 }
 
 export function TypographyStyleLab({
-  active, keywords, selectedKeyword, onBack,
+  active, selectedKeyword, onBack, onOpenIdeas,
 }: {
   active: boolean;
-  keywords: StyleLabKeyword[];
   selectedKeyword: StyleLabKeyword | null;
   onBack: () => void;
+  onOpenIdeas?: () => void;
 }) {
   const [keywordId, setKeywordId] = useState("");
   const [referenceId, setReferenceId] = useState("");
   const [references, setReferences] = useState<TypographyReference[]>([]);
+  const [pickedKeywords, setPickedKeywords] = useState<StyleLabKeyword[]>([]);
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [hasLoadedOptions, setHasLoadedOptions] = useState(false);
+  const [autoPreview, setAutoPreview] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const autoAttemptRef = useRef("");
   const [moreReferences, setMoreReferences] = useState(false);
   const [loadingReferences, setLoadingReferences] = useState(false);
   const [previews, setPreviews] = useState<TypographyPreviewResponse | null>(null);
@@ -85,24 +91,30 @@ export function TypographyStyleLab({
     const controller = new AbortController();
     setLoadingReferences(true);
     setError("");
-    void listTypographyReferences({ status: "approved", limit: 100 }, controller.signal)
-      .then(page => {
+    setHasLoadedOptions(false);
+    void getTypographyStyleLabOptions(selectedKeyword?.keyword_id, controller.signal)
+      .then(options => {
         if (controller.signal.aborted) return;
-        const eligible = page.items.filter(ref =>
-          ref.editorial_status === "approved" &&
-          (ref.source_rights_status === "owned" || ref.source_rights_status === "licensed" ||
-            ref.source_rights_status === "permitted_reference"));
-        setReferences(eligible);
-        setMoreReferences(page.total > page.items.length);
-        setReferenceId(previous => eligible.some(ref => ref.id === previous)
-          ? previous : eligible[0]?.id || "");
+        if (!options.preview_only || options.provider_calls !== 0) {
+          throw new Error("Unsafe Style Lab options response.");
+        }
+        setPickedKeywords(options.keywords);
+        setReferences(options.references);
+        setApprovedCount(options.approved_reference_count);
+        setMoreReferences(options.more_references);
+        setKeywordId(previous => selectedKeyword?.keyword_id ||
+          (options.keywords.some(item => item.keyword_id === previous)
+            ? previous : options.keywords[0]?.keyword_id || ""));
+        setReferenceId(previous => options.references.some(ref => ref.id === previous)
+          ? previous : options.references[0]?.id || "");
+        setHasLoadedOptions(true);
       })
       .catch(reason => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Reference lookup failed.");
       })
       .finally(() => { if (!controller.signal.aborted) setLoadingReferences(false); });
     return () => controller.abort();
-  }, [active]);
+  }, [active, selectedKeyword?.keyword_id]);
 
   useEffect(() => {
     controllerRef.current?.abort();
@@ -117,7 +129,7 @@ export function TypographyStyleLab({
   // V3 remains independently feature-gated; a normal V2 Style Lab session
   // never probes protected V3 data when the availability flag is OFF.
   useEffect(() => {
-    if (!active) {
+    if (!active || !advancedOpen) {
       setV3Available(false);
       return;
     }
@@ -126,14 +138,14 @@ export function TypographyStyleLab({
       .then(result => { if (!controller.signal.aborted) setV3Available(result.available === true); })
       .catch(() => { if (!controller.signal.aborted) setV3Available(false); });
     return () => controller.abort();
-  }, [active]);
+  }, [active, advancedOpen]);
 
   useEffect(() => {
     setV3Preview(null);
     setV3Loading(false);
     setV3Error("");
     setV3Mode("creative_twist");
-    if (!active || !v3Available || !keywordId) return;
+    if (!active || !advancedOpen || !v3Available || !keywordId) return;
     const controller = new AbortController();
     setV3Loading(true);
     void getCreativeV3Preview(keywordId, controller.signal)
@@ -149,41 +161,55 @@ export function TypographyStyleLab({
       })
       .finally(() => { if (!controller.signal.aborted) setV3Loading(false); });
     return () => controller.abort();
-  }, [active, v3Available, keywordId]);
+  }, [active, advancedOpen, v3Available, keywordId]);
 
   useEffect(() => {
     setSavedVersions([]); setStage2Selected([]); setMvpMessage("");
-    if (!active || !keywordId) return;
+    if (!active || !advancedOpen || !keywordId) return;
     let cancelled = false;
     void listSavedTypographyV2(keywordId).then(result => {
       if (!cancelled) setSavedVersions(result.items);
     }).catch(() => { /* The separate V2 publishing pilot may be disabled. */ });
     return () => { cancelled = true; };
-  }, [active, keywordId]);
+  }, [active, advancedOpen, keywordId]);
 
 
   const visibleKeywords = useMemo(() => {
-    const options = new Map(keywords.map(item => [item.keyword_id, item]));
+    const options = new Map(pickedKeywords.map(item => [item.keyword_id, item]));
     if (selectedKeyword) options.set(selectedKeyword.keyword_id, selectedKeyword);
     return [...options.values()];
-  }, [keywords, selectedKeyword]);
+  }, [pickedKeywords, selectedKeyword]);
   const currentKeyword = visibleKeywords.find(item => item.keyword_id === keywordId);
-  const reference = references.find(item => item.id === referenceId);
+  const isPicked = pickedKeywords.some(item => item.keyword_id === keywordId);
+  const applicableReferences = references.filter(item => item.scope !== "keyword" || item.keyword_id === keywordId);
+  const reference = applicableReferences.find(item => item.id === referenceId);
+  useEffect(() => {
+    setReferenceId(previous => {
+      const available = references.filter(item => item.scope !== "keyword" || item.keyword_id === keywordId);
+      if (available.some(item => item.id === previous)) return previous;
+      return available.find(item => item.scope === "keyword" && item.keyword_id === keywordId)?.id
+        || available[0]?.id || "";
+    });
+  }, [keywordId, references]);
   const currentV3 = v3Preview?.concepts.find(item => item.source_mode === v3Mode);
   const v3ExactTextMatch = !v3Preview || Boolean(currentKeyword && v3Preview.keyword_exact === currentKeyword.keyword);
 
-  const createPreviews = async () => {
-    if (!currentKeyword || !reference || busy) return;
+  const createPreviews = async (selected: StyleLabKeyword, source: TypographyReference) => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true); setError(""); setPreviews(null);
     try {
       const result = await previewTypographyStyle({
-        reference_id: reference.id, keyword_id: currentKeyword.keyword_id, count: 3,
+        reference_id: source.id, keyword_id: selected.keyword_id, count: 3,
       }, controller.signal);
       if (!controller.signal.aborted) {
-        if (!result.preview_only || result.job_created || result.items.some(item => !item.preview_only || item.eligible_for_generation)) {
+        const unsafe = !result.preview_only || result.job_created || result.provider_calls !== 0
+          || result.keyword_id !== selected.keyword_id || result.reference_id !== source.id
+          || result.source_keyword_exact !== selected.keyword
+          || result.items.some(item => !item.preview_only || item.eligible_for_generation
+            || item.source_keyword_exact !== selected.keyword);
+        if (unsafe) {
           setError("Unsafe preview response. No concepts were displayed.");
         } else {
           setPreviews(result);
@@ -197,14 +223,122 @@ export function TypographyStyleLab({
     }
   };
 
-  return <section className="typography-style-lab" aria-label="Typography Style Lab" data-testid="typography-style-lab">
-    <div className="typography-style-lab-heading">
-      <div><p className="typography-eyebrow">STAGE 1 / STYLE LAB</p>
-        <h3>Balanced Typography · Preview</h3>
-        <p>Use approved Layout, Font and Overlap style DNA to explore original compositions without copying a reference.</p>
+  // One bounded, no-cost preview per eligible keyword/reference pair.
+  // The server revalidates tenant, rights, current accepted G3 DNA and picked state.
+  useEffect(() => {
+    if (!active || !autoPreview || loadingReferences || !hasLoadedOptions || !reference || !currentKeyword || !isPicked) return;
+    const pair = currentKeyword.keyword_id + ":" + reference.id;
+    if (autoAttemptRef.current === pair) return;
+    autoAttemptRef.current = pair;
+    void createPreviews(currentKeyword, reference);
+  }, [active, autoPreview, loadingReferences, hasLoadedOptions, keywordId, referenceId, pickedKeywords, references]);
+
+  const previewEnabled = Boolean(currentKeyword && isPicked && reference && !loadingReferences && !busy);
+  const autoMessage = loadingReferences ? "Loading approved Style DNA and picked keywords…"
+    : !hasLoadedOptions ? "Could not load Style Lab options."
+      : !pickedKeywords.length ? "No picked keywords found. Pick a keyword in Stage 0 first."
+        : !currentKeyword ? "Choose a picked keyword to start."
+          : !isPicked ? "This keyword is not picked in Stage 0. Select an eligible keyword."
+            : !reference ? approvedCount
+              ? "Approved references need an accepted, current G3 analysis before auto preview."
+              : "No approved reference yet. Review a typography idea first."
+              : busy ? "Generating 3 SVG drafts automatically…"
+                : previews?.items.length ? "3 SVG previews ready · No ImageGen · No job queued"
+                  : error ? "Preview unavailable. Review the details and retry."
+                    : autoPreview ? "Ready for automatic preview." : "Automatic preview is paused.";
+
+  return <section className="typography-style-lab typography-style-lab-compact" aria-label="Typography Style Lab" data-testid="typography-style-lab">
+    <header className="typography-style-lab-heading">
+      <div>
+        <p className="typography-eyebrow">STAGE 1 / STYLE LAB</p>
+        <h3>Typography Auto Preview</h3>
+        <p>Automatically compose 3 original SVG layouts from a picked keyword and approved Style DNA. No ImageGen or publishing.</p>
       </div>
       <button type="button" className="typography-quiet" onClick={onBack}>Back to Keyword Jobs</button>
-    </div>
+    </header>
+
+    <section className="typography-style-lab-auto" aria-label="Automatic typography preview settings">
+      <div className="typography-style-lab-auto-controls">
+        <label>Picked keyword
+          <select aria-label="Picked keyword" value={keywordId} disabled={loadingReferences || !hasLoadedOptions}
+            onChange={event => setKeywordId(event.target.value)}>
+            <option value="">Select a picked keyword</option>
+            {visibleKeywords.map(item => <option key={item.keyword_id} value={item.keyword_id}>
+              {item.keyword}{!pickedKeywords.some(picked => picked.keyword_id === item.keyword_id) ? " · Not picked" : ""}
+            </option>)}
+          </select>
+        </label>
+        <label>Approved Style DNA
+          <select aria-label="Style reference" value={referenceId} disabled={loadingReferences || !applicableReferences.length}
+            onChange={event => setReferenceId(event.target.value)}>
+            {!applicableReferences.length && <option value="">No accepted G3 references</option>}
+            {applicableReferences.map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
+          </select>
+        </label>
+        <label className="typography-style-lab-auto-switch">
+          <input type="checkbox" aria-label="Auto preview" checked={autoPreview}
+            onChange={event => setAutoPreview(event.target.checked)} />
+          <span>Auto preview<small>3 SVG drafts, no AI cost</small></span>
+        </label>
+        <button type="button" className="typography-primary typography-style-lab-refresh"
+          disabled={!previewEnabled}
+          onClick={() => { if (currentKeyword && reference) void createPreviews(currentKeyword, reference); }}>
+          {busy ? "Generating…" : previews?.items.length ? "Regenerate previews" : "Preview 3 concepts"}
+        </button>
+      </div>
+      <div className="typography-style-lab-auto-bottom">
+        <p className="typography-style-lab-auto-message" role="status">{autoMessage}</p>
+        {reference && <div className="typography-style-lab-auto-reference">
+          <img src={reference.image_url} alt="" loading="lazy" />
+          <span>Reference: <strong>{labelFor(reference)}</strong></span>
+        </div>}
+        {moreReferences && <small>Showing up to 100 highest-priority approved references.</small>}
+      </div>
+      {hasLoadedOptions && !pickedKeywords.length && <p className="typography-style-lab-hint">
+        Pick a keyword in Stage 0 or open an eligible keyword from Keyword Jobs.</p>}
+      {hasLoadedOptions && !references.length && <div className="typography-style-lab-next-step">
+        <span>{approvedCount
+          ? "References exist, but none has accepted current G3 DNA and verified rights."
+          : "There are no approved typography references in this workspace."}</span>
+        {onOpenIdeas && <button type="button" className="typography-quiet" onClick={onOpenIdeas}>Open Typography Ideas</button>}
+      </div>}
+      {error && <p role="alert" className="typography-style-lab-error">{error}</p>}
+    </section>
+
+    <section className="typography-style-lab-output" aria-label="Concept previews">
+      <div className="typography-style-lab-output-heading">
+        <div><p className="typography-style-lab-eyebrow">AUTO PREVIEW · NO IMAGEGEN</p>
+          <h4>3 typography layouts</h4></div>
+        <span>Vector drafts only · Human review before embroidery</span>
+      </div>
+      {previews?.items.length ? <div className="typography-style-lab-results" aria-live="polite">
+        {previews.items.map((preview, index) => <article key={preview.id} className="typography-style-lab-preview">
+          <div className="typography-style-lab-image">
+            <img src={vectorSource(preview)} alt={"Preview " + (index + 1) + ": " + previews.source_keyword_exact} />
+          </div>
+          <div><strong>{index + 1}. {preview.layout.replaceAll("_", " ")}</strong>
+            <small>{preview.font_family} · Exact text · Draft only</small></div>
+        </article>)}
+      </div> : <div className="typography-style-lab-empty" role="status">
+        <strong>{busy ? "Generating layout previews…" : "No concepts yet"}</strong>
+        <p>{loadingReferences ? "Loading eligible keywords and reference DNA…"
+          : !isPicked ? "Select a picked keyword to begin."
+            : !reference ? "Approve a typography reference and its G3 DNA in Typography Ideas."
+              : autoPreview ? "The automatic SVG preview will appear here." : "Enable Auto preview or click Preview 3 concepts."}</p>
+      </div>}
+      {previews?.generation_plan?.style_brief && <details className="typography-style-lab-plan">
+        <summary>Read generated style brief</summary>
+        <p>{previews.generation_plan.style_brief}</p>
+      </details>}
+    </section>
+
+    <details className="typography-style-lab-advanced" onToggle={event => setAdvancedOpen(event.currentTarget.open)}>
+      <summary>Advanced tools <small>Creative V3 · Reviewed outputs · QA details</small></summary>
+      <div className="typography-style-lab-advanced-body">
+        <p className="typography-style-lab-qa-note">
+          Preflight: exact keyword, tenant access, approved rights and human-accepted current G3 DNA are revalidated by the API.
+          Previews do not generate images, save outputs or queue jobs. Embroidery QA requires human review.
+        </p>
     {v3Available && <section className="typography-creative-v3" aria-label="Creative Engine V3 concept preview">
       <header className="typography-creative-v3-heading">
         <div><p className="typography-eyebrow">CREATIVE ENGINE V3 · P1 PREVIEW</p>
@@ -243,11 +377,6 @@ export function TypographyStyleLab({
         </div>}
       </div>}
     </section>}
-    <div className="typography-v2-mvp-guide">
-      <strong>Typography V2 · Reviewed output workflow</strong>
-      <span>01 · Preview style</span><span>02 · Human-review an existing ImageGen batch</span><span>03 · Save and select for Stage 2</span>
-      <small>Image generation, publication and Stage 2 job creation are independently gated.</small>
-    </div>
         <div className="typography-v2-mvp" aria-label="Reviewed Typography V2 outputs">
           <h4>Reviewed outputs · MVP</h4>
           <p>Save existing human-approved ImageGen images. No images are generated here.</p>
@@ -277,70 +406,8 @@ export function TypographyStyleLab({
           {mvpMessage && <p role="status">{mvpMessage}</p>}
           <small>Manual only · ImageGen/Scout not triggered · V1 untouched</small>
         </div>
-    <div className="typography-style-lab-grid">
-      <section className="typography-style-lab-panel" aria-label="Reference selection">
-        <p className="typography-style-lab-eyebrow">01 / REFERENCES</p>
-        <h4>Pick an approved style</h4>
-        <label>Reference image<select aria-label="Style reference" disabled={loadingReferences || !references.length}
-          value={referenceId} onChange={event => setReferenceId(event.target.value)}>
-          {!references.length && <option value="">No approved references</option>}
-          {references.map(ref => <option key={ref.id} value={ref.id}>{labelFor(ref)}</option>)}
-        </select></label>
-        {reference && <div className="typography-style-lab-reference">
-          <img src={reference.image_url} alt={labelFor(reference)} loading="lazy" />
-          <strong>{labelFor(reference)}</strong>
-          <span>Rights: {reference.source_rights_status} · {reference.editorial_status}</span>
-          <small>Source artwork is analyzed for relationships, not copied.</small>
-        </div>}
-        {moreReferences && <p className="typography-style-lab-warning">Showing the first 100 approved references. Filter or narrow your library to use others.</p>}
-        {!loadingReferences && !references.length && <p className="typography-style-lab-hint">
-          Upload a reference in Typography Ideas, verify its rights, run G3 analysis and accept Style DNA before previewing.</p>}
-      </section>
-      <section className="typography-style-lab-panel typography-style-lab-previews" aria-label="Concept previews">
-        <p className="typography-style-lab-eyebrow">02 / CONCEPT PREVIEWS</p>
-        <h4>Three structural variations</h4>
-        {previews?.items.length ? <div className="typography-style-lab-results" aria-live="polite">
-          {previews.items.map((preview, index) => <article key={preview.id} className="typography-style-lab-preview">
-            <div className="typography-style-lab-image"><img
-              src={vectorSource(preview)} alt={`Preview ${index + 1}: ${previews.source_keyword_exact}`} /></div>
-            <div><strong>{index + 1}. {preview.layout.replaceAll("_", " ")}</strong>
-              <small>{preview.font_family} · Exact text · Draft only</small></div>
-          </article>)}
-        </div> : <div className="typography-style-lab-empty" role="status">
-          <strong>No concepts yet</strong>
-          <p>Choose one picked keyword and an approved reference, then create three no-cost SVG previews.</p>
-        </div>}
-        {previews?.generation_plan?.style_brief && <div className="typography-style-lab-notice" aria-label="Scout design style brief"><strong>Scout → Prompt · Design brief</strong><p>{previews.generation_plan.style_brief}</p><small>Abstract typography guidance only; keyword remains locked. ImageGen uses this brief rather than source image pixels.</small></div>}
-        <p className="typography-style-lab-notice">Vector drafts only. This does not create an AI image, save an output or publish a product.</p>
-      </section>
-      <aside className="typography-style-lab-panel" aria-label="Balanced controls and quality">
-        <p className="typography-style-lab-eyebrow">03 / CONTROLS & QA</p>
-        <h4>Keyword & constraints</h4>
-        <label>Picked keyword <select aria-label="Picked keyword" value={keywordId}
-          onChange={event => setKeywordId(event.target.value)}>
-          <option value="">Select a keyword</option>
-          {visibleKeywords.map(item => <option key={item.keyword_id} value={item.keyword_id}>{item.keyword}</option>)}
-        </select></label>
-        {!visibleKeywords.length && <p className="typography-style-lab-hint">No keyword loaded. Return to Keyword Jobs and click Apply style on a row.</p>}
-        {currentKeyword && <div className="typography-style-lab-exact"><small>Original keyword · locked</small>
-          <strong>{currentKeyword.keyword}</strong></div>}
-        <p className="typography-style-lab-controls-title">Balanced mode <span>Locked for pilot</span></p>
-        <div className="typography-style-lab-components">
-          {["Layout", "Font", "Overlap"].map(name => <label key={name}>
-            <input type="checkbox" checked disabled readOnly />{name}</label>)}
-        </div>
-        <div className="typography-style-lab-qa">
-          <strong>Preflight QA</strong>
-          <p>Exact keyword lock, rights-approved DNA, tenant isolation and read-only previews are enforced by the API.</p>
-          <p>Origin/density and embroidery quality still require human review before Stage 1 generation.</p>
-        </div>
-        {error && <p role="alert" className="typography-style-lab-error">{error}</p>}
-        <button type="button" className="typography-primary" disabled={!currentKeyword || !reference || busy}
-          onClick={() => void createPreviews()}>{busy ? "Creating previews…" : "Preview 3 concepts"}</button>
 
-        <small className="typography-style-lab-status">0 ImageGen calls · 0 jobs queued · V1 unchanged</small>
-
-      </aside>
-    </div>
+      </div>
+    </details>
   </section>;
 }

@@ -3,14 +3,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TypographyStyleLab } from "./TypographyStyleLab";
-import { listTypographyReferences, previewTypographyStyle, listSavedTypographyV2, saveReviewedTypographyBatch, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
+import { getTypographyStyleLabOptions, previewTypographyStyle, listSavedTypographyV2, saveReviewedTypographyBatch, handoffTypographyV2, getCreativeV3Status, getCreativeV3Preview } from "./api";
 import type { TypographyPreviewResponse, TypographyReference } from "./types";
 import type { CreativeV3Preview } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("./api", () => ({
-  listTypographyReferences: vi.fn(),
+  getTypographyStyleLabOptions: vi.fn(),
   previewTypographyStyle: vi.fn(),
   listSavedTypographyV2: vi.fn(),
   saveReviewedTypographyBatch: vi.fn(),
@@ -49,10 +49,10 @@ const preview: TypographyPreviewResponse = {
 let host: HTMLElement, root: Root;
 beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-  vi.mocked(listTypographyReferences).mockResolvedValue({
-    items: [reference], total: 1, limit: 100, offset: 0,
-    stats: { total: 1, approved: 1, needs_review: 0, analyzing: 0 },
-    capabilities: { read: true, upload: true, manage: true },
+  vi.mocked(getTypographyStyleLabOptions).mockResolvedValue({
+    keywords: [{ keyword_id: "kw-1", keyword: "Cà phê Việt Nam" }],
+    references: [reference], approved_reference_count: 1, more_references: false,
+    preview_only: true, provider_calls: 0,
   });
   vi.mocked(previewTypographyStyle).mockResolvedValue(preview);
   vi.mocked(getCreativeV3Status).mockResolvedValue({ available: false, schema_version: "creative-v3.0-preview-v1" });
@@ -72,53 +72,83 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-async function renderLab(onBack = vi.fn(), active = true) {
+async function renderLab(onBack = vi.fn(), active = true, selectedKeyword: { keyword_id: string; keyword: string } | null = { keyword_id: "kw-1", keyword: "Cà phê Việt Nam" }) {
   await act(async () => root.render(<TypographyStyleLab active={active}
-    keywords={[{ keyword_id: "kw-1", keyword: "Cà phê Việt Nam" }]}
-    selectedKeyword={{ keyword_id: "kw-1", keyword: "Cà phê Việt Nam" }}
+    selectedKeyword={selectedKeyword}
     onBack={onBack} />));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   return onBack;
 }
 
+async function expandAdvanced() {
+  const details = host.querySelector<HTMLDetailsElement>(".typography-style-lab-advanced");
+  await act(async () => {
+    if (!details) throw new Error("Advanced tools unavailable");
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    await Promise.resolve();
+  });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+}
+
 describe("Style Lab G4 preview-only contract", () => {
-  it("previews only on explicit click and never launches a generation job", async () => {
-    const onBack = await renderLab();
-    expect(host.textContent).toContain("Balanced Typography");
-    expect(host.textContent).toContain("Cà phê Việt Nam");
-    expect(host.textContent).toContain("0 ImageGen calls");
-    expect(host.textContent).toContain("Typography V2 · Reviewed output workflow");
-    expect(host.querySelector(".typography-v2-mvp")).not.toBeNull();
-    expect(host.querySelector(".typography-v2-mvp")?.parentElement?.getAttribute("data-testid"))
-      .toBe("typography-style-lab");
-    expect(listTypographyReferences).toHaveBeenCalledWith({ status: "approved", limit: 100 }, expect.any(AbortSignal));
+  it("does not auto-preview a Stage 1 row that is not picked in Stage 0", async () => {
+    await renderLab(vi.fn(), true, { keyword_id: "kw-unpicked", keyword: "UNPICKED" });
+    expect(host.textContent).toContain("UNPICKED");
+    expect(host.textContent).toContain("Not picked");
     expect(previewTypographyStyle).not.toHaveBeenCalled();
-    expect(getCreativeV3Preview).not.toHaveBeenCalled();
-    const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Preview 3 concepts");
-    expect(button?.hasAttribute("disabled")).toBe(false);
-    await act(async () => (button as HTMLButtonElement).click());
+    expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
+  });
+
+  it("never bootstraps or previews while Style Lab is inactive", async () => {
+    await renderLab(vi.fn(), false);
+    expect(getTypographyStyleLabOptions).not.toHaveBeenCalled();
+    expect(previewTypographyStyle).not.toHaveBeenCalled();
+  });
+
+  it("loads the newest picked keyword on direct Style Lab entry", async () => {
+    await renderLab(vi.fn(), true, null);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Picked keyword"]')?.value).toBe("kw-1");
+    expect(getTypographyStyleLabOptions).toHaveBeenCalledWith(undefined, expect.any(AbortSignal));
+    expect(previewTypographyStyle).toHaveBeenCalledTimes(1);
+  });
+  it("autopicks and previews approved G3 without any ImageGen or save action", async () => {
+    const onBack = await renderLab();
+    expect(host.textContent).toContain("Typography Auto Preview");
+    expect(host.textContent).toContain("Cà phê Việt Nam");
+    expect(host.textContent).toContain("No ImageGen");
+    expect(host.querySelector(".typography-v2-mvp")).not.toBeNull();
+    expect(host.querySelector(".typography-style-lab-advanced")?.getAttribute("open")).toBeNull();
+    expect(getTypographyStyleLabOptions).toHaveBeenCalledWith("kw-1", expect.any(AbortSignal));
     expect(previewTypographyStyle).toHaveBeenCalledWith({
       reference_id: reference.id, keyword_id: "kw-1", count: 3,
     }, expect.any(AbortSignal));
+    expect(previewTypographyStyle).toHaveBeenCalledTimes(1);
+    expect(getCreativeV3Preview).not.toHaveBeenCalled();
+    expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
+    expect(handoffTypographyV2).not.toHaveBeenCalled();
     expect(host.querySelectorAll(".typography-style-lab-preview")).toHaveLength(3);
     expect(host.querySelectorAll(".typography-style-lab-image img")).toHaveLength(3);
     expect(host.querySelector(".typography-style-lab-image img")?.getAttribute("src")?.startsWith("data:image/svg+xml")).toBe(true);
     expect(host.textContent).toContain("Draft only");
     expect(host.querySelector("script")).toBeNull();
+    const refresh = [...host.querySelectorAll("button")].find(item => item.textContent === "Regenerate previews");
+    expect(refresh).toBeDefined();
+    await act(async () => { refresh?.click(); await Promise.resolve(); });
+    expect(previewTypographyStyle).toHaveBeenCalledTimes(2);
     const back = [...host.querySelectorAll("button")].find(item => item.textContent === "Back to Keyword Jobs");
     await act(async () => (back as HTMLButtonElement).click());
     expect(onBack).toHaveBeenCalledOnce();
   });
 
   it("refuses unapproved references and does not make provider calls", async () => {
-    vi.mocked(listTypographyReferences).mockResolvedValueOnce({
-      items: [{ ...reference, editorial_status: "candidate", source_rights_status: "unknown" }],
-      total: 1, limit: 100, offset: 0,
-      stats: { total: 1, approved: 0, needs_review: 1, analyzing: 0 },
-      capabilities: { read: true, upload: true, manage: true },
+    vi.mocked(getTypographyStyleLabOptions).mockResolvedValueOnce({
+      keywords: [{ keyword_id: "kw-1", keyword: "Cà phê Việt Nam" }],
+      references: [], approved_reference_count: 1, more_references: false,
+      preview_only: true, provider_calls: 0,
     });
     await renderLab();
-    expect(host.textContent).toContain("No approved references");
+    expect(host.textContent).toContain("No accepted G3 references");
     const button = [...host.querySelectorAll("button")].find(item => item.textContent === "Preview 3 concepts");
     expect(button?.hasAttribute("disabled")).toBe(true);
     expect(previewTypographyStyle).not.toHaveBeenCalled();
@@ -164,6 +194,8 @@ describe("Creative Engine V3 read-only P1 bridge", () => {
     };
     vi.mocked(getCreativeV3Preview).mockResolvedValue(plan);
     await renderLab();
+    expect(getCreativeV3Status).not.toHaveBeenCalled();
+    await expandAdvanced();
     expect(getCreativeV3Status).toHaveBeenCalledOnce();
     expect(getCreativeV3Preview).toHaveBeenCalledWith("kw-1", expect.any(AbortSignal));
     expect(host.querySelectorAll(".typography-creative-v3-routes button")).toHaveLength(3);
@@ -173,7 +205,7 @@ describe("Creative Engine V3 read-only P1 bridge", () => {
     await act(async () => { explore?.click(); });
     expect(explore?.getAttribute("aria-pressed")).toBe("true");
     expect(host.textContent).toContain("Hook explore");
-    expect(previewTypographyStyle).not.toHaveBeenCalled();
+    expect(previewTypographyStyle).toHaveBeenCalledOnce();
     expect(saveReviewedTypographyBatch).not.toHaveBeenCalled();
     expect(handoffTypographyV2).not.toHaveBeenCalled();
   });
@@ -189,8 +221,9 @@ describe("Creative Engine V3 read-only P1 bridge", () => {
       concepts: [], preview_only: true, job_created: false, can_generate_artwork: false,
     });
     await renderLab();
+    await expandAdvanced();
     expect(host.textContent).toContain("Analyze this keyword first");
     expect(host.querySelectorAll(".typography-creative-v3-routes button")).toHaveLength(0);
-    expect(previewTypographyStyle).not.toHaveBeenCalled();
+    expect(previewTypographyStyle).toHaveBeenCalledOnce();
   });
 });

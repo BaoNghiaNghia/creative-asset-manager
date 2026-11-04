@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeywordImageStage } from "./KeywordImageStage";
-import { getTypographyStatus, listTypographyReferences } from "./typography/api";
+import { getTypographyStatus, listTypographyReferences, getTypographyStyleLabOptions } from "./typography/api";
 import type { TypographyReferencePage } from "./typography/types";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,6 +35,7 @@ vi.mock("./typography/api", async original => ({
   ...(await original<typeof import("./typography/api")>()),
   getTypographyStatus: vi.fn(),
   listTypographyReferences: vi.fn(),
+  getTypographyStyleLabOptions: vi.fn(),
 }));
 const page: TypographyReferencePage = {
   items: [], total: 0, offset: 0, limit: 1, stats: {
@@ -48,6 +49,10 @@ beforeEach(() => {
   document.body.append(host); root = createRoot(host);
   vi.mocked(getTypographyStatus).mockResolvedValue({ available: true });
   vi.mocked(listTypographyReferences).mockResolvedValue(page);
+  vi.mocked(getTypographyStyleLabOptions).mockResolvedValue({
+    keywords: [], references: [], approved_reference_count: 0, more_references: false,
+    preview_only: true, provider_calls: 0,
+  });
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -134,7 +139,7 @@ describe("Stage 1 Typography V2 feature gating and non-destructive navigation", 
     await click(preview);
     expect(host.querySelector("[data-testid=typography-style-lab]")).not.toBeNull();
     expect(host.textContent).toContain("BEACH BABE");
-    expect(host.textContent).toContain("0 ImageGen calls");
+    expect(host.textContent).toContain("No ImageGen");
     expect(host.querySelector(".typography-keyword-jobs-shell")?.hasAttribute("hidden")).toBe(true);
     expect(host.querySelector(".rrugc-keyword-gen-table")).toBe(table);
     expect(new URLSearchParams(window.location.search).get("view")).toBe("style-lab");

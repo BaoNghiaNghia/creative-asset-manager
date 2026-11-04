@@ -933,6 +933,63 @@ def test_g6_imagegen_plan_resolver_checks_current_human_dna_and_rights(env):
         assert exc.value.code == "reference_not_approved"
 
 
+def test_style_lab_auto_options_only_approved_picked_and_tenant_scoped(env):
+    """No automatic reference approval, no provider call and no unpicked keyword."""
+    route = "/api/v1/realistic-review-ugc/typography/style-lab/options"
+    assert env.client.get(route).status_code == 404  # V2 OFF
+    ref, dna_id = _reviewable_reference_and_dna(env, 209)
+    with Session(env.engine) as session:
+        picked = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword="ONE NATION UNDER GOD",
+            keyword_normalized="one nation under god", picked=True,
+        )
+        not_picked = RrugcKeywordVolumeModel(
+            tenant_id="tenant-a", keyword="UNPICKED",
+            keyword_normalized="unpicked", picked=False,
+        )
+        foreign = RrugcKeywordVolumeModel(
+            tenant_id="tenant-b", keyword="FOREIGN",
+            keyword_normalized="foreign", picked=True,
+        )
+        session.add_all([picked, not_picked, foreign])
+        session.commit()
+        selected = picked.id
+
+    before = env.client.get(route + "?selected_keyword_id=" + selected)
+    assert before.status_code == 200, before.text
+    assert before.json()["keywords"] == [{"keyword_id": selected, "keyword": "ONE NATION UNDER GOD"}]
+    assert before.json()["references"] == []
+    assert before.json()["preview_only"] is True
+    assert before.json()["provider_calls"] == 0
+
+    assert env.client.patch(
+        BASE + "/" + ref["id"] + "/dna/" + dna_id + "/review",
+        json={"decision": "accepted", "reason_code": "approved"},
+    ).status_code == 200
+    eligible = env.client.get(route)
+    assert eligible.status_code == 200, eligible.text
+    assert [item["id"] for item in eligible.json()["references"]] == [ref["id"]]
+    assert eligible.json()["approved_reference_count"] == 1
+    assert env.storage.calls == 1  # original upload only
+    with Session(env.engine) as session:
+        assert session.query(AuthAuditEventModel).filter_by(
+            action="typography_reference.previewed",
+        ).count() == 0
+
+    env.identity("colleague", permissions={"typography_reference.read", "realistic_review_ugc.read"})
+    colleague = env.client.get(route)
+    assert colleague.status_code == 200
+    assert colleague.json()["references"] == []  # private source not shared
+    assert len(colleague.json()["keywords"]) == 1
+    env.identity("owner", permissions={"typography_reference.read"})
+    assert env.client.get(route).status_code == 403
+    env.identity("outsider", tenant="tenant-b")
+    assert env.client.get(route).status_code == 404  # non-canary
+    env.identity("owner")
+    assert env.client.patch(BASE + "/" + ref["id"], json={"source_rights_status": "blocked"}).status_code == 200
+    assert env.client.get(route).json()["references"] == []
+
+
 def test_style_lab_preview_api_requires_picked_keyword_and_accepted_private_dna(env):
     import xml.etree.ElementTree as ET
 
