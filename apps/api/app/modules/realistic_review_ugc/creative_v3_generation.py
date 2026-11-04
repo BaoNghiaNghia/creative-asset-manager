@@ -267,6 +267,14 @@ def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
             or snapshot.get("visual_profile") not in (None, PREVIOUS_VISUAL_PROFILE, NO_OUTLINE_VISUAL_PROFILE, LITE_V4_VISUAL_PROFILE, VISUAL_PROFILE)
             or snapshot.get("design_style", "balanced") not in ("balanced", "heritage", "experimental")):
         raise CreativeV3Error("creative_v3_source_changed", "Creative Brief or exact keyword changed after queueing.")
+    from app.modules.realistic_review_ugc.heritage_lettering import verify_style_snapshot
+    try:
+        verify_style_snapshot(snapshot.get("design_style", "balanced"), snapshot.get("design_style_version"))
+    except ValueError as exc:
+        raise CreativeV3Error(
+            "creative_v3_style_version_invalid",
+            "Pinned Stage 1 style profile is unavailable; preserve this attempt for review.",
+        ) from exc
 
 
 def snapshot_for_job(plan: Mapping[str, Any]) -> dict:
@@ -353,11 +361,14 @@ def _lite_prompt_for_slot(plan: Mapping[str, Any], slot: int) -> str:
     )
 
 
-def _cap_first_prompt_for_slot(plan: Mapping[str, Any], slot: int, *, design_style: str = "balanced") -> str:
+def _cap_first_prompt_for_slot(
+    plan: Mapping[str, Any], slot: int, *,
+    design_style: str = "balanced", design_style_version: str | None = None,
+) -> str:
     """A cap-first ImageGen contract independent from stale Brief styling prose."""
     brief_data = cap_first_direction(plan, slot)
     from app.modules.realistic_review_ugc.heritage_lettering import style_guidance
-    layout_guidance = style_guidance(design_style, slot)
+    layout_guidance = style_guidance(design_style, slot, version=design_style_version)
     return (
         "Create EXACTLY ONE original transparent RGBA artwork of REAL machine-embroidered "
         "typography ready to place on the front of a Valucap 8869 five-panel cap. "
@@ -400,6 +411,7 @@ def prompt_for_slot(
     plan: Mapping[str, Any], slot: int, *,
     visual_profile: str = VISUAL_PROFILE,
     design_style: str = "balanced",
+    design_style_version: str | None = None,
 ) -> str:
     """Pin one art direction per processing attempt, keeping legacy retries stable.
 
@@ -418,7 +430,10 @@ def prompt_for_slot(
         raise CreativeV3Error("creative_v3_slot_invalid", "Invalid Creative Brief slot.")
     if visual_profile == VISUAL_PROFILE:
         if plan["identity"]["schema_version"] == SCHEMA:
-            prompt = _cap_first_prompt_for_slot(plan, slot, design_style=design_style)
+            prompt = _cap_first_prompt_for_slot(
+                plan, slot, design_style=design_style,
+                design_style_version=design_style_version,
+            )
             feedback = plan.get("learning_context")
             if isinstance(feedback, str) and feedback:
                 prompt += (

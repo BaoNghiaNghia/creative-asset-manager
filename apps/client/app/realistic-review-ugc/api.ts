@@ -332,19 +332,26 @@ export const listKeywordImages = (
 };
 
 export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
-  request<{ available: boolean; schema_version: string; output_count: number }>(
+  request<{
+    available: boolean; schema_version: string; output_count: number;
+    default_design_style?: "heritage" | "balanced" | "experimental";
+    default_style_version?: string;
+    style_policy_version?: string;
+    applies_to?: ("generate" | "regenerate")[];
+    retry_preserves_original_style?: boolean;
+  }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status", { signal },
   );
 
-export type CreativeV3DesignStyle = "balanced" | "heritage" | "experimental";
+export type CreativeV3DesignStyle = "auto" | "balanced" | "heritage" | "experimental";
 
-export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "balanced") =>
+export const generateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto") =>
   request<{ keyword_id: string; job_id: string; status: string; queued: boolean; expected_output_count: number }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-generate",
     { method: "POST", body: JSON.stringify({ expected_brief_updated_at: expectedBriefUpdatedAt, design_style: designStyle }) },
   );
 
-export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "balanced") =>
+export const regenerateCreativeV3Stage1Images = (keywordId: string, expectedBriefUpdatedAt: string, designStyle: CreativeV3DesignStyle = "auto") =>
   request<{ keyword_id: string; job_id: string; processing_job_id: string; queued: boolean; action: "regenerate" }>(
     "/api/v1/realistic-review-ugc/keyword-creative-briefs/" + encodeURIComponent(keywordId) + "/v3-regenerate",
     { method: "POST", body: JSON.stringify({

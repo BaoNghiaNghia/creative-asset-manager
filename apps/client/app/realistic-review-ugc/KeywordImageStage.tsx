@@ -350,7 +350,7 @@ export function KeywordImageRowControls({
           <p id="rrugc-regenerate-description">
             <strong>{row.keyword}</strong> — {confirmAction === "retry"
               ? "Continue the same failed Creative Brief V3 attempt. Valid PNG checkpoints and already uploaded images will be reused, so completed slots will not be generated again."
-              : "Start a brand-new Creative Brief V3 batch (1 Typography-First + 4 Creative Twist + 4 Explore). No images from the previous attempt will be reused."}
+              : "Start a brand-new Creative Brief V3 batch (1 Typography-First + 4 Creative Twist + 4 Explore) using the latest server-side Style Policy. No images from the previous attempt will be reused."}
             {" "}All existing Stage 1 images and Output History stay protected.
           </p>
           <div className="rrugc-keyword-regenerate-buttons">

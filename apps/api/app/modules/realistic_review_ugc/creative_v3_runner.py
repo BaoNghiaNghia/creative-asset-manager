@@ -157,6 +157,7 @@ async def generate_six(
                         plan, slot,
                         visual_profile=snapshot.get("visual_profile") or LEGACY_VISUAL_PROFILE,
                         design_style=snapshot.get("design_style", "balanced"),
+                        design_style_version=snapshot.get("design_style_version"),
                     )
                     if qa_attempt:
                         prompt += (
@@ -313,7 +314,12 @@ async def generate_six(
             cap_fit_reports.append({"slot": slot, **cap_fit_advisory(qa.get("alpha_bbox"))})
             if snapshot.get("design_style") == "heritage":
                 from app.modules.realistic_review_ugc.heritage_lettering import heritage_fit_advisory
-                heritage_reports.append({"slot": slot, **heritage_fit_advisory(qa.get("alpha_bbox"))})
+                heritage_reports.append({
+                    "slot": slot,
+                    **heritage_fit_advisory(
+                        qa.get("alpha_bbox"), version=snapshot.get("design_style_version"),
+                    ),
+                })
         outputs.append(GeneratedImageFile(
             path=str(final_dir / f"design_{slot:02}.png"),
             filename=f"output/final/design_{slot:02}.png",
@@ -328,6 +334,9 @@ async def generate_six(
         output_files=tuple(outputs),
         provider_metadata={
             "creative_v3_fingerprint": plan["fingerprint"],
+            "design_style": snapshot.get("design_style", "balanced"),
+            "design_style_version": snapshot.get("design_style_version"),
+            "style_policy_version": snapshot.get("style_policy_version"),
             "technical_qa": "passed",
             "image_spelling_verified": False,
             "embroidery_fit_verified": False,

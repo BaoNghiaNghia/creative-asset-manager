@@ -126,6 +126,29 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
+/* Always-visible generation policy, including before Creative Brief analysis. */
+.rrugc-creative-brief-active-style {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 11px;
+  margin: 0 0 13px;
+  border: 1px solid #d9e5dc;
+  background: #f7faf7;
+  border-radius: 8px;
+}
+.rrugc-creative-brief-active-style strong {
+  font-size: 11px;
+  font-weight: 780;
+  color: #35634b;
+}
+.rrugc-creative-brief-active-style span {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #62796d;
+}
 .rrugc-creative-brief-alert {
   display: flex;
   align-items: center;

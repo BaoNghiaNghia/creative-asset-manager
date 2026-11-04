@@ -21,6 +21,10 @@ from app.modules.realistic_review_ugc.creative_v3_generation import (
     prompt_for_slot, resolve_plan, snapshot_for_job, verify_snapshot,
 )
 from app.modules.realistic_review_ugc.creative_v3_runner import _checked_png
+from app.modules.realistic_review_ugc.heritage_lettering import (
+    DEFAULT_DESIGN_STYLE, HERITAGE_VERSION, STYLE_POLICY_VERSION,
+    resolve_style_policy, style_guidance, verify_style_snapshot,
+)
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
     RrugcKeywordImageJobModel, RrugcImageOutputVersionModel,
@@ -67,6 +71,74 @@ def settings(on=True):
         CODEX_IMAGE_GENERATION_ENABLED=True,
         CREATIVE_ENGINE_V3_IMAGE_PROVIDER="codex",
     )
+
+
+def test_generate_request_without_style_defaults_to_active_policy():
+    from app.modules.realistic_review_ugc.creative_brief_router import (
+        CreativeV3GenerateRequest, CreativeV3RegenerateRequest,
+    )
+
+    request = CreativeV3GenerateRequest(expected_brief_updated_at="2026-11-04T11:00:00+07:00")
+    regenerated = CreativeV3RegenerateRequest(
+        expected_brief_updated_at="2026-11-04T11:00:00+07:00",
+        confirm_regenerate=True,
+    )
+    assert request.design_style == "auto"
+    assert regenerated.design_style == "auto"
+    assert resolve_style_policy(request.design_style) == ("heritage", HERITAGE_VERSION)
+    assert resolve_style_policy(regenerated.design_style) == ("heritage", HERITAGE_VERSION)
+
+
+def test_style_policy_is_current_heritage_for_new_and_fresh_regenerate():
+    assert DEFAULT_DESIGN_STYLE == "heritage"
+    assert STYLE_POLICY_VERSION == "stage1-heritage-default-h1"
+    assert resolve_style_policy() == ("heritage", HERITAGE_VERSION)
+    assert resolve_style_policy("auto") == ("heritage", HERITAGE_VERSION)
+    assert resolve_style_policy("heritage") == ("heritage", HERITAGE_VERSION)
+    assert resolve_style_policy("balanced") == ("balanced", "balanced-v1")
+    with pytest.raises(ValueError, match="Unsupported"):
+        resolve_style_policy("unknown")
+    pinned_prompt = prompt_for_slot(
+        plan(), 1, design_style="heritage",
+        design_style_version=HERITAGE_VERSION,
+    )
+    assert "HERITAGE STYLE PACK heritage-lettering-h1" in pinned_prompt
+    assert "Classic Heritage Serif" in pinned_prompt
+    assert "CAP-FIRST ART DIRECTION" in pinned_prompt
+    assert "HERITAGE STYLE PACK" not in prompt_for_slot(
+        plan(), 1, design_style="balanced", design_style_version="balanced-v1",
+    )
+    # Never silently substitute the active profile for an unknown snapshot.
+    with pytest.raises(ValueError, match="pinned"):
+        style_guidance("heritage", 1, version="heritage-lettering-unreleased")
+    with pytest.raises(ValueError, match="pinned"):
+        verify_style_snapshot("balanced", HERITAGE_VERSION)
+    # Historical H1 jobs that predate style_version remain on H1.
+    assert "HERITAGE STYLE PACK heritage-lettering-h1" in style_guidance("heritage", 1)
+
+
+def test_policy_upgrade_applies_to_fresh_runs_but_preserves_pinned_heritage_retry(monkeypatch):
+    import app.modules.realistic_review_ugc.heritage_lettering as style_policy
+
+    prior = style_guidance("heritage", 1, version="heritage-lettering-h1")
+    old_prompt = prompt_for_slot(
+        plan(), 1, design_style="heritage",
+        design_style_version="heritage-lettering-h1",
+    )
+    # Simulate shipping H2 with an appended immutable pack and a new pointer.
+    monkeypatch.setitem(style_policy.HERITAGE_PACK_ARCHIVE, "heritage-lettering-h2", {
+        "layouts": tuple("H2 art direction " + str(i) for i in range(9)),
+        "shared_guidance": " H2-only rules.",
+    })
+    monkeypatch.setattr(style_policy, "HERITAGE_VERSION", "heritage-lettering-h2")
+    assert style_policy.resolve_style_policy("auto") == ("heritage", "heritage-lettering-h2")
+    assert style_guidance("heritage", 1, version="heritage-lettering-h1") == prior
+    assert prompt_for_slot(
+        plan(), 1, design_style="heritage",
+        design_style_version="heritage-lettering-h1",
+    ) == old_prompt
+    assert "H2-only rules" in style_guidance("heritage", 1, version="heritage-lettering-h2")
+    assert "H2-only rules" not in prior
 
 
 def test_new_brief_variants_feed_distinct_nine_image_slot_recipes():
@@ -618,6 +690,9 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             assert processing.payload_json["expected_output_count"] == 9
             assert processing.payload_json["creative_v3_parallel_slots"] == 2
             assert processing.payload_json["creative_v3"]["provider"] == "codex"
+            assert processing.payload_json["creative_v3"]["design_style"] == "heritage"
+            assert processing.payload_json["creative_v3"]["design_style_version"] == HERITAGE_VERSION
+            assert processing.payload_json["creative_v3"]["style_policy_version"] == STYLE_POLICY_VERSION
             assert processing.provider_key == "codex"
             assert processing.payload_json["creative_v3"]["visual_profile"] == VISUAL_PROFILE
             assert processing.payload_json["creative_v3"]["source_sha256"]
@@ -662,6 +737,9 @@ def test_queue_creative_v3_preserves_existing_drive_history_without_rerunning_v1
             assert next_job.processing_job_id != processing.id
             fresh = session.get(ProcessingJobModel, next_job.processing_job_id)
             assert fresh.payload_json["creative_v3"]["fingerprint"]
+            assert fresh.payload_json["creative_v3"]["design_style"] == "heritage"
+            assert fresh.payload_json["creative_v3"]["design_style_version"] == HERITAGE_VERSION
+            assert fresh.payload_json["creative_v3"]["style_policy_version"] == STYLE_POLICY_VERSION
             assert fresh.payload_json.get("replace_outputs") is None
     finally:
         engine.dispose()
@@ -801,6 +879,9 @@ def test_retry_resumes_failed_v3_processing_id_and_regenerate_starts_fresh(tmp_p
             next_processing = session.get(ProcessingJobModel, new.processing_job_id)
             assert next_processing.payload_json["creative_v3"] != first_snapshot
             assert next_processing.payload_json["creative_v3"]["schema_version"] == SCHEMA
+            assert next_processing.payload_json["creative_v3"]["design_style"] == "heritage"
+            assert next_processing.payload_json["creative_v3"]["design_style_version"] == HERITAGE_VERSION
+            assert next_processing.payload_json["creative_v3"]["style_policy_version"] == STYLE_POLICY_VERSION
             assert next_processing.payload_json["expected_output_count"] == SLOT_COUNT
             assert next_processing.payload_json["creative_v3_parallel_slots"] == 2
             assert next_processing.payload_json.get("replace_outputs") is None

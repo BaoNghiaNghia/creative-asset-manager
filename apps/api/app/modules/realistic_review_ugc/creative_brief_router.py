@@ -28,15 +28,26 @@ def creative_v3_generation_status(principal: CurrentPrincipal = Depends(READ)):
     from app.modules.realistic_review_ugc.creative_v3_generation import (
         SCHEMA, SLOT_COUNT, enabled,
     )
+    from app.modules.realistic_review_ugc.heritage_lettering import (
+        STYLE_POLICY_VERSION, resolve_style_policy,
+    )
+    default_style, default_version = resolve_style_policy()
     return {
         "available": enabled(get_settings(), principal.active_tenant_id),
         "schema_version": SCHEMA, "output_count": SLOT_COUNT,
+        "default_design_style": default_style,
+        "default_style_version": default_version,
+        "style_policy_version": STYLE_POLICY_VERSION,
+        "applies_to": ["generate", "regenerate"],
+        "retry_preserves_original_style": True,
     }
 
 
 class CreativeV3GenerateRequest(BaseModel):
     expected_brief_updated_at: str = Field(min_length=10, max_length=70)
-    design_style: str = Field(default="balanced", pattern="^(balanced|heritage|experimental)$")
+    # "auto" resolves the latest server-side style policy at fresh job queue
+    # time. Retry reuses its original processing snapshot instead.
+    design_style: str = Field(default="auto", pattern="^(auto|balanced|heritage|experimental)$")
 
 
 @router.post("/{keyword_id}/v3-generate", status_code=202)

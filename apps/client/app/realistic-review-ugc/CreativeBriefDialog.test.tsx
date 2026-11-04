@@ -106,12 +106,32 @@ afterEach(async () => {
 });
 
 describe("Creative Brief V1 modal redesign", () => {
+  it("shows the server-active Heritage version even before keyword analysis", async () => {
+    vi.mocked(getCreativeV3GenerationStatus).mockResolvedValueOnce({
+      available: true, schema_version: "creative-v3/stage1-nine-v1", output_count: 9,
+      default_design_style: "heritage",
+      default_style_version: "heritage-lettering-h2",
+      style_policy_version: "stage1-heritage-default-h2",
+      applies_to: ["generate", "regenerate"],
+      retry_preserves_original_style: true,
+    });
+    await renderDialog(makeDetail("not_analyzed"));
+    expect(document.querySelector(".rrugc-creative-brief-active-style")?.textContent)
+      .toContain("Heritage Lettering · heritage-lettering-h2");
+    expect(document.querySelector(".rrugc-creative-brief-pre")?.textContent)
+      .toContain("A stronger idea starts with the meaning.");
+    expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
+  });
+
   it("shows an actionable empty state with the 3-step outline and keeps Stage 1 outputs safe", async () => {
     await renderDialog(makeDetail("not_analyzed"));
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain("CREATIVE DICTATOR");
     expect(dialog?.textContent).toContain("A stronger idea starts with the meaning.");
     expect(dialog?.textContent).toContain("9 designs · 3 creative routes");
+    expect(dialog?.textContent).toContain("Default style: Heritage Lettering");
+    expect(dialog?.textContent).toContain("New Generate and Regenerate use the latest style policy.");
+    expect(dialog?.textContent).toContain("Retry keeps the previous job's style.");
     expect(dialog?.textContent).toContain("Typography-First · 1 design");
     expect(dialog?.textContent).toContain("Creative Twist · 4 designs");
     expect(dialog?.textContent).toContain("Explore · 4 designs");
@@ -260,7 +280,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(button?.textContent).toContain("Confirm new nine-design batch");
     expect(regenerateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
-    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "heritage");
+    expect(regenerateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto");
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     expect(button?.disabled).toBe(true);
   });
@@ -292,7 +312,7 @@ describe("Creative Brief V1 modal redesign", () => {
     expect(generateCreativeV3Stage1Images).not.toHaveBeenCalled();
     await act(async () => { button?.click(); await Promise.resolve(); });
     expect(generateCreativeV3Stage1Images).toHaveBeenCalledOnce();
-    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "heritage");
+    expect(generateCreativeV3Stage1Images).toHaveBeenCalledWith(keywordId, "2026-10-30T10:00:00Z", "auto");
     expect(document.querySelector(".rrugc-creative-v3-generate")?.textContent).toContain("9 images queued");
     expect(button?.disabled).toBe(true);
     expect(generateKeywordCreativeBrief).not.toHaveBeenCalled();

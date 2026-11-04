@@ -7,9 +7,9 @@ export type Stage1ImageAction = "generate" | "regenerate" | "retry";
 
 /**
  * Explicit Stage 1 actions:
- * - Generate: first 6-image V3 batch.
- * - Regenerate: NEW 6-image V3 batch with a new processing ID.
- * - Retry: resume the SAME failed V3 processing ID (checkpoints and uploads).
+ * - Generate: first 9-image V3 batch under the current Style Policy.
+ * - Regenerate: NEW 9-image V3 batch using the latest Style Policy.
+ * - Retry: resume the SAME failed V3 processing ID and pinned style (checkpoints/uploads).
  * Never fall back to Google Fonts, concept-short, or any legacy Skill.
  */
 export async function queueStage1CreativeBriefRun(

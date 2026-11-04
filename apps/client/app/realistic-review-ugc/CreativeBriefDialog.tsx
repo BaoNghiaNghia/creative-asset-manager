@@ -52,7 +52,12 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
 }) {
   const [detail, setDetail] = useState<KeywordCreativeBriefDetail | null>(null);
   const [selectedDirection, setSelectedDirection] = useState(0);
-  const [designStyle, setDesignStyle] = useState<CreativeV3DesignStyle>("heritage");
+  const [designStyle, setDesignStyle] = useState<CreativeV3DesignStyle>("auto");
+  const [stylePolicy, setStylePolicy] = useState({
+    defaultStyle: "heritage" as "heritage" | "balanced" | "experimental",
+    defaultVersion: "heritage-lettering-h1",
+    policyVersion: "stage1-heritage-default-h1",
+  });
   const [busy, setBusy] = useState(false);
   const [priorityRequested, setPriorityRequested] = useState(false);
   const [error, setError] = useState("");
@@ -82,7 +87,15 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   useEffect(() => {
     const controller = new AbortController();
     void getCreativeV3GenerationStatus(controller.signal).then(result => {
-      if (!controller.signal.aborted) setV3Available(result.available && result.output_count === 9);
+      if (controller.signal.aborted) return;
+      setV3Available(result.available && result.output_count === 9);
+      if (result.default_design_style && result.default_style_version) {
+        setStylePolicy({
+          defaultStyle: result.default_design_style,
+          defaultVersion: result.default_style_version,
+          policyVersion: result.style_policy_version || result.default_style_version,
+        });
+      }
     }).catch(() => { if (!controller.signal.aborted) setV3Available(false); });
     return () => controller.abort();
   }, []);
@@ -194,6 +207,10 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
   };
 
   const brief = detail?.brief;
+  const resolvedStyle = designStyle === "auto" ? stylePolicy.defaultStyle : designStyle;
+  const styleName = resolvedStyle === "heritage" ? "Heritage Lettering" : resolvedStyle === "balanced" ? "Balanced" : "Experimental";
+  const styleVersion = designStyle === "auto" ? stylePolicy.defaultVersion : resolvedStyle === "heritage"
+    ? stylePolicy.defaultVersion : resolvedStyle + "-v1";
   const directions = brief?.concepts.flatMap((item, group) =>
     (item.design_variants?.length ? item.design_variants : [item.description])
       .map((direction, variant) => ({ item, group, variant, direction }))) || [];
@@ -230,6 +247,10 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
         </header>
 
         <div className="rrugc-creative-brief-content">
+          <div className="rrugc-creative-brief-active-style" role="status" title={stylePolicy.policyVersion}>
+            <strong>Default style: {stylePolicy.defaultStyle === "heritage" ? "Heritage Lettering" : stylePolicy.defaultStyle === "balanced" ? "Balanced" : "Experimental"} · {stylePolicy.defaultVersion}</strong>
+            <span>New Generate and Regenerate use the latest style policy. Retry keeps the previous job's style.</span>
+          </div>
           {error && <div className="rrugc-creative-brief-alert" role="alert">
             <strong>Something went wrong.</strong><span>{error}</span>
             {!detail && <button type="button" onClick={() => { setError(""); setRefreshToken(value => value + 1); }}>
@@ -414,7 +435,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
             {v3Available && <section className="rrugc-creative-style-picker" aria-label="Select design style">
               <div className="rrugc-creative-style-heading"><strong>Design Style</strong><span>Applies to the next 9-image batch</span></div>
               <div className="rrugc-creative-style-options" role="group" aria-label="Design style">
-                {([ ["heritage", "Heritage Lettering", "Serif · Script · Swash · Collegiate"], ["balanced", "Balanced", "Mix of design approaches"], ["experimental", "Experimental", "Bolder typography architecture"] ] as const).map(([value, label, hint]) =>
+                {([ ["auto", "Auto · " + (stylePolicy.defaultStyle === "heritage" ? "Heritage Lettering" : stylePolicy.defaultStyle === "balanced" ? "Balanced" : "Experimental"), "Latest " + stylePolicy.defaultVersion], ["balanced", "Balanced", "Mix of design approaches"], ["experimental", "Experimental", "Bolder typography architecture"] ] as const).map(([value, label, hint]) =>
                   <button key={value} type="button" aria-pressed={designStyle === value}
                     disabled={imageBusy || v3Queued || stage1Busy}
                     className={"rrugc-creative-style-option" + (designStyle === value ? " selected" : "")}
@@ -427,7 +448,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
               <div>
                 <strong>Creative Engine V3 · Embroidery masters</strong>
                 <p>{hasExistingStage1Job ? "Regenerate a completely new 9-design V3 batch without reusing previous images." : "Generate 9 transparent Stage 1 embroidery artworks: 1 Typography-First · 4 Creative Twist · 4 Explore."} Existing Output History is preserved.</p>
-                <small>Style: {designStyle === "heritage" ? "Heritage Lettering H1" : designStyle === "balanced" ? "Balanced" : "Experimental"} · Native ImageGen · Exact keyword · Human spelling and stitch review required before Stage 2</small>
+                <small>Style: {styleName} · {styleVersion}{designStyle === "auto" ? " · Auto-update on next Generate / Regenerate" : " · Manual override"} · Exact keyword · Human spelling and stitch review before Stage 2</small>
               </div>
               <button type="button" className="rrugc-creative-brief-primary"
                 onClick={() => void generateImages()}
