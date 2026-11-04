@@ -132,8 +132,41 @@ function drawTriangle(ctx: CanvasRenderingContext2D, image: CanvasSource,
 }
 
 export type SharedUvTexture = ReturnType<typeof makeUvTexture>;
+
+/** The checked-in v2 grid is affine within each of its 16 cells (maximum
+ * cross-term about 0.000001px). Two triangles per cell are exact for this
+ * profile. For future genuinely bilinear profiles, adaptively subdivide until
+ * the largest affine-approximation error is below 0.2 native canvas pixels.
+ */
+export function uvMeshSubdivisions(viewName: UvView, width: number, height: number): number {
+  const view = uvProfileView(viewName);
+  let worstCrossPx = 0;
+  for (let row = 0; row < columns; row++) for (let col = 0; col < columns; col++) {
+    const p = view.nodes[row][col], q = view.nodes[row][col + 1];
+    const s = view.nodes[row + 1][col], t = view.nodes[row + 1][col + 1];
+    const cx = (t[0] - q[0] - s[0] + p[0]) * width / view.width;
+    const cy = (t[1] - q[1] - s[1] + p[1]) * height / view.height;
+    worstCrossPx = Math.max(worstCrossPx, Math.hypot(cx, cy));
+  }
+  return Math.max(1, Math.min(12, Math.ceil(Math.sqrt(worstCrossPx / (4 * .2)))));
+}
+
+/** Source atlas pixel centers follow the backend's cv2.remap convention. */
+export function atlasUvPixel(value: number, textureLength: number) {
+  return value * (textureLength - 1);
+}
+
+export function uvTileTouchesArtwork(
+  box: UVBox, u0: number, v0: number, u1: number, v1: number,
+  textureWidth: number, textureHeight: number,
+): boolean {
+  const padU = 2 / textureWidth, padV = 2 / textureHeight;
+  return !(u1 < box[0] - padU || u0 > box[2] + padU ||
+           v1 < box[1] - padV || v0 > box[3] + padV);
+}
+
 export function renderSharedUvView(canvas: HTMLCanvasElement, source: SharedUvTexture,
-  viewName: UvView, width: number, height: number, debug = false) {
+  viewName: UvView, width: number, height: number) {
   const view = uvProfileView(viewName);
   if (Math.abs((width / height) / (view.width / view.height) - 1) > .15)
     throw new Error("Stock aspect differs from calibrated UV profile.");
@@ -149,13 +182,16 @@ export function renderSharedUvView(canvas: HTMLCanvasElement, source: SharedUvTe
   ctx.scale(view.width / width, view.height / height);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  const samples = 6;
+  const samples = uvMeshSubdivisions(viewName, width, height);
+  const w = source.texture.width, h = source.texture.height;
   for (let r = 0; r < 4 * samples; r++) for (let c = 0; c < 4 * samples; c++) {
     const u0 = c / (4 * samples), u1 = (c + 1) / (4 * samples);
     const v0 = r / (4 * samples), v1 = (r + 1) / (4 * samples);
-    const w = source.texture.width, h = source.texture.height;
-    const t0: Point = [u0 * w, v0 * h], t1: Point = [u1 * w, v0 * h];
-    const t2: Point = [u1 * w, v1 * h], t3: Point = [u0 * w, v1 * h];
+    if (!uvTileTouchesArtwork(source.box, u0, v0, u1, v1, w, h)) continue;
+    const t0: Point = [atlasUvPixel(u0, w), atlasUvPixel(v0, h)];
+    const t1: Point = [atlasUvPixel(u1, w), atlasUvPixel(v0, h)];
+    const t2: Point = [atlasUvPixel(u1, w), atlasUvPixel(v1, h)];
+    const t3: Point = [atlasUvPixel(u0, w), atlasUvPixel(v1, h)];
     const d0 = projectProfileUv(viewName, u0, v0, width, height);
     const d1 = projectProfileUv(viewName, u1, v0, width, height);
     const d2 = projectProfileUv(viewName, u1, v1, width, height);
@@ -163,8 +199,8 @@ export function renderSharedUvView(canvas: HTMLCanvasElement, source: SharedUvTe
     drawTriangle(ctx, source.texture, [t0, t1, t2], [d0, d1, d2]);
     drawTriangle(ctx, source.texture, [t0, t2, t3], [d0, d2, d3]);
   }
+  // This function owns only design RGB/alpha. Debug has its own canvas.
   ctx.restore();
-  if (debug) drawUvDebug(ctx, viewName, source.box, width, height);
 }
 
 export function drawUvDebug(ctx: CanvasRenderingContext2D, view: UvView,

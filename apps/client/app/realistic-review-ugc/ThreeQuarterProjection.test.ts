@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FRONT_PLACEMENT } from "./FrontPlacement";
-import { UV_PROFILE_ID, frontUvBox, projectProfileUv, uvProfileView } from "./ThreeQuarterProjection";
+import { UV_PROFILE_ID, atlasUvPixel, frontUvBox, projectProfileUv, uvMeshSubdivisions, uvTileTouchesArtwork, uvProfileView } from "./ThreeQuarterProjection";
 
 const front = {
   ...DEFAULT_FRONT_PLACEMENT,
@@ -55,6 +55,17 @@ describe("single saved FRONT UV, 5x5 3/4 grid and actual occlusion", () => {
     const shifted = frontUvBox(bounds,
       { ...front, left: .20, width: .32, top: .4, height: .2 }, 100);
     expect((shifted[0] + shifted[2]) / 2).not.toBeCloseTo(.5, 3);
+  });
+
+  it("uses exactly two affine triangles per calibrated cell and source pixel centers", () => {
+    expect(uvMeshSubdivisions("front", 1254, 1254)).toBe(1);
+    expect(uvMeshSubdivisions("threeQuarter", 1254, 1254)).toBe(1);
+    expect(atlasUvPixel(0, 1024)).toBe(0);
+    expect(atlasUvPixel(1, 1024)).toBe(1023);
+    expect(atlasUvPixel(.5, 1024)).toBe(511.5);
+    const box: [number, number, number, number] = [.2, .3, .8, .7];
+    expect(uvTileTouchesArtwork(box, 0, 0, .1, .1, 1024, 573)).toBe(false);
+    expect(uvTileTouchesArtwork(box, .75, .625, .875, .75, 1024, 573)).toBe(true);
   });
 
   it("fails closed when saved FRONT exceeds the mesh instead of squeezing into the visible silhouette", () => {

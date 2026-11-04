@@ -63,6 +63,10 @@ describe("Three-quarter blueprint frame", () => {
     expect(card.textContent).toContain("SHARED UV");
     expect(card.textContent).toContain("5×5 mesh");
     expect(card.querySelector("canvas")?.getAttribute("aria-label")).toContain("5x5 UV mesh");
+    expect(card.getAttribute("data-uv-original-src")).toBe("/api/v1/outputs/6");
+    expect(card.getAttribute("data-front-stock-src")).toBe("/official/white-black/front.jpg");
+    expect(card.getAttribute("data-uv-original-src")).not.toContain("thumbnail=");
+    expect(card.getAttribute("data-uv-original-src")).not.toContain("artwork=");
     expect(card.querySelector(".rrugc-blueprint-three-quarter-handle")).toBeNull();
     expect(card.textContent).not.toContain("Edit 4 points");
     expect(save).not.toHaveBeenCalled();
@@ -75,15 +79,42 @@ describe("Three-quarter blueprint frame", () => {
     await mount({ stockCatalog: catalog, onSaveThreeQuarterPlacement: async value => value });
     const card = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
     expect(card.querySelector("img")?.getAttribute("src")).toBe("/official/white-black/three-quarter.jpg");
-    expect(card.querySelector("canvas")).not.toBeNull();
+    const cleanCanvas = card.querySelector<HTMLCanvasElement>('canvas[aria-label^="Clean design"]')!;
+    expect(cleanCanvas).not.toBeNull();
     const button = card.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')!;
     expect(button.textContent).toContain("Debug UV");
     await act(async () => button.click());
     expect(card.querySelector(".rrugc-blueprint-uv-debug")).not.toBeNull();
     expect(card.textContent).toContain("UV:");
-    expect(card.querySelectorAll("canvas")).toHaveLength(2);
+    expect(card.querySelectorAll("canvas")).toHaveLength(3);
+    expect(card.querySelector<HTMLCanvasElement>(".rrugc-blueprint-three-quarter-debug-overlay")).not.toBeNull();
+    expect(card.querySelector<HTMLCanvasElement>('canvas[aria-label^="Clean design"]')).toBe(cleanCanvas);
     await act(async () => button.click());
     expect(card.querySelector(".rrugc-blueprint-uv-debug")).toBeNull();
+    expect(card.querySelectorAll("canvas")).toHaveLength(1);
+    expect(card.querySelector<HTMLCanvasElement>('canvas[aria-label^="Clean design"]')).toBe(cleanCanvas);
+    await close();
+  });
+
+  it("reuses the canonical design canvas across hat colors and keeps debug isolated", async () => {
+    const catalog = stock();
+    for (const color of BLUEPRINT_HAT_COLORS) {
+      catalog.colors[color.key].views["three-quarter"] =
+        "/official/" + color.key + "/three-quarter.jpg";
+    }
+    await mount({ stockCatalog: catalog, onSaveThreeQuarterPlacement: async value => value });
+    const first = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
+    const canvas = first.querySelector<HTMLCanvasElement>('canvas[aria-label^="Clean design"]')!;
+    const debug = first.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')!;
+    await act(async () => debug.click());
+    expect(first.querySelectorAll("canvas")).toHaveLength(3);
+    await clickButton("Select hat color Natural / Brown");
+    const second = host.querySelector<HTMLElement>(".rrugc-blueprint-three-quarter-card")!;
+    expect(second).toBe(first);
+    expect(second.querySelector<HTMLCanvasElement>('canvas[aria-label^="Clean design"]')).toBe(canvas);
+    expect(second.getAttribute("data-uv-original-src")).toBe("/api/v1/outputs/6");
+    expect(second.querySelector("img")?.getAttribute("src")).toBe("/official/natural-brown/three-quarter.jpg");
+    expect(second.querySelector('button[aria-pressed="true"]')).not.toBeNull();
     await close();
   });
 

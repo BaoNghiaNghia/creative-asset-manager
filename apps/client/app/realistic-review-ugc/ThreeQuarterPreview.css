@@ -3,12 +3,13 @@
 .rrugc-blueprint-three-quarter-scene{position:relative;aspect-ratio:1;max-height:100%;max-width:100%;width:auto;height:100%;overflow:hidden;background:#fff}
 .rrugc-blueprint-three-quarter-scene>img,.rrugc-blueprint-three-quarter-scene>canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
 .rrugc-blueprint-three-quarter-scene>canvas{z-index:1}
+.rrugc-blueprint-three-quarter-scene>canvas.rrugc-blueprint-three-quarter-debug-overlay{z-index:2;pointer-events:none}
 .rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button{border:1px solid #cbdce9;border-radius:6px;padding:5px 8px;font-weight:700;font-size:10px;color:#375777;background:#fff;cursor:pointer}
 .rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button[aria-pressed=true]{background:#e6f6ff;border-color:#0891b2}
 .rrugc-blueprint-three-quarter-card .rrugc-blueprint-panel-header-actions button:disabled{opacity:.4;cursor:default}
 .rrugc-blueprint-3q-message{margin:0;padding:5px 10px;font-size:10px;color:#506986}
 .rrugc-blueprint-3q-message.is-warning{color:#a33f25}
-.rrugc-blueprint-uv-debug{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px;padding:7px 9px;border-top:1px solid #dbe5f0;background:#f5f8fc}
+.rrugc-blueprint-uv-debug{display:grid;grid-template-columns:minmax(100px,155px) minmax(0,1fr);gap:8px;padding:7px 9px;border-top:1px solid #dbe5f0;background:#f5f8fc}
 .rrugc-blueprint-uv-debug>div:first-child{display:flex;flex-direction:column;gap:3px;min-width:0}
 .rrugc-blueprint-uv-debug strong{font-size:10px;color:#2b4c68}
 .rrugc-blueprint-uv-debug canvas{display:block;width:100%;height:auto;background:repeating-conic-gradient(#fafafa 0% 25%,#e4eaf0 0% 50%) 50%/16px 16px}

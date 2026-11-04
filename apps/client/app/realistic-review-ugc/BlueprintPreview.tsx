@@ -195,6 +195,9 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
   const activeDesignSrc = activeDesign ? activeDesign.url
     + (activeDesign.url.includes("?") ? "&" : "?")
     + "thumbnail=true&size=1024&artwork=stage1-thread-geometry-v1" : "";
+  // Stage 2 worker opens the original PNG bytes, not the thread-geometry
+  // thumbnail. Canonical UV 3/4 preview must request those same source bytes.
+  const canonicalUvDesignSrc = activeDesign?.url ?? "";
   // Render actual stitch detail, not a 512px downsample.
   // Recolor each design by hat color while preserving stitch luminance and applying
   // the same low-profile material simulation in preview, lens and detail modal.
@@ -550,8 +553,9 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
                 </div>}
           </div>
         </article>
-        {onSaveThreeQuarterPlacement && <ThreeQuarterPreview key={activeColor.key}
-          stockSrc={threeQuarterHatSrc} artworkSrc={activeDesignSrc}
+        {onSaveThreeQuarterPlacement && <ThreeQuarterPreview
+          stockSrc={threeQuarterHatSrc} frontStockSrc={frontHatSrc}
+          artworkSrc={canonicalUvDesignSrc}
           colorKey={activeColor.key} front={visiblePlacement} designSize={frontDesignSize}/>}
         <div className="rrugc-blueprint-nav-hint">← → Change design <span>·</span> ↑ ↓ Change hat color <span>·</span> Drag to browse</div>
       </div>
