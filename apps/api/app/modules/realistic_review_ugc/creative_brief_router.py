@@ -32,7 +32,12 @@ def creative_v3_generation_status(principal: CurrentPrincipal = Depends(READ)):
         STYLE_POLICY_VERSION, resolve_style_policy,
     )
     default_style, default_version = resolve_style_policy()
+    from app.modules.realistic_review_ugc.madeira_visor_threads import (
+        PALETTE_VERSION, MADEIRA_VISOR_THREADS,
+    )
     return {
+        "thread_palette_version": PALETTE_VERSION,
+        "verified_visor_thread_count": len(MADEIRA_VISOR_THREADS),
         "available": enabled(get_settings(), principal.active_tenant_id),
         "schema_version": SCHEMA, "output_count": SLOT_COUNT,
         "default_design_style": default_style,

@@ -400,6 +400,7 @@ class KeywordImageService:
             image_provider, CreativeV3Error,
         )
         from app.modules.realistic_review_ugc.heritage_lettering import resolve_style_policy, STYLE_POLICY_VERSION
+        from app.modules.realistic_review_ugc.madeira_visor_threads import PALETTE_VERSION
         try:
             resolved_style, pinned_style_version = resolve_style_policy(design_style)
         except ValueError as exc:
@@ -524,6 +525,7 @@ class KeywordImageService:
                 "design_style": resolved_style,
                 "design_style_version": pinned_style_version,
                 "style_policy_version": STYLE_POLICY_VERSION,
+                "thread_palette_version": PALETTE_VERSION,
                 "reference_guidance": reference_learning["guidance"],
                 "reference_feedback_digest": reference_learning["digest"],
                 "reference_feedback_votes": reference_learning["votes"],

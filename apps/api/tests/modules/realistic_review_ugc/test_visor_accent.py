@@ -18,8 +18,10 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.threadtransfer import _layer_from_reference
 from app.modules.realistic_review_ugc.visor_accent import (
     VISOR_THREAD_RGB, MAX_ACCENT_RATIO, VERSION,
-    VisorAccentError, recolor_layer, select_accent,
+    MADEIRA_PALETTE_VERSION, LEGACY_PALETTE_VERSION,
+    LEGACY_VISOR_THREAD_RGB, VisorAccentError, recolor_layer, select_accent,
 )
+from app.modules.realistic_review_ugc.madeira_visor_threads import MADEIRA_VISOR_THREADS
 
 
 def _reference(*, monochrome=False):
@@ -61,6 +63,18 @@ def test_all_twelve_visor_palettes_have_contrast_and_only_mask_changes():
         with Image.open(BytesIO(chosen.mask_png)) as opened:
             selected = np.asarray(opened) > 127
         assert qa["status"] == "applied"
+        assert qa["thread_palette_version"] == MADEIRA_PALETTE_VERSION
+        if color in MADEIRA_VISOR_THREADS:
+            shade = MADEIRA_VISOR_THREADS[color]
+            assert qa["madeira_thread"] == {
+                "code": shade.code, "name": shade.name, "hex": shade.hex,
+            }
+            assert qa["thread_rgb"] == list(shade.rgb)
+            assert qa["visor_palette_rgb"] == list(shade.rgb)
+            assert qa["thread_mapping"] == "verified_code"
+        else:
+            assert qa["madeira_thread"] is None
+            assert qa["thread_mapping"] == "legacy_unverified_approximation"
         assert qa["max_ratio"] == 0.30
         assert qa["accent_ratio"] <= 0.30
         assert qa["crown_contrast"] >= 2.5

@@ -62,6 +62,7 @@ from app.modules.realistic_review_ugc.threadtransfer import (
 from app.modules.realistic_review_ugc.visor_accent import (
     VERSION as VISOR_ACCENT_VERSION, AccentSelection, VisorAccentError,
     select_accent, recolor_layer, VISOR_THREAD_RGB,
+    MADEIRA_PALETTE_VERSION, LEGACY_PALETTE_VERSION,
 )
 
 # Distinct synthetic source namespace for explicitly selected Products Stage 1 PNGs.
@@ -296,7 +297,8 @@ class ColorwayService:
         ).with_for_update())
 
     def _enqueue(self, row: RrugcColorwayJobModel, *, front_placement=None,
-                 pinned_material: dict | None = None) -> None:
+                 pinned_material: dict | None = None,
+                 thread_palette_version: str | None = MADEIRA_PALETTE_VERSION) -> None:
         sequence = int(self.session.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == row.tenant_id,
             ProcessingJobModel.entity_type == "rrugc_colorway_job",
@@ -312,6 +314,8 @@ class ColorwayService:
             entity_id=row.id, idempotency_key=f"rrugc-colorway:{row.id}:{sequence}",
             payload={"colorway_job_id": row.id,
                      **({"thread_material_pipeline": PRODUCTS_VISOR_ACCENT_PIPELINE,
+                         **({"thread_palette_version": thread_palette_version}
+                            if thread_palette_version is not None else {}),
                          **material_ref} if material_ref else {}),
                      **({"front_placement": front_placement} if front_placement is not None else {})},
             priority=20, max_attempts=3,
@@ -479,8 +483,15 @@ class ColorwayService:
                              if k in {"material_remote_file_id", "material_content_type",
                                       "material_size_bytes", "material_design_sha256",
                                       "material_source_job_id"}}
-        self._enqueue(row, front_placement=old_placement,
-                      pinned_material=previous_material or None)
+        self._enqueue(
+            row, front_placement=old_placement,
+            pinned_material=previous_material or None,
+            # Preserve the original interpretation for pre-Madeira attempts.
+            thread_palette_version=(
+                (previous.payload_json or {}).get("thread_palette_version")
+                if previous else None
+            ),
+        )
         self.session.commit()
         self.session.refresh(row)
         return row
@@ -757,6 +768,10 @@ class ColorwayGenerateHandler:
                     accent_layer, visor_accent_meta = recolor_layer(
                         original_thread, selection, color_key,
                         slot7_material.stock, slot7_material.guide_box,
+                        palette_version=(
+                            context.job.payload.get("thread_palette_version")
+                            or LEGACY_PALETTE_VERSION
+                        ),
                     )
                     visor_accent_meta["cached_mask"] = cached
                 transferred = composite_reference_on_cap(

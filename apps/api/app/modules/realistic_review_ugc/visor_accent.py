@@ -21,9 +21,15 @@ MAX_ACCENT_RATIO = 0.30
 MIN_CONTRAST = 2.5
 MIN_MAIN_DELTA_LAB = 19.0
 
-# Measured embroidery-thread approximations of the 12 official Natural visors.
-# They are NOT sampled from photo highlights or invented as new hat colors.
-VISOR_THREAD_RGB: dict[str, tuple[int, int, int]] = {
+from .madeira_visor_threads import (
+    MADEIRA_VISOR_THREADS, PALETTE_VERSION as MADEIRA_PALETTE_VERSION,
+    UNMAPPED_VISORS,
+)
+
+# Immutable previous palette for already queued v3 jobs, without a color pin.
+# Older RGB estimates are not certified Madeira yarn colors.
+LEGACY_PALETTE_VERSION = "visor-thread-approximation-v1"
+LEGACY_VISOR_THREAD_RGB: dict[str, tuple[int, int, int]] = {
     "natural-black": (58, 61, 66),
     "natural-brown": (110, 69, 44),
     "natural-camo-green": (74, 92, 52),
@@ -37,6 +43,14 @@ VISOR_THREAD_RGB: dict[str, tuple[int, int, int]] = {
     "natural-red": (159, 44, 49),
     "natural-royal": (45, 81, 157),
 }
+# New batches use exact supplied Madeira digital RGB for ten named visors.
+# Two print-only visors still have NO verified Madeira mapping and use their
+# documented legacy RGB preview only, never a fabricated yarn SKU.
+VISOR_THREAD_RGB: dict[str, tuple[int, int, int]] = {
+    **LEGACY_VISOR_THREAD_RGB,
+    **{key: thread.rgb for key, thread in MADEIRA_VISOR_THREADS.items()},
+}
+assert UNMAPPED_VISORS == set(VISOR_THREAD_RGB) - set(MADEIRA_VISOR_THREADS)
 
 
 class VisorAccentError(ValueError):
@@ -205,10 +219,18 @@ def recolor_layer(
     color_key: str,
     stock: Image.Image,
     guide_box: tuple[int, int, int, int],
+    *,
+    palette_version: str = MADEIRA_PALETTE_VERSION,
 ) -> tuple[Image.Image, dict]:
-    """Recolor ink only while preserving stitch lighting and original alpha."""
+    """Recolor only the chosen accent; pin exact yarn shade for new jobs."""
     if color_key not in VISOR_THREAD_RGB:
         raise VisorAccentError("Unknown Products Slot 7 visor color.")
+    if palette_version not in (MADEIRA_PALETTE_VERSION, LEGACY_PALETTE_VERSION):
+        raise VisorAccentError("Unsupported pinned visor thread palette.")
+    matched_thread = (
+        MADEIRA_VISOR_THREADS.get(color_key)
+        if palette_version == MADEIRA_PALETTE_VERSION else None
+    )
     rgba = np.asarray(layer.convert("RGBA"), dtype=np.uint8)
     if _layer_bytes(layer) != selection.layer_sha256:
         raise VisorAccentError("Accent selection does not match the saved embroidery reference.")
@@ -227,6 +249,14 @@ def recolor_layer(
         "selected_pixels": selected, "thread_pixels": selection.thread_pixels,
         "accent_ratio": round(selection.ratio, 5),
         "max_ratio": MAX_ACCENT_RATIO, "color_key": color_key,
+        "thread_palette_version": palette_version,
+        "madeira_thread": ({
+            "code": matched_thread.code, "name": matched_thread.name,
+            "hex": matched_thread.hex,
+        } if matched_thread else None),
+        "thread_mapping": (
+            "verified_code" if matched_thread else "legacy_unverified_approximation"
+        ),
     }
     if selected == 0:
         return layer, {**meta, "status": "skipped_no_safe_region", "changed_pixels": 0}
@@ -241,12 +271,17 @@ def recolor_layer(
     if main_pixels.size < 60:
         raise VisorAccentError("Accent would leave too little original thread.")
     dominant = tuple(int(n) for n in np.median(main_pixels, axis=0))
-    base = VISOR_THREAD_RGB[color_key]
+    base = (LEGACY_VISOR_THREAD_RGB if palette_version == LEGACY_PALETTE_VERSION
+            else VISOR_THREAD_RGB)[color_key]
     candidates = [base]
-    for portion in (.14, .28, .43, .57, .70):
-        candidates.append(tuple(int(round(channel * (1 - portion))) for channel in base))
-        candidates.append(tuple(int(round(channel * (1 - portion) + 255 * portion))
-                                for channel in base))
+    # Legacy unverified approximations may adjust luminance for contrast.
+    # Verified Madeira SKUs must NEVER be silently diluted into nonexistent
+    # physical yarn colors. If unsafe, keep the immutable original artwork.
+    if matched_thread is None:
+        for portion in (.14, .28, .43, .57, .70):
+            candidates.append(tuple(int(round(channel * (1 - portion))) for channel in base))
+            candidates.append(tuple(int(round(channel * (1 - portion) + 255 * portion))
+                                    for channel in base))
     chosen = None
     for candidate in candidates:
         contrast = _contrast(candidate, crown)
@@ -255,6 +290,12 @@ def recolor_layer(
             chosen = (candidate, contrast, delta)
             break
     if chosen is None:
+        if matched_thread is not None:
+            return layer, {
+                **meta, "status": "skipped_insufficient_contrast",
+                "changed_pixels": 0, "visor_palette_rgb": list(base),
+                "texture_preserved": True, "stock_pixels_preserved": True,
+            }
         raise VisorAccentError("Visor thread has insufficient contrast against the crown or main yarn.")
     target, contrast, delta = chosen
 

@@ -1,5 +1,5 @@
 import { blueprintPaletteRgb, selectBlueprintThreadPalette } from "../BlueprintThreadPalettes";
-import { remapBlueprintPixels } from "../BlueprintEmbroideryTint";
+import { remapBlueprintPixels, BLUEPRINT_MADEIRA_THREADS } from "../BlueprintEmbroideryTint";
 
 /**
  * 8869 material preview, not an embroidery machine file.
@@ -146,7 +146,10 @@ export function renderEmbroideryMaterial(
   const input = { data: prepared, width, height };
   const regions = analyzeThreadRegions(input);
   const palette = selectBlueprintThreadPalette(colorId, designOrdinal);
-  const colors = [palette.primary, palette.secondary, palette.accent].map(blueprintPaletteRgb);
+  // The dominant thread in Auto preview uses the supplied Madeira shade.
+  // Secondary accents remain preview-only; Original mode preserves source RGB.
+  const primary = BLUEPRINT_MADEIRA_THREADS[colorId]?.hex ?? palette.primary;
+  const colors = [primary, palette.secondary, palette.accent].map(blueprintPaletteRgb);
   const warped = new Uint8ClampedArray(prepared.length);
   const centerX = bounds.left + bounds.width / 2;
   const half = Math.max(1, bounds.width / 2);

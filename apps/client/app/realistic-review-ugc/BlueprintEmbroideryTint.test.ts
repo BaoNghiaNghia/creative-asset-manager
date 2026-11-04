@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLUEPRINT_THREAD_COLORS, blueprintThreadRgb, tintBlueprintPixels } from "./BlueprintEmbroideryTint";
+import { BLUEPRINT_THREAD_COLORS, BLUEPRINT_MADEIRA_THREADS, blueprintThreadRgb, tintBlueprintPixels } from "./BlueprintEmbroideryTint";
 
 const setPixel = (a: Uint8ClampedArray, x: number, rgb: readonly number[], alpha = 255) => {
   const i = x * 4;
@@ -7,12 +7,33 @@ const setPixel = (a: Uint8ClampedArray, x: number, rgb: readonly number[], alpha
 };
 
 describe("Blueprint embroidery matches 12 cap brims", () => {
-  it("defines a stable distinct thread color for each of the 12 colorways", () => {
+  it("uses verified Madeira codes for 10 visors and keeps both print-only fallbacks", () => {
     expect(Object.keys(BLUEPRINT_THREAD_COLORS)).toHaveLength(12);
-    expect(new Set(Object.values(BLUEPRINT_THREAD_COLORS)).size).toBe(12);
-    expect(blueprintThreadRgb("maroon")).toEqual([105, 48, 67]);
-    expect(blueprintThreadRgb("royal")).toEqual([59, 89, 161]);
-    expect(blueprintThreadRgb("black")).toEqual([20, 21, 25]);
+    expect(Object.keys(BLUEPRINT_MADEIRA_THREADS)).toHaveLength(10);
+    // Forest Green and Camo Green intentionally share supplier thread 1750.
+    expect(new Set(Object.values(BLUEPRINT_THREAD_COLORS)).size).toBe(11);
+    const expected = {
+      royal: [1829, "Blue", "#2464A7"],
+      "forest-green": [1750, "Emerald Green", "#006C45"],
+      brown: [1859, "Dark Brown", "#36302E"],
+      maroon: [1784, "Maroon", "#5E1E28"],
+      charcoal: [1841, "Dark Gray", "#3E4B50"],
+      khaki: [1729, "Light Brown", "#907663"],
+      "camo-green": [1750, "Emerald Green", "#006C45"],
+      black: [1800, "Black", "#202424"],
+      navy: [1967, "Navy", "#182C48"],
+      red: [1637, "Red", "#AC211C"],
+    } as const;
+    for (const [visor, [code, name, hex]] of Object.entries(expected)) {
+      expect(BLUEPRINT_MADEIRA_THREADS[visor]).toEqual({ code, name, hex });
+      expect(BLUEPRINT_THREAD_COLORS[visor]).toBe(hex);
+    }
+    expect(blueprintThreadRgb("maroon")).toEqual([94, 30, 40]);
+    expect(blueprintThreadRgb("royal")).toEqual([36, 100, 167]);
+    expect(blueprintThreadRgb("black")).toEqual([32, 36, 36]);
+    expect(blueprintThreadRgb("forest-green")).toEqual(blueprintThreadRgb("camo-green"));
+    expect(BLUEPRINT_MADEIRA_THREADS["realtree-all-purpose"]).toBeUndefined();
+    expect(BLUEPRINT_MADEIRA_THREADS["mossy-oak-breakup"]).toBeUndefined();
   });
 
   it("tints only the embroidery, preserves transparent backgrounds and stitch relief", () => {

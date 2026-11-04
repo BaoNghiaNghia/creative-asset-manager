@@ -1,20 +1,30 @@
 import { useEffect, useState } from "react";
 import { type BlueprintThreadPalette } from "./BlueprintThreadPalettes";
 
-/** The thread colors match the dominant brim colors in the 12 supplied 8869 photos. */
+/** Supplied Madeira PolyNeon thread codes, matching the bundled mauchi.txt catalog.
+ * HEX is a display approximation of physical embroidery yarn.
+ * Two patterned visor fabrics have no user-approved thread SKU.
+ */
+export const BLUEPRINT_MADEIRA_THREADS: Readonly<Record<string, Readonly<{
+  code: number; name: string; hex: string;
+}>>> = {
+  royal: { code: 1829, name: "Blue", hex: "#2464A7" },
+  "forest-green": { code: 1750, name: "Emerald Green", hex: "#006C45" },
+  brown: { code: 1859, name: "Dark Brown", hex: "#36302E" },
+  maroon: { code: 1784, name: "Maroon", hex: "#5E1E28" },
+  charcoal: { code: 1841, name: "Dark Gray", hex: "#3E4B50" },
+  khaki: { code: 1729, name: "Light Brown", hex: "#907663" },
+  "camo-green": { code: 1750, name: "Emerald Green", hex: "#006C45" },
+  black: { code: 1800, name: "Black", hex: "#202424" },
+  navy: { code: 1967, name: "Navy", hex: "#182C48" },
+  red: { code: 1637, name: "Red", hex: "#AC211C" },
+};
 export const BLUEPRINT_THREAD_COLORS: Record<string, string> = {
-  black: "#141519",
-  brown: "#5b4130",
-  "camo-green": "#61594c",
-  charcoal: "#394953",
-  "forest-green": "#144935",
-  khaki: "#ae9b8a",
-  maroon: "#693043",
+  ...Object.fromEntries(Object.entries(BLUEPRINT_MADEIRA_THREADS)
+    .map(([key, color]) => [key, color.hex])),
+  // Unspecified camouflage-print yarns retain LEGACY preview-only values.
   "mossy-oak-breakup": "#4e523b",
-  navy: "#202336",
   "realtree-all-purpose": "#655e50",
-  red: "#c42039",
-  royal: "#3b59a1",
 };
 
 const MAX_CACHE = 36;

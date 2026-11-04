@@ -167,6 +167,7 @@ async def generate_six(
                         design_style=snapshot.get("design_style", "balanced"),
                         design_style_version=snapshot.get("design_style_version"),
                         reference_guidance=snapshot.get("reference_guidance", ""),
+                        thread_palette_version=snapshot.get("thread_palette_version"),
                     )
                     if qa_attempt:
                         prompt += (

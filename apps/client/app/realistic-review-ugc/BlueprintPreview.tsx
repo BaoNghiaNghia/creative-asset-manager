@@ -9,6 +9,7 @@ import { BlueprintViewZoom } from "./BlueprintViewZoom";
 import { useBlueprintEmbroideryComposite } from "./embroidery/useBlueprintEmbroideryComposite";
 import type { ThreadMode } from "./embroidery/EmbroideryMaterialCompositor";
 import { BlueprintFrontDetailModal } from "./BlueprintFrontDetailModal";
+import { BLUEPRINT_MADEIRA_THREADS } from "./BlueprintEmbroideryTint";
 import { FrontPlacementEditor } from "./FrontPlacementEditor";
 import { ThreeQuarterPreview } from "./ThreeQuarterPreview";
 import type { ThreeQuarterPlacement } from "./api";
@@ -382,6 +383,10 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
               className={"rrugc-blueprint-color-choice" + (delta === 0 ? " is-selected" : "")}
               style={{ transform: "translate(-50%, calc(-50% + " + (delta * 94) + "px))" }}
               aria-label={"Select hat color " + color.label} aria-pressed={delta === 0}
+              title={BLUEPRINT_MADEIRA_THREADS[color.id]
+                ? "Madeira " + BLUEPRINT_MADEIRA_THREADS[color.id].code + " " + BLUEPRINT_MADEIRA_THREADS[color.id].name
+                  + " · " + BLUEPRINT_MADEIRA_THREADS[color.id].hex
+                : "No approved Madeira code for this printed visor"}
               onClick={() => setColorIndex(index)}>
               <DeferredImage className="rrugc-blueprint-color-hat" src={blueprintHatPhoto(color.id, stockCatalog, "front")} rootMargin="180px"
                 alt="" loading="lazy" decoding="async" draggable={false}/>
@@ -404,7 +409,12 @@ export function BlueprintPreview({ versions, initialVersion, onToggleStage2Selec
           <header className="rrugc-blueprint-panel-header">
             <div className="rrugc-blueprint-panel-heading">
               <strong>FRONT</strong>
-              <small>Hoop Red WACE · Placement preview</small>
+              <small title="Visor thread reference only; Stage 1 original colors are preserved">
+                {BLUEPRINT_MADEIRA_THREADS[activeColor.id]
+                  ? "Visor thread: Madeira " + BLUEPRINT_MADEIRA_THREADS[activeColor.id].code
+                    + " " + BLUEPRINT_MADEIRA_THREADS[activeColor.id].name
+                  : "Visor thread: unverified (patterned visor)"}
+              </small>
             </div>
             <div className="rrugc-blueprint-panel-header-actions">
               {onSavePlacement && <div className="rrugc-blueprint-front-placement-actions" role="group" aria-label="Front placement settings">

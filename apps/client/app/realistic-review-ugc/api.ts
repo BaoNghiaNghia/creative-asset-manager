@@ -337,6 +337,8 @@ export const getCreativeV3GenerationStatus = (signal?: AbortSignal) =>
     default_design_style?: "heritage" | "balanced" | "experimental";
     default_style_version?: string;
     style_policy_version?: string;
+    thread_palette_version?: string;
+    verified_visor_thread_count?: number;
     applies_to?: ("generate" | "regenerate")[];
     retry_preserves_original_style?: boolean;
   }>(

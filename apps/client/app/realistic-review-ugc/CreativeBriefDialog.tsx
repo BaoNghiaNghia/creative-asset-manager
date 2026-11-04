@@ -57,6 +57,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
     defaultStyle: "heritage" as "heritage" | "balanced" | "experimental",
     defaultVersion: "heritage-lettering-h1",
     policyVersion: "stage1-heritage-default-h1",
+    threadPaletteVersion: "",
   });
   const [busy, setBusy] = useState(false);
   const [priorityRequested, setPriorityRequested] = useState(false);
@@ -94,6 +95,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
           defaultStyle: result.default_design_style,
           defaultVersion: result.default_style_version,
           policyVersion: result.style_policy_version || result.default_style_version,
+          threadPaletteVersion: result.thread_palette_version || "",
         });
       }
     }).catch(() => { if (!controller.signal.aborted) setV3Available(false); });
@@ -249,7 +251,7 @@ export function CreativeBriefDialog({ keywordId, keyword, onClose, hasExistingSt
         <div className="rrugc-creative-brief-content">
           <div className="rrugc-creative-brief-active-style" role="status" title={stylePolicy.policyVersion}>
             <strong>Default style: {stylePolicy.defaultStyle === "heritage" ? "Heritage Lettering" : stylePolicy.defaultStyle === "balanced" ? "Balanced" : "Experimental"} · {stylePolicy.defaultVersion}</strong>
-            <span>New Generate and Regenerate use the latest style policy. Retry keeps the previous job's style.</span>
+            <span>New Generate and Regenerate use the latest style policy. Retry keeps the previous job's style.{stylePolicy.threadPaletteVersion ? " · Verified Madeira thread palette active for new artwork." : ""}</span>
           </div>
           {error && <div className="rrugc-creative-brief-alert" role="alert">
             <strong>Something went wrong.</strong><span>{error}</span>

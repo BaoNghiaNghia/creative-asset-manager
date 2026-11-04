@@ -275,6 +275,12 @@ def verify_snapshot(plan: Mapping[str, Any], snapshot: object) -> None:
             "creative_v3_style_version_invalid",
             "Pinned Stage 1 style profile is unavailable; preserve this attempt for review.",
         ) from exc
+    from app.modules.realistic_review_ugc.madeira_visor_threads import PALETTE_VERSION
+    if snapshot.get("thread_palette_version") not in (None, PALETTE_VERSION):
+        raise CreativeV3Error(
+            "creative_v3_thread_palette_invalid",
+            "Pinned Madeira thread palette version is unsupported.",
+        )
 
 
 def snapshot_for_job(plan: Mapping[str, Any]) -> dict:
@@ -440,6 +446,7 @@ def prompt_for_slot(
     design_style: str = "balanced",
     design_style_version: str | None = None,
     reference_guidance: str = "",
+    thread_palette_version: str | None = None,
 ) -> str:
     """Pin one art direction per processing attempt, keeping legacy retries stable.
 
@@ -473,6 +480,16 @@ def prompt_for_slot(
             # Do not re-read private reference pixels or mutable user text.
             if isinstance(reference_guidance, str) and reference_guidance:
                 prompt += "\nTYPOGRAPHY PREFERENCE MEMORY (AGGREGATED): " + reference_guidance[:1050]
+            if thread_palette_version is not None:
+                from app.modules.realistic_review_ugc.madeira_visor_threads import (
+                    PALETTE_VERSION, stage1_madeira_guidance,
+                )
+                if thread_palette_version != PALETTE_VERSION:
+                    raise CreativeV3Error(
+                        "creative_v3_thread_palette_invalid",
+                        "Unsupported pinned Madeira thread palette.",
+                    )
+                prompt += "\n" + stage1_madeira_guidance()
             return prompt
         visual_profile = NO_OUTLINE_VISUAL_PROFILE
     if visual_profile == LITE_V4_VISUAL_PROFILE:
