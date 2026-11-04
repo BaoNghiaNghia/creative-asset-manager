@@ -714,21 +714,41 @@ def list_g3_pilot_shortlist(
 ):
     pairs = _pilot_rows(session, principal)
     names = _asset_names(session, principal.active_tenant_id, {ref.asset_id for _, ref in pairs})
+    items = []
+    for item, ref in pairs:
+        rights_ok = ref.source_rights_status in VERIFIED_RIGHTS
+        editorial_ok = ref.editorial_status == "approved"
+        inactive = ref.editorial_status == "archived" or ref.source_rights_status == "blocked"
+        # This is a metadata checklist, not a claim that documentary
+        # proof of copyright or licensing has been independently inspected.
+        next_action = (
+            "replace_ineligible" if inactive else
+            "verify_rights" if not rights_ok else
+            "approve_editorial" if not editorial_ok else
+            "manual_pilot_signoff"
+        )
+        items.append({
+            "slot": item.slot,
+            "reference": _view(ref, names.get(ref.asset_id)),
+            "ready_for_rights_review": not inactive,
+            "rights_metadata_verified": rights_ok,
+            "editorial_approved": editorial_ok,
+            "metadata_ready": rights_ok and editorial_ok and not inactive,
+            "next_action": next_action,
+        })
+    metadata_ready_count = sum(1 for item in items if item["metadata_ready"])
     return {
-        "limit": 8,
-        "count": len(pairs),
-        "items": [
-            {
-                "slot": item.slot,
-                "reference": _view(ref, names.get(ref.asset_id)),
-                "ready_for_rights_review": (
-                    ref.editorial_status != "archived"
-                    and ref.source_rights_status != "blocked"
-                ),
-                "rights_metadata_verified": ref.source_rights_status in VERIFIED_RIGHTS,
-                "editorial_approved": ref.editorial_status == "approved",
-            } for item, ref in pairs
-        ],
+        "limit": 8, "count": len(items), "items": items,
+        "progress": {
+            "selected": len(items),
+            "rights_metadata_verified": sum(item["rights_metadata_verified"] for item in items),
+            "editorial_approved": sum(item["editorial_approved"] for item in items),
+            "metadata_ready": metadata_ready_count,
+            "selection_complete": len(items) == 8,
+            # Review of underlying license documents, budget, and rollback
+            # still requires an independent human decision.
+            "pilot_activation_authorized": False,
+        },
         "ai_jobs_created": 0, "provider_calls": 0,
         "rights_independently_verified": False,
     }

@@ -195,8 +195,15 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
         <div><strong>G3 pilot shortlist · {pilot?.count ?? 0}/8</strong>
           <p>Choose up to 8 references for manual rights and editorial review. Selection does not approve images or start AI analysis.</p>
         </div>
-        <span className="typography-pilot-state">AI off · Manual review only</span>
+        <span className="typography-pilot-state">Pilot activation not authorized</span>
       </div>
+      <div className="typography-pilot-progress" aria-label="G3 pilot metadata review progress">
+        <span><strong>{pilot?.progress?.selected ?? pilot?.count ?? 0}/8</strong> Selected</span>
+        <span><strong>{pilot?.progress?.rights_metadata_verified ?? pilot?.items.filter(item => item.rights_metadata_verified).length ?? 0}/8</strong> Rights metadata</span>
+        <span><strong>{pilot?.progress?.editorial_approved ?? pilot?.items.filter(item => item.editorial_approved).length ?? 0}/8</strong> Editorial approved</span>
+        <span><strong>{pilot?.progress?.metadata_ready ?? pilot?.items.filter(item => item.rights_metadata_verified && item.editorial_approved && item.ready_for_rights_review).length ?? 0}/8</strong> Metadata ready</span>
+      </div>
+      <p className="typography-pilot-explainer">Progress reflects stored declarations only, not independent license verification. Pilot activation also requires budget, rollback and manual sign-off; selecting eight images does not start AI jobs.</p>
       {pilotError && <p role="alert" className="typography-pilot-error">{pilotError}</p>}
       <div className="typography-pilot-slots">
         {Array.from({ length: 8 }, (_, index) => {
@@ -212,6 +219,16 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
                 <span>{compactTitle(chosen.reference)}</span>
               </button>
               <small>{chosen.rights_metadata_verified ? "Rights metadata set" : "Rights pending"} · {chosen.editorial_approved ? "Editorial approved" : "Editorial pending"}</small>
+              <small className="typography-pilot-next">{({
+                replace_ineligible: "Next: Replace image",
+                verify_rights: "Next: Verify rights",
+                approve_editorial: "Next: Approve editorial",
+                manual_pilot_signoff: "Next: Manual sign-off",
+              } as const)[chosen.next_action ?? (
+                !chosen.ready_for_rights_review ? "replace_ineligible" :
+                !chosen.rights_metadata_verified ? "verify_rights" :
+                !chosen.editorial_approved ? "approve_editorial" : "manual_pilot_signoff"
+              )]}</small>
               {page.capabilities.manage && <button type="button" className="typography-quiet"
                 disabled={!!pilotBusy} onClick={() => void changePilot(chosen.reference.id, true)}>
                 Remove

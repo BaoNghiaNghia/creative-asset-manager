@@ -53,7 +53,17 @@ export type TypographyPilotShortlist = {
     ready_for_rights_review: boolean;
     rights_metadata_verified: boolean;
     editorial_approved: boolean;
+    metadata_ready?: boolean;
+    next_action?: "replace_ineligible" | "verify_rights" | "approve_editorial" | "manual_pilot_signoff";
   }[];
+  progress?: {
+    selected: number;
+    rights_metadata_verified: number;
+    editorial_approved: number;
+    metadata_ready: number;
+    selection_complete: boolean;
+    pilot_activation_authorized: false;
+  };
   ai_jobs_created: 0;
   provider_calls: 0;
   rights_independently_verified: false;

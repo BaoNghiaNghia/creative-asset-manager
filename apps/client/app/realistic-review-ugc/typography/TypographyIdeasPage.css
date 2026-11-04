@@ -74,6 +74,12 @@
 .typography-pilot-header strong{font-size:14px;color:#344968}
 .typography-pilot-header p{font-size:11px;color:#71809a;margin:5px 0 0;line-height:1.5}
 .typography-pilot-state{font-size:10px;color:#786842;white-space:nowrap;background:#fcf7e8;border-radius:6px;padding:6px 9px}
+.typography-pilot-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.typography-pilot-progress span{background:#f4f7fc;border:1px solid #e2e8f2;border-radius:7px;padding:8px;color:#667a97;font-size:10px;display:flex;align-items:center;gap:6px}
+.typography-pilot-progress strong{color:#344d72;font-size:13px}
+.typography-pilot-explainer{color:#7c8290;font-size:10px;line-height:1.45;margin:0}
+.typography-pilot-slot .typography-pilot-next{color:#76623f;font-weight:650}
+@media(max-width:560px){.typography-pilot-progress{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .typography-pilot-slots{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px}
 .typography-pilot-slot{min-width:0;min-height:105px;background:#f6f8fc;border:1px dashed #d7dfea;border-radius:8px;padding:7px;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative}
 .typography-pilot-slot.is-selected{background:white;border-style:solid}

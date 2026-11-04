@@ -406,6 +406,30 @@ def test_pilot_shortlist_is_durable_tenant_scoped_and_never_approves_rights(env)
     assert summary["rights_independently_verified"] is False
     assert all(not entry["rights_metadata_verified"] and not entry["editorial_approved"]
                for entry in summary["items"])
+    assert all(entry["next_action"] == "verify_rights" and not entry["metadata_ready"]
+               for entry in summary["items"])
+    assert summary["progress"] == {
+        "selected": 8, "rights_metadata_verified": 0, "editorial_approved": 0,
+        "metadata_ready": 0, "selection_complete": True,
+        "pilot_activation_authorized": False,
+    }
+    rights_updated = env.client.patch(BASE + "/" + refs[0]["id"], json={
+        "source_rights_status": "owned", "source_attribution": "Fixture ownership evidence",
+        "rights_review_confirmed": True,
+    })
+    assert rights_updated.status_code == 200
+    reviewed = env.client.get(endpoint).json()
+    assert reviewed["progress"]["rights_metadata_verified"] == 1
+    assert reviewed["items"][0]["next_action"] == "approve_editorial"
+    approved = env.client.patch(BASE + "/" + refs[0]["id"], json={
+        "editorial_status": "approved",
+    })
+    assert approved.status_code == 200
+    reviewed = env.client.get(endpoint).json()
+    assert reviewed["progress"]["editorial_approved"] == 1
+    assert reviewed["progress"]["metadata_ready"] == 1
+    assert reviewed["items"][0]["next_action"] == "manual_pilot_signoff"
+    assert reviewed["progress"]["pilot_activation_authorized"] is False
     with Session(env.engine) as session:
         assert session.query(RrugcTypographyAnalysisJobModel).count() == 0
         assert session.query(RrugcTypographyStyleDnaModel).count() == 0
