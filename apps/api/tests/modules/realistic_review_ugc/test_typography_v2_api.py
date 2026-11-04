@@ -25,7 +25,7 @@ from app.modules.realistic_review_ugc.model import (
 from app.modules.realistic_review_ugc.router import router as rrugc_router
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
-    RrugcTypographyAnalysisJobModel,
+    RrugcTypographyAnalysisJobModel, RrugcTypographyPilotShortlistModel,
 )
 
 
@@ -126,6 +126,7 @@ def env(monkeypatch):
     RrugcTypographyReferenceModel.__table__.create(engine)
     RrugcTypographyStyleDnaModel.__table__.create(engine)
     RrugcTypographyAnalysisJobModel.__table__.create(engine)
+    RrugcTypographyPilotShortlistModel.__table__.create(engine)
     AuthAuditEventModel.__table__.create(engine)
     context = {"principal": principal()}
     config = SimpleNamespace(TYPOGRAPHY_V2_ENABLED=False, TYPOGRAPHY_V2_CANARY_TENANT_IDS="")
@@ -383,6 +384,58 @@ def test_upload_three_items_partial_failure_dedup_and_rights_review(env):
         assert all(event.tenant_id == "tenant-a" and event.actor_id == "owner" for event in audit)
         assert all("source_url" not in event.detail_json for event in audit)
 
+
+
+def test_pilot_shortlist_is_durable_tenant_scoped_and_never_approves_rights(env):
+    enabled(env)
+    refs = [env.upload(color).json()["items"][0]["reference"] for color in range(8, 17)]
+    endpoint = BASE + "/pilot-shortlist"
+    assert env.client.get(endpoint).json()["count"] == 0
+    for index, ref in enumerate(refs[:8], start=1):
+        response = env.client.put(endpoint + "/" + ref["id"])
+        assert response.status_code == 200, response.text
+        assert response.json()["count"] == index
+        assert response.json()["items"][-1]["slot"] == index
+    assert env.client.put(endpoint + "/" + refs[0]["id"]).json()["count"] == 8
+    full = env.client.put(endpoint + "/" + refs[8]["id"])
+    assert full.status_code == 409
+    assert full.json()["detail"]["code"] == "typography_pilot_shortlist_full"
+    summary = env.client.get(endpoint).json()
+    assert summary["count"] == 8
+    assert summary["ai_jobs_created"] == summary["provider_calls"] == 0
+    assert summary["rights_independently_verified"] is False
+    assert all(not entry["rights_metadata_verified"] and not entry["editorial_approved"]
+               for entry in summary["items"])
+    with Session(env.engine) as session:
+        assert session.query(RrugcTypographyAnalysisJobModel).count() == 0
+        assert session.query(RrugcTypographyStyleDnaModel).count() == 0
+        assert session.query(RrugcTypographyPilotShortlistModel).count() == 8
+    env.identity("visitor", permissions={"typography_reference.read"})
+    assert env.client.get(endpoint).json()["count"] == 0  # private uploads stay private
+    assert env.client.put(endpoint + "/" + refs[0]["id"]).status_code == 403
+    assert env.client.delete(endpoint + "/" + refs[0]["id"]).status_code == 403
+    env.config.TYPOGRAPHY_V2_CANARY_TENANT_IDS = "tenant-a,tenant-b"
+    env.identity("other", tenant="tenant-b")
+    assert env.client.get(endpoint).json()["count"] == 0
+    assert env.client.put(endpoint + "/" + refs[0]["id"]).status_code == 404
+    env.identity("owner")
+    assert env.client.delete(endpoint + "/" + refs[3]["id"]).json()["count"] == 7
+    replaced = env.client.put(endpoint + "/" + refs[8]["id"]).json()
+    assert replaced["count"] == 8
+    assert [row["slot"] for row in replaced["items"]] == list(range(1, 9))
+    assert replaced["items"][3]["reference"]["id"] == refs[8]["id"]
+
+
+def test_pilot_shortlist_rejects_blocked_archived_and_missing_references(env):
+    enabled(env)
+    first, second = [env.upload(c).json()["items"][0]["reference"] for c in (104, 105)]
+    assert env.client.patch(BASE + "/" + first["id"], json={
+        "source_rights_status": "blocked",
+    }).status_code == 200
+    assert env.client.put(BASE + "/pilot-shortlist/" + first["id"]).status_code == 409
+    assert env.client.delete(BASE + "/" + second["id"]).status_code == 200
+    assert env.client.put(BASE + "/pilot-shortlist/" + second["id"]).status_code == 409
+    assert env.client.put(BASE + "/pilot-shortlist/missing").status_code == 404
 
 
 def test_upload_verified_rights_requires_explicit_review(env):

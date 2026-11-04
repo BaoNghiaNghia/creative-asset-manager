@@ -7,6 +7,7 @@ import { TypographyIdeasPage } from "./TypographyIdeasPage";
 import {
   archiveTypographyReference, getTypographyAnalysisStatus, listTypographyDna, listTypographyReferences,
   patchTypographyReference, reviewTypographyDna, runTypographyAnalysis, uploadTypographyReferences,
+  listTypographyPilotShortlist, addTypographyPilotShortlist, removeTypographyPilotShortlist,
 } from "./api";
 import type { TypographyReference, TypographyReferencePage } from "./types";
 
@@ -22,6 +23,9 @@ vi.mock("./api", () => ({
   uploadTypographyReferences: vi.fn(),
   patchTypographyReference: vi.fn(),
   archiveTypographyReference: vi.fn(),
+  listTypographyPilotShortlist: vi.fn(),
+  addTypographyPilotShortlist: vi.fn(),
+  removeTypographyPilotShortlist: vi.fn(),
 }));
 
 const reference: TypographyReference = {
@@ -50,6 +54,10 @@ let root: Root;
 beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(listTypographyReferences).mockResolvedValue(fixture());
+  vi.mocked(listTypographyPilotShortlist).mockResolvedValue({
+    limit: 8, count: 0, items: [], ai_jobs_created: 0, provider_calls: 0,
+    rights_independently_verified: false,
+  });
   vi.mocked(listTypographyDna).mockResolvedValue({ items: [] });
   vi.mocked(getTypographyAnalysisStatus).mockResolvedValue({
     reference_id: reference.id,
@@ -99,6 +107,25 @@ describe("Typography Ideas Stage 1 navigation and gated library", () => {
       reference.image_url + "?thumbnail=true&size=320",
     );
     expect(vi.mocked(listTypographyReferences)).toHaveBeenCalled();
+  });
+
+  it("selects one human pilot candidate without verifying rights or running AI", async () => {
+    const result = {
+      limit: 8 as const, count: 1,
+      items: [{ slot: 1, reference, ready_for_rights_review: true,
+        rights_metadata_verified: false, editorial_approved: false }],
+      ai_jobs_created: 0 as const, provider_calls: 0 as const,
+      rights_independently_verified: false as const,
+    };
+    vi.mocked(addTypographyPilotShortlist).mockResolvedValue(result);
+    await renderPage();
+    expect(host.textContent).toContain("G3 pilot shortlist · 0/8");
+    await click(host.querySelector('[data-testid="typography-pilot-toggle"]'));
+    expect(addTypographyPilotShortlist).toHaveBeenCalledWith(reference.id);
+    expect(host.textContent).toContain("G3 pilot shortlist · 1/8");
+    expect(host.textContent).toContain("Rights pending");
+    expect(runTypographyAnalysis).not.toHaveBeenCalled();
+    expect(patchTypographyReference).not.toHaveBeenCalled();
   });
 
   it("keeps upload and review out of read-only Viewer roles", async () => {

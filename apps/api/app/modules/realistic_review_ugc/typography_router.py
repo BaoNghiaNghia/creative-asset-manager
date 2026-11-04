@@ -16,7 +16,7 @@ from pydantic import StrictInt
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, or_, func, select
+from sqlalchemy import and_, or_, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -39,7 +39,7 @@ from app.modules.realistic_review_ugc.reference_library import (
 )
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
-    RrugcTypographyAnalysisJobModel,
+    RrugcTypographyAnalysisJobModel, RrugcTypographyPilotShortlistModel,
 )
 from app.modules.realistic_review_ugc.typography_analysis_queue import TypographyAnalysisQueue
 from app.modules.realistic_review_ugc.typography_thumbnails import (
@@ -689,6 +689,111 @@ def list_typography_references(
                 "upload": principal.platform_admin or "typography_reference.upload" in rights,
                 "manage": _can_manage(principal),
             }}
+
+
+def _pilot_rows(session: Session, principal: CurrentPrincipal):
+    model = RrugcTypographyPilotShortlistModel
+    ref = RrugcTypographyReferenceModel
+    query = (
+        select(model, ref)
+        .join(ref, and_(model.tenant_id == ref.tenant_id, model.reference_id == ref.id))
+        .where(model.tenant_id == principal.active_tenant_id)
+    )
+    if not _can_manage(principal):
+        query = query.where(or_(
+            ref.privacy == "workspace",
+            ref.created_by_user_id == principal.user_id,
+        ))
+    return session.execute(query.order_by(model.slot.asc())).all()
+
+
+@router.get("/references/pilot-shortlist")
+def list_g3_pilot_shortlist(
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(READ),
+):
+    pairs = _pilot_rows(session, principal)
+    names = _asset_names(session, principal.active_tenant_id, {ref.asset_id for _, ref in pairs})
+    return {
+        "limit": 8,
+        "count": len(pairs),
+        "items": [
+            {
+                "slot": item.slot,
+                "reference": _view(ref, names.get(ref.asset_id)),
+                "ready_for_rights_review": (
+                    ref.editorial_status != "archived"
+                    and ref.source_rights_status != "blocked"
+                ),
+                "rights_metadata_verified": ref.source_rights_status in VERIFIED_RIGHTS,
+                "editorial_approved": ref.editorial_status == "approved",
+            } for item, ref in pairs
+        ],
+        "ai_jobs_created": 0, "provider_calls": 0,
+        "rights_independently_verified": False,
+    }
+
+
+@router.put("/references/pilot-shortlist/{reference_id}")
+def add_g3_pilot_shortlist(
+    reference_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    ref = TypographyReferenceRepository(session).get(
+        principal.active_tenant_id, reference_id, user_id=principal.user_id, manage=True,
+    )
+    if ref is None:
+        raise _error("typography_reference_not_found", "Typography reference not found", status_code=404)
+    if ref.editorial_status == "archived" or ref.source_rights_status == "blocked":
+        raise _error("typography_pilot_ineligible", "Archived or blocked references cannot be shortlisted.", status_code=409)
+    if session.bind.dialect.name == "postgresql":
+        # Serialize all shortlist mutations per tenant; unique slot constraints
+        # enforce bounds even if another client submits concurrently.
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "typography-g3-pilot:" + principal.active_tenant_id},
+        )
+    model = RrugcTypographyPilotShortlistModel
+    existing = session.scalar(select(model).where(
+        model.tenant_id == principal.active_tenant_id, model.reference_id == reference_id,
+    ))
+    if existing is None:
+        slots = set(session.scalars(select(model.slot).where(
+            model.tenant_id == principal.active_tenant_id,
+        )))
+        free = next((slot for slot in range(1, 9) if slot not in slots), None)
+        if free is None:
+            raise _error("typography_pilot_shortlist_full", "The eight pilot slots are full.", status_code=409)
+        session.add(model(
+            tenant_id=principal.active_tenant_id, reference_id=reference_id,
+            slot=free, selected_by_user_id=principal.user_id,
+        ))
+        _audit(session, principal, "pilot_select", reference_id, slot=free)
+        session.commit()
+    return list_g3_pilot_shortlist(session, principal)
+
+
+@router.delete("/references/pilot-shortlist/{reference_id}")
+def remove_g3_pilot_shortlist(
+    reference_id: str,
+    session: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(MANAGE),
+):
+    if session.bind.dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "typography-g3-pilot:" + principal.active_tenant_id},
+        )
+    model = RrugcTypographyPilotShortlistModel
+    item = session.scalar(select(model).where(
+        model.tenant_id == principal.active_tenant_id, model.reference_id == reference_id,
+    ))
+    if item is not None:
+        _audit(session, principal, "pilot_remove", reference_id, slot=item.slot)
+        session.delete(item)
+        session.commit()
+    return list_g3_pilot_shortlist(session, principal)
 
 
 @router.get("/references/{reference_id}")

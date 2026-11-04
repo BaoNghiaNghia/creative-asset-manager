@@ -6,11 +6,12 @@ import { StyleDnaPanel } from "./StyleDnaPanel";
 import {
   archiveTypographyReference, getTypographyReference,
   listTypographyReferences, patchTypographyReference, uploadTypographyReferences,
+  listTypographyPilotShortlist, addTypographyPilotShortlist, removeTypographyPilotShortlist,
 } from "./api";
 import type {
   TypographyEditorialStatus, TypographyPrivacy, TypographyReference,
   TypographyReferenceFilters, TypographyReferencePage, TypographyRights, TypographyScope,
-  TypographySourceType, TypographyStyleRole,
+  TypographySourceType, TypographyStyleRole, TypographyPilotShortlist,
 } from "./types";
 import "./TypographyIdeasPage.css";
 
@@ -105,6 +106,9 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailRow, setDetailRow] = useState<TypographyReference | null>(null);
+  const [pilot, setPilot] = useState<TypographyPilotShortlist | null>(null);
+  const [pilotBusy, setPilotBusy] = useState<string | null>(null);
+  const [pilotError, setPilotError] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0); }, 275);
@@ -127,6 +131,30 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
     }).finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
   }, [active, debouncedSearch, status, sourceType, scope, styleRole, sort, myUploadsOnly, offset, revision, onCountChange]);
+
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    void listTypographyPilotShortlist(controller.signal)
+      .then(result => { if (!controller.signal.aborted) { setPilot(result); setPilotError(""); } })
+      .catch(reason => { if (!controller.signal.aborted) setPilotError(feedback(reason)); });
+    return () => controller.abort();
+  }, [active, revision]);
+
+  const changePilot = async (referenceId: string, selected: boolean) => {
+    if (pilotBusy || !page.capabilities.manage) return;
+    setPilotBusy(referenceId);
+    setPilotError("");
+    try {
+      const updated = selected
+        ? await removeTypographyPilotShortlist(referenceId)
+        : await addTypographyPilotShortlist(referenceId);
+      setPilot(updated);
+      setNotice(selected ? "Reference removed from G3 pilot shortlist." : "Reference added for manual pilot review.");
+    } catch (reason) {
+      setPilotError(feedback(reason));
+    } finally { setPilotBusy(null); }
+  };
 
   const selected = useMemo(
     // Prefer the acknowledged mutation while list refresh is in progress.
@@ -162,6 +190,37 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
       <span><strong>{page.stats.needs_review}</strong> Needs review</span>
       <span><strong>{page.stats.analyzing}</strong> Pending / analyzing</span>
     </div>
+    <section className="typography-pilot-panel" aria-label="G3 pilot shortlist" data-testid="typography-pilot-shortlist">
+      <div className="typography-pilot-header">
+        <div><strong>G3 pilot shortlist · {pilot?.count ?? 0}/8</strong>
+          <p>Choose up to 8 references for manual rights and editorial review. Selection does not approve images or start AI analysis.</p>
+        </div>
+        <span className="typography-pilot-state">AI off · Manual review only</span>
+      </div>
+      {pilotError && <p role="alert" className="typography-pilot-error">{pilotError}</p>}
+      <div className="typography-pilot-slots">
+        {Array.from({ length: 8 }, (_, index) => {
+          const chosen = pilot?.items.find(item => item.slot === index + 1);
+          return <div className={"typography-pilot-slot" + (chosen ? " is-selected" : "")} key={index}>
+            <span className="typography-pilot-number">{index + 1}</span>
+            {chosen ? <>
+              <button type="button" className="typography-pilot-open"
+                onClick={() => { setDetailId(chosen.reference.id); setDetailRow(chosen.reference); }}
+                title={displayTitle(chosen.reference)}>
+                <DeferredImage src={imageThumbnailUrl(chosen.reference.image_url)} rootMargin="80px 0px"
+                  embeddedInButton alt={displayTitle(chosen.reference)} loading="lazy" />
+                <span>{compactTitle(chosen.reference)}</span>
+              </button>
+              <small>{chosen.rights_metadata_verified ? "Rights metadata set" : "Rights pending"} · {chosen.editorial_approved ? "Editorial approved" : "Editorial pending"}</small>
+              {page.capabilities.manage && <button type="button" className="typography-quiet"
+                disabled={!!pilotBusy} onClick={() => void changePilot(chosen.reference.id, true)}>
+                Remove
+              </button>}
+            </> : <span className="typography-pilot-empty">Empty</span>}
+          </div>;
+        })}
+      </div>
+    </section>
     <div className="typography-ideas-filterbar" role="search" aria-label="Filter typography ideas">
       <label className="typography-filter-search"><span className="sr-only">Search typography references</span>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style, notes or source…" />
@@ -202,7 +261,15 @@ export function TypographyIdeasPage({ active, firstPage, onCountChange }: {
             <div className="typography-reference-tags">
               {ref.reference_roles.map(role => <span key={role}>{role === "font_mood" ? "Font" : role}</span>)}
             </div>
-            <button type="button" className="typography-quiet" onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}>View details</button>
+            <div className="typography-reference-actions">
+              <button type="button" className="typography-quiet" onClick={() => { setDetailId(ref.id); setDetailRow(ref); }}>View details</button>
+              {page.capabilities.manage && <button type="button" className="typography-quiet" data-testid="typography-pilot-toggle"
+                disabled={!!pilotBusy || (!pilot?.items.some(item => item.reference.id === ref.id) && (pilot?.count ?? 8) >= 8)
+                  || ref.editorial_status === "archived" || ref.source_rights_status === "blocked"}
+                onClick={() => void changePilot(ref.id, !!pilot?.items.some(item => item.reference.id === ref.id))}>
+                {pilot?.items.some(item => item.reference.id === ref.id) ? "Remove pilot" : "Add to pilot"}
+              </button>}
+            </div>
           </div>
         </article>)}
       </div> : !loading && !error ? <div className="typography-empty">

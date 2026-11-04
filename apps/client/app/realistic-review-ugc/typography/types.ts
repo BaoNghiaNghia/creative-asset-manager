@@ -44,6 +44,21 @@ export type TypographyReferencePage = {
   capabilities: { read: boolean; upload: boolean; manage: boolean };
   stats: { total: number; approved: number; needs_review: number; analyzing: number };
 };
+export type TypographyPilotShortlist = {
+  limit: 8;
+  count: number;
+  items: {
+    slot: number;
+    reference: TypographyReference;
+    ready_for_rights_review: boolean;
+    rights_metadata_verified: boolean;
+    editorial_approved: boolean;
+  }[];
+  ai_jobs_created: 0;
+  provider_calls: 0;
+  rights_independently_verified: false;
+};
+
 export type TypographyReferenceFilters = {
   query?: string;
   status?: TypographyEditorialStatus | "";

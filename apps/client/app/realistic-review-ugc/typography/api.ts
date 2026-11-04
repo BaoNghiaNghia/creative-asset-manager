@@ -2,7 +2,7 @@ import { RrugcApiError } from "../api";
 import type {
   TypographyDna, TypographyReference, TypographyReferenceFilters, TypographyReferencePage,
   TypographyReferencePatch, TypographyUploadBatch, TypographyRights, TypographyPrivacy,
-  TypographyPreviewResponse, TypographyAnalysisState,
+  TypographyPreviewResponse, TypographyAnalysisState, TypographyPilotShortlist,
 } from "./types";
 
 const BASE = "/api/v1/realistic-review-ugc/typography/references";
@@ -55,6 +55,20 @@ export function listTypographyReferences(
   if (filters.styleRole) query.set("style_role", filters.styleRole);
   if (filters.myUploadsOnly) query.set("my_uploads_only", "true");
   return jsonRequest(BASE + "?" + query.toString(), { signal });
+}
+
+const PILOT_BASE = BASE + "/pilot-shortlist";
+
+export function listTypographyPilotShortlist(signal?: AbortSignal): Promise<TypographyPilotShortlist> {
+  return jsonRequest(PILOT_BASE, { signal });
+}
+
+export function addTypographyPilotShortlist(id: string): Promise<TypographyPilotShortlist> {
+  return jsonRequest(PILOT_BASE + "/" + encodeURIComponent(id), { method: "PUT" });
+}
+
+export function removeTypographyPilotShortlist(id: string): Promise<TypographyPilotShortlist> {
+  return jsonRequest(PILOT_BASE + "/" + encodeURIComponent(id), { method: "DELETE" });
 }
 
 export function getTypographyReference(id: string, signal?: AbortSignal): Promise<TypographyReference> {

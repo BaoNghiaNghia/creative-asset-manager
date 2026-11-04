@@ -103,6 +103,26 @@ class RrugcTypographyReferenceModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
+class RrugcTypographyPilotShortlistModel(Base):
+    """Human-selected pilot candidates, never a rights approval or AI job."""
+    __tablename__ = "rrugc_typography_pilot_shortlist"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "reference_id"],
+            ["rrugc_typography_references.tenant_id", "rrugc_typography_references.id"],
+            name="fk_typography_pilot_reference_tenant", ondelete="CASCADE",
+        ),
+        UniqueConstraint("tenant_id", "reference_id", name="uq_typography_pilot_reference"),
+        UniqueConstraint("tenant_id", "slot", name="uq_typography_pilot_tenant_slot"),
+        CheckConstraint("slot >= 1 AND slot <= 8", name="ck_typography_pilot_slot"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    selected_by_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    selected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
 
 class RrugcTypographyStyleDnaModel(Base):
     """One immutable analyzer result per version and source hash, never source text."""
