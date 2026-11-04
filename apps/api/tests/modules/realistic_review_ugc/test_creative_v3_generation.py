@@ -23,7 +23,7 @@ from app.modules.realistic_review_ugc.creative_v3_generation import (
 from app.modules.realistic_review_ugc.creative_v3_runner import _checked_png
 from app.modules.realistic_review_ugc.heritage_lettering import (
     DEFAULT_DESIGN_STYLE, HERITAGE_VERSION, STYLE_POLICY_VERSION,
-    resolve_style_policy, style_guidance, verify_style_snapshot,
+    resolve_style_policy, style_guidance, verify_style_snapshot, heritage_h2_composition,
 )
 from app.modules.realistic_review_ugc.typography_model import (
     RrugcTypographyReferenceModel, RrugcTypographyStyleDnaModel,
@@ -121,7 +121,7 @@ def test_generate_request_without_style_defaults_to_active_policy():
 
 def test_style_policy_is_current_heritage_for_new_and_fresh_regenerate():
     assert DEFAULT_DESIGN_STYLE == "heritage"
-    assert STYLE_POLICY_VERSION == "stage1-heritage-default-h1"
+    assert STYLE_POLICY_VERSION == "stage1-heritage-cap-diversity-h2"
     assert resolve_style_policy() == ("heritage", HERITAGE_VERSION)
     assert resolve_style_policy("auto") == ("heritage", HERITAGE_VERSION)
     assert resolve_style_policy("heritage") == ("heritage", HERITAGE_VERSION)
@@ -132,8 +132,10 @@ def test_style_policy_is_current_heritage_for_new_and_fresh_regenerate():
         plan(), 1, design_style="heritage",
         design_style_version=HERITAGE_VERSION,
     )
-    assert "HERITAGE STYLE PACK heritage-lettering-h1" in pinned_prompt
-    assert "Classic Heritage Serif" in pinned_prompt
+    assert "HERITAGE STYLE PACK heritage-lettering-h2" in pinned_prompt
+    assert "CLASSIC HERITAGE MONUMENT" in pinned_prompt
+    assert "original_heritage_composition" in pinned_prompt
+    assert "H2 FINAL ART DIRECTOR" in pinned_prompt
     assert "CAP-FIRST ART DIRECTION" in pinned_prompt
     assert "HERITAGE STYLE PACK" not in prompt_for_slot(
         plan(), 1, design_style="balanced", design_style_version="balanced-v1",
@@ -145,6 +147,51 @@ def test_style_policy_is_current_heritage_for_new_and_fresh_regenerate():
         verify_style_snapshot("balanced", HERITAGE_VERSION)
     # Historical H1 jobs that predate style_version remain on H1.
     assert "HERITAGE STYLE PACK heritage-lettering-h1" in style_guidance("heritage", 1)
+
+
+
+
+def test_h2_nine_cap_typography_archetypes_and_keyword_specific_groupings():
+    phrase = "TOO OLD FOR DICAPRIO"
+    directions = [heritage_h2_composition(phrase, slot) for slot in range(1, 10)]
+    assert len({row["lettering_archetype"] for row in directions}) == 9
+    assert len({row["visual_hierarchy"] for row in directions}) == 9
+    assert len({row["thread_palette"] for row in directions}) >= 7
+    assert all(row["source_word_order_intact"] for row in directions)
+    assert all(" ".join(row["advisory_line_groups"]) == phrase for row in directions)
+    assert any(len(row["advisory_line_groups"]) == 3 for row in directions)
+    assert "DICAPRIO" in " ".join(directions[2]["advisory_line_groups"])
+    assert directions[2]["short_script_candidate"] == "TOO OLD"
+    assert directions[6]["short_script_candidate"] == "TOO OLD"
+    for slot in range(1, 10):
+        prompt = prompt_for_slot(
+            plan(phrase), slot,
+            design_style="heritage", design_style_version=HERITAGE_VERSION,
+        )
+        assert "H2 FINAL ART DIRECTOR" in prompt
+        assert f"SLOT {slot:02d}" in prompt
+        assert phrase in prompt
+    # In-flight legacy jobs MUST retain their original exact prompt contract.
+    old = prompt_for_slot(
+        plan(phrase), 3,
+        design_style="heritage", design_style_version="heritage-lettering-h1",
+    )
+    assert "HERITAGE STYLE PACK heritage-lettering-h1" in old
+    assert "original_heritage_composition" not in old
+    assert "H2 FINAL ART DIRECTOR" not in old
+
+
+@pytest.mark.parametrize("phrase", [
+    "PRAISE THE LORD", "ONE NATION UNDER GOD", "USA",
+    "GOD BLESS AMERICA", "ALL FOR HIS GLORY AND MY GOOD",
+    "SUPPORT LIVE MUSIC HIRE LIVE MUSICIANS",
+])
+def test_h2_recomposes_phrases_without_losing_or_reordering_words(phrase):
+    for slot in range(1, 10):
+        result = heritage_h2_composition(phrase, slot)
+        assert " ".join(result["advisory_line_groups"]) == phrase
+        assert result["source_word_order_intact"]
+        assert 1 <= len(result["advisory_line_groups"]) <= 3
 
 
 def test_policy_upgrade_applies_to_fresh_runs_but_preserves_pinned_heritage_retry(monkeypatch):

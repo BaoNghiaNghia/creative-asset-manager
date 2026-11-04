@@ -29,7 +29,8 @@ from app.modules.realistic_review_ugc.typography_imagegen_pilot import (
 )
 from app.modules.realistic_review_ugc.typography_quality_gate import inspect_typography_png
 from app.modules.realistic_review_ugc.stage1_visual_similarity import (
-    stage1_visual_dhash, matches_rejected_visual,
+    stage1_visual_dhash, matches_rejected_visual, stage1_layout_signature,
+    matches_sibling_layout,
 )
 from app.providers.ai.codex_image import (
     CodexImageGenRunner, CodexImageProviderError, CodexImageRunnerConfig,
@@ -111,6 +112,10 @@ async def generate_six(
     final_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
     final_dir.chmod(0o700)
     seen: set[str] = set()
+    is_heritage_h2 = (
+        snapshot.get("design_style") == "heritage"
+        and snapshot.get("design_style_version") == "heritage-lettering-h2"
+    )
     rejected_hashes = set((plan.get("learning_profile") or {}).get("rejected_hashes", []))
     rejected_visual_hashes = (plan.get("learning_profile") or {}).get("rejected_visual_hashes", [])
     outputs: list[GeneratedImageFile] = []
@@ -149,7 +154,10 @@ async def generate_six(
             ):
                 raise _fail("creative_v3_previously_rejected_image",
                             "Saved checkpoint matches an explicitly rejected Stage 1 design.")
+            if is_heritage_h2:
+                qa["stage1_layout_signature"] = stage1_layout_signature(data)
         else:
+            previous_repair_code = ""
             for qa_attempt in range(2):
                 attempt_id = context.job.id + f"-v3-{slot:02}-qa{qa_attempt + 1}"
                 try:
@@ -167,6 +175,14 @@ async def generate_six(
                             "genuine transparency, safe alpha margins and crisp "
                             "legible typography; never reuse rejected pixels."
                         )
+                        if previous_repair_code == "creative_v3_sibling_layout_duplicate":
+                            prompt += (
+                                " The previous output repeated another design in THIS "
+                                "nine-image batch. Invent a different typographic "
+                                "hierarchy and letter anatomy, NOT a hue swap. "
+                                "Honor this slot's H2 archetype with distinctive "
+                                "script/serif/varsity treatment as specified."
+                            )
                     result = await native_runner.generate_from_references(
                         attempt_id=attempt_id, person=None, references=[], prompt=prompt,
                     )
@@ -191,6 +207,17 @@ async def generate_six(
                             "Image is identical or visually very close to a rejected design. "
                             "Generate a substantially different arrangement.",
                         )
+                    if is_heritage_h2:
+                        qa["stage1_layout_signature"] = stage1_layout_signature(data)
+                        siblings = [
+                            item["stage1_layout_signature"] for item in verified.values()
+                            if isinstance(item.get("stage1_layout_signature"), str)
+                        ]
+                        if matches_sibling_layout(qa["stage1_layout_signature"], siblings):
+                            raise _fail(
+                                "creative_v3_sibling_layout_duplicate",
+                                "New H2 design repeats a sibling's typography silhouette.",
+                            )
                     verify_snapshot(revalidate(), snapshot)
                     if not enabled(settings, tenant_id) or context.is_cancelled:
                         raise _fail("creative_v3_revoked", "Creative V3 generation was cancelled.")
@@ -212,7 +239,9 @@ async def generate_six(
                             "creative_v3_duplicate_image",
                             "creative_v3_previously_rejected_image",
                             "creative_v3_native_png_rejected",
+                            "creative_v3_sibling_layout_duplicate",
                     }):
+                        previous_repair_code = exc.code
                         context.logger.warning("rrugc_creative_v3_slot_technical_retry", extra={
                             "tenant_id": tenant_id, "job_id": context.job.id,
                             "slot": slot, "error_code": exc.code,

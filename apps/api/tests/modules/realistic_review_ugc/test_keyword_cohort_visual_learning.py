@@ -9,6 +9,7 @@ from app.modules.realistic_review_ugc.keyword_cohort_learning import (
 )
 from app.modules.realistic_review_ugc.stage1_visual_similarity import (
     stage1_visual_dhash, matches_rejected_visual,
+    stage1_layout_signature, matches_sibling_layout,
 )
 from app.modules.realistic_review_ugc.typography_similarity import is_typography_dhash
 
@@ -88,6 +89,30 @@ def test_stage1_visual_hash_normalizes_transparent_canvas_and_blocks_near_reject
         pass
     else:
         raise AssertionError("Corrupted images must fail validation")
+
+
+
+def test_h2_sibling_layout_guard_is_color_invariant_and_conservative():
+    first = png_design()
+    with Image.open(BytesIO(first)) as original:
+        alpha = original.getchannel("A")
+    recolored = Image.new("RGBA", (200, 100), (242, 13, 15, 0))
+    recolored.putalpha(alpha)
+    stream = BytesIO()
+    recolored.save(stream, "PNG")
+    different_ink = stream.getvalue()
+    signature = stage1_layout_signature(first)
+    assert signature.startswith("als1:")
+    assert signature == stage1_layout_signature(different_ink)
+    assert matches_sibling_layout(stage1_layout_signature(different_ink), [signature])
+    assert not matches_sibling_layout("garbage", [signature])
+    assert not matches_sibling_layout(signature, ["invalid", "als1:no"])
+    alternative = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(alternative)
+    draw.ellipse((45, 15, 160, 90), fill=(0, 0, 0, 255))
+    stream = BytesIO()
+    alternative.save(stream, "PNG")
+    assert not matches_sibling_layout(stage1_layout_signature(stream.getvalue()), [signature])
 
 
 def test_v3_checked_png_exposes_visual_signature_for_output_history(monkeypatch):

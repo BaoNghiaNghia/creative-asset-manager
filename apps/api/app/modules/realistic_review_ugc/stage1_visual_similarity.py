@@ -18,6 +18,58 @@ from app.modules.realistic_review_ugc.typography_quality_gate import (
 )
 
 SIMILARITY_DISTANCE = 2
+# Only H2 fresh generation applies this second, color-invariant silhouette guard.
+# A conservative distance rejects near-identical geometries without blocking
+# ordinary shared vocabulary, fonts, or similar cap-safe bounding boxes.
+SIBLING_LAYOUT_DISTANCE = 8
+
+
+def stage1_layout_signature(raw_png: bytes) -> str:
+    """Compact alpha silhouette; ignores new thread colors and transparent margin.
+
+    This is a heuristic for duplicate composition, NOT an OCR or originality
+    certificate. Decode only once on fresh H2 output and do not store pixels.
+    """
+    if not isinstance(raw_png, bytes) or not 0 < len(raw_png) <= MAX_PNG_BYTES:
+        raise ValueError("invalid_stage1_visual_source")
+    try:
+        with Image.open(BytesIO(raw_png)) as image:
+            if image.format != "PNG" or image.width < 8 or image.height < 8:
+                raise ValueError("invalid_stage1_visual_source")
+            alpha = image.convert("RGBA").getchannel("A")
+            bounds = alpha.getbbox()
+            if not bounds:
+                raise ValueError("empty_stage1_artwork")
+            tile = alpha.crop(bounds).resize(
+                (16, 16), resample=Image.Resampling.LANCZOS,
+            )
+            bits = 0
+            for value in tile.getdata():
+                bits = (bits << 1) | int(value >= 48)
+            return f"als1:{bits:064x}"
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+        raise ValueError("invalid_stage1_visual_source") from exc
+
+
+def matches_sibling_layout(candidate: str, previous: list[str] | tuple[str, ...]) -> bool:
+    """Only practically identical alpha layouts; not a general style classifier."""
+    if not isinstance(candidate, str) or not candidate.startswith("als1:"):
+        return False
+    try:
+        if len(candidate) != 69:
+            return False
+        number = int(candidate[5:], 16)
+    except ValueError:
+        return False
+    for value in previous[:9]:
+        if not isinstance(value, str) or len(value) != 69 or not value.startswith("als1:"):
+            continue
+        try:
+            if (number ^ int(value[5:], 16)).bit_count() <= SIBLING_LAYOUT_DISTANCE:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def stage1_visual_dhash(raw_png: bytes) -> str:

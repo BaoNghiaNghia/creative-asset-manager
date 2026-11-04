@@ -367,8 +367,34 @@ def _cap_first_prompt_for_slot(
 ) -> str:
     """A cap-first ImageGen contract independent from stale Brief styling prose."""
     brief_data = cap_first_direction(plan, slot)
-    from app.modules.realistic_review_ugc.heritage_lettering import style_guidance
+    from app.modules.realistic_review_ugc.heritage_lettering import (
+        style_guidance, heritage_h2_composition,
+    )
     layout_guidance = style_guidance(design_style, slot, version=design_style_version)
+    h2_suffix = ""
+    if design_style == "heritage" and design_style_version == "heritage-lettering-h2":
+        # H2 makes this slot's lettering architecture the sole style authority.
+        # Old Creative Brief variants often demand illustration/metaphors or
+        # repeat a balanced two-line serif; neither should override real-hat DNA.
+        brief_data.pop("brief_variant_direction", None)
+        brief_data.pop("cap_layout_blueprint", None)
+        brief_data.pop("suggested_two_line_break", None)
+        brief_data["original_heritage_composition"] = heritage_h2_composition(
+            plan["keyword_exact"], slot,
+        )
+        h2_suffix = (
+            "\nH2 FINAL ART DIRECTOR (HIGHEST VISUAL PRIORITY): the JSON field "
+            "original_heritage_composition controls the ACTUAL word breaks, "
+            "primary/secondary scale, lettering anatomy, stitch palette and "
+            "baseline geometry. The reference hats are a lesson in distinctive "
+            "letter construction, not templates for copying their texts or logos. "
+            "Do NOT fall back to the default uniformly centered old-style serif "
+            "in gold/brown; no repeated cloned layout with hue swaps. "
+            "For three-tier structures, use the middle connector legibly "
+            "and let the lettering remain one compact low-profile cap lockup. "
+            "Style originality comes from typography, not mandatory illustrations. "
+            "Only the supplied EXACT phrase may be rendered."
+        )
     return (
         "Create EXACTLY ONE original transparent RGBA artwork of REAL machine-embroidered "
         "typography ready to place on the front of a Valucap 8869 five-panel cap. "
@@ -404,6 +430,7 @@ def _cap_first_prompt_for_slot(
                      ensure_ascii=False, sort_keys=True)
         + "\nThe EXACT source letters remain mandatory; style, spelling, "
         "physical stitch density and fit still require human visual review."
+        + h2_suffix
     )
 
 
