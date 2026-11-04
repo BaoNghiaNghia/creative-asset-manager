@@ -110,6 +110,23 @@ export function TiktokShopScoutUgcPage() {
     return () => controller.abort();
   }, [refresh]);
 
+  // Keep Scout progress live while Stage 3 is open. Drive source metadata is
+  // already synchronized by the server, but previously the page fetched its
+  // counts only once and appeared stuck even as new refs were imported.
+  useEffect(() => {
+    if (stage !== "stage3") return;
+    let inFlight = false;
+    let active = true;
+    const timer = setInterval(() => {
+      if (inFlight || syncing || !active || document.visibilityState === "hidden") return;
+      inFlight = true;
+      void refresh().catch(() => {
+        // Retain last known counts on transient network failures.
+      }).finally(() => { inFlight = false; });
+    }, 20_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [stage, syncing, refresh]);
+
   // A fresh TikTokShop workspace has no DB source plans until a Drive sync.
   // Import file metadata once when the unfiltered Stage 3 is first opened.
   // Never start Gemini, Pinterest Scout or image-generation jobs automatically.
@@ -376,7 +393,7 @@ export function TiktokShopScoutUgcPage() {
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
           <SourcePlanTable
             rootFolderId={TIKTOKSHOP_SOURCE_ROOT}
-            scoutEnabled={false}
+            scoutEnabled={page.items.some(item => item.auto_scout)}
             plans={page.items}
             folderData={folders}
             selectedFolderPath={folderPath}

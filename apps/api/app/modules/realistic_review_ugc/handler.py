@@ -574,7 +574,12 @@ class RrugcCandidateAnalyzeJobHandler:
                 },
             }
             seed_gate = high_confidence_negative_seed_gate(seed_visual_signal)
-            if not manual_reference_good and seed_gate is not None:
+            # Apparel references are garment/placement-scoped: a visually
+            # similar negative seed can be a perfectly valid torso photo for
+            # a different source design. Preserve its ranking signal, but
+            # require full apparel/Gemini analysis before rejecting it.
+            # Keep the existing early-reject optimization for GatorHats.
+            if not manual_reference_good and not tiktok_plan and seed_gate is not None:
                 with context.dependencies.session_factory() as session:
                     repository = RrugcRepository(session)
                     candidate = repository.get_candidate(

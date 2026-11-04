@@ -20,6 +20,7 @@ from app.modules.realistic_review_ugc.product_context import (
 )
 from app.modules.realistic_review_ugc.tiktokshop_replay import (
     queue_legacy_tiktokshop_reference_replay,
+    queue_tiktokshop_seed_prefilter_replay,
 )
 from app.modules.realistic_review_ugc.workspace import (
     RRUGC_SOURCE_ROOT_FOLDER_ID, TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
@@ -172,4 +173,56 @@ def test_budget_limits_replay_without_overloading_existing_gemini_queue():
         assert queue_legacy_tiktokshop_reference_replay(
             db, "tenant-a", inflight_limit=5,
         ) == 0
+    engine.dispose()
+
+
+def test_seed_prefilter_recovery_is_bounded_once_and_tiktokshop_only():
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        first = campaign_with_plan(db, "first", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID)
+        second = campaign_with_plan(db, "second", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID)
+        hat = campaign_with_plan(db, "hat-seed", RRUGC_SOURCE_ROOT_FOLDER_ID)
+
+        def seed_rejected(campaign, name, *, signal=None, reason="SEED_VISUAL_HIGH_CONFIDENCE_NEGATIVE"):
+            row = candidate(db, campaign, name, status="rejected_context", signal=signal)
+            row.reject_reason = reason
+            row.analyzer_model = "siglip2-seed-gate-v1"
+            return row
+
+        for i in range(3):
+            seed_rejected(first, "first-seed-" + str(i))
+            seed_rejected(second, "second-seed-" + str(i))
+        seed_rejected(first, "manual-bad-seed", signal={"reference_manual_label": "bad"})
+        seed_rejected(first, "manual-ai-seed", signal={"reference_manual_label": "ai"})
+        seed_rejected(first, "different-rejection", reason="PRODUCT_FIT_LOW")
+        seed_rejected(hat, "gatorhat-seed")
+        db.flush()
+
+        assert queue_tiktokshop_seed_prefilter_replay(
+            db, "tenant-a", batch_limit=2, inflight_limit=2,
+        ) == 2
+        db.flush()
+        replayed = list(db.scalars(select(RrugcCandidateModel).where(
+            RrugcCandidateModel.status == "analysis_queued",
+        )))
+        assert len(replayed) == 2
+        assert len({row.campaign_id for row in replayed}) == 2
+        assert all(row.analysis_revision == 2 for row in replayed)
+        assert all(row.ai_signal_json["seed_replay_version"] for row in replayed)
+        assert queue_tiktokshop_seed_prefilter_replay(
+            db, "tenant-a", batch_limit=2, inflight_limit=2,
+        ) == 0
+
+        for job in db.scalars(select(ProcessingJobModel)):
+            job.status = "completed"
+        db.flush()
+        assert queue_tiktokshop_seed_prefilter_replay(
+            db, "tenant-a", batch_limit=2, inflight_limit=2,
+        ) == 2
+        assert db.get(RrugcCandidateModel, "manual-bad-seed").status == "rejected_context"
+        assert db.get(RrugcCandidateModel, "manual-ai-seed").status == "rejected_context"
+        assert db.get(RrugcCandidateModel, "different-rejection").status == "rejected_context"
+        assert db.get(RrugcCandidateModel, "gatorhat-seed").status == "rejected_context"
+        assert db.scalar(select(func.count()).select_from(ProcessingJobModel)) == 4
     engine.dispose()

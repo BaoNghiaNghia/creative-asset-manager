@@ -21,6 +21,7 @@ from app.modules.storage.managed_oauth import MANAGED_STORAGE_OAUTH_PROVIDER
 from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.modules.realistic_review_ugc.tiktokshop_replay import (
     queue_legacy_tiktokshop_reference_replay,
+    queue_tiktokshop_seed_prefilter_replay,
 )
 
 # A small bounded inflight window prevents TikTokShop's large Drive import
@@ -74,6 +75,7 @@ class RrugcSourcePlanSyncScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._idle_scan_streak = 0
+        self._replayed_work = False
 
     @property
     def enabled(self) -> bool:
@@ -105,6 +107,11 @@ class RrugcSourcePlanSyncScheduler:
             thread.join(timeout if timeout is not None else self.interval_seconds + 1)
 
     def _next_wait_seconds(self, results: tuple[SourcePlanSyncResult, ...]) -> int:
+        if self._replayed_work:
+            # Replay recovery must continue at normal cadence even when Drive
+            # photos are unchanged; otherwise the idle-sync backoff delays it.
+            self._idle_scan_streak = 0
+            return self.interval_seconds
         # Back off unchanged full-tree scans; a new or updated plan restores
         # the configured interval immediately. Cap delay at 10 minutes.
         unchanged = bool(results) and all(
@@ -158,6 +165,7 @@ class RrugcSourcePlanSyncScheduler:
     def tick(self) -> tuple[SourcePlanSyncResult, ...]:
         if not self.enabled:
             return ()
+        self._replayed_work = False
         results: list[SourcePlanSyncResult] = []
         for tenant_id in self._tenant_ids():
             for root_folder_id in (
@@ -215,7 +223,18 @@ class RrugcSourcePlanSyncScheduler:
                     replayed = queue_legacy_tiktokshop_reference_replay(
                         session, tenant_id,
                     )
+                    seed_replayed = queue_tiktokshop_seed_prefilter_replay(
+                        session, tenant_id,
+                    )
+                    self._replayed_work = self._replayed_work or bool(
+                        replayed or seed_replayed
+                    )
                     session.commit()
+                if seed_replayed:
+                    self.logger.info(
+                        "tiktokshop_seed_prefilter_replay_queued",
+                        extra={"tenant_id": tenant_id, "candidates": seed_replayed},
+                    )
                 if replayed:
                     self.logger.info(
                         "tiktokshop_apparel_legacy_reference_replay_queued",

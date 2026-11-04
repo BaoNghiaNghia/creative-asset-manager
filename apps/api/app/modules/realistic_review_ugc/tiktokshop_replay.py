@@ -149,3 +149,92 @@ def queue_legacy_tiktokshop_reference_replay(
     if count:
         session.flush()
     return count
+
+
+# Earlier SigLIP2 negatives discarded thousands of TikTokShop torso photos
+# before the garment-specific analyzer could inspect their actual placement.
+# Run a separate, versioned and rate-limited recovery rather than deleting
+# candidates or resetting manually rejected references.
+TIKTOKSHOP_SEED_REPLAY_VERSION = "tiktokshop-seed-gate-full-analysis-v1"
+TIKTOKSHOP_SEED_REPLAY_BATCH_LIMIT = 4
+TIKTOKSHOP_SEED_REPLAY_INFLIGHT_LIMIT = 16
+
+
+def queue_tiktokshop_seed_prefilter_replay(
+    session: Session,
+    tenant_id: str,
+    *,
+    batch_limit: int = TIKTOKSHOP_SEED_REPLAY_BATCH_LIMIT,
+    inflight_limit: int = TIKTOKSHOP_SEED_REPLAY_INFLIGHT_LIMIT,
+) -> int:
+    """Recheck old local seed rejects with full apparel analysis, once each.
+
+    The shared Gemini queue remains the capacity gate. Each tick admits only
+    a few candidates across different TikTokShop embroidery campaigns. Both
+    manual bad/AI labels and all GatorHats candidates are left untouched.
+    """
+    ready_ids = set(session.scalars(
+        select(RrugcSourcePlanModel.campaign_id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            RrugcSourcePlanModel.status == "ready",
+            RrugcSourcePlanModel.campaign_id.is_not(None),
+        ).distinct()
+    ))
+    if not ready_ids:
+        return 0
+
+    pending = session.scalar(
+        select(func.count(ProcessingJobModel.id)).join(
+            RrugcCandidateModel,
+            and_(
+                RrugcCandidateModel.tenant_id == ProcessingJobModel.tenant_id,
+                RrugcCandidateModel.id == ProcessingJobModel.entity_id,
+            ),
+        ).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+            ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+            RrugcCandidateModel.campaign_id.in_(ready_ids),
+        )
+    ) or 0
+    batch = min(
+        max(0, int(batch_limit)),
+        max(0, int(inflight_limit) - int(pending)),
+    )
+    if not batch:
+        return 0
+
+    rows = list(session.scalars(
+        select(RrugcCandidateModel).where(
+            RrugcCandidateModel.tenant_id == tenant_id,
+            RrugcCandidateModel.campaign_id.in_(ready_ids),
+            RrugcCandidateModel.status == "rejected_context",
+            RrugcCandidateModel.reject_reason == "SEED_VISUAL_HIGH_CONFIDENCE_NEGATIVE",
+            RrugcCandidateModel.analyzer_model == "siglip2-seed-gate-v1",
+        ).order_by(
+            RrugcCandidateModel.created_at.desc(),
+            RrugcCandidateModel.id.desc(),
+        ).limit(max(128, batch * 64)).with_for_update(skip_locked=True)
+    ))
+    service = RrugcService(session)
+    touched_campaigns: set[str] = set()
+    queued = 0
+    for candidate in rows:
+        if queued >= batch:
+            break
+        if candidate.campaign_id in touched_campaigns:
+            continue
+        signal = dict(candidate.ai_signal_json or {})
+        if signal.get("reference_manual_label") in {"bad", "ai"}:
+            continue
+        if signal.get("seed_replay_version") == TIKTOKSHOP_SEED_REPLAY_VERSION:
+            continue
+        signal["seed_replay_version"] = TIKTOKSHOP_SEED_REPLAY_VERSION
+        candidate.ai_signal_json = signal
+        service.enqueue_analysis(candidate, increment_revision=True)
+        touched_campaigns.add(candidate.campaign_id)
+        queued += 1
+    if queued:
+        session.flush()
+    return queued
