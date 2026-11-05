@@ -2837,6 +2837,157 @@ def test_tiktokshop_v58_claim_payload_never_replays_legacy_text_photos(api, data
         assert persisted.search_queries_json[0] == "ISAIAH 9:6 photo"
 
 
+def test_seasonal_v58_claim_uses_only_source_artwork_queries(api, database):
+    from app.modules.realistic_review_ugc.workspace import (
+        TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+    from app.modules.realistic_review_ugc.product_context import (
+        TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a",
+            name="Christmas family sweatshirt",
+            query="person wearing sweatshirt front",
+            search_queries=[
+                "person wearing sweatshirt front",
+                "generic winter family lifestyle",
+            ],
+            target_count=50, max_scroll_batches=3,
+            auto_import=True, auto_scout=True,
+        )
+        campaign.product_snapshot_json = {
+            "name": "embroidered-christmas-family-sweatshirt.jpg",
+            "product_type": "sweatshirt",
+            "source_category": "embroidered apparel",
+        }
+        campaign.product_context_json = {
+            "apparel_placements": [
+                {"zone": "center_chest", "priority": "primary", "confidence": 1.0}
+            ],
+            "visual_context": {
+                "status": "ready",
+                "version": TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+                "themes": ["dad_family", "holiday", "mom_family"],
+                "summary": "Christmas decorations with family names",
+            },
+            "search_clusters": {
+                "direct": ["person wearing sweatshirt front"],
+                "adjacent": ["winter family outside"],
+            },
+        }
+        session.add(RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="christmas-family-source",
+            source_relative_path="christmas/source.png",
+            source_name="embroidered-christmas-family-sweatshirt.jpg",
+            source_mime_type="image/jpeg",
+            source_revision="a" * 64,
+            status="ready", campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        ))
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="Christmas v58 fallback test", workspace="tiktokshop",
+        )
+        session.commit()
+        id_ = campaign.id
+        saved_context = dict(campaign.product_context_json)
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent.id}/claim",
+        headers={
+            "Authorization": "Bearer " + token,
+            "X-Scout-Version": "rrugc-scout-v58-tiktokshop-isolation",
+            "X-Scout-Machine": "legacy-scout-seasonal-test",
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["campaign_id"] == id_
+    queries = payload["search_queries"]
+    assert len(queries) == 4
+    assert all("Christmas" in query and "sweatshirt" in query for query in queries)
+    assert "person wearing sweatshirt front" not in queries
+    ctx = payload["source_context"]
+    assert ctx["seasonal_search"] == {
+        "version": "source-season-v1",
+        "season": "christmas",
+        "priority_queries": queries,
+    }
+    assert ctx["search_clusters"]["direct"] == queries
+    assert ctx["search_clusters"]["adjacent"] == []
+    assert ctx["search_clusters"]["selfie_wearing_hat"] == []
+    with database() as session:
+        saved = session.get(RrugcCampaignModel, id_)
+        assert saved.product_context_json == saved_context
+        assert saved.search_queries_json[0] == "person wearing sweatshirt front"
+
+
+def test_gatorhats_seasonal_v58_claim_prioritizes_holiday_cap_references(api, database):
+    from app.modules.realistic_review_ugc.workspace import (
+        RRUGC_SOURCE_ROOT_FOLDER_ID,
+    )
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a",
+            name="Christmas personalized embroidered cap",
+            query="person wearing trucker hat",
+            search_queries=["person wearing trucker hat", "family hat selfie"],
+            target_count=50, max_scroll_batches=3,
+            auto_import=True, auto_scout=True,
+        )
+        campaign.product_snapshot_json = {
+            "name": "Christmas family embroidered cap",
+            "product_type": "cap", "source_category": "embroidered hat",
+        }
+        campaign.product_context_json = {
+            "visual_context": {
+                "status": "ready", "themes": ["holiday"],
+                "summary": "Christmas embroidery and family names",
+            },
+            "search_clusters": {
+                "direct": ["person wearing hat selfie"],
+                "generic": ["generic outdoors"],
+            },
+        }
+        session.add(RrugcSourcePlanModel(
+            tenant_id="tenant-a", root_folder_id=RRUGC_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="christmas-hat-source",
+            source_relative_path="christmas/cap.png",
+            source_name="christmas-cap.png", source_mime_type="image/png",
+            source_revision="b" * 64,
+            status="ready", campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        ))
+        agent, token = RrugcAutoScoutService(session).create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="GatorHats seasonal fallback", workspace="gatorhats",
+        )
+        session.commit()
+        id_ = campaign.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent.id}/claim",
+        headers={
+            "Authorization": "Bearer " + token,
+            "X-Scout-Version": "rrugc-scout-v58-tiktokshop-isolation",
+            "X-Scout-Machine": "gatorhats-seasonal-test",
+        },
+    )
+    assert response.status_code == 200, response.text
+    claim = response.json()
+    assert claim["campaign_id"] == id_
+    assert len(claim["search_queries"]) == 4
+    assert all("Christmas" in query and "cap" in query
+               for query in claim["search_queries"])
+    assert claim["source_context"]["seasonal_search"]["priority_queries"] == claim["search_queries"]
+    assert claim["source_context"]["search_clusters"]["direct"] == claim["search_queries"]
+    assert claim["source_context"]["search_clusters"]["generic"] == []
+
+
 def test_tiktokshop_claim_known_pins_are_shared_within_workspace(api, database):
     from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 

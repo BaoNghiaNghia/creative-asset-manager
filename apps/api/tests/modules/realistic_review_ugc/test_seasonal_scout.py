@@ -25,9 +25,14 @@ def test_christmas_gatorhats_claim_keeps_hat_front_and_original_search_terms():
     result = seasonal_hat_claim_search(product, profile, ["hat mirror selfie", "family group"])
     assert result is not None
     queries, context = result
-    assert len(queries) == 5
-    assert all("Christmas" in item for item in queries[:3])
-    assert all("cap" in item for item in queries[:3])
+    assert len(queries) == 6
+    assert all("Christmas" in item for item in queries[:4])
+    assert all("cap" in item for item in queries[:4])
+    assert context["seasonal_search"] == {
+        "version": "source-season-v1",
+        "season": "christmas",
+        "priority_queries": queries[:4],
+    }
     assert "hat mirror selfie" in queries
     assert "family group" in queries
     assert context["search_clusters"]["selfie_wearing_hat"][0] == queries[0]

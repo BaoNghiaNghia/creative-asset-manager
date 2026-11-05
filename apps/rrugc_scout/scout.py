@@ -28,7 +28,7 @@ import httpx
 from cap_stack_feedback import CapStackFeedbackFilter
 
 
-CLIENT_VERSION = "rrugc-scout-v58-tiktokshop-isolation"
+CLIENT_VERSION = "rrugc-scout-v59-seasonal-claim-priority"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -2568,6 +2568,56 @@ def keyword_candidate_budgets(total_cap: int, query_count: int) -> list[int]:
     ]
 
 
+def seasonal_claim_queries(task: dict[str, Any]) -> list[str]:
+    """Honor the explicit source-artwork seasonal contract sent by CAM.
+
+    Use the four server-vetted queries without a second generic bandit pass.
+    Fail closed to the existing search ranking if metadata is incomplete,
+    unsupported, stale or mismatched with the signed claim query list.
+    """
+    if not str(task.get("source_plan_id") or "").strip():
+        return []
+    context = task.get("source_context")
+    if not isinstance(context, dict):
+        return []
+    contract = context.get("seasonal_search")
+    if (
+        not isinstance(contract, dict)
+        or contract.get("version") != "source-season-v1"
+        or not str(contract.get("season") or "").strip()
+    ):
+        return []
+    configured = task.get("search_queries")
+    priority = contract.get("priority_queries")
+    if not isinstance(configured, list) or not isinstance(priority, list):
+        return []
+    configured_keys = {
+        " ".join(str(value or "").split()).casefold()
+        for value in configured if isinstance(value, str)
+    }
+    selected: list[str] = []
+    seen: set[str] = set()
+    for candidate in priority:
+        if not isinstance(candidate, str):
+            return []
+        clean = " ".join(candidate.split())
+        key = clean.casefold()
+        if (
+            not clean
+            or len(clean) > 500
+            or key not in configured_keys
+        ):
+            return []
+        if key not in seen:
+            seen.add(key)
+            selected.append(clean)
+        if len(selected) >= MAX_KEYWORDS_PER_RUN:
+            break
+    if len(selected) != MAX_KEYWORDS_PER_RUN:
+        return []
+    return selected
+
+
 def task_search_queries(task: dict[str, Any]) -> list[str]:
     """Return source-plan context queries before adaptive/legacy campaign queries.
 
@@ -2576,6 +2626,20 @@ def task_search_queries(task: dict[str, Any]) -> list[str]:
     adaptive campaign refresh cannot silently make a generic historical query
     the first Pinterest search again.
     """
+    priority = seasonal_claim_queries(task)
+    if priority:
+        scout_debug_event(
+            "seasonal_search_claim_applied",
+            campaign_id=str(task.get("campaign_id") or ""),
+            source_plan_id=str(task.get("source_plan_id") or ""),
+            season=str(
+                (task.get("source_context") or {}).get("seasonal_search", {}).get("season")
+            ),
+            query_count=len(priority),
+            client_version=CLIENT_VERSION,
+        )
+        return priority
+
     raw_queries: list[Any] = []
     source_plan_id = str(task.get("source_plan_id") or "").strip()
     source_context = task.get("source_context")

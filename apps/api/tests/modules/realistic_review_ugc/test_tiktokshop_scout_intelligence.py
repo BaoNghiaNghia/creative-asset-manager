@@ -174,6 +174,11 @@ def test_existing_tiktokshop_campaign_receives_seasonal_claim_without_reanalysis
     assert len(queries) == 4
     assert all("Christmas" in query and "sweatshirt" in query for query in queries)
     assert context["search_clusters"]["direct"] == queries
+    assert context["seasonal_search"] == {
+        "version": "source-season-v1",
+        "season": "christmas",
+        "priority_queries": queries,
+    }
     assert context["search_clusters"]["adjacent"] == []
     assert "person wearing sweatshirt" not in context["search_clusters"]["direct"]
     assert profile["search_clusters"]["direct"] == ["person wearing sweatshirt"]

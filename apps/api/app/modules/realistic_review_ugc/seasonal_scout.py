@@ -151,6 +151,33 @@ def detect_source_season(
 
 
 
+def seasonal_query_contract(
+    product_snapshot: dict[str, Any] | None,
+    product_context: dict[str, Any] | None,
+    priority_queries: list[str],
+) -> dict[str, Any] | None:
+    """Explicit server-to-Scout contract: season-specific lanes outrank history.
+
+    The Windows v59 runner uses the first four vetted lane strings unchanged,
+    before its generic adaptive ranking. Older clients ignore this optional
+    field and keep the compatible query-list fallback.
+    """
+    season = detect_source_season(product_snapshot, product_context)
+    if season is None:
+        return None
+    values = list(dict.fromkeys(
+        " ".join(str(value or "").split()) for value in priority_queries
+        if str(value or "").strip()
+    ))[:4]
+    if not values or any(season.label.casefold() not in q.casefold() for q in values):
+        return None
+    return {
+        "version": "source-season-v1",
+        "season": season.key,
+        "priority_queries": values,
+    }
+
+
 def seasonal_hat_claim_search(
     product_snapshot: dict[str, Any] | None,
     product_context: dict[str, Any] | None,
@@ -176,6 +203,10 @@ def seasonal_hat_claim_search(
         f"{season.label} {season.scene} casual person in baseball cap "
         "candid phone photo"
     )
+    group = (
+        f"{season.label} {season.decoration} family in embroidered caps "
+        "front view candid phone photo"
+    )
     context = dict(product_context or {})
     clusters = (
         dict(context.get("search_clusters"))
@@ -191,4 +222,8 @@ def seasonal_hat_claim_search(
         values = [str(value).strip() for value in old] if isinstance(old, list) else []
         clusters[key] = list(dict.fromkeys([extra, *values]))[:limit]
     context["search_clusters"] = clusters
-    return list(dict.fromkeys([selfie, held, lifestyle, *existing_queries])), context
+    priority = [selfie, held, lifestyle, group]
+    contract = seasonal_query_contract(product_snapshot, product_context, priority)
+    if contract is not None:
+        context["seasonal_search"] = contract
+    return list(dict.fromkeys([*priority, *existing_queries])), context

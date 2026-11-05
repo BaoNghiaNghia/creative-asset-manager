@@ -41,6 +41,7 @@ from scout import (
     scout_debug_event,
     shutdown_scout_remote_log,
     task_search_queries,
+    seasonal_claim_queries,
     wait_for_pin_growth,
 )
 
@@ -1662,6 +1663,75 @@ def test_related_seed_candidates_reject_invalid_and_dedupe():
     rows = related_seed_candidates(task)
     assert len(rows) == 1
     assert rows[0].pin_url == "https://www.pinterest.com/pin/1/"
+
+
+def test_v59_prioritizes_all_four_christmas_queries_over_generic_history():
+    seasonal = [
+        "Christmas family in sweatshirts front chest visible candid photo",
+        "Christmas family decorated living room sweatshirt candid photo",
+        "Christmas tree lights sweater mother with children lifestyle photo",
+        "Christmas holiday sweatshirt front facing phone photo",
+    ]
+    task = {
+        "campaign_id": "christmas-family",
+        "source_plan_id": "source-christmas",
+        "query": "person wearing sweatshirt front generic photo",
+        "search_queries": [*seasonal, "person wearing sweatshirt front generic photo"],
+        "source_context": {
+            "seasonal_search": {
+                "version": "source-season-v1",
+                "season": "christmas",
+                "priority_queries": seasonal,
+            },
+            "search_clusters": {
+                "direct": ["person wearing sweatshirt front generic photo"],
+                "adjacent": ["family holiday casual unrelated photo"],
+            },
+        },
+        "query_performance": [
+            {"query": "person wearing sweatshirt front generic photo", "score": 1.0,
+             "stage2_used": 100},
+            {"query": seasonal[0], "score": 0.70},
+            {"query": seasonal[1], "score": 0.71},
+        ],
+    }
+    assert seasonal_claim_queries(task) == seasonal
+    assert task_search_queries(task) == seasonal
+    assert all("Christmas" in query for query in task_search_queries(task))
+
+
+def test_seasonal_contract_does_not_override_unrelated_or_invalid_claims():
+    seasonal = [f"Halloween family cap scene {i} photo" for i in range(4)]
+    task = {
+        "source_plan_id": "halloween-source",
+        "search_queries": [*seasonal, "generic cap selfie"],
+        "source_context": {
+            "seasonal_search": {
+                "version": "source-season-v1",
+                "season": "halloween",
+                "priority_queries": seasonal,
+            },
+            "search_clusters": {"direct": ["generic cap selfie"]},
+        },
+    }
+    assert task_search_queries(task) == seasonal
+    assert seasonal_claim_queries({**task, "source_plan_id": ""}) == []
+    assert seasonal_claim_queries({
+        **task, "source_context": {"seasonal_search": {
+            **task["source_context"]["seasonal_search"],
+            "priority_queries": seasonal[:-1] + ["other untrusted search"],
+        }},
+    }) == []
+    assert seasonal_claim_queries({
+        **task, "source_context": {"seasonal_search": {
+            **task["source_context"]["seasonal_search"],
+            "version": "unsupported-v2",
+        }},
+    }) == []
+    # Without a current season contract, existing adaptive ranking is unchanged.
+    without = {**task, "source_context": {"search_clusters": {}}}
+    assert seasonal_claim_queries(without) == []
+    assert set(task_search_queries(without)) == set(task["search_queries"])
 
 
 def test_keyword_candidate_budgets_cap_keywords_and_share_capacity():

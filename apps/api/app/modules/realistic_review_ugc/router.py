@@ -1711,7 +1711,7 @@ def tiktokshop_apparel_claim_search(
     *,
     scan_attempt_count: int = 0,
 ) -> tuple[list[str], dict] | None:
-    """Send only placement-compatible queries to the existing Windows v58 Scout.
+    """Send placement- and season-compatible queries to Windows Scout.
 
     The Windows client merges source_context.search_clusters ahead of the
     server-ranked search_queries. Old text_match / adjacent clusters therefore
@@ -1760,6 +1760,16 @@ def tiktokshop_apparel_claim_search(
         "text_match": [],
         "generic": [],
     }
+    from app.modules.realistic_review_ugc.seasonal_scout import (
+        seasonal_query_contract,
+    )
+    contract = seasonal_query_contract(product, source, queries)
+    if contract is not None:
+        ctx["seasonal_search"] = contract
+    else:
+        # A previously seasonal campaign can be edited into a nonseasonal
+        # source. Never carry a stale seasonal override across source revisions.
+        ctx.pop("seasonal_search", None)
     return queries, ctx
 
 
@@ -10243,8 +10253,8 @@ def auto_scout_agent_claim(
             scan_attempt_count=claim.campaign.scan_attempt_count,
         )
         if apparel_lanes is not None:
-            # Windows v58 consumes source_context clusters before the
-            # search_queries list, and keeps at most four queries per run.
+            # Legacy Windows v58 consumes source_context clusters before the
+            # search_queries list; new v59 honors seasonal_search explicitly.
             # Both fields must use the same garment-placement-only lane.
             search_queries, source_context = apparel_lanes
             from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
@@ -10267,9 +10277,15 @@ def auto_scout_agent_claim(
             search_queries, learned_scores = rank_tiktokshop_queries_from_feedback(
                 search_queries, human_feedback,
             )
-            # Windows v58 consumes direct clusters before search_queries. Keep
-            # the two lists in exactly the same learned order.
+            # Keep the direct cluster and seasonal-priority contract in the
+            # learned order. v59 otherwise bypasses the human feedback rerank.
             source_context["search_clusters"]["direct"] = search_queries
+            seasonal_policy = source_context.get("seasonal_search")
+            if (
+                isinstance(seasonal_policy, dict)
+                and seasonal_policy.get("version") == "source-season-v1"
+            ):
+                seasonal_policy["priority_queries"] = list(search_queries)[:4]
             previous_scores = {
                 _scout_query_key(row.query): row for row in query_performance
             }
@@ -10313,6 +10329,46 @@ def auto_scout_agent_claim(
                 ScoutQueryPerformance(query=query, score=round(0.99 - 0.01 * index, 4))
                 for index, query in enumerate(search_queries[:3])
             ] + existing
+
+    # Keep the same seasonal guarantee even for older Windows v58 clients:
+    # they ignore seasonal_search and re-rank/interleave legacy clusters.
+    # This trims ONLY the ephemeral claim, not persisted search history,
+    # source context, feedback or previously accepted references.
+    contract = (
+        source_context.get("seasonal_search")
+        if isinstance(source_context, dict) else None
+    )
+    if isinstance(contract, dict) and contract.get("version") == "source-season-v1":
+        priority = contract.get("priority_queries")
+        expected = {
+            _scout_query_key(query) for query in search_queries
+        }
+        if (
+            isinstance(priority, list)
+            and len(priority) == 4
+            and all(
+                isinstance(query, str)
+                and _scout_query_key(query) in expected
+                for query in priority
+            )
+        ):
+            search_queries = list(priority)
+            source_context["search_clusters"] = {
+                "direct": list(priority),
+                "selfie_wearing_hat": [],
+                "hand_holding_hat": [],
+                "adjacent": [],
+                "text_match": [],
+                "generic": [],
+            }
+            existing_scores = {
+                _scout_query_key(item.query): item for item in query_performance
+            }
+            query_performance = [
+                existing_scores.get(_scout_query_key(query))
+                or ScoutQueryPerformance(query=query, score=0.95)
+                for query in priority
+            ]
 
     # Sync known Pins across source groups inside the SAME workspace. A photo
     # discovered for Grandma must not be rediscovered for Godmother/Newlyweds.
