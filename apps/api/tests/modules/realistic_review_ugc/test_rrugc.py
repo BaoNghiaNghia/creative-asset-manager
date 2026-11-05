@@ -2767,6 +2767,76 @@ def test_stage5_review_copy_refresh_preserves_editorial_and_image_metadata(datab
 
 
 
+def test_tiktokshop_v58_claim_payload_never_replays_legacy_text_photos(api, database):
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    from app.modules.realistic_review_ugc.product_context import (
+        TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+    )
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Religious sweatshirt",
+            query="ISAIAH 9:6 photo",
+            search_queries=["ISAIAH 9:6 photo", "holiday morning selfie photo"],
+            target_count=50, max_scroll_batches=3, auto_import=True,
+            auto_scout=True,
+        )
+        campaign.product_snapshot_json = {"product_type": "sweatshirt"}
+        campaign.product_context_json = {
+            "visual_context": {
+                "status": "ready", "version": TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+            },
+            "apparel_placements": [
+                {"zone": "center_chest", "priority": "primary", "confidence": 1.0},
+            ],
+            "search_clusters": {
+                "direct": ["person wearing sweatshirt upper body chest visible"],
+                "text_match": ["ISAIAH 9:6 photo"],
+                "adjacent": ["holiday morning selfie photo"],
+            },
+        }
+        session.add(RrugcSourcePlanModel(
+            tenant_id="tenant-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="religious-sweatshirt",
+            source_relative_path="shirts/religious.png",
+            source_name="religious.png", source_mime_type="image/png",
+            source_revision="1" * 64,
+            status="ready", campaign_id=campaign.id,
+            created_by_user_id="user-a",
+        ))
+        scout = RrugcAutoScoutService(session)
+        agent, token = scout.create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="TikTokShop v58 query test", workspace="tiktokshop",
+        )
+        session.commit()
+        original_context = dict(campaign.product_context_json)
+        id_ = campaign.id
+
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent.id}/claim",
+        headers={
+            "Authorization": "Bearer " + token,
+            "X-Scout-Version": "rrugc-scout-v58-tiktokshop-isolation",
+            "X-Scout-Machine": "tiktok-v58-test",
+        },
+    )
+    assert response.status_code == 200, response.text
+    claim = response.json()
+    assert claim["campaign_id"] == id_
+    assert claim["search_queries"]
+    assert all("sweatshirt" in q for q in claim["search_queries"])
+    assert all(item["score"] == 1.0 for item in claim["query_performance"])
+    assert claim["source_context"]["search_clusters"]["text_match"] == []
+    assert claim["source_context"]["search_clusters"]["adjacent"] == []
+    assert claim["source_context"]["search_clusters"]["direct"] == claim["search_queries"]
+    with database() as session:
+        persisted = session.get(RrugcCampaignModel, id_)
+        assert persisted.product_context_json == original_context
+        assert persisted.search_queries_json[0] == "ISAIAH 9:6 photo"
+
+
 def test_tiktokshop_claim_known_pins_isolated_to_embroidery_group(api, database):
     from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 
@@ -3200,6 +3270,8 @@ def test_tiktokshop_apparel_context_skips_hat_head_crop_policy():
     prompt = analysis_prompt(snapshot)
     assert "APPAREL OVERRIDE" in prompt
     assert "clothing, not headwear" in prompt
+    assert "TECHNICAL GARMENT-FIT score" in prompt
+    assert "Do NOT lower it because the background" in prompt
 
     mock_campaign = SimpleNamespace(
         product_snapshot_json=snapshot, min_head_ratio=0.18, max_head_ratio=0.7,

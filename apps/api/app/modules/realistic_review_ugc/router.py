@@ -1705,6 +1705,97 @@ def prioritize_tiktokshop_placement_queries(
     return ordered, boosted
 
 
+def tiktokshop_apparel_claim_search(
+    product_snapshot: dict | None,
+    profile: dict | None,
+    *,
+    scan_attempt_count: int = 0,
+) -> tuple[list[str], dict] | None:
+    """Send only placement-compatible queries to the existing Windows v58 Scout.
+
+    The Windows client merges source_context.search_clusters ahead of the
+    server-ranked search_queries. Old text_match / adjacent clusters therefore
+    overrode V5 apparel queries even when the server boosted them to 1.0.
+    Fix the *claim payload*, leaving persisted creative briefs/search history
+    untouched. One or two required zones remain fixed; rotate safe composition
+    variants per scan to discover fresh references without extra AI calls.
+    """
+    from app.modules.realistic_review_ugc.apparel_placement import (
+        apparel_placement_queries, source_placements,
+    )
+    from app.modules.realistic_review_ugc.product_context import (
+        TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+    )
+
+    source = dict(profile or {})
+    visual = source.get("visual_context")
+    if not isinstance(visual, dict) or (
+        visual.get("version") != TIKTOKSHOP_APPAREL_CONTEXT_VERSION
+        or visual.get("status") != "ready"
+    ):
+        return None
+    placements = source_placements(source)
+    if not placements:
+        return None
+    product = dict(product_snapshot or {})
+    raw_garment = str(product.get("product_type") or "shirt").lower().strip()
+    garment = (
+        raw_garment
+        if raw_garment in {"t-shirt", "shirt", "sweatshirt", "sweater", "hoodie", "polo"}
+        else "shirt"
+    )
+    zones = {zone.zone for zone in placements}
+    has_chest = bool(zones & {"center_chest", "left_chest", "right_chest"})
+    has_sleeve = bool(zones & {
+        "left_sleeve", "right_sleeve", "left_upper_arm", "right_upper_arm",
+    })
+    focus = (
+        "chest print area" if has_chest else
+        "neckline and collar" if "collar" in zones else
+        "sleeve and upper arm"
+    )
+    core = apparel_placement_queries(garment, placements)
+    variants = [
+        f"person wearing {garment} standing waist up front {focus} visible candid photo",
+        f"person wearing {garment} front torso fully visible hands at sides natural light photo",
+        f"person in {garment} casual outfit upper torso front facing unobstructed candid photo",
+        f"person wearing {garment} everyday street style waist up {focus} clearly visible",
+        f"person wearing {garment} indoor front view upper body clothing visible candid phone photo",
+        f"person in {garment} outdoor casual standing front full torso visible natural light",
+    ]
+    if has_sleeve:
+        variants.insert(0,
+            f"person wearing {garment} front three quarter full sleeves and arms visible candid")
+    if has_chest and has_sleeve:
+        variants.insert(1,
+            f"person wearing {garment} chest and sleeve clear standing waist up casual photo")
+    # Keep the high-value garment/zone lanes fixed; vary later lanes so
+    # repeated runs do not replay exactly the same four Pinterest searches.
+    step = max(0, int(scan_attempt_count or 0))
+    offset = step % len(variants)
+    rotated = [*variants[offset:], *variants[:offset]]
+    queries: list[str] = []
+    seen: set[str] = set()
+    for raw in [*core, *rotated]:
+        value = " ".join(raw.split())
+        key = value.casefold()
+        if value and key not in seen:
+            seen.add(key)
+            queries.append(value)
+    ctx = dict(source)
+    # Remove legacy hat/text/scene clusters only from this Scout claim.
+    # The original visual evidence remains intact for AI scoring and UGC.
+    ctx["search_clusters"] = {
+        "direct": queries,
+        "selfie_wearing_hat": [],
+        "hand_holding_hat": [],
+        "adjacent": [],
+        "text_match": [],
+        "generic": [],
+    }
+    return queries, ctx
+
+
 def _rank_scout_queries(
     queries: list[str],
     performance: list[ScoutQueryPerformance],
@@ -10175,6 +10266,31 @@ def auto_scout_agent_claim(
             claim.campaign.product_context_json,
         )
     search_queries = _rank_scout_queries(search_queries, query_performance)
+    source_context = dict(claim.campaign.product_context_json or {}) or None
+    if source_plan is not None and source_plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+        apparel_lanes = tiktokshop_apparel_claim_search(
+            claim.campaign.product_snapshot_json,
+            claim.campaign.product_context_json,
+            scan_attempt_count=claim.campaign.scan_attempt_count,
+        )
+        if apparel_lanes is not None:
+            # Windows v58 consumes source_context clusters before the
+            # search_queries list, and keeps at most four queries per run.
+            # Both fields must use the same garment-placement-only lane.
+            search_queries, source_context = apparel_lanes
+            previous_scores = {
+                _scout_query_key(row.query): row for row in query_performance
+            }
+            query_performance = [
+                (
+                    previous_scores[_scout_query_key(query)].model_copy(
+                        update={"score": 1.0}
+                    )
+                    if _scout_query_key(query) in previous_scores
+                    else ScoutQueryPerformance(query=query, score=1.0)
+                )
+                for query in search_queries
+            ]
 
     # Sync known Pins to avoid duplicate detail visits. For TikTokShop this
     # MUST be campaign-scoped: independent embroidery groups can legitimately
@@ -10283,7 +10399,7 @@ def auto_scout_agent_claim(
             source_plan.source_relative_path if source_plan is not None else None
         ),
         source_name=source_plan.source_name if source_plan is not None else None,
-        source_context=dict(claim.campaign.product_context_json or {}) or None,
+        source_context=source_context,
         related_seeds=[
             ScoutRelatedSeed(
                 pin_url=row.pin_url,

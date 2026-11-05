@@ -815,7 +815,12 @@ Score 0..1:
   ai_lighting_reflection_risk, ai_background_consistency_risk: distinct faults
 - ai_detector_confidence: certainty of the visible synthetic/real assessment
 - product_fit_score: garment category, size, natural drape, sleeves, chest/back
-  region visibility and feasible embroidery placement; NOT head or hat detail
+  region visibility and feasible embroidery placement; NOT head or hat detail.
+  This is a TECHNICAL GARMENT-FIT score. Do NOT lower it because the background
+  lacks holiday/religious/family mood, the photo does not contain the quote,
+  or its current clothing has a different color or embroidery. Those are NOT
+  garment-fit defects; the source design will be transferred onto this shirt.
+  Low product_fit_score requires visible failure of garment/frame/placement.
 - context_match_score: match with the supplied artwork's genuine theme or
   activity; neutral 0.5 when the topic is unclear, do not infer protected traits
 - product_shape_score: garment silhouette, collar/cuffs/seams, fabric and drape

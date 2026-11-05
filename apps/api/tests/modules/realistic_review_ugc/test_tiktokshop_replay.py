@@ -111,6 +111,48 @@ def test_replays_old_imported_and_legacy_rejects_without_touching_other_roots_or
 
 
 
+def test_tiktokshop_v58_claim_lane_filters_quote_queries_and_rotates():
+    from app.modules.realistic_review_ugc.router import tiktokshop_apparel_claim_search
+
+    source = {
+        "visual_context": {
+            "version": TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
+            "status": "ready",
+        },
+        "apparel_placements": [
+            {"zone": "center_chest", "priority": "primary", "confidence": 0.99},
+            {"zone": "left_sleeve", "priority": "secondary", "confidence": 0.95},
+        ],
+        "search_clusters": {
+            "text_match": ["GOD IS GOOD photo", "GOD IS GOOD candid photo"],
+            "adjacent": ["sunset couple selfie"],
+            "direct": ["old silhouette query"],
+        },
+    }
+    a = tiktokshop_apparel_claim_search(
+        {"product_type": "sweatshirt"}, source, scan_attempt_count=7,
+    )
+    b = tiktokshop_apparel_claim_search(
+        {"product_type": "sweatshirt"}, source, scan_attempt_count=8,
+    )
+    assert a is not None and b is not None
+    queries, claim_context = a
+    assert all("sweatshirt" in value for value in queries)
+    assert queries[0].startswith("person wearing sweatshirt front upper body")
+    assert "arm sleeves visible" in queries[1]
+    assert queries[2] != b[0][2]  # rotates non-core discovery
+    assert claim_context["search_clusters"]["direct"] == queries
+    for key in ("text_match", "adjacent", "selfie_wearing_hat", "hand_holding_hat"):
+        assert claim_context["search_clusters"][key] == []
+    assert source["search_clusters"]["text_match"] == [
+        "GOD IS GOOD photo", "GOD IS GOOD candid photo",
+    ]  # no persistent mutation
+    assert tiktokshop_apparel_claim_search(
+        {"product_type": "cap"},
+        {"visual_context": {"version": "old-v4", "status": "ready"}},
+    ) is None
+
+
 def test_tiktokshop_placement_queries_beat_legacy_quality_rank_without_windows_update():
     from app.modules.realistic_review_ugc.router import (
         _rank_scout_queries, prioritize_tiktokshop_placement_queries,
