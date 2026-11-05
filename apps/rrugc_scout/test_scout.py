@@ -55,7 +55,8 @@ def test_safe_windows_console_handles_unrepresentable_pinterest_keywords():
     console.write("Thêu mũ Việt Nam – 東京")
     console.flush()
     assert b"\\u6771" in sink.getvalue()
-    assert b"\\u2013" in sink.getvalue()
+    # En dash is representable in CP1252 (0x96), while Japanese is escaped.
+    assert b"\x96" in sink.getvalue()
 
 
 def test_windows_scout_launcher_shows_actual_version_in_both_modes():
@@ -209,42 +210,95 @@ def test_clear_stale_profile_runtime_files_preserves_unrelated_files(tmp_path):
 
 
 
-def test_recover_windows_profile_closes_legacy_scout_and_late_chrome(
-    monkeypatch,
-    tmp_path,
-):
-    owner_snapshots = [
-        ((18452,), (21012,)),
-        ((21116,), ()),
-        ((), ()),
-        ((), ()),
-    ]
-    scout_kills: list[tuple[int, ...]] = []
-    chrome_kills: list[tuple[int, ...]] = []
-
+def test_recovery_never_kills_active_chrome_or_scout(monkeypatch, tmp_path):
+    chrome_lock = tmp_path / "SingletonLock"
+    chrome_lock.write_text("active-chrome", encoding="utf-8")
     monkeypatch.setattr(scout_module.sys, "platform", "win32")
     monkeypatch.setattr(
-        scout_module,
-        "_windows_profile_owners",
-        lambda _profile: owner_snapshots.pop(0),
+        scout_module, "_windows_profile_owners",
+        lambda _profile: ((18452,), (21012,)),
     )
+    def forbid_kill(_pids):
+        raise AssertionError("Never force-kill active Chrome/Scout processes")
     monkeypatch.setattr(
-        scout_module,
-        "_terminate_windows_process_trees",
-        lambda pids: scout_kills.append(tuple(pids)) or len(pids),
+        scout_module.subprocess, "run",
+        lambda *_args, **_kwargs: forbid_kill(()),
     )
-    monkeypatch.setattr(
-        scout_module,
-        "_terminate_windows_profile_chrome",
-        lambda pids: chrome_kills.append(tuple(pids)) or len(pids),
-    )
-    monkeypatch.setattr(scout_module.time, "sleep", lambda _seconds: None)
 
+    with pytest.raises(RuntimeError, match="already open"):
+        scout_module._recover_windows_scout_profile(tmp_path)
+    assert chrome_lock.read_text(encoding="utf-8") == "active-chrome"
+
+
+def test_recovery_removes_only_orphaned_locks_after_double_idle_check(
+    monkeypatch, tmp_path,
+):
+    snapshots = [ ((), ()), ((), ()) ]
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module, "_windows_profile_owners",
+        lambda _profile: snapshots.pop(0),
+    )
+    monkeypatch.setattr(scout_module.time, "sleep", lambda _secs: None)
+    (tmp_path / "SingletonLock").write_text("orphaned", encoding="utf-8")
+    (tmp_path / "Cookies").write_bytes(b"encrypted-cookies")
     scout_module._recover_windows_scout_profile(tmp_path)
+    assert not snapshots
+    assert not (tmp_path / "SingletonLock").exists()
+    assert (tmp_path / "Cookies").read_bytes() == b"encrypted-cookies"
 
-    assert scout_kills == [(21012,)]
-    assert chrome_kills == [(18452,), (21116,)]
-    assert owner_snapshots == []
+
+def test_recovery_skips_cleanup_if_process_inspection_unavailable(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module, "_windows_profile_owners", lambda _profile: None,
+    )
+    stale = tmp_path / "SingletonLock"
+    stale.write_text("unknown-owner", encoding="utf-8")
+    scout_module._recover_windows_scout_profile(tmp_path)
+    assert stale.read_text(encoding="utf-8") == "unknown-owner"
+
+
+def test_repair_only_invalid_chrome_preferences_preserves_login_material(tmp_path):
+    profile = tmp_path
+    default = profile / "Default"
+    default.mkdir()
+    local_state = profile / "Local State"
+    local_state.write_text(
+        '{"os_crypt":{"encrypted_key":"KEEP-KEY"}}', encoding="utf-8",
+    )
+    (default / "Cookies").write_bytes(b"keep-encrypted-pinterest-cookies")
+    (default / "Secure Preferences").write_text('{"extensions":{}}', encoding="utf-8")
+    (default / "Preferences").write_text('{"bad": [', encoding="utf-8")
+
+    repaired = scout_module._repair_corrupt_chrome_profile_preferences(profile)
+    assert repaired == ("Default/Preferences",)
+    assert (default / "Preferences").read_text(encoding="utf-8").strip() == "{}"
+    backups = list((profile / "cam-scout-profile-backups").glob("*.json"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == '{"bad": ['
+    assert local_state.read_text(encoding="utf-8") == (
+        '{"os_crypt":{"encrypted_key":"KEEP-KEY"}}'
+    )
+    assert (default / "Cookies").read_bytes() == b"keep-encrypted-pinterest-cookies"
+    assert scout_module._repair_corrupt_chrome_profile_preferences(profile) == ()
+    assert len(list((profile / "cam-scout-profile-backups").glob("*.json"))) == 1
+
+
+def test_repair_refuses_to_reset_broken_local_state_and_cookies(tmp_path):
+    default = tmp_path / "Default"
+    default.mkdir()
+    broken = tmp_path / "Local State"
+    broken.write_text('{"encrypted_key":', encoding="utf-8")
+    pref = default / "Preferences"
+    pref.write_text('{"keep":false}', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Local State is damaged"):
+        scout_module._repair_corrupt_chrome_profile_preferences(tmp_path)
+    assert broken.read_text(encoding="utf-8") == '{"encrypted_key":'
+    assert pref.read_text(encoding="utf-8") == '{"keep":false}'
+    assert not (tmp_path / "cam-scout-profile-backups").exists()
 
 
 def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
@@ -265,6 +319,23 @@ def test_profile_lock_blocks_another_live_v18_scout(monkeypatch, tmp_path):
         lock.acquire()
 
     assert lock_path.exists()
+
+
+def test_existing_profile_lock_is_not_stolen_when_windows_pid_check_fails(
+    monkeypatch, tmp_path,
+):
+    lock_path = tmp_path / scout_module.SCOUT_INSTANCE_LOCK_FILENAME
+    original = '{"pid":31680,"version":"rrugc-scout-v59"}'
+    lock_path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(scout_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        scout_module, "_windows_profile_owners",
+        lambda _profile: None,
+    )
+    lock = scout_module.ScoutProfileLock(tmp_path)
+    with pytest.raises(RuntimeError, match="Cannot verify"):
+        lock.acquire()
+    assert lock_path.read_text(encoding="utf-8") == original
 
 
 def test_profile_lock_replaces_stale_owner_and_releases(monkeypatch, tmp_path):

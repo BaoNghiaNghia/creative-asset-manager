@@ -28,7 +28,7 @@ import httpx
 from cap_stack_feedback import CapStackFeedbackFilter
 
 
-CLIENT_VERSION = "rrugc-scout-v59-seasonal-claim-priority"
+CLIENT_VERSION = "rrugc-scout-v60-profile-integrity"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -543,31 +543,6 @@ def _windows_profile_owners(
         return None
     return _parse_windows_profile_owners(result.stdout)
 
-def _terminate_windows_process_trees(pids: tuple[int, ...]) -> int:
-    if sys.platform != "win32":
-        return 0
-    terminated = 0
-    for pid in pids:
-        try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if result.returncode == 0:
-            terminated += 1
-    return terminated
-
-
-def _terminate_windows_profile_chrome(pids: tuple[int, ...]) -> int:
-    return _terminate_windows_process_trees(pids)
-
-
 def _clear_stale_profile_runtime_files(profile_dir: str | Path) -> tuple[str, ...]:
     profile = Path(profile_dir).expanduser().resolve()
     removed: list[str] = []
@@ -746,6 +721,15 @@ class ScoutProfileLock:
                 )
             except FileExistsError:
                 owner_pid = self._owner_pid()
+                if sys.platform == "win32" and owner_pid not in (None, os.getpid()):
+                    # Do not steal an existing lock when WMI/CIM cannot
+                    # establish whether that PID still owns the profile.
+                    if _windows_profile_owners(self.profile_dir) is None:
+                        raise RuntimeError(
+                            "Cannot verify the existing Scout profile lock owner. "
+                            "No lock was removed; retry when Windows process "
+                            "inspection is available."
+                        )
                 if self._owner_is_live_scout(owner_pid):
                     raise RuntimeError(
                         "Another Pinterest Auto Scout already owns this profile lock "
@@ -784,97 +768,121 @@ class ScoutProfileLock:
 
 
 
-def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
+def _ensure_windows_scout_profile_idle(profile_dir: str | Path) -> bool:
+    """Check ownership WITHOUT closing browsers or changing their profile data.
+
+    A Chrome process may belong to a human doing manual Pinterest login.
+    Force-killing it on every Manager auto-update previously risked damaging
+    Chrome Preferences/Local State and caused the Profile error dialog.
+    """
     owners = _windows_profile_owners(profile_dir)
     if owners is None:
         print(
-            "Could not inspect Windows Chrome profile ownership; "
-            "retrying launch without process cleanup."
+            "Windows Chrome ownership could not be inspected. "
+            "Preserving all profile locks and processes; Chrome will decide "
+            "whether the user-data-dir is available."
         )
-        return
-
+        return False
     chrome_pids, scout_pids = owners
-
-    # The new Scout already owns the atomic profile lock when this runs.
-    # Any other Python Scout process using the exact same user-data-dir is an
-    # orphan/legacy runner that can keep respawning Chrome after we close it.
-    if scout_pids:
-        print(
-            "Closing stale/legacy Scout process tree(s) using this exact profile: "
-            + ", ".join(str(pid) for pid in scout_pids)
+    if chrome_pids or scout_pids:
+        details = []
+        if scout_pids:
+            details.append("Scout PID(s) " + ", ".join(map(str, scout_pids)))
+        if chrome_pids:
+            details.append("Chrome PID(s) " + ", ".join(map(str, chrome_pids)))
+        raise RuntimeError(
+            "Pinterest Scout profile is already open in "
+            + "; ".join(details)
+            + ". Close ONLY that Scout Chrome window gracefully, then retry. "
+            "No process or Chrome profile data was modified."
         )
-        _terminate_windows_process_trees(scout_pids)
+    return True
 
-    if chrome_pids:
-        print(
-            "Closing only root Chrome process tree(s) using the dedicated Pinterest "
-            "Scout profile: "
-            + ", ".join(str(pid) for pid in chrome_pids)
-        )
-        _terminate_windows_profile_chrome(chrome_pids)
 
-    # Windows process teardown is asynchronous. Require two consecutive empty
-    # ownership scans and clean up any late Chrome process spawned by a legacy
-    # Scout while that Scout is being terminated.
-    empty_scans = 0
-    remaining_chrome: tuple[int, ...] = ()
-    remaining_scout: tuple[int, ...] = ()
-    for _attempt in range(8):
-        if scout_pids or chrome_pids or _attempt:
-            time.sleep(0.35)
+def _repair_corrupt_chrome_profile_preferences(profile_dir: str | Path) -> tuple[str, ...]:
+    """Repair ONLY invalid JSON preferences, keeping backups and login state.
 
-        remaining = _windows_profile_owners(profile_dir)
-        if remaining is None:
-            print(
-                "Could not re-inspect the dedicated Scout profile after targeted "
-                "cleanup; continuing without touching other Chrome profiles."
-            )
-            break
-
-        remaining_chrome, remaining_scout = remaining
-        if not remaining_chrome and not remaining_scout:
-            empty_scans += 1
-            if empty_scans >= 2:
-                break
-            continue
-
-        empty_scans = 0
-        if remaining_scout:
-            print(
-                "Finishing stale Scout process tree(s) still using this profile: "
-                + ", ".join(str(pid) for pid in remaining_scout)
-            )
-            _terminate_windows_process_trees(remaining_scout)
-        if remaining_chrome:
-            print(
-                "Finishing late Chrome process tree(s) still using this profile: "
-                + ", ".join(str(pid) for pid in remaining_chrome)
-            )
-            _terminate_windows_profile_chrome(remaining_chrome)
-    else:
-        final_owners = _windows_profile_owners(profile_dir)
-        if final_owners is not None:
-            remaining_chrome, remaining_scout = final_owners
-        if remaining_chrome or remaining_scout:
-            details: list[str] = []
-            if remaining_scout:
-                details.append(
-                    "Scout PID(s) " + ", ".join(str(pid) for pid in remaining_scout)
-                )
-            if remaining_chrome:
-                details.append(
-                    "Chrome PID(s) " + ", ".join(str(pid) for pid in remaining_chrome)
-                )
+    Local State carries Chrome OS-crypt key material used by saved cookies and
+    must never be reset automatically. Valid files remain byte-for-byte intact.
+    Called only when ownership inspection proved this profile is not in use.
+    """
+    root = Path(profile_dir).expanduser().resolve()
+    local_state = root / "Local State"
+    if local_state.is_file():
+        try:
+            parsed = json.loads(local_state.read_text(encoding="utf-8-sig"))
+            if not isinstance(parsed, dict):
+                raise ValueError("expected JSON object")
+        except (OSError, UnicodeError, ValueError) as exc:
             raise RuntimeError(
-                "The dedicated Pinterest Scout profile is still in use by "
-                + "; ".join(details)
-                + ". Other Chrome profiles were not touched. Close only this "
-                "Pinterest Scout profile window and run the launcher again."
-            )
+                "Scout Chrome Local State is damaged/unreadable. "
+                "It contains browser keys used for the saved Pinterest login "
+                "and was NOT changed. Restore it from a trusted backup or "
+                "open the profile with the same installed Chrome version."
+            ) from exc
 
+    repaired: list[str] = []
+    for relative in ("Default/Preferences", "Default/Secure Preferences"):
+        original = root / relative
+        if not original.is_file():
+            continue
+        # An unreadable file (access denied or still open) is not proof of
+        # corruption, so do not attempt to rename it in that case.
+        try:
+            payload = original.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError(
+                "Scout Chrome preferences are unreadable; no repair attempted: "
+                + relative
+            ) from exc
+        try:
+            parsed = json.loads(payload)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            continue
+        # Avoid data loss: move corrupt file to a dedicated backup folder
+        # before creating the minimal valid JSON that Chrome can regenerate.
+        backup_dir = root / "cam-scout-profile-backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = backup_dir / (
+            relative.replace("/", "-") + ".corrupt-" + stamp
+            + "-" + uuid4().hex[:8] + ".json"
+        )
+        os.replace(original, backup)
+        try:
+            original.write_text("{}\n", encoding="utf-8")
+        except OSError as exc:
+            # Restore the original preferences if an I/O error happens.
+            if not original.exists():
+                os.replace(backup, original)
+            raise RuntimeError("Unable to rebuild Scout Chrome preferences.") from exc
+        repaired.append(relative)
+    if repaired:
+        print(
+            "Rebuilt invalid Chrome preferences from preserved backups: "
+            + ", ".join(repaired)
+            + ". Local State, cookies and Pinterest profile were NOT removed."
+        )
+    return tuple(repaired)
+
+
+def _recover_windows_scout_profile(profile_dir: str | Path) -> None:
+    """Conservative recovery after a launch collision; NEVER kill Chrome.
+
+    Only stale singleton/DevTools lock files are removed, after two separate
+    idle ownership scans. An active session is never forcibly terminated.
+    """
+    if not _ensure_windows_scout_profile_idle(profile_dir):
+        return
+    time.sleep(0.25)
+    if not _ensure_windows_scout_profile_idle(profile_dir):
+        return
+    _repair_corrupt_chrome_profile_preferences(profile_dir)
     removed = _clear_stale_profile_runtime_files(profile_dir)
     if removed:
-        print("Cleared stale Scout profile runtime files: " + ", ".join(removed))
+        print("Cleared idle-only Scout Chrome runtime files: " + ", ".join(removed))
 
 
 def pinterest_login_marker_path(profile_dir: str | Path) -> Path:
@@ -3670,6 +3678,16 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
     if chrome:
         options["executable_path"] = chrome
         print("Using local Chrome: " + chrome)
+    elif sys.platform == "win32":
+        # A Playwright-bundled Chromium can be older than installed Chrome.
+        # Opening the SAME persistent profile with it risks irreversible
+        # Chrome profile schema downgrades and profile startup dialogs.
+        await playwright.stop()
+        raise RuntimeError(
+            "Installed Google Chrome was not found. Scout will not use "
+            "Playwright Chromium with a saved Windows Pinterest profile. "
+            "Set RRUGC_CHROME_EXECUTABLE to your installed Chrome executable."
+        )
     else:
         print("Local Chrome not found; using Playwright Chromium.")
 

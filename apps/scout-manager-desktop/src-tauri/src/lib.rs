@@ -143,6 +143,12 @@ struct OperationsSummary {
 const AUTOMATIC_SCOUT_MODES: [&str; 4] = ["review", "keyword", "cap_stack", "tiktokshop"];
 const MANAGED_SCOUT_MODES: [&str; 5] = ["review", "keyword", "cap_stack", "tiktokshop", "typography"];
 
+fn defer_scout_update_while_running(restart_required: bool, active_scouts: usize) -> bool {
+    // A Git update must never tear down a running Chrome Job abruptly.
+    // Wait for Pause all (or natural process exit), then fast-forward safely.
+    restart_required && active_scouts > 0
+}
+
 fn typography_one_shot_state(exit: Option<i32>, log: &str) -> (&'static str, Option<&'static str>) {
     // Logs append across runs; a previous run's login message is not evidence
     // that the just-completed run needs login again.
@@ -533,11 +539,30 @@ impl Controller {
         Ok(())
     }
     fn terminate(&self, scout: &mut Scout) {
+        #[cfg(windows)]
+        if let Some(job) = scout.job.as_ref() {
+            // Gracefully close only Chrome windows inside this Scout Job
+            // before the job handle is dropped. A hard kill while Chrome is
+            // writing profile preferences can trigger "Profile error occurred".
+            let owned: std::collections::HashSet<u32> =
+                job.process_ids().into_iter().collect();
+            let requested = chrome_windows::request_close_owned(&owned);
+            if requested > 0 {
+                for _ in 0..80 {
+                    if chrome_windows::open_owned_count(&owned) == 0 { break; }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                // Allow profile disk writes to settle after Chrome closes.
+                if chrome_windows::open_owned_count(&owned) == 0 {
+                    thread::sleep(Duration::from_millis(350));
+                }
+            }
+        }
         if let Some(mut child) = scout.child.take() {
             #[cfg(windows)]
             {
                 scout.job.take();
-            } // closing the job handle kills the entire process tree
+            } // closing the job handle stops the remaining process tree
             let _ = child.kill();
             // Avoid blocking UI / shutdown indefinitely if PowerShell, Chrome,
             // or an antivirus holds an exit handle. Job Object already killed
@@ -944,6 +969,17 @@ impl Controller {
         });
         let mut previous = Vec::new();
         if restart {
+            let active = self.lock_modes()?.iter()
+                .filter(|scout| scout.child.is_some())
+                .count();
+            if defer_scout_update_while_running(restart, active) {
+                return Ok(
+                    "Scout source update deferred: running Chrome profiles are protected. "
+                    .to_string()
+                    + "Click Pause all; the Manager will update while idle, "
+                    + "then click Run automation to resume."
+                );
+            }
             let mut modes = self.lock_modes()?;
             for scout in modes.iter_mut() {
                 if scout.desired {
@@ -1833,8 +1869,13 @@ pub fn run() {
         let updating = Arc::clone(&state);
         thread::spawn(move || loop {
             thread::sleep(Duration::from_secs(60));
-            // Zero background Git processes while waiting for Run automation.
-            if updating.automation_enabled.load(Ordering::SeqCst)
+            // Fetch while automation runs OR while all Scouts are paused.
+            // The update itself defers if any managed Scout is still active,
+            // so a profile is never force-killed just for a Git fast-forward.
+            let idle = updating.modes.lock().map(|modes| {
+                modes.iter().all(|scout| scout.child.is_none())
+            }).unwrap_or(false);
+            if (updating.automation_enabled.load(Ordering::SeqCst) || idle)
                 && !updating.shutdown_requested.load(Ordering::SeqCst) {
                 let _ = updating.check_update();
             }
@@ -2055,6 +2096,14 @@ mod tests {
                    "Design Scout browser failure: RuntimeError").0, "Pinterest browser unavailable");
         assert_eq!(typography_one_shot_state(Some(1), "").0, "Scout failed");
     }
+    #[test]
+    fn updates_wait_for_running_scouts_instead_of_killing_chrome_profiles() {
+        assert!(!defer_scout_update_while_running(false, 4));
+        assert!(!defer_scout_update_while_running(true, 0));
+        assert!(defer_scout_update_while_running(true, 1));
+        assert!(defer_scout_update_while_running(true, 4));
+    }
+
     #[test]
     fn scout_is_idle_until_explicitly_requested() {
         let review = Scout::new("review");

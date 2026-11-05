@@ -1,5 +1,46 @@
 # RRUGC Scout Manager
 
+## v0.1.52 — Chrome profile integrity and safe Scout update (2026-11-05)
+
+Fixes the Chrome **"Profile error occurred"** risk after Scout Manager
+updates/restarts. Previously the Manager force-stopped the Windows Job holding
+Chrome on source updates and the Python Scout could force-kill other Chrome
+instances using the same dedicated profile before deleting Singleton locks.
+This could interrupt preference writes and damage the Pinterest login profile.
+
+- On source changes, **defer Git fast-forward while any Scout process is
+  running** instead of killing Chrome for an automatic update. The status
+  explains how to pause. While all Scouts are idle, the Manager checks for
+  updates even if automation is paused; after the update, Run automation
+  starts the new Scout revision.
+- When stopping a Scout manually, send WM_CLOSE only to Chrome windows whose
+  PIDs belong to the corresponding Manager Job. Give Chrome time to persist
+  profile state before terminating the remaining job process tree. Never close
+  unrelated Chrome windows.
+- Python Scout v60 uses the exact-profile owner check; it never calls
+  `taskkill /F` for automatic profile recovery, does not clear locks if an
+  owner exists or cannot be verified, and refuses to fall back to a bundled
+  older Playwright Chromium on Windows persistent profiles.
+- Before launch, invalid `Default/Preferences` or
+  `Default/Secure Preferences` JSON gets moved to
+  `<scout-profile>\\cam-scout-profile-backups` and a clean JSON object is
+  regenerated. Valid preferences, Local State, Pinterest cookies, profile
+  directory, history and tokens stay untouched. An unreadable/damaged
+  `Local State` is NOT reset automatically because it holds Chrome's
+  encryption keys; a clear recovery error is shown instead.
+- Each Scout mode retains a separate Chrome user-data directory. Existing
+  login sessions and browser profiles are not migrated. No API/DB migration
+  or provider change is required.
+
+Rollout: GitHub Actions publishes immutable `scout-manager-v0.1.52`
+(Portable and NSIS with SHA-256). The operator should install this Manager
+update through the existing verified release installer after the CI release
+exists, then use **Pause all** and **Run automation** to roll the updated
+Python Scout source into service. Do not erase the Pinterest profile or
+`Local State` when diagnosing a Chrome profile warning. Inspect Windows
+Scout logs for a concrete profile integrity error before attempting
+further repair.
+
 ## v0.1.50 — Scout recovery and Windows tool refresh (2026-11-01)
 
 Cap Stack Scout: when a second Scout Manager attempts to launch a mode already

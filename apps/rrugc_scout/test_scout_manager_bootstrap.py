@@ -79,5 +79,5 @@ def test_manager_version_reads_runtime_client_version():
     runtime = (REPO_ROOT / "apps/rrugc_scout/scout.py").read_text(
         encoding="utf-8"
     )
-    assert re.search(r'^CLIENT_VERSION\s*=\s*"rrugc-scout-v\d+"', runtime, re.M)
+    assert re.search(r'^CLIENT_VERSION\s*=\s*"rrugc-scout-v\d+(?:-[a-z0-9-]+)?"', runtime, re.M)
     assert "-Pattern '^CLIENT_VERSION\\s*=\\s*\"" in manager

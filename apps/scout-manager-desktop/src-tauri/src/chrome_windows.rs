@@ -8,7 +8,7 @@ mod windows {
     use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClassNameW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-        ShowWindow, SW_MINIMIZE, SW_RESTORE,
+        PostMessageW, ShowWindow, WM_CLOSE, SW_MINIMIZE, SW_RESTORE,
     };
 
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -59,6 +59,28 @@ mod windows {
         }
     }
 
+    /// Ask only this Manager Job's visible Chrome windows to close normally,
+    /// allowing Chrome to flush Preferences/Local State before Job teardown.
+    /// Do not post WM_CLOSE to unrelated Chrome instances or force-kill PIDs.
+    pub fn request_close_owned(owned_pids: &HashSet<u32>) -> usize {
+        let mut requested = 0;
+        for key in enumerate_chrome_windows() {
+            if !owned_pids.contains(&key.pid) { continue; }
+            unsafe {
+                if PostMessageW(key.handle as HWND, WM_CLOSE, 0, 0) != 0 {
+                    requested += 1;
+                }
+            }
+        }
+        requested
+    }
+
+    pub fn open_owned_count(owned_pids: &HashSet<u32>) -> usize {
+        enumerate_chrome_windows().iter()
+            .filter(|key| owned_pids.contains(&key.pid))
+            .count()
+    }
+
     unsafe extern "system" fn collect_chrome(window: HWND, data: LPARAM) -> BOOL {
         if IsWindowVisible(window) == 0 { return 1; }
         let mut class_name = [0u16; 64];
@@ -86,7 +108,7 @@ mod windows {
     }
 }
 #[cfg(windows)]
-pub use windows::WindowTracker;
+pub use windows::{WindowTracker, request_close_owned, open_owned_count};
 
 #[cfg(not(windows))]
 pub struct WindowTracker;
@@ -95,3 +117,7 @@ impl WindowTracker {
     pub fn new() -> Self { Self }
     pub fn sync(&mut self, _minimize: bool, _owned_pids: &std::collections::HashSet<u32>) {}
 }
+#[cfg(not(windows))]
+pub fn request_close_owned(_owned_pids: &std::collections::HashSet<u32>) -> usize { 0 }
+#[cfg(not(windows))]
+pub fn open_owned_count(_owned_pids: &std::collections::HashSet<u32>) -> usize { 0 }

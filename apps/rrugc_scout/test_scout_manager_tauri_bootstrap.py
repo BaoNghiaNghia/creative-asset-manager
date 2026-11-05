@@ -16,7 +16,8 @@ def test_cap_stack_mode_has_isolated_profile_launcher_native_control_and_server_
     assert "$capStackProfileDir" in launcher
     assert 'pinterest-profile-cap-stack' in launcher
     assert "-CapStackMode" in launcher
-    assert 'for m in ["review", "keyword", "cap_stack"]' in manager
+    assert 'const AUTOMATIC_SCOUT_MODES: [&str; 4] = ["review", "keyword", "cap_stack", "tiktokshop"];' in manager
+    assert 'for m in AUTOMATIC_SCOUT_MODES' in manager
     assert 'process.arg("-CapStackMode")' in manager
     assert 'Scout::new("cap_stack")' in manager
     assert '-CapStackMode' in standalone
@@ -75,12 +76,15 @@ def test_tauri_manual_start_and_no_idle_git_or_tray_refocus():
     assert 'automation_enabled: AtomicBool::new(false)' in native
     assert 'let commit = read_local_commit(&repo);' in native
     assert 'fn read_local_commit(repo: &Path)' in native
-    assert "if updating.automation_enabled.load(Ordering::SeqCst)" in native
+    assert "let idle = updating.modes.lock()" in native
+    assert "updating.automation_enabled.load(Ordering::SeqCst) || idle" in native
+    assert "defer_scout_update_while_running(restart, active)" in native
+    assert "request_close_owned(&owned)" in native
     assert 'controller.control_all("start")' not in native.split(".setup(|app|", 1)[1]
     assert 'matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. })' in native
     assert 'WindowEvent::Resized(_)' not in native
     assert "automationEnabled: boolean" in react
-    assert "Pairing saved. Press Run automation to start." in react
+    assert 'onClick={() => void act("control_all", { command: "start" })}' in react
     assert 'await act("control_all", { command: "start" })' not in react
     assert "automationEnabled={state.automationEnabled}" in react
 
@@ -95,9 +99,9 @@ def test_manager_and_scout_versions_are_distinct_on_dashboard():
     package = (ROOT / "apps/scout-manager-desktop/package.json").read_text(encoding="utf-8")
     cargo = (ROOT / "apps/scout-manager-desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
     tauri = (ROOT / "apps/scout-manager-desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
-    assert '"version": "0.1.20"' in package
-    assert 'version = "0.1.20"' in cargo
-    assert '"version": "0.1.20"' in tauri
+    assert '"version": "0.1.52"' in package
+    assert 'version = "0.1.52"' in cargo
+    assert '"version": "0.1.52"' in tauri
 
 
 def test_build_script_publishes_portable_and_installer_together():
