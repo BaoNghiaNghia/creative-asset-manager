@@ -304,7 +304,7 @@ _CONTEXT_QUERY_TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
     "holiday": {
         "direct": (
             "family holiday candid phone photo",
-            "christmas home candid natural light",
+            "festive home gathering candid natural light",
             "holiday couple casual smartphone photo",
         ),
         "adjacent": (
@@ -810,11 +810,24 @@ def derive_product_context_profile(
         )
     }
 
-    # Visible design evidence is the strongest signal for source-image discovery.
-    # Put scene concepts inferred from the actual embroidery/artwork ahead of
-    # broad theme templates so a design like "Best Grandpa By Par" searches
-    # for a grandfather golfing context before generic family/sports scenes.
+    # Seasonal scenes must reflect SOURCE artwork, not the current month.
+    # Generic "holiday" is not evidence that a Halloween cap is for Christmas.
+    from app.modules.realistic_review_ugc.seasonal_scout import (
+        detect_source_season,
+    )
+    source_season = detect_source_season(
+        product_snapshot,
+        {"visual_context": visual_context},
+    ) if auto_context else None
+    seasonal_hat_query = (
+        f"{source_season.label} {source_season.scene} person wearing "
+        "embroidered cap front view candid phone photo"
+        if hat_product and source_season else None
+    )
+
+    # Visible design evidence leads, before broad holiday/family templates.
     direct: list[str] = [
+        *([seasonal_hat_query] if seasonal_hat_query else []),
         *(apparel_placement_queries(
             str((product_snapshot or {}).get("product_type") or "shirt"), placements,
         ) if is_apparel else []),

@@ -137,6 +137,7 @@ def campaign_learning_intent(
     name: str = "",
     queries: Iterable[str] = (),
     product_snapshot: dict[str, Any] | None = None,
+    product_context: dict[str, Any] | None = None,
 ) -> str:
     if isinstance(product_snapshot, dict) and (
         str(product_snapshot.get("source_category") or "").casefold()
@@ -148,7 +149,14 @@ def campaign_learning_intent(
         from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
             source_apparel_intent,
         )
-        return "apparel:" + source_apparel_intent(product_snapshot).family
+        from app.modules.realistic_review_ugc.seasonal_scout import (
+            detect_source_season,
+        )
+        intent = source_apparel_intent(product_snapshot, product_context)
+        season = detect_source_season(product_snapshot, product_context)
+        return "apparel:" + intent.family + (
+            ":" + season.key if season is not None else ""
+        )
 
     detected = detect_campaign_keyword_intent(
         name=name,

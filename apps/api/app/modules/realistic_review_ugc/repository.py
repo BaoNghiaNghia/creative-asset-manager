@@ -808,10 +808,21 @@ class RrugcRepository:
             if intent is not None:
                 row_intent = payload.get("learning_intent") if payload else None
                 same_intent = row_intent == intent
+                # Preserve reviews from the SAME source campaign made before
+                # season-aware family keys existed (apparel:family ->
+                # apparel:family:christmas). Do not inherit generic-family
+                # feedback from OTHER campaigns/seasons.
+                prior_apparel_intent = (
+                    workspace == "tiktokshop"
+                    and isinstance(intent, str)
+                    and intent.startswith("apparel:")
+                    and intent.count(":") == 2
+                    and row_intent == intent.rsplit(":", 1)[0]
+                )
                 same_legacy_campaign = (
-                    row_intent is None
-                    and legacy_campaign_id is not None
+                    legacy_campaign_id is not None
                     and row.campaign_id == legacy_campaign_id
+                    and (row_intent is None or prior_apparel_intent)
                 )
                 if not same_intent and not same_legacy_campaign:
                     continue

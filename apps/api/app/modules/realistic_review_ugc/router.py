@@ -9858,6 +9858,7 @@ def mark_candidate_reference_feedback(
         name=campaign.name,
         queries=list(campaign.search_queries_json or [campaign.query]),
         product_snapshot=campaign.product_snapshot_json,
+        product_context=campaign.product_context_json,
     )
     learning = build_reference_preference_model(
         repository.reference_feedback_training_rows(
@@ -10254,6 +10255,7 @@ def auto_scout_agent_claim(
                 name=claim.campaign.name,
                 queries=list(claim.campaign.search_queries_json or [claim.campaign.query]),
                 product_snapshot=claim.campaign.product_snapshot_json,
+                product_context=claim.campaign.product_context_json,
             )
             human_feedback = repository.reference_feedback_training_rows(
                 claim.campaign.tenant_id,
@@ -10283,6 +10285,34 @@ def auto_scout_agent_claim(
                 )
                 for query in search_queries
             ]
+    elif (
+        source_plan is not None
+        and source_plan.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID
+    ):
+        # GatorHats has the same seasonal discovery need for embroidered hats.
+        # Add seasonal hat-visible references at claim time so existing source
+        # campaigns benefit without backfill, extra AI calls or client update.
+        from app.modules.realistic_review_ugc.seasonal_scout import (
+            seasonal_hat_claim_search,
+        )
+        seasonal_hat_lanes = seasonal_hat_claim_search(
+            claim.campaign.product_snapshot_json,
+            claim.campaign.product_context_json,
+            search_queries,
+        )
+        if seasonal_hat_lanes is not None:
+            search_queries, source_context = seasonal_hat_lanes
+            seasonal_keys = {
+                _scout_query_key(query) for query in search_queries[:3]
+            }
+            existing = [
+                item for item in query_performance
+                if _scout_query_key(item.query) not in seasonal_keys
+            ]
+            query_performance = [
+                ScoutQueryPerformance(query=query, score=round(0.99 - 0.01 * index, 4))
+                for index, query in enumerate(search_queries[:3])
+            ] + existing
 
     # Sync known Pins across source groups inside the SAME workspace. A photo
     # discovered for Grandma must not be rediscovered for Godmother/Newlyweds.

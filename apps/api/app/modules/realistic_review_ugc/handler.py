@@ -276,6 +276,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 name=campaign.name,
                 queries=list(campaign.search_queries_json or [campaign.query]),
                 product_snapshot=campaign.product_snapshot_json,
+                product_context=campaign.product_context_json,
             )
             tiktok_plan = session.scalar(select(RrugcSourcePlanModel.id).where(
                 RrugcSourcePlanModel.tenant_id == context.job.tenant_id,

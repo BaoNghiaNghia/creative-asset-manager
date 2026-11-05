@@ -728,6 +728,29 @@ def _product_context_prompt_block(product_context: dict | None) -> str:
     )
 
     sections: list[str] = []
+    # Seasonal relevance belongs to scene matching, not technical garment fit.
+    # Use source artwork evidence (name/text/motifs), never the current date.
+    from app.modules.realistic_review_ugc.seasonal_scout import (
+        detect_source_season,
+    )
+    source_details = profile.get("source")
+    source_name = (
+        str(source_details.get("product_name") or "")
+        if isinstance(source_details, dict) else ""
+    )
+    source_season = detect_source_season(
+        {"name": source_name},
+        {"visual_context": visual if visual_ready else {}},
+    )
+    if source_season:
+        sections.append(
+            "- artwork-specific seasonal context: " + source_season.label
+            + ". Prefer a visible " + source_season.scene + " or "
+            + source_season.decoration
+            + " in the reference PHOTO, rather than generic unrelated backgrounds. "
+              "Score seasonal relevance only in context_match_score; do not change "
+              "product_fit_score or infer family relationships."
+        )
     if reference_contexts:
         sections.append("- preferred reference contexts: " + ", ".join(reference_contexts))
     if selfie_wearing_hat:

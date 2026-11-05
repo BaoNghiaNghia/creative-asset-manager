@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 
 from app.modules.realistic_review_ugc.apparel_placement import SourceApparelPlacement
+from app.modules.realistic_review_ugc.seasonal_scout import detect_source_season
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ _FAMILY_RULES: tuple[tuple[str, str, str, str], ...] = (
     (r"\b(?:dad era|dad life|daddy|father|papa|grandpa|grandfather)\b", "fatherhood", "father", "dad family casual"),
     (r"\b(?:nurse|nursing|rn)\b", "nurse", "nurse", "nurse off duty casual"),
     (r"\b(?:teacher|kindergarten|educator)\b", "teacher", "teacher", "teacher casual outfit"),
+    (r"\b(?:family|families|matching family)\b", "family", "family members", "family gathering"),
 )
 
 _GENERIC_NAME_WORDS = frozenset((
@@ -110,16 +112,36 @@ def tiktokshop_semantic_queries(
     )
     audience = intent.audience
     scene = intent.scene
-    # Generic fallback is allowed for genuinely unknown source meaning, but
-    # never share it with an identifiable godmother/grandma/wedding product.
-    variants = [
-        f"{audience} wearing {garment} {pose} {scene} candid photo",
-        f"{scene} {garment} {pose} natural lifestyle photo",
-        f"{audience} {scene} wearing {garment} standing upper body photo",
-        f"{scene} casual {garment} {pose} outdoor photo",
-        f"{audience} in {garment} {pose} indoor casual phone photo",
-        f"{scene} {garment} authentic lifestyle front view photo",
-    ]
+    season = detect_source_season(product_snapshot, profile)
+    if season:
+        # Every lane must visually anchor the identified season. Pinterest
+        # search otherwise returns generic sweatshirt photos even when the
+        # source embroidery clearly depicts a Christmas scene, for example.
+        variants = [
+            f"{season.label} {audience} wearing {garment} {pose} candid photo",
+            f"{season.scene} {audience} wearing {garment} {pose} lifestyle photo",
+            f"{season.label} {season.decoration} {audience} {garment} photo",
+            f"{season.label} {scene} {garment} {pose} indoor phone photo",
+            f"{season.label} {audience} in {garment} {pose} decorated home photo",
+            f"{season.label} {audience} {garment} {pose} family outdoor photo",
+        ]
+    else:
+        # Keep the original no-season policy for designs without strong
+        # artwork evidence; generic 'holiday' is not necessarily Christmas.
+        variants = [
+            f"{audience} wearing {garment} {pose} {scene} candid photo",
+            f"{scene} {garment} {pose} natural lifestyle photo",
+            f"{audience} {scene} wearing {garment} standing upper body photo",
+            f"{scene} casual {garment} {pose} outdoor photo",
+            f"{audience} in {garment} {pose} indoor casual phone photo",
+            f"{scene} {garment} authentic lifestyle front view photo",
+        ]
+    if season:
+        variants = [
+            query if season.label.casefold() in query.casefold()
+            else f"{season.label} {query}"
+            for query in variants
+        ]
     step = max(0, int(scan_attempt_count or 0))
     # Keep the best garment/subject lane stable, explore the other 3 lanes.
     rotated = [variants[0], *(

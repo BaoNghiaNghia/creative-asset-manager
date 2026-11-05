@@ -11,9 +11,13 @@ from app.core.database import Base
 from app.modules.realistic_review_ugc.apparel_placement import SourceApparelPlacement
 from app.modules.realistic_review_ugc.keyword_strategy import campaign_learning_intent
 from app.modules.realistic_review_ugc.model import (
-    RrugcCampaignModel, RrugcSourcePlanModel, RrugcVisualFingerprintModel,
+    RrugcAiFeedbackModel, RrugcCampaignModel, RrugcSourcePlanModel,
+    RrugcVisualFingerprintModel,
 )
 from app.modules.realistic_review_ugc.repository import RrugcRepository
+from app.modules.realistic_review_ugc.seasonal_scout import detect_source_season
+from app.modules.realistic_review_ugc.router import tiktokshop_apparel_claim_search
+from app.modules.realistic_review_ugc.product_context import TIKTOKSHOP_APPAREL_CONTEXT_VERSION
 from app.modules.realistic_review_ugc.schema import CandidateSubmission
 from app.modules.realistic_review_ugc.service import RrugcService
 from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
@@ -113,6 +117,119 @@ def test_human_votes_reorder_queries_only_within_the_given_family():
     assert unchanged == queries  # minimum two consistent human votes
 
 
+def test_christmas_family_design_searches_christmas_context_in_all_four_lanes():
+    source = {
+        "name": "embroidered-christmas-family-sweatshirt.jpg",
+        "source_category": "embroidered apparel",
+        "product_type": "sweatshirt",
+    }
+    visual = {
+        "status": "ready", "themes": ["dad_family", "holiday", "mom_family"],
+        "summary": "Holiday icons and family personalization text",
+        "apparel_placements": [p.model_dump() for p in PLACEMENTS],
+    }
+    profile = {"visual_context": visual}
+    season = detect_source_season(source, profile)
+    assert season is not None and season.key == "christmas"
+    assert source_apparel_intent(source, profile).family == "family"
+    assert campaign_learning_intent(
+        campaign_id="christmas-family", product_snapshot=source,
+        product_context=profile,
+    ) == "apparel:family:christmas"
+    first = tiktokshop_semantic_queries(
+        "sweatshirt", PLACEMENTS, source, profile, scan_attempt_count=0,
+    )
+    later = tiktokshop_semantic_queries(
+        "sweatshirt", PLACEMENTS, source, profile, scan_attempt_count=2,
+    )
+    assert first[0] == later[0]
+    assert first[1:] != later[1:]
+    assert len(first) == len(later) == 4
+    for query in [*first, *later]:
+        assert "Christmas" in query
+        assert "sweatshirt" in query
+        assert "family" in query or "family members" in query
+    assert "chest and sleeves visible" in first[0]
+    assert any("Christmas tree" in query or "Christmas living room" in query for query in first)
+
+
+def test_existing_tiktokshop_campaign_receives_seasonal_claim_without_reanalysis():
+    snapshot = {
+        "name": "embroidered-christmas-family-sweatshirt.jpg",
+        "product_type": "sweatshirt", "source_category": "embroidered apparel",
+    }
+    profile = {
+        "apparel_placements": [placement.model_dump() for placement in PLACEMENTS],
+        "visual_context": {
+            "version": TIKTOKSHOP_APPAREL_CONTEXT_VERSION, "status": "ready",
+            "apparel_placements": [placement.model_dump() for placement in PLACEMENTS],
+            "themes": ["dad_family", "holiday", "mom_family"],
+            "summary": "Christmas holiday family sweater design",
+        },
+        "search_clusters": {"direct": ["person wearing sweatshirt"]},
+    }
+    result = tiktokshop_apparel_claim_search(snapshot, profile, scan_attempt_count=3)
+    assert result is not None
+    queries, context = result
+    assert len(queries) == 4
+    assert all("Christmas" in query and "sweatshirt" in query for query in queries)
+    assert context["search_clusters"]["direct"] == queries
+    assert context["search_clusters"]["adjacent"] == []
+    assert "person wearing sweatshirt" not in context["search_clusters"]["direct"]
+    assert profile["search_clusters"]["direct"] == ["person wearing sweatshirt"]
+
+
+def test_season_detected_from_embroidery_motifs_without_filename_keyword():
+    source = {"name": "custom-family-sweatshirt.jpg"}
+    profile = {"visual_context": {
+        "embroidery_identity": "Family names, a decorated Christmas tree and reindeer",
+        "product_cues": ["reindeer", "Christmas ornaments"],
+        "themes": ["dad_family", "holiday"],
+    }}
+    season = detect_source_season(source, profile)
+    assert season is not None and season.key == "christmas"
+    queries = tiktokshop_semantic_queries("sweatshirt", PLACEMENTS, source, profile)
+    assert all("Christmas" in query for query in queries)
+    assert campaign_learning_intent(
+        campaign_id="family", product_snapshot={
+            **source, "source_category": "embroidered apparel",
+        }, product_context=profile,
+    ) == "apparel:family:christmas"
+    easter = detect_source_season(
+        {"name": "custom-family-shirt.jpg"},
+        {"visual_context": {"occasion_hints": ["Easter egg hunt"]}},
+    )
+    assert easter is not None and easter.key == "easter"
+
+
+def test_specific_season_is_not_confused_with_generic_holiday_theme():
+    source = {"name": "family-embroidered-sweatshirt.jpg"}
+    base = {"visual_context": {
+        "themes": ["holiday", "dad_family", "mom_family"],
+        "summary": "Family gathering, holiday personalization and snowflake icons",
+    }}
+    assert detect_source_season(source, base) is None
+    assert all("Christmas" not in query for query in
+               tiktokshop_semantic_queries("sweatshirt", PLACEMENTS, source, base))
+
+    cases = [
+        ("halloween-mama-sweatshirt.jpg", "halloween", "Halloween"),
+        ("thanksgiving-family-sweatshirt.jpg", "thanksgiving", "Thanksgiving"),
+        ("valentines-couple-sweatshirt.jpg", "valentines", "Valentine"),
+        ("easter-family-sweatshirt.jpg", "easter", "Easter"),
+        ("fourth-of-july-family-sweatshirt.jpg", "fourth_of_july", "Fourth of July"),
+        ("new-year-family-sweatshirt.jpg", "new_year", "New Year's Eve"),
+        ("winter-mama-sweatshirt.jpg", "winter", "winter"),
+    ]
+    for name, season_key, display in cases:
+        snapshot = {"name": name}
+        season = detect_source_season(snapshot)
+        assert season is not None and season.key == season_key, name
+        queries = tiktokshop_semantic_queries("sweatshirt", PLACEMENTS, snapshot, base)
+        assert queries and all(display in query for query in queries), name
+        assert all("Christmas" not in query for query in queries), name
+
+
 def _campaign(session: Session, name: str, root: str, tenant: str = "tenant-a"):
     campaign = RrugcCampaignModel(
         id=tenant + "-" + name, tenant_id=tenant,
@@ -129,6 +246,45 @@ def _campaign(session: Session, name: str, root: str, tenant: str = "tenant-a"):
     session.add_all([campaign, plan])
     session.flush()
     return campaign
+
+
+def test_existing_campaign_human_feedback_survives_season_key_upgrade():
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        christmas = _campaign(session, "christmas", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID)
+        halloween = _campaign(session, "halloween", TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID)
+        service = RrugcService(session)
+        for campaign, pin in ((christmas, "111"), (halloween, "222")):
+            rows, created, _ = service.ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url=f"https://www.pinterest.com/pin/{pin}/",
+                    image_url=f"https://i.pinimg.com/{pin}.jpg",
+                )],
+            )
+            assert created == 1
+            session.add(RrugcAiFeedbackModel(
+                tenant_id=campaign.tenant_id, campaign_id=campaign.id,
+                candidate_id=rows[0].id, label="ref_good",
+                created_by_user_id="test",
+                signal_json={
+                    "learning_intent": "apparel:family",
+                    "reference_feedback_kind": "good",
+                    "reference_profile_key": "realistic-person-ugc",
+                    "scout_query": "family casual sweatshirt",
+                },
+            ))
+        session.commit()
+        rows = RrugcRepository(session).reference_feedback_training_rows(
+            "tenant-a", intent="apparel:family:christmas",
+            legacy_campaign_id=christmas.id,
+            profile_key="realistic-person-ugc",
+            workspace="tiktokshop",
+        )
+        assert len(rows) == 1
+        assert rows[0][1]["scout_query"] == "family casual sweatshirt"
+    engine.dispose()
 
 
 def test_reserves_pin_across_tiktok_products_but_not_gatorhats_or_tenants():

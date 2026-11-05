@@ -914,6 +914,11 @@ class RrugcService:
                 if campaign is not None
                 else None
             ),
+            product_context=(
+                campaign.product_context_json
+                if campaign is not None
+                else None
+            ),
         )
         ledger_label = {
             "good": "ref_good",
