@@ -252,6 +252,15 @@ class RrugcRepository:
             RrugcCandidateModel.status.in_(
                 ("approved", "import_queued", "importing", "drive_ready")
             ),
+            # User-rejected references are not positive similarity anchors.
+            # The underlying Drive file may remain drive_ready for audit, but
+            # (x)/(AI) feedback must not suppress future Scout candidates.
+            func.coalesce(
+                RrugcCandidateModel.ai_signal_json[
+                    "reference_manual_label"
+                ].as_string(),
+                "",
+            ).notin_(("bad", "ai")),
         ]
         if campaign_id is not None:
             filters.append(RrugcVisualFingerprintModel.campaign_id == campaign_id)
@@ -1285,16 +1294,22 @@ class RrugcRepository:
             workspace_scope = ~tik_scoped
         else:
             raise ValueError("Unknown Scout workspace")
+        # A modern Scout may still serve manually created, planless Review
+        # campaigns, but must NEVER claim a source plan before AI context is
+        # ready. Keep the WHERE/FOR UPDATE selection consistent with
+        # diagnostics, rather than granting leases to queued Drive sources.
+        any_source_plan = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+        ))
+        ready_source_plan = exists(select(RrugcSourcePlanModel.id).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
+            RrugcSourcePlanModel.status == "ready",
+        ))
         source_scope = (
-            exists(
-                select(RrugcSourcePlanModel.id).where(
-                    RrugcSourcePlanModel.tenant_id == tenant_id,
-                    RrugcSourcePlanModel.campaign_id == RrugcCampaignModel.id,
-                    RrugcSourcePlanModel.status == "ready",
-                )
-            )
-            if source_plan_only
-            else true()
+            or_(~any_source_plan, ready_source_plan)
+            if source_plan_only else true()
         )
         manual_label = (
             RrugcCandidateModel.ai_signal_json["reference_manual_label"].as_string()

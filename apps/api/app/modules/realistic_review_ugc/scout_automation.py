@@ -1280,7 +1280,7 @@ class RrugcAutoScoutService:
             )
             plan_counts = source_plan_counts.get(campaign.id, {})
             source_plan_ready = (
-                int(plan_counts.get("ready", 0)) > 0
+                not plan_counts or int(plan_counts.get("ready", 0)) > 0
                 if source_plan_only
                 else None
             )
@@ -1524,9 +1524,9 @@ class RrugcAutoScoutService:
             yield from priority
             yield from self.repository.claimable_campaigns(
                 agent.tenant_id, now=now, limit=25,
-                # Modern clients support Plans, but must still scout legacy
-                # manually-created Review campaigns without a linked Plan.
-                source_plan_only=False,
+                # Plan-backed campaigns require a ready source plan; legacy
+                # planless campaigns remain eligible for modern Scout clients.
+                source_plan_only=source_plan_only,
                 workspace=agent.workspace or "gatorhats",
             )
 

@@ -665,11 +665,19 @@ class RrugcService:
                 rows.append(row)
                 continue
 
-            tenant_duplicate = self.repository.analyzed_candidate_by_source_key_tenant(
-                campaign.tenant_id,
-                key,
-                exclude_campaign_id=campaign.id,
-                workspace=workspace,
+            # The same Pinterest pose may fit more than one unrelated
+            # TikTokShop embroidery group. Each group requires its own
+            # placement/AI qualification; only same-campaign duplicates are
+            # rejected. Preserve GatorHats' existing global cost-saving gate.
+            tenant_duplicate = (
+                self.repository.analyzed_candidate_by_source_key_tenant(
+                    campaign.tenant_id,
+                    key,
+                    exclude_campaign_id=campaign.id,
+                    workspace=workspace,
+                )
+                if workspace != "tiktokshop"
+                else None
             )
             if tenant_duplicate is not None:
                 duplicate_signal = {
@@ -1334,7 +1342,23 @@ class RrugcService:
                 duplicate = self.repository.drive_candidate_by_hash(
                     candidate.tenant_id, image.content_hash, candidate.id
                 )
-                if duplicate is not None:
+                # Do not discard a TikTokShop group's independently approved
+                # reference merely because another group stored identical
+                # pixels. Retain exact-hash dedupe inside the same campaign
+                # and the legacy cross-campaign policy for GatorHats.
+                tiktok_group = (
+                    self.session.scalar(
+                        select(RrugcSourcePlanModel.id).where(
+                            RrugcSourcePlanModel.tenant_id == candidate.tenant_id,
+                            RrugcSourcePlanModel.campaign_id == candidate.campaign_id,
+                            RrugcSourcePlanModel.root_folder_id
+                            == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+                        ).limit(1)
+                    ) is not None
+                ) if duplicate is not None else False
+                if duplicate is not None and (
+                    duplicate.campaign_id == candidate.campaign_id or not tiktok_group
+                ):
                     candidate.status = "rejected_duplicate"
                     candidate.content_hash = image.content_hash
                     candidate.width = image.width

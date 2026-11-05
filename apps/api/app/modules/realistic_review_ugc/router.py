@@ -10176,9 +10176,10 @@ def auto_scout_agent_claim(
         )
     search_queries = _rank_scout_queries(search_queries, query_performance)
 
-    # Sync tenant-wide recent Pinterest history into the local Scout before it
-    # opens detail pages. The backend rejects exact tenant duplicates anyway, so
-    # spending browser/Gemini time on these Pins has no value.
+    # Sync known Pins to avoid duplicate detail visits. For TikTokShop this
+    # MUST be campaign-scoped: independent embroidery groups can legitimately
+    # use the same source photo and require independent AI/placement QA.
+    # GatorHats retains tenant-wide source history in its own workspace.
     tiktok_candidate_scope = exists(select(RrugcSourcePlanModel.id).where(
         RrugcSourcePlanModel.tenant_id == claim.campaign.tenant_id,
         RrugcSourcePlanModel.campaign_id == RrugcCandidateModel.campaign_id,
@@ -10190,7 +10191,8 @@ def auto_scout_agent_claim(
         .where(
             RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
             RrugcCandidateModel.pin_url.is_not(None),
-            tiktok_candidate_scope if tiktok_claim else ~tiktok_candidate_scope,
+            (RrugcCandidateModel.campaign_id == claim.campaign.id)
+            if tiktok_claim else ~tiktok_candidate_scope,
         )
         .order_by(RrugcCandidateModel.created_at.desc())
         .limit(5000)

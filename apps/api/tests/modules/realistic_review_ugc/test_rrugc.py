@@ -2106,6 +2106,135 @@ def test_visual_fingerprint_repository_uses_dedicated_rows(database):
         ) == 0
 
 
+def test_tiktokshop_near_duplicate_scope_honors_rejected_feedback(database):
+    from app.modules.realistic_review_ugc.workspace import (
+        TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+    )
+
+    with database() as session:
+        service = RrugcService(session)
+        campaigns = [
+            service.create_campaign(
+                tenant_id="tenant-a", user_id="operator", name=f"TikTok {i}",
+                query=f"embroidered sweatshirt {i}", target_count=10,
+                max_scroll_batches=2, auto_import=True,
+            )[0]
+            for i in range(2)
+        ]
+        for i, campaign in enumerate(campaigns):
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+                source_file_id=f"tiktok-design-{i}",
+                source_relative_path=f"shirt-{i}/front.png",
+                source_name=f"shirt-{i}.png",
+                source_mime_type="image/png",
+                source_revision=str(i + 1) * 64,
+                status="ready",
+                campaign_id=campaign.id,
+                created_by_user_id="operator",
+            ))
+        session.flush()
+        source = CandidateSubmission(
+            pin_url="https://www.pinterest.com/pin/tiktok-repeat/",
+            image_url="https://i.pinimg.com/736x/tiktok-repeat.jpg",
+            alt_text="real sweatshirt street photo",
+        )
+        first, created, existing = service.ingest_candidates(
+            campaign=campaigns[0], submissions=[source],
+        )
+        assert (created, existing) == (1, 0)
+        first[0].status = "drive_ready"
+        first[0].analyzed_at = datetime.now(timezone.utc)
+        first[0].ai_signal_json = {"reference_manual_label": "bad"}
+        repo = RrugcRepository(session)
+        repo.replace_visual_fingerprints(first[0], ["a" * 32])
+        session.flush()
+
+        # Same Pinterest Pin may need an independent placement decision.
+        second, created, existing = service.ingest_candidates(
+            campaign=campaigns[1], submissions=[source],
+        )
+        assert (created, existing) == (1, 0)
+        assert second[0].status == "analysis_queued"
+        assert repo.visual_fingerprint_rows(
+            "tenant-a", second[0].id,
+        ) == []  # (x) must not poison any other group
+        first[0].ai_signal_json = {"reference_manual_label": "good"}
+        session.flush()
+        assert repo.visual_fingerprint_rows(
+            "tenant-a", second[0].id,
+        ) == ["a" * 32]  # global GatorHats gate unchanged
+        assert repo.visual_fingerprint_rows(
+            "tenant-a", second[0].id, campaign_id=campaigns[1].id,
+        ) == []  # independent TikTokShop group
+        second[0].status = "approved"
+        repo.replace_visual_fingerprints(second[0], ["b" * 32])
+        session.flush()
+        assert repo.visual_fingerprint_rows(
+            "tenant-a", first[0].id, campaign_id=campaigns[1].id,
+        ) == ["b" * 32]
+
+
+def test_tiktokshop_recovery_is_bounded_and_preserves_manual_negatives(database):
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    from scripts.cam_tiktokshop_recover_duplicates import recover
+
+    with database() as session:
+        campaign, _ = RrugcService(session).create_campaign(
+            tenant_id="tenant-a", user_id="operator", name="Recovery",
+            query="embroidered sweatshirt outfit", target_count=50,
+            max_scroll_batches=2, auto_scout=True, auto_import=True,
+        )
+        session.add(RrugcSourcePlanModel(
+            tenant_id="tenant-a", root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            source_file_id="recovery-shirt", source_relative_path="shirt/front.png",
+            source_name="front.png", source_mime_type="image/png",
+            source_revision="a" * 64, status="ready", campaign_id=campaign.id,
+            created_by_user_id="operator",
+        ))
+        session.flush()
+        candidate_rows = []
+        for i, fp in enumerate(["f" * 64, "f" * 64, "0" * 64]):
+            row = RrugcCandidateModel(
+                tenant_id="tenant-a", campaign_id=campaign.id,
+                source_key=f"recover-{i}",
+                pin_url=f"https://www.pinterest.com/pin/recover-{i}/",
+                image_url=f"https://i.pinimg.com/736x/recover-{i}.jpg",
+                status="drive_ready" if i == 0 else "rejected_duplicate",
+                reject_reason=None if i == 0 else "visual_near_duplicate",
+                ai_signal_json=(
+                    {"reference_manual_label": "bad"} if i == 0
+                    else {"visual_fingerprints": [fp]}
+                ),
+                analyzed_at=datetime.now(timezone.utc),
+                created_at=datetime(2026, 11, 1, tzinfo=timezone.utc)
+                           + timedelta(minutes=3 - i),
+            )
+            session.add(row)
+            candidate_rows.append(row)
+        session.flush()
+        repo = RrugcRepository(session)
+        repo.replace_visual_fingerprints(candidate_rows[0], ["f" * 64])
+        session.commit()
+        preview = recover(session, limit=2, per_campaign=1)
+        assert preview["eligible_preview"] == 1
+        assert preview["requeued"] == 0
+        assert preview["skipped_manual_negative"] >= 1
+        assert candidate_rows[1].status == "rejected_duplicate"
+        assert candidate_rows[2].status == "rejected_duplicate"
+
+        applied = recover(session, apply=True, limit=2, per_campaign=1)
+        assert applied["requeued"] == 1
+        assert candidate_rows[0].status == "drive_ready"
+        assert candidate_rows[1].status == "rejected_duplicate"
+        assert candidate_rows[2].status == "analysis_queued"
+        assert session.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.entity_id == candidate_rows[2].id,
+            ProcessingJobModel.job_type == "rrugc_candidate_analyze",
+        )) is not None
+
+
 def test_candidate_keyword_outcomes_uses_recent_history_limit(database):
     with database() as session:
         service = RrugcService(session)
@@ -2636,6 +2765,64 @@ def test_stage5_review_copy_refresh_preserves_editorial_and_image_metadata(datab
         assert session.get(RrugcStage3AnalysisModel, rows[3]).review_text == "Old placeholder 3."
         assert refresh_existing_review_copy(session, apply=True)["rewritten"] == 0
 
+
+
+def test_tiktokshop_claim_known_pins_isolated_to_embroidery_group(api, database):
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+
+    with database() as session:
+        service = RrugcService(session)
+        first, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Apparel previous",
+            query="prior apparel image", target_count=20,
+            max_scroll_batches=2, auto_scout=False, auto_import=True,
+        )
+        second, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="Apparel new",
+            query="new apparel image", target_count=20,
+            max_scroll_batches=2, auto_scout=True, auto_import=True,
+        )
+        for i, campaign in enumerate((first, second)):
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a",
+                root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+                source_file_id=f"pin-history-{i}",
+                source_relative_path=f"apparel/{i}/source.png",
+                source_name="source.png", source_mime_type="image/png",
+                source_revision=str(i + 1) * 64,
+                status="ready", campaign_id=campaign.id,
+                created_by_user_id="user-a",
+            ))
+        session.flush()
+        for campaign, label in ((first, "first"), (second, "second")):
+            service.ingest_candidates(
+                campaign=campaign,
+                submissions=[CandidateSubmission(
+                    pin_url=f"https://www.pinterest.com/pin/{label}-pin/",
+                    image_url=f"https://i.pinimg.com/736x/{label}-pin.jpg",
+                    alt_text="real sweater lifestyle",
+                )],
+            )
+        scout = RrugcAutoScoutService(session)
+        agent, token = scout.create_agent(
+            tenant_id="tenant-a", user_id="user-a",
+            name="TikTokShop group history QA", workspace="tiktokshop",
+        )
+        session.commit()
+    response = api.post(
+        f"/api/v1/realistic-review-ugc/scout-agents/{agent.id}/claim",
+        headers={
+            "Authorization": "Bearer " + token,
+            "X-Scout-Version": "rrugc-scout-v58-tiktokshop-isolation",
+            "X-Scout-Machine": "history-test",
+        },
+    )
+    assert response.status_code == 200, response.text
+    work = response.json()
+    assert work["campaign_id"] == second.id
+    known = set(work["known_pin_urls"])
+    assert "https://www.pinterest.com/pin/second-pin/" in known
+    assert "https://www.pinterest.com/pin/first-pin/" not in known
 
 
 def test_tiktokshop_agent_workspace_query_must_match_the_body(api):
@@ -8635,6 +8822,76 @@ class FakeStorage:
             content_type=input.content_type or "image/png",
             size_bytes=len(self.payload or _png_bytes()),
         )
+
+
+def test_tiktokshop_import_keeps_independently_approved_references(database):
+    from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+
+    with TemporaryDirectory() as temp:
+        source = Path(temp) / "shared.jpg"
+        source.write_bytes(b"fake-jpeg-content")
+        with database() as session:
+            service = RrugcService(session)
+            campaigns = [
+                service.create_campaign(
+                    tenant_id="tenant-a", user_id="operator",
+                    name=f"Apparel group {i}", query=f"apparel photo {i}",
+                    target_count=10, max_scroll_batches=2, auto_import=True,
+                )[0]
+                for i in range(2)
+            ]
+            for i, campaign in enumerate(campaigns):
+                session.add(RrugcSourcePlanModel(
+                    tenant_id="tenant-a",
+                    root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+                    source_file_id=f"apparel-source-{i}",
+                    source_relative_path=f"shirts/{i}/front.jpg",
+                    source_name=f"shirt-{i}.jpg",
+                    source_mime_type="image/jpeg",
+                    source_revision=str(i + 1) * 64,
+                    status="ready", campaign_id=campaign.id,
+                    created_by_user_id="operator",
+                ))
+            session.flush()
+            rows = []
+            for i, campaign in enumerate(campaigns):
+                found, created, existing = service.ingest_candidates(
+                    campaign=campaign,
+                    submissions=[CandidateSubmission(
+                        pin_url=f"https://www.pinterest.com/pin/apparel-{i}/",
+                        image_url=f"https://i.pinimg.com/736x/apparel-{i}.jpg",
+                    )],
+                )
+                assert (created, existing) == (1, 0)
+                found[0].status = "approved"
+                rows.append(found[0])
+            session.commit()
+            storage = FakeStorage()
+            for candidate in rows:
+                imported = asyncio.run(service.import_candidate(
+                    candidate=candidate, storage=storage,
+                    downloader=FakeDownloader(source),
+                ))
+                assert imported.status == "drive_ready"
+            assert storage.calls == 2
+            assert {row.campaign_id for row in rows} == {c.id for c in campaigns}
+
+            # Preserve within-group exact-hash deduplication.
+            third, _, _ = service.ingest_candidates(
+                campaign=campaigns[1],
+                submissions=[CandidateSubmission(
+                    pin_url="https://www.pinterest.com/pin/apparel-third/",
+                    image_url="https://i.pinimg.com/736x/apparel-third.jpg",
+                )],
+            )
+            third[0].status = "approved"
+            session.commit()
+            duplicate = asyncio.run(service.import_candidate(
+                candidate=third[0], storage=storage,
+                downloader=FakeDownloader(source),
+            ))
+            assert duplicate.status == "rejected_duplicate"
+            assert storage.calls == 2
 
 
 def test_import_candidate_uses_existing_storage_contract(database):
