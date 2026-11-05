@@ -813,6 +813,9 @@ describe("Realistic Review UGC source-first workspace", () => {
             {
               id: "kv-1",
               keyword: "Bad Day To Be A Hotdog hat",
+              opportunity_score: 85,
+              opportunity_recommendation: "prioritize",
+              opportunity_coverage: 80,
               search_volume: 4400,
               competition: "HIGH",
               cpc_low: 0.56,
@@ -942,6 +945,12 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).toContain("$0.56");
     expect(markup).toContain("$1.96");
     expect(markup).toContain("Avg searches / mo");
+    expect(markup).toContain('aria-label="Sort by Opportunity descending"');
+    expect(markup).toContain('aria-label="Opportunity score 85 of 100"');
+    expect(markup).toContain('rrugc-stage0-opportunity-heading');
+    expect(markup).not.toContain("Rank: Opportunity");
+    expect(markup).not.toContain('id="stage0-opportunity-filter"');
+    expect(markup).not.toContain("rrugc-stage0-rank-btn");
     expect(markup).toContain("3-mo change");
     expect(markup).toContain("YoY change");
     expect(markup).toContain('aria-label="Sort by 3-mo change descending"');

@@ -16,7 +16,6 @@ import type {
   KeywordTailFilter,
   KeywordUsageFilter,
   KeywordVolumeFilter,
-  KeywordOpportunityFilter,
   ScoutFeedbackAction,
   ScoutFeedbackScope,
 } from "./api";
@@ -737,14 +736,12 @@ export function KeywordAnalysisTable({
   usageFilter,
   tailFilter,
   volumeFilter,
-  opportunityFilter = "all",
   suggestedOnly,
   pickingIds,
   feedbackUpdatingIds,
   onFeedbackChange,
   onResolveMetrics,
   onSortChange,
-  onOpportunityFilterChange = () => undefined,
   onUsageFilterChange,
   onTailFilterChange,
   onVolumeFilterChange,
@@ -765,14 +762,12 @@ export function KeywordAnalysisTable({
   usageFilter: KeywordUsageFilter;
   tailFilter: KeywordTailFilter;
   volumeFilter: KeywordVolumeFilter;
-  opportunityFilter?: KeywordOpportunityFilter;
   suggestedOnly: boolean;
   pickingIds: Set<string>;
   feedbackUpdatingIds: Set<string>;
   onFeedbackChange: (keywordId: string, action: ScoutFeedbackAction, scope: ScoutFeedbackScope) => void;
   onResolveMetrics?: (keyword: string) => Promise<void>;
   onSortChange: (column: KeywordAnalysisSortBy) => void;
-  onOpportunityFilterChange?: (value: KeywordOpportunityFilter) => void;
   onUsageFilterChange: (filter: KeywordUsageFilter) => void;
   onTailFilterChange: (filter: KeywordTailFilter) => void;
   onVolumeFilterChange: (filter: KeywordVolumeFilter) => void;
@@ -836,23 +831,6 @@ export function KeywordAnalysisTable({
     <div className="rrugc-stage0-unified-toolbar">
     <div className="rrugc-stage0-controlbar">
       <div className="rrugc-stage0-searchbox"><KeywordSearchInput query={query} onQueryChange={handleQueryChange} /></div>
-      <div className="rrugc-stage0-opportunity-controls">
-        <button type="button" className={"rrugc-stage0-rank-btn" + (sortBy === "opportunity" ? " active" : "")}
-          aria-pressed={sortBy === "opportunity"} title="Sort all matching tenant keywords before pagination"
-          onClick={() => onSortChange("opportunity")}>
-          Rank: Opportunity {sortBy === "opportunity" ? (sortDirection === "desc" ? "↓" : "↑") : ""}
-        </button>
-        <label htmlFor="stage0-opportunity-filter">Opportunity</label>
-        <select id="stage0-opportunity-filter" aria-label="Filter all keyword opportunities"
-          value={opportunityFilter}
-          onChange={event => onOpportunityFilterChange(event.target.value as KeywordOpportunityFilter)}>
-          <option value="all">All</option>
-          <option value="prioritize">Prioritize</option>
-          <option value="explore">Explore</option>
-          <option value="hold">Hold</option>
-          <option value="needs_analysis">Needs analysis</option>
-        </select>
-      </div>
     </div>
       <div className="rrugc-stage0-header-tools">
         <button type="button" className="rrugc-stage0-intelligence-trigger rrugc-stage0-research-trigger"
@@ -954,6 +932,7 @@ export function KeywordAnalysisTable({
         <thead><tr>
           <th>Preview</th>
           <SortHeader column="keyword" label="Keyword" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
+          <SortHeader className="rrugc-stage0-opportunity-heading" column="opportunity" label="Opportunity" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="trend" label="Trend" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="search_volume" label="Avg searches / mo" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
           <SortHeader column="three_month_change" label="3-mo change" sortBy={sortBy} sortDirection={sortDirection} onSortChange={onSortChange} />
@@ -968,7 +947,7 @@ export function KeywordAnalysisTable({
           <th>Action</th>
         </tr></thead>
         <tbody>
-          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={14}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(originalItem => {
+          {loading ? Array.from({ length: 6 }, (_, i) => <tr key={i} className="rrugc-stage0-skeleton-row"><td colSpan={15}><span className="rrugc-stage0-skeleton rrugc-stage0-skeleton-line" /></td></tr>) : data.items.map(originalItem => {
             const item = sourceImageOverrides[originalItem.id]
               ? { ...originalItem, source_image_url: sourceImageOverrides[originalItem.id] }
               : originalItem;
@@ -983,11 +962,6 @@ export function KeywordAnalysisTable({
                 <button type="button" className="rrugc-stage0-keyword-link" onClick={() => setDetailItem(item)} title="Open keyword details">
                   <strong>{item.keyword}</strong>
                   <small>{providerLabel(item.provider)} · {item.provider === "pending" ? "added" : "checked"} {new Date(item.provider === "pending" ? item.created_at || item.fetched_at : item.fetched_at).toLocaleDateString()}</small>
-                  {item.opportunity_recommendation && <span
-                    className={"rrugc-stage0-opportunity-chip is-" + item.opportunity_recommendation}
-                    title={"Preliminary opportunity · coverage " + (item.opportunity_coverage ?? 0) + "%"}
-                  >{item.opportunity_score == null ? "—" : item.opportunity_score + "/100"}
-                    {" · " + item.opportunity_recommendation.replace("_", " ")}</span>}
                 </button>
                 <div className="rrugc-scout-feedback-control">
                   {hasFeedback && <span className={"rrugc-scout-feedback-state is-" + feedbackStatus} aria-label={"Trạng thái Scout: " + (feedbackStatus === "suggested" ? "Đã đề xuất" : feedbackStatus === "blocked" ? "Đã bỏ đề xuất" : "Đã phản hồi")}>
@@ -1013,6 +987,13 @@ export function KeywordAnalysisTable({
                   </div>
                 </div>
               </td>
+              <td className="rrugc-stage0-opportunity-cell">
+                {item.opportunity_score == null ? <span className="rrugc-stage0-opportunity-empty">—</span>
+                  : <span className={"rrugc-stage0-opportunity-chip is-" + (item.opportunity_recommendation || "needs_analysis")}
+                    title={"Opportunity " + item.opportunity_score + "/100 · " + (item.opportunity_recommendation || "needs analysis").replace("_", " ") + " · coverage " + (item.opportunity_coverage ?? 0) + "%"}
+                    aria-label={"Opportunity score " + item.opportunity_score + " of 100"}
+                  >{item.opportunity_score}</span>}
+              </td>
               <td className="rrugc-stage0-trend-cell"><KeywordTrendChart item={item} onOpen={() => setDetailItem(item)} /></td>
               <td className="rrugc-stage0-volume">{item.provider === "pending" ? <><strong>—</strong><small>Chờ kiểm tra</small></> : <><strong>{item.search_volume.toLocaleString()}</strong><small>avg / month</small></>}</td>
               <td className="rrugc-stage0-change"><strong className={changeTone(item.three_month_change_pct)}>{formatChange(item.three_month_change_pct)}</strong></td>
@@ -1035,7 +1016,7 @@ export function KeywordAnalysisTable({
               </td>
             </tr>;
           })}
-          {!loading && data.items.length === 0 && <tr><td colSpan={14} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
+          {!loading && data.items.length === 0 && <tr><td colSpan={15} className="rrugc-source-plan-empty">No keywords match these filters.</td></tr>}
         </tbody>
       </table>
     </div>

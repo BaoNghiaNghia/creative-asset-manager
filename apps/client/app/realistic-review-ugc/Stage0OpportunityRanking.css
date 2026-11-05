@@ -1,13 +1,15 @@
-
-/* Global SQL Opportunity Ranking, compact and opt-in: no new table column */
-.rrugc-stage0-opportunity-controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
-.rrugc-stage0-opportunity-controls>label{font-size:10px;font-weight:750;color:#6c7f97}
-.rrugc-stage0-rank-btn,.rrugc-stage0-opportunity-controls>select{min-height:31px;padding:5px 9px;border:1px solid #cbd9e9;border-radius:7px;background:#fff;color:#405e82;font-size:10px;font-weight:750;cursor:pointer}
-.rrugc-stage0-rank-btn.active{background:#e9f2ff;border-color:#8caed9;color:#285f9a}
-.rrugc-stage0-opportunity-controls>select:focus-visible,.rrugc-stage0-rank-btn:focus-visible{outline:2px solid #4587c4;outline-offset:2px}
-.rrugc-stage0-opportunity-chip{display:inline-flex;max-width:max-content;gap:4px;align-items:center;margin-top:5px;padding:2px 6px;border:1px solid #e1e8ef;border-radius:5px;background:#f2f6fb;color:#60758e;font-size:10px;font-weight:750;text-transform:capitalize}
-.rrugc-stage0-opportunity-chip.is-prioritize{color:#29754e;background:#e9f6ec;border-color:#b2d9c0}
-.rrugc-stage0-opportunity-chip.is-explore{color:#366b9b;background:#eaf4ff;border-color:#bfd9f5}
-.rrugc-stage0-opportunity-chip.is-hold{color:#986035;background:#fff4e6;border-color:#ecd2ac}
-.rrugc-stage0-opportunity-chip.is-needs_analysis{color:#748096}
-@media(max-width:800px){.rrugc-stage0-opportunity-controls{width:100%;}.rrugc-stage0-opportunity-controls>select{max-width:135px}}
+/* Stage 0 Opportunity ranking: one compact sortable table column, no toolbar. */
+.rrugc-stage0-opportunity-heading,
+.rrugc-stage0-opportunity-cell { text-align:center; white-space:nowrap; vertical-align:middle; }
+.rrugc-stage0-opportunity-heading .rrugc-stage0-sort { justify-content:center; }
+.rrugc-stage0-opportunity-chip {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:32px; padding:3px 5px; border:1px solid #e1e8ef;
+  border-radius:5px; background:#f2f6fb; color:#60758e;
+  font-size:10px; font-weight:750; line-height:1.1;
+}
+.rrugc-stage0-opportunity-chip.is-prioritize { color:#29754e; background:#e9f6ec; border-color:#b2d9c0; }
+.rrugc-stage0-opportunity-chip.is-explore { color:#366b9b; background:#eaf4ff; border-color:#bfd9f5; }
+.rrugc-stage0-opportunity-chip.is-hold { color:#986035; background:#fff4e6; border-color:#ecd2ac; }
+.rrugc-stage0-opportunity-chip.is-needs_analysis,
+.rrugc-stage0-opportunity-empty { color:#748096; }
