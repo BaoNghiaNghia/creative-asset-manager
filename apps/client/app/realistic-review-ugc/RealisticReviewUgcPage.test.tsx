@@ -1266,7 +1266,7 @@ describe("Realistic Review UGC source-first workspace", () => {
     expect(markup).not.toContain("rrugc-source-ref-vote is-ai");
     expect(markup).toContain("Same embroidery · 3 images");
     expect(markup).toContain("rrugc-source-group-track");
-    expect(markup).toContain("3 source images · same embroidery");
+    expect(markup).not.toContain(">3 source images · same embroidery<");
     expect(markup).toContain("Page 1 / 1");
     expect(markup).not.toContain("rrugc-source-ref-grid");
   });
@@ -1375,8 +1375,42 @@ describe("Realistic Review UGC source-first workspace", () => {
         onQueryChange={() => undefined}
       />,
     );
-    expect(markup).toContain("1 source image");
-    expect(markup).not.toContain("1 source image · same embroidery");
+    expect(markup).toContain('aria-label="1 source images with the same embroidery"');
+    const sourceCell = markup.split('<td class="rrugc-source-cell">')[1]?.split("</td>")[0] || "";
+    expect(sourceCell).toContain("<strong");
+    expect(sourceCell).not.toContain("<small");
+    expect(sourceCell).not.toContain("<em");
+  });
+
+  it("shows only thumbnails and filename in Source Image for both Reviews and TikTokShop", () => {
+    for (const rootFolderId of [
+      "1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX",
+      "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh",
+    ]) {
+      const plan = { ...makePlan(), root_folder_id: rootFolderId };
+      plan.source_size_bytes = 209715;
+      plan.source_width = 794;
+      plan.source_height = 794;
+      plan.source_name = "custom-embroidered-baseball-mama-sweatshirt.jpg";
+      const markup = renderToStaticMarkup(
+        <SourcePlanTable
+          plans={[plan]} rootFolderId={rootFolderId}
+          total={1} page={1} pageSize={20} query="" syncing={false}
+          message="" onSync={() => undefined}
+          onPageChange={() => undefined} onPageSizeChange={() => undefined}
+          onQueryChange={() => undefined}
+        />,
+      );
+      const sourceCell = markup.split('<td class="rrugc-source-cell">')[1]?.split("</td>")[0] || "";
+      expect(sourceCell).toContain("rrugc-source-group-track");
+      expect(sourceCell.match(/rrugc-source-thumb-open/g)).toHaveLength(3);
+      expect(sourceCell).toContain("custom-embroidered-baseball-mama-sweatshirt.jpg");
+      expect(sourceCell).not.toContain("<small");
+      expect(sourceCell).not.toContain("<em");
+      expect(sourceCell).not.toContain("794×794");
+      expect(sourceCell).not.toContain("0.2 MB");
+      expect(sourceCell).not.toContain(">3 source images");
+    }
   });
 
   it("shows Scout-saved references while Gemini analysis is pending", () => {

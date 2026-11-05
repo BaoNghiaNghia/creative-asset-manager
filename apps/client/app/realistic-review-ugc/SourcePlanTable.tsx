@@ -106,16 +106,6 @@ function sourcePlanSortDirectionLabel(
   return direction === "asc" ? "Oldest → newest" : "Newest → oldest";
 }
 
-function sourceMeta(plan: SourcePlan): string {
-  const dimensions = plan.source_width && plan.source_height
-    ? plan.source_width + "×" + plan.source_height
-    : "";
-  const size = plan.source_size_bytes
-    ? (plan.source_size_bytes / (1024 * 1024)).toFixed(plan.source_size_bytes > 10 * 1024 * 1024 ? 0 : 1) + " MB"
-    : "";
-  return [dimensions, size].filter(Boolean).join(" · ");
-}
-
 type SourceThumbItem = Pick<
   SourcePlanGroupImage,
   "id" | "source_name" | "source_preview_url" | "source_web_url"
@@ -712,8 +702,6 @@ export function SourcePlanTable({
                 <SourceImageGroup plan={plan} priority={rowIndex < 4} />
                 <span>
                   <strong title={plan.source_name}>{plan.source_name}</strong>
-                  <small>{plan.embroidery_group_size} source {plan.embroidery_group_size === 1 ? "image" : "images"}{plan.embroidery_group_size > 1 ? " · same embroidery" : ""}</small>
-                  <em>{sourceMeta(plan) || "Image source"}</em>
                 </span>
               </div></td>
               <td className="rrugc-source-plan-context">
