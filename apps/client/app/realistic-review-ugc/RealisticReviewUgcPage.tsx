@@ -1115,7 +1115,6 @@ export function RealisticReviewUgcPage() {
               setKeywordUsageFilter("all");
               setKeywordTailFilter("all");
               setKeywordVolumeFilter("nonzero");
-              setKeywordOpportunityFilter("all");
               setKeywordSuggestedOnly(false);
             }}
             onPageChange={value => {

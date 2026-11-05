@@ -21,20 +21,18 @@ const data: KeywordVolumePage = {
 afterEach(() => { document.body.replaceChildren(); });
 
 describe("Stage 0 volume KPI selection", () => {
-  it("sorts and filters Opportunity on the server instead of hiding only visible rows", async () => {
+  it("keeps Opportunity sorting in the compact Stage 0 column header", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     const onSortChange = vi.fn();
-    const onOpportunityFilterChange = vi.fn();
     await act(async () => root.render(<KeywordAnalysisTable
       data={data} query="" sortBy="opportunity" sortDirection="desc"
-      volumeFilter="all" opportunityFilter="needs_analysis" usageFilter="all"
+      volumeFilter="all" usageFilter="all"
       tailFilter="all" suggestedOnly={false}
       pickingIds={new Set()} feedbackUpdatingIds={new Set()}
       onFeedbackChange={() => undefined}
       onSortChange={onSortChange}
-      onOpportunityFilterChange={onOpportunityFilterChange}
       onUsageFilterChange={() => undefined}
       onTailFilterChange={() => undefined}
       onVolumeFilterChange={() => undefined}
@@ -45,17 +43,12 @@ describe("Stage 0 volume KPI selection", () => {
       onPageSizeChange={() => undefined}
       onQueryChange={() => undefined}
     />));
-    expect(host.querySelector(".rrugc-stage0-rank-btn.active")).not.toBeNull();
-    const dropdown = host.querySelector<HTMLSelectElement>("#stage0-opportunity-filter");
-    expect(dropdown?.value).toBe("needs_analysis");
-    await act(async () => {
-      if (dropdown) {
-        dropdown.value = "explore";
-        dropdown.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    });
-    expect(onOpportunityFilterChange).toHaveBeenCalledWith("explore");
-    await act(async () => host.querySelector<HTMLButtonElement>(".rrugc-stage0-rank-btn")?.click());
+    expect(host.querySelector(".rrugc-stage0-rank-btn")).toBeNull();
+    expect(host.querySelector("#stage0-opportunity-filter")).toBeNull();
+    const heading = host.querySelector<HTMLTableCellElement>(".rrugc-stage0-opportunity-heading");
+    expect(heading?.getAttribute("aria-sort")).toBe("descending");
+    expect(heading?.textContent).toContain("Opportunity");
+    await act(async () => heading?.querySelector("button")?.click());
     expect(onSortChange).toHaveBeenCalledWith("opportunity");
     await act(async () => root.unmount());
   });
