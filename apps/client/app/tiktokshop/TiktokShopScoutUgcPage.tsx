@@ -20,6 +20,8 @@ import {
   retryStage4Job,
   syncSourcePlans,
   type SourcePlanFolders,
+  type SourcePlanSortBy,
+  type SourcePlanSortDirection,
 } from "../realistic-review-ugc/api";
 import type {
   ReferenceManualLabel, SourcePlan, SourcePlanPage, SourcePlanReferencePreview,
@@ -64,6 +66,8 @@ export function TiktokShopScoutUgcPage() {
   }, []);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<SourcePlanSortBy>("source");
+  const [sortDirection, setSortDirection] = useState<SourcePlanSortDirection>("asc");
   const [query, setQuery] = useState("");
   const [folderPath, setFolderPath] = useState<string | null>(null);
   const [page, setPage] = useState<SourcePlanPage>(EMPTY_PAGE);
@@ -87,7 +91,7 @@ export function TiktokShopScoutUgcPage() {
     const [result, folderResult] = await Promise.all([
       listSourcePlans({
         workspace: "tiktokshop", page: pageNumber, pageSize,
-        query, folderPath, sortBy: "source", sortDirection: "asc",
+        query, folderPath, sortBy, sortDirection,
       }, signal),
       listSourcePlanFolders(signal, "tiktokshop"),
     ]);
@@ -95,7 +99,7 @@ export function TiktokShopScoutUgcPage() {
     setPage(result);
     setFolders(folderResult);
     return result;
-  }, [pageNumber, pageSize, query, folderPath]);
+  }, [pageNumber, pageSize, query, folderPath, sortBy, sortDirection]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,14 +121,15 @@ export function TiktokShopScoutUgcPage() {
     if (stage !== "stage3") return;
     let inFlight = false;
     let active = true;
+    const controller = new AbortController();
     const timer = setInterval(() => {
       if (inFlight || syncing || !active || document.visibilityState === "hidden") return;
       inFlight = true;
-      void refresh().catch(() => {
+      void refresh(controller.signal).catch(() => {
         // Retain last known counts on transient network failures.
       }).finally(() => { inFlight = false; });
     }, 20_000);
-    return () => { active = false; clearInterval(timer); };
+    return () => { active = false; controller.abort(); clearInterval(timer); };
   }, [stage, syncing, refresh]);
 
   // A fresh TikTokShop workspace has no DB source plans until a Drive sync.
@@ -402,8 +407,10 @@ export function TiktokShopScoutUgcPage() {
             overview={page.overview}
             page={pageNumber}
             pageSize={pageSize}
-            sortBy="source"
-            sortDirection="asc"
+            sortBy={sortBy}
+            sortDirection={sortDirection}
+            onSortByChange={value => { setPageNumber(1); setSortBy(value); }}
+            onSortDirectionChange={value => { setPageNumber(1); setSortDirection(value); }}
             query={query}
             onQueryChange={value => { setQuery(value); setPageNumber(1); }}
             syncing={syncing}
