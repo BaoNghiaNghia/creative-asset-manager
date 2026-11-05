@@ -138,8 +138,8 @@ def test_tiktokshop_v58_claim_lane_filters_quote_queries_and_rotates():
     assert a is not None and b is not None
     queries, claim_context = a
     assert all("sweatshirt" in value for value in queries)
-    assert queries[0].startswith("person wearing sweatshirt front upper body")
-    assert "arm sleeves visible" in queries[1]
+    assert queries[0].startswith("person wearing sweatshirt front chest and sleeves visible")
+    assert "front chest and sleeves visible" in queries[1]
     assert queries[2] != b[0][2]  # rotates non-core discovery
     assert claim_context["search_clusters"]["direct"] == queries
     for key in ("text_match", "adjacent", "selfie_wearing_hat", "hand_holding_hat"):

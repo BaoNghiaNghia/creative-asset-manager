@@ -503,9 +503,10 @@ class RrugcCandidateAnalyzeJobHandler:
                         existing_fingerprints = repository.visual_fingerprint_rows(
                             context.job.tenant_id,
                             candidate_id,
-                            # TikTokShop independent embroidery groups must
-                            # not inherit another group's positive dedupe gate.
-                            campaign_id=campaign_id if tiktok_plan else None,
+                            # Match only this source-root workspace: suppress
+                            # reposts from other TikTokShop embroidery groups
+                            # without inheriting GatorHats visual references.
+                            workspace="tiktokshop" if tiktok_plan else "gatorhats",
                         )
                         if is_visual_near_duplicate(
                             fingerprints,
@@ -820,7 +821,7 @@ class RrugcCandidateAnalyzeJobHandler:
                 existing_fingerprints = repository.visual_fingerprint_rows(
                     context.job.tenant_id,
                     candidate_id,
-                    campaign_id=campaign_id if tiktok_plan else None,
+                    workspace="tiktokshop" if tiktok_plan else "gatorhats",
                 )
                 near_duplicate = eligible_for_approval and is_visual_near_duplicate(
                     fingerprints,

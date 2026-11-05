@@ -1720,8 +1720,9 @@ def tiktokshop_apparel_claim_search(
     untouched. One or two required zones remain fixed; rotate safe composition
     variants per scan to discover fresh references without extra AI calls.
     """
-    from app.modules.realistic_review_ugc.apparel_placement import (
-        apparel_placement_queries, source_placements,
+    from app.modules.realistic_review_ugc.apparel_placement import source_placements
+    from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
+        tiktokshop_semantic_queries,
     )
     from app.modules.realistic_review_ugc.product_context import (
         TIKTOKSHOP_APPAREL_CONTEXT_VERSION,
@@ -1744,44 +1745,10 @@ def tiktokshop_apparel_claim_search(
         if raw_garment in {"t-shirt", "shirt", "sweatshirt", "sweater", "hoodie", "polo"}
         else "shirt"
     )
-    zones = {zone.zone for zone in placements}
-    has_chest = bool(zones & {"center_chest", "left_chest", "right_chest"})
-    has_sleeve = bool(zones & {
-        "left_sleeve", "right_sleeve", "left_upper_arm", "right_upper_arm",
-    })
-    focus = (
-        "chest print area" if has_chest else
-        "neckline and collar" if "collar" in zones else
-        "sleeve and upper arm"
+    queries = tiktokshop_semantic_queries(
+        garment, placements, product, source,
+        scan_attempt_count=scan_attempt_count,
     )
-    core = apparel_placement_queries(garment, placements)
-    variants = [
-        f"person wearing {garment} standing waist up front {focus} visible candid photo",
-        f"person wearing {garment} front torso fully visible hands at sides natural light photo",
-        f"person in {garment} casual outfit upper torso front facing unobstructed candid photo",
-        f"person wearing {garment} everyday street style waist up {focus} clearly visible",
-        f"person wearing {garment} indoor front view upper body clothing visible candid phone photo",
-        f"person in {garment} outdoor casual standing front full torso visible natural light",
-    ]
-    if has_sleeve:
-        variants.insert(0,
-            f"person wearing {garment} front three quarter full sleeves and arms visible candid")
-    if has_chest and has_sleeve:
-        variants.insert(1,
-            f"person wearing {garment} chest and sleeve clear standing waist up casual photo")
-    # Keep the high-value garment/zone lanes fixed; vary later lanes so
-    # repeated runs do not replay exactly the same four Pinterest searches.
-    step = max(0, int(scan_attempt_count or 0))
-    offset = step % len(variants)
-    rotated = [*variants[offset:], *variants[:offset]]
-    queries: list[str] = []
-    seen: set[str] = set()
-    for raw in [*core, *rotated]:
-        value = " ".join(raw.split())
-        key = value.casefold()
-        if value and key not in seen:
-            seen.add(key)
-            queries.append(value)
     ctx = dict(source)
     # Remove legacy hat/text/scene clusters only from this Scout claim.
     # The original visual evidence remains intact for AI scoring and UGC.
@@ -9898,6 +9865,7 @@ def mark_candidate_reference_feedback(
             intent=learning_intent,
             legacy_campaign_id=campaign.id,
             profile_key=body.profile_key,
+            workspace="tiktokshop" if roots == {TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID} else "gatorhats",
         )
     )
     return CandidateReferenceFeedbackResponse(
@@ -10278,38 +10246,77 @@ def auto_scout_agent_claim(
             # search_queries list, and keeps at most four queries per run.
             # Both fields must use the same garment-placement-only lane.
             search_queries, source_context = apparel_lanes
+            from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
+                rank_tiktokshop_queries_from_feedback,
+            )
+            learning_intent = campaign_learning_intent(
+                campaign_id=claim.campaign.id,
+                name=claim.campaign.name,
+                queries=list(claim.campaign.search_queries_json or [claim.campaign.query]),
+                product_snapshot=claim.campaign.product_snapshot_json,
+            )
+            human_feedback = repository.reference_feedback_training_rows(
+                claim.campaign.tenant_id,
+                intent=learning_intent,
+                legacy_campaign_id=claim.campaign.id,
+                profile_key="realistic-person-ugc",
+                workspace="tiktokshop",
+            )
+            search_queries, learned_scores = rank_tiktokshop_queries_from_feedback(
+                search_queries, human_feedback,
+            )
+            # Windows v58 consumes direct clusters before search_queries. Keep
+            # the two lists in exactly the same learned order.
+            source_context["search_clusters"]["direct"] = search_queries
             previous_scores = {
                 _scout_query_key(row.query): row for row in query_performance
             }
             query_performance = [
                 (
                     previous_scores[_scout_query_key(query)].model_copy(
-                        update={"score": 1.0}
+                        update={"score": learned_scores[_scout_query_key(query)]}
                     )
                     if _scout_query_key(query) in previous_scores
-                    else ScoutQueryPerformance(query=query, score=1.0)
+                    else ScoutQueryPerformance(
+                        query=query, score=learned_scores[_scout_query_key(query)],
+                    )
                 )
                 for query in search_queries
             ]
 
-    # Sync known Pins to avoid duplicate detail visits. For TikTokShop this
-    # MUST be campaign-scoped: independent embroidery groups can legitimately
-    # use the same source photo and require independent AI/placement QA.
-    # GatorHats retains tenant-wide source history in its own workspace.
+    # Sync known Pins across source groups inside the SAME workspace. A photo
+    # discovered for Grandma must not be rediscovered for Godmother/Newlyweds.
+    # GatorHats and TikTokShop remain isolated from one another.
     tiktok_candidate_scope = exists(select(RrugcSourcePlanModel.id).where(
         RrugcSourcePlanModel.tenant_id == claim.campaign.tenant_id,
         RrugcSourcePlanModel.campaign_id == RrugcCandidateModel.campaign_id,
         RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
     ))
     tiktok_claim = source_plan is not None and source_plan.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+    pin_history_filters = [
+        RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
+        RrugcCandidateModel.pin_url.is_not(None),
+        tiktok_candidate_scope if tiktok_claim else ~tiktok_candidate_scope,
+    ]
+    if tiktok_claim:
+        # A human-rejected Pin is not a positive reference for another
+        # product. Keep claim-time hints consistent with ingest-time dedupe.
+        previous_label = RrugcCandidateModel.ai_signal_json[
+            "reference_manual_label"
+        ].as_string()
+        pin_history_filters.extend([
+            RrugcCandidateModel.status.in_((
+                "discovered", "analysis_queued", "analyzing", "needs_review",
+                "approved", "import_queued", "importing", "drive_ready",
+            )),
+            or_(
+                RrugcCandidateModel.ai_signal_json.is_(None),
+                func.coalesce(previous_label, "").notin_(("bad", "ai")),
+            ),
+        ])
     recent_pin_rows = list(session.scalars(
         select(RrugcCandidateModel.pin_url)
-        .where(
-            RrugcCandidateModel.tenant_id == claim.campaign.tenant_id,
-            RrugcCandidateModel.pin_url.is_not(None),
-            (RrugcCandidateModel.campaign_id == claim.campaign.id)
-            if tiktok_claim else ~tiktok_candidate_scope,
-        )
+        .where(*pin_history_filters)
         .order_by(RrugcCandidateModel.created_at.desc())
         .limit(5000)
     ))

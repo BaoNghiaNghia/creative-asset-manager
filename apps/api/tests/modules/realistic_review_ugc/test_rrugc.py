@@ -2827,7 +2827,7 @@ def test_tiktokshop_v58_claim_payload_never_replays_legacy_text_photos(api, data
     assert claim["campaign_id"] == id_
     assert claim["search_queries"]
     assert all("sweatshirt" in q for q in claim["search_queries"])
-    assert all(item["score"] == 1.0 for item in claim["query_performance"])
+    assert all(0.70 <= item["score"] <= 0.99 for item in claim["query_performance"])
     assert claim["source_context"]["search_clusters"]["text_match"] == []
     assert claim["source_context"]["search_clusters"]["adjacent"] == []
     assert claim["source_context"]["search_clusters"]["direct"] == claim["search_queries"]
@@ -2837,7 +2837,7 @@ def test_tiktokshop_v58_claim_payload_never_replays_legacy_text_photos(api, data
         assert persisted.search_queries_json[0] == "ISAIAH 9:6 photo"
 
 
-def test_tiktokshop_claim_known_pins_isolated_to_embroidery_group(api, database):
+def test_tiktokshop_claim_known_pins_are_shared_within_workspace(api, database):
     from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 
     with database() as session:
@@ -2892,7 +2892,7 @@ def test_tiktokshop_claim_known_pins_isolated_to_embroidery_group(api, database)
     assert work["campaign_id"] == second.id
     known = set(work["known_pin_urls"])
     assert "https://www.pinterest.com/pin/second-pin/" in known
-    assert "https://www.pinterest.com/pin/first-pin/" not in known
+    assert "https://www.pinterest.com/pin/first-pin/" in known
 
 
 def test_tiktokshop_agent_workspace_query_must_match_the_body(api):
@@ -5948,6 +5948,11 @@ def test_tiktokshop_stage3_reference_feedback_scope_and_persistence(api, databas
         assert result.status_code == 200, result.text
         expected = None if label == "clear" else label
         assert result.json()["candidate"]["reference_manual_label"] == expected
+        # The feedback response must learn within TikTokShop, not silently
+        # read GatorHats' unrelated reference preference ledger.
+        learning = result.json()["learning"]
+        assert learning["good_count"] == (1 if label == "good" else 0)
+        assert learning["bad_count"] == (1 if label in {"bad", "ai"} else 0)
         with database() as session:
             assert session.get(RrugcCandidateModel, candidate_id).ai_signal_json.get(
                 "reference_manual_label",

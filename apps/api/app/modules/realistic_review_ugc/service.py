@@ -665,19 +665,16 @@ class RrugcService:
                 rows.append(row)
                 continue
 
-            # The same Pinterest pose may fit more than one unrelated
-            # TikTokShop embroidery group. Each group requires its own
-            # placement/AI qualification; only same-campaign duplicates are
-            # rejected. Preserve GatorHats' existing global cost-saving gate.
-            tenant_duplicate = (
-                self.repository.analyzed_candidate_by_source_key_tenant(
-                    campaign.tenant_id,
-                    key,
-                    exclude_campaign_id=campaign.id,
-                    workspace=workspace,
-                )
-                if workspace != "tiktokshop"
-                else None
+            # Reserve each Pinterest pin for one TikTokShop embroidery group
+            # within the tenant. This prevents the same stock reference from
+            # appearing under unrelated Grandma/Godmother/Newlywed products.
+            # Cross-workspace re-use remains allowed. GatorHats keeps its
+            # existing analyzed-only tenant duplicate guard.
+            tenant_duplicate = self.repository.analyzed_candidate_by_source_key_tenant(
+                campaign.tenant_id,
+                key,
+                exclude_campaign_id=campaign.id,
+                workspace=workspace,
             )
             if tenant_duplicate is not None:
                 duplicate_signal = {

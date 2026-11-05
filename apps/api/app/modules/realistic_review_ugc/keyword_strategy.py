@@ -138,6 +138,18 @@ def campaign_learning_intent(
     queries: Iterable[str] = (),
     product_snapshot: dict[str, Any] | None = None,
 ) -> str:
+    if isinstance(product_snapshot, dict) and (
+        str(product_snapshot.get("source_category") or "").casefold()
+        == "embroidered apparel"
+    ):
+        # Apparel source names carry the artwork's audience/occasion. Avoid
+        # mixing Grandma/Godmother/newlywed learning into product:sweatshirt,
+        # or misclassifying a design mentioning "hat" as a GatorHats source.
+        from app.modules.realistic_review_ugc.tiktokshop_scout_intent import (
+            source_apparel_intent,
+        )
+        return "apparel:" + source_apparel_intent(product_snapshot).family
+
     detected = detect_campaign_keyword_intent(
         name=name,
         queries=queries,

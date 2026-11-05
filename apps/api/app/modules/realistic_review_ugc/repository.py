@@ -244,7 +244,9 @@ class RrugcRepository:
         ))
 
     def visual_fingerprint_rows(
-        self, tenant_id: str, exclude_id: str, *, campaign_id: str | None = None
+        self, tenant_id: str, exclude_id: str, *,
+        campaign_id: str | None = None,
+        workspace: str | None = None,
     ) -> list[str]:
         filters = [
             RrugcVisualFingerprintModel.tenant_id == tenant_id,
@@ -264,6 +266,15 @@ class RrugcRepository:
         ]
         if campaign_id is not None:
             filters.append(RrugcVisualFingerprintModel.campaign_id == campaign_id)
+        if workspace is not None:
+            if workspace not in {"gatorhats", "tiktokshop"}:
+                raise ValueError("Unknown Scout workspace")
+            tiktok_source = exists(select(RrugcSourcePlanModel.id).where(
+                RrugcSourcePlanModel.tenant_id == tenant_id,
+                RrugcSourcePlanModel.campaign_id == RrugcCandidateModel.campaign_id,
+                RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+            ))
+            filters.append(tiktok_source if workspace == "tiktokshop" else ~tiktok_source)
         return list(self.session.scalars(
             select(RrugcVisualFingerprintModel.fingerprint)
             .join(
@@ -656,9 +667,28 @@ class RrugcRepository:
         statement = select(RrugcCandidateModel).where(
             RrugcCandidateModel.tenant_id == tenant_id,
             RrugcCandidateModel.source_key == source_key,
-            RrugcCandidateModel.analyzed_at.is_not(None),
             tiktok_source if workspace == "tiktokshop" else ~tiktok_source,
         )
+        # Reserve even pending candidates across TikTokShop product groups.
+        # Human (x)/(AI) and automated rejections must NOT block the same Pin
+        # from being evaluated for another, genuinely different product.
+        if workspace == "tiktokshop":
+            statement = statement.where(
+                RrugcCandidateModel.status.in_((
+                    "discovered", "analysis_queued", "analyzing", "needs_review",
+                    "approved", "import_queued", "importing", "drive_ready",
+                )),
+                or_(
+                    RrugcCandidateModel.ai_signal_json.is_(None),
+                    func.coalesce(
+                        RrugcCandidateModel.ai_signal_json[
+                            "reference_manual_label"
+                        ].as_string(), "",
+                    ).notin_(("bad", "ai")),
+                ),
+            )
+        else:
+            statement = statement.where(RrugcCandidateModel.analyzed_at.is_not(None))
         if exclude_campaign_id is not None:
             statement = statement.where(
                 RrugcCandidateModel.campaign_id != exclude_campaign_id
