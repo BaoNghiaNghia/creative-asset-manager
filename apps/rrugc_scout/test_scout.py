@@ -632,8 +632,9 @@ def test_pin_detail_navigation_retries_transient_timeout_once(monkeypatch):
         scout_module.PIN_DETAIL_RETRY_TIMEOUT_MS,
     ]
     assert page.waits == [scout_module.PIN_DETAIL_RETRY_PAUSE_MS]
-    assert events[0][0] == "pinterest_pin_detail_retry"
-    assert scout_module._scout_remote_log_level(events[0][0]) == "warning"
+    # Four concurrent Scouts may log a shared gate wait before the retry.
+    assert any(name == "pinterest_pin_detail_retry" for name, _ in events)
+    assert scout_module._scout_remote_log_level("pinterest_pin_detail_retry") == "warning"
 
 
 def test_pin_detail_resolver_reuses_one_sequential_detail_tab():

@@ -1024,10 +1024,14 @@ async def scroll_search_with_watchdog(
     timeout_seconds: float = 25.0,
     healthy_progress: bool = False,
 ) -> None:
-    """Bound a Pinterest scroll even if the browser RPC stops responding."""
+    """Watch only the scroll burst, not time waiting for another Scout's gate.
+
+    Image/pin-growth settling happens after the shared OS network slot is
+    released. A congested Chrome image RPC cannot block other Scouts.
+    """
     try:
         async with scout_network_slot("keyword_scroll", log=scout_debug_event):
-            await asyncio.wait_for(
+            scroll_result = await asyncio.wait_for(
                 _scroll_search_page(page, pace), timeout=timeout_seconds,
             )
     except asyncio.TimeoutError as exc:
@@ -1042,15 +1046,10 @@ async def scroll_search_with_watchdog(
             last_error_type="TimeoutError",
         ) from exc
 
-
-async def _scroll_search_page(page: Any, pace) -> None:
-    previous_count = await loaded_pin_count(page)
-    steps = random.randint(*KEYWORD_SCROLL_STEPS_PER_BATCH)
-    for _ in range(steps):
-        await page.mouse.wheel(0, random.randint(*KEYWORD_SCROLL_STEP_PX))
-        await page.wait_for_timeout(
-            random.randint(*KEYWORD_SCROLL_STEP_PAUSE_MS)
-        )
+    # Test doubles and compatibility overrides may return None.
+    if scroll_result is None:
+        return
+    previous_count, steps = scroll_result
     latest_count = await wait_for_pin_growth(
         page,
         previous_count=previous_count,
@@ -1070,6 +1069,16 @@ async def _scroll_search_page(page: Any, pace) -> None:
         settle_ms=settle_ms,
     )
 
+
+async def _scroll_search_page(page: Any, pace: Any) -> tuple[int, int]:
+    previous_count = await loaded_pin_count(page)
+    steps = random.randint(*KEYWORD_SCROLL_STEPS_PER_BATCH)
+    for _ in range(steps):
+        await page.mouse.wheel(0, random.randint(*KEYWORD_SCROLL_STEP_PX))
+        await page.wait_for_timeout(
+            random.randint(*KEYWORD_SCROLL_STEP_PAUSE_MS)
+        )
+    return previous_count, steps
 
 async def _search_page_diagnostics(page: Any) -> dict[str, Any]:
     payload = await page.evaluate(
@@ -1957,18 +1966,18 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                     response = await page.goto(
                         search_url,
                         wait_until="commit",
-                        timeout=60_000,
+                        timeout=25_000,
                     )
                     guard_pinterest_response(response)
-                    await wait_for_pin_growth(
-                        page,
-                        previous_count=0,
-                        timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-                    )
-                    await wait_for_visible_pin_images(
-                        page, phase="keyword_search", timeout_ms=6_000,
-                        log=scout_debug_event,
-                    )
+                await wait_for_pin_growth(
+                    page,
+                    previous_count=0,
+                    timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                )
+                await wait_for_visible_pin_images(
+                    page, phase="keyword_search", timeout_ms=6_000,
+                    log=scout_debug_event,
+                )
                 await _wait_for_pinterest_access(page)
                 initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
                 scout_debug_event(
@@ -2040,19 +2049,19 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                             raise PinterestAccessGateError(gate)
                         async with scout_network_slot("keyword_reload", log=scout_debug_event):
                             response = await page.reload(
-                                wait_until="domcontentloaded",
-                                timeout=60_000,
+                                wait_until="commit",
+                                timeout=25_000,
                             )
                             guard_pinterest_response(response)
-                            await wait_for_pin_growth(
-                                page,
-                                previous_count=0,
-                                timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-                            )
-                            await wait_for_visible_pin_images(
-                                page, phase="keyword_reload", timeout_ms=5_000,
-                                log=scout_debug_event,
-                            )
+                        await wait_for_pin_growth(
+                            page,
+                            previous_count=0,
+                            timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                        )
+                        await wait_for_visible_pin_images(
+                            page, phase="keyword_reload", timeout_ms=5_000,
+                            log=scout_debug_event,
+                        )
                         empty_batch_streak = 0
                         await paced_wait(page, pace.inspect_dwell_ms)
                         visible = await extract_visible_pin_candidates(page)

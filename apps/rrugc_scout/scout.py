@@ -86,7 +86,7 @@ HAND_HELD_QUERY_MARKERS = (
     "holding hat",
 )
 HEARTBEAT_INTERVAL_SECONDS = 10
-SCOUT_LEASE_KEEPALIVE_SECONDS = 45
+SCOUT_LEASE_KEEPALIVE_SECONDS = 20
 REVIEW_BROWSER_STEP_TIMEOUT_SECONDS = 25
 SCOUT_HISTORY_FILENAME = "cam-pinterest-scout-history.json"
 SCOUT_INSTANCE_LOCK_FILENAME = "cam-pinterest-scout-instance.json"
@@ -627,15 +627,17 @@ async def _goto_pin_detail_with_retry(page: Any, pin_url: str) -> Any:
         )
         try:
             async with scout_network_slot("pin_detail", log=scout_debug_event):
+                # Commit releases the shared network gate before this page
+                # finishes loading images/third-party JavaScript.
                 response = await page.goto(
                     pin_url,
-                    wait_until="domcontentloaded",
+                    wait_until="commit",
                     timeout=timeout_ms,
                 )
                 guard_pinterest_response(response)
-                await wait_for_visible_pin_images(
-                    page, phase="pin_detail", timeout_ms=2_000, log=scout_debug_event,
-                )
+            await wait_for_visible_pin_images(
+                page, phase="pin_detail", timeout_ms=2_500, log=scout_debug_event,
+            )
             return response
         except (PinterestAccessGateError, PinterestRateLimitedError):
             raise
@@ -1860,18 +1862,16 @@ async def extract_related_candidates(
                 break
         if len(collected) >= wanted or step >= max_scroll_steps:
             break
+        previous_count = await loaded_pin_count(page)
         async with scout_network_slot("related_scroll", log=scout_debug_event):
-            previous_count = await loaded_pin_count(page)
             await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
-            await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
-            await wait_for_pin_growth(
-                page,
-                previous_count=previous_count,
-                timeout_ms=3_500,
-            )
-            await wait_for_visible_pin_images(
-                page, phase="related_scroll", timeout_ms=2_000, log=scout_debug_event,
-            )
+        await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+        await wait_for_pin_growth(
+            page, previous_count=previous_count, timeout_ms=3_500,
+        )
+        await wait_for_visible_pin_images(
+            page, phase="related_scroll", timeout_ms=2_000, log=scout_debug_event,
+        )
 
     return list(collected.values())[:wanted]
 
@@ -2112,18 +2112,27 @@ async def startup_access_gate(page: Any) -> str | None:
 
 
 async def loaded_pin_count(page: Any) -> int:
-    value = await page.evaluate(
-        r"""() => {
-          const hrefs = new Set(
-            Array.from(document.querySelectorAll('a[href*="/pin/"]'))
-              .map((anchor) => anchor.href || anchor.getAttribute('href') || '')
-              .filter(Boolean)
-          );
-          return hrefs.size;
-        }"""
-    )
-    return int(value or 0)
-
+    # Page.evaluate itself can block >20s with four Chromium profiles sharing
+    # CPU; cap the RPC so a busy renderer is a soft missing sample, not a
+    # stuck Scout. The next growth poll rechecks without losing any candidate.
+    try:
+        value = await asyncio.wait_for(
+            page.evaluate(
+                r"""() => {
+                  const hrefs = new Set(
+                    Array.from(document.querySelectorAll('a[href*="/pin/"]'))
+                      .map((anchor) => anchor.href || anchor.getAttribute('href') || '')
+                      .filter(Boolean)
+                  );
+                  return hrefs.size;
+                }"""
+            ),
+            timeout=2.0,
+        )
+        return int(value or 0)
+    except asyncio.TimeoutError:
+        scout_debug_event("scout_network_pin_count_rpc_timeout", rpc_timeout_ms=2_000)
+        return 0
 
 async def wait_for_pin_growth(
     page: Any,
@@ -2134,7 +2143,9 @@ async def wait_for_pin_growth(
     deadline = time.monotonic() + (timeout_ms / 1000)
     latest = previous_count
     while time.monotonic() < deadline:
-        latest = await loaded_pin_count(page)
+        # A single timed-out renderer sample is 0, not evidence that Pin
+        # links disappeared; preserve progress observed in earlier samples.
+        latest = max(latest, await loaded_pin_count(page))
         if latest > previous_count:
             return latest
         await page.wait_for_timeout(150)
@@ -3134,21 +3145,18 @@ async def scan_auto_run(
         url = "https://www.pinterest.com/search/pins/?q=" + query
         await heartbeat_if_due(force=True)
         async with scout_network_slot("search_open", log=scout_debug_event):
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            response = await page.goto(url, wait_until="commit", timeout=25_000)
             guard_pinterest_response(response)
-            loaded_count = await review_browser_step(
-                "initial_pin_growth",
-                wait_for_pin_growth(
-                    page,
-                    previous_count=0,
-                    timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-                ),
-                campaign_id=campaign_id,
-                run_id=run_id,
-            )
-            await wait_for_visible_pin_images(
-                page, phase="search_open", timeout_ms=6_000, log=scout_debug_event,
-            )
+        loaded_count = await review_browser_step(
+            "initial_pin_growth",
+            wait_for_pin_growth(
+                page, previous_count=0, timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+            ),
+            campaign_id=campaign_id, run_id=run_id,
+        )
+        await wait_for_visible_pin_images(
+            page, phase="search_open", timeout_ms=6_000, log=scout_debug_event,
+        )
         initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
 
         gate = await review_browser_step(
@@ -3549,25 +3557,21 @@ async def scan_auto_run(
                 )
                 async with scout_network_slot("search_scroll", log=scout_debug_event):
                     scrolled_px = await review_browser_step(
-                        "paced_scroll",
-                        paced_scroll(page, pace),
-                        campaign_id=campaign_id,
-                        run_id=run_id,
+                        "paced_scroll", paced_scroll(page, pace),
+                        campaign_id=campaign_id, run_id=run_id,
                     )
-                    loaded_count = await review_browser_step(
-                        "scroll_pin_growth",
-                        wait_for_pin_growth(
-                            page,
-                            previous_count=before_scroll_count,
-                            timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
-                        ),
-                        campaign_id=campaign_id,
-                        run_id=run_id,
-                    )
-                    await wait_for_visible_pin_images(
-                        page, phase="search_scroll", timeout_ms=3_000,
-                        log=scout_debug_event,
-                    )
+                loaded_count = await review_browser_step(
+                    "scroll_pin_growth",
+                    wait_for_pin_growth(
+                        page, previous_count=before_scroll_count,
+                        timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+                    ),
+                    campaign_id=campaign_id, run_id=run_id,
+                )
+                await wait_for_visible_pin_images(
+                    page, phase="search_scroll", timeout_ms=3_000,
+                    log=scout_debug_event,
+                )
                 print(
                     "campaign="
                     + str(task["campaign_id"])
@@ -3617,12 +3621,12 @@ async def scan_page(
     query = quote_plus(str(task["query"]))
     url = "https://www.pinterest.com/search/pins/?q=" + query
     async with scout_network_slot("legacy_search", log=scout_debug_event):
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        response = await page.goto(url, wait_until="commit", timeout=25_000)
         guard_pinterest_response(response)
-        await wait_for_pin_growth(page, previous_count=0, timeout_ms=INITIAL_RESULTS_TIMEOUT_MS)
-        await wait_for_visible_pin_images(
-            page, phase="legacy_search", timeout_ms=5_000, log=scout_debug_event,
-        )
+    await wait_for_pin_growth(page, previous_count=0, timeout_ms=INITIAL_RESULTS_TIMEOUT_MS)
+    await wait_for_visible_pin_images(
+        page, phase="legacy_search", timeout_ms=5_000, log=scout_debug_event,
+    )
     await page.wait_for_timeout(2_500)
 
     gate = await access_gate(page)
@@ -3688,10 +3692,10 @@ async def scan_page(
 
         async with scout_network_slot("legacy_scroll", log=scout_debug_event):
             await page.mouse.wheel(0, 2600)
-            await page.wait_for_timeout(1_500)
-            await wait_for_visible_pin_images(
-                page, phase="legacy_scroll", timeout_ms=3_000, log=scout_debug_event,
-            )
+        await page.wait_for_timeout(1_500)
+        await wait_for_visible_pin_images(
+            page, phase="legacy_scroll", timeout_ms=3_000, log=scout_debug_event,
+        )
 
     await client.heartbeat("ready")
 
@@ -4513,7 +4517,10 @@ async def supervise_review_scout(args: argparse.Namespace) -> None:
                 + "s after repeated errors."
             )
             await asyncio.sleep(delay)
-            if sys.platform == "win32":
+            # A Scout runtime launched without a configured profile cannot
+            # recover one; preserve the bounded restart policy instead of
+            # raising AttributeError and masking the original failure.
+            if sys.platform == "win32" and getattr(args, "profile_dir", None):
                 try:
                     _recover_windows_scout_profile(args.profile_dir)
                     scout_debug_event(

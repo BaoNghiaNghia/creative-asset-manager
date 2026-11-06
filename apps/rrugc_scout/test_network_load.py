@@ -244,3 +244,45 @@ def test_gate_path_is_shared_by_sibling_profile_modes(monkeypatch, tmp_path):
     override = tmp_path / "shared" / "network.lock"
     monkeypatch.setenv("RRUGC_SCOUT_NETWORK_GATE_FILE", str(override))
     assert network_load.scout_network_gate_path() == override
+
+
+def test_hung_chromium_evaluate_respects_real_image_deadline():
+    """Browser RPC stalls must not extend a configured 80ms image wait to 24s."""
+    class HungPage:
+        async def evaluate(self, _script):
+            await asyncio.sleep(5)
+            raise AssertionError("unreachable")
+
+    async def exercise():
+        started = time.monotonic()
+        events = []
+        result = await wait_for_visible_pin_images(
+            HungPage(), phase="pin_detail", timeout_ms=80,
+            log=lambda name, **fields: events.append((name, fields)),
+        )
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.45, elapsed
+        assert not result["ready"]
+        assert result["probe_timeouts"] >= 1
+        assert events[-1][0] == "scout_network_page_settle_timeout"
+    asyncio.run(exercise())
+
+
+def test_two_loaded_thumbnails_allow_progress_without_waiting_for_all_images():
+    class SlowImagePage:
+        calls = 0
+        async def evaluate(self, _script):
+            self.calls += 1
+            return {
+                "pin_links": 14, "images_visible": 12, "images_loaded": 2,
+            }
+
+    async def exercise():
+        page = SlowImagePage()
+        result = await wait_for_visible_pin_images(
+            page, phase="search_open", timeout_ms=2500,
+        )
+        assert result["ready"] is True
+        assert result["images_loaded"] == 2
+        assert page.calls >= 3
+    asyncio.run(exercise())

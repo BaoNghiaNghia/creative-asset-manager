@@ -19,8 +19,9 @@ from typing import Any, AsyncIterator, Callable
 
 NETWORK_GATE_POLL_SECONDS = 0.25
 NETWORK_GATE_WAIT_SECONDS = 120.0
-NETWORK_GATE_RELEASE_PAUSE_SECONDS = 0.40
+NETWORK_GATE_RELEASE_PAUSE_SECONDS = 0.65
 VISIBLE_IMAGE_SAMPLE_MS = 300
+VISIBLE_IMAGE_PROBE_TIMEOUT_SECONDS = 1.25
 VISIBLE_IMAGE_READY_TIMEOUT_MS = 6_000
 VISIBLE_IMAGE_STABLE_SAMPLES = 2
 SCOUT_PRODUCT_COOLDOWN_SECONDS = (2.5, 4.0)
@@ -99,10 +100,16 @@ async def scout_network_slot(
         waited_ms = int((time.monotonic() - started) * 1000)
         if log and waited_ms >= 300:
             log("scout_network_gate_waited", phase=phase, wait_ms=waited_ms)
+        acquired_at = time.monotonic()
         try:
             yield
         finally:
-            # Prevent a synchronized burst from all waiting browsers.
+            held_ms = int((time.monotonic() - acquired_at) * 1000)
+            if log and held_ms >= 5_000:
+                log("scout_network_gate_slow_hold", phase=phase,
+                    held_ms=held_ms, wait_ms=waited_ms)
+            # Bound navigation-start bursts without forcing thumbnail settle
+            # and unrelated content processing under one shared OS lock.
             await asyncio.sleep(NETWORK_GATE_RELEASE_PAUSE_SECONDS)
     finally:
         if owned:
@@ -171,60 +178,76 @@ async def wait_for_visible_pin_images(
     timeout_ms: int = VISIBLE_IMAGE_READY_TIMEOUT_MS,
     log: Callable[..., Any] | None = None,
 ) -> dict[str, int | str | bool]:
-    """Wait for stable, loaded visible thumbnails; never wait for networkidle.
+    """Bound image readiness even if Chromium's evaluate RPC gets stuck.
 
-    Pinterest may keep analytics or infinite-scroll requests outstanding
-    forever. Wait only for the first screen's Pin images and a stable Pin-link
-    count, with a strict ceiling so empty searches and challenge pages recover.
+    A slow Pinterest renderer can make a *single* page.evaluate exceed the
+    entire configured 2–6s image budget. The timeout therefore surrounds
+    every browser RPC, not just sleeps between polls. Missing thumbnails are
+    soft pressure: downstream candidate validation still checks images.
     """
     started = time.monotonic()
     deadline = started + max(0, timeout_ms) / 1000.0
     previous_count = -1
     stable_samples = 0
+    probe_timeouts = 0
     last: dict[str, int | str | bool] = {
         "pin_links": 0, "images_visible": 0, "images_loaded": 0,
-        "ready": False, "wait_ms": 0,
+        "ready": False, "wait_ms": 0, "probe_timeouts": 0,
     }
-    while True:
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
-            sample = await page.evaluate(
-                r"""() => {
-                  const pins = document.querySelectorAll('a[href*="/pin/"]').length;
-                  const images = Array.from(document.querySelectorAll('img[src*="pinimg.com"]'))
-                    .filter(img => {
-                      const r = img.getBoundingClientRect();
-                      return r.width > 0 && r.height > 0 &&
-                        r.top < window.innerHeight && r.bottom > 0;
-                    }).slice(0, 16);
-                  return {pin_links: pins,
-                    images_visible: images.length,
-                    images_loaded: images.filter(img => img.complete && img.naturalWidth > 0).length};
-                }"""
+            sample = await asyncio.wait_for(
+                page.evaluate(
+                    r"""() => {
+                      const pins = document.querySelectorAll('a[href*="/pin/"]').length;
+                      const images = Array.from(document.querySelectorAll('img[src*="pinimg.com"]'))
+                        .filter(img => {
+                          const r = img.getBoundingClientRect();
+                          return r.width > 0 && r.height > 0 &&
+                            r.top < window.innerHeight && r.bottom > 0;
+                        }).slice(0, 12);
+                      return {pin_links: pins,
+                        images_visible: images.length,
+                        images_loaded: images.filter(img => img.complete && img.naturalWidth > 0).length};
+                    }"""
+                ),
+                timeout=min(VISIBLE_IMAGE_PROBE_TIMEOUT_SECONDS, remaining),
             )
-            if not isinstance(sample, dict):
-                break
-            pin_links = max(0, int(sample.get("pin_links") or 0))
-            visible = max(0, int(sample.get("images_visible") or 0))
-            loaded = max(0, int(sample.get("images_loaded") or 0))
-            ready_count = min(4, visible)
-            ready = pin_links > 0 and visible > 0 and loaded >= ready_count
-            if ready and pin_links == previous_count:
-                stable_samples += 1
-            else:
-                stable_samples = 0
-            previous_count = pin_links
-            last.update(pin_links=pin_links, images_visible=visible,
-                        images_loaded=loaded, ready=stable_samples >= VISIBLE_IMAGE_STABLE_SAMPLES)
-            if last["ready"]:
-                break
+        except asyncio.TimeoutError:
+            probe_timeouts += 1
+            continue
         except Exception:
-            # A temporary document navigation destroys JS execution context;
-            # the existing caller still handles access/network errors.
+            # Navigation may have replaced the document. The caller handles
+            # hard browser failures; a readiness check must not stall others.
             break
-        if time.monotonic() >= deadline:
+        if not isinstance(sample, dict):
             break
-        await asyncio.sleep(VISIBLE_IMAGE_SAMPLE_MS / 1000)
+        pin_links = max(0, int(sample.get("pin_links") or 0))
+        visible = max(0, int(sample.get("images_visible") or 0))
+        loaded = max(0, int(sample.get("images_loaded") or 0))
+        # A broken/offscreen image must not block the entire next Scout phase.
+        # Pin detail and eventual candidate submission still validate URLs.
+        ready_count = min(2, visible)
+        ready = pin_links > 0 and visible > 0 and loaded >= ready_count
+        if ready and pin_links == previous_count:
+            stable_samples += 1
+        else:
+            stable_samples = 0
+        previous_count = pin_links
+        last.update(pin_links=pin_links, images_visible=visible,
+                    images_loaded=loaded,
+                    ready=stable_samples >= VISIBLE_IMAGE_STABLE_SAMPLES)
+        if last["ready"]:
+            break
+        await asyncio.sleep(min(
+            VISIBLE_IMAGE_SAMPLE_MS / 1000,
+            max(0.0, deadline - time.monotonic()),
+        ))
     last["wait_ms"] = int((time.monotonic() - started) * 1000)
+    last["probe_timeouts"] = probe_timeouts
     if log:
         log(
             "scout_network_page_ready" if last["ready"] else "scout_network_page_settle_timeout",
@@ -240,10 +263,18 @@ async def wait_between_products(
     pause_seconds: tuple[float, float] = SCOUT_PRODUCT_COOLDOWN_SECONDS,
 ) -> None:
     """Drain the previous product's visible requests before claiming the next."""
-    await wait_for_visible_pin_images(
+    readiness = await wait_for_visible_pin_images(
         page, phase="product_complete", timeout_ms=4_000, log=log,
     )
     cooldown = random.uniform(*pause_seconds)
+    if not readiness["ready"]:
+        # When thumbnails remain congested, back off the next claim rather
+        # than creating a four-browser retry storm. Fully loaded pages retain
+        # the previous pacing without unnecessary slowdown.
+        cooldown += random.uniform(1.5, 3.0)
     if log:
-        log("scout_network_next_product_pause", delay_ms=int(cooldown * 1000))
+        log("scout_network_next_product_pause",
+            delay_ms=int(cooldown * 1000),
+            image_ready=bool(readiness["ready"]),
+            image_wait_ms=readiness["wait_ms"])
     await asyncio.sleep(cooldown)

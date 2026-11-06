@@ -38,7 +38,11 @@ _SCOUT_RUN_META_KEY = "_scout_runtime"
 
 SCOUT_AGENT_VERSION = "rrugc-scout-v15"
 SCOUT_LEASE_SECONDS = 15 * 60
-SCOUT_OFFLINE_SECONDS = 45
+# Agent liveness is not the campaign lease. Chrome running on a shared
+# four-profile Windows host can briefly delay heartbeats under image load.
+# Allow two missed 20s client heartbeats plus a DB/network retry without
+# showing a healthy in-flight Scout as offline. Lease ownership stays at 15m.
+SCOUT_OFFLINE_SECONDS = 90
 KEYWORD_HISTORY_RUNS = 100
 KEYWORD_OUTCOME_HISTORY = 2000
 KEYWORD_EXPLORATION_RATE = 0.20
