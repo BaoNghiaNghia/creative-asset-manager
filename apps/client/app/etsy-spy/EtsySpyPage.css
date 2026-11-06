@@ -452,7 +452,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-stage-heading .etsy-freshness strong{color:#586b85;font-weight:750}
 .etsy-stage-heading .etsy-freshness-divider{height:11px;background:#d6dfeb}
 .etsy-stats{
-  display:grid;grid-template-columns:repeat(7,minmax(0,1fr));
+  display:grid;grid-template-columns:repeat(8,minmax(0,1fr));
   gap:7px;margin:0 0 12px;
 }
 .etsy-stat{
