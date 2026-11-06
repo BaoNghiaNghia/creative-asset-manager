@@ -45,6 +45,20 @@ const deadListing = {
     { markText: "Old name 2", serialNumber: "22222222", liveStatus: "DEAD" },
   ],
 };
+const keywordRows = [
+  { id: "root", parentId: null, sessionId: "one", keyword: "A Root Seed",
+    depth: 0, priority: 99, status: "done", reason: "Starting phrase",
+    evidence: { source: "Etsy" }, matchedCount: 0, sourceUrl: null },
+  { id: "branch", parentId: "root", sessionId: "one", keyword: "Frog design",
+    depth: 1, priority: 75, status: "pending", reason: null,
+    evidence: null, matchedCount: 0, sourceUrl: null },
+  { id: "leaf", parentId: "branch", sessionId: "one", keyword: "Moon shirt keyword",
+    depth: 2, priority: 35, status: "pending", reason: null,
+    evidence: null, matchedCount: 0, sourceUrl: null },
+  { id: "orphan", parentId: "unsynced", sessionId: "one", keyword: "Missing source branch",
+    depth: 3, priority: 44, status: "pending", reason: null,
+    evidence: null, matchedCount: 0, sourceUrl: null },
+];
 function json(value: unknown) {
   return new Response(JSON.stringify(value), {status: 200,
     headers: {"content-type": "application/json"}});
@@ -59,6 +73,17 @@ function installFetch() {
       { id: "one", keyword: "Rudolph", status: "completed" },
     ]});
     if (url.includes("/agents")) return json({items: []});
+    if (url.includes("/keywords?")) {
+      const params = new URL(url, "http://localhost").searchParams;
+      const page = Number(params.get("page") || 1);
+      const size = Number(params.get("page_size") || 200);
+      return json({
+        items: keywordRows.slice((page - 1) * size, page * size),
+        page, page_size: size, total: keywordRows.length,
+        pages: Math.ceil(keywordRows.length / size),
+        last_synced_at: summary.last_synced_at, source_status: "offline",
+      });
+    }
     if (url.includes("/trademarks?")) {
       await new Promise(resolve => setTimeout(resolve, 35));
       return json({
@@ -233,6 +258,33 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
       .toHaveProperty("rel", "noopener noreferrer");
     expect(container?.querySelectorAll(".etsy-tm-counts")).toHaveLength(3);
+  });
+
+  it("renders and toggles the full keyword hierarchy with unsynced parent groups", async () => {
+    await start();
+    const tab = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
+      .find(el => el.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
+    await act(async () => { tab.click(); await new Promise(resolve => setTimeout(resolve, 70)); });
+    expect(observed.some(url => url.includes("/keywords?") && url.includes("page_size=200"))).toBe(true);
+    expect(container?.querySelector(".etsy-data-table.is-keyword-tree")).toBeTruthy();
+    expect(container?.querySelector(".etsy-pager")).toBeNull();
+    expect(container?.textContent).toContain("Parent not synced");
+    expect(container?.textContent).toContain("A Root Seed");
+    expect(container?.textContent).toContain("Frog design");
+    expect(container?.textContent).not.toContain("Moon shirt keyword");
+    const allButtons = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-tree-actions button") || []);
+    const collapseAll = allButtons.find(el => el.textContent === "Collapse all")!;
+    await act(async () => { collapseAll.click(); });
+    expect(container?.textContent).not.toContain("Frog design");
+    const rootToggle = container?.querySelector('button[aria-label="Expand A Root Seed"]') as HTMLButtonElement;
+    await act(async () => { rootToggle.click(); });
+    expect(container?.textContent).toContain("Frog design");
+    const branchToggle = container?.querySelector('button[aria-label="Expand Frog design"]') as HTMLButtonElement;
+    await act(async () => { branchToggle.click(); });
+    expect(container?.textContent).toContain("Moon shirt keyword");
+    const expandAll = allButtons.find(el => el.textContent === "Expand all")!;
+    await act(async () => { expandAll.click(); });
+    expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(5);
   });
 
   it("keeps compact tabs keyboard-navigable with one active tab", async () => {

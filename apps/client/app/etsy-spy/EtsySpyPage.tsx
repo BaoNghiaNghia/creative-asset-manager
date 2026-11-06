@@ -7,6 +7,7 @@ import {
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
 } from "./api";
 import "./EtsySpyPage.css";
+import { KeywordTreeView } from "./KeywordTreeView";
 
 const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
@@ -187,20 +188,6 @@ function ProductRow({ item }: { item: Listing }) {
   </tr>;
 }
 
-function KeywordRow({ item }: { item: Keyword }) {
-  const [open, setOpen] = useState(false);
-  return <tr>
-    <td><strong>{item.keyword}</strong>
-      {item.parentId && <small>Parent: {item.parentId}</small>}
-      {item.reason && <button className="etsy-details-trigger" onClick={() => setOpen(!open)}>Evidence {open ? "−" : "+"}</button>}
-      {open && <pre className="etsy-evidence">{item.reason}
-        {item.evidence != null ? "\n" + JSON.stringify(item.evidence, null, 2) : null}</pre>}
-    </td>
-    <td>{item.depth ?? "—"}</td><td className="etsy-num">{item.priority ?? "—"}</td>
-    <td><span className="etsy-pill">{item.status || "pending"}</span></td>
-    <td className="etsy-num">{item.matchedCount ?? "—"}</td>
-  </tr>;
-}
 function TrademarkRow({ item }: { item: Trademark }) {
   const [expanded, setExpanded] = useState(false);
   const matches = safeMarks(item.matched);
@@ -296,6 +283,8 @@ export function EtsySpyPage() {
     return () => { alive = false; };
   }, [refresh]);
   useEffect(() => {
+    // Keyword Tree loads all source pages in its own panel, not a single paged slice.
+    if (options.tab === "keywords") return;
     let alive = true;
     setFetching(true); setError("");
     const endpoint = { products: "/listings", keywords: "/keywords",
@@ -514,10 +503,17 @@ export function EtsySpyPage() {
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
     <div className="etsy-table-section-header">
-      <h2>{TABS.find(x => x.id === activeTab)?.title} <span>({rows ? rows.total.toLocaleString() : "—"})</span></h2>
-      <span className="etsy-table-count">Sorted and filtered from synchronized Windows data</span>
+      <h2>{TABS.find(x => x.id === activeTab)?.title} <span>({activeTab === "keywords"
+        ? (options.sessionId ? "Session" : summary?.keywords?.toLocaleString() ?? "—")
+        : rows ? rows.total.toLocaleString() : "—"})</span></h2>
+      <span className="etsy-table-count">{activeTab === "keywords"
+        ? "Hierarchical view · expand or collapse any keyword branch"
+        : "Sorted and filtered from synchronized Windows data"}</span>
     </div>
-    <div className="etsy-table-card">
+    {activeTab === "keywords" ?
+      <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
+        sort={options.sort} direction={options.dir} refresh={refresh} onSort={sortColumn} />
+      : <div className="etsy-table-card">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty">No matching records. {summary?.source_status === "never_synced"
           ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</div>
@@ -535,8 +531,6 @@ export function EtsySpyPage() {
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey} item={item} />)
-              : activeTab === "keywords" ? (rows.items as Keyword[]).map(item =>
-                <KeywordRow key={item.sessionId + "/" + item.id} item={item} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
@@ -558,7 +552,7 @@ export function EtsySpyPage() {
           </select>
         </label>
       </div>
-    </div>
+    </div>}
     <details className="etsy-agents" aria-label="Windows synchronization agents">
       <summary><span>Windows Sync Agent</span><small>{agents.length} registered · Data remains available while the PC is offline</small></summary>
       <div className="etsy-agent-content">

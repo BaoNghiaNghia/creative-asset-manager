@@ -39,7 +39,7 @@ export type Keyword = {
   sessionId: string; id: string; parentId: string | null; keyword: string;
   status: string | null; depth: number | null; priority: number | null;
   reason: string | null; evidence: unknown; matchedCount: number | null;
-  sourceUrl: string | null;
+  sourceUrl: string | null; updatedAt?: string | null;
 };
 export type Trademark = {
   checkId: string; kind: string; keyword: string | null; title: string | null;
