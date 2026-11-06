@@ -29,6 +29,77 @@ _DEFAULT_LOCK_FILE = ".cam-scout-network-load.lock"
 _CONTEXT_ROUTES_INSTALLED: set[int] = set()
 
 
+def _windows_system_cpu_times() -> tuple[int, int, int] | None:
+    """Read global CPU ticks without psutil or a PowerShell child process.
+
+    GetSystemTimes is cheap and supported on the Windows Scout machine.
+    The kernel counter includes idle time, so avoid double-counting idle.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [
+                ("low", ctypes.c_uint32),
+                ("high", ctypes.c_uint32),
+            ]
+
+        idle, kernel, user = FileTime(), FileTime(), FileTime()
+        result = ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user),
+        )
+        if not result:
+            return None
+        ticks = lambda row: (int(row.high) << 32) | int(row.low)
+        return ticks(idle), ticks(kernel), ticks(user)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _cpu_busy_percent(
+    before: tuple[int, int, int] | None,
+    after: tuple[int, int, int] | None,
+) -> float | None:
+    if before is None or after is None:
+        return None
+    idle = after[0] - before[0]
+    total = (after[1] - before[1]) + (after[2] - before[2])
+    if idle < 0 or total <= 0:
+        return None
+    return max(0.0, min(100.0, (1.0 - idle / total) * 100.0))
+
+
+def _cpu_release_pause_seconds(cpu_percent: float | None) -> float:
+    """Reduce *new* image-heavy page bursts when Chrome pegs the host CPU."""
+    if cpu_percent is None:
+        return NETWORK_GATE_RELEASE_PAUSE_SECONDS
+    if cpu_percent >= 95.0:
+        return 4.0
+    if cpu_percent >= 85.0:
+        return 2.0
+    return NETWORK_GATE_RELEASE_PAUSE_SECONDS
+
+
+def prefer_background_scout_priority() -> bool:
+    """Keep Scout Chrome launches below interactive work on 4-agent machines.
+
+    This is a scheduling hint, not a hard CPU limit. Call before Playwright
+    starts its subprocess tree. Operator can opt out without code changes.
+    """
+    if os.name != "nt" or os.getenv("RRUGC_SCOUT_LOW_PRIORITY", "1") == "0":
+        return False
+    try:
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        return bool(kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x4000))
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
 def scout_network_gate_path() -> Path:
     """Shared lock resides in repo root, not in the individual Chrome profiles."""
     custom = os.getenv("RRUGC_SCOUT_NETWORK_GATE_FILE", "").strip()
@@ -101,6 +172,14 @@ async def scout_network_slot(
         if log and waited_ms >= 300:
             log("scout_network_gate_waited", phase=phase, wait_ms=waited_ms)
         acquired_at = time.monotonic()
+        # Unit-test locks with explicit paths remain deterministic. Production
+        # uses the shared default lock and samples CPU before navigation.
+        cpu_before = (
+            _windows_system_cpu_times()
+            if path is None
+            and os.getenv("RRUGC_SCOUT_CPU_GOVERNOR", "1") != "0"
+            else None
+        )
         try:
             yield
         finally:
@@ -108,9 +187,16 @@ async def scout_network_slot(
             if log and held_ms >= 5_000:
                 log("scout_network_gate_slow_hold", phase=phase,
                     held_ms=held_ms, wait_ms=waited_ms)
-            # Bound navigation-start bursts without forcing thumbnail settle
-            # and unrelated content processing under one shared OS lock.
-            await asyncio.sleep(NETWORK_GATE_RELEASE_PAUSE_SECONDS)
+            busy = _cpu_busy_percent(cpu_before, _windows_system_cpu_times())
+            pause = _cpu_release_pause_seconds(busy)
+            if log and busy is not None and busy >= 85:
+                log("scout_network_cpu_backpressure", phase=phase,
+                    cpu_percent=round(busy, 1), delay_ms=int(pause * 1000),
+                    held_ms=held_ms, wait_ms=waited_ms)
+            # Keep the shared lock for a bounded cooling interval, so all
+            # four Chrome profiles do not decode images at once under CPU
+            # saturation. The CAM lease heartbeat runs on a separate task.
+            await asyncio.sleep(pause)
     finally:
         if owned:
             try:

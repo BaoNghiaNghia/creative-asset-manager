@@ -286,3 +286,36 @@ def test_two_loaded_thumbnails_allow_progress_without_waiting_for_all_images():
         assert result["images_loaded"] == 2
         assert page.calls >= 3
     asyncio.run(exercise())
+
+
+def test_cpu_pressure_governor_paces_four_scout_bursts_without_throttling_idle():
+    # Kernel ticks include idle time. CPU 95% means a 4s guard; when the
+    # workstation is idle the usual 650ms guard remains unchanged.
+    sample = network_load._cpu_busy_percent(
+        (100, 500, 500), (110, 600, 600),
+    )
+    assert sample == pytest.approx(95.0)
+    assert network_load._cpu_release_pause_seconds(sample) == 4.0
+    assert network_load._cpu_release_pause_seconds(87.0) == 2.0
+    assert network_load._cpu_release_pause_seconds(30.0) == (
+        network_load.NETWORK_GATE_RELEASE_PAUSE_SECONDS
+    )
+    assert network_load._cpu_release_pause_seconds(None) == (
+        network_load.NETWORK_GATE_RELEASE_PAUSE_SECONDS
+    )
+
+
+def test_invalid_or_wrapped_cpu_counters_fail_open():
+    assert network_load._cpu_busy_percent(None, None) is None
+    assert network_load._cpu_busy_percent((10, 20, 20), (9, 21, 21)) is None
+    assert network_load._cpu_busy_percent((10, 20, 20), (10, 20, 20)) is None
+
+
+def test_cpu_sampler_is_available_on_windows_without_external_packages():
+    sample = network_load._windows_system_cpu_times()
+    if os.name == "nt":
+        assert sample is not None
+        assert len(sample) == 3
+        assert all(isinstance(part, int) and part >= 0 for part in sample)
+    else:
+        assert sample is None

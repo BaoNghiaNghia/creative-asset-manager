@@ -28,13 +28,14 @@ import httpx
 from cap_stack_feedback import CapStackFeedbackFilter
 from network_load import (
     apply_low_bandwidth_routes,
+    prefer_background_scout_priority,
     scout_network_slot,
     wait_for_visible_pin_images,
     wait_between_products,
 )
 
 
-CLIENT_VERSION = "rrugc-scout-v61-shared-network-pacing"
+CLIENT_VERSION = "rrugc-scout-v62-cpu-aware-four-agents"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -2099,10 +2100,13 @@ async def startup_access_gate(page: Any) -> str | None:
     """Check Pinterest access before any Scout campaign is claimed or scanned."""
     try:
         async with scout_network_slot("startup_pinterest", log=scout_debug_event):
+            # Four profiles can deadlock the launch queue when a third-party
+            # script delays DOMContentLoaded. A committed main document is
+            # enough; access-gate validation runs after this lock releases.
             response = await page.goto(
                 "https://www.pinterest.com/",
-                wait_until="domcontentloaded",
-                timeout=60_000,
+                wait_until="commit",
+                timeout=25_000,
             )
             guard_pinterest_response(response)
     except PinterestAccessGateError as exc:
@@ -3705,6 +3709,8 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
 
     profile = Path(args.profile_dir).expanduser().resolve()
     profile.mkdir(parents=True, exist_ok=True)
+    if prefer_background_scout_priority():
+        scout_debug_event("scout_process_background_priority_enabled")
     playwright = await async_playwright().start()
     options: dict[str, Any] = {
         "user_data_dir": str(profile),
