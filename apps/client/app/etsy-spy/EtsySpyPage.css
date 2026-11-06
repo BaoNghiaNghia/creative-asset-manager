@@ -215,9 +215,16 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 .etsy-source-search{background:#f1f5fb;color:#446487}
 .etsy-source-shop{background:#f5f6f8;color:#596b81}
 .etsy-badge-stack{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
-.etsy-demand{background:#fff2e6;border-color:#f8dfc5;color:#a55b22;font-weight:750}
-.etsy-demand::before{content:"★";font-size:11px;color:#d57927}
-.etsy-demand.popular::before{content:"✦";color:#ea8f31}
+/* Differentiate Etsy demand badges: deep forest for Bestseller,
+   slightly lighter green for Popular now, with readable white labels. */
+.etsy-pill.etsy-demand.bestseller{
+  background:#16613d;border-color:#135536;color:#fff;font-weight:780;
+}
+.etsy-pill.etsy-demand.popular{
+  background:#2c8054;border-color:#256c47;color:#fff;font-weight:780;
+}
+.etsy-demand::before{content:"★";font-size:11px;color:#e6f7ea}
+.etsy-demand.popular::before{content:"✦";color:#edf9ef}
 .etsy-pill.tm-live{background:#fff0eb;border-color:#fbd8ca;color:#b33f26;font-weight:790}
 .etsy-pill.tm-live::before{content:"";width:6px;height:6px;border-radius:50%;background:#d64c2b}
 .etsy-pill.tm-dead{background:#eef4fd;border-color:#d9e7f9;color:#305b9b;font-weight:760}
