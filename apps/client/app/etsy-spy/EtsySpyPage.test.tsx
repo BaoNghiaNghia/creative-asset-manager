@@ -90,6 +90,32 @@ describe("Etsy Spy native CAM dashboard", () => {
       .toHaveProperty("rel", "noopener noreferrer");
   });
 
+  it("keeps the white, compact table controls accessible without losing product actions", async () => {
+    await start();
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(6);
+    expect(container?.querySelector(".etsy-search-filters .etsy-actions select")).toBeTruthy();
+    expect(container?.querySelector(".etsy-table-section-header select[aria-label='Rows per page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-title-meta a[href*='etsy.com/listing']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-title-meta small")?.textContent).toContain("6/11/26");
+    expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
+    const source = container?.querySelector("select[aria-label='Source']") as HTMLSelectElement;
+    await act(async () => {
+      source.value = "shop";
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(observed.some(url => url.includes("/listings?") && url.includes("source=shop"))).toBe(true);
+    const clear = Array.from(container?.querySelectorAll("button") || [])
+      .find(button => button.textContent?.includes("Clear filters")) as HTMLButtonElement;
+    expect(clear).toBeTruthy();
+    await act(async () => {
+      clear.click();
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(source.value).toBe("");
+  });
+
   it("sorts on the backend, retains URL query params and separates pages", async () => {
     await start();
     const sort = container?.querySelector("button[aria-label='Sort by Carts']") as HTMLButtonElement;

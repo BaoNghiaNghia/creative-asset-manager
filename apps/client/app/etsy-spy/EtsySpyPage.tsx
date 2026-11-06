@@ -109,6 +109,14 @@ function tmDescription(status: string) {
     : status === "pending" ? "Pending"
     : status === "unverified" ? "Unverified" : status;
 }
+const SUMMARY_ICONS = [
+  "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
+  "M15.5 7.5a5 5 0 1 0-1 4.2L21 18v3h-3v-3h-3v-3l-1.7-1.7",
+  "m12 2 10 5-10 5L2 7l10-5Zm-10 10 10 5 10-5M2 17l10 5 10-5",
+  "M2 3h2l2.5 11h12L21 6H5M9 20h.01M18 20h.01",
+  "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 5v5l3 2",
+  "M10.3 3.5 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01",
+] as const;
 function EvidenceMarks({ matches }: { matches: Mark[] }) {
   if (!matches?.length) return <span className="etsy-muted">No trademark evidence attached</span>;
   return <div className="etsy-mark-items">
@@ -126,9 +134,9 @@ function ProductRow({ item }: { item: Listing }) {
   const hasMarks = Boolean(item.tmMatches?.length);
   return <tr>
     <td>{item.keyword}</td>
-    <td><span className="etsy-pill">{item.sourceKind}</span></td>
+    <td><span className={"etsy-pill etsy-source-" + (item.sourceKind === "shop" ? "shop" : "search")}>{item.sourceKind}</span></td>
     <td><div className="etsy-badge-stack">
-      {item.badge || item.searchBadge ? <span className="etsy-pill etsy-demand">{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
+      {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
       <button type="button" className={"etsy-pill tm-" + tmClass(item.tm)}
         title={[item.tmSource || "TM pending", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
           item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ")}
@@ -140,9 +148,11 @@ function ProductRow({ item }: { item: Listing }) {
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
     <td className="etsy-num">{item.inCarts ?? "—"}</td>
-    <td className="etsy-title"><strong>{item.pageTitle}</strong>
-      {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy</a>}
-      <small>{readableTime(item.observedAt)}</small>
+    <td className="etsy-title"><strong title={item.pageTitle}>{item.pageTitle}</strong>
+      <div className="etsy-title-meta">
+        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
+        <small>{readableTime(item.observedAt)}</small>
+      </div>
     </td>
   </tr>;
 }
@@ -269,12 +279,15 @@ export function EtsySpyPage() {
   return <main className="etsy-spy-page">
     <WorkspacePageHeader route="etsy-spy" actions={<>
       <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
-      <button className="etsy-btn" onClick={() => setRefresh(n => n + 1)}>Refresh</button>
+      <button className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
       <WorkspaceBackToAssets />
     </>} />
-    <div className="etsy-freshness">
-      Last synchronized (GMT+7): <strong>{readableTime(summary?.last_synced_at)}</strong> ·
-      {summary?.online_agents || 0}/{summary?.agent_count || 0} agents online ·
+    <div className="etsy-freshness" role="status">
+      <span className="etsy-sync-icon" aria-hidden="true">↻</span>
+      <span>Last synchronized (GMT+7): <strong>{readableTime(summary?.last_synced_at)}</strong></span>
+      <span className="etsy-freshness-divider" aria-hidden="true" />
+      <span>{summary?.online_agents || 0}/{summary?.agent_count || 0} agents online</span>
+      <span className="etsy-freshness-divider" aria-hidden="true" />
       <span>Windows is the source of truth. Offline does not delete synchronized data.</span>
     </div>
     <section className="etsy-stats" aria-label="Etsy Spy overview">
@@ -282,8 +295,9 @@ export function EtsySpyPage() {
         ["Eligible listings", summary?.listings], ["Keyword nodes", summary?.keywords],
         ["Sessions", summary?.sessions], ["Search / Shop", summary ? summary.search + " / " + summary.shop : null],
         ["TM pending", summary?.tm_pending], ["Errors / Warnings", summary ? summary.errors + " / " + summary.warnings : null],
-      ].map(([label, value]) => <div className="etsy-stat" key={String(label)}>
-        <span>{label}</span><strong>{value ?? "—"}</strong>
+      ].map(([label, value], index) => <div className={"etsy-stat etsy-stat-" + index} key={String(label)}>
+        <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index]} /></svg></span>
+        <div className="etsy-stat-info"><span>{label}</span><strong>{value ?? "—"}</strong></div>
       </div>)}
     </section>
     <div className="etsy-toolbar">
@@ -300,23 +314,14 @@ export function EtsySpyPage() {
             });
           }}>{item.title}</button>)}
       </nav>
-      <div className="etsy-actions">
-        <label>Session
-          <select value={options.sessionId} onChange={event => update({ sessionId: event.target.value })}>
-            <option value="">All sessions</option>
-            {sessions.map(item => <option key={item.id} value={item.id}>
-              {item.keyword || item.id} · {item.status || "unknown"}
-            </option>)}
-          </select>
-        </label>
-        {activeTab === "products" || activeTab === "logs" ? <a className="etsy-btn"
-          href={csvPath(activeTab, exportQuery)} download>Export CSV</a> : null}
-      </div>
     </div>
     <section className="etsy-search-filters" aria-label="Search and filters">
-      <input type="search" aria-label="Search Spy records" placeholder={
-        activeTab === "logs" ? "Search message or stack" : "Search keyword or product title"
-      } value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
+      <div className="etsy-search-box">
+        <span aria-hidden="true" className="etsy-search-icon">⌕</span>
+        <input type="search" aria-label="Search Spy records" placeholder={
+          activeTab === "logs" ? "Search message or stack" : "Search keyword or product title"
+        } value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
+      </div>
       {activeTab === "products" ? <>
         <select aria-label="Source" value={options.source} onChange={event => update({ source: event.target.value })}>
           <option value="">All sources</option><option value="search">Search</option><option value="shop">Shop</option>
@@ -346,11 +351,23 @@ export function EtsySpyPage() {
         <input aria-label="Log phase" placeholder="Phase" value={options.phase}
           onChange={event => update({ phase: event.target.value })} />
       </>}
-      <label>Rows
-        <select value={options.pageSize} onChange={event => update({ pageSize: Number(event.target.value) })}>
-          {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}
-        </select>
-      </label>
+      {(typedSearch || options.source || options.badge || options.tm || options.status || options.level || options.phase) && <button
+        type="button" className="etsy-clear-filters" onClick={() => {
+          setTypedSearch("");
+          update({ q: "", source: "", badge: "", tm: "", status: "", level: "", phase: "" });
+        }}>Clear filters</button>}
+      <div className="etsy-actions">
+        <label>Session
+          <select value={options.sessionId} onChange={event => update({ sessionId: event.target.value })}>
+            <option value="">All sessions</option>
+            {sessions.map(item => <option key={item.id} value={item.id}>
+              {item.keyword || item.id} · {item.status || "unknown"}
+            </option>)}
+          </select>
+        </label>
+        {activeTab === "products" || activeTab === "logs" ? <a className="etsy-btn etsy-export"
+          href={csvPath(activeTab, exportQuery)} download><span aria-hidden="true">↓</span> Export CSV</a> : null}
+      </div>
     </section>
     {activeTab === "trademarks" && <section className="etsy-lookup">
       <div><strong>Cached trademark lookup</strong>
@@ -381,18 +398,27 @@ export function EtsySpyPage() {
     </section>}
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
+    <div className="etsy-table-section-header">
+      <h2>{TABS.find(x => x.id === activeTab)?.title}</h2>
+      <div className="etsy-table-count">
+        <label>Rows
+          <select aria-label="Rows per page" value={options.pageSize} onChange={event => update({ pageSize: Number(event.target.value) })}>
+            {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}
+          </select>
+        </label>
+        <span>{rows ? rows.total.toLocaleString() : "—"} records</span>
+      </div>
+    </div>
     <div className="etsy-table-card">
-      <div className="etsy-table-top"><strong>{TABS.find(x => x.id === activeTab)?.title}</strong>
-        <span>{rows ? rows.total.toLocaleString() : "—"} records</span></div>
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty">No matching records. {summary?.source_status === "never_synced"
           ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</div>
         : <div className="etsy-table-wrap">
           <table><thead><tr>
-            {columns.map(col => <th key={col.id}>
+            {columns.map(col => <th key={col.id}
+              aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               <button type="button" onClick={() => sortColumn(col.id)}
-                aria-label={"Sort by " + col.text}
-                aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
+                aria-label={"Sort by " + col.text}>
                 {col.text}{options.sort === col.id ? (options.dir === "asc" ? " ↑" : " ↓") : ""}
               </button>
             </th>)}
