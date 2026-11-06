@@ -131,8 +131,8 @@ def _valid_source_badge(source: str):
 
 
 def _qualified_listing_condition():
-    """Only actual 24h views > 5 AND Bestseller/Popular now qualify."""
-    return and_(Listing.views24h > 5,
+    """Source badge AND (views in 24h > 5 OR 20+ carts) are required."""
+    return and_(or_(Listing.views24h > 5, Listing.in_carts >= 20),
                 or_(_valid_source_badge("search"), _valid_source_badge("shop")))
 
 
