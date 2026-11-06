@@ -27,8 +27,8 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
     { id: "matchedCount", text: "Listings" },
   ],
   trademarks: [
-    { id: "keyword", text: "Keyword / Title" }, { id: "status", text: "Status" },
-    { id: "liveCount", text: "LIVE" }, { id: "checkedAt", text: "Checked" },
+    { id: "keyword", text: "Trademark / Keyword" }, { id: "status", text: "Check status" },
+    { id: "liveCount", text: "Evidence · LIVE / DEAD / UNKNOWN" }, { id: "checkedAt", text: "Last checked" },
   ],
   logs: [
     { id: "at", text: "Time (GMT+7)" }, { id: "level", text: "Level" },
@@ -117,10 +117,18 @@ const SUMMARY_ICONS = [
   "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 5v5l3 2",
   "M10.3 3.5 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01",
 ] as const;
-function EvidenceMarks({ matches }: { matches: Mark[] }) {
-  if (!matches?.length) return <span className="etsy-muted">No trademark evidence attached</span>;
+function safeMarks(matches: Mark[] | null | undefined): Mark[] {
+  // Older Windows snapshots may omit matched evidence entirely or store null.
+  // Runtime normalization is necessary even when the API type expects an array.
+  return Array.isArray(matches)
+    ? matches.filter((mark): mark is Mark => Boolean(mark && typeof mark === "object"))
+    : [];
+}
+function EvidenceMarks({ matches }: { matches?: Mark[] | null }) {
+  const validMarks = safeMarks(matches);
+  if (!validMarks.length) return <span className="etsy-muted">No trademark evidence attached</span>;
   return <div className="etsy-mark-items">
-    {matches.slice(0, 30).map((item, index) => <div key={(item.serialNumber || item.markText) + index}>
+    {validMarks.slice(0, 30).map((item, index) => <div key={(item.serialNumber || item.markText) + index}>
       <strong>{item.markText || "Unnamed mark"}</strong>
       <span>{item.liveStatus || "UNKNOWN"}</span>
       {item.serialNumber && <a href={"https://tsdr.uspto.gov/#caseNumber=" + encodeURIComponent(item.serialNumber) + "&caseSearchType=US_APPLICATION&caseType=DEFAULT&searchType=statusSearch"} target="_blank" rel="noopener noreferrer">
@@ -131,7 +139,8 @@ function EvidenceMarks({ matches }: { matches: Mark[] }) {
 }
 function ProductRow({ item }: { item: Listing }) {
   const [expanded, setExpanded] = useState(false);
-  const hasMarks = Boolean(item.tmMatches?.length);
+  const tmMatches = safeMarks(item.tmMatches);
+  const hasMarks = tmMatches.length > 0;
   const sourceKinds = item.sourceKinds?.length ? item.sourceKinds : item.metadata?.sourceKinds || [item.sourceKind];
   const sourceLabel = sourceKinds.includes("search") && sourceKinds.includes("shop")
     ? "Search + Shop" : sourceKinds.includes("shop") ? "Shop" : "Search";
@@ -158,7 +167,7 @@ function ProductRow({ item }: { item: Listing }) {
         onClick={() => setExpanded(!expanded)} aria-expanded={expanded} disabled={!hasMarks}>
         {tmDescription(item.tm)}
       </button></div>
-      {expanded && hasMarks && <EvidenceMarks matches={item.tmMatches} />}
+      {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
     </td>
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
@@ -186,20 +195,26 @@ function KeywordRow({ item }: { item: Keyword }) {
 }
 function TrademarkRow({ item }: { item: Trademark }) {
   const [expanded, setExpanded] = useState(false);
+  const matches = safeMarks(item.matched);
   return <tr>
     <td><strong>{item.keyword || item.title || "—"}</strong>
       {item.title && item.keyword && <small>{item.title}</small>}
       <small>{item.kind} · {item.source || "source unknown"}</small>
-      {item.matched.length > 0 && <button className="etsy-details-trigger" onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Hide" : "Show"} {item.matched.length} marks
+      {matches.length > 0 && <button type="button" className="etsy-details-trigger"
+        aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        {expanded ? "Hide" : "Show"} {matches.length} marks
       </button>}
-      {expanded && <EvidenceMarks matches={item.matched} />}
+      {expanded && matches.length > 0 && <EvidenceMarks matches={matches} />}
     </td>
     <td><span className={"etsy-pill tm-" + tmClass(item.status || "")}>{item.status || "pending"}</span>
       <small>{item.risk || "Not verified"}</small>
     </td>
-    <td className="etsy-num">{item.liveCount} / {item.deadCount} / {item.unknownCount}</td>
-    <td>{readableTime(item.checkedAt)}<small>Source: {readableTime(item.sourceAsOf)}</small></td>
+    <td><div className="etsy-tm-counts" aria-label="Trademark evidence counts">
+      <span className="etsy-tm-count-live" title="LIVE trademark records"><strong>{item.liveCount ?? "—"}</strong> LIVE</span>
+      <span className="etsy-tm-count-dead" title="DEAD trademark records"><strong>{item.deadCount ?? "—"}</strong> DEAD</span>
+      <span className="etsy-tm-count-unknown" title="Unknown trademark records"><strong>{item.unknownCount ?? "—"}</strong> Unknown</span>
+    </div></td>
+    <td className="etsy-checked-at"><strong>{readableTime(item.checkedAt)}</strong><small>Source: {readableTime(item.sourceAsOf)}</small></td>
   </tr>;
 }
 function LogRow({ item }: { item: SpyLog }) {
@@ -225,8 +240,10 @@ export function EtsySpyPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [canManage, setCanManage] = useState(false);
-  const [rows, setRows] = useState<Page<Listing | Keyword | Trademark | SpyLog> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [tableResult, setTableResult] = useState<{
+    requestKey: string; data: Page<Listing | Keyword | Trademark | SpyLog> | null;
+  } | null>(null);
+  const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [tmText, setTmText] = useState("");
@@ -238,6 +255,12 @@ export function EtsySpyPage() {
   const [pairError, setPairError] = useState("");
   const [pairOpen, setPairOpen] = useState(false);
   const [pairBusy, setPairBusy] = useState(false);
+  // Never render a page for one tab/filter using rows from another request.
+  // useEffect runs after render, so merely setting loading=true in the effect
+  // cannot prevent an intermediate render with the previous tab's row shape.
+  const requestKey = options.tab + "?" + apiQuery(options).toString() + "#" + refresh;
+  const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
+  const loading = fetching || tableResult?.requestKey !== requestKey;
   const update = useCallback((changes: Partial<Options>) => {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
@@ -266,14 +289,21 @@ export function EtsySpyPage() {
   }, [refresh]);
   useEffect(() => {
     let alive = true;
-    setLoading(true); setError("");
+    setFetching(true); setError("");
     const endpoint = { products: "/listings", keywords: "/keywords",
       trademarks: "/trademarks", logs: "/logs" }[options.tab];
     spyFetch<Page<Listing | Keyword | Trademark | SpyLog>>(endpoint + "?" + apiQuery(options).toString())
-      .then(value => { if (alive) { setRows(value); setLoading(false); } })
-      .catch(e => { if (alive) { setError(e instanceof Error ? e.message : "Request failed"); setLoading(false); } });
+      .then(value => { if (alive) {
+        setTableResult({ requestKey, data: value });
+        setFetching(false);
+      } })
+      .catch(e => { if (alive) {
+        setTableResult({ requestKey, data: null });
+        setError(e instanceof Error ? e.message : "Request failed");
+        setFetching(false);
+      } });
     return () => { alive = false; };
-  }, [options, refresh]);
+  }, [requestKey]);
   const columns = useMemo(() => {
     if (options.tab === "products") return SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
@@ -333,14 +363,27 @@ export function EtsySpyPage() {
     <div className="etsy-stage-nav">
       <nav role="tablist" aria-label="Etsy Spy sections" className="etsy-tabs">
         {TABS.map((item, index) => <button key={item.id} type="button" role="tab"
+          id={"etsy-tab-" + item.id} aria-controls="etsy-spy-tabpanel"
+          tabIndex={activeTab === item.id ? 0 : -1}
           aria-selected={activeTab === item.id} className={activeTab === item.id ? "active" : ""}
-          onClick={() => selectTab(item.id)}>
-          <span className="etsy-tab-number" aria-hidden="true">{index}</span>
+          onClick={() => selectTab(item.id)}
+          onKeyDown={event => {
+            const next = event.key === "ArrowRight" ? (index + 1) % TABS.length
+              : event.key === "ArrowLeft" ? (index - 1 + TABS.length) % TABS.length
+              : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : -1;
+            if (next < 0) return;
+            event.preventDefault();
+            selectTab(TABS[next].id);
+            const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            tabs?.[next]?.focus();
+          }}>
+          <span className="etsy-tab-number" aria-hidden="true">{index + 1}</span>
           <span className="etsy-tab-copy"><strong>{item.title}</strong><small>{item.subtitle}</small></span>
         </button>)}
       </nav>
     </div>
-    <section className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
+    <section id="etsy-spy-tabpanel" role="tabpanel"
+      aria-labelledby={"etsy-tab-" + activeTab} className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
       <div className="etsy-stage-card">
         <div className="etsy-stage-heading-row">
           <div className="etsy-stage-heading">
@@ -450,7 +493,7 @@ export function EtsySpyPage() {
             const result = await spyFetch<{ matched: Mark[] }>("/trademarks/lookup", {
               method: "POST", body: JSON.stringify({ queries, mode: tmMode }),
             });
-            setTmResult(result.matched);
+            setTmResult(safeMarks(result.matched));
           } catch (e) { setTmLookupError(e instanceof Error ? e.message : "Lookup failed"); }
         }}>Lookup cache</button>
       </div>

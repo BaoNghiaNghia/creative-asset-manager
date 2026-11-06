@@ -48,6 +48,24 @@ function installFetch() {
       { id: "one", keyword: "Rudolph", status: "completed" },
     ]});
     if (url.includes("/agents")) return json({items: []});
+    if (url.includes("/trademarks?")) {
+      await new Promise(resolve => setTimeout(resolve, 35));
+      return json({
+      items: [
+        { checkId: "null-evidence", keyword: "No cached marks", title: "Shirt",
+          kind: "product", status: "pending", risk: null, source: "Windows",
+          matched: null, liveCount: 0, deadCount: 0, unknownCount: 0 },
+        { checkId: "missing-evidence", keyword: "Legacy TM entry",
+          kind: "product", status: "unavailable", risk: "unverified", source: "Windows",
+          liveCount: 0, deadCount: 0, unknownCount: 0 },
+        { checkId: "valid-evidence", keyword: "Rudolph",
+          kind: "product", status: "complete", risk: "LIVE", source: "Windows",
+          matched: [{ markText: "Rudolph", serialNumber: "12345678", liveStatus: "LIVE" }],
+          liveCount: 1, deadCount: 0, unknownCount: 0, checkedAt: "2026-11-06T00:00:00Z" },
+      ],
+      page: 1, page_size: 50, total: 3, pages: 1, source_status: "offline",
+      });
+    }
     if (url.includes("/listings")) return json({items: [listing], page: 1, page_size: 50,
       total: 1, pages: 1, last_synced_at: summary.last_synced_at, source_status: "offline"});
     return json({items: [], page:1,page_size:50,total:0,pages:0,
@@ -162,5 +180,47 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(keywords.getAttribute("aria-selected")).toBe("true");
     expect(container?.querySelector(".etsy-agents")?.tagName).toBe("DETAILS");
     expect((container?.querySelector(".etsy-agents") as HTMLDetailsElement).open).toBe(false);
+  });
+
+  it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
+    await start();
+    const trademark = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
+      .find(item => item.textContent?.includes("Trademark")) as HTMLButtonElement;
+    // The former crash happened on the first render after switching tabs:
+    // Product rows were briefly rendered as Trademark rows before refetch.
+    await act(async () => { trademark.click(); });
+    expect(container?.querySelector(".etsy-skeleton")).toBeTruthy();
+    expect(container?.querySelector(".etsy-data-table.is-trademarks")).toBeNull();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 65)); });
+    expect(observed.some(url => url.includes("/trademarks?"))).toBe(true);
+    expect(trademark.getAttribute("aria-selected")).toBe("true");
+    expect(container?.textContent).toContain("No cached marks");
+    expect(container?.textContent).toContain("Legacy TM entry");
+    expect(container?.textContent).toContain("Rudolph");
+    expect(container?.querySelectorAll(".etsy-data-table.is-trademarks tbody tr")).toHaveLength(3);
+    // Only the row with actual cached marks may offer the evidence expansion.
+    const expand = container?.querySelectorAll(".etsy-data-table.is-trademarks .etsy-details-trigger") || [];
+    expect(expand).toHaveLength(1);
+    await act(async () => {(expand[0] as HTMLButtonElement).click();});
+    expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
+      .toHaveProperty("rel", "noopener noreferrer");
+    expect(container?.querySelectorAll(".etsy-tm-counts")).toHaveLength(3);
+  });
+
+  it("keeps compact tabs keyboard-navigable with one active tab", async () => {
+    await start();
+    const tabs = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-stage-nav [role='tab']") || []);
+    expect(tabs).toHaveLength(4);
+    expect(tabs[0].tabIndex).toBe(0);
+    expect(tabs[1].tabIndex).toBe(-1);
+    await act(async () => {
+      tabs[0].focus();
+      tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[0].tabIndex).toBe(-1);
+    expect(tabs[1].tabIndex).toBe(0);
+    expect(document.activeElement).toBe(tabs[1]);
   });
 });

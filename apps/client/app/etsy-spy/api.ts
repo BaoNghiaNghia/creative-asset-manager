@@ -33,7 +33,7 @@ export type Listing = {
   metadata?: {sourceKinds: string[]; keywordAliases: string[];
     occurrences: number | null; keywordCount: number | null; sessionCount: number | null;} | null;
   tm: string; tmStatus: string; tmSource: string | null; tmCheckedAt: string | null;
-  tmSourceAsOf: string | null; tmMatches: Mark[];
+  tmSourceAsOf: string | null; tmMatches?: Mark[] | null;
 };
 export type Keyword = {
   sessionId: string; id: string; parentId: string | null; keyword: string;
@@ -44,7 +44,7 @@ export type Keyword = {
 export type Trademark = {
   checkId: string; kind: string; keyword: string | null; title: string | null;
   status: string | null; risk: string | null; liveCount: number; deadCount: number;
-  unknownCount: number; matched: Mark[]; checkedAt: string | null;
+  unknownCount: number; matched?: Mark[] | null; checkedAt: string | null;
   source: string | null; sourceAsOf: string | null;
 };
 export type SpyLog = {
