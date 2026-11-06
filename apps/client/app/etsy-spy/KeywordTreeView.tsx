@@ -35,7 +35,7 @@ function KeywordTreeRow({
   return <tr className={"etsy-tree-row" + (level === 0 ? " is-root" : "") +
     (node.missingParent ? " is-unavailable" : "")} aria-level={level + 1}>
     <td className="etsy-tree-keyword-col">
-      <div className="etsy-tree-cell" style={{ paddingInlineStart: Math.min(level, 20) * 19 + 8 }}>
+      <div className="etsy-tree-cell" style={{ paddingInlineStart: `min(${Math.min(level, 20) * 19 + 8}px, var(--etsy-tree-indent-limit, 999px))` }}>
         {level > 0 && <span aria-hidden="true" className="etsy-tree-connector">└</span>}
         {hasChildren
           ? <button type="button" className="etsy-tree-toggle"

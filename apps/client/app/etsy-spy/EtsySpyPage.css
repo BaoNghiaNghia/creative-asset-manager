@@ -789,3 +789,205 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-stage-heading-actions{flex-wrap:wrap}
   .etsy-stage-heading-actions .etsy-search-box,.etsy-blacklist-form{flex:1 1 100%}
 }
+
+/* ETSY-SPY-MOBILE-V1: the desktop flex-basis sizes must not become vertical
+   heights after the heading switches to a column at tablet widths. */
+@media(max-width:1050px){
+  .etsy-stage-heading-row{
+    flex-direction:column;align-items:stretch;gap:12px;min-height:0;
+  }
+  .etsy-stage-heading,.etsy-stage-heading-actions{
+    flex:none;width:100%;min-width:0;
+  }
+  .etsy-stage-heading-actions{justify-content:flex-start}
+  .etsy-stage-heading-actions .etsy-search-box,.etsy-blacklist-form{
+    max-width:none;
+  }
+}
+
+@media(max-width:680px){
+  /* Show all four sections without page-wide horizontal scrolling. */
+  .etsy-stage-nav{padding:0 8px}
+  .etsy-stage-nav .etsy-tabs{
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+    width:100%;max-width:none;overflow:visible;
+  }
+  .etsy-stage-nav .etsy-tabs button{
+    flex:none;width:100%;min-width:0;min-height:45px;height:auto;
+    padding:8px 3px;gap:0;justify-content:center;
+  }
+  .etsy-tab-number,.etsy-tab-copy small{display:none}
+  .etsy-tab-copy{align-items:center;min-width:0}
+  .etsy-tab-copy strong{
+    font-size:11px;line-height:1.2;text-align:center;
+    white-space:normal;overflow-wrap:anywhere;
+  }
+
+  .etsy-spy-page > .workspace-page-header{padding:12px 12px 11px;gap:10px}
+  .etsy-spy-page .workspace-page-header h1{font-size:23px}
+  .etsy-spy-page .workspace-page-header .workspace-page-header-description{font-size:12px}
+  .etsy-spy-page .workspace-page-header-actions{gap:7px;flex-wrap:wrap}
+  .etsy-stage-canvas{padding:9px 8px}
+  .etsy-stage-card{padding:13px 10px 16px}
+  .etsy-stage-heading-row{margin-bottom:12px;gap:12px}
+  .etsy-stage-kicker{font-size:10px;letter-spacing:.1em}
+  .etsy-stage-heading h2{font-size:19px}
+  .etsy-stage-heading p{font-size:12px;line-height:1.5}
+  .etsy-stage-heading .etsy-freshness{
+    margin-top:8px;gap:5px 10px;font-size:11px;line-height:1.5;
+  }
+  .etsy-stage-heading-actions{
+    display:grid;grid-template-columns:minmax(0,1fr);gap:8px;
+  }
+  .etsy-stage-heading-actions .etsy-search-box,.etsy-blacklist-form{
+    flex:none;width:100%;min-width:0;max-width:none;
+  }
+  .etsy-blacklist-form input,
+  .etsy-stage-heading-actions .etsy-search-box input{
+    height:42px;min-height:42px;font-size:13px;border-radius:9px;
+  }
+  .etsy-blacklist-chips{gap:6px;margin:0 0 12px;font-size:11px}
+  .etsy-blacklist-chip{max-width:100%;font-size:11px;overflow-wrap:anywhere}
+  .etsy-blacklist-chip button{min-width:20px;min-height:22px}
+
+  .etsy-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px}
+  .etsy-stat{min-height:77px;gap:5px;padding:10px;border-radius:9px}
+  .etsy-stat-heading>span:last-child{font-size:11px;letter-spacing:0}
+  .etsy-stat>strong{font-size:23px}
+  .etsy-stat>small{font-size:10px}
+  .etsy-stat-errors{grid-column:1/-1}
+
+  .etsy-search-filters{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;min-height:0;margin-bottom:15px;align-items:stretch;
+  }
+  .etsy-search-filters>select,.etsy-search-filters>input{
+    flex:none;display:block;width:100%;min-width:0;max-width:none;
+    min-height:40px;padding:7px 8px;font-size:12px;
+  }
+  .etsy-search-filters>select:only-of-type,
+  .etsy-search-filters>select:nth-of-type(3){grid-column:1/-1}
+  .etsy-search-filters .etsy-clear-filters{grid-column:1/-1;justify-self:start;font-size:12px}
+  .etsy-search-filters .etsy-actions{
+    grid-column:1/-1;display:grid;
+    grid-template-columns:minmax(0,1fr) auto;align-items:end;
+    width:100%;margin:0;gap:8px;
+  }
+  .etsy-search-filters .etsy-actions label{
+    display:grid;min-width:0;gap:4px;font-size:11px;
+  }
+  .etsy-search-filters .etsy-actions select{
+    width:100%;min-width:0;max-width:none;min-height:40px;
+    font-size:12px;
+  }
+  .etsy-search-filters .etsy-actions .etsy-btn{
+    min-height:40px;padding:8px 12px;font-size:12px;
+  }
+  .etsy-table-section-header{margin:2px 0 9px}
+  .etsy-table-section-header h2{font-size:16px}
+
+  /* Preserve the native table DOM and sorting controls while presenting
+     records as legible, vertically stacked mobile cards. */
+  .etsy-table-card{min-height:0;overflow:visible;border:0;background:transparent}
+  .etsy-table-wrap{max-height:none;overflow:visible}
+  .etsy-table-wrap table,
+  .etsy-tree-table-wrap table{display:block;width:100%;min-width:0;table-layout:auto}
+  .etsy-table-wrap thead{
+    position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+    overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0;
+  }
+  .etsy-table-wrap tbody{display:grid;gap:10px}
+  .etsy-table-wrap tbody tr{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:10px 8px;min-width:0;padding:12px;
+    border:1px solid #e0e7f1;border-radius:11px;background:#fff;
+    box-shadow:0 1px 4px rgba(28,47,79,.035);
+  }
+  .etsy-table-wrap .etsy-data-table tbody td:nth-child(n),
+  .etsy-table-wrap .etsy-data-table.is-products tbody td:nth-child(n),
+  .etsy-table-wrap .etsy-data-table.is-trademarks tbody td:nth-child(n),
+  .etsy-table-wrap .etsy-data-table.is-keyword-tree tbody td:nth-child(n){
+    display:block;width:auto;min-width:0;max-width:none;
+    padding:0;border:0;background:transparent!important;
+    text-align:left;white-space:normal;font-size:12px;
+  }
+  .etsy-table-wrap .etsy-data-table tbody td::before{
+    display:block;margin-bottom:4px;color:#8290a3;
+    font-size:10px;line-height:1.2;font-weight:800;letter-spacing:.045em;
+    text-transform:uppercase;
+  }
+
+  /* Products: title, search evidence, demand and three compact KPIs. */
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(1){grid-column:1/-1}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(2){grid-column:1/3}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3){grid-column:3}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(4),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(5){grid-column:1/-1}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(6),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(7),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(8){
+    padding:8px;border:1px solid #edf1f6;border-radius:8px;
+    background:#f8fafc!important;font-size:15px;font-weight:800;
+  }
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(9){grid-column:1/3;align-self:center}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(10){grid-column:3;justify-self:end}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(2)::before{content:"Keyword"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Source"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(4)::before{content:"Keyword SMS"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(5)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Bought / 24h"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(7)::before{content:"Views / 24h"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(8)::before{content:"Carts"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(9)::before{content:"Observed"}
+  .etsy-product-identity{align-items:flex-start;gap:10px}
+  .etsy-product-glyph{flex-basis:38px;width:38px;height:38px}
+  .etsy-product-copy strong{font-size:13px;line-height:1.4}
+  .etsy-product-copy .etsy-title-meta a{font-size:11px}
+  .etsy-keyword-cell strong{font-size:12px}
+  .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}
+  .etsy-sms-preview,.etsy-sms-primary{max-width:none}
+  .etsy-sms-primary{font-size:12px;white-space:normal;overflow-wrap:anywhere}
+  .etsy-action-cell a{width:37px;height:37px}
+
+  /* Trademark, log, and expandable keyword tree share the same card surface. */
+  .etsy-data-table.is-trademarks tbody td,
+  .etsy-data-table.is-logs tbody td,
+  .etsy-data-table.is-keyword-tree tbody td{grid-column:1/-1}
+  .etsy-data-table.is-trademarks tbody td:nth-child(2)::before{content:"Trademark status"}
+  .etsy-data-table.is-trademarks tbody td:nth-child(3)::before{content:"Evidence"}
+  .etsy-data-table.is-trademarks tbody td:nth-child(4)::before{content:"Last checked"}
+  .etsy-data-table.is-logs tbody td:nth-child(1)::before{content:"Time"}
+  .etsy-data-table.is-logs tbody td:nth-child(2)::before{content:"Level"}
+  .etsy-data-table.is-logs tbody td:nth-child(3)::before{content:"Source"}
+  .etsy-data-table.is-logs tbody td:nth-child(4)::before{content:"Phase"}
+  .etsy-data-table.is-logs tbody td:nth-child(5)::before{content:"Keyword"}
+  .etsy-data-table.is-logs tbody td:nth-child(6)::before{content:"Message / Stack"}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(1){grid-column:1/-1}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(2),
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(3),
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(4){grid-column:auto}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(5){grid-column:1/-1}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(2)::before{content:"Depth"}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(3)::before{content:"Priority"}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(4)::before{content:"Status"}
+  .etsy-data-table.is-keyword-tree tbody td:nth-child(5)::before{content:"Listings"}
+  .etsy-tree-cell{--etsy-tree-indent-limit:72px;max-width:100%}
+  .etsy-tree-toggle{min-width:30px;min-height:30px;flex-basis:30px}
+  .etsy-tree-keyword-line strong{font-size:12px}
+  .etsy-tree-actions button{min-height:36px;font-size:12px}
+  .etsy-pager{
+    display:grid;grid-template-columns:1fr auto;
+    justify-content:stretch;gap:10px;padding:12px 2px;
+    font-size:12px;
+  }
+  .etsy-pager>span{align-self:center}
+  .etsy-page-controls{grid-column:1/-1;grid-row:2;justify-content:space-between}
+  .etsy-page-controls strong{font-size:12px}
+  .etsy-pager label{justify-self:end;font-size:11px}
+  .etsy-pager button{min-width:38px;min-height:36px;font-size:17px}
+  .etsy-pager select{min-height:36px;font-size:12px}
+  .etsy-agents>summary{padding:12px}
+  .etsy-agents>summary span{font-size:12px}
+  .etsy-agents>summary small{font-size:11px}
+  .etsy-lookup,.etsy-agents{min-width:0}
+}
