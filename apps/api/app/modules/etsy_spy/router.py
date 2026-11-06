@@ -28,7 +28,7 @@ from .model import (
 )
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
-    moment, reconcile_listing_inventory, sync_batch, text,
+    moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
 )
 
 router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
@@ -331,8 +331,8 @@ def summary(
     ))) or 0)
     checked = int(db.scalar(tm_query.where(
         Trademark.status.in_(["complete", "cached", "checked"]))) or 0)
-    errors = count(db, Log, tenant, [Log.level == "error"])
-    warnings = count(db, Log, tenant, [Log.level.in_(["warn", "warning"])])
+    errors = count(db, Log, tenant, [Log.level == "error", Log.event_at >= system_log_cutoff()])
+    warnings = count(db, Log, tenant, [Log.level.in_(["warn", "warning"]), Log.event_at >= system_log_cutoff()])
     inventories = db.scalars(select(Agent).where(
         Agent.tenant_id == tenant, Agent.active.is_(True))).all()
     last_inventory = max(
@@ -519,7 +519,7 @@ def _log_query(
     phase: str = "", session_id: str | None = None, keyword: str = "",
     sort: str = "at", direction: str = "desc",
 ):
-    where = [Log.tenant_id == tenant]
+    where = [Log.tenant_id == tenant, Log.event_at >= system_log_cutoff()]
     if q: where.append(or_(Log.message.ilike("%" + q[:160] + "%"),
                            Log.stack.ilike("%" + q[:160] + "%")))
     if level: where.append(Log.level == level[:25])

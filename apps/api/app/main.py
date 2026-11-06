@@ -16,7 +16,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.config import Settings, get_settings
 from app.core.scout_log_ingress import ScoutTelemetryLimiter, scout_log_agent_from_path
-from app.core.database import dispose_database, init_database
+from app.core.database import SessionLocal, dispose_database, init_database
 from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
 from app.modules.branding_dna.router import router as branding_dna_router
@@ -57,6 +57,7 @@ from app.modules.public_review.public_router import router as public_review_publ
 from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
 from app.modules.etsy_spy.router import router as etsy_spy_router
+from app.modules.etsy_spy.service import prune_system_logs
 from app.modules.metadata.router import router as metadata_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.image_generation.router import router as image_generation_router
@@ -113,6 +114,20 @@ _timed_operations_paths = frozenset({
 })
 
 
+def _prune_etsy_system_logs_once():
+    with SessionLocal() as session:
+        return prune_system_logs(session)
+
+
+async def _periodic_etsy_system_logs():
+    while True:
+        try:
+            await asyncio.to_thread(_prune_etsy_system_logs_once)
+        except Exception:
+            logging.getLogger("app.etsy_spy.retention").exception("Etsy Spy retention sweep failed")
+        await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = _app.state.settings
@@ -121,12 +136,20 @@ async def lifespan(_app: FastAPI):
     _app.state.google_drive_stream_client = google_drive_stream_client
     _app.state.onedrive_stream_client = onedrive_stream_client
     shadow_started = False
+    etsy_logs_task = None
     try:
         init_database(settings)
         SHADOW_SEARCH.start()
         shadow_started = True
+        etsy_logs_task = asyncio.create_task(_periodic_etsy_system_logs())
         yield
     finally:
+        if etsy_logs_task is not None:
+            etsy_logs_task.cancel()
+            try:
+                await etsy_logs_task
+            except asyncio.CancelledError:
+                pass
         try:
             if shadow_started:
                 await SHADOW_SEARCH.shutdown(

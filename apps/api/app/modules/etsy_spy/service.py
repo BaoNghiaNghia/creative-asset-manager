@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from .model import (
@@ -26,6 +26,17 @@ MAX_SECTION_ROWS = 200
 MAX_INVENTORY_BYTES = 4 * 1024 * 1024
 MAX_INVENTORY_ROWS = 12000
 SECTIONS = ("sessions", "keywords", "listings", "trademarks", "logs")
+SYSTEM_LOG_RETENTION = timedelta(hours=12)
+
+
+def system_log_cutoff() -> datetime:
+    return utcnow() - SYSTEM_LOG_RETENTION
+
+
+def prune_system_logs(db: Session) -> int:
+    result = db.execute(delete(EtsySpyLog).where(EtsySpyLog.event_at < system_log_cutoff()))
+    db.commit()
+    return int(result.rowcount or 0)
 _SECRET_RE = re.compile(
     r"(?i)(bearer\s+)[^\s,;]+|"
     r"\b(?:access[_-]?token|refresh[_-]?token|cookie|password|api[_-]?key|secret)\s*[:=]\s*[^\s,;]+"
@@ -347,9 +358,14 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
         return {"ok": True, "replayed": True, "batch_id": batch_id,
                 "cursor": existing.cursor, "rows": existing.row_count}
     validated = []
+    cutoff = system_log_cutoff()
     for section in SECTIONS:
         for row in records.get(section, []):
-            validated.append((section, *_payload_fields(section, row, agent.tenant_id, agent.id)))
+            record = (section, *_payload_fields(section, row, agent.tenant_id, agent.id))
+            if section == "logs" and record[3]["event_at"] < cutoff:
+                # A delayed outbox must not restore expired System Logs.
+                continue
+            validated.append(record)
     # All rows and the batch acknowledgement commit together. Retries cannot
     # create duplicate observations or incorrectly clear older snapshots.
     for section, model, identity, values in validated:

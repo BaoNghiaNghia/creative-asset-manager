@@ -63,7 +63,7 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
     with engine.connect() as c:
         tables = set(inspect(c).get_table_names())
         assert expected.issubset(tables)
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0198_etsy_spy_picked"
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0199_etsy_spy_logs_12h"
         assert {"is_current", "has_search", "has_shop"}.issubset({
             column["name"] for column in inspect(c).get_columns("etsy_spy_listings")})
         assert {"last_inventory_at", "last_inventory_count"}.issubset({
@@ -80,6 +80,9 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
         )).all()
         assert set(assigned) == {("tenant_admin", "etsy_spy.read"),
                                  ("tenant_admin", "etsy_spy.manage")}
+    command.downgrade(config, "0198_etsy_spy_picked")
+    with engine.connect() as c:
+        assert expected.issubset(set(inspect(c).get_table_names()))
     # User Pick decisions are independently reversible and never alter raw listings.
     command.downgrade(config, "0197_etsy_spy_blacklist")
     with engine.connect() as c:

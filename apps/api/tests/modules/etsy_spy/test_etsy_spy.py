@@ -64,7 +64,8 @@ def product(session="session-1", keyword="Santa Claus Rudolph boop shirt",
     }
 
 
-def batch(batch_id="batch-1", *, title="Rudolph T-Shirt", matched=None):
+def batch(batch_id="batch-1", *, title="Rudolph T-Shirt", matched=None,
+          log_at=datetime.now(timezone.utc).isoformat()):
     return {
         "schema_version": 1, "batch_id": batch_id, "cursor": "cursor-a",
         "records": {
@@ -91,7 +92,7 @@ def batch(batch_id="batch-1", *, title="Rudolph T-Shirt", matched=None):
                 "checkedAt": "2026-11-06T00:00:02Z",
             }],
             "logs": [{
-                "eventId": "event-1", "at": "2026-11-06T00:00:02Z",
+                "eventId": "event-1", "at": datetime.now(timezone.utc).isoformat(),
                 "source": "extension", "level": "error", "phase": "search",
                 "sessionId": "session-1", "keyword": "Rudolph",
                 "message": "Request failed", "stack": "=HYPERLINK(1,2)",
@@ -128,10 +129,11 @@ def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
 def test_sync_is_idempotent_and_title_only_tm_conflicts(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)
-    first = sync(client, agent, headers, batch())
+    first_payload = batch()
+    first = sync(client, agent, headers, first_payload)
     assert first.status_code == 200, first.text
     assert first.json()["rows"] == 5
-    replay = sync(client, agent, headers, batch())
+    replay = sync(client, agent, headers, first_payload)
     assert replay.status_code == 200 and replay.json()["replayed"]
     assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1
     items = client.get("/api/v1/etsy-spy/listings").json()["items"]
