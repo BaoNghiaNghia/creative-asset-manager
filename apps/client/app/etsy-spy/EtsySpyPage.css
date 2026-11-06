@@ -452,7 +452,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-stage-heading .etsy-freshness strong{color:#586b85;font-weight:750}
 .etsy-stage-heading .etsy-freshness-divider{height:11px;background:#d6dfeb}
 .etsy-stats{
-  display:grid;grid-template-columns:repeat(8,minmax(0,1fr));
+  display:grid;grid-template-columns:repeat(9,minmax(0,1fr));
   gap:7px;margin:0 0 12px;
 }
 .etsy-stat{
@@ -485,6 +485,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 }
 .etsy-stat-total{--etsy-stat-color:#3d5e90;background:#f7f9fc}
 .etsy-stat-picked{--etsy-stat-color:#227654;background:#f0faf4}
+.etsy-stat-blacklist{--etsy-stat-color:#98566c;background:#fcf6f8}
 .etsy-stat-keywords{--etsy-stat-color:#3f65bc;background:#f3f6ff}
 .etsy-stat-search{--etsy-stat-color:#3a73c6;background:#f3f7ff}
 .etsy-stat-shop{--etsy-stat-color:#378568;background:#f1faf6}
@@ -796,6 +797,39 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   font-weight:800;font-size:13px;line-height:1;padding:0 2px}
 .etsy-blacklist-chip button:hover{color:#bf294c}
 .etsy-blacklist-error{color:#ba3350;font-weight:650}
+.etsy-blacklist-panel{
+  margin:0 0 12px;padding:16px 18px;
+  border:1px solid #e6dfe5;border-radius:9px;background:#fff;
+}
+.etsy-blacklist-panel-header{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  flex-wrap:wrap;gap:12px;margin-bottom:14px;
+}
+.etsy-blacklist-panel h2{
+  margin:0;color:#283d58;font-size:15px;font-weight:800;letter-spacing:-.015em;
+}
+.etsy-blacklist-panel h2 span{color:#955b74;font-weight:750}
+.etsy-blacklist-panel p{
+  margin:6px 0 0;color:#8290a2;font-size:11px;line-height:1.5;
+}
+.etsy-blacklist-panel-counter{
+  padding:5px 9px;border-radius:6px;border:1px solid #eed9e2;
+  background:#fff5f9;color:#8f5069;font-size:10px;font-weight:780;
+}
+.etsy-blacklist-panel .etsy-blacklist-chips{margin:0;gap:8px}
+.etsy-blacklist-panel .etsy-blacklist-chip{font-size:11px;min-height:28px}
+.etsy-blacklist-panel .etsy-blacklist-chip button{
+  cursor:pointer;min-width:23px;min-height:23px;border-radius:5px;
+}
+.etsy-blacklist-panel .etsy-blacklist-chip button:focus-visible{
+  outline:2px solid #9c5471;outline-offset:2px;
+}
+.etsy-blacklist-panel .etsy-blacklist-empty{color:#8a95a7;font-size:12px}
+@media(max-width:680px){
+  .etsy-blacklist-panel{padding:13px 12px}
+  .etsy-blacklist-panel-header{gap:8px}
+  .etsy-blacklist-panel h2{font-size:14px}
+}
 @media(max-width:900px){
   .etsy-stage-heading-row{align-items:flex-start;flex-wrap:wrap}
   .etsy-stage-heading-actions{flex:1 1 100%;width:100%;justify-content:flex-start}

@@ -41,11 +41,13 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
 type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
   pickState: "eligible" | "picked";
+  blacklistView: boolean;
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
 const baseOptions: Options = {
   tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
+  blacklistView: false,
   sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
@@ -56,6 +58,7 @@ function fromLocation(): Options {
   return {
     ...baseOptions, tab,
     pickState: p.get("pick_state") === "picked" ? "picked" : "eligible",
+    blacklistView: tab === "products" && p.get("panel") === "blacklist",
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
     q: p.get("q") || "", sessionId: p.get("session_id") || "",
@@ -71,7 +74,9 @@ function queryFor(o: Options): URLSearchParams {
   query.set("page", String(o.page));
   query.set("page_size", String(o.pageSize));
   if (o.q.trim()) query.set("q", o.q.trim());
-  if (o.tab === "products" && o.pickState === "picked") query.set("pick_state", "picked");
+  if (o.tab === "products" && o.pickState === "picked" && !o.blacklistView)
+    query.set("pick_state", "picked");
+  if (o.tab === "products" && o.blacklistView) query.set("panel", "blacklist");
   if (o.sessionId) query.set("session_id", o.sessionId);
   if (o.source) query.set("source", o.source);
   if (o.badge) query.set("badge", o.badge);
@@ -85,6 +90,7 @@ function queryFor(o: Options): URLSearchParams {
 }
 function apiQuery(o: Options): URLSearchParams {
   const result = queryFor(o);
+  result.delete("panel");
   result.delete("source");
   result.delete("badge");
   result.delete("tm");
@@ -119,11 +125,13 @@ function tmDescription(status: string, deadMatches = 0) {
 const SUMMARY_ICONS = [
   "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
   "M4 12.5 9 17l11-11",
+  "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M5 5l14 14",
   "M15.5 7.5a5 5 0 1 0-1 4.2L21 18v3h-3v-3h-3v-3l-1.7-1.7",
   "m12 2 10 5-10 5L2 7l10-5Zm-10 10 10 5 10-5M2 17l10 5 10-5",
   "M2 3h2l2.5 11h12L21 6H5M9 20h.01M18 20h.01",
   "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 5v5l3 2",
   "M10.3 3.5 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01",
+  "M12 9v4m0 4h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
 ] as const;
 function safeMarks(matches: Mark[] | null | undefined): Mark[] {
   // Older Windows snapshots may omit matched evidence entirely or store null.
@@ -300,7 +308,8 @@ export function EtsySpyPage() {
   // Never render a page for one tab/filter using rows from another request.
   // useEffect runs after render, so merely setting loading=true in the effect
   // cannot prevent an intermediate render with the previous tab's row shape.
-  const requestKey = options.tab + "?" + apiQuery(options).toString() + "#" + refresh;
+  const requestKey = options.tab + (options.blacklistView ? ":blacklist" : ":records") +
+    "?" + apiQuery(options).toString() + "#" + refresh;
   const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
   const loading = fetching || tableResult?.requestKey !== requestKey;
   const update = useCallback((changes: Partial<Options>) => {
@@ -333,7 +342,8 @@ export function EtsySpyPage() {
   }, [refresh]);
   useEffect(() => {
     // Keyword Tree loads all source pages in its own panel, not a single paged slice.
-    if (options.tab === "keywords") return;
+    if (options.tab === "keywords" ||
+      (options.tab === "products" && options.blacklistView)) return;
     let alive = true;
     setFetching(true); setError("");
     const endpoint = { products: "/listings", keywords: "/keywords",
@@ -360,10 +370,12 @@ export function EtsySpyPage() {
       const result = await spyFetch<{ phrases: string[] }>("/blacklist", {
         method: "POST", body: JSON.stringify({ phrases }),
       });
-      setBlacklist(result.phrases); setBlacklistInput(""); update({ page: 1 });
+      setBlacklist(result.phrases); setBlacklistInput("");
+      selectTab("products", { blacklistView: true });
       setRefresh(n => n + 1);
     } catch(e) {
       setBlacklistError(e instanceof Error ? e.message : "Cannot save blacklist");
+      selectTab("products", { blacklistView: true });
     } finally {setBlacklistBusy(false);}
   };
   const removeBlacklist = async (phrase: string) => {
@@ -412,11 +424,14 @@ export function EtsySpyPage() {
   const exportQuery = apiQuery(options);
   exportQuery.delete("page"); exportQuery.delete("page_size");
   const activeTab = options.tab;
+  const isBlacklistView = activeTab === "products" && options.blacklistView;
+  const filteredBlacklist = blacklist.filter(phrase =>
+    phrase.toLowerCase().includes(typedSearch.trim().toLowerCase()));
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
     setTypedSearch("");
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "",
-      status: "", level: "", phase: "", pickState: "eligible",
+      status: "", level: "", phase: "", pickState: "eligible", blacklistView: false,
       sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
         : tab === "trademarks" ? "checkedAt" : "updatedAt",
       dir: "desc", page: 1, ...filters,
@@ -428,22 +443,26 @@ export function EtsySpyPage() {
   }[] = [
     { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
       tone: "total", tab: "products",
-      selected: activeTab === "products" && options.pickState === "eligible" &&
-        !options.source && !options.tm },
+      selected: activeTab === "products" && !isBlacklistView &&
+        options.pickState === "eligible" && !options.source && !options.tm },
     { title: "Picked", value: summary?.picked ?? 0, hint: "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked" },
-      selected: activeTab === "products" && options.pickState === "picked" },
+      selected: activeTab === "products" && !isBlacklistView &&
+        options.pickState === "picked" },
+    { title: "Blacklist", value: blacklist.length, hint: "Blocked keyword phrases",
+      tone: "blacklist", tab: "products", filters: { blacklistView: true },
+      selected: isBlacklistView },
     { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
     { title: "Search", value: summary?.search, hint: "Found in Etsy Search",
       tone: "search", tab: "products", filters: { source: "search" },
-      selected: activeTab === "products" && options.source === "search" },
+      selected: activeTab === "products" && !isBlacklistView && options.source === "search" },
     { title: "Shop", value: summary?.shop, hint: "Found in Etsy Shop",
       tone: "shop", tab: "products", filters: { source: "shop" },
-      selected: activeTab === "products" && options.source === "shop" },
+      selected: activeTab === "products" && !isBlacklistView && options.source === "shop" },
     { title: "TM pending", value: summary?.tm_pending, hint: "Awaiting evidence",
       tone: "pending", tab: "products", filters: { tm: "pending" },
-      selected: activeTab === "products" && options.tm === "pending" },
+      selected: activeTab === "products" && !isBlacklistView && options.tm === "pending" },
     { title: "TM checked", value: summary?.tm_checked, hint: "Checked products",
       tone: "checked", tab: "trademarks", selected: activeTab === "trademarks" },
     { title: "Errors", value: summary?.errors, hint: `${summary?.warnings ?? "—"} warnings in logs`,
@@ -513,21 +532,12 @@ export function EtsySpyPage() {
             <div className="etsy-search-box">
               <svg className="etsy-search-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
               <input type="search" aria-label="Search Spy records"
-                placeholder={activeTab === "logs" ? "Search message or stack…" : "Search keyword or product…"}
+                placeholder={isBlacklistView ? "Search blocked phrases…" :
+                  activeTab === "logs" ? "Search message or stack…" : "Search keyword or product…"}
                 value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
             </div>
           </div>
         </div>
-        {activeTab === "products" && (blacklist.length > 0 || blacklistError) &&
-          <div className="etsy-blacklist-chips" aria-label="Active blacklist phrases">
-            <span className="etsy-blacklist-count">Blacklist ({blacklist.length})</span>
-            {blacklist.map(phrase => <span className="etsy-blacklist-chip" key={phrase}>
-              {phrase}{canManage && <button type="button"
-                aria-label={"Remove blacklist " + phrase}
-                disabled={blacklistBusy} onClick={() => removeBlacklist(phrase)}>×</button>}
-            </span>)}
-            {blacklistError && <span className="etsy-blacklist-error" role="alert">{blacklistError}</span>}
-          </div>}
         <section className="etsy-stats" aria-label="Etsy Spy overview filters">
           {overviewCards.map((card, index) => <button type="button"
             className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
@@ -542,6 +552,29 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
+        {isBlacklistView ? <section className="etsy-blacklist-panel"
+          aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">
+          <div className="etsy-blacklist-panel-header">
+            <div>
+              <h2 id="etsy-blacklist-heading">Blacklist <span>({blacklist.length})</span></h2>
+              <p>Products containing these phrases are excluded from Eligible listings and future Scout searches.
+                Add phrases using the Blacklist field beside Search, then press Enter.</p>
+            </div>
+            <span className="etsy-blacklist-panel-counter">{blacklist.length} blocked</span>
+          </div>
+          {blacklistError && <p className="etsy-blacklist-error" role="alert">{blacklistError}</p>}
+          {filteredBlacklist.length > 0 ?
+            <div className="etsy-blacklist-chips" aria-label="Active blacklist phrases">
+              {filteredBlacklist.map(phrase => <span className="etsy-blacklist-chip" key={phrase}>
+                {phrase}{canManage && <button type="button"
+                  aria-label={"Remove blacklist " + phrase}
+                  disabled={blacklistBusy} onClick={() => removeBlacklist(phrase)}>×</button>}
+              </span>)}
+            </div> :
+            <p className="etsy-blacklist-empty">{blacklist.length
+              ? "No blocked phrases match your search."
+              : "Blacklist is empty. Enter a keyword phrase above and press Enter."}</p>}
+        </section> : <>
         <section className="etsy-search-filters" aria-label="Search and filters">
           <span className="etsy-filter-label">FILTERS</span>
       {activeTab === "products" ? <>
@@ -678,6 +711,7 @@ export function EtsySpyPage() {
         </label>
       </div>
     </div>}
+        </>}
     <details className="etsy-agents" aria-label="Windows synchronization agents">
       <summary><span>Windows Sync Agent</span><small>{agents.length} registered · Data remains available while the PC is offline</small></summary>
       <div className="etsy-agent-content">

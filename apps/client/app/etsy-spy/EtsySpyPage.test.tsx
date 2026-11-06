@@ -207,7 +207,11 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(8);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(9);
+    const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
+    expect(cards[1].classList.contains("etsy-stat-picked")).toBe(true);
+    expect(cards[2].classList.contains("etsy-stat-blacklist")).toBe(true);
+    expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
@@ -365,13 +369,76 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(blockedTerms).toEqual(["rudolph","cat"]);
     expect(container?.textContent).toContain("Blacklist (2)");
-    expect(observed.filter(x=>x.includes("/listings?")).length).toBeGreaterThan(1);
+    expect(container?.querySelector(".etsy-stat-blacklist strong")?.textContent).toBe("2");
+    expect(container?.querySelector(".etsy-stat-blacklist[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-blacklist-panel")).toBeTruthy();
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("panel")).toBe("blacklist");
+    expect(container?.querySelector(".etsy-blacklist-panel .etsy-blacklist-chips")).toBeTruthy();
     const remove=container?.querySelector<HTMLButtonElement>(
       'button[aria-label="Remove blacklist rudolph"]');
     expect(remove).toBeTruthy();
     await act(async()=>{remove?.click(); await new Promise(r=>setTimeout(r,50));});
     expect(blockedTerms).toEqual(["cat"]);
     expect(container?.textContent).toContain("Blacklist (1)");
+    expect(container?.querySelector(".etsy-stat-blacklist strong")?.textContent).toBe("1");
+  });
+
+  it("shows blacklist only within its card and filters phrases without searching listings", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
+    const input = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Add blacklist phrases"]');
+    const addSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      addSetter.call(input, "disney, grinch, harry style");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLFormElement>(".etsy-blacklist-form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    expect(blockedTerms).toHaveLength(3);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-blacklist")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelector(".etsy-blacklist-panel")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stat-blacklist[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelectorAll(".etsy-blacklist-chip")).toHaveLength(3);
+    expect(container?.querySelector(".etsy-search-filters")).toBeNull();
+    expect(container?.querySelector(".etsy-pager")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("panel")).toBe("blacklist");
+
+    const search = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Search Spy records"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    const queriesBefore = observed.filter(url => url.includes("/listings?")).length;
+    await act(async () => {
+      setter.call(search, "harry");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 410));
+    });
+    expect(container?.querySelectorAll(".etsy-blacklist-chip")).toHaveLength(1);
+    expect(container?.textContent).toContain("harry style");
+    expect(observed.filter(url => url.includes("/listings?")).length).toBe(queriesBefore);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelector(".etsy-blacklist-panel")).toBeNull();
+    expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
+    expect(new URLSearchParams(window.location.search).has("panel")).toBe(false);
+    expect(container?.querySelector(".etsy-table-section-header h2")?.textContent).toContain("Picked");
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {
