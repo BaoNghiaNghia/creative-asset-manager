@@ -219,3 +219,98 @@ def test_tm_lookup_uses_cached_title_evidence_only(scenario):
     assert client.post("/api/v1/etsy-spy/trademarks/lookup", json={
         "queries": ["a"] * 31, "mode": "exactMatch",
     }).status_code == 422
+
+def _inventory(agent, headers, client, listings, timestamp="2026-11-06T02:01:00Z"):
+    return client.post(f"/api/v1/etsy-spy/agents/{agent.id}/listing-inventory",
+        json={"schema_version": 1, "snapshot_at": timestamp, "listings": listings},
+        headers=headers)
+
+
+def test_listing_inventory_matches_windows_unique_products_search_shop_and_tm(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    fresh = product()
+    fresh["sourceKinds"] = ["search", "shop"]
+    older = {**product(session="old-session", keyword="Rudolph vintage shirt"),
+             "sourceKind": "shop", "badge": "Bestseller", "searchBadge": None,
+             "sourceKinds": ["shop"], "observedAt": "2026-11-05T00:00:00Z"}
+    payload = batch("historical-two", title="Rudolph T-Shirt")
+    payload["records"]["listings"] = [fresh, older]
+    # Hundreds of keyword TM checks may be pending; they must NOT appear in
+    # the dashboard's pending *product* TM count.
+    payload["records"]["trademarks"].append({
+        "checkId": "keyword_" + "b" * 64, "kind": "keyword",
+        "keyword": "unrelated keyword", "status": "pending",
+        "matched": [], "source": "USPTO local bulk",
+    })
+    assert sync(client, agent, headers, payload).status_code == 200
+    before = client.get("/api/v1/etsy-spy/summary").json()
+    assert before["listings"] == 1
+    assert (before["search"], before["shop"]) == (1, 1)
+    assert before["tm_pending"] == 0 and before["tm_checked"] == 1
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 2
+
+    current = [{
+        "sessionId": fresh["sessionId"], "keyword": fresh["keyword"],
+        "sourceKind": fresh["sourceKind"], "listingKey": fresh["listingKey"],
+    }]
+    response = _inventory(agent, headers, client, current)
+    assert response.status_code == 200, response.text
+    assert response.json()["count"] == 1
+    assert response.json()["retired"] == 1
+
+    item_page = client.get("/api/v1/etsy-spy/listings").json()
+    assert item_page["total"] == 1
+    assert len(item_page["items"]) == 1
+    assert set(item_page["items"][0]["sourceKinds"]) == {"shop", "search"}
+    assert item_page["items"][0]["tm"] == "LIVE"
+    assert item_page["items"][0]["tmSource"] == "TMHunt"
+    for kind in ("search", "shop"):
+        assert client.get("/api/v1/etsy-spy/listings", params={"source": kind}).json()["total"] == 1
+    summary = client.get("/api/v1/etsy-spy/summary").json()
+    assert (summary["listings"], summary["search"], summary["shop"]) == (1, 1, 1)
+    assert summary["tm_pending"] == 0
+    assert summary["last_inventory_at"] is not None
+    # Historical rows remain in PostgreSQL. No DELETE is ever issued.
+    retained = db.query(EtsySpyListing).all()
+    assert len(retained) == 2
+    assert len([row for row in retained if row.is_current]) == 1
+
+
+def test_inventory_is_atomic_rejects_missing_duplicates_stale_and_foreign_tenant(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    identity = {
+        "sessionId": "session-1", "keyword": "Santa Claus Rudolph boop shirt",
+        "sourceKind": "search", "listingKey": "1234567890",
+    }
+    valid = _inventory(agent, headers, client, [identity])
+    assert valid.status_code == 200
+    older = _inventory(agent, headers, client, [], "2026-11-06T01:00:00Z")
+    assert older.status_code == 200 and older.json()["replayed"] is True
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1
+    missing = _inventory(agent, headers, client, [
+        {**identity, "listingKey": "9999999999"},
+    ], "2026-11-06T02:03:00Z")
+    assert missing.status_code == 409
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1
+    duplicate = _inventory(agent, headers, client, [identity, identity],
+                           "2026-11-06T02:04:00Z")
+    assert duplicate.status_code == 422
+    assert db.get(EtsySpyAgent, agent.id).last_inventory_count == 1
+    assert db.query(EtsySpyListing).count() == 1
+    invalid = client.post(
+        f"/api/v1/etsy-spy/agents/{agent.id}/listing-inventory",
+        json={"schema_version": 1, "snapshot_at": "2026-11-06T02:05:00Z",
+              "listings": [identity]},
+        headers={"Authorization": "Bearer invalid"})
+    assert invalid.status_code == 401
+
+    agent2, headers2 = pair(client, db, "another-tenant")
+    assert sync(client, agent2, headers2, batch("tenant-b")).status_code == 200
+    # An empty snapshot on tenant B may never retire tenant A data.
+    empty = _inventory(agent2, headers2, client, [],
+                       "2026-11-06T02:06:00Z")
+    assert empty.status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1

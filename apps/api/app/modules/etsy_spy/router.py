@@ -25,8 +25,8 @@ from .model import (
     utcnow,
 )
 from .service import (
-    MAX_BATCH_BYTES, authenticate_agent, create_agent, moment,
-    sync_batch, text,
+    MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
+    moment, reconcile_listing_inventory, sync_batch, text,
 )
 
 router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
@@ -82,7 +82,7 @@ def _tm_label(check: Trademark | None) -> str:
     if check is None:
         return "pending"
     if check.status not in {"complete", "cached", "checked"}:
-        return "unverified" if check.status == "unavailable" else "pending"
+        return "pending" if check.status in {"pending", "running"} else "unverified"
     if check.live_count > 0:
         return "LIVE"
     if check.dead_count > 0:
@@ -97,6 +97,7 @@ def _listings_query(
 ) -> tuple[Any, Any]:
     condition = [
         Listing.tenant_id == tenant,
+        Listing.is_current.is_(True),
         # Defend against the source accidentally reporting an excluded Custom title.
         ~Listing.title.ilike("%custom%"),
     ]
@@ -105,10 +106,19 @@ def _listings_query(
                              Listing.keyword.ilike("%" + q[:160] + "%")))
     if session_id and session_id != "all":
         condition.append(Listing.source_session_id == session_id[:150])
-    if source in {"search", "shop"}:
-        condition.append(Listing.source_kind == source)
+    if source == "search":
+        condition.append(Listing.has_search.is_(True))
+    elif source == "shop":
+        condition.append(Listing.has_shop.is_(True))
     if badge and badge != "all":
-        condition.append(or_(Listing.badge.ilike(badge[:65]), Listing.search_badge.ilike(badge[:65])))
+        # Match the source's respective badge, not a badge from another view.
+        if source == "search":
+            condition.append(Listing.search_badge.ilike(badge[:65]))
+        elif source == "shop":
+            condition.append(Listing.badge.ilike(badge[:65]))
+        else:
+            condition.append(or_(Listing.badge.ilike(badge[:65]),
+                                 Listing.search_badge.ilike(badge[:65])))
     joined = and_(Trademark.tenant_id == Listing.tenant_id,
                   Trademark.agent_id == Listing.agent_id,
                   Trademark.check_id == Listing.tm_key,
@@ -138,8 +148,8 @@ def _tm_expression():
     from sqlalchemy import case
     return case(
         (Trademark.check_id.is_(None), "pending"),
-        (Trademark.status == "unavailable", "unverified"),
-        (Trademark.status.notin_(["complete", "cached", "checked"]), "pending"),
+        (Trademark.status.in_(["pending", "running"]), "pending"),
+        (Trademark.status.notin_(["complete", "cached", "checked"]), "unverified"),
         (Trademark.live_count > 0, "LIVE"),
         (Trademark.dead_count > 0, "DEAD"),
         else_="no_match",
@@ -149,7 +159,10 @@ def _tm_expression():
 def _listing_item(row: Listing, check: Trademark | None) -> dict:
     return {
         "sessionId": row.source_session_id, "keyword": row.keyword,
-        "sourceKind": row.source_kind, "listingKey": row.listing_key,
+        "sourceKind": row.source_kind,
+        "sourceKinds": [kind for kind, present in (
+            ("search", row.has_search), ("shop", row.has_shop)) if present],
+        "listingKey": row.listing_key,
         "pageTitle": row.title, "url": row.url, "badge": row.badge,
         "searchBadge": row.search_badge, "bought24h": row.bought24h,
         "views24h": row.views24h, "inCarts": row.in_carts,
@@ -171,19 +184,44 @@ def summary(
 ):
     tenant = principal.active_tenant_id
     fresh = freshness(db, tenant)
-    source_counts = dict(db.execute(
-        select(Listing.source_kind, func.count()).where(Listing.tenant_id == tenant,
-            ~Listing.title.ilike("%custom%")).group_by(Listing.source_kind)
-    ).all())
-    pending = count(db, Trademark, tenant, [Trademark.status.in_(["pending", "running"])])
+    active = [Listing.tenant_id == tenant, Listing.is_current.is_(True),
+              ~Listing.title.ilike("%custom%")]
+    # Same denominator as the Windows Diagnostics: unique Etsy Listing IDs.
+    # A listing may be discovered in *both* Search and Shop.
+    unique = func.count(func.distinct(Listing.listing_key))
+    listings_count = int(db.scalar(select(unique).where(*active)) or 0)
+    search_count = int(db.scalar(select(unique).where(
+        *active, Listing.has_search.is_(True))) or 0)
+    shop_count = int(db.scalar(select(unique).where(
+        *active, Listing.has_shop.is_(True))) or 0)
+    tm_join = and_(
+        Trademark.tenant_id == Listing.tenant_id,
+        Trademark.agent_id == Listing.agent_id,
+        Trademark.check_id == Listing.tm_key,
+        Trademark.kind == "product",
+    )
+    tm_query = select(unique).select_from(Listing).outerjoin(
+        Trademark, tm_join).where(*active)
+    pending = int(db.scalar(tm_query.where(or_(
+        Trademark.check_id.is_(None),
+        Trademark.status.in_(["pending", "running"]),
+    ))) or 0)
+    checked = int(db.scalar(tm_query.where(
+        Trademark.status.in_(["complete", "cached", "checked"]))) or 0)
     errors = count(db, Log, tenant, [Log.level == "error"])
     warnings = count(db, Log, tenant, [Log.level.in_(["warn", "warning"])])
+    inventories = db.scalars(select(Agent).where(
+        Agent.tenant_id == tenant, Agent.active.is_(True))).all()
+    last_inventory = max(
+        (a.last_inventory_at for a in inventories if a.last_inventory_at),
+        default=None)
     return jsonable_encoder({
         **fresh, "sessions": count(db, SessionRow, tenant),
         "keywords": count(db, Keyword, tenant),
-        "listings": count(db, Listing, tenant, [~Listing.title.ilike("%custom%")]),
-        "search": source_counts.get("search", 0), "shop": source_counts.get("shop", 0),
-        "trademarks": count(db, Trademark, tenant), "tm_pending": pending,
+        "listings": listings_count, "search": search_count, "shop": shop_count,
+        "trademarks": count(db, Trademark, tenant),
+        "tm_pending": pending, "tm_checked": checked,
+        "last_inventory_at": last_inventory,
         "errors": errors, "warnings": warnings,
     })
 
@@ -510,7 +548,26 @@ def agent_sync_status(
 ):
     agent = authenticate_agent(db, agent_id, authorization)
     return jsonable_encoder({"ok": True, "cursor": agent.last_cursor,
-                             "last_synced_at": agent.last_synced_at, "active": agent.active})
+                             "last_synced_at": agent.last_synced_at,
+                             "last_inventory_at": agent.last_inventory_at,
+                             "last_inventory_count": agent.last_inventory_count,
+                             "active": agent.active})
+
+
+@router.post("/agents/{agent_id}/listing-inventory")
+async def ingest_listing_inventory(
+    agent_id: str, request: Request, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Reconcile the complete current Windows listing projection, not its history."""
+    agent = authenticate_agent(db, agent_id, authorization)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_INVENTORY_BYTES:
+            raise HTTPException(413, "Listing inventory too large")
+        chunks.append(chunk)
+    return reconcile_listing_inventory(db, agent, b"".join(chunks))
 
 
 @router.post("/agents/{agent_id}/sync")

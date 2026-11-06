@@ -26,6 +26,8 @@ class EtsySpyAgent(Base):
     local_api_version: Mapped[str | None] = mapped_column(String(40))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_inventory_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_inventory_count: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
     last_cursor: Mapped[str | None] = mapped_column(String(180))
     last_error: Mapped[str | None] = mapped_column(String(160))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -84,12 +86,16 @@ class EtsySpyListing(Base):
         Index("ix_etsy_spy_listings_tenant_observed", "tenant_id", "observed_at"),
         Index("ix_etsy_spy_listings_tenant_keyword", "tenant_id", "keyword"),
         Index("ix_etsy_spy_listings_tenant_tm_key", "tenant_id", "agent_id", "tm_key"),
+        Index("ix_etsy_spy_listings_active", "tenant_id", "agent_id", "is_current"),
     )
     tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     agent_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     source_session_id: Mapped[str] = mapped_column(String(150), primary_key=True)
     keyword: Mapped[str] = mapped_column(String(220), primary_key=True)
     source_kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    has_search: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_shop: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
     title: Mapped[str] = mapped_column(String(700), nullable=False)
     url: Mapped[str | None] = mapped_column(Text())

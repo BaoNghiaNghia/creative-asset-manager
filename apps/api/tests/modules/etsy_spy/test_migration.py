@@ -62,7 +62,11 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
     with engine.connect() as c:
         tables = set(inspect(c).get_table_names())
         assert expected.issubset(tables)
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0195_etsy_spy_projection"
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0196_etsy_spy_inventory"
+        assert {"is_current", "has_search", "has_shop"}.issubset({
+            column["name"] for column in inspect(c).get_columns("etsy_spy_listings")})
+        assert {"last_inventory_at", "last_inventory_count"}.issubset({
+            column["name"] for column in inspect(c).get_columns("etsy_spy_agents")})
         permissions = c.execute(text(
             "SELECT permission_key FROM permissions WHERE permission_key LIKE 'etsy_spy.%'"
         )).scalars().all()
@@ -75,7 +79,13 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
         )).all()
         assert set(assigned) == {("tenant_admin", "etsy_spy.read"),
                                  ("tenant_admin", "etsy_spy.manage")}
-    # An empty migration can be downgraded without touching source history.
+    # Schema-only 0196 downgrade must leave every original Etsy table intact.
+    command.downgrade(config, "0195_etsy_spy_projection")
+    with engine.connect() as c:
+        assert expected.issubset(inspect(c).get_table_names())
+        assert "is_current" not in {
+            column["name"] for column in inspect(c).get_columns("etsy_spy_listings")}
+    # Empty 0195 tables can still be downgraded without deleting source history.
     command.downgrade(config, "0194_typography_g3_pilot_shortlist")
     with engine.connect() as c:
         assert not expected.intersection(inspect(c).get_table_names())

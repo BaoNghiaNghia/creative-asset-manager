@@ -132,9 +132,12 @@ function EvidenceMarks({ matches }: { matches: Mark[] }) {
 function ProductRow({ item }: { item: Listing }) {
   const [expanded, setExpanded] = useState(false);
   const hasMarks = Boolean(item.tmMatches?.length);
+  const sourceKinds = item.sourceKinds?.length ? item.sourceKinds : item.metadata?.sourceKinds || [item.sourceKind];
+  const sourceLabel = sourceKinds.includes("search") && sourceKinds.includes("shop")
+    ? "Search + Shop" : sourceKinds.includes("shop") ? "Shop" : "Search";
   return <tr>
     <td>{item.keyword}</td>
-    <td><span className={"etsy-pill etsy-source-" + (item.sourceKind === "shop" ? "shop" : "search")}>{item.sourceKind}</span></td>
+    <td><span className={"etsy-pill etsy-source-" + (sourceKinds.includes("search") ? "search" : "shop")}>{sourceLabel}</span></td>
     <td><div className="etsy-badge-stack">
       {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
       <button type="button" className={"etsy-pill tm-" + tmClass(item.tm)}
@@ -287,6 +290,10 @@ export function EtsySpyPage() {
       <span>Last synchronized (GMT+7): <strong>{readableTime(summary?.last_synced_at)}</strong></span>
       <span className="etsy-freshness-divider" aria-hidden="true" />
       <span>{summary?.online_agents || 0}/{summary?.agent_count || 0} agents online</span>
+      {summary?.last_inventory_at && <>
+        <span className="etsy-freshness-divider" aria-hidden="true" />
+        <span>Listings reconciled: <strong>{readableTime(summary.last_inventory_at)}</strong></span>
+      </>}
       <span className="etsy-freshness-divider" aria-hidden="true" />
       <span>Windows is the source of truth. Offline does not delete synchronized data.</span>
     </div>

@@ -20,10 +20,12 @@ const summary = {
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
   online_agents: 0, agent_count: 1, source_status: "offline",
   last_synced_at: "2026-11-06T00:10:00Z",
+  last_inventory_at: "2026-11-06T00:09:00Z",
   last_seen_at: "2026-11-06T00:10:00Z",
 };
 const listing = {
   sessionId: "one", keyword: "Rudolph", sourceKind: "search",
+  sourceKinds: ["search", "shop"],
   listingKey: "123456789", pageTitle: "Rudolph Shirt", url: "https://www.etsy.com/listing/123456789",
   badge: "Bestseller", searchBadge: "Bestseller",
   bought24h: null, views24h: 20, inCarts: 25, demandScore: 0,
@@ -80,6 +82,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Bestseller");
     expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
+    expect(html).toContain("Listings reconciled");
+    expect(html).toContain("Search + Shop");
     expect(html).not.toContain("Safe");
     const pill = Array.from(container?.querySelectorAll("button") || [])
       .find(button => button.textContent === "LIVE");

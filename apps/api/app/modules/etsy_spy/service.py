@@ -6,7 +6,7 @@ import hmac
 import json
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -23,6 +23,8 @@ from .model import (
 MAX_BATCH_BYTES = 2 * 1024 * 1024
 MAX_BATCH_ROWS = 200
 MAX_SECTION_ROWS = 200
+MAX_INVENTORY_BYTES = 4 * 1024 * 1024
+MAX_INVENTORY_ROWS = 12000
 SECTIONS = ("sessions", "keywords", "listings", "trademarks", "logs")
 _SECRET_RE = re.compile(
     r"(?i)(bearer\s+)[^\s,;]+|"
@@ -191,14 +193,23 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
         tm_key = text(row.get("tmKey"), 64)
         if tm_key and not re.fullmatch(r"[0-9a-f]{64}", tm_key):
             raise HTTPException(422, "Invalid TM identity")
+        raw_kinds = row.get("sourceKinds")
+        if raw_kinds is not None and not isinstance(raw_kinds, list):
+            raise HTTPException(422, "Invalid listing sourceKinds")
+        source_kinds = {text(x, 20) for x in (raw_kinds or [source_kind])}
+        if not source_kinds or not source_kinds.issubset({"search", "shop"}):
+            raise HTTPException(422, "Invalid listing discovery sources")
         metadata = {
-            "sourceKinds": [text(x, 20) for x in (row.get("sourceKinds") or [])[:20]],
+            "sourceKinds": sorted(source_kinds),
             "keywordAliases": [text(x, 220) for x in (row.get("keywordAliases") or [])[:40]],
             "occurrences": integer(row.get("occurrences")),
             "keywordCount": integer(row.get("keywordCount")),
             "sessionCount": integer(row.get("sessionCount")),
         }
         values = {
+            "is_current": True,
+            "has_search": "search" in source_kinds,
+            "has_shop": "shop" in source_kinds,
             "title": title, "url": verified_url(row.get("url"), {"etsy.com", "www.etsy.com"}),
             "badge": text(row.get("badge"), 70),
             "search_badge": text(row.get("searchBadge"), 70),
@@ -352,6 +363,101 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
     db.commit()
     return {"ok": True, "replayed": False, "batch_id": batch_id,
             "cursor": cursor, "rows": total}
+
+
+def reconcile_listing_inventory(
+    db: Session, agent: EtsySpyAgent, body: bytes,
+) -> dict[str, Any]:
+    """Atomically switch the active read projection to the Windows source set.
+
+    No source observation is deleted. A partial/late inventory is rejected
+    before any active flag is changed, avoiding silent data loss during a
+    slow backfill, source pagination race, or network replay.
+    """
+    if len(body) > MAX_INVENTORY_BYTES:
+        raise HTTPException(413, "Listing inventory exceeds byte limit")
+    try:
+        packet = json.loads(body)
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(422, "Invalid inventory JSON") from exc
+    if not isinstance(packet, dict) or packet.get("schema_version") != 1:
+        raise HTTPException(422, "Unknown inventory schema")
+    incoming = packet.get("listings")
+    if not isinstance(incoming, list) or len(incoming) > MAX_INVENTORY_ROWS:
+        raise HTTPException(422, "Invalid listing inventory count")
+    snapshot_at = moment(packet.get("snapshot_at"))
+    if snapshot_at is None:
+        raise HTTPException(422, "Missing inventory timestamp")
+    if snapshot_at > utcnow() + timedelta(minutes=10):
+        raise HTTPException(422, "Inventory timestamp too far in future")
+    # Serialize updates for one agent. A prior retry cannot deactivate
+    # listings selected by a newer, already-committed source snapshot.
+    locked = db.scalar(select(EtsySpyAgent).where(
+        EtsySpyAgent.id == agent.id).with_for_update())
+    if locked is None or not locked.active:
+        raise HTTPException(401, "Agent unavailable")
+    previous = locked.last_inventory_at
+    if previous is not None and previous.tzinfo is None:
+        previous = previous.replace(tzinfo=timezone.utc)
+    if previous is not None and snapshot_at <= previous:
+        return {"ok": True, "replayed": True,
+                "count": locked.last_inventory_count or 0,
+                "snapshot_at": previous.isoformat()}
+    active: set[tuple[str, str, str, str]] = set()
+    listing_ids: set[str] = set()
+    for entry in incoming:
+        if not isinstance(entry, dict):
+            raise HTTPException(422, "Invalid inventory identity")
+        session_id = text(entry.get("sessionId"), 150, required=True)
+        keyword = text(entry.get("keyword"), 220, required=True)
+        kind = text(entry.get("sourceKind"), 20, required=True)
+        listing_key = text(entry.get("listingKey"), 150, required=True)
+        if kind not in {"search", "shop"} or not re.fullmatch(r"[0-9]{1,20}", listing_key):
+            raise HTTPException(422, "Invalid Etsy listing inventory identity")
+        active.add((session_id, keyword, kind, listing_key))
+        listing_ids.add(listing_key)
+    # SQLite's public source products are one representative row per
+    # Listing ID. Duplicates would indicate an incomplete/corrupted snapshot.
+    if len(active) != len(incoming) or len(listing_ids) != len(incoming):
+        raise HTTPException(422, "Inventory contains duplicate Listing IDs")
+    stored = db.scalars(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == agent.tenant_id,
+        EtsySpyListing.agent_id == agent.id)).all()
+    known = {
+        (row.source_session_id, row.keyword, row.source_kind, row.listing_key)
+        for row in stored
+    }
+    missing = active - known
+    if missing:
+        raise HTTPException(409, f"Listing inventory has {len(missing)} unsynchronized rows")
+    retired = updated = 0
+    for row in stored:
+        identity = (row.source_session_id, row.keyword, row.source_kind, row.listing_key)
+        current = identity in active
+        if row.is_current != current:
+            row.is_current = current
+            retired += int(not current)
+            updated += 1
+        if current:
+            metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+            raw_kinds = metadata.get("sourceKinds")
+            kinds = set(raw_kinds) if isinstance(raw_kinds, list) else set()
+            kinds &= {"search", "shop"}
+            if not kinds:
+                kinds = {row.source_kind}
+            want_search = "search" in kinds
+            want_shop = "shop" in kinds
+            if row.has_search != want_search or row.has_shop != want_shop:
+                row.has_search = want_search
+                row.has_shop = want_shop
+                updated += 1
+    locked.last_inventory_count = len(active)
+    locked.last_inventory_at = snapshot_at
+    locked.last_seen_at = utcnow()
+    db.commit()
+    return {"ok": True, "replayed": False, "count": len(active),
+            "retired": retired, "updated": updated,
+            "snapshot_at": snapshot_at.isoformat()}
 
 
 def verify_agent_and_batch(db: Session, agent_id: str, authorization: str | None) -> EtsySpyAgent:
