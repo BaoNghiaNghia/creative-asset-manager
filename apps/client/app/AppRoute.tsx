@@ -62,6 +62,12 @@ export function workspaceRouteForApplicationRoute(route: ApplicationRoute): Work
   return "assets";
 }
 
+/** Reuse CAM's permission-aware desktop sidebar on workspace routes that
+ * need persistent left navigation. Tablets and phones use ResponsiveWorkspaceNav. */
+export function usesDesktopWorkspaceSidebar(route: ApplicationRoute): boolean {
+  return route === "inventory" || route === "branding-dna" || route === "etsy-spy";
+}
+
 export function requiredPermissionForApplicationRoute(route: ApplicationRoute): string | null {
   if (route === "ai-operations" || route === "job-queue" || route === "branding-dna") return "ai_operations.read";
   if (route === "inventory") return "inventory.read";
@@ -121,7 +127,7 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{(route === "inventory" || route === "branding-dna") ? <aside className="inventory-desktop-sidebar" aria-label={route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={route === "branding-dna" ? "branding-dna" : "inventory"} /></aside> : null}<div className={route === "inventory" || route === "branding-dna" ? "inventory-route-main" : "app-route-content"}><Suspense fallback={<CenteredLoadingState
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{usesDesktopWorkspaceSidebar(route) && workspaceRoute ? <aside className="inventory-desktop-sidebar" aria-label={route === "etsy-spy" ? "Etsy Spy workspace sidebar" : route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={workspaceRoute} /></aside> : null}<div className={usesDesktopWorkspaceSidebar(route) ? (route === "etsy-spy" ? "inventory-route-main etsy-spy-route-main" : "inventory-route-main") : "app-route-content"}><Suspense fallback={<CenteredLoadingState
     kind="application"
     title="Loading application…"
     detail="Preparing the workspace and interface."

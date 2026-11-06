@@ -1,4 +1,13 @@
-/* Etsy Spy white workspace — scoped to this route; other CAM pages unchanged. */
+/* Etsy Spy white workspace — scoped to this route; other CAM pages unchanged.
+   Use the existing shared CAM desktop sidebar; the mobile navbar takes over
+   at <=1024px (see inventory.css and responsive-platform.css). */
+.etsy-spy-route-main{
+  min-width:0;
+  min-height:100vh;
+  background:#fff;
+}
+.etsy-spy-route-main > .etsy-spy-page{width:100%;}
+
 body:has(.etsy-spy-page),
 body:has(.etsy-spy-page) #root,
 body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }

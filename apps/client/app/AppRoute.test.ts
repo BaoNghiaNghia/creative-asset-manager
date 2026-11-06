@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiredPermissionForApplicationRoute, routeForPath, workspaceRouteForApplicationRoute } from "./AppRoute";
+import { requiredPermissionForApplicationRoute, routeForPath, usesDesktopWorkspaceSidebar, workspaceRouteForApplicationRoute } from "./AppRoute";
 
 describe("responsive workspace routing", () => {
   it("maps internal application routes to the shared workspace navigation", () => {
@@ -14,6 +14,17 @@ describe("responsive workspace routing", () => {
     expect(workspaceRouteForApplicationRoute("etsy-spy")).toBe("etsy-spy");
     expect(workspaceRouteForApplicationRoute("review-board")).toBe("review-board");
     expect(workspaceRouteForApplicationRoute("access-management")).toBe("access");
+  });
+
+  it("uses the existing permission-aware desktop sidebar on Etsy Spy, Inventory and Branding", () => {
+    expect(usesDesktopWorkspaceSidebar("etsy-spy")).toBe(true);
+    expect(usesDesktopWorkspaceSidebar("inventory")).toBe(true);
+    expect(usesDesktopWorkspaceSidebar("branding-dna")).toBe(true);
+    expect(usesDesktopWorkspaceSidebar("explorer")).toBe(false);
+    expect(usesDesktopWorkspaceSidebar("tiktokshop-scout-ugc")).toBe(false);
+    expect(usesDesktopWorkspaceSidebar("public-review")).toBe(false);
+    expect(workspaceRouteForApplicationRoute("etsy-spy")).toBe("etsy-spy");
+    expect(requiredPermissionForApplicationRoute("etsy-spy")).toBe("etsy_spy.read");
   });
 
   it("does not show workspace navigation on public or legal routes", () => {
