@@ -368,3 +368,25 @@ def test_blacklist_hides_old_and_future_products_and_restores_on_delete(scenario
     assert removed.json()["phrases"] == ["cat"]
     assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 3
     assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 3
+def test_unbadged_listing_with_19_verified_views_is_visible_in_cam(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    payload = batch("batch-unbadged-views", title="Vintage Winter Snow Shirt")
+    row = payload["records"]["listings"][0]
+    row.update({
+        "pageTitle": "Vintage Winter Snow Shirt",
+        "badge": "", "searchBadge": "",
+        "views24h": 19, "inCarts": 8, "bought24h": None,
+    })
+    assert sync(client, agent, headers, payload).status_code == 200
+    overview = client.get("/api/v1/etsy-spy/summary").json()
+    assert overview["listings"] == 1
+    assert overview["search"] == 1
+    result = client.get("/api/v1/etsy-spy/listings").json()
+    assert result["total"] == 1
+    item = result["items"][0]
+    assert item["views24h"] == 19
+    assert not item["badge"] and not item["searchBadge"]
+    assert item["inCarts"] == 8
+    assert "Vintage Winter Snow Shirt" in client.get(
+        "/api/v1/etsy-spy/export.csv").text
