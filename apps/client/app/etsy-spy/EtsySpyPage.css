@@ -484,6 +484,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .etsy-stat-total{--etsy-stat-color:#3d5e90;background:#f7f9fc}
+.etsy-stat-picked{--etsy-stat-color:#227654;background:#f0faf4}
 .etsy-stat-keywords{--etsy-stat-color:#3f65bc;background:#f3f6ff}
 .etsy-stat-search{--etsy-stat-color:#3a73c6;background:#f3f7ff}
 .etsy-stat-shop{--etsy-stat-color:#378568;background:#f1faf6}
@@ -571,6 +572,21 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   color:#3260b6;text-decoration:none;font-size:17px;font-weight:750;
 }
 .etsy-action-cell a:hover{background:#e9f1ff;border-color:#93b0e0}
+.etsy-row-actions{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.etsy-action-cell .etsy-pick-button{
+  display:inline-grid;place-items:center;flex:0 0 26px;width:26px;height:26px;
+  padding:4px;border:1px solid #c9d8ec;border-radius:7px;
+  color:#50739a;background:#fff;transition:background .14s ease,border-color .14s ease;
+}
+.etsy-action-cell .etsy-pick-button svg{width:15px;height:15px}
+.etsy-action-cell .etsy-pick-button:hover:not(:disabled){
+  color:#236a4c;border-color:#77b9a1;background:#edf9f2;
+}
+.etsy-action-cell .etsy-pick-button.is-picked{
+  color:#fff;background:#21835b;border-color:#21835b;
+}
+.etsy-table-wrap .etsy-data-table.is-products th:last-child,
+.etsy-table-wrap .etsy-data-table.is-products td:last-child{min-width:96px}
 /* Trademark rows: readable evidence counts with stable columns. */
 .etsy-table-wrap .etsy-data-table.is-trademarks{min-width:780px}
 .etsy-table-wrap .etsy-data-table.is-trademarks th:nth-child(1),
@@ -948,6 +964,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-sms-preview,.etsy-sms-primary{max-width:none}
   .etsy-sms-primary{font-size:12px;white-space:normal;overflow-wrap:anywhere}
   .etsy-action-cell a{width:37px;height:37px}
+  .etsy-action-cell .etsy-pick-button{width:37px;height:37px;flex-basis:37px}
+  .etsy-action-cell .etsy-pick-button svg{width:20px;height:20px}
 
   /* Trademark, log, and expandable keyword tree share the same card surface. */
   .etsy-data-table.is-trademarks tbody td,

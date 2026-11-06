@@ -19,7 +19,7 @@ from app.modules.authorization.navigation_scope import (
 )
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
-    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist,
+    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -27,7 +27,7 @@ from app.modules.etsy_spy.service import create_agent
 
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
-    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist,
+    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
 )
 
 
@@ -426,3 +426,87 @@ def test_carts_20_plus_or_views_above_five_require_source_badge(scenario):
     for i, row in enumerate(variants):
         title = products[i]["pageTitle"]
         assert (title in csv_text) is row[-1]
+
+def test_pick_moves_eligible_listing_and_unpick_restores_without_touching_sync(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing_id = "1234567890"
+    endpoint = f"/api/v1/etsy-spy/listings/{listing_id}/pick"
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 1
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 0
+
+    assert client.put(endpoint, json={"picked": True}).json() == {
+        "listingKey": listing_id, "picked": True,
+    }
+    assert client.put(endpoint, json={"picked": True}).status_code == 200
+    assert db.query(EtsySpyPicked).filter_by(
+        tenant_id="boostgame", listing_key=listing_id).count() == 1
+    after = client.get("/api/v1/etsy-spy/summary").json()
+    assert after["listings"] == 0
+    assert after["picked"] == 1
+    assert client.get("/api/v1/etsy-spy/listings").json()["items"] == []
+    chosen = client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()
+    assert chosen["total"] == 1 and chosen["items"][0]["picked"] is True
+    assert chosen["items"][0]["listingKey"] == listing_id
+    assert listing_id not in client.get("/api/v1/etsy-spy/export.csv").text
+    assert listing_id in client.get(
+        "/api/v1/etsy-spy/export.csv?pick_state=picked").text
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=invalid").status_code == 422
+
+    # New Windows batch for the same Etsy ID does not reset the user's decision.
+    later = batch("batch-after-pick")
+    later["records"]["listings"][0]["inCarts"] = 28
+    assert sync(client, agent, headers, later).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 1
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 0
+    # Unauthorized readers may see but never change selections.
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.put(endpoint, json={"picked": False}).status_code == 403
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").status_code == 200
+    principal.effective_permissions = frozenset({"etsy_spy.read", "etsy_spy.manage"})
+    assert client.put(endpoint, json={"picked": False}).status_code == 200
+    assert client.put(endpoint, json={"picked": False}).status_code == 200
+    final = client.get("/api/v1/etsy-spy/summary").json()
+    assert final["listings"] == 1 and final["picked"] == 0
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 0
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 1
+    assert client.put(endpoint, json={"picked": "yes"}).status_code == 422
+    assert client.put("/api/v1/etsy-spy/listings/not-an-id/pick",
+                      json={"picked": True}).status_code == 422
+    assert client.put("/api/v1/etsy-spy/listings/9999999999/pick",
+                      json={"picked": True}).status_code == 404
+
+
+def test_pick_is_tenant_scoped_across_sources_and_blacklist(scenario):
+    client, db, principal = scenario
+    first_agent, first_headers = pair(client, db)
+    assert sync(client, first_agent, first_headers, batch()).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(endpoint, json={"picked": True}).status_code == 200
+
+    # An independent Shop observation of the same product must follow the same Pick.
+    shop = batch("batch-shop-same-product")
+    row = shop["records"]["listings"][0]
+    row.update({"sourceKind": "shop", "keyword": "Rudolph sweatshirt",
+                "badge": "Popular now", "searchBadge": ""})
+    assert sync(client, first_agent, first_headers, shop).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 0
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] >= 1
+
+    other_agent, other_headers = pair(client, db, tenant="other-tenant")
+    assert sync(client, other_agent, other_headers, batch("other-batch")).status_code == 200
+    principal.active_tenant_id = "other-tenant"
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 1
+    principal.active_tenant_id = "boostgame"
+    # Blacklist still overrides both the Eligible and Picked tables.
+    assert client.post("/api/v1/etsy-spy/blacklist",
+                       json={"phrases": ["rudolph"]}).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 0
+    assert db.get(EtsySpyPicked, ("boostgame", "1234567890")) is not None
+    assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 1

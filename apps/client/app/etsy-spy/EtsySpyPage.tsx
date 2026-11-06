@@ -40,11 +40,12 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
 };
 type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
+  pickState: "eligible" | "picked";
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
 const baseOptions: Options = {
-  tab: "products", page: 1, pageSize: 50, q: "",
+  tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
   sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
@@ -54,6 +55,7 @@ function fromLocation(): Options {
   const tab = TABS.find(t => t.id === p.get("tab"))?.id || "products";
   return {
     ...baseOptions, tab,
+    pickState: p.get("pick_state") === "picked" ? "picked" : "eligible",
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
     q: p.get("q") || "", sessionId: p.get("session_id") || "",
@@ -69,6 +71,7 @@ function queryFor(o: Options): URLSearchParams {
   query.set("page", String(o.page));
   query.set("page_size", String(o.pageSize));
   if (o.q.trim()) query.set("q", o.q.trim());
+  if (o.tab === "products" && o.pickState === "picked") query.set("pick_state", "picked");
   if (o.sessionId) query.set("session_id", o.sessionId);
   if (o.source) query.set("source", o.source);
   if (o.badge) query.set("badge", o.badge);
@@ -115,6 +118,7 @@ function tmDescription(status: string, deadMatches = 0) {
 }
 const SUMMARY_ICONS = [
   "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
+  "M4 12.5 9 17l11-11",
   "M15.5 7.5a5 5 0 1 0-1 4.2L21 18v3h-3v-3h-3v-3l-1.7-1.7",
   "m12 2 10 5-10 5L2 7l10-5Zm-10 10 10 5 10-5M2 17l10 5 10-5",
   "M2 3h2l2.5 11h12L21 6H5M9 20h.01M18 20h.01",
@@ -141,7 +145,9 @@ function EvidenceMarks({ matches }: { matches?: Mark[] | null }) {
     </div>)}
   </div>;
 }
-function ProductRow({ item }: { item: Listing }) {
+function ProductRow({ item, canPick, busy, onPick }: {
+  item: Listing; canPick: boolean; busy: boolean; onPick: (item: Listing) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [smsExpanded, setSmsExpanded] = useState(false);
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
@@ -203,9 +209,23 @@ function ProductRow({ item }: { item: Listing }) {
     <td className="etsy-num">{item.views24h ?? "—"}</td>
     <td className="etsy-num">{item.inCarts ?? "—"}</td>
     <td className="etsy-time">{readableTime(item.observedAt)}</td>
-    <td className="etsy-action-cell">{item.url
-      ? <a href={item.url} target="_blank" rel="noopener noreferrer" aria-label={"Open Etsy listing: " + item.pageTitle} title="Open on Etsy">↗</a>
-      : <span className="etsy-muted">—</span>}</td>
+    <td className="etsy-action-cell">
+      <div className="etsy-row-actions">
+        <button type="button"
+          className={"etsy-pick-button" + (item.picked ? " is-picked" : "")}
+          aria-label={(item.picked ? "Unpick " : "Pick ") + item.pageTitle}
+          title={canPick ? (item.picked ? "Unpick · return to Eligible listings" : "Pick · move to Picked") : "Manage permission required"}
+          aria-pressed={Boolean(item.picked)} disabled={!canPick || busy}
+          onClick={() => onPick(item)}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5 10 17l9-10" />
+          </svg>
+        </button>
+        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer"
+          aria-label={"Open Etsy listing: " + item.pageTitle} title="Open on Etsy">↗</a>}
+      </div>
+    </td>
   </tr>;
 }
 
@@ -256,6 +276,8 @@ export function EtsySpyPage() {
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistBusy, setBlacklistBusy] = useState(false);
   const [blacklistError, setBlacklistError] = useState("");
+  const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
+  const [pickError, setPickError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
@@ -355,6 +377,25 @@ export function EtsySpyPage() {
       setBlacklistError(e instanceof Error ? e.message : "Cannot remove phrase");
     } finally {setBlacklistBusy(false);}
   };
+  const togglePicked = async (item: Listing) => {
+    if (!canManage || pickBusyKey !== null) return;
+    setPickBusyKey(item.listingKey);
+    setPickError("");
+    try {
+      await spyFetch<{ listingKey: string; picked: boolean }>(
+        "/listings/" + encodeURIComponent(item.listingKey) + "/pick", {
+          method: "PUT", body: JSON.stringify({ picked: !item.picked }),
+        });
+      // Refetch the correct bucket, counters and current page atomically.
+      // Only the user decision moves a product; a Scout re-sync never resets it.
+      update({ page: 1 });
+      setRefresh(n => n + 1);
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : "Cannot change Pick state");
+    } finally {
+      setPickBusyKey(null);
+    }
+  };
   const columns = useMemo(() => {
     if (options.tab === "products") return SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
@@ -375,7 +416,7 @@ export function EtsySpyPage() {
     setTypedSearch("");
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "",
-      status: "", level: "", phase: "",
+      status: "", level: "", phase: "", pickState: "eligible",
       sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
         : tab === "trademarks" ? "checkedAt" : "updatedAt",
       dir: "desc", page: 1, ...filters,
@@ -385,9 +426,13 @@ export function EtsySpyPage() {
     title: string; value: number | string | null | undefined; hint: string;
     tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
   }[] = [
-    { title: "Eligible listings", value: summary?.listings, hint: "Current Etsy products",
+    { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
       tone: "total", tab: "products",
-      selected: activeTab === "products" && !options.source && !options.tm },
+      selected: activeTab === "products" && options.pickState === "eligible" &&
+        !options.source && !options.tm },
+    { title: "Picked", value: summary?.picked ?? 0, hint: "Manually selected products",
+      tone: "picked", tab: "products", filters: { pickState: "picked" },
+      selected: activeTab === "products" && options.pickState === "picked" },
     { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
     { title: "Search", value: summary?.search, hint: "Found in Etsy Search",
@@ -573,10 +618,13 @@ export function EtsySpyPage() {
       <small>LIVE is a potential warning. DEAD or no match never proves trademark clearance. Verify at <a
         target="_blank" rel="noopener noreferrer" href="https://tsdr.uspto.gov/">USPTO TSDR</a>.</small>
     </section>}
+    {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
     <div className="etsy-table-section-header">
-      <h2>{TABS.find(x => x.id === activeTab)?.title} <span>({activeTab === "keywords"
+      <h2>{activeTab === "products"
+        ? (options.pickState === "picked" ? "Picked" : "Eligible listings")
+        : TABS.find(x => x.id === activeTab)?.title} <span>({activeTab === "keywords"
         ? (options.sessionId ? "Session" : summary?.keywords?.toLocaleString() ?? "—")
         : rows ? rows.total.toLocaleString() : "—"})</span></h2>
       <span className="etsy-table-count">{activeTab === "keywords"
@@ -605,7 +653,9 @@ export function EtsySpyPage() {
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
-              <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey} item={item} />)
+              <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
+                item={item} canPick={canManage} busy={pickBusyKey !== null}
+                onPick={togglePicked} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}

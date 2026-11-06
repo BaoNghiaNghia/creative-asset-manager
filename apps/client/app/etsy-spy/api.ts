@@ -10,7 +10,7 @@ export type AgentStatus = {
   local_api_version: string | null;
 };
 export type Summary = {
-  keywords: number; listings: number; sessions: number;
+  keywords: number; listings: number; picked: number; sessions: number;
   search: number; shop: number; trademarks: number; tm_pending: number; tm_checked?: number;
   errors: number; warnings: number; online_agents: number; agent_count: number;
   source_status: "online" | "offline" | "sync_delayed" | "never_synced";
@@ -27,6 +27,7 @@ export type Mark = {
 };
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
+  picked: boolean;
   pageTitle: string; url: string | null; badge: string | null;
   searchBadge: string | null; bought24h: number | null; views24h: number | null;
   inCarts: number | null; demandScore: number | null; observedAt: string | null;

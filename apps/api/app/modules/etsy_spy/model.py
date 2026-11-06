@@ -41,6 +41,19 @@ class EtsySpyBlacklist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyPicked(Base):
+    """User-picked Etsy listings, stable across sync sessions and source agents."""
+    __tablename__ = "etsy_spy_picked"
+    __table_args__ = (
+        Index("ix_etsy_spy_picked_tenant_at", "tenant_id", "picked_at"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    picked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False,
+    )
+
+
 class EtsySpyBatch(Base):
     __tablename__ = "etsy_spy_sync_batches"
     __table_args__ = (UniqueConstraint("tenant_id", "agent_id", "batch_id", name="uq_etsy_spy_batch"),)

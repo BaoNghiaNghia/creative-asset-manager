@@ -20,7 +20,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
-    EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpySession as SessionRow,
+    EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
+    EtsySpySession as SessionRow,
     EtsySpyKeyword as Keyword, EtsySpyListing as Listing,
     EtsySpyTrademark as Trademark, EtsySpyLog as Log,
     utcnow,
@@ -136,11 +137,20 @@ def _qualified_listing_condition():
                 or_(_valid_source_badge("search"), _valid_source_badge("shop")))
 
 
-def _blacklist_visible_count(db: Session, tenant: str) -> int:
+def _picked_condition(tenant: str):
+    # One selection per tenant and Etsy Listing ID, regardless of the
+    # number of sessions, keywords or Search/Shop observations.
+    return (select(literal(1)).select_from(Picked)
+            .where(Picked.tenant_id == tenant,
+                   Picked.listing_key == Listing.listing_key)
+            .exists())
+
+
+def _blacklist_visible_count(db: Session, tenant: str):
     return int(db.scalar(select(func.count(func.distinct(Listing.listing_key))).where(
         Listing.tenant_id == tenant, Listing.is_current.is_(True),
         ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant),
-        _qualified_listing_condition())) or 0)
+        _qualified_listing_condition(), not_(_picked_condition(tenant)))) or 0)
 
 
 @router.get("/blacklist")
@@ -193,7 +203,10 @@ def _listings_query(
     tenant: str, *, q: str = "", session_id: str | None = None,
     source: str = "", badge: str = "", tm: str = "",
     sort: str = "observedAt", direction: str = "desc",
+    pick_state: str = "eligible",
 ) -> tuple[Any, Any]:
+    if pick_state not in {"eligible", "picked"}:
+        raise HTTPException(422, "Invalid Picked view")
     condition = [
         Listing.tenant_id == tenant,
         Listing.is_current.is_(True),
@@ -201,6 +214,8 @@ def _listings_query(
         ~Listing.title.ilike("%custom%"),
         _blacklist_condition(tenant),
         _qualified_listing_condition(),
+        _picked_condition(tenant) if pick_state == "picked"
+        else not_(_picked_condition(tenant)),
     ]
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
@@ -255,14 +270,14 @@ def _tm_expression():
     )
 
 
-def _listing_item(row: Listing, check: Trademark | None) -> dict:
+def _listing_item(row: Listing, check: Trademark | None, *, picked: bool = False) -> dict:
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
     return {
         "sessionId": row.source_session_id, "keyword": row.keyword,
         "sourceKind": row.source_kind,
         "sourceKinds": [kind for kind, present in (
             ("search", row.has_search), ("shop", row.has_shop)) if present],
-        "listingKey": row.listing_key,
+        "listingKey": row.listing_key, "picked": picked,
         "pageTitle": row.title, "url": row.url, "badge": row.badge,
         "searchBadge": row.search_badge, "bought24h": row.bought24h,
         "views24h": row.views24h, "inCarts": row.in_carts,
@@ -294,11 +309,14 @@ def summary(
     # Same denominator as the Windows Diagnostics: unique Etsy Listing IDs.
     # A listing may be discovered in *both* Search and Shop.
     unique = func.count(func.distinct(Listing.listing_key))
-    listings_count = int(db.scalar(select(unique).where(*active)) or 0)
+    picked_filter = _picked_condition(tenant)
+    eligible = [*active, not_(picked_filter)]
+    listings_count = int(db.scalar(select(unique).where(*eligible)) or 0)
+    picked_count = int(db.scalar(select(unique).where(*active, picked_filter)) or 0)
     search_count = int(db.scalar(select(unique).where(
-        *active, _valid_source_badge("search"))) or 0)
+        *eligible, _valid_source_badge("search"))) or 0)
     shop_count = int(db.scalar(select(unique).where(
-        *active, _valid_source_badge("shop"))) or 0)
+        *eligible, _valid_source_badge("shop"))) or 0)
     tm_join = and_(
         Trademark.tenant_id == Listing.tenant_id,
         Trademark.agent_id == Listing.agent_id,
@@ -306,7 +324,7 @@ def summary(
         Trademark.kind == "product",
     )
     tm_query = select(unique).select_from(Listing).outerjoin(
-        Trademark, tm_join).where(*active)
+        Trademark, tm_join).where(*eligible)
     pending = int(db.scalar(tm_query.where(or_(
         Trademark.check_id.is_(None),
         Trademark.status.in_(["pending", "running"]),
@@ -323,7 +341,8 @@ def summary(
     return jsonable_encoder({
         **fresh, "sessions": count(db, SessionRow, tenant),
         "keywords": count(db, Keyword, tenant),
-        "listings": listings_count, "search": search_count, "shop": shop_count,
+        "listings": listings_count, "picked": picked_count,
+        "search": search_count, "shop": shop_count,
         "trademarks": count(db, Trademark, tenant),
         "tm_pending": pending, "tm_checked": checked,
         "last_inventory_at": last_inventory,
@@ -349,16 +368,55 @@ def listings(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
+    pick_state: str = "eligible",
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     tenant = principal.active_tenant_id
     query, total_q = _listings_query(
         tenant, q=q, session_id=session_id, source=source, badge=badge,
-        tm=tm, sort=sort, direction=dir,
+        tm=tm, sort=sort, direction=dir, pick_state=pick_state,
     )
     rows, total = _paged(db, query, total_q, page, page_size)
-    return _response([_listing_item(listing, tmcheck) for listing, tmcheck in rows],
+    return _response([_listing_item(listing, tmcheck, picked=pick_state == "picked")
+                      for listing, tmcheck in rows],
                      total, page, page_size, freshness(db, tenant))
+
+
+@router.put("/listings/{listing_key}/pick")
+async def set_listing_pick(
+    listing_key: str, request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE), db: Session = Depends(get_db),
+):
+    """Idempotent, reversible user decision independent of Windows sync rows."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("picked"), bool):
+        raise HTTPException(422, "picked must be true or false")
+    tenant = principal.active_tenant_id
+    target = db.get(Picked, (tenant, listing_key))
+    if payload["picked"]:
+        # Never pick an unqualified, blacklisted or foreign-tenant product.
+        eligible = db.scalar(select(literal(1)).select_from(Listing).where(
+            Listing.tenant_id == tenant,
+            Listing.listing_key == listing_key,
+            Listing.is_current.is_(True),
+            ~Listing.title.ilike("%custom%"),
+            _blacklist_condition(tenant),
+            _qualified_listing_condition(),
+        ).limit(1))
+        if eligible is None:
+            raise HTTPException(404, "Eligible listing not found")
+        if target is None:
+            db.add(Picked(tenant_id=tenant, listing_key=listing_key,
+                          picked_at=utcnow()))
+    elif target is not None:
+        db.delete(target)
+    db.commit()
+    return {"listingKey": listing_key, "picked": payload["picked"]}
 
 
 @router.get("/keywords")
@@ -543,14 +601,17 @@ def _csv_response(headers: list[str], rows: list[dict], filename: str):
 def export_listings(
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
+    pick_state: str = "eligible",
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     query, _ = _listings_query(principal.active_tenant_id, q=q, session_id=session_id,
-                              source=source, badge=badge, tm=tm, sort=sort, direction=dir)
+                              source=source, badge=badge, tm=tm,
+                              sort=sort, direction=dir, pick_state=pick_state)
     rows = db.execute(query.limit(MAX_CSV_ROWS)).all()
     headers = ["sessionId", "keyword", "sourceKind", "badge", "tm", "bought24h",
                "views24h", "inCarts", "demandScore", "pageTitle", "url", "observedAt"]
-    return _csv_response(headers, [_listing_item(listing, check) for listing, check in rows],
+    return _csv_response(headers, [_listing_item(listing, check, picked=pick_state == "picked")
+                                   for listing, check in rows],
                          "CAM-Etsy-Spy-Listings.csv")
 
 

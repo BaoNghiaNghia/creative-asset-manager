@@ -17,6 +17,7 @@ vi.mock("../../features/access_management", () => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const observed: string[] = [];
 let blockedTerms: string[] = [];
+let pickedKeys = new Set<string>();
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -69,7 +70,7 @@ function json(value: unknown) {
     headers: {"content-type": "application/json"}});
 }
 function installFetch() {
-  observed.length = 0; blockedTerms = [];
+  observed.length = 0; blockedTerms = []; pickedKeys = new Set<string>();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     observed.push(url);
@@ -83,7 +84,15 @@ function installFetch() {
       return json({phrases: blockedTerms});
     }
     if (url.endsWith("/blacklist")) return json({phrases: blockedTerms});
-    if (url.includes("/summary")) return json(summary);
+    if (url.includes("/listings/") && url.endsWith("/pick") && init?.method === "PUT") {
+      const id = url.split("/listings/")[1]?.split("/")[0] || "";
+      const body = JSON.parse(String(init.body)) as { picked: boolean };
+      if (body.picked) pickedKeys.add(id); else pickedKeys.delete(id);
+      return json({listingKey: id, picked: body.picked});
+    }
+    if (url.includes("/summary")) return json({
+      ...summary, picked: pickedKeys.size, listings: summary.listings - pickedKeys.size,
+    });
     if (url.includes("/sessions")) return json({ items: [
       { id: "one", keyword: "Rudolph", status: "completed" },
     ]});
@@ -117,8 +126,15 @@ function installFetch() {
       page: 1, page_size: 50, total: 3, pages: 1, source_status: "offline",
       });
     }
-    if (url.includes("/listings")) return json({items: [listing, popularNoMatch, deadListing], page: 1, page_size: 50,
-      total: 3, pages: 1, last_synced_at: summary.last_synced_at, source_status: "offline"});
+    if (url.includes("/listings?")) {
+      const pickedView = new URL(url, "http://localhost").searchParams.get("pick_state") === "picked";
+      const visible = [listing, popularNoMatch, deadListing].filter(x =>
+        pickedKeys.has(x.listingKey) === pickedView).map(x =>
+          ({ ...x, picked: pickedKeys.has(x.listingKey) }));
+      return json({items: visible, page: 1, page_size: 50,
+        total: visible.length, pages: 1, last_synced_at: summary.last_synced_at,
+        source_status: "offline"});
+    }
     return json({items: [], page:1,page_size:50,total:0,pages:0,
       last_synced_at:summary.last_synced_at,source_status:"offline"});
   }));
@@ -191,7 +207,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(7);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(8);
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
@@ -356,5 +372,62 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async()=>{remove?.click(); await new Promise(r=>setTimeout(r,50));});
     expect(blockedTerms).toEqual(["cat"]);
     expect(container?.textContent).toContain("Blacklist (1)");
+  });
+
+  it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    expect(container?.querySelector(".etsy-stat-picked")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stat-picked strong")?.textContent).toBe("0");
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    const button = container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Pick Rudolph Shirt"]');
+    expect(button?.disabled).toBe(false);
+    expect(button?.querySelector("svg")).toBeTruthy();
+    await act(async () => {
+      button?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(pickedKeys.has(listing.listingKey)).toBe(true);
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(2);
+    expect(container?.querySelector(".etsy-stat-picked strong")?.textContent).toBe("1");
+    expect(observed.some(x => x.includes("/listings/123456789/pick"))).toBe(true);
+    const picked = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
+    await act(async () => {
+      picked?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(picked?.getAttribute("aria-pressed")).toBe("true");
+    expect(container?.querySelector(".etsy-table-section-header h2")?.textContent)
+      .toContain("Picked");
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
+    expect(container?.textContent).toContain("Rudolph Shirt");
+    expect(observed.some(x => x.includes("pick_state=picked"))).toBe(true);
+    const unpick = container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Unpick Rudolph Shirt"]');
+    expect(unpick?.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      unpick?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(pickedKeys.size).toBe(0);
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(0);
+    expect(container?.querySelector(".etsy-stat-picked strong")?.textContent).toBe("0");
+    const eligible = container?.querySelector<HTMLButtonElement>(".etsy-stat-total");
+    await act(async () => {
+      eligible?.click();
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    expect(container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Pick Rudolph Shirt"]')).toBeTruthy();
+  });
+
+  it("disables Pick for users without manage permission", async () => {
+    await start();
+    expect(container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Pick Rudolph Shirt"]')?.disabled).toBe(true);
   });
 });
