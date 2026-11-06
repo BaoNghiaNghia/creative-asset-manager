@@ -1,5 +1,58 @@
 # Realistic Review UGC Pinterest Auto Scout
 
+## v61 — Shared network load governor for four simultaneous Scouts (2026-11-06)
+
+The **Review, Keyword, Cap Stack and TikTokShop** Scouts keep their independent
+Chrome profiles, search history, cookies, jobs and leases. To avoid saturating
+the Windows internet connection when all four run, they now share a small
+cross-process OS file lock named `.cam-scout-network-load.lock` in the
+repository root. It is Git-ignored, contains no session data and is
+automatically unlocked by Windows when an agent exits or crashes.
+
+- Exactly **one heavy Pinterest navigation / search scroll burst** runs at a
+  time across the 4 processes. Other agents wait cooperatively without
+  stealing a Chrome profile or dropping existing jobs. The lock applies to
+  searches, Pin details, related discovery, reloads and Keyword Scout.
+  One-shot Typography Browser Scout follows the same rules when enabled.
+- After the Pinterest page/scroll produces Pin links, the Scout waits for
+  **visible Pin thumbnail images** to load and the Pin count to stabilize.
+  Waiting is capped (normally 2–6 seconds) because Pinterest has
+  never-ending feeds and analytics; it does NOT wait for networkidle.
+  Empty-search and verification pages retain their existing fallback.
+- A successful product scan waits for visible image stability and an
+  additional **2.5–4 seconds** before the next product is claimed.
+  Keyword Scout likewise waits between cycles. Existing API run leases
+  continue renewing while waiting.
+- Chrome DevTools selectively blocks large autoplay **video/media** and font
+  URLs. It does NOT block, downscale or re-fetch Pinterest image renditions,
+  page scripts, documents or login/challenge assets. In particular it avoids
+  Playwright `context.route`, which disables Chrome's HTTP cache.
+- Existing `--pace careful` remains the default. The new governor is a
+  network/bandwidth control, not a bypass of Pinterest restrictions.
+  Rate-limit and verification cooldowns remain unchanged.
+- New structured logs: `scout_network_gate_waited`,
+  `scout_network_page_ready`, `scout_network_page_settle_timeout`,
+  `scout_network_next_product_pause` and
+  `scout_network_low_bandwidth_enabled`. They show which phase caused delay,
+  Pin/thumbnail counts and wait times without recording browser credentials.
+- The shared lock path can be overridden for advanced installations using
+  `RRUGC_SCOUT_NETWORK_GATE_FILE`, but all simultaneous Scouts MUST use the
+  same file. The default works without any configuration for agents launched
+  by the same Windows Scout Manager checkout.
+
+**Deploy:** Publish `main`, then on the Windows tool open Scout Manager,
+choose **Pause all**, allow the safe source update while idle and use
+**Run automation**. Inspect the console/Diagnostics for
+`rrugc-scout-v61-shared-network-pacing` and the network gate log events.
+The Manager binary does not need rebuilding and there is no CAM API database
+migration. The rollback is the previous Git commit; no Chrome profile,
+Pinterest login, scout history or existing reference image is deleted.
+
+**Trade-off:** Discovery throughput per agent may decrease (intentionally) to
+preserve total network responsiveness when four agents are active. The
+governor does not enforce a fixed Mbps limit; it prevents overlapping large
+page-load bursts while preserving normal cached thumbnail delivery.
+
 This companion runtime runs on a user-controlled desktop or laptop with Chrome/Chromium. Pinterest cookies and profile data stay on that machine.
 
 ## One-click Windows launcher

@@ -16,6 +16,7 @@ apps/branding-dna-worker/reports/
 apps/branding-dna-worker/profiles/
 
 # Local Pinterest Scout runtime/config
+.cam-scout-network-load.lock
 scout.local.env
 scout.local.env.*
 apps/scout-manager-desktop/src-tauri/target/

@@ -86,6 +86,8 @@ jobs:
           try {
             python -m pytest -q test_scout.py -k "profile or recovery or repair"
             if ($LASTEXITCODE -ne 0) { exit 1 }
+            python -m pytest -q test_network_load.py
+            if ($LASTEXITCODE -ne 0) { exit 1 }
           } finally {
             Pop-Location
           }
@@ -213,7 +215,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             throw ("Release already exists: " + $tag + ". Bump the app version before publishing another binary.")
           }
-          & gh release create $tag @assets --target $env:GITHUB_SHA --title ("RRUGC Scout Manager " + $version + " with Branding DNA") --notes "Fixes Chrome Profile error risk: Python Scout v60 preserves Pinterest Chrome profile and cookies, repairs only corrupt Preferences with backups, and Windows Manager v0.1.52 defers source updates while Scout is active. NSIS installer and portable EXE with SHA-256. Existing Scout profiles and pairing are preserved."
+          & gh release create $tag @assets --target $env:GITHUB_SHA --title ("RRUGC Scout Manager " + $version + " with Branding DNA") --notes "Scout v61: shared four-agent Pinterest network gate, page image-load readiness, cooldown before next product, Chrome cached thumbnails preserved, autoplay media/font suppression. Includes prior Chrome profile-integrity protections. Windows Scout Manager v0.1.53 installer/portable with SHA-256, existing Pinterest sessions and credentials preserved."
           if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed" }
           Write-Host ("Published immutable " + $tag + " with checksums")
       - name: Windows release install / idempotence / corruption smoke

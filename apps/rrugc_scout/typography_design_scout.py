@@ -20,6 +20,7 @@ from scout import (
     ScoutProfileLock, access_gate, allowed_image, extract_visible,
     guard_pinterest_response, launch_context, _windows_profile_owners,
     mark_pinterest_login_ready, clear_pinterest_login_ready,
+    scout_network_slot, wait_for_visible_pin_images, scout_debug_event,
 )
 
 BASE_PATH = "/api/v1/realistic-review-ugc/typography/scout-agents/"
@@ -73,8 +74,13 @@ async def download_image(client: httpx.AsyncClient, image_url: str) -> tuple[byt
 
 async def scan_one_query(page, *, query: str) -> list:
     url = "https://www.pinterest.com/search/pins/?q=" + quote_plus(query)
-    response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-    guard_pinterest_response(response)
+    async with scout_network_slot("typography_search", log=scout_debug_event):
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        guard_pinterest_response(response)
+        await wait_for_visible_pin_images(
+            page, phase="typography_search", timeout_ms=5_000,
+            log=scout_debug_event,
+        )
     await page.wait_for_timeout(1800)
     gate = await access_gate(page)
     if gate is not None:
@@ -88,8 +94,13 @@ async def scan_one_query(page, *, query: str) -> list:
             if len(candidates) >= 18:
                 break
         if pass_index < 2 and len(candidates) < 18:
-            await page.mouse.wheel(0, 1150)
-            await page.wait_for_timeout(1200)
+            async with scout_network_slot("typography_scroll", log=scout_debug_event):
+                await page.mouse.wheel(0, 1150)
+                await page.wait_for_timeout(1200)
+                await wait_for_visible_pin_images(
+                    page, phase="typography_scroll", timeout_ms=3_000,
+                    log=scout_debug_event,
+                )
     return list(candidates.values())[:18]
 
 

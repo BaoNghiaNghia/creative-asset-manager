@@ -26,9 +26,15 @@ from uuid import uuid4
 
 import httpx
 from cap_stack_feedback import CapStackFeedbackFilter
+from network_load import (
+    apply_low_bandwidth_routes,
+    scout_network_slot,
+    wait_for_visible_pin_images,
+    wait_between_products,
+)
 
 
-CLIENT_VERSION = "rrugc-scout-v60-profile-integrity"
+CLIENT_VERSION = "rrugc-scout-v61-shared-network-pacing"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -620,12 +626,16 @@ async def _goto_pin_detail_with_retry(page: Any, pin_url: str) -> Any:
             else PIN_DETAIL_RETRY_TIMEOUT_MS
         )
         try:
-            response = await page.goto(
-                pin_url,
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
-            )
-            guard_pinterest_response(response)
+            async with scout_network_slot("pin_detail", log=scout_debug_event):
+                response = await page.goto(
+                    pin_url,
+                    wait_until="domcontentloaded",
+                    timeout=timeout_ms,
+                )
+                guard_pinterest_response(response)
+                await wait_for_visible_pin_images(
+                    page, phase="pin_detail", timeout_ms=2_000, log=scout_debug_event,
+                )
             return response
         except (PinterestAccessGateError, PinterestRateLimitedError):
             raise
@@ -1850,14 +1860,18 @@ async def extract_related_candidates(
                 break
         if len(collected) >= wanted or step >= max_scroll_steps:
             break
-        previous_count = await loaded_pin_count(page)
-        await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
-        await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
-        await wait_for_pin_growth(
-            page,
-            previous_count=previous_count,
-            timeout_ms=3_500,
-        )
+        async with scout_network_slot("related_scroll", log=scout_debug_event):
+            previous_count = await loaded_pin_count(page)
+            await page.mouse.wheel(0, random.randint(*pace.scroll_step_px))
+            await page.wait_for_timeout(random.randint(*pace.scroll_step_pause_ms))
+            await wait_for_pin_growth(
+                page,
+                previous_count=previous_count,
+                timeout_ms=3_500,
+            )
+            await wait_for_visible_pin_images(
+                page, phase="related_scroll", timeout_ms=2_000, log=scout_debug_event,
+            )
 
     return list(collected.values())[:wanted]
 
@@ -2084,12 +2098,13 @@ async def access_gate(page: Any) -> str | None:
 async def startup_access_gate(page: Any) -> str | None:
     """Check Pinterest access before any Scout campaign is claimed or scanned."""
     try:
-        response = await page.goto(
-            "https://www.pinterest.com/",
-            wait_until="domcontentloaded",
-            timeout=60_000,
-        )
-        guard_pinterest_response(response)
+        async with scout_network_slot("startup_pinterest", log=scout_debug_event):
+            response = await page.goto(
+                "https://www.pinterest.com/",
+                wait_until="domcontentloaded",
+                timeout=60_000,
+            )
+            guard_pinterest_response(response)
     except PinterestAccessGateError as exc:
         return exc.gate
     await page.wait_for_timeout(2_500)
@@ -3118,18 +3133,22 @@ async def scan_auto_run(
         query = quote_plus(search_query)
         url = "https://www.pinterest.com/search/pins/?q=" + query
         await heartbeat_if_due(force=True)
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        guard_pinterest_response(response)
-        loaded_count = await review_browser_step(
-            "initial_pin_growth",
-            wait_for_pin_growth(
-                page,
-                previous_count=0,
-                timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-            ),
-            campaign_id=campaign_id,
-            run_id=run_id,
-        )
+        async with scout_network_slot("search_open", log=scout_debug_event):
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            guard_pinterest_response(response)
+            loaded_count = await review_browser_step(
+                "initial_pin_growth",
+                wait_for_pin_growth(
+                    page,
+                    previous_count=0,
+                    timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                ),
+                campaign_id=campaign_id,
+                run_id=run_id,
+            )
+            await wait_for_visible_pin_images(
+                page, phase="search_open", timeout_ms=6_000, log=scout_debug_event,
+            )
         initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
 
         gate = await review_browser_step(
@@ -3528,22 +3547,27 @@ async def scan_auto_run(
                     loaded_count,
                     current_pin_count,
                 )
-                scrolled_px = await review_browser_step(
-                    "paced_scroll",
-                    paced_scroll(page, pace),
-                    campaign_id=campaign_id,
-                    run_id=run_id,
-                )
-                loaded_count = await review_browser_step(
-                    "scroll_pin_growth",
-                    wait_for_pin_growth(
-                        page,
-                        previous_count=before_scroll_count,
-                        timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
-                    ),
-                    campaign_id=campaign_id,
-                    run_id=run_id,
-                )
+                async with scout_network_slot("search_scroll", log=scout_debug_event):
+                    scrolled_px = await review_browser_step(
+                        "paced_scroll",
+                        paced_scroll(page, pace),
+                        campaign_id=campaign_id,
+                        run_id=run_id,
+                    )
+                    loaded_count = await review_browser_step(
+                        "scroll_pin_growth",
+                        wait_for_pin_growth(
+                            page,
+                            previous_count=before_scroll_count,
+                            timeout_ms=SCROLL_RESULTS_TIMEOUT_MS,
+                        ),
+                        campaign_id=campaign_id,
+                        run_id=run_id,
+                    )
+                    await wait_for_visible_pin_images(
+                        page, phase="search_scroll", timeout_ms=3_000,
+                        log=scout_debug_event,
+                    )
                 print(
                     "campaign="
                     + str(task["campaign_id"])
@@ -3592,8 +3616,13 @@ async def scan_page(
     """Legacy bounded one-shot campaign scan."""
     query = quote_plus(str(task["query"]))
     url = "https://www.pinterest.com/search/pins/?q=" + query
-    response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-    guard_pinterest_response(response)
+    async with scout_network_slot("legacy_search", log=scout_debug_event):
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        guard_pinterest_response(response)
+        await wait_for_pin_growth(page, previous_count=0, timeout_ms=INITIAL_RESULTS_TIMEOUT_MS)
+        await wait_for_visible_pin_images(
+            page, phase="legacy_search", timeout_ms=5_000, log=scout_debug_event,
+        )
     await page.wait_for_timeout(2_500)
 
     gate = await access_gate(page)
@@ -3657,8 +3686,12 @@ async def scan_page(
                 await client.heartbeat("ready")
                 return
 
-        await page.mouse.wheel(0, 2600)
-        await page.wait_for_timeout(1_500)
+        async with scout_network_slot("legacy_scroll", log=scout_debug_event):
+            await page.mouse.wheel(0, 2600)
+            await page.wait_for_timeout(1_500)
+            await wait_for_visible_pin_images(
+                page, phase="legacy_scroll", timeout_ms=3_000, log=scout_debug_event,
+            )
 
     await client.heartbeat("ready")
 
@@ -3693,6 +3726,7 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
 
     try:
         context = await playwright.chromium.launch_persistent_context(**options)
+        await apply_low_bandwidth_routes(context, log=scout_debug_event)
         return playwright, context
     except Exception as first_error:
         if sys.platform != "win32" or not _looks_like_profile_launch_collision(first_error):
@@ -3712,6 +3746,7 @@ async def launch_context(args: argparse.Namespace) -> tuple[Any, Any]:
         await asyncio.sleep(0.75)
         try:
             context = await playwright.chromium.launch_persistent_context(**options)
+            await apply_low_bandwidth_routes(context, log=scout_debug_event)
             print("Pinterest Scout Chrome recovered and started successfully.")
             return playwright, context
         except Exception as retry_error:
@@ -4083,6 +4118,11 @@ async def run_agent(args: argparse.Namespace) -> None:
                     browser_runtime_failures = 0
                     runtime_error_streak = 0
                     successful_runs_since_restart += 1
+                    # A completed product still has in-flight Pinterest image
+                    # requests after its API acknowledgement. Give the visible
+                    # images time to settle before claiming the next product.
+                    if not args.once and page is not None:
+                        await wait_between_products(page, log=scout_debug_event)
                 except PinterestAccessGateError as exc:
                     await client.complete(
                         str(task["run"]["id"]),

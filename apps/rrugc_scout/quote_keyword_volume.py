@@ -56,6 +56,9 @@ from scout import (
     shutdown_scout_remote_log,
     startup_access_gate,
     wait_for_pin_growth,
+    scout_network_slot,
+    wait_for_visible_pin_images,
+    wait_between_products,
 )
 
 
@@ -1023,9 +1026,10 @@ async def scroll_search_with_watchdog(
 ) -> None:
     """Bound a Pinterest scroll even if the browser RPC stops responding."""
     try:
-        await asyncio.wait_for(
-            _scroll_search_page(page, pace), timeout=timeout_seconds,
-        )
+        async with scout_network_slot("keyword_scroll", log=scout_debug_event):
+            await asyncio.wait_for(
+                _scroll_search_page(page, pace), timeout=timeout_seconds,
+            )
     except asyncio.TimeoutError as exc:
         scout_debug_event(
             "keyword_scout_scroll_watchdog_timeout",
@@ -1054,6 +1058,9 @@ async def _scroll_search_page(page: Any, pace) -> None:
     )
     settle_ms = random.randint(*KEYWORD_SCROLL_SETTLE_MS)
     await page.wait_for_timeout(settle_ms)
+    await wait_for_visible_pin_images(
+        page, phase="keyword_scroll", timeout_ms=3_000, log=scout_debug_event,
+    )
     scout_debug_event(
         "keyword_scout_scroll_completed",
         pace=pace.name,
@@ -1946,17 +1953,22 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 # Pinterest often holds DOMContentLoaded behind third-party
                 # requests for 60s even though navigation has committed.
                 # Pin-growth and access checks below still validate readiness.
-                response = await page.goto(
-                    search_url,
-                    wait_until="commit",
-                    timeout=60_000,
-                )
-                guard_pinterest_response(response)
-                await wait_for_pin_growth(
-                    page,
-                    previous_count=0,
-                    timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-                )
+                async with scout_network_slot("keyword_search", log=scout_debug_event):
+                    response = await page.goto(
+                        search_url,
+                        wait_until="commit",
+                        timeout=60_000,
+                    )
+                    guard_pinterest_response(response)
+                    await wait_for_pin_growth(
+                        page,
+                        previous_count=0,
+                        timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                    )
+                    await wait_for_visible_pin_images(
+                        page, phase="keyword_search", timeout_ms=6_000,
+                        log=scout_debug_event,
+                    )
                 await _wait_for_pinterest_access(page)
                 initial_dwell = await paced_wait(page, pace.initial_dwell_ms)
                 scout_debug_event(
@@ -2026,16 +2038,21 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                         )
                         if gate is not None:
                             raise PinterestAccessGateError(gate)
-                        response = await page.reload(
-                            wait_until="domcontentloaded",
-                            timeout=60_000,
-                        )
-                        guard_pinterest_response(response)
-                        await wait_for_pin_growth(
-                            page,
-                            previous_count=0,
-                            timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
-                        )
+                        async with scout_network_slot("keyword_reload", log=scout_debug_event):
+                            response = await page.reload(
+                                wait_until="domcontentloaded",
+                                timeout=60_000,
+                            )
+                            guard_pinterest_response(response)
+                            await wait_for_pin_growth(
+                                page,
+                                previous_count=0,
+                                timeout_ms=INITIAL_RESULTS_TIMEOUT_MS,
+                            )
+                            await wait_for_visible_pin_images(
+                                page, phase="keyword_reload", timeout_ms=5_000,
+                                log=scout_debug_event,
+                            )
                         empty_batch_streak = 0
                         await paced_wait(page, pace.inspect_dwell_ms)
                         visible = await extract_visible_pin_candidates(page)
@@ -2716,6 +2733,8 @@ async def run_pinterest_quote_scout(args: argparse.Namespace) -> None:
                 )
                 if no_quote_cycles >= 3:
                     next_cycle_seconds = max(next_cycle_seconds, 600)
+                if page is not None and not args.once:
+                    await wait_between_products(page, log=scout_debug_event)
                 print(
                     "Keyword Scout cycle complete. "
                     + "processed="

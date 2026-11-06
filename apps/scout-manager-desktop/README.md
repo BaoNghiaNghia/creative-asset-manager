@@ -1,5 +1,26 @@
 # RRUGC Scout Manager
 
+## v0.1.53 — Four-agent network pacing (2026-11-06)
+
+This release packages **Scout v61** so Review, Keyword, TikTokShop and
+Cap Stack can run together without four overlapping heavy Pinterest page-load
+bursts. All agents share one OS-owned network load gate in the checked-out
+repository root. Images remain intact and Chrome caches normally; only
+nonessential video/font traffic is blocked through Chrome DevTools, without
+Playwright request interception.
+
+Searches wait for visible thumbnails and stable Pin links before
+scrolling or moving to the next product, with bounded timeouts and a
+2.5–4 second inter-product cooldown. The gate automatically releases if
+a Scout exits or crashes. Existing separate profiles, sessions, picks and
+logs remain unchanged. See
+`apps/rrugc_scout/README.md` for all network wait phases and diagnostics.
+
+Rollout is safe: use **Pause all** in Manager before applying source updates,
+then **Run automation**. Active Chrome jobs are never forcibly terminated
+just to fast-forward source. Windows CI verifies cross-process lock behavior
+before publishing the versioned NSIS/Portable installers.
+
 ## v0.1.52 — Chrome profile integrity and safe Scout update (2026-11-05)
 
 Fixes the Chrome **"Profile error occurred"** risk after Scout Manager
