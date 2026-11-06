@@ -319,3 +319,97 @@ def test_cpu_sampler_is_available_on_windows_without_external_packages():
         assert all(isinstance(part, int) and part >= 0 for part in sample)
     else:
         assert sample is None
+
+def test_search_page_freezes_during_detail_and_resumes_afterward(monkeypatch):
+    monkeypatch.delenv("RRUGC_SCOUT_FREEZE_SEARCH_TAB", raising=False)
+    events = []
+    class Session:
+        async def send(self, name, params=None):
+            events.append((name, params))
+        async def detach(self):
+            events.append(("detach", None))
+    class Context:
+        async def new_cdp_session(self, search_page):
+            events.append(("session", None))
+            return Session()
+    class SearchPage:
+        context = Context()
+        async def bring_to_front(self):
+            events.append(("search-front", None))
+    class DetailPage:
+        async def bring_to_front(self):
+            events.append(("detail-front", None))
+    logging = []
+    async def exercise():
+        async with network_load.quiet_background_search_page(
+            SearchPage(), DetailPage(),
+            log=lambda event, **kwargs: logging.append(event),
+        ):
+            events.append(("processing", None))
+        assert [name for name, _ in events] == [
+            "detail-front", "session", "Page.enable",
+            "Page.setWebLifecycleState", "processing",
+            "Page.setWebLifecycleState", "detach",
+        ]
+        assert events[3][1] == {"state": "frozen"}
+        assert events[5][1] == {"state": "active"}
+        assert logging == ["scout_background_search_frozen",
+                           "scout_background_search_resumed"]
+    asyncio.run(exercise())
+
+
+def test_search_page_unfreezes_even_when_detail_raises(monkeypatch):
+    monkeypatch.delenv("RRUGC_SCOUT_FREEZE_SEARCH_TAB", raising=False)
+    commands = []
+    class Session:
+        async def send(self, name, params=None):
+            commands.append((name, params))
+        async def detach(self):
+            commands.append(("detach", None))
+    class Context:
+        async def new_cdp_session(self, _page):
+            return Session()
+    search = SimpleNamespace(context=Context())
+    detail = SimpleNamespace()
+    async def exercise():
+        with pytest.raises(ValueError):
+            async with network_load.quiet_background_search_page(search, detail):
+                raise ValueError("detail failure")
+        assert commands[-2:] == [
+            ("Page.setWebLifecycleState", {"state": "active"}),
+            ("detach", None),
+        ]
+    asyncio.run(exercise())
+
+
+def test_freeze_unavailable_does_not_block_detail_or_leave_tab_suspended(monkeypatch):
+    monkeypatch.delenv("RRUGC_SCOUT_FREEZE_SEARCH_TAB", raising=False)
+    events = []
+    class BadContext:
+        async def new_cdp_session(self, _page):
+            raise RuntimeError("not supported")
+    search = SimpleNamespace(context=BadContext())
+    detail = SimpleNamespace()
+    async def exercise():
+        async with network_load.quiet_background_search_page(
+            search, detail, log=lambda e, **k: events.append(e),
+        ):
+            events.append("detail_works")
+        assert events == [
+            "scout_background_search_freeze_unavailable", "detail_works",
+        ]
+    asyncio.run(exercise())
+
+
+def test_freeze_can_be_disabled_and_skips_same_tab(monkeypatch):
+    class UnexpectedContext:
+        async def new_cdp_session(self, _page):
+            raise AssertionError("must not attach CDP")
+    page = SimpleNamespace(context=UnexpectedContext())
+    async def exercise():
+        async with network_load.quiet_background_search_page(page, page):
+            pass
+        monkeypatch.setenv("RRUGC_SCOUT_FREEZE_SEARCH_TAB", "0")
+        async with network_load.quiet_background_search_page(page, object()):
+            pass
+    asyncio.run(exercise())

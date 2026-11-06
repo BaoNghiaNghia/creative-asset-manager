@@ -29,13 +29,14 @@ from cap_stack_feedback import CapStackFeedbackFilter
 from network_load import (
     apply_low_bandwidth_routes,
     prefer_background_scout_priority,
+    quiet_background_search_page,
     scout_network_slot,
     wait_for_visible_pin_images,
     wait_between_products,
 )
 
 
-CLIENT_VERSION = "rrugc-scout-v62-cpu-aware-four-agents"
+CLIENT_VERSION = "rrugc-scout-v63-search-page-freeze"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -3004,13 +3005,16 @@ async def scan_auto_run(
             if not chunk:
                 continue
             video_keys: set[str] = set()
-            resolved_chunk = await resolve_pin_details(
-                page,
-                chunk,
-                detail_page=related_page,
-                concurrency=1,
-                video_skipped=video_keys,
-            )
+            async with quiet_background_search_page(
+                page, related_page, log=scout_debug_event,
+            ):
+                resolved_chunk = await resolve_pin_details(
+                    page,
+                    chunk,
+                    detail_page=related_page,
+                    concurrency=1,
+                    video_skipped=video_keys,
+                )
             resolved_keys = {
                 pin_history_key(row.pin_url)
                 for row in resolved_chunk
@@ -3357,13 +3361,16 @@ async def scan_auto_run(
                 if not chunk:
                     continue
                 video_keys: set[str] = set()
-                resolved_chunk = await resolve_pin_details(
-                    page,
-                    chunk,
-                    detail_page=detail_page,
-                    concurrency=1,
-                    video_skipped=video_keys,
-                )
+                async with quiet_background_search_page(
+                    page, detail_page, log=scout_debug_event,
+                ):
+                    resolved_chunk = await resolve_pin_details(
+                        page,
+                        chunk,
+                        detail_page=detail_page,
+                        concurrency=1,
+                        video_skipped=video_keys,
+                    )
                 resolved_by_pin = {
                     pin_history_key(row.pin_url): row
                     for row in resolved_chunk
@@ -3661,12 +3668,15 @@ async def scan_page(
             chunk = fresh[start:start + 25]
             if not chunk:
                 continue
-            resolved_chunk = await resolve_pin_details(
-                page,
-                chunk,
-                detail_page=detail_page,
-                concurrency=1,
-            )
+            async with quiet_background_search_page(
+                page, detail_page, log=scout_debug_event,
+            ):
+                resolved_chunk = await resolve_pin_details(
+                    page,
+                    chunk,
+                    detail_page=detail_page,
+                    concurrency=1,
+                )
             if not resolved_chunk:
                 scout_debug_event(
                     "candidate_submit_skipped_empty",

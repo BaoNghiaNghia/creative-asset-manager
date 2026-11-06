@@ -257,6 +257,83 @@ async def apply_low_bandwidth_routes(
         await attach(page)
 
 
+@asynccontextmanager
+async def quiet_background_search_page(
+    search_page: Any,
+    detail_page: Any | None,
+    *,
+    log: Callable[..., Any] | None = None,
+) -> AsyncIterator[None]:
+    """Pause offscreen Pinterest search JS while a separate tab resolves Pins.
+
+    A large, endlessly scrolled Pinterest search DOM may consume a whole CPU
+    core *while the Scout is doing detail work in another tab*. Freezing the
+    inactive page is much cheaper than reloading images or closing the browser.
+    It does not touch authentication, the persistent Chrome profile, or the
+    selected candidates. An unsupported CDP method fails open.
+    """
+    if (
+        detail_page is None
+        or detail_page is search_page
+        or os.getenv("RRUGC_SCOUT_FREEZE_SEARCH_TAB", "1") == "0"
+    ):
+        yield
+        return
+    context = getattr(search_page, "context", None)
+    session = None
+    frozen = False
+    try:
+        bring_to_front = getattr(detail_page, "bring_to_front", None)
+        if callable(bring_to_front):
+            await asyncio.wait_for(bring_to_front(), timeout=2.0)
+        create_session = getattr(context, "new_cdp_session", None)
+        if callable(create_session):
+            session = await asyncio.wait_for(
+                create_session(search_page), timeout=2.0,
+            )
+            await asyncio.wait_for(session.send("Page.enable"), timeout=2.0)
+            await asyncio.wait_for(
+                session.send("Page.setWebLifecycleState", {"state": "frozen"}),
+                timeout=2.0,
+            )
+            frozen = True
+            if log:
+                log("scout_background_search_frozen")
+    except Exception as exc:
+        if log:
+            log("scout_background_search_freeze_unavailable",
+                error_type=type(exc).__name__)
+    try:
+        yield
+    finally:
+        if session is not None:
+            if frozen:
+                try:
+                    await asyncio.wait_for(
+                        session.send("Page.setWebLifecycleState",
+                                     {"state": "active"}),
+                        timeout=2.0,
+                    )
+                    if log:
+                        log("scout_background_search_resumed")
+                except Exception as exc:
+                    if log:
+                        log("scout_background_search_resume_failed",
+                            error_type=type(exc).__name__)
+                    # A foreground tab resumes as well; never leave a search
+                    # tab suspended when continuing discovery.
+                    bring_back = getattr(search_page, "bring_to_front", None)
+                    if callable(bring_back):
+                        try:
+                            await asyncio.wait_for(bring_back(), timeout=2.0)
+                        except Exception:
+                            pass
+            try:
+                await asyncio.wait_for(session.detach(), timeout=2.0)
+            except Exception:
+                pass
+
+
 async def wait_for_visible_pin_images(
     page: Any,
     *,
