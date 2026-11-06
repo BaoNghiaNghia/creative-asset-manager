@@ -30,8 +30,11 @@ export type Listing = {
   pageTitle: string; url: string | null; badge: string | null;
   searchBadge: string | null; bought24h: number | null; views24h: number | null;
   inCarts: number | null; demandScore: number | null; observedAt: string | null;
+  keywordSms?: string[]; keywordSmsQuery?: string;
+  keywordSmsStatus?: string; keywordSmsCheckedAt?: string | null;
   metadata?: {sourceKinds: string[]; keywordAliases: string[];
-    occurrences: number | null; keywordCount: number | null; sessionCount: number | null;} | null;
+    occurrences: number | null; keywordCount: number | null; sessionCount: number | null;
+    keywordSms?: string[]; keywordSmsQuery?: string; keywordSmsStatus?: string;} | null;
   tm: string; tmStatus: string; tmSource: string | null; tmCheckedAt: string | null;
   tmSourceAsOf: string | null; tmMatches?: Mark[] | null;
 };

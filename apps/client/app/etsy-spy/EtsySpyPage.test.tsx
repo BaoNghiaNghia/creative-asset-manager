@@ -28,6 +28,8 @@ const listing = {
   sourceKinds: ["search", "shop"],
   listingKey: "123456789", pageTitle: "Rudolph Shirt", url: "https://www.etsy.com/listing/123456789",
   badge: "Bestseller", searchBadge: "Bestseller",
+  keywordSms: ["mama christian shirt", "mama christian hoodie", "mama christian sweatshirt"],
+  keywordSmsQuery: "mama christian", keywordSmsStatus: "ready",
   bought24h: null, views24h: 20, inCarts: 25, demandScore: 0,
   observedAt: "2026-11-06T00:00:00Z", tm: "LIVE", tmStatus: "complete",
   tmSource: "TMHunt", tmCheckedAt: "2026-11-06T00:00:00Z",
@@ -37,6 +39,7 @@ const listing = {
 const popularNoMatch = {
   ...listing, listingKey: "111", pageTitle: "Popular sample", badge: "Popular now",
   searchBadge: "Popular now", tm: "no_match", tmMatches: [],
+  keywordSms: [], keywordSmsStatus: "no_suggestions",
 };
 const deadListing = {
   ...listing, listingKey: "222", pageTitle: "Dead trademark sample", tm: "DEAD",
@@ -134,6 +137,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Agent offline");
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
+    expect(html).toContain("Keyword SMS");
+    const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th") || []).map(x => x.textContent?.trim());
+    expect(headings.indexOf("Keyword SMS")).toBe(headings.indexOf("Etsy Badge + TM") - 1);
+    expect(html).toContain("mama christian shirt");
+    const expandSms = container?.querySelector(".etsy-sms-expand") as HTMLButtonElement;
+    expect(expandSms?.textContent).toBe("+2");
+    await act(async () => {expandSms.click();});
+    expect(container?.textContent).toContain("mama christian sweatshirt");
     expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
     expect(html).toContain("Listings reconciled");

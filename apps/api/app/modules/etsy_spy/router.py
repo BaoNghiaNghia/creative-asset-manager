@@ -157,6 +157,7 @@ def _tm_expression():
 
 
 def _listing_item(row: Listing, check: Trademark | None) -> dict:
+    metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
     return {
         "sessionId": row.source_session_id, "keyword": row.keyword,
         "sourceKind": row.source_kind,
@@ -170,6 +171,10 @@ def _listing_item(row: Listing, check: Trademark | None) -> dict:
         "searchPosition": row.search_position, "sourceShopUrl": row.source_shop_url,
         "bestseller": row.bestseller, "observedAt": row.observed_at,
         "metadata": row.metadata_json,
+        "keywordSms": metadata.get("keywordSms", []) if isinstance(metadata.get("keywordSms"), list) else [],
+        "keywordSmsQuery": metadata.get("keywordSmsQuery", ""),
+        "keywordSmsStatus": metadata.get("keywordSmsStatus", "not_checked"),
+        "keywordSmsCheckedAt": metadata.get("keywordSmsCheckedAt"),
         "tm": _tm_label(check), "tmStatus": check.status if check else "pending",
         "tmSource": check.source if check else None,
         "tmCheckedAt": check.checked_at if check else None,

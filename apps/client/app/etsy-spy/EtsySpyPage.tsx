@@ -18,7 +18,8 @@ const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
 const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
   products: [
     { id: "pageTitle", text: "Product / Etsy" }, { id: "keyword", text: "Keyword" },
-    { id: "sourceKind", text: "Source" }, { id: "badge", text: "Etsy Badge + TM" },
+    { id: "sourceKind", text: "Source" }, { id: "keywordSms", text: "Keyword SMS" },
+    { id: "badge", text: "Etsy Badge + TM" },
     { id: "bought24h", text: "Bought / 24h" }, { id: "views24h", text: "Views / 24h" },
     { id: "inCarts", text: "Carts" }, { id: "observedAt", text: "Observed" },
   ],
@@ -142,6 +143,10 @@ function EvidenceMarks({ matches }: { matches?: Mark[] | null }) {
 }
 function ProductRow({ item }: { item: Listing }) {
   const [expanded, setExpanded] = useState(false);
+  const [smsExpanded, setSmsExpanded] = useState(false);
+  const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
+    (Array.isArray(item.metadata?.keywordSms) ? item.metadata.keywordSms : []);
+  const smsStatus = item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
   const tmMatches = safeMarks(item.tmMatches);
   const hasMarks = tmMatches.length > 0;
   const deadMatches = tmMatches.filter(mark => mark.liveStatus?.toUpperCase() === "DEAD").length;
@@ -166,6 +171,22 @@ function ProductRow({ item }: { item: Listing }) {
     </td>
     <td className="etsy-keyword-cell"><strong title={item.keyword}>{item.keyword}</strong></td>
     <td><span className={"etsy-pill etsy-source-" + (sourceKinds.includes("search") ? "search" : "shop")}>{sourceLabel}</span></td>
+    <td className="etsy-sms-cell">
+      {sms.length ? <div className="etsy-sms-preview">
+        <span className="etsy-sms-primary" title={sms[0]}>{sms[0]}</span>
+        {sms.length > 1 && <button type="button" className="etsy-sms-expand"
+          aria-expanded={smsExpanded} aria-label={"Show " + sms.length + " keyword SMS suggestions"}
+          onClick={() => setSmsExpanded(!smsExpanded)}>
+          {smsExpanded ? "Less" : "+" + (sms.length - 1)}
+        </button>}
+        {smsExpanded && <div className="etsy-sms-more">
+          {sms.slice(1).map((value, index) => <div key={index} title={value}>{value}</div>)}
+        </div>}
+      </div> : <span className="etsy-muted"
+        title={smsStatus === "no_suggestions" ? "Etsy returned no apparel suffixes" : "Autocomplete has not been checked"}>
+        {smsStatus === "no_suggestions" ? "None" : "—"}
+      </span>}
+    </td>
     <td><div className="etsy-badge-stack">
       {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
       {hasMarks ? <button type="button" className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)}
@@ -521,10 +542,12 @@ export function EtsySpyPage() {
           <table className={"etsy-data-table is-" + activeTab}><thead><tr>
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              <button type="button" onClick={() => sortColumn(col.id)}
+              {col.id === "keywordSms" ? <span className="etsy-static-header" title="Search Match Suggestions">
+                {col.text}
+              </span> : <button type="button" onClick={() => sortColumn(col.id)}
                 aria-label={"Sort by " + col.text}>
                 {col.text}{options.sort === col.id ? (options.dir === "asc" ? " ↑" : " ↓") : ""}
-              </button>
+              </button>}
             </th>)}
             {activeTab === "logs" && <th>Message / Stack</th>}
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}

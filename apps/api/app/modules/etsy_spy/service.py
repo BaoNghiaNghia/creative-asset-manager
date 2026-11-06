@@ -199,12 +199,20 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
         source_kinds = {text(x, 20) for x in (raw_kinds or [source_kind])}
         if not source_kinds or not source_kinds.issubset({"search", "shop"}):
             raise HTTPException(422, "Invalid listing discovery sources")
+        sms_raw = row.get("keywordSms") or []
+        if not isinstance(sms_raw, list) or len(sms_raw) > 12:
+            raise HTTPException(422, "Invalid keyword SMS evidence")
+        sms = [text(x, 150) for x in sms_raw if isinstance(x, str) and text(x, 150)]
         metadata = {
             "sourceKinds": sorted(source_kinds),
             "keywordAliases": [text(x, 220) for x in (row.get("keywordAliases") or [])[:40]],
             "occurrences": integer(row.get("occurrences")),
             "keywordCount": integer(row.get("keywordCount")),
             "sessionCount": integer(row.get("sessionCount")),
+            "keywordSms": sms,
+            "keywordSmsQuery": text(row.get("keywordSmsQuery"), 180),
+            "keywordSmsStatus": text(row.get("keywordSmsStatus"), 32) or "not_checked",
+            "keywordSmsCheckedAt": text(row.get("keywordSmsCheckedAt"), 45),
         }
         values = {
             "is_current": True,
