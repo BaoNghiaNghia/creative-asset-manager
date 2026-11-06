@@ -368,25 +368,49 @@ def test_blacklist_hides_old_and_future_products_and_restores_on_delete(scenario
     assert removed.json()["phrases"] == ["cat"]
     assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 3
     assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 3
-def test_unbadged_listing_with_19_verified_views_is_visible_in_cam(scenario):
+def test_views_above_five_and_source_badge_are_both_mandatory(scenario):
     client, db, _ = scenario
     agent, headers = pair(client, db)
-    payload = batch("batch-unbadged-views", title="Vintage Winter Snow Shirt")
-    row = payload["records"]["listings"][0]
-    row.update({
-        "pageTitle": "Vintage Winter Snow Shirt",
-        "badge": "", "searchBadge": "",
-        "views24h": 19, "inCarts": 8, "bought24h": None,
-    })
-    assert sync(client, agent, headers, payload).status_code == 200
+    payload = batch("batch-strict-views-badge")
+    variants = [
+        # source, Search badge, Shop badge, views, bought24h, carts, qualifies
+        ("search", "", "", 19, None, 8, False),
+        ("search", "Bestseller", "Bestseller", 5, 30, 100, False),
+        ("search", "Bestseller", "Bestseller", 6, None, 0, True),
+        ("search", "Popular now", "Popular now", 19, None, 8, True),
+        ("search", "", "Bestseller", 19, None, 8, False),
+        ("shop", "", "Popular now", 6, None, 8, True),
+        ("shop", "Bestseller", "", 19, None, 8, False),
+        ("search", "Etsy's Pick", "Etsy's Pick", 19, None, 8, False),
+    ]
+    products = []
+    for i, (source, search_badge, shop_badge, views, bought, carts, _) in enumerate(variants):
+        row = product(title=f"Winter Snow Shirt Variant {i}")
+        row["sourceKind"] = source
+        row["listingKey"] = str(1234567910 + i)
+        row["url"] = f"https://www.etsy.com/listing/{row['listingKey']}/winter-shirt"
+        row["searchBadge"] = search_badge
+        row["badge"] = shop_badge
+        row["views24h"] = views
+        row["bought24h"] = bought
+        row["inCarts"] = carts
+        products.append(row)
+    payload["records"]["listings"] = products
+    sent = sync(client, agent, headers, payload)
+    assert sent.status_code == 200, sent.text
     overview = client.get("/api/v1/etsy-spy/summary").json()
-    assert overview["listings"] == 1
-    assert overview["search"] == 1
-    result = client.get("/api/v1/etsy-spy/listings").json()
-    assert result["total"] == 1
-    item = result["items"][0]
-    assert item["views24h"] == 19
-    assert not item["badge"] and not item["searchBadge"]
-    assert item["inCarts"] == 8
-    assert "Vintage Winter Snow Shirt" in client.get(
-        "/api/v1/etsy-spy/export.csv").text
+    assert overview["listings"] == 3
+    assert overview["search"] == 2
+    assert overview["shop"] == 1
+    result = client.get("/api/v1/etsy-spy/listings", params={"page_size": 50}).json()
+    assert result["total"] == 3
+    actual_keys = {item["listingKey"] for item in result["items"]}
+    expected_keys = {products[i]["listingKey"] for i, row in enumerate(variants) if row[-1]}
+    assert actual_keys == expected_keys
+    assert all(item["views24h"] > 5 for item in result["items"])
+    assert client.get("/api/v1/etsy-spy/listings", params={"source": "search"}).json()["total"] == 2
+    assert client.get("/api/v1/etsy-spy/listings", params={"source": "shop"}).json()["total"] == 1
+    csv_text = client.get("/api/v1/etsy-spy/export.csv").text
+    for i, row in enumerate(variants):
+        title = products[i]["pageTitle"]
+        assert (title in csv_text) is row[-1]

@@ -120,10 +120,27 @@ def _blacklist_view(db: Session, tenant: str) -> dict:
     return {"phrases": phrases, "revision": fingerprint, "count": len(phrases)}
 
 
+def _valid_source_badge(source: str):
+    """Do not borrow a badge from another Search/Shop observation."""
+    allowed = ("bestseller", "popular now")
+    if source == "search":
+        return and_(Listing.has_search.is_(True),
+                    func.lower(func.trim(func.coalesce(Listing.search_badge, ""))).in_(allowed))
+    return and_(Listing.has_shop.is_(True),
+                func.lower(func.trim(func.coalesce(Listing.badge, ""))).in_(allowed))
+
+
+def _qualified_listing_condition():
+    """Only actual 24h views > 5 AND Bestseller/Popular now qualify."""
+    return and_(Listing.views24h > 5,
+                or_(_valid_source_badge("search"), _valid_source_badge("shop")))
+
+
 def _blacklist_visible_count(db: Session, tenant: str) -> int:
     return int(db.scalar(select(func.count(func.distinct(Listing.listing_key))).where(
         Listing.tenant_id == tenant, Listing.is_current.is_(True),
-        ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant))) or 0)
+        ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant),
+        _qualified_listing_condition())) or 0)
 
 
 @router.get("/blacklist")
@@ -183,16 +200,15 @@ def _listings_query(
         # Defend against the source accidentally reporting an excluded Custom title.
         ~Listing.title.ilike("%custom%"),
         _blacklist_condition(tenant),
+        _qualified_listing_condition(),
     ]
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
                              Listing.keyword.ilike("%" + q[:160] + "%")))
     if session_id and session_id != "all":
         condition.append(Listing.source_session_id == session_id[:150])
-    if source == "search":
-        condition.append(Listing.has_search.is_(True))
-    elif source == "shop":
-        condition.append(Listing.has_shop.is_(True))
+    if source in {"search", "shop"}:
+        condition.append(_valid_source_badge(source))
     if badge and badge != "all":
         # Match the source's respective badge, not a badge from another view.
         if source == "search":
@@ -273,15 +289,16 @@ def summary(
     tenant = principal.active_tenant_id
     fresh = freshness(db, tenant)
     active = [Listing.tenant_id == tenant, Listing.is_current.is_(True),
-              ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant)]
+              ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant),
+              _qualified_listing_condition()]
     # Same denominator as the Windows Diagnostics: unique Etsy Listing IDs.
     # A listing may be discovered in *both* Search and Shop.
     unique = func.count(func.distinct(Listing.listing_key))
     listings_count = int(db.scalar(select(unique).where(*active)) or 0)
     search_count = int(db.scalar(select(unique).where(
-        *active, Listing.has_search.is_(True))) or 0)
+        *active, _valid_source_badge("search"))) or 0)
     shop_count = int(db.scalar(select(unique).where(
-        *active, Listing.has_shop.is_(True))) or 0)
+        *active, _valid_source_badge("shop"))) or 0)
     tm_join = and_(
         Trademark.tenant_id == Listing.tenant_id,
         Trademark.agent_id == Listing.agent_id,
