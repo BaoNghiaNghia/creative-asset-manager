@@ -19,7 +19,7 @@ from app.modules.authorization.navigation_scope import (
 )
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
-    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch,
+    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -27,7 +27,7 @@ from app.modules.etsy_spy.service import create_agent
 
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
-    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch,
+    EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist,
 )
 
 
@@ -314,3 +314,57 @@ def test_inventory_is_atomic_rejects_missing_duplicates_stale_and_foreign_tenant
                        "2026-11-06T02:06:00Z")
     assert empty.status_code == 200
     assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 1
+
+def test_blacklist_hides_old_and_future_products_and_restores_on_delete(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    initial = client.get("/api/v1/etsy-spy/summary").json()
+    assert initial["listings"] == 1
+
+    # Whole phrase is normalized, not a raw wildcard or unsafe substring.
+    added = client.post("/api/v1/etsy-spy/blacklist",
+        json={"phrases": ["RUDOLPH!!", "cat"]})
+    assert added.status_code == 200, added.text
+    assert added.json()["phrases"] == ["cat", "rudolph"]
+    assert added.json()["visible_products"] == 0
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 0
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 0
+    assert "Rudolph T-Shirt" not in client.get(
+        "/api/v1/etsy-spy/export.csv").text
+
+    # Windows can obtain the same tenant-scoped blacklist using only its agent token.
+    pulled = client.get(f"/api/v1/etsy-spy/agents/{agent.id}/blacklist",
+                        headers=headers)
+    assert pulled.status_code == 200
+    assert pulled.json()["phrases"] == ["cat", "rudolph"]
+    assert client.get(f"/api/v1/etsy-spy/agents/{agent.id}/blacklist",
+        headers={"Authorization": "Bearer invalid"}).status_code == 401
+
+    # A later sync cannot reintroduce a blocked listing in CAM.
+    later = batch("batch-future")
+    later["records"]["listings"][0]["pageTitle"] = "New Rudolph Sweatshirt"
+    later["records"]["listings"][0]["listingKey"] = "9876543210"
+    later["records"]["listings"][0]["url"] = "https://www.etsy.com/listing/9876543210/new"
+    assert sync(client, agent, headers, later).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 0
+
+    # 'cat' cannot remove the unrelated word caterpillar.
+    not_a_cat = batch("batch-caterpillar")
+    not_a_cat["records"]["listings"][0]["listingKey"] = "4567890123"
+    not_a_cat["records"]["listings"][0]["pageTitle"] = "Caterpillar Sweatshirt"
+    not_a_cat["records"]["listings"][0]["url"] = "https://www.etsy.com/listing/4567890123/caterpillar"
+    assert sync(client, agent, headers, not_a_cat).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 1
+
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.post("/api/v1/etsy-spy/blacklist",
+        json={"phrases": ["unapproved"]}).status_code == 403
+    assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 403
+    principal.effective_permissions = frozenset({"etsy_spy.read", "etsy_spy.manage"})
+
+    removed = client.delete("/api/v1/etsy-spy/blacklist/rudolph")
+    assert removed.status_code == 200
+    assert removed.json()["phrases"] == ["cat"]
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 3
+    assert client.get("/api/v1/etsy-spy/summary").json()["listings"] == 3

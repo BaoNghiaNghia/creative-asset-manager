@@ -252,6 +252,10 @@ function LogRow({ item }: { item: SpyLog }) {
 export function EtsySpyPage() {
   const [options, setOptions] = useState<Options>(fromLocation);
   const [typedSearch, setTypedSearch] = useState(options.q);
+  const [blacklistInput, setBlacklistInput] = useState("");
+  const [blacklist, setBlacklist] = useState<string[]>([]);
+  const [blacklistBusy, setBlacklistBusy] = useState(false);
+  const [blacklistError, setBlacklistError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
@@ -295,10 +299,12 @@ export function EtsySpyPage() {
       spyFetch<Summary>("/summary"),
       spyFetch<{ items: Session[] }>("/sessions"),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
+      spyFetch<{ phrases: string[] }>("/blacklist"),
       fetchAccessIdentity(),
-    ]).then(([overview, selected, currentAgents, identity]) => {
+    ]).then(([overview, selected, currentAgents, rules, identity]) => {
       if (!alive) return;
       setSummary(overview); setSessions(selected.items); setAgents(currentAgents.items);
+      setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
       setCanManage(identity.permissions.includes("etsy_spy.manage"));
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
@@ -322,6 +328,33 @@ export function EtsySpyPage() {
       } });
     return () => { alive = false; };
   }, [requestKey]);
+  const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canManage || blacklistBusy) return;
+    const phrases = blacklistInput.split(/[;,\n]+/).map(x => x.trim()).filter(Boolean);
+    if (!phrases.length) return;
+    setBlacklistBusy(true); setBlacklistError("");
+    try {
+      const result = await spyFetch<{ phrases: string[] }>("/blacklist", {
+        method: "POST", body: JSON.stringify({ phrases }),
+      });
+      setBlacklist(result.phrases); setBlacklistInput(""); update({ page: 1 });
+      setRefresh(n => n + 1);
+    } catch(e) {
+      setBlacklistError(e instanceof Error ? e.message : "Cannot save blacklist");
+    } finally {setBlacklistBusy(false);}
+  };
+  const removeBlacklist = async (phrase: string) => {
+    if (!canManage || blacklistBusy) return;
+    setBlacklistBusy(true); setBlacklistError("");
+    try {
+      const result = await spyFetch<{ phrases: string[] }>(
+        "/blacklist/" + encodeURIComponent(phrase), { method: "DELETE" });
+      setBlacklist(result.phrases); update({ page: 1 }); setRefresh(n => n + 1);
+    } catch(e) {
+      setBlacklistError(e instanceof Error ? e.message : "Cannot remove phrase");
+    } finally {setBlacklistBusy(false);}
+  };
   const columns = useMemo(() => {
     if (options.tab === "products") return SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
@@ -423,6 +456,15 @@ export function EtsySpyPage() {
             </div>
           </div>
           <div className="etsy-stage-heading-actions">
+            {activeTab === "products" && <form className="etsy-blacklist-form"
+              onSubmit={addBlacklist} aria-label="Blacklist product title phrases">
+              <span className="etsy-blacklist-icon" aria-hidden="true">⊘</span>
+              <input type="text" aria-label="Add blacklist phrases" value={blacklistInput}
+                onChange={event => setBlacklistInput(event.target.value)}
+                placeholder={canManage ? "Blacklist keywords · Enter" : "Blacklist (read only)"}
+                title="Enter to blacklist phrases; separate multiple phrases with commas"
+                disabled={!canManage || blacklistBusy} maxLength={400}/>
+            </form>}
             <div className="etsy-search-box">
               <svg className="etsy-search-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
               <input type="search" aria-label="Search Spy records"
@@ -431,6 +473,16 @@ export function EtsySpyPage() {
             </div>
           </div>
         </div>
+        {activeTab === "products" && (blacklist.length > 0 || blacklistError) &&
+          <div className="etsy-blacklist-chips" aria-label="Active blacklist phrases">
+            <span className="etsy-blacklist-count">Blacklist ({blacklist.length})</span>
+            {blacklist.map(phrase => <span className="etsy-blacklist-chip" key={phrase}>
+              {phrase}{canManage && <button type="button"
+                aria-label={"Remove blacklist " + phrase}
+                disabled={blacklistBusy} onClick={() => removeBlacklist(phrase)}>×</button>}
+            </span>)}
+            {blacklistError && <span className="etsy-blacklist-error" role="alert">{blacklistError}</span>}
+          </div>}
         <section className="etsy-stats" aria-label="Etsy Spy overview filters">
           {overviewCards.map((card, index) => <button type="button"
             className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}

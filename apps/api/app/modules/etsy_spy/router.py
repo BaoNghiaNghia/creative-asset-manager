@@ -7,19 +7,20 @@ from __future__ import annotations
 import csv
 import io
 import re
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, asc, desc, func, or_, select
+from sqlalchemy import and_, asc, desc, func, or_, select, not_, literal
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
-    EtsySpyAgent as Agent, EtsySpySession as SessionRow,
+    EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpySession as SessionRow,
     EtsySpyKeyword as Keyword, EtsySpyListing as Listing,
     EtsySpyTrademark as Trademark, EtsySpyLog as Log,
     utcnow,
@@ -90,6 +91,87 @@ def _tm_label(check: Trademark | None) -> str:
     return "no_match"
 
 
+def _normalized_phrase(value: str) -> str:
+    """Case-insensitive whole-word/phrase match, ignoring ASCII punctuation."""
+    return " ".join(re.findall(r"[a-z0-9]+", str(value).casefold()))[:120]
+
+
+def _blacklist_condition(tenant: str):
+    # Portable SQL for PostgreSQL and SQLite test fixtures. Preserve phrase
+    # boundaries: 'cat' must not match 'caterpillar'. The source row is never
+    # deleted; removing a phrase restores its visibility.
+    title = func.lower(Listing.title)
+    for char in ('-', '_', '.', '/', '&', ','):
+        title = func.replace(title, char, " ")
+    for _ in range(2):
+        title = func.replace(title, "  ", " ")
+    padded = literal(" ") + func.trim(title) + literal(" ")
+    forbidden = (select(literal(1)).select_from(Blacklist)
+        .where(Blacklist.tenant_id == tenant,
+               padded.like(literal("% ") + Blacklist.phrase + literal(" %")))
+        .exists())
+    return not_(forbidden)
+
+
+def _blacklist_view(db: Session, tenant: str) -> dict:
+    phrases = list(db.scalars(select(Blacklist.phrase).where(
+        Blacklist.tenant_id == tenant).order_by(Blacklist.phrase)).all())
+    fingerprint = hashlib.sha256("\n".join(phrases).encode("utf-8")).hexdigest()[:16]
+    return {"phrases": phrases, "revision": fingerprint, "count": len(phrases)}
+
+
+def _blacklist_visible_count(db: Session, tenant: str) -> int:
+    return int(db.scalar(select(func.count(func.distinct(Listing.listing_key))).where(
+        Listing.tenant_id == tenant, Listing.is_current.is_(True),
+        ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant))) or 0)
+
+
+@router.get("/blacklist")
+def list_blacklist(principal: CurrentPrincipal = Depends(READ),
+                   db: Session = Depends(get_db)):
+    return _blacklist_view(db, principal.active_tenant_id)
+
+
+@router.post("/blacklist")
+async def add_blacklist(request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+                        db: Session = Depends(get_db)):
+    body = await request.json()
+    raw = body.get("phrases") if isinstance(body, dict) else None
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 40:
+        raise HTTPException(422, "Provide 1-40 blacklist phrases")
+    values = []
+    for item in raw:
+        if not isinstance(item, str) or len(item) > 150:
+            raise HTTPException(422, "Invalid blacklist phrase")
+        phrase = _normalized_phrase(item)
+        if len(phrase) < 2:
+            raise HTTPException(422, "Blacklist phrase must contain at least 2 characters")
+        values.append(phrase)
+    tenant = principal.active_tenant_id
+    current = set(db.scalars(select(Blacklist.phrase).where(
+        Blacklist.tenant_id == tenant)).all())
+    if len(current | set(values)) > 500:
+        raise HTTPException(422, "Blacklist limited to 500 phrases")
+    for phrase in set(values) - current:
+        db.add(Blacklist(tenant_id=tenant, phrase=phrase, created_at=utcnow()))
+    db.commit()
+    return {**_blacklist_view(db, tenant),
+            "visible_products": _blacklist_visible_count(db, tenant)}
+
+
+@router.delete("/blacklist/{phrase}")
+def remove_blacklist(phrase: str, principal: CurrentPrincipal = Depends(MANAGE),
+                     db: Session = Depends(get_db)):
+    normalized = _normalized_phrase(phrase)
+    if normalized:
+        item = db.get(Blacklist, (principal.active_tenant_id, normalized))
+        if item is not None:
+            db.delete(item)
+            db.commit()
+    return {**_blacklist_view(db, principal.active_tenant_id),
+            "visible_products": _blacklist_visible_count(db, principal.active_tenant_id)}
+
+
 def _listings_query(
     tenant: str, *, q: str = "", session_id: str | None = None,
     source: str = "", badge: str = "", tm: str = "",
@@ -100,6 +182,7 @@ def _listings_query(
         Listing.is_current.is_(True),
         # Defend against the source accidentally reporting an excluded Custom title.
         ~Listing.title.ilike("%custom%"),
+        _blacklist_condition(tenant),
     ]
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
@@ -190,7 +273,7 @@ def summary(
     tenant = principal.active_tenant_id
     fresh = freshness(db, tenant)
     active = [Listing.tenant_id == tenant, Listing.is_current.is_(True),
-              ~Listing.title.ilike("%custom%")]
+              ~Listing.title.ilike("%custom%"), _blacklist_condition(tenant)]
     # Same denominator as the Windows Diagnostics: unique Etsy Listing IDs.
     # A listing may be discovered in *both* Search and Shop.
     unique = func.count(func.distinct(Listing.listing_key))
@@ -544,6 +627,13 @@ async def agent_heartbeat(
     agent.last_seen_at = utcnow()
     db.commit()
     return {"ok": True, "agent_id": agent.id, "server_time": utcnow()}
+
+
+@router.get("/agents/{agent_id}/blacklist")
+def agent_blacklist(agent_id: str, authorization: str | None = Header(None),
+                    db: Session = Depends(get_db)):
+    agent = authenticate_agent(db, agent_id, authorization)
+    return {"ok": True, **_blacklist_view(db, agent.tenant_id)}
 
 
 @router.get("/agents/{agent_id}/sync-status")

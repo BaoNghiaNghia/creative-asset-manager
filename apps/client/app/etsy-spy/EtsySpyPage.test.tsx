@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EtsySpyPage } from "./EtsySpyPage";
+import { fetchAccessIdentity } from "../../features/access_management";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
   WorkspacePageHeader: ({ actions }: { actions: React.ReactNode }) =>
@@ -15,6 +16,7 @@ vi.mock("../../features/access_management", () => ({
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const observed: string[] = [];
+let blockedTerms: string[] = [];
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -67,10 +69,20 @@ function json(value: unknown) {
     headers: {"content-type": "application/json"}});
 }
 function installFetch() {
-  observed.length = 0;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+  observed.length = 0; blockedTerms = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     observed.push(url);
+    if (url.endsWith("/blacklist") && init?.method === "POST") {
+      const input = JSON.parse(String(init.body)) as { phrases: string[] };
+      blockedTerms = [...new Set([...blockedTerms, ...input.phrases.map(x => x.toLowerCase())])];
+      return json({phrases: blockedTerms});
+    }
+    if (url.includes("/blacklist/") && init?.method === "DELETE") {
+      blockedTerms = blockedTerms.filter(x => x !== decodeURIComponent(url.split("/").pop() || ""));
+      return json({phrases: blockedTerms});
+    }
+    if (url.endsWith("/blacklist")) return json({phrases: blockedTerms});
     if (url.includes("/summary")) return json(summary);
     if (url.includes("/sessions")) return json({ items: [
       { id: "one", keyword: "Rudolph", status: "completed" },
@@ -128,6 +140,7 @@ afterEach(async () => {
   await act(async () => {root?.unmount();});
   container?.remove(); container=null; root=null;
   vi.unstubAllGlobals();
+  vi.mocked(fetchAccessIdentity).mockResolvedValue({permissions: ["etsy_spy.read"]} as never);
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
@@ -313,5 +326,35 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(tabs[0].tabIndex).toBe(-1);
     expect(tabs[1].tabIndex).toBe(0);
     expect(document.activeElement).toBe(tabs[1]);
+  });
+
+  it("adds and removes persistent blacklist phrases using Enter", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"]
+    } as never);
+    await start();
+    const input = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Add blacklist phrases"]');
+    expect(input).toBeTruthy();
+    const setter=Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input,"Rudolph, cat");
+      input?.dispatchEvent(new Event("input",{bubbles:true}));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLFormElement>(".etsy-blacklist-form")
+        ?.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));
+      await new Promise(resolve=>setTimeout(resolve,50));
+    });
+    expect(blockedTerms).toEqual(["rudolph","cat"]);
+    expect(container?.textContent).toContain("Blacklist (2)");
+    expect(observed.filter(x=>x.includes("/listings?")).length).toBeGreaterThan(1);
+    const remove=container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove blacklist rudolph"]');
+    expect(remove).toBeTruthy();
+    await act(async()=>{remove?.click(); await new Promise(r=>setTimeout(r,50));});
+    expect(blockedTerms).toEqual(["cat"]);
+    expect(container?.textContent).toContain("Blacklist (1)");
   });
 });

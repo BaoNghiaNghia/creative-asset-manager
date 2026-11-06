@@ -756,3 +756,36 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 @media(prefers-reduced-motion:reduce){
   .etsy-tree-chevron,.etsy-tree-cell{transition:none}
 }
+
+/* Durable blacklist next to Product Search; active phrases remain removable. */
+.etsy-stage-heading-actions{flex:0 1 600px;min-width:0;gap:9px;align-items:center}
+.etsy-stage-heading-actions .etsy-search-box{flex:1 1 250px;max-width:310px}
+.etsy-blacklist-form{position:relative;flex:1 1 245px;min-width:185px;max-width:285px}
+.etsy-blacklist-form input{
+  width:100%;height:34px;min-width:0;padding:7px 9px 7px 31px;
+  border:1px solid #dfd7df;border-radius:7px;background:#fff;
+  color:#34445b;font-size:10px;box-shadow:0 1px 2px rgba(31,48,72,.025);
+}
+.etsy-blacklist-form input:focus{border-color:#c78fa3;outline:2px solid #f8e9ef}
+.etsy-blacklist-form input::placeholder{color:#9c8492}
+.etsy-blacklist-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  color:#b86c82;font-size:17px;line-height:1;pointer-events:none}
+.etsy-blacklist-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  margin:-1px 0 10px;font-size:10px}
+.etsy-blacklist-count{font-weight:750;color:#955064;margin-right:2px}
+.etsy-blacklist-chip{display:inline-flex;align-items:center;gap:4px;
+  border:1px solid #eed5de;background:#fff5f8;color:#88536a;
+  border-radius:6px;padding:3px 5px 3px 8px;font-weight:650}
+.etsy-blacklist-chip button{border:0;background:transparent;color:#985a70;
+  font-weight:800;font-size:13px;line-height:1;padding:0 2px}
+.etsy-blacklist-chip button:hover{color:#bf294c}
+.etsy-blacklist-error{color:#ba3350;font-weight:650}
+@media(max-width:900px){
+  .etsy-stage-heading-row{align-items:flex-start;flex-wrap:wrap}
+  .etsy-stage-heading-actions{flex:1 1 100%;width:100%;justify-content:flex-start}
+  .etsy-stage-heading-actions .etsy-search-box,.etsy-blacklist-form{max-width:none}
+}
+@media(max-width:490px){
+  .etsy-stage-heading-actions{flex-wrap:wrap}
+  .etsy-stage-heading-actions .etsy-search-box,.etsy-blacklist-form{flex:1 1 100%}
+}
