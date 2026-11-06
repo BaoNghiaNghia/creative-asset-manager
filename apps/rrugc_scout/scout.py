@@ -36,7 +36,7 @@ from network_load import (
 )
 
 
-CLIENT_VERSION = "rrugc-scout-v63-search-page-freeze"
+CLIENT_VERSION = "rrugc-scout-v64-related-page-freeze"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -2948,12 +2948,18 @@ async def scan_auto_run(
             continue
 
         await heartbeat_if_due(force=True)
-        related_rows = await extract_related_candidates(
-            related_page,
-            seed,
-            pace=pace,
-            limit=PIN_RELATED_SCAN_LIMIT,
-        )
+        # The related Pin crawl runs in the dedicated detail tab. Freeze the
+        # enormous background search DOM for this entire crawl, not merely
+        # individual Pin detail resolutions. Restores it before search/scroll.
+        async with quiet_background_search_page(
+            page, related_page, log=scout_debug_event,
+        ):
+            related_rows = await extract_related_candidates(
+                related_page,
+                seed,
+                pace=pace,
+                limit=PIN_RELATED_SCAN_LIMIT,
+            )
         unseen_related = [
             row
             for row in related_rows
