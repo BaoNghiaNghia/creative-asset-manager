@@ -214,22 +214,31 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 }
 .etsy-source-search{background:#f1f5fb;color:#446487}
 .etsy-source-shop{background:#f5f6f8;color:#596b81}
-.etsy-badge-stack{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
-/* Outline demand badges: dark forest Bestseller, lighter Popular now.
-   Retain legible colored label, icon and border without a solid fill. */
+/* Reference-style status tags: compact rectangles, soft fills, fine
+   borders, no star glyph. Etsy demand and TM status stack vertically. */
+.etsy-badge-stack{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.etsy-badge-stack .etsy-pill,
+.etsy-data-table.is-trademarks .etsy-pill{
+  min-height:20px;padding:2px 6px;border-radius:4px;
+  font-size:10px;font-weight:700;line-height:1.35;letter-spacing:0;
+}
 .etsy-pill.etsy-demand.bestseller{
-  background:transparent;border-color:#16613d;color:#16613d;font-weight:780;
+  background:#e8f8ef;border-color:#a5dfc0;color:#17683c;font-weight:750;
 }
 .etsy-pill.etsy-demand.popular{
-  background:transparent;border-color:#3b9364;color:#27784e;font-weight:780;
+  background:#eefaf3;border-color:#b9e8cd;color:#287d51;font-weight:750;
 }
-.etsy-demand::before{content:"★";font-size:11px;color:#16613d}
-.etsy-demand.popular::before{content:"✦";color:#3b9364}
-.etsy-pill.tm-live{background:#fff0eb;border-color:#fbd8ca;color:#b33f26;font-weight:790}
-.etsy-pill.tm-live::before{content:"";width:6px;height:6px;border-radius:50%;background:#d64c2b}
-.etsy-pill.tm-dead{background:#eef4fd;border-color:#d9e7f9;color:#305b9b;font-weight:760}
-.etsy-pill.tm-unverified{background:#fff8eb;border-color:#f4e5cc;color:#99652f}
-.etsy-pill.tm-neutral{background:#f6f7f9;border-color:#e7eaf0;color:#788294;font-weight:540}
+.etsy-demand::before,.etsy-demand.popular::before{content:none}
+.etsy-pill.tm-live{background:#fff1ec;border-color:#f3c3b7;color:#ae442e;font-weight:750}
+.etsy-pill.tm-live::before{content:none}
+.etsy-pill.tm-dead{background:#eff6ff;border-color:#bed7ff;color:#3268ac;font-weight:750}
+.etsy-pill.tm-no-match{background:#fff9e9;border-color:#f0d48c;color:#956d25;font-weight:700}
+.etsy-pill.tm-unverified{background:#fff9e9;border-color:#f0d48c;color:#956d25;font-weight:700}
+.etsy-pill.tm-neutral{background:#f5f7fa;border-color:#e0e6ee;color:#667587;font-weight:650}
+.etsy-table-wrap td small.etsy-tm-disclaimer{
+  display:block;max-width:190px;margin:0;color:#71819b;
+  font-size:9px;line-height:1.4;font-weight:450;overflow-wrap:normal;
+}
 .etsy-pill.log-error{background:#fff0ed;border-color:#ffccbf;color:#b84225}
 .etsy-pill.log-warning{background:#fff5e7;border-color:#f5debc;color:#9a6a21}
 .etsy-title strong{

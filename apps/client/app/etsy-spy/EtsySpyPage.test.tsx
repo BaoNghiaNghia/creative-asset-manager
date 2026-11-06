@@ -34,6 +34,17 @@ const listing = {
   tmSourceAsOf: "2026-07-24T00:00:00Z",
   tmMatches: [{ markText: "Rudolph", serialNumber: "12345678", liveStatus: "LIVE" }],
 };
+const popularNoMatch = {
+  ...listing, listingKey: "111", pageTitle: "Popular sample", badge: "Popular now",
+  searchBadge: "Popular now", tm: "no_match", tmMatches: [],
+};
+const deadListing = {
+  ...listing, listingKey: "222", pageTitle: "Dead trademark sample", tm: "DEAD",
+  tmMatches: [
+    { markText: "Old name 1", serialNumber: "11111111", liveStatus: "DEAD" },
+    { markText: "Old name 2", serialNumber: "22222222", liveStatus: "DEAD" },
+  ],
+};
 function json(value: unknown) {
   return new Response(JSON.stringify(value), {status: 200,
     headers: {"content-type": "application/json"}});
@@ -66,8 +77,8 @@ function installFetch() {
       page: 1, page_size: 50, total: 3, pages: 1, source_status: "offline",
       });
     }
-    if (url.includes("/listings")) return json({items: [listing], page: 1, page_size: 50,
-      total: 1, pages: 1, last_synced_at: summary.last_synced_at, source_status: "offline"});
+    if (url.includes("/listings")) return json({items: [listing, popularNoMatch, deadListing], page: 1, page_size: 50,
+      total: 3, pages: 1, last_synced_at: summary.last_synced_at, source_status: "offline"});
     return json({items: [], page:1,page_size:50,total:0,pages:0,
       last_synced_at:summary.last_synced_at,source_status:"offline"});
   }));
@@ -110,6 +121,23 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.textContent).toContain("12345678");
     expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
       .toHaveProperty("rel", "noopener noreferrer");
+  });
+
+  it("renders reference-style badges with clear TM meanings and no false safety claim", async () => {
+    await start();
+    const badgeStacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
+    expect(badgeStacks).toHaveLength(3);
+    expect(badgeStacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
+    expect(badgeStacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
+    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.textContent).toBe("TM: No match*");
+    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.tagName).toBe("SPAN");
+    expect(badgeStacks?.[1]?.querySelector(".etsy-tm-disclaimer")?.textContent).toContain(
+      "does not mean trademark clearance");
+    const deadBadge = badgeStacks?.[2]?.querySelector(".tm-dead");
+    expect(deadBadge?.textContent).toBe("TM DEAD · 2");
+    expect(deadBadge?.tagName).toBe("BUTTON");
+    await act(async () => { (deadBadge as HTMLButtonElement).click(); });
+    expect(container?.textContent).toContain("11111111");
   });
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {

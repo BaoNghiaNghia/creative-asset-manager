@@ -102,10 +102,12 @@ function apiQuery(o: Options): URLSearchParams {
 }
 function tmClass(status: string) {
   return status === "LIVE" ? "live" : status === "DEAD" ? "dead"
+    : status === "no_match" ? "no-match"
     : status === "unverified" ? "unverified" : "neutral";
 }
-function tmDescription(status: string) {
-  return status === "no_match" ? "No match · not legal clearance"
+function tmDescription(status: string, deadMatches = 0) {
+  return status === "no_match" ? "TM: No match*"
+    : status === "DEAD" ? `TM DEAD${deadMatches ? " · " + deadMatches : ""}`
     : status === "pending" ? "Pending"
     : status === "unverified" ? "Unverified" : status;
 }
@@ -141,6 +143,10 @@ function ProductRow({ item }: { item: Listing }) {
   const [expanded, setExpanded] = useState(false);
   const tmMatches = safeMarks(item.tmMatches);
   const hasMarks = tmMatches.length > 0;
+  const deadMatches = tmMatches.filter(mark => mark.liveStatus?.toUpperCase() === "DEAD").length;
+  const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
+    item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
+  const tmLabel = tmDescription(item.tm, deadMatches);
   const sourceKinds = item.sourceKinds?.length ? item.sourceKinds : item.metadata?.sourceKinds || [item.sourceKind];
   const sourceLabel = sourceKinds.includes("search") && sourceKinds.includes("shop")
     ? "Search + Shop" : sourceKinds.includes("shop") ? "Shop" : "Search";
@@ -161,13 +167,15 @@ function ProductRow({ item }: { item: Listing }) {
     <td><span className={"etsy-pill etsy-source-" + (sourceKinds.includes("search") ? "search" : "shop")}>{sourceLabel}</span></td>
     <td><div className="etsy-badge-stack">
       {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
-      <button type="button" className={"etsy-pill tm-" + tmClass(item.tm)}
-        title={[item.tmSource || "TM pending", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
-          item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ")}
-        onClick={() => setExpanded(!expanded)} aria-expanded={expanded} disabled={!hasMarks}>
-        {tmDescription(item.tm)}
-      </button></div>
-      {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
+      {hasMarks ? <button type="button" className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)}
+        title={tmTooltip} onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+        {tmLabel}
+      </button> : <span className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)} title={tmTooltip}>{tmLabel}</span>}
+      {item.tm === "no_match" && <small className="etsy-tm-disclaimer">
+        No matches found in source data; this does not mean trademark clearance.
+      </small>}
+    </div>
+    {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
     </td>
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
