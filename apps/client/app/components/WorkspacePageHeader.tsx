@@ -43,6 +43,11 @@ export const WORKSPACE_PAGE_HEADERS: Record<WorkspaceRoute, WorkspacePageHeaderD
     title: "Scout & UGC",
     description: "Independent TikTokShop source library and UGC workspace.",
   },
+  "etsy-spy": {
+    eyebrow: "Etsy market intelligence",
+    title: "Etsy Spy",
+    description: "Eligible apparel demand, keyword discovery, trademark evidence, and Windows sync diagnostics.",
+  },
   queue: {
     eyebrow: "Operations",
     title: "Job Queue",

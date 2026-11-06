@@ -70,7 +70,7 @@ class MemberNavigationAccessTests(unittest.TestCase):
         self.assertIn("assets.generate", ugc.permissions)
         self.assertIn("realistic_review_ugc.run", ugc.permissions)
         self.assertNotIn("ai_provider.configure", ugc.permissions)
-        self.assertEqual(len(NAVIGATION_MODULES), 10)
+        self.assertEqual(len(NAVIGATION_MODULES), 11)
         self.assertEqual(NAVIGATION_MODULES["tiktokshop"], NAVIGATION_MODULES["realistic-review-ugc"])
         self.change(["tiktokshop"])
         separate_tiktok = self.authz.get_effective_permissions(tenant_id=self.tenant.id, user_id=self.user.id)

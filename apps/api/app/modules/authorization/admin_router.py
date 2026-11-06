@@ -46,7 +46,7 @@ class MembershipStatusRequest(BaseModel):
 
 class NavigationAccessRequest(BaseModel):
     # None restores legacy role-based permissions. [] explicitly denies all modules.
-    modules: list[str] | None = Field(default=None, max_length=9)
+    modules: list[str] | None = Field(default=None, max_length=len(NAVIGATION_MODULES))
     reason: str = Field(min_length=3, max_length=1000)
 
 

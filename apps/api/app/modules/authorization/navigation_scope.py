@@ -32,6 +32,7 @@ NAVIGATION_MODULES: dict[str, frozenset[str]] = {
         "realistic_review_ugc.read", "realistic_review_ugc.run",
         "realistic_review_ugc.configure", "assets.read", "assets.generate",
     }),
+    "etsy-spy": frozenset({"etsy_spy.read", "etsy_spy.manage"}),
     "queue": frozenset({
         "ai_operations.read", "ai_jobs.retry", "ai_jobs.cancel",
     }),
@@ -52,6 +53,7 @@ NAVIGATION_LABELS = {
     "branding-dna": "Branding DNA",
     "realistic-review-ugc": "Realistic Review UGC",
     "tiktokshop": "TikTokShop · Scout & UGC",
+    "etsy-spy": "Etsy Spy",
     "queue": "Job Queue",
     "generation": "Video Generation",
     "review-board": "Review Board",
@@ -103,6 +105,7 @@ def navigation_for_api_path(path: str, workspace: str | None = None) -> str | No
         if any(pattern.fullmatch(suffix) for pattern in _TIKTOKSHOP_WORKSPACE_ROUTES):
             return "tiktokshop"
     prefixes = (
+        ("/api/v1/etsy-spy", "etsy-spy"),
         ("/api/v1/branding-dna", "branding-dna"),
         ("/api/v1/admin/ai-operations", "operations"),
         ("/api/v1/ai-operations", "operations"),

@@ -23,9 +23,10 @@ const PublicReviewRoute = lazy(() => import("./public-review/PublicReviewRoute")
 const ReviewBoardPage = lazy(() => import("./review-board/ReviewBoardPage").then(module => ({ default: module.ReviewBoardPage })));
 const RealisticReviewUgcPage = lazy(() => import("./realistic-review-ugc/RealisticReviewUgcPage").then(module => ({ default: module.RealisticReviewUgcPage })));
 const TiktokShopScoutUgcPage = lazy(() => import("./tiktokshop/TiktokShopScoutUgcPage").then(module => ({ default: module.TiktokShopScoutUgcPage })));
+const EtsySpyPage = lazy(() => import("./etsy-spy/EtsySpyPage").then(module => ({ default: module.EtsySpyPage })));
 const VideoGenerationPage = lazy(() => import("./video-generation/VideoGenerationPage").then(module => ({ default: module.VideoGenerationPage })));
 
-export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation" | "realistic-review-ugc" | "tiktokshop-scout-ugc" | "branding-dna" | "under-construction";
+export type ApplicationRoute = "public-review" | "review-board" | "explorer" | "ai-operations" | "access-management" | "privacy" | "terms" | "inventory" | "job-queue" | "video-generation" | "realistic-review-ugc" | "tiktokshop-scout-ugc" | "etsy-spy" | "branding-dna" | "under-construction";
 
 export function routeForPath(pathname: string): ApplicationRoute {
   if (/^\/share\/[A-Za-z0-9_-]{1,128}(?:\/folder\/[^/]{1,1024})?\/?$/.test(pathname)) return "public-review";
@@ -37,6 +38,7 @@ export function routeForPath(pathname: string): ApplicationRoute {
     || pathname === "/branding-character" || pathname.startsWith("/branding-character/")) return "branding-dna";
   if (pathname === "/realistic-review-ugc" || pathname === "/realistic-review-ugc/") return "realistic-review-ugc";
   if (pathname === "/tiktokshop/scout-ugc" || pathname === "/tiktokshop/scout-ugc/") return "tiktokshop-scout-ugc";
+  if (pathname === "/etsy-spy" || pathname === "/etsy-spy/") return "etsy-spy";
   if (pathname === "/video-generation" || pathname.startsWith("/video-generation/")) return "video-generation";
   if (pathname.startsWith("/inventory")) return "inventory";
   if (pathname === "/privacy-policy" || pathname === "/privacy") return "privacy";
@@ -54,6 +56,7 @@ export function workspaceRouteForApplicationRoute(route: ApplicationRoute): Work
   if (route === "video-generation") return "generation";
   if (route === "realistic-review-ugc") return "realistic-review-ugc";
   if (route === "tiktokshop-scout-ugc") return "tiktokshop";
+  if (route === "etsy-spy") return "etsy-spy";
   if (route === "review-board") return "review-board";
   if (route === "access-management") return "access";
   return "assets";
@@ -63,6 +66,7 @@ export function requiredPermissionForApplicationRoute(route: ApplicationRoute): 
   if (route === "ai-operations" || route === "job-queue" || route === "branding-dna") return "ai_operations.read";
   if (route === "inventory") return "inventory.read";
   if (route === "realistic-review-ugc" || route === "tiktokshop-scout-ugc") return "realistic_review_ugc.read";
+  if (route === "etsy-spy") return "etsy_spy.read";
   if (route === "access-management") return "tenant_members.read";
   return null;
 }
@@ -109,6 +113,7 @@ export function AppRoute() {
       : route === "under-construction" ? <UnderConstructionPage /> : route === "public-review" ? <PublicReviewRoute /> : route === "review-board" ? <ReviewBoardPage /> : route === "video-generation" ? <VideoGenerationPage />
     : route === "realistic-review-ugc" ? <RealisticReviewUgcPage />
     : route === "tiktokshop-scout-ugc" ? <TiktokShopScoutUgcPage />
+    : route === "etsy-spy" ? <EtsySpyPage />
     : route === "job-queue" ? <JobQueuePage />
     : route === "branding-dna" ? <BrandingDnaPage />
     : route === "inventory" ? <InventoryOverviewPage />

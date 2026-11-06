@@ -76,6 +76,23 @@ describe("WorkspaceNavigation permissions", () => {
     expect(gatorhats).not.toContain('href="/tiktokshop/scout-ugc"');
   });
 
+  it("Etsy Spy is separately granted and does not inherit TikTokShop/UGC rights", () => {
+    const denied = renderToStaticMarkup(<WorkspaceNavigation active="assets"
+      permissions={["realistic_review_ugc.read"]} navigationModules={["tiktokshop"]}
+      showOperations={false} showReviewBoard={false} />);
+    expect(denied).not.toContain('href="/etsy-spy"');
+    const allowed = renderToStaticMarkup(<WorkspaceNavigation active="etsy-spy"
+      permissions={["etsy_spy.read"]} navigationModules={["etsy-spy"]}
+      showOperations={false} showReviewBoard={false} />);
+    expect(allowed).toContain('href="/etsy-spy"');
+    expect(allowed).not.toContain('href="/tiktokshop/scout-ugc"');
+    const missingGrant = renderToStaticMarkup(<WorkspaceNavigation active="assets"
+      permissions={["etsy_spy.read"]} navigationModules={["tiktokshop"]}
+      showOperations={false} showReviewBoard={false} />);
+    expect(missingGrant).not.toContain('href="/etsy-spy"');
+    expect(roleBasedNavbarModules(["etsy_spy.read"])).toContain("etsy-spy");
+  });
+
   it("shows Viewer review workflows while hiding admin destinations", () => {
     const markup = renderToStaticMarkup(
       <WorkspaceNavigation

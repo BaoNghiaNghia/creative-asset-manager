@@ -12,6 +12,7 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
   { id: "operations", href: "/ai-operations", title: "AI Operations", shortTitle: "AI Ops" },
   { id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "Realistic Review UGC", shortTitle: "UGC" },
   { id: "tiktokshop", href: "/tiktokshop/scout-ugc", title: "Tiktokshop · Scout & UGC", shortTitle: "TikTok" },
+  { id: "etsy-spy", href: "/etsy-spy", title: "Etsy Spy", shortTitle: "Etsy" },
   { id: "branding-dna", href: "/branding-dna", title: "Branding DNA", shortTitle: "Brand" },
   { id: "review-board", href: "/review-board", title: "Review Board", shortTitle: "Reviews" },
   { id: "generation", href: "/video-generation", title: "Video Generation", shortTitle: "Video" },
@@ -27,6 +28,7 @@ export function availableMobileDestinations(permissions: readonly string[], navi
     if (item.id === "inventory") return permissions.includes("inventory.read");
     if (item.id === "realistic-review-ugc") return permissions.includes("realistic_review_ugc.read");
     if (item.id === "tiktokshop") return permissions.includes("realistic_review_ugc.read");
+    if (item.id === "etsy-spy") return permissions.includes("etsy_spy.read");
     if (item.id === "review-board") return mayViewReviewBoard(permissions);
     if (item.id === "access") return permissions.includes("tenant_members.read");
     return true;

@@ -34,6 +34,8 @@ PERMISSION_DEFINITIONS = {
     "public_review.resolve": "Resolve tenant review board issues",
     "public_review.manage": "Create and manage tenant public review shares",
     "application_logs.manage": "Manage external log applications",
+    "etsy_spy.read": "Read synchronized Etsy Spy tenant data",
+    "etsy_spy.manage": "Pair, rotate and revoke Windows Etsy Spy sync agents",
     "realistic_review_ugc.read": "Read Realistic Review UGC workflows",
     "realistic_review_ugc.run": "Run Realistic Review UGC workflows",
     "realistic_review_ugc.configure": "Configure Realistic Review UGC workflows",

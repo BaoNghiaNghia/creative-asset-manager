@@ -10,6 +10,7 @@ import reviewBoardIcon from "../../assets/navigation/review-board.svg";
 import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
 import tiktokshopIcon from "../../assets/navigation/tiktokshop.png";
+import etsySpyIcon from "../../assets/navigation/etsy-spy.svg";
 import { currentRrugcStage, rrugcWorkflowHref, workflowGroupForStage, RRUGC_WORKFLOW_GROUPS, type RrugcStageTab } from "../realistic-review-ugc/workflowRouting";
 import {
   AI_OPERATIONS_TABS,
@@ -17,7 +18,7 @@ import {
   type AiOpsTab,
 } from "../ai-operations/navigation";
 
-export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-dna" | "queue" | "generation" | "realistic-review-ugc" | "tiktokshop" | "review-board" | "access";
+export type WorkspaceRoute = "assets" | "inventory" | "operations" | "branding-dna" | "queue" | "generation" | "realistic-review-ugc" | "tiktokshop" | "etsy-spy" | "review-board" | "access";
 
 export const mayViewReviewBoard = (permissions: readonly string[]) =>
   permissions.includes("public_review.read")
@@ -37,6 +38,7 @@ export function roleBasedNavbarModules(permissions: readonly string[]): Workspac
     ...(allowed.has("realistic_review_ugc.read") ? [
       "realistic-review-ugc" as const, "tiktokshop" as const,
     ] : []),
+    ...(allowed.has("etsy_spy.read") ? ["etsy-spy" as const] : []),
     ...(canViewOperations ? ["queue" as const] : []),
     "generation",
     ...(mayViewReviewBoard(permissions) ? ["review-board" as const] : []),
@@ -53,6 +55,7 @@ const navigationIconSources: Record<WorkspaceRoute, string> = {
   generation: videoGenerationIcon,
   "realistic-review-ugc": realisticReviewUgcIcon,
   tiktokshop: tiktokshopIcon,
+  "etsy-spy": etsySpyIcon,
   "review-board": reviewBoardIcon,
   access: accessManagementIcon,
 };
@@ -125,6 +128,7 @@ export function WorkspaceNavigation({
   // Explicit TikTokShop grants are independent from GatorHats.
   // Legacy role-based members still see both when their role permits UGC.
   const canViewTiktokshop = granted("tiktokshop") && allowed("realistic_review_ugc.read");
+  const canViewEtsySpy = granted("etsy-spy") && allowed("etsy_spy.read");
   const canViewAccess = granted("access") && allowed("tenant_members.read");
 
   const items: Array<{ id: WorkspaceRoute; href: string; label: string }> = [
@@ -141,6 +145,9 @@ export function WorkspaceNavigation({
     ] : []),
     ...(canViewTiktokshop ? [
       { id: "tiktokshop" as const, href: "/tiktokshop/scout-ugc", label: "Tiktokshop" },
+    ] : []),
+    ...(canViewEtsySpy ? [
+      { id: "etsy-spy" as const, href: "/etsy-spy", label: "Etsy Spy" },
     ] : []),
     ...(granted("queue") && allowed("ai_operations.read") ? [
       { id: "queue" as const, href: "/job-queue", label: "Job Queue" },

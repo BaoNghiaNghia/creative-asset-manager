@@ -56,6 +56,7 @@ from app.modules.public_review.board_router import router as public_review_board
 from app.modules.public_review.public_router import router as public_review_public_router
 from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
+from app.modules.etsy_spy.router import router as etsy_spy_router
 from app.modules.metadata.router import router as metadata_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.image_generation.router import router as image_generation_router
@@ -267,6 +268,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(source_router)
     api.include_router(tag_router, prefix="/api")
     api.include_router(external_ingestion_router)
+    api.include_router(etsy_spy_router)
     api.include_router(metadata_router, prefix="/api")
     api.include_router(processing_policy_router)
     api.include_router(asset_details_router)
