@@ -96,11 +96,16 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(6);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(7);
+    expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
+    expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
+    expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelector(".etsy-search-filters .etsy-actions select")).toBeTruthy();
-    expect(container?.querySelector(".etsy-table-section-header select[aria-label='Rows per page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
+    expect(container?.querySelector(".etsy-action-cell a[href*='etsy.com/listing']")).toBeTruthy();
     expect(container?.querySelector(".etsy-title-meta a[href*='etsy.com/listing']")).toBeTruthy();
-    expect(container?.querySelector(".etsy-title-meta small")?.textContent).toContain("6/11/26");
+    expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const source = container?.querySelector("select[aria-label='Source']") as HTMLSelectElement;
@@ -131,5 +136,31 @@ describe("Etsy Spy native CAM dashboard", () => {
       .find(el => el.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
     await act(async () => {keyword.click(); await new Promise(resolve => setTimeout(resolve, 30));});
     expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
+  });
+  it("uses Stage 0-style KPI cards to jump into real server-side filters", async () => {
+    await start();
+    const shop = container?.querySelector(".etsy-stat-shop") as HTMLButtonElement;
+    await act(async () => {
+      shop.click();
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(shop.getAttribute("aria-pressed")).toBe("true");
+    expect(observed.some(url => url.includes("/listings?") && url.includes("source=shop"))).toBe(true);
+    const pending = container?.querySelector(".etsy-stat-pending") as HTMLButtonElement;
+    await act(async () => {
+      pending.click();
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(observed.some(url => url.includes("/listings?") && url.includes("tm=pending"))).toBe(true);
+    const keywords = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
+      .find(item => item.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
+    await act(async () => {
+      keywords.click();
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
+    expect(keywords.getAttribute("aria-selected")).toBe("true");
+    expect(container?.querySelector(".etsy-agents")?.tagName).toBe("DETAILS");
+    expect((container?.querySelector(".etsy-agents") as HTMLDetailsElement).open).toBe(false);
   });
 });

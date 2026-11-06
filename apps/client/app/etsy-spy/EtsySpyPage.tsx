@@ -8,18 +8,18 @@ import {
 } from "./api";
 import "./EtsySpyPage.css";
 
-const TABS: { id: SpyTab; title: string }[] = [
-  { id: "products", title: "Products" },
-  { id: "keywords", title: "Keyword Tree" },
-  { id: "trademarks", title: "Trademark" },
-  { id: "logs", title: "System Logs" },
+const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
+  { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
+  { id: "keywords", title: "Keyword Tree", subtitle: "Discovery branches" },
+  { id: "trademarks", title: "Trademark", subtitle: "Cached TM evidence" },
+  { id: "logs", title: "System Logs", subtitle: "Agent diagnostics" },
 ];
 const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
   products: [
-    { id: "keyword", text: "Keyword" }, { id: "sourceKind", text: "Source" },
-    { id: "badge", text: "Etsy Badge + TM" }, { id: "bought24h", text: "Bought / 24h" },
-    { id: "views24h", text: "Views / 24h" }, { id: "inCarts", text: "Carts" },
-    { id: "pageTitle", text: "Product Title / URL" },
+    { id: "pageTitle", text: "Product / Etsy" }, { id: "keyword", text: "Keyword" },
+    { id: "sourceKind", text: "Source" }, { id: "badge", text: "Etsy Badge + TM" },
+    { id: "bought24h", text: "Bought / 24h" }, { id: "views24h", text: "Views / 24h" },
+    { id: "inCarts", text: "Carts" }, { id: "observedAt", text: "Observed" },
   ],
   keywords: [
     { id: "keyword", text: "Keyword" }, { id: "depth", text: "Depth" },
@@ -135,8 +135,20 @@ function ProductRow({ item }: { item: Listing }) {
   const sourceKinds = item.sourceKinds?.length ? item.sourceKinds : item.metadata?.sourceKinds || [item.sourceKind];
   const sourceLabel = sourceKinds.includes("search") && sourceKinds.includes("shop")
     ? "Search + Shop" : sourceKinds.includes("shop") ? "Shop" : "Search";
-  return <tr>
-    <td>{item.keyword}</td>
+  return <tr className="etsy-product-row">
+    <td className="etsy-title">
+      <div className="etsy-product-identity">
+        <span className="etsy-product-glyph" aria-hidden="true">E</span>
+        <div className="etsy-product-copy">
+          <strong title={item.pageTitle}>{item.pageTitle}</strong>
+          <div className="etsy-title-meta">
+            <small>#{item.listingKey}</small>
+            {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
+          </div>
+        </div>
+      </div>
+    </td>
+    <td className="etsy-keyword-cell"><strong title={item.keyword}>{item.keyword}</strong></td>
     <td><span className={"etsy-pill etsy-source-" + (sourceKinds.includes("search") ? "search" : "shop")}>{sourceLabel}</span></td>
     <td><div className="etsy-badge-stack">
       {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
@@ -151,14 +163,13 @@ function ProductRow({ item }: { item: Listing }) {
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
     <td className="etsy-num">{item.inCarts ?? "—"}</td>
-    <td className="etsy-title"><strong title={item.pageTitle}>{item.pageTitle}</strong>
-      <div className="etsy-title-meta">
-        {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
-        <small>{readableTime(item.observedAt)}</small>
-      </div>
-    </td>
+    <td className="etsy-time">{readableTime(item.observedAt)}</td>
+    <td className="etsy-action-cell">{item.url
+      ? <a href={item.url} target="_blank" rel="noopener noreferrer" aria-label={"Open Etsy listing: " + item.pageTitle} title="Open on Etsy">↗</a>
+      : <span className="etsy-muted">—</span>}</td>
   </tr>;
 }
+
 function KeywordRow({ item }: { item: Keyword }) {
   const [open, setOpen] = useState(false);
   return <tr>
@@ -279,56 +290,102 @@ export function EtsySpyPage() {
   const exportQuery = apiQuery(options);
   exportQuery.delete("page"); exportQuery.delete("page_size");
   const activeTab = options.tab;
+  const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
+    setTypedSearch("");
+    update({
+      tab, q: "", sessionId: "", source: "", badge: "", tm: "",
+      status: "", level: "", phase: "",
+      sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
+        : tab === "trademarks" ? "checkedAt" : "updatedAt",
+      dir: "desc", page: 1, ...filters,
+    });
+  };
+  const overviewCards: {
+    title: string; value: number | string | null | undefined; hint: string;
+    tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
+  }[] = [
+    { title: "Eligible listings", value: summary?.listings, hint: "Current Etsy products",
+      tone: "total", tab: "products",
+      selected: activeTab === "products" && !options.source && !options.tm },
+    { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
+      tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
+    { title: "Search", value: summary?.search, hint: "Found in Etsy Search",
+      tone: "search", tab: "products", filters: { source: "search" },
+      selected: activeTab === "products" && options.source === "search" },
+    { title: "Shop", value: summary?.shop, hint: "Found in Etsy Shop",
+      tone: "shop", tab: "products", filters: { source: "shop" },
+      selected: activeTab === "products" && options.source === "shop" },
+    { title: "TM pending", value: summary?.tm_pending, hint: "Awaiting evidence",
+      tone: "pending", tab: "products", filters: { tm: "pending" },
+      selected: activeTab === "products" && options.tm === "pending" },
+    { title: "TM checked", value: summary?.tm_checked, hint: "Checked products",
+      tone: "checked", tab: "trademarks", selected: activeTab === "trademarks" },
+    { title: "Errors", value: summary?.errors, hint: `${summary?.warnings ?? "—"} warnings in logs`,
+      tone: "errors", tab: "logs", filters: { level: "error" },
+      selected: activeTab === "logs" && options.level === "error" },
+  ];
   return <main className="etsy-spy-page">
     <WorkspacePageHeader route="etsy-spy" actions={<>
       <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
-      <button className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
+      <button type="button" className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
       <WorkspaceBackToAssets />
     </>} />
-    <div className="etsy-freshness" role="status">
-      <span className="etsy-sync-icon" aria-hidden="true">↻</span>
-      <span>Last synchronized (GMT+7): <strong>{readableTime(summary?.last_synced_at)}</strong></span>
-      <span className="etsy-freshness-divider" aria-hidden="true" />
-      <span>{summary?.online_agents || 0}/{summary?.agent_count || 0} agents online</span>
-      {summary?.last_inventory_at && <>
-        <span className="etsy-freshness-divider" aria-hidden="true" />
-        <span>Listings reconciled: <strong>{readableTime(summary.last_inventory_at)}</strong></span>
-      </>}
-      <span className="etsy-freshness-divider" aria-hidden="true" />
-      <span>Windows is the source of truth. Offline does not delete synchronized data.</span>
-    </div>
-    <section className="etsy-stats" aria-label="Etsy Spy overview">
-      {[
-        ["Eligible listings", summary?.listings], ["Keyword nodes", summary?.keywords],
-        ["Sessions", summary?.sessions], ["Search / Shop", summary ? summary.search + " / " + summary.shop : null],
-        ["TM pending", summary?.tm_pending], ["Errors / Warnings", summary ? summary.errors + " / " + summary.warnings : null],
-      ].map(([label, value], index) => <div className={"etsy-stat etsy-stat-" + index} key={String(label)}>
-        <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index]} /></svg></span>
-        <div className="etsy-stat-info"><span>{label}</span><strong>{value ?? "—"}</strong></div>
-      </div>)}
-    </section>
-    <div className="etsy-toolbar">
+    <div className="etsy-stage-nav">
       <nav role="tablist" aria-label="Etsy Spy sections" className="etsy-tabs">
-        {TABS.map(item => <button key={item.id} role="tab" aria-selected={activeTab === item.id}
-          className={activeTab === item.id ? "active" : ""} onClick={() => {
-            setTypedSearch("");
-            update({
-              tab: item.id, q: "", sessionId: "", source: "", badge: "",
-              tm: "", status: "", level: "", phase: "",
-              sort: item.id === "products" ? "observedAt"
-                : item.id === "logs" ? "at" : item.id === "trademarks" ? "checkedAt" : "updatedAt",
-              dir: "desc", page: 1,
-            });
-          }}>{item.title}</button>)}
+        {TABS.map((item, index) => <button key={item.id} type="button" role="tab"
+          aria-selected={activeTab === item.id} className={activeTab === item.id ? "active" : ""}
+          onClick={() => selectTab(item.id)}>
+          <span className="etsy-tab-number" aria-hidden="true">{index}</span>
+          <span className="etsy-tab-copy"><strong>{item.title}</strong><small>{item.subtitle}</small></span>
+        </button>)}
       </nav>
     </div>
-    <section className="etsy-search-filters" aria-label="Search and filters">
-      <div className="etsy-search-box">
-        <span aria-hidden="true" className="etsy-search-icon">⌕</span>
-        <input type="search" aria-label="Search Spy records" placeholder={
-          activeTab === "logs" ? "Search message or stack" : "Search keyword or product title"
-        } value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
-      </div>
+    <section className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
+      <div className="etsy-stage-card">
+        <div className="etsy-stage-heading-row">
+          <div className="etsy-stage-heading">
+            <span className="etsy-stage-kicker">ETSY SPY · MARKET INTELLIGENCE</span>
+            <h2>{activeTab === "products" ? "Product Intelligence" : TABS.find(item => item.id === activeTab)?.title}</h2>
+            <p>{activeTab === "products"
+              ? "Explore verified Etsy product demand and trademark evidence from the Windows Scout."
+              : activeTab === "keywords" ? "Follow discovered keyword branches, priorities and source evidence."
+              : activeTab === "trademarks" ? "Review cached trademark results and attached USPTO evidence."
+              : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>
+            <div className="etsy-freshness" role="status">
+              <span>Last synced (GMT+7) <strong>{readableTime(summary?.last_synced_at)}</strong></span>
+              <span className="etsy-freshness-divider" aria-hidden="true" />
+              <span><strong>{summary?.online_agents ?? 0}/{summary?.agent_count ?? 0}</strong> agents online</span>
+              {summary?.last_inventory_at && <>
+                <span className="etsy-freshness-divider" aria-hidden="true" />
+                <span>Listings reconciled: <strong>{readableTime(summary.last_inventory_at)}</strong></span>
+              </>}
+            </div>
+          </div>
+          <div className="etsy-stage-heading-actions">
+            <div className="etsy-search-box">
+              <svg className="etsy-search-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+              <input type="search" aria-label="Search Spy records"
+                placeholder={activeTab === "logs" ? "Search message or stack…" : "Search keyword or product…"}
+                value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
+            </div>
+          </div>
+        </div>
+        <section className="etsy-stats" aria-label="Etsy Spy overview filters">
+          {overviewCards.map((card, index) => <button type="button"
+            className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
+            key={card.title} aria-pressed={card.selected}
+            title={`View ${card.title.toLowerCase()} records`}
+            onClick={() => selectTab(card.tab, card.filters)}>
+            <span className="etsy-stat-heading">
+              <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
+              <span>{card.title}</span>
+            </span>
+            <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
+            <small>{card.hint}</small>
+          </button>)}
+        </section>
+        <section className="etsy-search-filters" aria-label="Search and filters">
+          <span className="etsy-filter-label">FILTERS</span>
       {activeTab === "products" ? <>
         <select aria-label="Source" value={options.source} onChange={event => update({ source: event.target.value })}>
           <option value="">All sources</option><option value="search">Search</option><option value="shop">Shop</option>
@@ -406,22 +463,15 @@ export function EtsySpyPage() {
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
     <div className="etsy-table-section-header">
-      <h2>{TABS.find(x => x.id === activeTab)?.title}</h2>
-      <div className="etsy-table-count">
-        <label>Rows
-          <select aria-label="Rows per page" value={options.pageSize} onChange={event => update({ pageSize: Number(event.target.value) })}>
-            {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}
-          </select>
-        </label>
-        <span>{rows ? rows.total.toLocaleString() : "—"} records</span>
-      </div>
+      <h2>{TABS.find(x => x.id === activeTab)?.title} <span>({rows ? rows.total.toLocaleString() : "—"})</span></h2>
+      <span className="etsy-table-count">Sorted and filtered from synchronized Windows data</span>
     </div>
     <div className="etsy-table-card">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty">No matching records. {summary?.source_status === "never_synced"
           ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</div>
         : <div className="etsy-table-wrap">
-          <table><thead><tr>
+          <table className={"etsy-data-table is-" + activeTab}><thead><tr>
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               <button type="button" onClick={() => sortColumn(col.id)}
@@ -430,6 +480,7 @@ export function EtsySpyPage() {
               </button>
             </th>)}
             {activeTab === "logs" && <th>Message / Stack</th>}
+            {activeTab === "products" && <th className="etsy-action-header">Action</th>}
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey} item={item} />)
@@ -441,13 +492,25 @@ export function EtsySpyPage() {
           </tbody></table>
         </div>}
       <div className="etsy-pager">
-        <span>Page {options.page} / {totalPages}</span>
-        <button disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>Previous</button>
-        <button disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>Next</button>
+        <span>{rows && rows.total > 0 ? ((options.page - 1) * options.pageSize + 1).toLocaleString() : 0}–{rows ? Math.min(options.page * options.pageSize, rows.total).toLocaleString() : "—"} of {rows?.total.toLocaleString() ?? "—"}</span>
+        <div className="etsy-page-controls">
+          <button type="button" aria-label="First page" disabled={loading || options.page <= 1} onClick={() => update({ page: 1 })}>«</button>
+          <button type="button" aria-label="Previous page" disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>‹</button>
+          <strong>Page {options.page} / {totalPages}</strong>
+          <button type="button" aria-label="Next page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>›</button>
+          <button type="button" aria-label="Last page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: totalPages })}>»</button>
+        </div>
+        <label>Rows
+          <select aria-label="Rows per page" value={options.pageSize} disabled={loading}
+            onChange={event => update({ pageSize: Number(event.target.value) })}>
+            {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}
+          </select>
+        </label>
       </div>
     </div>
-    <section className="etsy-agents" aria-label="Windows synchronization agents">
-      <div><h2>Windows Sync Agent</h2><p>Data remains available even when the source PC is offline.</p></div>
+    <details className="etsy-agents" aria-label="Windows synchronization agents">
+      <summary><span>Windows Sync Agent</span><small>{agents.length} registered · Data remains available while the PC is offline</small></summary>
+      <div className="etsy-agent-content">
       <div className="etsy-agent-rows">
         {agents.map(agent => <div key={agent.id}>
           <strong>{agent.name}</strong><span>{agent.active ? "Active" : "Revoked"}</span>
@@ -483,6 +546,9 @@ export function EtsySpyPage() {
           </div>}
         </>}
       </div>}
+      </div>
+    </details>
+      </div>
     </section>
   </main>;
 }
