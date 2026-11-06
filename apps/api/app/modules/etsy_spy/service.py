@@ -93,6 +93,7 @@ def safe_log(value: Any, limit: int) -> str | None:
         raise HTTPException(422, "Invalid log text")
     clean = _SECRET_RE.sub("[REDACTED]", value)
     clean = _EMAIL_RE.sub("[EMAIL]", clean)
+    clean = re.sub(r"https?://[^\\s\\x00-\\x1f<>\\\"']+", "[URL]", clean, flags=re.I)
     return clean[:limit]
 
 
@@ -275,7 +276,13 @@ def _should_update(current: Any, incoming: dict[str, Any], section: str) -> bool
     if section == "logs":
         return False
     if section == "sessions":
-        return incoming["revision"] >= current.revision
+        if incoming["revision"] != current.revision:
+            return incoming["revision"] > current.revision
+        previous = current.updated_at
+        updated = incoming.get("updated_at")
+        if previous is not None and previous.tzinfo is None:
+            previous = previous.replace(tzinfo=timezone.utc)
+        return previous is None or (updated is not None and updated >= previous)
     if section == "trademarks":
         older = current.checked_at
         newer = incoming.get("checked_at")

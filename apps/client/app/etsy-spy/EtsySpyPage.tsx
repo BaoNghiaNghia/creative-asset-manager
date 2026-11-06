@@ -292,7 +292,9 @@ export function EtsySpyPage() {
           className={activeTab === item.id ? "active" : ""} onClick={() => {
             setTypedSearch("");
             update({
-              tab: item.id, q: "", sort: item.id === "products" ? "observedAt"
+              tab: item.id, q: "", sessionId: "", source: "", badge: "",
+              tm: "", status: "", level: "", phase: "",
+              sort: item.id === "products" ? "observedAt"
                 : item.id === "logs" ? "at" : item.id === "trademarks" ? "checkedAt" : "updatedAt",
               dir: "desc", page: 1,
             });

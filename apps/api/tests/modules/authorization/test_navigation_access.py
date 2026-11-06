@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
+# Explicitly register the referenced Branding DNA snapshot table before the
+# shared Base.metadata.create_all test; independent modules import in any order.
+from app.modules.branding_dna import evidence_model as _brand_snapshot_models  # noqa: F401
 from app.modules.auth_persistence.model import AuthAuditEventModel, UserModel
 from app.modules.auth_persistence.tenant_membership import TenantMembershipService
 from app.modules.authorization.admin_service import TenantAccessAdminError, TenantAccessAdminService
