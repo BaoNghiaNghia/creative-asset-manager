@@ -216,13 +216,15 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const [smsExpanded, setSmsExpanded] = useState(false);
-  const [imagePreview, setImagePreview] = useState<{left: number; top: number} | null>(null);
+  const [imagePreview, setImagePreview] = useState<{
+    left: number; bottom: number; width: number; maxHeight: number; imageMaxHeight: number;
+  } | null>(null);
   const [fullImageFailed, setFullImageFailed] = useState(false);
   const previewThumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
   const previewFull = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl);
   const previewSource = fullImageFailed ? previewThumb : previewFull ?? previewThumb;
-  // The preview is rendered only during pointer hover, not for all 50–200
-  // table rows. Its portal bypasses the scroll container's overflow clipping.
+  // Load the full image only on hover, inside the unused lower-left sidebar.
+  // The body portal avoids table overflow clipping without covering table cells.
   useEffect(() => {
     if (!imagePreview) return;
     const hide = () => setImagePreview(null);
@@ -235,13 +237,20 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   }, [imagePreview]);
   const showImagePreview = (event: React.PointerEvent<HTMLTableRowElement>) => {
     if (event.pointerType === "touch" || !previewSource) return;
-    const width = Math.min(380, window.innerWidth - 24);
-    const height = Math.min(460, window.innerHeight - 24);
-    const left = event.clientX + width + 22 <= window.innerWidth - 12
-      ? event.clientX + 18 : Math.max(12, event.clientX - width - 18);
-    const top = Math.max(12, Math.min(event.clientY - 55,
-      window.innerHeight - height - 12));
-    setImagePreview({left, top});
+    const sidebar = document.querySelector<HTMLElement>(".inventory-desktop-sidebar");
+    if (!sidebar || window.getComputedStyle(sidebar).display === "none") return;
+    const rail = sidebar.getBoundingClientRect();
+    const menuBottom = sidebar.querySelector<HTMLElement>(".workspace-navigation")
+      ?.getBoundingClientRect().bottom ?? rail.top;
+    const width = Math.min(380, rail.width - 24);
+    const maxHeight = Math.min(440, rail.bottom - Math.max(menuBottom, rail.top) - 24);
+    // Never overlap the table or the sidebar navigation on smaller desktops.
+    if (width < 160 || maxHeight < 172 || rail.right > window.innerWidth / 2) return;
+    setImagePreview({
+      left: Math.max(8, rail.left + 12),
+      bottom: Math.max(12, window.innerHeight - rail.bottom + 12),
+      width, maxHeight, imageMaxHeight: Math.max(96, maxHeight - 82),
+    });
   };
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
     (Array.isArray(item.metadata?.keywordSms) ? item.metadata.keywordSms : []);
@@ -346,10 +355,12 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
     </tr>
     {imagePreview && previewSource && createPortal(
       <div className="etsy-product-hover-preview" role="tooltip"
-        style={{left: imagePreview.left, top: imagePreview.top}}
+        style={{left: imagePreview.left, bottom: imagePreview.bottom,
+          width: imagePreview.width, maxHeight: imagePreview.maxHeight}}
         data-listing-key={item.listingKey}>
         <span className="etsy-product-preview-label">Ảnh sản phẩm Etsy</span>
         <img src={previewSource} alt={item.pageTitle} decoding="async"
+          style={{maxHeight: imagePreview.imageMaxHeight}}
           onError={() => {
             if (!fullImageFailed && previewThumb && previewFull !== previewThumb) {
               setFullImageFailed(true);

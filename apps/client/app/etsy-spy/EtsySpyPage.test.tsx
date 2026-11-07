@@ -245,7 +245,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(first?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
   });
 
-  it("doubles Product / Etsy thumbnail size and previews full-size only while hovering a row", async () => {
+  it("pins full-size hover preview below desktop sidebar navigation without covering the Etsy table", async () => {
     await start();
     const first = container?.querySelector<HTMLTableRowElement>(".etsy-product-row");
     const thumb = first?.querySelector<HTMLImageElement>(".etsy-product-thumbnail");
@@ -253,30 +253,69 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(thumb?.getAttribute("height")).toBe("68");
     expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
 
-    await act(async () => {
-      first?.dispatchEvent(new MouseEvent("pointerover", {
-        bubbles: true, clientX: 175, clientY: 110,
-      }));
-    });
-    const preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
-    expect(preview?.dataset.listingKey).toBe(listing.listingKey);
-    expect(preview?.querySelector<HTMLImageElement>("img")?.src)
-      .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
-    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
-    // The overlay must be a body portal, outside the scrollable Etsy table.
-    expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
+    const sidebar = document.createElement("aside");
+    sidebar.className = "inventory-desktop-sidebar";
+    const navigation = document.createElement("nav");
+    navigation.className = "workspace-navigation";
+    sidebar.appendChild(navigation);
+    document.body.appendChild(sidebar);
+    vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({
+      left: 0, top: 0, right: 248, bottom: window.innerHeight,
+      width: 248, height: window.innerHeight,
+    } as DOMRect);
+    const navBounds = vi.spyOn(navigation, "getBoundingClientRect").mockReturnValue({
+      left: 16, top: 24, right: 232, bottom: 230,
+      width: 216, height: 206,
+    } as DOMRect);
+    try {
+      await act(async () => {
+        first?.dispatchEvent(new MouseEvent("pointerover", {
+          bubbles: true, clientX: 580, clientY: 120,
+        }));
+      });
+      const preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
+      expect(preview?.dataset.listingKey).toBe(listing.listingKey);
+      expect(preview?.querySelector<HTMLImageElement>("img")?.src)
+        .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
+      expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
+      // Fixed lower left within sidebar, independent of the hovered row position.
+      expect(preview?.style.left).toBe("12px");
+      expect(preview?.style.bottom).toBe("12px");
+      expect(preview?.style.width).toBe("224px");
+      expect(preview?.style.maxHeight).toBe("440px");
+      expect(preview?.style.top).toBe("");
+      expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
 
-    await act(async () => {window.dispatchEvent(new Event("scroll"));});
-    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+      await act(async () => { window.dispatchEvent(new Event("scroll")); });
+      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
 
-    const noImage = Array.from(container?.querySelectorAll<HTMLTableRowElement>(".etsy-product-row") || [])
-      .find(row => row.textContent?.includes("Popular sample"));
-    await act(async () => {
-      noImage?.dispatchEvent(new MouseEvent("pointerover", {
-        bubbles: true, clientX: 230, clientY: 180,
-      }));
-    });
-    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+      // When the navigation fills the sidebar, do not cover menu or product table.
+      navBounds.mockReturnValue({
+        left: 16, top: 24, right: 232, bottom: window.innerHeight - 80,
+        width: 216, height: window.innerHeight - 104,
+      } as DOMRect);
+      await act(async () => {
+        first?.dispatchEvent(new MouseEvent("pointerover", {
+          bubbles: true, clientX: 510, clientY: 160,
+        }));
+      });
+      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+      navBounds.mockReturnValue({
+        left: 16, top: 24, right: 232, bottom: 230,
+        width: 216, height: 206,
+      } as DOMRect);
+      const noImage = Array.from(container?.querySelectorAll<HTMLTableRowElement>(".etsy-product-row") || [])
+        .find(row => row.textContent?.includes("Popular sample"));
+      await act(async () => {
+        noImage?.dispatchEvent(new MouseEvent("pointerover", {
+          bubbles: true, clientX: 640, clientY: 180,
+        }));
+      });
+      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+    } finally {
+      sidebar.remove();
+    }
   });
 
   it("displays offline last known data with distinct Etsy badge and TM status", async () => {
