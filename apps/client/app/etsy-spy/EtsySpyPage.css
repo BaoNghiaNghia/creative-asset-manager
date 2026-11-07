@@ -544,18 +544,42 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-table-wrap .etsy-data-table.is-products td:nth-child(8){min-width:145px}
 .etsy-product-identity{display:flex;align-items:center;gap:9px;min-width:0}
 .etsy-product-glyph{
-  display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;
-  border:1px solid #f1dfcf;border-radius:6px;
-  background:#fff6ed;color:#c47138;font:800 18px/1 Georgia,serif;
+  display:grid;place-items:center;flex:0 0 68px;width:68px;height:68px;
+  border:1px solid #f1dfcf;border-radius:7px;
+  background:#fff6ed;color:#c47138;font:800 24px/1 Georgia,serif;
 }
 .etsy-product-thumbnail-link{
-  display:block;flex:0 0 34px;width:34px;height:34px;
-  overflow:hidden;border:1px solid #d9e2ee;border-radius:6px;
+  display:block;flex:0 0 68px;width:68px;height:68px;
+  overflow:hidden;border:1px solid #d9e2ee;border-radius:7px;
   background:#f1f4f8;line-height:0;text-decoration:none;
 }
 .etsy-product-thumbnail-link:hover{border-color:#8facd2}
 .etsy-product-thumbnail{
   display:block;width:100%;height:100%;object-fit:cover;
+}
+.etsy-product-hover-preview{
+  position:fixed;z-index:10060;pointer-events:none;
+  display:flex;flex-direction:column;gap:8px;
+  width:min(380px,calc(100vw - 24px));
+  max-height:calc(100vh - 24px);
+  padding:10px;background:#fff;border:1px solid #d9e2ef;
+  border-radius:11px;box-shadow:0 16px 48px rgba(21,39,70,.25);
+  color:#33455d;
+}
+.etsy-product-preview-label{
+  color:#73849c;font-size:10px;font-weight:800;letter-spacing:.015em;
+}
+.etsy-product-hover-preview img{
+  display:block;align-self:center;max-width:100%;width:auto;height:auto;
+  max-height:min(390px,calc(100vh - 116px));object-fit:contain;
+  border-radius:6px;
+}
+.etsy-product-preview-title{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;color:#2e465f;font-size:11px;line-height:1.4;font-weight:700;
+}
+@media(hover:none),(pointer:coarse){
+  .etsy-product-hover-preview{display:none}
 }
 .etsy-product-copy{min-width:0;flex:1}
 .etsy-product-copy strong{
@@ -993,8 +1017,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Carts"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(7)::before{content:"Observed"}
   .etsy-product-identity{align-items:flex-start;gap:10px}
-  .etsy-product-glyph{flex-basis:38px;width:38px;height:38px}
-  .etsy-product-thumbnail-link{flex-basis:38px;width:38px;height:38px}
+  .etsy-product-glyph{flex-basis:76px;width:76px;height:76px}
+  .etsy-product-thumbnail-link{flex-basis:76px;width:76px;height:76px}
   .etsy-product-copy strong{font-size:13px;line-height:1.4}
   .etsy-product-copy .etsy-title-meta a{font-size:11px}
   .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}

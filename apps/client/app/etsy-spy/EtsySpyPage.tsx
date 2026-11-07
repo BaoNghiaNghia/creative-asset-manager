@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
@@ -204,7 +205,7 @@ function ProductThumbnail({ item }: { item: Listing }) {
     target="_blank" rel="noopener noreferrer"
     title="View full Etsy product image" aria-label={"View full image of " + item.pageTitle}>
     <img className="etsy-product-thumbnail" src={thumb} alt=""
-      width="34" height="34" loading="lazy" decoding="async"
+      width="68" height="68" loading="lazy" decoding="async"
       onError={() => setBroken(true)} />
   </a>;
 }
@@ -215,6 +216,33 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const [smsExpanded, setSmsExpanded] = useState(false);
+  const [imagePreview, setImagePreview] = useState<{left: number; top: number} | null>(null);
+  const [fullImageFailed, setFullImageFailed] = useState(false);
+  const previewThumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
+  const previewFull = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl);
+  const previewSource = fullImageFailed ? previewThumb : previewFull ?? previewThumb;
+  // The preview is rendered only during pointer hover, not for all 50–200
+  // table rows. Its portal bypasses the scroll container's overflow clipping.
+  useEffect(() => {
+    if (!imagePreview) return;
+    const hide = () => setImagePreview(null);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [imagePreview]);
+  const showImagePreview = (event: React.PointerEvent<HTMLTableRowElement>) => {
+    if (event.pointerType === "touch" || !previewSource) return;
+    const width = Math.min(380, window.innerWidth - 24);
+    const height = Math.min(460, window.innerHeight - 24);
+    const left = event.clientX + width + 22 <= window.innerWidth - 12
+      ? event.clientX + 18 : Math.max(12, event.clientX - width - 18);
+    const top = Math.max(12, Math.min(event.clientY - 55,
+      window.innerHeight - height - 12));
+    setImagePreview({left, top});
+  };
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
     (Array.isArray(item.metadata?.keywordSms) ? item.metadata.keywordSms : []);
   const smsStatus = item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
@@ -224,7 +252,11 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
     item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
   const tmLabel = tmDescription(item.tm, deadMatches);
-  return <tr className="etsy-product-row">
+  return <>
+    <tr className="etsy-product-row"
+      onPointerEnter={showImagePreview}
+      onPointerLeave={() => setImagePreview(null)}
+      onPointerCancel={() => setImagePreview(null)}>
     <td className="etsy-title">
       <div className="etsy-product-identity">
         <ProductThumbnail item={item} />
@@ -311,7 +343,24 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
         </button>
       </div>
     </td>
-  </tr>;
+    </tr>
+    {imagePreview && previewSource && createPortal(
+      <div className="etsy-product-hover-preview" role="tooltip"
+        style={{left: imagePreview.left, top: imagePreview.top}}
+        data-listing-key={item.listingKey}>
+        <span className="etsy-product-preview-label">Ảnh sản phẩm Etsy</span>
+        <img src={previewSource} alt={item.pageTitle} decoding="async"
+          onError={() => {
+            if (!fullImageFailed && previewThumb && previewFull !== previewThumb) {
+              setFullImageFailed(true);
+            } else {
+              setImagePreview(null);
+            }
+          }} />
+        <span className="etsy-product-preview-title">{item.pageTitle}</span>
+      </div>, document.body,
+    )}
+  </>;
 }
 
 function TrademarkRow({ item }: { item: Trademark }) {

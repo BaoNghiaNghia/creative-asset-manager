@@ -245,6 +245,40 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(first?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
   });
 
+  it("doubles Product / Etsy thumbnail size and previews full-size only while hovering a row", async () => {
+    await start();
+    const first = container?.querySelector<HTMLTableRowElement>(".etsy-product-row");
+    const thumb = first?.querySelector<HTMLImageElement>(".etsy-product-thumbnail");
+    expect(thumb?.getAttribute("width")).toBe("68");
+    expect(thumb?.getAttribute("height")).toBe("68");
+    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+    await act(async () => {
+      first?.dispatchEvent(new MouseEvent("pointerover", {
+        bubbles: true, clientX: 175, clientY: 110,
+      }));
+    });
+    const preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
+    expect(preview?.dataset.listingKey).toBe(listing.listingKey);
+    expect(preview?.querySelector<HTMLImageElement>("img")?.src)
+      .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
+    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
+    // The overlay must be a body portal, outside the scrollable Etsy table.
+    expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+    await act(async () => {window.dispatchEvent(new Event("scroll"));});
+    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+    const noImage = Array.from(container?.querySelectorAll<HTMLTableRowElement>(".etsy-product-row") || [])
+      .find(row => row.textContent?.includes("Popular sample"));
+    await act(async () => {
+      noImage?.dispatchEvent(new MouseEvent("pointerover", {
+        bubbles: true, clientX: 230, clientY: 180,
+      }));
+    });
+    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+  });
+
   it("displays offline last known data with distinct Etsy badge and TM status", async () => {
     await start();
     const html = container?.innerHTML || "";
