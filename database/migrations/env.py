@@ -16,6 +16,7 @@ from app.modules.metadata import model as metadata_models  # noqa: F401
 from app.modules.auth_persistence import model as auth_persistence_models  # noqa: F401
 from app.modules.authorization import model as authorization_models  # noqa: F401
 from app.modules.etsy_spy import model as etsy_spy_models  # noqa: F401
+from app.modules.agent_harness import model as agent_harness_models  # noqa: F401
 from app.modules.tag import model as tag_models  # noqa: F401
 from app.modules.source_sync import model as source_sync_models  # noqa: F401
 from app.modules.retention import model as retention_models  # noqa: F401

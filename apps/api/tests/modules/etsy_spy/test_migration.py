@@ -65,7 +65,7 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
     with engine.connect() as c:
         tables = set(inspect(c).get_table_names())
         assert expected.issubset(tables)
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0201_etsy_spy_parent_keywords"
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0202_cam_agent_harness_store"
         assert {"is_current", "has_search", "has_shop"}.issubset({
             column["name"] for column in inspect(c).get_columns("etsy_spy_listings")})
         assert {"last_inventory_at", "last_inventory_count"}.issubset({
