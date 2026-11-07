@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
@@ -36,7 +37,53 @@ READ = require_permission("etsy_spy.read")
 MANAGE = require_permission("etsy_spy.manage")
 MAX_RECEIPT_BYTES = 31_000_000
 MAX_PNG_BYTES = 22_000_000
+# Default storage policy holds a small local review buffer, not 200/day forever.
+DEFAULT_STORAGE_QUOTA_BYTES = 2 * (1024 ** 3)
+DEFAULT_STORAGE_FREE_FLOOR_BYTES = 3 * (1024 ** 3)
 VN_TIMEZONE = timezone(timedelta(hours=7))
+
+
+def _storage_limit(env_name: str, default: int) -> int:
+    """Bound admin-provided capacity settings; never allow zero/unlimited."""
+    try:
+        value = int(os.getenv(env_name, str(default)))
+    except ValueError:
+        return default
+    return max(MAX_PNG_BYTES, min(value, 500 * 1024 ** 3))
+
+
+def storage_capacity(incoming_bytes: int = 0) -> dict:
+    """Fail closed if persistent storage is missing, full or past its quota.
+
+    No automatic deletion of selected designs: operators must explicitly archive
+    or add capacity. The API user needs read/write permission on the root.
+    """
+    root_text = os.getenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", "").strip()
+    quota = _storage_limit(
+        "CAM_ETSY_EXTRACTION_STORAGE_QUOTA_BYTES", DEFAULT_STORAGE_QUOTA_BYTES)
+    floor = _storage_limit(
+        "CAM_ETSY_EXTRACTION_MIN_FREE_BYTES", DEFAULT_STORAGE_FREE_FLOOR_BYTES)
+    status = {"ready": False, "reason": "storage_not_provisioned",
+              "used_bytes": 0, "quota_bytes": quota, "free_bytes": None}
+    if not root_text or not Path(root_text).is_absolute():
+        return status
+    root = Path(root_text)
+    if not root.is_dir() or not os.access(root, os.R_OK | os.W_OK | os.X_OK):
+        return status
+    try:
+        free = shutil.disk_usage(root).free
+        # Count only extraction PNGs and interrupted atomic uploads, not
+        # unrelated tenant files or data outside the dedicated storage root.
+        used = sum(file.stat().st_size for file in root.glob("*/*")
+                   if file.is_file() and file.suffix in {".png", ".pending"})
+    except OSError:
+        return {**status, "reason": "storage_unavailable"}
+    over_quota = (used >= quota if incoming_bytes == 0
+                  else used + incoming_bytes > quota)
+    reason = ("storage_quota_reached" if over_quota else
+              "disk_headroom_low" if free - incoming_bytes < floor else "ready")
+    return {"ready": reason == "ready", "reason": reason,
+            "used_bytes": used, "quota_bytes": quota, "free_bytes": free}
 
 
 def daily_cap() -> int:
@@ -96,6 +143,7 @@ def extraction_overview(db: Session, tenant: str) -> dict:
         "failed_today": result_counts["failed"],
         "cancellation_excluded": True,
         "timezone": "Asia/Ho_Chi_Minh",
+        "storage": storage_capacity(),
     }
 
 
@@ -269,6 +317,11 @@ def claim_image_job(
         agent.last_seen_at = now
         db.commit()
         return {"task": None, "pause_reason": "daily_cap_reached"}
+    capacity = storage_capacity()
+    if not capacity["ready"]:
+        agent.last_seen_at = now
+        db.commit()
+        return {"task": None, "pause_reason": capacity["reason"]}
     job = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == agent.tenant_id,
         ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
@@ -319,7 +372,9 @@ async def check_and_renew_image_job(
     _enabled()
     body = await _bounded_json(request, 4096)
     job_id = str(body.get("job_id") or "")
-    job = db.get(ProcessingJobModel, job_id)
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == job_id,
+    ).with_for_update())
     if (job is None or job.tenant_id != agent.tenant_id or
         job.job_type != EXTRACTION_JOB_TYPE):
         raise HTTPException(404, "Image job not found")
@@ -358,7 +413,9 @@ async def submit_image_result(
     _enabled()
     data = await _bounded_json(request, MAX_RECEIPT_BYTES)
     job_id = str(data.get("job_id") or "")
-    job = db.get(ProcessingJobModel, job_id)
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == job_id,
+    ).with_for_update())
     if (job is None or job.tenant_id != agent.tenant_id or
         job.job_type != EXTRACTION_JOB_TYPE):
         raise HTTPException(404, "Image extraction job not found")
@@ -407,17 +464,31 @@ async def submit_image_result(
         if output_hash != data.get("output_sha256"):
             raise HTTPException(422, "PNG SHA256 mismatch")
         target = _storage_path(agent.tenant_id, job.id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
+        # Result endpoint holds the ProcessingJob row lock (PostgreSQL), so
+        # retries do not delete an upload currently owned by another request.
+        if target.is_file():
             if hashlib.sha256(target.read_bytes()).hexdigest() != output_hash:
                 raise HTTPException(409, "Immutable PNG revision mismatch")
         else:
-            temp = target.with_suffix(".pending")
-            with temp.open("xb") as file:
-                file.write(raw)
-                file.flush()
-                os.fsync(file.fileno())
-            temp.replace(target)
+            pending = target.with_suffix(".pending")
+            if pending.is_file():
+                # Recover a crash after fsync but before atomic rename. A
+                # truncated temporary file can be replaced by the exact same
+                # authenticated result; no different PNG is accepted.
+                if hashlib.sha256(pending.read_bytes()).hexdigest() == output_hash:
+                    pending.replace(target)
+                else:
+                    pending.unlink()
+            if not target.is_file():
+                capacity = storage_capacity(len(raw))
+                if not capacity["ready"]:
+                    raise HTTPException(507, "Review storage unavailable or over capacity")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with pending.open("xb") as file:
+                    file.write(raw)
+                    file.flush()
+                    os.fsync(file.fileno())
+                pending.replace(target)
     elif data.get("png_base64") or data.get("output_sha256"):
         raise HTTPException(422, "Non-PNG status must not include an output")
     receipt_id = hashlib.sha256(

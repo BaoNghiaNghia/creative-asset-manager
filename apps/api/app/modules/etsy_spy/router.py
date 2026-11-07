@@ -47,7 +47,10 @@ VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 OBSERVED_DAY_START = time(6, 0)
 
 def freshness(db: Session, tenant: str) -> dict[str, Any]:
-    rows = db.scalars(select(Agent).where(Agent.tenant_id == tenant, Agent.active.is_(True))).all()
+    rows = db.scalars(select(Agent).where(
+        Agent.tenant_id == tenant, Agent.active.is_(True),
+        ~Agent.name.startswith(IMAGE_AGENT_NAME_PREFIX),
+    )).all()
     recent = max((a.last_seen_at for a in rows if a.last_seen_at), default=None)
     synced = max((a.last_synced_at for a in rows if a.last_synced_at), default=None)
     now = utcnow()
@@ -1053,8 +1056,10 @@ def export_logs(
 def list_agents(
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
-    agents = db.scalars(select(Agent).where(Agent.tenant_id == principal.active_tenant_id)
-                        .order_by(desc(Agent.created_at))).all()
+    agents = db.scalars(select(Agent).where(
+        Agent.tenant_id == principal.active_tenant_id,
+        ~Agent.name.startswith(IMAGE_AGENT_NAME_PREFIX),
+    ).order_by(desc(Agent.created_at))).all()
     return jsonable_encoder({"items": [
         {"id": item.id, "name": item.name, "machine_label": item.machine_label,
          "active": item.active, "extension_version": item.extension_version,

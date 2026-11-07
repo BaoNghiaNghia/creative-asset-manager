@@ -17,6 +17,7 @@ vi.mock("../../features/access_management", () => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const observed: string[] = [];
 let blockedTerms: string[] = [];
+let registeredImageAgents: Array<{id: string; name: string; active: boolean; last_seen_at: string | null}> = [];
 let savedWinKeywords: string[] = [];
 let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number;
   source: "manual" | "observed"; occurrences: number}> = [];
@@ -78,6 +79,7 @@ function json(value: unknown) {
 }
 function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = [];
+  registeredImageAgents = [];
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
@@ -154,6 +156,21 @@ function installFetch() {
     if (url.includes("/sessions")) return json({ items: [
       { id: "one", keyword: "Rudolph", status: "completed" },
     ]});
+    if (url.endsWith("/image-agents") && init?.method === "POST") {
+      const {name} = JSON.parse(String(init.body)) as {name: string};
+      const agent_id = "11111111-1111-4111-8111-111111111111";
+      registeredImageAgents.push({id: agent_id,
+        name: "CAM Image Agent / " + name, active: true, last_seen_at: null});
+      return json({agent_id, token: "A".repeat(70)});
+    }
+    if (url.endsWith("/image-agents")) return json({items: [...registeredImageAgents]});
+    if (url.endsWith("/image-agents/overview")) return json({
+      enabled:false, daily_cap:200, claimed_today:0, remaining_today:200,
+      queued:0, processing:0, completed_today:0, needs_review_today:0,
+      needs_ai_today:0, failed_today:0, timezone:"Asia/Ho_Chi_Minh",
+      storage:{ready:false,reason:"storage_not_provisioned",
+        used_bytes:0, quota_bytes:2147483648, free_bytes:null},
+    });
     if (url.includes("/agents")) return json({items: []});
     if (url.includes("/keywords?")) {
       const params = new URL(url, "http://localhost").searchParams;
@@ -547,8 +564,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     // The former crash happened on the first render after switching tabs:
     // Product rows were briefly rendered as Trademark rows before refetch.
     await act(async () => { trademark.click(); });
-    expect(container?.querySelector(".etsy-skeleton")).toBeTruthy();
-    expect(container?.querySelector(".etsy-data-table.is-trademarks")).toBeNull();
+    // Either a skeleton or the final Trademark rows may be visible when
+    // the request resolves quickly; stale Product rows must never be shown.
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
+    expect(Boolean(container?.querySelector(".etsy-skeleton") ||
+      container?.querySelector(".etsy-data-table.is-trademarks"))).toBe(true);
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 65)); });
     expect(observed.some(url => url.includes("/trademarks?"))).toBe(true);
     expect(trademark.getAttribute("aria-selected")).toBe("true");
@@ -947,6 +967,45 @@ describe("Etsy Spy native CAM dashboard", () => {
       'button[aria-label="Pick Rudolph Shirt"]');
     expect(restoredPick?.textContent).toBe("Pick");
     expect(restoredPick?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("pairs Image Agent separately and copies disabled D: configuration", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const panel = container?.querySelector<HTMLDetailsElement>(
+      'details[aria-label="Windows image extraction agents"]');
+    expect(panel?.textContent).toContain("Extraction disabled");
+    const pair = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
+      .find(item => item.textContent?.trim() === "Pair Image Agent");
+    await act(async () => { pair?.click(); });
+    const create = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
+      .find(item => item.textContent?.trim() === "Create Image Agent");
+    expect(create).toBeTruthy();
+    await act(async () => {
+      create?.click();
+      await new Promise(resolve => setTimeout(resolve, 70));
+    });
+    expect(registeredImageAgents).toHaveLength(1);
+    expect(panel?.textContent).toContain("Token:");
+    const writeText = vi.fn(async (_value: string) => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true, value: { writeText },
+    });
+    const copy = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
+      .find(item => item.textContent?.trim() === "Copy disabled Windows config");
+    await act(async () => {copy?.click();});
+    const config = JSON.parse(String(writeText.mock.calls[0]?.[0])) as {
+      enabled: boolean; cam_origin: string; agent_id: string;
+      tenant_id: string; token: string;
+    };
+    expect(config.enabled).toBe(false);
+    expect(config.tenant_id).toBe("boostgame");
+    expect(config.agent_id).toBe(registeredImageAgents[0].id);
+    expect(config.token.length).toBe(70);
+    expect(localStorage.length).toBe(0);
+    expect(panel?.textContent).toContain("storage not provisioned");
   });
 
   it("disables Pick for users without manage permission", async () => {

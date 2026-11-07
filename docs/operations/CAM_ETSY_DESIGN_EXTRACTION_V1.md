@@ -12,6 +12,9 @@ Rollout: implementation staged; external production execution remains OFF by def
 - CAM image-agents endpoints use dedicated device tokens and strict tenant isolation, with immutable task/lease and SHA256 receipt.
 - Job relay is opt-in outbound HTTPS, single lane with a local D: journal; ambiguous responses retry identical receipt bytes.
 - Review assets require persistent CAM storage and tenant authentication. Every result remains print_ready=false, rights_status=unverified.
+- Storage is **fail-closed**: the configured absolute root must already exist and be readable/writable. Missing storage, low free disk or quota exhaustion prevents new claims; returning PNG after quota exhaustion gets HTTP 507 without marking the job complete. Windows preserves its journal and retries later.
+- Defaults: `CAM_ETSY_EXTRACTION_STORAGE_QUOTA_BYTES=2147483648` (2 GiB review buffer), `CAM_ETSY_EXTRACTION_MIN_FREE_BYTES=3221225472` (3 GiB disk reserve). Quota is for *all* review PNGs in the dedicated root. There is no automatic deletion or assumption of 200 completed designs/day.
+- The CAM Etsy Spy UI has a separate **Windows Image Agent** pairing section. An admin can create a dedicated device, copy a one-time disabled `cam-config.json` into `D:\\CAM Image Extension\\.runtime\\extraction`, and enable that device only after the pilot. Scout tokens and their online counts remain separate.
 - Unpick cancels pending, retry and processing extraction, but never deletes historical results.
 - A new Pick after Unpick opens a fresh `pick_generation` even if source image URL is unchanged; stale old leases and receipts remain rejected.
 - Expired processing leases are claimable by another paired Image Agent with a rotated token/attempt; a still-valid lease is never stolen.
@@ -22,8 +25,8 @@ Rollout: implementation staged; external production execution remains OFF by def
 ## Before production activation
 
 1. Deploy from main only, run health checks and preserve a rollback release.
-2. Provision a persistent volume on CAM. Set CAM_ETSY_EXTRACTION_STORAGE_ROOT to an absolute, mounted persistent directory.
-3. Pair a unique device through POST /api/v1/etsy-spy/image-agents using CAM admin access.
+2. Storage on CAM is provisioned by `bash scripts/cam-etsy-extraction-storage-prepare.sh --check` and `--apply`, which creates `/var/lib/creative-asset-manager/etsy-design-extraction` (owner `creative-assets`, mode `0700`) and adds the storage root, 2 GiB quota, 3 GiB free-disk reserve, and a **1/day pilot cap** to the protected production environment. It does not set `CAM_ETSY_EXTRACTION_WORKER_ENABLED`, alter other secrets or restart the API. Run release deploy afterward to load the environment.
+3. Pair a unique device from CAM `Etsy Spy → Windows Image Agent → Pair Image Agent`. This uses the dedicated `POST /api/v1/etsy-spy/image-agents` route with admin access. The one-time copied JSON stays `enabled:false` until the pilot and must be saved only to the Windows D: runtime config.
 4. On Windows run SETUP_CAM_EXTRACTION.cmd; fill .runtime/extraction/cam-config.json with HTTPS origin, agent_id, token, tenant_id boostgame, enabled true.
 5. Launch START_IMAGE_AGENT.cmd and START_CAM_EXTRACTION_RELAY.cmd without restarting Chrome or the existing Codex executor.
 6. Only after a consented one-listing pilot, enable CAM_ETSY_EXTRACTION_WORKER_ENABLED=1 and verify upload/receipt, private preview, lease replay and role isolation.

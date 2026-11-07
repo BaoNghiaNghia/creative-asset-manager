@@ -4,7 +4,7 @@ import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/Worksp
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
-  type SpyTab, type Page, type Summary, type ExtractionOverview, type Listing,
+  type SpyTab, type Page, type Summary, type ExtractionOverview, type ImageAgentStatus, type Listing,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
   type ObservedDaysSummary, type ObservedDayBucket,
 } from "./api";
@@ -449,6 +449,12 @@ export function EtsySpyPage() {
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
+  const [imageAgents, setImageAgents] = useState<ImageAgentStatus[]>([]);
+  const [imagePairName, setImagePairName] = useState("DESKTOP-3FR0LF0");
+  const [imagePairOpen, setImagePairOpen] = useState(false);
+  const [imagePairBusy, setImagePairBusy] = useState(false);
+  const [imagePairError, setImagePairError] = useState("");
+  const [imagePairSecret, setImagePairSecret] = useState<{ agent_id: string; token: string } | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
     requestKey: string; data: Page<Listing | Keyword | Trademark | SpyLog> | null;
@@ -490,13 +496,15 @@ export function EtsySpyPage() {
     Promise.all([
       spyFetch<Summary>("/summary"),
       spyFetch<ExtractionOverview>("/image-agents/overview").catch(() => null),
+      spyFetch<{ items: ImageAgentStatus[] }>("/image-agents").catch(() => ({ items: [] })),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
       spyFetch<{ phrases: string[] }>("/blacklist"),
       spyFetch<{ keywords: string[] }>("/win-keywords"),
       fetchAccessIdentity(),
-    ]).then(([overview, extractionOverview, currentAgents, rules, winList, identity]) => {
+    ]).then(([overview, extractionOverview, currentImageAgents, currentAgents, rules, winList, identity]) => {
       if (!alive) return;
       setSummary(overview); setExtraction(extractionOverview); setAgents(currentAgents.items);
+      setImageAgents(currentImageAgents.items);
       setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
       setWinKeywords(Array.isArray(winList.keywords) ? winList.keywords : []);
       setCanManage(identity.permissions.includes("etsy_spy.manage"));
@@ -683,7 +691,8 @@ export function EtsySpyPage() {
         options.pickState === "eligible" && !options.source && !options.tm },
     { title: "Picked", value: summary?.picked ?? 0,
       hint: extraction ? (extraction.enabled
-        ? `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
+        ? extraction.storage?.ready === false ? "Selected · Extraction storage paused"
+          : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
         : "Selected · Image Agent off")
         : "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked" },
@@ -998,6 +1007,77 @@ export function EtsySpyPage() {
           </div>}
         </>}
       </div>}
+      </div>
+    </details>
+    <details className="etsy-agents" aria-label="Windows image extraction agents">
+      <summary><span>Windows Image Agent</span>
+        <small>{imageAgents.filter(agent => agent.active).length} paired · {extraction?.enabled
+          ? `Fast Extraction ${extraction.claimed_today}/${extraction.daily_cap} claims today`
+          : "Extraction disabled until pilot is approved"}</small>
+      </summary>
+      <div className="etsy-agent-content">
+        <p className="etsy-muted" role="status">
+          Storage: {extraction?.storage
+            ? extraction.storage.ready
+              ? `Ready · ${Math.round(extraction.storage.used_bytes / 1048576)} MB / ${Math.round(extraction.storage.quota_bytes / 1048576)} MB`
+              : `Paused · ${extraction.storage.reason.replaceAll("_", " ")}`
+            : "Not configured"}
+          {" · "}Daily cap: {extraction?.daily_cap ?? "—"} new claims (GMT+7)
+        </p>
+        <div className="etsy-agent-rows">
+          {imageAgents.map(agent => <div key={agent.id}>
+            <strong>{agent.name}</strong><span>{agent.active ? "Paired" : "Revoked"}</span>
+            <small>Seen {readableTime(agent.last_seen_at)}</small>
+          </div>)}
+          {!imageAgents.length && <span className="etsy-muted">No dedicated Image Agent paired yet.</span>}
+        </div>
+        {canManage && <div className="etsy-pair">
+          <button type="button" className="etsy-btn" onClick={() => {
+            setImagePairOpen(current => !current);
+            setImagePairSecret(null); setImagePairError("");
+          }}>Pair Image Agent</button>
+          {imagePairOpen && <>
+            <div className="etsy-pair-line">
+              <input aria-label="Image Agent name" value={imagePairName}
+                maxLength={64} onChange={event => setImagePairName(event.target.value)} />
+              <button type="button" className="etsy-btn etsy-primary"
+                disabled={imagePairBusy || !imagePairName.trim()} onClick={async () => {
+                  setImagePairBusy(true); setImagePairError(""); setImagePairSecret(null);
+                  try {
+                    const paired = await spyFetch<{ agent_id: string; token: string }>("/image-agents", {
+                      method: "POST", body: JSON.stringify({ name: imagePairName.trim() }),
+                    });
+                    setImagePairSecret(paired);
+                    setRefresh(value => value + 1);
+                  } catch (error) {
+                    setImagePairError(error instanceof Error ? error.message : "Pair Image Agent failed");
+                  } finally {
+                    setImagePairBusy(false);
+                  }
+                }}>Create Image Agent</button>
+            </div>
+            {imagePairError && <p className="etsy-error" role="alert">{imagePairError}</p>}
+            {imagePairSecret && <div className="etsy-pair-secret">
+              <strong>Credentials appear once. Copy to the Windows D: configuration, not Git.</strong>
+              <code>Agent ID: {imagePairSecret.agent_id}</code>
+              <code>Token: {imagePairSecret.token}</code>
+              <button type="button" className="etsy-btn" onClick={() => {
+                const config = {
+                  enabled: false,
+                  cam_origin: window.location.origin,
+                  agent_id: imagePairSecret.agent_id,
+                  tenant_id: "boostgame",
+                  token: imagePairSecret.token,
+                };
+                void navigator.clipboard?.writeText(JSON.stringify(config, null, 2));
+              }}>Copy disabled Windows config</button>
+              <small>Save to D:\CAM Image Extension\.runtime\extraction\cam-config.json.
+                The relay remains OFF until the storage and one-listing pilot are verified.</small>
+              <button type="button" className="etsy-btn"
+                onClick={() => setImagePairSecret(null)}>Hide token</button>
+            </div>}
+          </>}
+        </div>}
       </div>
     </details>
       </div>

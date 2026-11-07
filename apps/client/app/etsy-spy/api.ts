@@ -9,12 +9,20 @@ export type AgentStatus = {
   last_synced_at: string | null; extension_version: string | null;
   local_api_version: string | null;
 };
+export type ImageAgentStatus = {
+  id: string; name: string; active: boolean;
+  last_seen_at: string | null;
+};
 export type ExtractionOverview = {
   enabled: boolean; daily_cap: number; claimed_today: number;
   remaining_today: number; queued: number; processing: number;
   completed_today: number; needs_review_today: number;
   needs_ai_today: number; failed_today: number;
   timezone: "Asia/Ho_Chi_Minh";
+  storage?: {
+    ready: boolean; reason: string; used_bytes: number;
+    quota_bytes: number; free_bytes: number | null;
+  };
 };
 export type Summary = {
   keywords: number; listings: number; picked: number; later?: number; later_seeds?: number; sessions: number;

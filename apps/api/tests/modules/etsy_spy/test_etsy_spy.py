@@ -1034,7 +1034,25 @@ def test_image_agent_valid_png_asset_and_unpick_revocation(scenario, monkeypatch
     }
     invalid = {**request, "output_sha256": "0" * 64}
     assert client.post(remote + "/result", json=invalid, headers=auth).status_code == 422
+    # When the quota is exhausted, keep the lease and the local PNG intact:
+    # the agent can retry the exact same result after an operator adds space.
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_QUOTA_BYTES", "22000000")
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    filler = occupied / "reserved.png"
+    with filler.open("wb") as file:
+        file.truncate(22_000_000)
+    assert client.post(remote + "/result", json=request, headers=auth).status_code == 507
+    assert db.get(ProcessingJobModel, claim_id).status == "processing"
+    filler.unlink()
+    # A previous interrupted upload may have left a partial temp file.
+    # Replaying the same job should repair that file, not fail forever.
+    tenant_dir = tmp_path / hashmod.sha256(b"boostgame").hexdigest()[:24]
+    tenant_dir.mkdir()
+    pending = tenant_dir / (claim_id + ".pending")
+    pending.write_bytes(b"partial-upload")
     receipt = client.post(remote + "/result", json=request, headers=auth)
+    assert not pending.exists()
     assert receipt.status_code == 200, receipt.text
     image = client.get("/api/v1/etsy-spy/image-agents/assets/" + claim_id)
     assert image.status_code == 200 and image.content == png
@@ -1195,3 +1213,48 @@ def test_image_agent_daily_cap_and_tenant_overview(scenario, monkeypatch, tmp_pa
     assert info["needs_ai_today"] == 1
     principal.active_tenant_id = "other-tenant"
     assert client.get("/api/v1/etsy-spy/image-agents/overview").json()["claimed_today"] == 0
+
+
+def test_image_agent_storage_guard_and_scout_identity_isolation(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    root = tmp_path / "persistent"
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(root))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_QUOTA_BYTES", "22000000")
+    client, db, _ = scenario
+    scout, scout_auth = pair(client, db)
+    source = batch("storage-one-slot")
+    source["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, scout, scout_auth, source).status_code == 200
+    listing = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Independent Image Pilot"}).json()
+    claim_url = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"] + "/claim"
+    headers = {"Authorization": "Bearer " + paired["token"]}
+    # Image devices do not appear in Scout agent counts or Scout pairing UI.
+    scouts = client.get("/api/v1/etsy-spy/agents").json()["items"]
+    assert len(scouts) == 1 and scouts[0]["id"] == scout.id
+    summary = client.get("/api/v1/etsy-spy/summary").json()
+    assert summary["agent_count"] == 1
+    state = client.get("/api/v1/etsy-spy/image-agents/overview").json()
+    assert state["storage"]["ready"] is False
+    assert state["storage"]["reason"] == "storage_not_provisioned"
+    response = client.post(claim_url, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["pause_reason"] == "storage_not_provisioned"
+    assert response.json()["task"] is None
+    root.mkdir()
+    reserved = root / "reserved"
+    reserved.mkdir()
+    filler = reserved / "already.png"
+    with filler.open("wb") as file:
+        file.truncate(22_000_000)
+    assert client.post(claim_url, headers=headers).json()["pause_reason"] == "storage_quota_reached"
+    filler.unlink()
+    ready = client.get("/api/v1/etsy-spy/image-agents/overview").json()
+    assert ready["storage"]["ready"] is True
+    claim = client.post(claim_url, headers=headers)
+    assert claim.status_code == 200 and claim.json()["task"] is not None
+    assert claim.json()["task"]["rights_status"] == "unverified"
