@@ -1,3 +1,10 @@
+## 2026-11-07 — Agent Harness V2 rollback bridge and latest-schema audit
+
+- Latest source contains `0202_etsy_spy_later` (Etsy Spy) whereas prior held Agent Harness migration used the same prefix `0202`; do not merge the old migration. Roll forward on a new `0203_cam_agent_harness_store` revision after a separate rollback bridge release.
+- Added minimal explicit Alembic successor verification in `app/core/database.py`: bridge expected `0202` may tolerate *only* `0203_cam_agent_harness_store` with both exact agent tables/columns and a tenant-bound FK. Unknown revisions, unversioned DB, missing tables/FK still fail closed.
+- Added negative rollback-bridge tests and repaired stale Etsy Spy migration test to validate current head and Later table creation/downgrade on disposable SQLite. No worker changes, external API costs, DB writes or security control disablement.
+- Migration activation requires a second separate release with the new `0203` code; bridge must be production current before `0203` migration, so the bridge can serve as rollback without destructive schema downgrade.
+
 ## 2026-11-07 — CAM Agent Harness V2 Phase 2A (code-only release candidate)
 
 - Adds `agent_harness/model.py`, `repository.py`, `router.py`: tenant-filtered agent catalog/evidence ledger, immutable agent versions, idempotent candidate records, and a read-only overview guarded by existing `ai_operations.read` and tenant scope.

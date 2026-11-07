@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, MetaData, Table, Column, String, DateTime, select, text, inspect
+from app.core.database import expected_alembic_head
 
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
@@ -65,7 +66,8 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
     with engine.connect() as c:
         tables = set(inspect(c).get_table_names())
         assert expected.issubset(tables)
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0201_etsy_spy_parent_keywords"
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) == expected_alembic_head(url)
+        assert {"etsy_spy_later_seeds", "etsy_spy_later_matches"}.issubset(tables)
         assert {"is_current", "has_search", "has_shop"}.issubset({
             column["name"] for column in inspect(c).get_columns("etsy_spy_listings")})
         assert {"last_inventory_at", "last_inventory_count"}.issubset({
@@ -85,6 +87,8 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
     command.downgrade(config, "0200_etsy_spy_win_keywords")
     with engine.connect() as c:
         assert "etsy_spy_parent_keywords" not in inspect(c).get_table_names()
+        assert "etsy_spy_later_seeds" not in inspect(c).get_table_names()
+        assert "etsy_spy_later_matches" not in inspect(c).get_table_names()
         assert expected - {"etsy_spy_parent_keywords"} <= set(inspect(c).get_table_names())
     # A passive Win Keyword list can be downgraded independently of Scout data.
     command.downgrade(config, "0199_etsy_spy_logs_12h")

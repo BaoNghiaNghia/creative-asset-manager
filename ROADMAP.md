@@ -3,8 +3,10 @@
 ## 2026-11-07 — Agent Harness V2 Phase 2
 
 - [x] Add disabled-by-default typed API and execution flags, tenant-scoped ORM/repository, immutable agent version registration and read-only authenticated overview; no worker or API write path. Phase 2A can ship without a schema change.
-- [x] Implement and locally test a proposed additive PostgreSQL 0202 migration in an isolated branch; 19/19 module checks and Etsy migration regression pass.
-- [ ] Hold Phase 2B migration deployment until exact Alembic-head rollback compatibility is proven; previous 0201 release cannot boot against 0202 by default.
+- [x] Detect migration collision with newest Etsy Spy `0202_etsy_spy_later`; supersede the old Agent Harness `0202` draft with a unique `0203` successor.
+- [x] Implement narrow two-release rollback bridge for the reviewed additive `0203` schema; reject unknown revisions and missing tenant-key foreign keys. Validate with negative tests.
+- [ ] Deploy bridge backend-only (`--no-migrate`) and verify live current/previous, before activating the new migration.
+- [ ] Migrate using a dedicated `0203_cam_agent_harness_store` release; preserve bridge as rollback; no live job or executor activation.
 - [ ] After schema activation, canary read API separately, then add authorized writes and verified Experience ingestion without changing job routing.
 
 

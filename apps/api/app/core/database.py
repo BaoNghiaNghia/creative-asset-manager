@@ -7,7 +7,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -97,6 +97,42 @@ def expected_alembic_head(database_url: str) -> str:
     return heads[0]
 
 
+def _verified_agent_harness_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """Permit only the reviewed additive 0203 rollout after 0202 Etsy Spy.
+
+    This narrow, temporary rollback bridge lets the prior backend release boot
+    *after* the Agent Harness-only migration. It rejects unknown revisions,
+    other branch heads, partial migrations, and incompatible table layouts.
+    It never applies migrations or grants extra application permissions.
+    """
+    if expected_head != "0202_etsy_spy_later" or current_heads != ("0203_cam_agent_harness_store",):
+        return False
+    schema = inspect(connection)
+    required = {
+        "cam_agent_definitions": {"tenant_id", "agent_id", "version", "capabilities_json",
+                                  "allowed_tools_json", "preferred_executor", "enabled"},
+        "cam_agent_experiences": {"tenant_id", "event_key", "agent_id", "agent_version",
+                                  "scope_key", "rule_key", "status", "evidence_refs_json"},
+    }
+    try:
+        if not set(required).issubset(schema.get_table_names()):
+            return False
+        for table, columns in required.items():
+            if not columns.issubset({item["name"] for item in schema.get_columns(table)}):
+                return False
+        foreign_keys = schema.get_foreign_keys("cam_agent_experiences")
+        return any(
+            constraint.get("referred_table") == "cam_agent_definitions"
+            and tuple(constraint.get("constrained_columns") or ())
+                == ("tenant_id", "agent_id", "agent_version")
+            and tuple(constraint.get("referred_columns") or ())
+                == ("tenant_id", "agent_id", "version")
+            for constraint in foreign_keys
+        )
+    except SQLAlchemyError:
+        return False
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -106,9 +142,12 @@ def validate_alembic_head(
     try:
         with database_engine.connect() as connection:
             current_heads = MigrationContext.configure(connection).get_current_heads()
+            approved_successor = _verified_agent_harness_successor(
+                connection, expected_head, tuple(current_heads),
+            ) if tuple(current_heads) != (expected_head,) else False
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
-    if tuple(current_heads) != (expected_head,):
+    if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(
             f"Database schema is not at Alembic head: current={current}, "
