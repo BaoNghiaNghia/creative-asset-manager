@@ -242,12 +242,14 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
     const rail = sidebar.getBoundingClientRect();
     const menuBottom = sidebar.querySelector<HTMLElement>(".workspace-navigation")
       ?.getBoundingClientRect().bottom ?? rail.top;
-    const width = Math.min(380, rail.width - 24);
+    // Flush the image edge-to-edge across the navigation rail, with no card
+    // gutters. The image and the sidebar have the exact same CSS width.
+    const width = rail.width;
     const maxHeight = Math.min(440, rail.bottom - Math.max(menuBottom, rail.top) - 24);
     // Never overlap the table or the sidebar navigation on smaller desktops.
     if (width < 160 || maxHeight < 172 || rail.right > window.innerWidth / 2) return;
     setImagePreview({
-      left: Math.max(8, rail.left + 12),
+      left: Math.max(0, rail.left),
       bottom: Math.max(12, window.innerHeight - rail.bottom + 12),
       width, maxHeight, imageMaxHeight: Math.max(96, maxHeight - 82),
     });
@@ -360,7 +362,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
         data-listing-key={item.listingKey}>
         <span className="etsy-product-preview-label">Ảnh sản phẩm Etsy</span>
         <img src={previewSource} alt={item.pageTitle} decoding="async"
-          style={{maxHeight: imagePreview.imageMaxHeight}}
+          style={{width: imagePreview.width, maxHeight: imagePreview.imageMaxHeight}}
           onError={() => {
             if (!fullImageFailed && previewThumb && previewFull !== previewThumb) {
               setFullImageFailed(true);

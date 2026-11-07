@@ -278,10 +278,11 @@ describe("Etsy Spy native CAM dashboard", () => {
       expect(preview?.querySelector<HTMLImageElement>("img")?.src)
         .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
       expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
-      // Fixed lower left within sidebar, independent of the hovered row position.
-      expect(preview?.style.left).toBe("12px");
+      // Image fills the entire navbar width (no 12px card inset or image padding).
+      expect(preview?.style.left).toBe("0px");
       expect(preview?.style.bottom).toBe("12px");
-      expect(preview?.style.width).toBe("224px");
+      expect(preview?.style.width).toBe("248px");
+      expect(preview?.querySelector<HTMLImageElement>("img")?.style.width).toBe("248px");
       expect(preview?.style.maxHeight).toBe("440px");
       expect(preview?.style.top).toBe("");
       expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
