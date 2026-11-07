@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-07 — CAM Agent Harness Phase 2C.1
+
+- [x] Implement metadata-only, version-pinned Agent Catalog registration (Codex/Browser preferences), strict capability/tool allowlist and concurrency limits.
+- [x] Enforce existing ai_provider.configure RBAC and tenant scope, separate default-off management flag, immutable/idempotent versions and same-transaction actor audit.
+- [x] Add negative HTTP tests: disabled flag, unprivileged/cross-tenant, invalid payloads, audit failure rollback and safe response.
+- [ ] Deploy backend-only to production with unchanged schema and existing Stage 0–5 pipeline; verify /ready, /version, worker health and previous rollback.
+- [ ] Canary management flag separately with authorized tenant admin; no executor connection, feedback promotion or automatic execution until independently tested.
+
+
 ## 2026-11-07 — Agent Harness V2 Phase 2
 
 - [x] Add disabled-by-default typed API and execution flags, tenant-scoped ORM/repository, immutable agent version registration and read-only authenticated overview; no worker or API write path. Phase 2A can ship without a schema change.

@@ -1,3 +1,10 @@
+## 2026-11-07 — Agent Harness V2 Phase 2C.1: metadata-only admin API
+
+- Added Agent Catalog POST with existing ai_provider.configure permission, tenant scope, strict Pydantic payload, reviewed executor/capability/tool IDs and a dedicated AGENT_HARNESS_MANAGEMENT_API_ENABLED flag default false. Existing READ flag must also be on.
+- New definitions always stay disabled; duplicate identical definitions return 200 without duplicate audit, changed same-version settings 409. Actor audit uses existing auth_audit_events in the SAME transaction as catalog write; audit failure forces rollback.
+- No agent start/CodeLocal CLI command, no provider traffic, no code edits, no models/queue changes, no Experience promotion, no schema migration. Existing Stage 0–5 remain unchanged.
+- Runbook: docs/architecture/CAM_AGENT_HARNESS_V2_PHASE2C_MANAGEMENT.md; management flag activation is separate from code deploy, and execution flag stays off.
+
 ## 2026-11-07 — Agent Harness V2 migration 0203 after safe bridge rollout
 
 - The rollback bridge `0ca25dd83` deployed through the approved backend release script with `--no-migrate`; public `/version` and `/ready` match and production workers were healthy, current/previous retention is enforced.
