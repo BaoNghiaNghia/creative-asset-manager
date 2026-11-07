@@ -223,8 +223,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   const previewThumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
   const previewFull = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl);
   const previewSource = fullImageFailed ? previewThumb : previewFull ?? previewThumb;
-  // Load the full image only on hover, inside the unused lower-left sidebar.
-  // The body portal avoids table overflow clipping without covering table cells.
+  // Full image is loaded only on hover in a viewport-anchored body portal.
+  // Never couple its position or visibility to the sidebar/navigation height.
   useEffect(() => {
     if (!imagePreview) return;
     const hide = () => setImagePreview(null);
@@ -237,21 +237,15 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   }, [imagePreview]);
   const showImagePreview = (event: React.PointerEvent<HTMLTableRowElement>) => {
     if (event.pointerType === "touch" || !previewSource) return;
-    const sidebar = document.querySelector<HTMLElement>(".inventory-desktop-sidebar");
-    if (!sidebar || window.getComputedStyle(sidebar).display === "none") return;
-    const rail = sidebar.getBoundingClientRect();
-    const menuBottom = sidebar.querySelector<HTMLElement>(".workspace-navigation")
-      ?.getBoundingClientRect().bottom ?? rail.top;
-    // Flush the image edge-to-edge across the navigation rail, with no card
-    // gutters. The image and the sidebar have the exact same CSS width.
-    const width = rail.width;
-    const maxHeight = Math.min(440, rail.bottom - Math.max(menuBottom, rail.top) - 24);
-    // Never overlap the table or the sidebar navigation on smaller desktops.
-    if (width < 160 || maxHeight < 172 || rail.right > window.innerWidth / 2) return;
+    // The old 248px sidebar-sized preview is enlarged by exactly 15%, but
+    // its anchor is the viewport bottom-left (not the navigation rail).
+    const gutter = 16;
+    const width = Math.min(Math.round(248 * 1.15), window.innerWidth - gutter * 2);
+    const maxHeight = Math.min(Math.round(440 * 1.15), window.innerHeight - gutter * 2);
+    if (width < 160 || maxHeight < 172) return;
     setImagePreview({
-      left: Math.max(0, rail.left),
-      bottom: Math.max(12, window.innerHeight - rail.bottom + 12),
-      width, maxHeight, imageMaxHeight: Math.max(96, maxHeight - 82),
+      left: gutter, bottom: gutter, width, maxHeight,
+      imageMaxHeight: Math.min(Math.round(360 * 1.15), maxHeight - 82),
     });
   };
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :

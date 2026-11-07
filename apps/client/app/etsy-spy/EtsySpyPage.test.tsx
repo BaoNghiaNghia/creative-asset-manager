@@ -245,78 +245,84 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(first?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
   });
 
-  it("pins full-size hover preview below desktop sidebar navigation without covering the Etsy table", async () => {
+  it("shows a 15% larger hover preview anchored bottom-left of the viewport, not the navbar", async () => {
     await start();
     const first = container?.querySelector<HTMLTableRowElement>(".etsy-product-row");
     const thumb = first?.querySelector<HTMLImageElement>(".etsy-product-thumbnail");
     expect(thumb?.getAttribute("width")).toBe("68");
     expect(thumb?.getAttribute("height")).toBe("68");
+    expect(document.body.querySelector(".inventory-desktop-sidebar")).toBeNull();
     expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
 
+    // The overlay must appear even when the desktop navbar is absent.
+    await act(async () => {
+      first?.dispatchEvent(new MouseEvent("pointerover", {
+        bubbles: true, clientX: 580, clientY: 120,
+      }));
+    });
+    let preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
+    expect(preview?.dataset.listingKey).toBe(listing.listingKey);
+    expect(preview?.querySelector<HTMLImageElement>("img")?.src)
+      .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
+    expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
+    expect(preview?.style.left).toBe("16px");
+    expect(preview?.style.bottom).toBe("16px");
+    expect(preview?.style.width).toBe("285px"); // 248px * 1.15, rounded
+    expect(preview?.style.maxHeight).toBe("506px"); // 440px * 1.15
+    expect(preview?.querySelector<HTMLImageElement>("img")?.style.width).toBe("285px");
+    expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("414px");
+    expect(preview?.style.top).toBe("");
+    expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+    await act(async () => { window.dispatchEvent(new Event("scroll")); });
+    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+
+    // A sidebar with a full-height menu must not suppress the floating modal.
     const sidebar = document.createElement("aside");
     sidebar.className = "inventory-desktop-sidebar";
-    const navigation = document.createElement("nav");
-    navigation.className = "workspace-navigation";
-    sidebar.appendChild(navigation);
+    const nav = document.createElement("nav");
+    nav.className = "workspace-navigation";
+    sidebar.appendChild(nav);
     document.body.appendChild(sidebar);
-    vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({
-      left: 0, top: 0, right: 248, bottom: window.innerHeight,
-      width: 248, height: window.innerHeight,
-    } as DOMRect);
-    const navBounds = vi.spyOn(navigation, "getBoundingClientRect").mockReturnValue({
-      left: 16, top: 24, right: 232, bottom: 230,
-      width: 216, height: 206,
-    } as DOMRect);
     try {
-      await act(async () => {
-        first?.dispatchEvent(new MouseEvent("pointerover", {
-          bubbles: true, clientX: 580, clientY: 120,
-        }));
-      });
-      const preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
-      expect(preview?.dataset.listingKey).toBe(listing.listingKey);
-      expect(preview?.querySelector<HTMLImageElement>("img")?.src)
-        .toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
-      expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(listing.pageTitle);
-      // Image fills the entire navbar width (no 12px card inset or image padding).
-      expect(preview?.style.left).toBe("0px");
-      expect(preview?.style.bottom).toBe("12px");
-      expect(preview?.style.width).toBe("248px");
-      expect(preview?.querySelector<HTMLImageElement>("img")?.style.width).toBe("248px");
-      expect(preview?.style.maxHeight).toBe("440px");
-      expect(preview?.style.top).toBe("");
-      expect(container?.querySelector(".etsy-product-hover-preview")).toBeNull();
-
-      await act(async () => { window.dispatchEvent(new Event("scroll")); });
-      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
-
-      // When the navigation fills the sidebar, do not cover menu or product table.
-      navBounds.mockReturnValue({
-        left: 16, top: 24, right: 232, bottom: window.innerHeight - 80,
-        width: 216, height: window.innerHeight - 104,
-      } as DOMRect);
       await act(async () => {
         first?.dispatchEvent(new MouseEvent("pointerover", {
           bubbles: true, clientX: 510, clientY: 160,
         }));
       });
-      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
-
-      navBounds.mockReturnValue({
-        left: 16, top: 24, right: 232, bottom: 230,
-        width: 216, height: 206,
-      } as DOMRect);
-      const noImage = Array.from(container?.querySelectorAll<HTMLTableRowElement>(".etsy-product-row") || [])
-        .find(row => row.textContent?.includes("Popular sample"));
-      await act(async () => {
-        noImage?.dispatchEvent(new MouseEvent("pointerover", {
-          bubbles: true, clientX: 640, clientY: 180,
-        }));
-      });
-      expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+      preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
+      expect(preview?.style.left).toBe("16px");
+      expect(preview?.style.bottom).toBe("16px");
+      expect(preview?.style.width).toBe("285px");
+      await act(async () => { window.dispatchEvent(new Event("scroll")); });
     } finally {
       sidebar.remove();
     }
+
+    const noImage = Array.from(container?.querySelectorAll<HTMLTableRowElement>(".etsy-product-row") || [])
+      .find(row => row.textContent?.includes("Popular sample"));
+    await act(async () => {
+      noImage?.dispatchEvent(new MouseEvent("pointerover", {
+        bubbles: true, clientX: 640, clientY: 180,
+      }));
+    });
+    expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
+  });
+
+  it("keeps the Etsy preview inside a short or narrow viewport", async () => {
+    await start();
+    vi.stubGlobal("innerWidth", 270);
+    vi.stubGlobal("innerHeight", 320);
+    const first = container?.querySelector<HTMLTableRowElement>(".etsy-product-row");
+    await act(async () => {
+      first?.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    });
+    const preview = document.body.querySelector<HTMLDivElement>(".etsy-product-hover-preview");
+    expect(preview?.style.left).toBe("16px");
+    expect(preview?.style.bottom).toBe("16px");
+    expect(preview?.style.width).toBe("238px");
+    expect(preview?.style.maxHeight).toBe("288px");
+    expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("206px");
   });
 
   it("displays offline last known data with distinct Etsy badge and TM status", async () => {
