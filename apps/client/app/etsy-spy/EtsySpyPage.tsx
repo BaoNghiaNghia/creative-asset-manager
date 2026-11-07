@@ -18,8 +18,7 @@ const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
 ];
 const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
   products: [
-    { id: "pageTitle", text: "Product / Etsy" }, { id: "keyword", text: "Keyword" },
-    { id: "sourceKind", text: "Source" }, { id: "keywordSms", text: "Keyword SMS" },
+    { id: "pageTitle", text: "Product / Etsy" }, { id: "keywordSms", text: "Keyword SMS" },
     { id: "badge", text: "Etsy Badge + TM" },
     { id: "bought24h", text: "Bought / 24h" }, { id: "views24h", text: "Views / 24h" },
     { id: "inCarts", text: "Carts" }, { id: "observedAt", text: "Observed" },
@@ -195,9 +194,6 @@ function ProductRow({ item, canPick, busy, onPick }: {
   const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
     item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
   const tmLabel = tmDescription(item.tm, deadMatches);
-  const sourceKinds = item.sourceKinds?.length ? item.sourceKinds : item.metadata?.sourceKinds || [item.sourceKind];
-  const sourceLabel = sourceKinds.includes("search") && sourceKinds.includes("shop")
-    ? "Search + Shop" : sourceKinds.includes("shop") ? "Shop" : "Search";
   return <tr className="etsy-product-row">
     <td className="etsy-title">
       <div className="etsy-product-identity">
@@ -211,8 +207,6 @@ function ProductRow({ item, canPick, busy, onPick }: {
         </div>
       </div>
     </td>
-    <td className="etsy-keyword-cell"><strong title={item.keyword}>{item.keyword}</strong></td>
-    <td><span className={"etsy-pill etsy-source-" + (sourceKinds.includes("search") ? "search" : "shop")}>{sourceLabel}</span></td>
     <td className="etsy-sms-cell">
       {sms.length ? <div className="etsy-sms-preview">
         <span className="etsy-sms-primary" title={sms[0]}>{sms[0]}</span>
@@ -243,7 +237,7 @@ function ProductRow({ item, canPick, busy, onPick }: {
     </td>
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
-    <td className="etsy-num">{item.inCarts ?? "—"}</td>
+    <td className="etsy-num">{item.inCarts === 20 ? "20+" : item.inCarts ?? "—"}</td>
     <td className="etsy-time">{readableTime(item.observedAt)}</td>
     <td className="etsy-action-cell">
       <div className="etsy-row-actions">

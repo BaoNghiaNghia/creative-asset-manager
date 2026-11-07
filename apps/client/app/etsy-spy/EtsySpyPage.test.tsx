@@ -34,7 +34,7 @@ const listing = {
   badge: "Bestseller", searchBadge: "Bestseller",
   keywordSms: ["mama christian shirt", "mama christian hoodie", "mama christian sweatshirt"],
   keywordSmsQuery: "mama christian", keywordSmsStatus: "ready",
-  bought24h: null, views24h: 20, inCarts: 25, demandScore: 0,
+  bought24h: null, views24h: 20, inCarts: 20, demandScore: 0,
   observedAt: "2026-11-06T00:00:00Z", tm: "LIVE", tmStatus: "complete",
   tmSource: "TMHunt", tmCheckedAt: "2026-11-06T00:00:00Z",
   tmSourceAsOf: "2026-07-24T00:00:00Z",
@@ -42,11 +42,11 @@ const listing = {
 };
 const popularNoMatch = {
   ...listing, listingKey: "111", pageTitle: "Popular sample", badge: "Popular now",
-  searchBadge: "Popular now", tm: "no_match", tmMatches: [],
+  searchBadge: "Popular now", tm: "no_match", tmMatches: [], inCarts: 25,
   keywordSms: [], keywordSmsStatus: "no_suggestions",
 };
 const deadListing = {
-  ...listing, listingKey: "222", pageTitle: "Dead trademark sample", tm: "DEAD",
+  ...listing, listingKey: "222", pageTitle: "Dead trademark sample", tm: "DEAD", inCarts: null,
   tmMatches: [
     { markText: "Old name 1", serialNumber: "11111111", liveStatus: "DEAD" },
     { markText: "Old name 2", serialNumber: "22222222", liveStatus: "DEAD" },
@@ -190,8 +190,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
-    const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th") || []).map(x => x.textContent?.trim());
-    expect(headings.indexOf("Keyword SMS")).toBe(headings.indexOf("Etsy Badge + TM") - 1);
+    const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th") || [])
+      .map(x => (x.textContent || "").trim().replace(/\s*[↑↓]$/, ""));
+    expect(headings).toEqual([
+      "Product / Etsy", "Keyword SMS", "Etsy Badge + TM",
+      "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
+    ]);
+    expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(8);
+    expect(container?.querySelector(".etsy-data-table.is-products .etsy-keyword-cell")).toBeNull();
+    expect(headings).not.toContain("Keyword");
+    expect(headings).not.toContain("Source");
     expect(html).toContain("mama christian shirt");
     const expandSms = container?.querySelector(".etsy-sms-expand") as HTMLButtonElement;
     expect(expandSms?.textContent).toBe("+2");
@@ -200,7 +208,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
     expect(html).not.toContain("Listings reconciled");
-    expect(html).toContain("Search + Shop");
+    expect(html).not.toContain("Search + Shop");
     expect(html).not.toContain("Safe");
     const pill = Array.from(container?.querySelectorAll("button") || [])
       .find(button => button.textContent === "LIVE");
@@ -209,6 +217,15 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.textContent).toContain("12345678");
     expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
       .toHaveProperty("rel", "noopener noreferrer");
+  });
+
+  it("renders Carts 20+ without changing numeric values or other rows", async () => {
+    await start();
+    const cells = Array.from(container?.querySelectorAll(".etsy-product-row td:nth-child(6)") || []);
+    expect(cells.map(cell => cell.textContent)).toEqual(["20+", "25", "—"]);
+    expect(listing.inCarts).toBe(20);
+    expect(popularNoMatch.inCarts).toBe(25);
+    expect(deadListing.inCarts).toBeNull();
   });
 
   it("renders reference-style badges with clear TM meanings and no false safety claim", async () => {
@@ -246,6 +263,9 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
+    const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(6)");
+    expect(cartsCells).toHaveLength(3);
+    expect(Array.from(cartsCells || [], cell => cell.textContent)).toEqual(["20+", "25", "—"]);
     const today = vietnamCalendarDay();
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("observed_day=" + today))).toBe(true);

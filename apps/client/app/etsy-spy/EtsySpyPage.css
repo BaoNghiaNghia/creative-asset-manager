@@ -256,9 +256,6 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 .etsy-table-wrap td small{display:block;margin-top:5px;color:#8492a3;font-size:10px;line-height:1.4}
 .etsy-muted{font-size:11px;color:#8995a4}
 .etsy-table-wrap th .etsy-static-header{display:block;min-height:37px;padding:10px 11px}
-.etsy-data-table.is-products th:nth-child(3),.etsy-data-table.is-products td:nth-child(3){min-width:105px;max-width:130px}
-.etsy-data-table.is-products th:nth-child(4),.etsy-data-table.is-products td:nth-child(4){min-width:185px;max-width:225px}
-.etsy-data-table.is-products th:nth-child(5),.etsy-data-table.is-products td:nth-child(5){min-width:145px}
 .etsy-sms-cell{font-size:10px}
 .etsy-sms-preview{max-width:215px}
 .etsy-sms-primary{display:block;max-width:210px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#28476d;font-weight:680}
@@ -513,6 +510,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-table-card{min-height:190px;border-radius:9px;border-color:#dfe5ef}
 .etsy-table-wrap{max-height:min(68vh,800px);scrollbar-width:thin}
 .etsy-table-wrap table{min-width:1120px;font-size:10px;line-height:1.3;table-layout:auto}
+.etsy-table-wrap .etsy-data-table.is-products{min-width:1010px}
 .etsy-table-wrap th{
   border-bottom:1px solid #e2e8f1;background:#f5f7fb;
   color:#74849d;font-size:9px;
@@ -526,26 +524,24 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 }
 .etsy-table-wrap tbody tr:hover td{background:#f9fbff}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(1),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(1){min-width:225px;width:24%}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(1){min-width:235px;width:25%}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(2),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(2){min-width:128px;width:14%}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(2){min-width:145px;width:18%}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(3),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(3){min-width:92px;width:9%}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(3){min-width:160px;width:18%}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(4),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(4){min-width:155px;width:16%}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(5),
-.etsy-table-wrap .etsy-data-table.is-products th:nth-child(6),
-.etsy-table-wrap .etsy-data-table.is-products th:nth-child(7){min-width:80px;width:7%}
+.etsy-table-wrap .etsy-data-table.is-products th:nth-child(6){min-width:77px;width:7%}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(4),
 .etsy-table-wrap .etsy-data-table.is-products td:nth-child(5),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(6),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(7){min-width:80px}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(6){min-width:77px}
+.etsy-table-wrap .etsy-data-table.is-products th:nth-child(4) button,
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(5) button,
-.etsy-table-wrap .etsy-data-table.is-products th:nth-child(6) button,
-.etsy-table-wrap .etsy-data-table.is-products th:nth-child(7) button{text-align:right}
+.etsy-table-wrap .etsy-data-table.is-products th:nth-child(6) button{text-align:right}
+.etsy-table-wrap .etsy-data-table.is-products th:nth-child(7),
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(7){min-width:115px}
 .etsy-table-wrap .etsy-data-table.is-products th:nth-child(8),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(8){min-width:135px}
-.etsy-table-wrap .etsy-data-table.is-products th:nth-child(9),
-.etsy-table-wrap .etsy-data-table.is-products td:nth-child(9){min-width:58px;width:5%;text-align:center}
+.etsy-table-wrap .etsy-data-table.is-products td:nth-child(8){min-width:145px}
 .etsy-product-identity{display:flex;align-items:center;gap:9px;min-width:0}
 .etsy-product-glyph{
   display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;
@@ -561,9 +557,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-product-copy .etsy-title-meta small{margin:0!important;font-size:9px!important}
 .etsy-product-copy .etsy-title-meta small::before{display:none}
 .etsy-product-copy .etsy-title-meta a{font-size:9px}
-.etsy-keyword-cell strong{
-  font-weight:720;font-size:10px;color:#38614f;line-height:1.35;
-}
 .etsy-pill{min-height:19px;padding:2px 7px;border-radius:999px;font-size:9px}
 .etsy-demand::before{font-size:10px}
 .etsy-num{font-size:10px;color:#314b71;font-weight:780}
@@ -972,33 +965,28 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
     text-transform:uppercase;
   }
 
-  /* Products: title, search evidence, demand and three compact KPIs. */
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(1){grid-column:1/-1}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(2){grid-column:1/3}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(3){grid-column:3}
+  /* Eight-column products table becomes three KPI tiles on mobile. */
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(1),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(2),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3){grid-column:1/-1}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(4),
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(5){grid-column:1/-1}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(6),
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(7),
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(8){
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(5),
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(6){
     padding:8px;border:1px solid #edf1f6;border-radius:8px;
     background:#f8fafc!important;font-size:15px;font-weight:800;
   }
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(9){grid-column:1/3;align-self:center}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(10){grid-column:3;justify-self:end}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(2)::before{content:"Keyword"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Source"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(4)::before{content:"Keyword SMS"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(5)::before{content:"Etsy badge + TM"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Bought / 24h"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(7)::before{content:"Views / 24h"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(8)::before{content:"Carts"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(9)::before{content:"Observed"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(7){grid-column:1/2;align-self:center}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(8){grid-column:2/-1;justify-self:end}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(2)::before{content:"Keyword SMS"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(4)::before{content:"Bought / 24h"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(5)::before{content:"Views / 24h"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Carts"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(7)::before{content:"Observed"}
   .etsy-product-identity{align-items:flex-start;gap:10px}
   .etsy-product-glyph{flex-basis:38px;width:38px;height:38px}
   .etsy-product-copy strong{font-size:13px;line-height:1.4}
   .etsy-product-copy .etsy-title-meta a{font-size:11px}
-  .etsy-keyword-cell strong{font-size:12px}
   .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}
   .etsy-sms-preview,.etsy-sms-primary{max-width:none}
   .etsy-sms-primary{font-size:12px;white-space:normal;overflow-wrap:anywhere}
@@ -1007,8 +995,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
     width:max-content;min-height:37px;padding:7px 10px;font-size:12px;gap:6px;
   }
   .etsy-action-cell .etsy-pick-button svg{width:18px;height:18px;flex-basis:18px}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(9){grid-column:1/2}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(10){grid-column:2/-1}
 
   /* Trademark, log, and expandable keyword tree share the same card surface. */
   .etsy-data-table.is-trademarks tbody td,
