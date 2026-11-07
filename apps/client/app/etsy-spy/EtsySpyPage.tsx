@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
-  spyFetch, csvPath, readableTime,
-  type SpyTab, type Page, type Summary, type Session, type Listing,
+  spyFetch, readableTime,
+  type SpyTab, type Page, type Summary, type Listing,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
 } from "./api";
 import "./EtsySpyPage.css";
@@ -287,7 +287,6 @@ export function EtsySpyPage() {
   const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
   const [pickError, setPickError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
@@ -328,13 +327,12 @@ export function EtsySpyPage() {
     let alive = true;
     Promise.all([
       spyFetch<Summary>("/summary"),
-      spyFetch<{ items: Session[] }>("/sessions"),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
       spyFetch<{ phrases: string[] }>("/blacklist"),
       fetchAccessIdentity(),
-    ]).then(([overview, selected, currentAgents, rules, identity]) => {
+    ]).then(([overview, currentAgents, rules, identity]) => {
       if (!alive) return;
-      setSummary(overview); setSessions(selected.items); setAgents(currentAgents.items);
+      setSummary(overview); setAgents(currentAgents.items);
       setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
       setCanManage(identity.permissions.includes("etsy_spy.manage"));
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
@@ -421,8 +419,6 @@ export function EtsySpyPage() {
   const sortColumn = (id: string) => update({
     sort: id, dir: options.sort === id && options.dir === "desc" ? "asc" : "desc",
   });
-  const exportQuery = apiQuery(options);
-  exportQuery.delete("page"); exportQuery.delete("page_size");
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
   const filteredBlacklist = blacklist.filter(phrase =>
@@ -454,20 +450,6 @@ export function EtsySpyPage() {
       selected: isBlacklistView },
     { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
-    { title: "Search", value: summary?.search, hint: "Found in Etsy Search",
-      tone: "search", tab: "products", filters: { source: "search" },
-      selected: activeTab === "products" && !isBlacklistView && options.source === "search" },
-    { title: "Shop", value: summary?.shop, hint: "Found in Etsy Shop",
-      tone: "shop", tab: "products", filters: { source: "shop" },
-      selected: activeTab === "products" && !isBlacklistView && options.source === "shop" },
-    { title: "TM pending", value: summary?.tm_pending, hint: "Awaiting evidence",
-      tone: "pending", tab: "products", filters: { tm: "pending" },
-      selected: activeTab === "products" && !isBlacklistView && options.tm === "pending" },
-    { title: "TM checked", value: summary?.tm_checked, hint: "Checked products",
-      tone: "checked", tab: "trademarks", selected: activeTab === "trademarks" },
-    { title: "Errors", value: summary?.errors, hint: `${summary?.warnings ?? "—"} warnings in logs`,
-      tone: "errors", tab: "logs", filters: { level: "error" },
-      selected: activeTab === "logs" && options.level === "error" },
   ];
   return <main className="etsy-spy-page">
     <WorkspacePageHeader route="etsy-spy" actions={<>
@@ -509,15 +491,6 @@ export function EtsySpyPage() {
               : activeTab === "keywords" ? "Follow discovered keyword branches, priorities and source evidence."
               : activeTab === "trademarks" ? "Review cached trademark results and attached USPTO evidence."
               : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>
-            <div className="etsy-freshness" role="status">
-              <span>Last synced (GMT+7) <strong>{readableTime(summary?.last_synced_at)}</strong></span>
-              <span className="etsy-freshness-divider" aria-hidden="true" />
-              <span><strong>{summary?.online_agents ?? 0}/{summary?.agent_count ?? 0}</strong> agents online</span>
-              {summary?.last_inventory_at && <>
-                <span className="etsy-freshness-divider" aria-hidden="true" />
-                <span>Listings reconciled: <strong>{readableTime(summary.last_inventory_at)}</strong></span>
-              </>}
-            </div>
           </div>
           <div className="etsy-stage-heading-actions">
             {activeTab === "products" && <form className="etsy-blacklist-form"
@@ -575,55 +548,6 @@ export function EtsySpyPage() {
               ? "No blocked phrases match your search."
               : "Blacklist is empty. Enter a keyword phrase above and press Enter."}</p>}
         </section> : <>
-        <section className="etsy-search-filters" aria-label="Search and filters">
-          <span className="etsy-filter-label">FILTERS</span>
-      {activeTab === "products" ? <>
-        <select aria-label="Source" value={options.source} onChange={event => update({ source: event.target.value })}>
-          <option value="">All sources</option><option value="search">Search</option><option value="shop">Shop</option>
-        </select>
-        <select aria-label="Etsy badge" value={options.badge} onChange={event => update({ badge: event.target.value })}>
-          <option value="">All Etsy badges</option><option value="Bestseller">Bestseller</option>
-          <option value="Popular now">Popular now</option>
-        </select>
-        <select aria-label="Trademark status" value={options.tm} onChange={event => update({ tm: event.target.value })}>
-          <option value="">All TM states</option><option value="LIVE">LIVE</option>
-          <option value="DEAD">DEAD</option><option value="no_match">No match</option>
-          <option value="pending">Pending</option><option value="unverified">Unverified</option>
-        </select>
-      </> : activeTab === "keywords" || activeTab === "trademarks" ? <select
-        aria-label="Status filter" value={options.status} onChange={event => update({ status: event.target.value })}>
-        <option value="">All statuses</option>
-        {(activeTab === "keywords" ? ["pending", "running", "done", "completed", "failed", "skipped"]
-          : ["pending", "running", "complete", "cached", "unavailable", "checked"]).map(value =>
-          <option value={value} key={value}>{value}</option>)}
-      </select> : <>
-        <select aria-label="Log level" value={options.level} onChange={event => update({ level: event.target.value })}>
-          <option value="">All levels</option>{["error", "warning", "info", "debug"].map(value =>
-            <option value={value} key={value}>{value}</option>)}
-        </select>
-        <input aria-label="Log source" placeholder="Log source" value={options.source}
-          onChange={event => update({ source: event.target.value })} />
-        <input aria-label="Log phase" placeholder="Phase" value={options.phase}
-          onChange={event => update({ phase: event.target.value })} />
-      </>}
-      {(typedSearch || options.source || options.badge || options.tm || options.status || options.level || options.phase) && <button
-        type="button" className="etsy-clear-filters" onClick={() => {
-          setTypedSearch("");
-          update({ q: "", source: "", badge: "", tm: "", status: "", level: "", phase: "" });
-        }}>Clear filters</button>}
-      <div className="etsy-actions">
-        <label>Session
-          <select value={options.sessionId} onChange={event => update({ sessionId: event.target.value })}>
-            <option value="">All sessions</option>
-            {sessions.map(item => <option key={item.id} value={item.id}>
-              {item.keyword || item.id} · {item.status || "unknown"}
-            </option>)}
-          </select>
-        </label>
-        {activeTab === "products" || activeTab === "logs" ? <a className="etsy-btn etsy-export"
-          href={csvPath(activeTab, exportQuery)} download><span aria-hidden="true">↓</span> Export CSV</a> : null}
-      </div>
-    </section>
     {activeTab === "trademarks" && <section className="etsy-lookup">
       <div><strong>Cached trademark lookup</strong>
         <small>Exact / partial · 1–30 lines · evidence from Windows. No live USPTO/TMHunt request.</small>
@@ -654,16 +578,14 @@ export function EtsySpyPage() {
     {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
-    <div className="etsy-table-section-header">
-      <h2>{activeTab === "products"
-        ? (options.pickState === "picked" ? "Picked" : "Eligible listings")
-        : TABS.find(x => x.id === activeTab)?.title} <span>({activeTab === "keywords"
+    {activeTab !== "products" && <div className="etsy-table-section-header">
+      <h2>{TABS.find(x => x.id === activeTab)?.title} <span>({activeTab === "keywords"
         ? (options.sessionId ? "Session" : summary?.keywords?.toLocaleString() ?? "—")
         : rows ? rows.total.toLocaleString() : "—"})</span></h2>
       <span className="etsy-table-count">{activeTab === "keywords"
         ? "Hierarchical view · expand or collapse any keyword branch"
         : "Sorted and filtered from synchronized Windows data"}</span>
-    </div>
+    </div>}
     {activeTab === "keywords" ?
       <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
         sort={options.sort} direction={options.dir} refresh={refresh} onSort={sortColumn} />
