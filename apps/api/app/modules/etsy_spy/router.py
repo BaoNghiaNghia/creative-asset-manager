@@ -32,6 +32,7 @@ from .model import (
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
+    verified_image_url,
 )
 
 router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
@@ -456,6 +457,8 @@ def _listing_item(row: Listing, check: Trademark | None, *, picked: bool = False
             ("search", row.has_search), ("shop", row.has_shop)) if present],
         "listingKey": row.listing_key, "picked": picked,
         "pageTitle": row.title, "url": row.url, "badge": row.badge,
+        "thumbnailUrl": verified_image_url(metadata.get("thumbnailUrl")),
+        "fullImageUrl": verified_image_url(metadata.get("fullImageUrl")),
         "searchBadge": row.search_badge, "bought24h": row.bought24h,
         "views24h": row.views24h, "inCarts": row.in_carts,
         "demandScore": row.demand_score, "shopPosition": row.shop_position,

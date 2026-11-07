@@ -122,6 +122,25 @@ def verified_url(value: Any, hosts: set[str] | None = None) -> str | None:
     return url
 
 
+def verified_image_url(value: Any) -> str | None:
+    """Allow only Etsy's HTTPS image CDN; never fetch or store image bytes."""
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    if not url or len(url) > 1600:
+        return None
+    try:
+        parsed = urlsplit(url)
+        allowed = {"i.etsystatic.com", "img.etsystatic.com"}
+        if (parsed.scheme != "https" or parsed.hostname not in allowed
+                or parsed.username or parsed.password or parsed.port is not None
+                or parsed.query or parsed.fragment):
+            return None
+    except ValueError:
+        return None
+    return url
+
+
 def create_agent(db: Session, tenant_id: str, name: str) -> tuple[EtsySpyAgent, str]:
     secret = secrets.token_urlsafe(48)
     agent = EtsySpyAgent(
@@ -214,7 +233,11 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
         if not isinstance(sms_raw, list) or len(sms_raw) > 12:
             raise HTTPException(422, "Invalid keyword SMS evidence")
         sms = [text(x, 150) for x in sms_raw if isinstance(x, str) and text(x, 150)]
+        thumbnail_url = verified_image_url(row.get("thumbnailUrl"))
+        full_image_url = verified_image_url(row.get("fullImageUrl"))
         metadata = {
+            "thumbnailUrl": thumbnail_url or full_image_url,
+            "fullImageUrl": full_image_url or thumbnail_url,
             "sourceKinds": sorted(source_kinds),
             "keywordAliases": [text(x, 220) for x in (row.get("keywordAliases") or [])[:40]],
             "occurrences": integer(row.get("occurrences")),
@@ -373,6 +396,15 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
         if row is None:
             db.add(model(**identity, **values))
         elif _should_update(row, values, section):
+            if section == "listings":
+                # Old source checkpoints and URL-less observations must not
+                # erase previously verified image metadata for this listing.
+                previous_meta = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+                incoming_meta = values.get("metadata_json")
+                if isinstance(incoming_meta, dict):
+                    for image_key in ("thumbnailUrl", "fullImageUrl"):
+                        if not incoming_meta.get(image_key) and previous_meta.get(image_key):
+                            incoming_meta[image_key] = verified_image_url(previous_meta[image_key])
             for key, value in values.items():
                 setattr(row, key, value)
     db.add(EtsySpyBatch(

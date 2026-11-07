@@ -33,6 +33,8 @@ const listing = {
   sessionId: "one", keyword: "Rudolph", sourceKind: "search",
   sourceKinds: ["search", "shop"],
   listingKey: "123456789", pageTitle: "Rudolph Shirt", url: "https://www.etsy.com/listing/123456789",
+  thumbnailUrl: "https://i.etsystatic.com/123/il_170x135.primary.jpg",
+  fullImageUrl: "https://i.etsystatic.com/123/il_fullxfull.primary.jpg",
   badge: "Bestseller", searchBadge: "Bestseller",
   keywordSms: ["mama christian shirt", "mama christian hoodie", "mama christian sweatshirt"],
   keywordSmsQuery: "mama christian", keywordSmsStatus: "ready",
@@ -45,6 +47,7 @@ const listing = {
 const popularNoMatch = {
   ...listing, listingKey: "111", pageTitle: "Popular sample", badge: "Popular now",
   searchBadge: "Popular now", tm: "no_match", tmMatches: [], inCarts: 25,
+  thumbnailUrl: null, fullImageUrl: null,
   keywordSms: [], keywordSmsStatus: "no_suggestions",
 };
 const deadListing = {
@@ -209,6 +212,23 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("renders thumbnail CDN URL, full image link and fallback without storing image files", async () => {
+    await start();
+    const first = container?.querySelector(".etsy-product-row") as HTMLTableRowElement;
+    const img = first?.querySelector("img.etsy-product-thumbnail") as HTMLImageElement;
+    expect(img?.getAttribute("src")).toBe("https://i.etsystatic.com/123/il_170x135.primary.jpg");
+    const anchor = first?.querySelector(".etsy-product-thumbnail-link") as HTMLAnchorElement;
+    expect(anchor?.href).toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
+    expect(anchor?.rel).toContain("noopener");
+    expect(img?.getAttribute("loading")).toBe("lazy");
+    const noImageRow = Array.from(container?.querySelectorAll(".etsy-product-row") || [])
+      .find(row => row.textContent?.includes("Popular sample"));
+    expect(noImageRow?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
+    await act(async () => { img.dispatchEvent(new Event("error")); });
+    expect(first?.querySelector("img.etsy-product-thumbnail")).toBeNull();
+    expect(first?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
+  });
+
   it("displays offline last known data with distinct Etsy badge and TM status", async () => {
     await start();
     const html = container?.innerHTML || "";

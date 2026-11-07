@@ -180,6 +180,33 @@ function EvidenceMarks({ matches }: { matches?: Mark[] | null }) {
     </div>)}
   </div>;
 }
+function safeEtsyImageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 1600) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" ||
+        !["i.etsystatic.com", "img.etsystatic.com"].includes(parsed.hostname) ||
+        parsed.username || parsed.password || parsed.port ||
+        parsed.search || parsed.hash) return null;
+    return parsed.href;
+  } catch { return null; }
+}
+
+function ProductThumbnail({ item }: { item: Listing }) {
+  const thumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
+  const full = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl) ?? thumb;
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [thumb]);
+  if (!thumb || broken) return <span className="etsy-product-glyph" aria-hidden="true">E</span>;
+  return <a className="etsy-product-thumbnail-link" href={full ?? item.url ?? "#"}
+    target="_blank" rel="noopener noreferrer"
+    title="View full Etsy product image" aria-label={"View full image of " + item.pageTitle}>
+    <img className="etsy-product-thumbnail" src={thumb} alt=""
+      width="34" height="34" loading="lazy" decoding="async"
+      onError={() => setBroken(true)} />
+  </a>;
+}
+
 function ProductRow({ item, canPick, busy, onPick }: {
   item: Listing; canPick: boolean; busy: boolean; onPick: (item: Listing) => void;
 }) {
@@ -197,7 +224,7 @@ function ProductRow({ item, canPick, busy, onPick }: {
   return <tr className="etsy-product-row">
     <td className="etsy-title">
       <div className="etsy-product-identity">
-        <span className="etsy-product-glyph" aria-hidden="true">E</span>
+        <ProductThumbnail item={item} />
         <div className="etsy-product-copy">
           <strong title={item.pageTitle}>{item.pageTitle}</strong>
           <div className="etsy-title-meta">

@@ -548,6 +548,15 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   border:1px solid #f1dfcf;border-radius:6px;
   background:#fff6ed;color:#c47138;font:800 18px/1 Georgia,serif;
 }
+.etsy-product-thumbnail-link{
+  display:block;flex:0 0 34px;width:34px;height:34px;
+  overflow:hidden;border:1px solid #d9e2ee;border-radius:6px;
+  background:#f1f4f8;line-height:0;text-decoration:none;
+}
+.etsy-product-thumbnail-link:hover{border-color:#8facd2}
+.etsy-product-thumbnail{
+  display:block;width:100%;height:100%;object-fit:cover;
+}
 .etsy-product-copy{min-width:0;flex:1}
 .etsy-product-copy strong{
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
@@ -985,6 +994,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(7)::before{content:"Observed"}
   .etsy-product-identity{align-items:flex-start;gap:10px}
   .etsy-product-glyph{flex-basis:38px;width:38px;height:38px}
+  .etsy-product-thumbnail-link{flex-basis:38px;width:38px;height:38px}
   .etsy-product-copy strong{font-size:13px;line-height:1.4}
   .etsy-product-copy .etsy-title-meta a{font-size:11px}
   .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}

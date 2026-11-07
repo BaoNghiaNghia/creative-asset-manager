@@ -33,13 +33,15 @@ export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
   pageTitle: string; url: string | null; badge: string | null;
+  thumbnailUrl?: string | null; fullImageUrl?: string | null;
   searchBadge: string | null; bought24h: number | null; views24h: number | null;
   inCarts: number | null; demandScore: number | null; observedAt: string | null;
   keywordSms?: string[]; keywordSmsQuery?: string;
   keywordSmsStatus?: string; keywordSmsCheckedAt?: string | null;
   metadata?: {sourceKinds: string[]; keywordAliases: string[];
     occurrences: number | null; keywordCount: number | null; sessionCount: number | null;
-    keywordSms?: string[]; keywordSmsQuery?: string; keywordSmsStatus?: string;} | null;
+    keywordSms?: string[]; keywordSmsQuery?: string; keywordSmsStatus?: string;
+    thumbnailUrl?: string | null; fullImageUrl?: string | null;} | null;
   tm: string; tmStatus: string; tmSource: string | null; tmCheckedAt: string | null;
   tmSourceAsOf: string | null; tmMatches?: Mark[] | null;
 };

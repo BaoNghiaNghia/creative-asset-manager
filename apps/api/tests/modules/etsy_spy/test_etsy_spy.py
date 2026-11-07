@@ -228,6 +228,40 @@ def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
     assert denied.status_code == 403
 
 
+def test_listing_thumbnail_and_full_image_urls_sync_without_binary_or_data_loss(scenario):
+    client, db, _principal = scenario
+    agent, headers = pair(client, db)
+    image = batch("image-batch-1")
+    item = image["records"]["listings"][0]
+    item["thumbnailUrl"] = "https://i.etsystatic.com/123/il_170x135.primary.jpg"
+    item["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.primary.jpg"
+    response = sync(client, agent, headers, image)
+    assert response.status_code == 200, response.text
+    first = client.get("/api/v1/etsy-spy/listings").json()["items"][0]
+    assert first["thumbnailUrl"] == item["thumbnailUrl"]
+    assert first["fullImageUrl"] == item["fullImageUrl"]
+    assert first["metadata"]["thumbnailUrl"] == item["thumbnailUrl"]
+
+    # A newer Windows checkpoint lacking image fields preserves old URLs.
+    missing = batch("image-batch-2")
+    missing["records"]["listings"][0]["updatedAt"] = "2026-11-06T00:00:10Z"
+    assert sync(client, agent, headers, missing).status_code == 200
+    retained = client.get("/api/v1/etsy-spy/listings").json()["items"][0]
+    assert retained["thumbnailUrl"] == item["thumbnailUrl"]
+    assert retained["fullImageUrl"] == item["fullImageUrl"]
+
+    # Neither untrusted origins nor data/blob URLs may reach the API response.
+    invalid = batch("image-batch-3")
+    invalid_item = invalid["records"]["listings"][0]
+    invalid_item["updatedAt"] = "2026-11-06T00:00:20Z"
+    invalid_item["thumbnailUrl"] = "https://evil.example.org/img.jpg"
+    invalid_item["fullImageUrl"] = "data:image/svg+xml;base64,PHN2Zz4="
+    assert sync(client, agent, headers, invalid).status_code == 200
+    still_safe = client.get("/api/v1/etsy-spy/listings").json()["items"][0]
+    assert still_safe["thumbnailUrl"] == item["thumbnailUrl"]
+    assert still_safe["fullImageUrl"] == item["fullImageUrl"]
+
+
 def test_sync_is_idempotent_and_title_only_tm_conflicts(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)
