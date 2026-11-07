@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-07 — CAM Agent Harness V2 (Phase 0/1)
+
+- [x] Establish version-pinned, capability-based in-memory Agent Registry and a standalone verified-experience promotion gate. 14/14 standard-library tests passed; neither module connects to workers, API routes, queues, or a new database.
+- [x] Write consolidated 22-item work plan and read-only source audit: `docs/architecture/CAM_AGENT_HARNESS_V2_MASTER_PLAN.md`, `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE0_AUDIT.md`.
+- [ ] Independently verify live release/current+previous rollback, Stage2 engine distribution and Scout 4-agent network/CPU baselines before activation.
+- [ ] Add tenant/RBAC-secured persistence, event lineage verification, and disabled-by-default feature flag before integrating agent dispatch or learning.
+
+
 ## 2026-11-02 — GatorHats Products Slot 1 two-output V2.3
 
 - [x] Checkpoint verified photographic Embroidery Reference before editing front stock.

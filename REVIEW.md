@@ -1,3 +1,11 @@
+## 2026-11-07 — CAM Agent Harness V2 foundation (no runtime cutover)
+
+- Added pure `apps/api/app/modules/agent_harness/registry.py` for immutable versioned agent policies, capability pre-dispatch routing, exact tool allowlists, registered executor fallback, and strict input bounds.
+- Added pure `experience.py` promotion gate requiring verified improvement, security/regression checks, independent holdout samples, event IDs, evidence references and confidence; promotion is advisory until DB evidence is authenticated and validated.
+- Added standalone stdlib tests for negative/invalid routing, tenant/version/scope isolation and bad learning evidence; 14/14 passed on VPS Python 3.12 with no extra dependencies. API pytest integration not run because this checkout has no pytest environment.
+- No API route, worker dispatch, database migration, external network/model call, secrets, new dependency, UI or live production data changed. Production release/metrics and runtime activation unverified; no deploy asserted.
+- Rollback: remove these new files/docs or revert the scoped commit; legacy jobs and storage are untouched.
+
 ## 2026-11-02 — Slot 1 Embroidery Reference + Front Cap V2.3
 
 - GatorHats Products Stage 2 Slot 1: expose two first-class outputs — saved ImageGen Embroidery Reference and After Inpaint original-front cap — in the card, Details, output gallery and per-version history. The existing "THIS IS MY COWBOY HAT" V2.2 job already has both saved so no extra generation is needed to display the pair.
