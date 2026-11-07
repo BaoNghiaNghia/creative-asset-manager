@@ -138,6 +138,65 @@ def _verified_agent_harness_successor(connection, expected_head: str, current_he
     )
 
 
+def _holdout_study_schema_complete(connection) -> bool:
+    """Rollback-safe structural gate for future additive holdout revision 0204.
+
+    Only an intact tenant-scoped trial + frozen keyword-assignment schema may
+    be accepted by the preceding 0203 release. No migrations are run here.
+    """
+    schema = inspect(connection)
+    required = {
+        "cam_agent_trials": {
+            "tenant_id", "study_id", "cohort", "candidate_event_key",
+            "agent_version", "trial_version", "holdout_percent", "status",
+            "registered_by", "registered_at",
+        },
+        "cam_agent_trial_assignments": {
+            "tenant_id", "study_id", "keyword_id", "keyword_sha256",
+            "arm", "assigned_at",
+        },
+    }
+    try:
+        if not set(required).issubset(schema.get_table_names()):
+            return False
+        for table, columns in required.items():
+            if not columns.issubset({item["name"] for item in schema.get_columns(table)}):
+                return False
+        trial_keys = schema.get_foreign_keys("cam_agent_trials")
+        assignment_keys = schema.get_foreign_keys("cam_agent_trial_assignments")
+        if not any(
+            key.get("referred_table") == "cam_agent_experiences"
+            and key.get("constrained_columns") == ["tenant_id", "candidate_event_key"]
+            and key.get("referred_columns") == ["tenant_id", "event_key"]
+            for key in trial_keys
+        ):
+            return False
+        if not any(
+            key.get("referred_table") == "cam_agent_trials"
+            and key.get("constrained_columns") == ["tenant_id", "study_id"]
+            and key.get("referred_columns") == ["tenant_id", "study_id"]
+            for key in assignment_keys
+        ):
+            return False
+        unique = schema.get_unique_constraints("cam_agent_trial_assignments")
+        return any(
+            constraint.get("column_names") == ["tenant_id", "keyword_id"]
+            for constraint in unique
+        )
+    except SQLAlchemyError:
+        return False
+
+
+def _verified_holdout_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """The preceding 0203 release may start against reviewed additive 0204."""
+    return (
+        expected_head == "0203_cam_agent_harness_store"
+        and current_heads == ("0204_cam_agent_holdout_studies",)
+        and _agent_harness_schema_complete(connection)
+        and _holdout_study_schema_complete(connection)
+    )
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -147,8 +206,9 @@ def validate_alembic_head(
     try:
         with database_engine.connect() as connection:
             current_heads = MigrationContext.configure(connection).get_current_heads()
-            approved_successor = _verified_agent_harness_successor(
-                connection, expected_head, tuple(current_heads),
+            approved_successor = (
+                _verified_agent_harness_successor(connection, expected_head, tuple(current_heads))
+                or _verified_holdout_successor(connection, expected_head, tuple(current_heads))
             ) if tuple(current_heads) != (expected_head,) else False
             exact_agent_schema_valid = (
                 _agent_harness_schema_complete(connection)
@@ -156,10 +216,19 @@ def validate_alembic_head(
                 and tuple(current_heads) == (expected_head,)
                 else True
             )
+            exact_holdout_schema_valid = (
+                _agent_harness_schema_complete(connection)
+                and _holdout_study_schema_complete(connection)
+                if expected_head == "0204_cam_agent_holdout_studies"
+                and tuple(current_heads) == (expected_head,)
+                else True
+            )
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
     if not exact_agent_schema_valid:
         raise DatabaseStartupError("Agent Harness schema incomplete at revision 0203")
+    if not exact_holdout_schema_valid:
+        raise DatabaseStartupError("Agent Harness holdout schema incomplete at revision 0204")
     if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(

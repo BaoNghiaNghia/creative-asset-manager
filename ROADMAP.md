@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-08 — Agent Harness Phase 3C.2 rollback bridge
+
+- [x] Predeploy database startup compatibility for exactly one future, structurally validated 0204 holdout schema without changing Alembic HEAD or any live job.
+- [x] Reject missing trials/exposures, missing composite tenant FKs, missing cross-study keyword uniqueness, or arbitrary future revisions.
+- [ ] Add schema+registration API in separate release after this bridge is production-current. Rollback to this bridge release must pass at 0204.
+- [ ] Keep actual challenger generation, trial activation, QA recording and promotion disabled until an independent provenance-controlled experiment is reviewed.
+
+
 ## 2026-11-08 — CAM Agent Harness Phase 3C.1 (prospective holdout preflight)
 
 - [x] Add deterministic tenant/cohort/trial/keyword-level assignment kernel for a future control/challenger trial; assignments are planning-only, NOT registered or activated.

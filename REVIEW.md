@@ -1,3 +1,9 @@
+## 2026-11-08 — Agent Harness Phase 3C.2 rollback bridge
+
+- Added a narrowly scoped Alembic 0203→0204 compatibility check, gated by full trial/assignment columns, tenant-scoped FKs and unique keyword assignment across studies. Unknown versions/missing constraints fail closed.
+- Tests simulate the exact future schema and reject weakened or incomplete structures. No migration file, no new table, API endpoint, setting, dependency, queued job, model call or production data changes in this release.
+- Safe rollout: backend-only via main with --no-migrate; next 0204 schema rollout will retain this release as previous rollback target.
+
 ## 2026-11-08 — Agent Harness V2 Phase 3C.1 (read-only evaluation readiness)
 
 - New pure `holdout.py` provides deterministic keyword-level control/challenger design, strictly validated QA aggregates, blinded provenance gates, conservative 95% Wilson confidence bounds, cost/critical-defect checks. All favorable results still require independent owner review; policy promotion is ALWAYS false.
