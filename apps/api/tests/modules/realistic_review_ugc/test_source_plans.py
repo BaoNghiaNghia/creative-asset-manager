@@ -25,6 +25,9 @@ from app.modules.realistic_review_ugc.router import (
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
+    TIKTOKSHOP_SOURCE_TARGET_COUNT,
+    reconcile_source_plan_quota,
+    source_plan_target_count,
     _reconcile_embroidery_groups,
     _synthetic_product_snapshot,
     _synthetic_reference_snapshot,
@@ -38,6 +41,7 @@ from app.modules.realistic_review_ugc.product_context import (
     product_visual_binding_fingerprint,
 )
 from app.modules.realistic_review_ugc.service import RrugcService
+from app.modules.realistic_review_ugc.workspace import TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 
@@ -1808,3 +1812,75 @@ def test_reviews_stage2_only_uses_prefixed_image_files_not_scout_campaign():
         )
         assert page.total == 2
         assert {item.source_name for item in page.items} == {"embroidery_PRINT DESIGN.JPG", "Embroidery_ART.png"}
+
+
+
+def test_source_plan_target_is_15_only_for_tiktokshop():
+    assert source_plan_target_count(TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID) == TIKTOKSHOP_SOURCE_TARGET_COUNT == 15
+    assert source_plan_target_count(RRUGC_SOURCE_ROOT_FOLDER_ID) == RRUGC_SOURCE_TARGET_COUNT == 50
+
+
+def test_existing_tiktokshop_quota_reconciles_without_deleting_existing_references():
+    factory = make_database()
+    with factory() as session:
+        service = RrugcService(session)
+        tiktok, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="TikTokShop",
+            query="apparel", target_count=50, max_scroll_batches=2,
+            auto_import=True, auto_scout=True, commit=False,
+        )
+        gator, _ = service.create_campaign(
+            tenant_id="tenant-a", user_id="user-a", name="GatorHats",
+            query="hat", target_count=50, max_scroll_batches=2,
+            auto_import=True, auto_scout=True, commit=False,
+        )
+        for index, (root, campaign) in enumerate((
+            (TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID, tiktok),
+            (RRUGC_SOURCE_ROOT_FOLDER_ID, gator),
+        )):
+            session.add(RrugcSourcePlanModel(
+                tenant_id="tenant-a", root_folder_id=root,
+                source_file_id=f"source-{index}", source_parent_folder_id=f"folder-{index}",
+                source_relative_path=f"folder-{index}/product.jpg",
+                source_name="product.jpg", source_mime_type="image/jpeg",
+                source_revision="c" * 64, analysis_revision=1,
+                target_count=50, status="ready", created_by_user_id="user-a",
+                campaign_id=campaign.id, embroidery_signature=f"embroidery-{index}",
+            ))
+        for index in range(16):
+            session.add(RrugcCandidateModel(
+                tenant_id="tenant-a", campaign_id=tiktok.id,
+                source_key=f"ref-{index}",
+                pin_url=f"https://www.pinterest.com/pin/{index}/",
+                image_url=f"https://i.pinimg.com/{index}.jpg",
+                status="drive_ready",
+            ))
+        session.commit()
+
+        assert reconcile_source_plan_quota(
+            session, tenant_id="tenant-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ) == 2
+        session.refresh(tiktok)
+        session.refresh(gator)
+        assert tiktok.target_count == 15
+        assert tiktok.status == "completed"
+        assert tiktok.scan_next_at is None
+        assert gator.target_count == 50
+        assert session.scalar(select(func.count(RrugcCandidateModel.id)).where(
+            RrugcCandidateModel.campaign_id == tiktok.id,
+        )) == 16
+        assert reconcile_source_plan_quota(
+            session, tenant_id="tenant-a",
+            root_folder_id=TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
+        ) == 0
+        assert {plan.target_count for plan in session.scalars(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+            )
+        )} == {15}
+        assert {plan.target_count for plan in session.scalars(
+            select(RrugcSourcePlanModel).where(
+                RrugcSourcePlanModel.root_folder_id == RRUGC_SOURCE_ROOT_FOLDER_ID
+            )
+        )} == {50}

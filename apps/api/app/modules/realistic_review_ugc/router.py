@@ -353,6 +353,7 @@ from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID,
     TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID,
     RRUGC_SOURCE_TARGET_COUNT,
+    source_plan_target_count,
     RrugcSourcePlanError,
     embroidery_signature,
     sync_source_plans,
@@ -8659,7 +8660,7 @@ async def sync_source_folder_plans(
         ) from exc
     return SourcePlanSyncResponse(
         root_folder_id=result.root_folder_id,
-        target_count=RRUGC_SOURCE_TARGET_COUNT,
+        target_count=source_plan_target_count(result.root_folder_id),
         folders_scanned=result.folders_scanned,
         images_found=result.images_found,
         plans_created=result.plans_created,

@@ -15,6 +15,7 @@ from app.modules.realistic_review_ugc.model import RrugcSourcePlanModel
 from app.modules.realistic_review_ugc.source_plans import (
     RRUGC_SOURCE_ROOT_FOLDER_ID, RRUGC_SOURCE_PLAN_JOB_TYPE,
     SourcePlanSyncResult,
+    reconcile_source_plan_quota,
     sync_source_plans,
 )
 from app.modules.storage.managed_oauth import MANAGED_STORAGE_OAUTH_PROVIDER
@@ -173,6 +174,10 @@ class RrugcSourcePlanSyncScheduler:
             ):
                 try:
                     with self.session_factory() as session:
+                        if root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
+                            reconcile_source_plan_quota(
+                                session, tenant_id=tenant_id, root_folder_id=root_folder_id
+                            )
                         options = {}
                         if root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID:
                             budget = self._tiktokshop_analysis_budget(session, tenant_id)

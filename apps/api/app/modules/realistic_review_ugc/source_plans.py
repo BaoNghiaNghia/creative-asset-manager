@@ -58,6 +58,18 @@ from app.providers.google.drive import GoogleDriveClient
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 RRUGC_SOURCE_TARGET_COUNT = 50
+TIKTOKSHOP_SOURCE_TARGET_COUNT = 15
+
+
+def source_plan_target_count(root_folder_id: str) -> int:
+    """Keep TikTokShop quota isolated from GatorHats source campaigns."""
+    return (
+        TIKTOKSHOP_SOURCE_TARGET_COUNT
+        if root_folder_id == TIKTOKSHOP_SOURCE_ROOT_FOLDER_ID
+        else RRUGC_SOURCE_TARGET_COUNT
+    )
+
+
 RRUGC_SOURCE_PLAN_JOB_TYPE = "rrugc_source_plan_analyze"
 RRUGC_SOURCE_MAX_FOLDERS = 5_000
 RRUGC_SOURCE_MAX_IMAGES = 20_000
@@ -567,10 +579,13 @@ def _source_campaign_progress(
 def _ensure_source_campaign_capacity(
     service: RrugcService,
     campaign: RrugcCampaignModel,
+    *,
+    root_folder_id: str,
 ) -> int:
-    campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+    target_count = source_plan_target_count(root_folder_id)
+    campaign.target_count = target_count
     progress = _source_campaign_progress(service, campaign)
-    if progress >= RRUGC_SOURCE_TARGET_COUNT:
+    if progress >= target_count:
         campaign.status = "completed"
         campaign.scout_status = "ready"
         campaign.scan_next_at = None
@@ -584,6 +599,62 @@ def _ensure_source_campaign_capacity(
         if campaign.scan_lease_expires_at is None and campaign.scan_next_at is None:
             campaign.scan_next_at = datetime.now(timezone.utc)
     return progress
+
+
+def reconcile_source_plan_quota(
+    session: Session,
+    *,
+    tenant_id: str,
+    root_folder_id: str,
+) -> int:
+    """Apply a changed quota to existing rows without deleting references or re-analyzing.
+
+    The auto-sync scheduler calls this before checking TikTokShop's analysis
+    budget, so saturated AI queues cannot leave existing Scout jobs at 50.
+    """
+    target_count = source_plan_target_count(root_folder_id)
+    plans = list(session.scalars(
+        select(RrugcSourcePlanModel).where(
+            RrugcSourcePlanModel.tenant_id == tenant_id,
+            RrugcSourcePlanModel.root_folder_id == root_folder_id,
+        )
+    ))
+    changed = 0
+    campaign_ids: set[str] = set()
+    for plan in plans:
+        if plan.target_count != target_count:
+            plan.target_count = target_count
+            changed += 1
+        if plan.campaign_id:
+            campaign_ids.add(str(plan.campaign_id))
+
+    if campaign_ids:
+        # A legacy association must not let one workspace's quota rewrite
+        # a campaign that is also referenced by another source root.
+        shared_other_root_ids = {
+            str(value) for value in session.scalars(
+                select(RrugcSourcePlanModel.campaign_id).where(
+                    RrugcSourcePlanModel.tenant_id == tenant_id,
+                    RrugcSourcePlanModel.root_folder_id != root_folder_id,
+                    RrugcSourcePlanModel.campaign_id.in_(campaign_ids),
+                )
+            ) if value
+        }
+        service = RrugcService(session)
+        for campaign in session.scalars(
+            select(RrugcCampaignModel).where(
+                RrugcCampaignModel.tenant_id == tenant_id,
+                RrugcCampaignModel.id.in_(campaign_ids - shared_other_root_ids),
+            )
+        ):
+            if campaign.target_count != target_count:
+                _ensure_source_campaign_capacity(
+                    service, campaign, root_folder_id=root_folder_id
+                )
+                changed += 1
+    if changed:
+        session.commit()
+    return changed
 
 
 def _refresh_source_campaign_profile_if_stale(
@@ -624,7 +695,7 @@ def _refresh_source_campaign_profile_if_stale(
     campaign.search_query_anchors_json = anchors
     campaign.query = anchors[0]
     campaign.search_queries_json = anchors
-    campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+    campaign.target_count = source_plan_target_count(plan.root_folder_id)
     campaign.auto_import = True
     campaign.auto_scout = True
     if campaign.scan_lease_expires_at is None:
@@ -672,8 +743,10 @@ def _reconcile_embroidery_groups(
                         campaign=campaign,
                     )
                     refreshed_campaign_ids.add(campaign.id)
-                _ensure_source_campaign_capacity(service, campaign)
-                plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+                _ensure_source_campaign_capacity(
+                    service, campaign, root_folder_id=plan.root_folder_id
+                )
+                plan.target_count = source_plan_target_count(plan.root_folder_id)
 
         if isinstance(plan.visual_context_json, dict):
             recalculated_signature = source_plan_embroidery_signature(
@@ -724,14 +797,16 @@ def _reconcile_embroidery_groups(
             )
         )
         canonical = campaigns[0]
-        _ensure_source_campaign_capacity(service, canonical)
+        _ensure_source_campaign_capacity(
+            service, canonical, root_folder_id=root_folder_id
+        )
 
         retired_ids: set[str] = set()
         for plan in members:
             if plan.campaign_id and plan.campaign_id != canonical.id:
                 retired_ids.add(plan.campaign_id)
             plan.campaign_id = canonical.id
-            plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+            plan.target_count = source_plan_target_count(plan.root_folder_id)
         session.flush()
 
         for campaign_id in retired_ids:
@@ -831,7 +906,7 @@ async def sync_source_plans(
                 source_web_url=image.web_url,
                 source_revision=image.revision,
                 analysis_revision=1,
-                target_count=RRUGC_SOURCE_TARGET_COUNT,
+                target_count=source_plan_target_count(root_folder_id),
                 status="queued" if queue_analysis else ("discovered" if source_only else "ready"),
                 created_by_user_id=user_id,
             )
@@ -848,7 +923,7 @@ async def sync_source_plans(
             plan.source_height = image.height
             plan.source_modified_at = image.modified_at
             plan.source_web_url = image.web_url
-            plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+            plan.target_count = source_plan_target_count(plan.root_folder_id)
             if previous_revision != image.revision:
                 plan.source_revision = image.revision
                 plan.analysis_revision = max(1, int(plan.analysis_revision or 0) + 1)
@@ -1372,7 +1447,7 @@ class RrugcSourcePlanAnalyzeJobHandler:
                     name=_source_campaign_name(plan),
                     query=anchors[0],
                     search_queries=anchors,
-                    target_count=RRUGC_SOURCE_TARGET_COUNT,
+                    target_count=source_plan_target_count(plan.root_folder_id),
                     max_scroll_batches=5,
                     auto_import=True,
                     discovery_mode="keyword",
@@ -1394,14 +1469,16 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 campaign.search_query_anchors_json = anchors
                 campaign.auto_scout = True
                 service.refresh_campaign_discovery(campaign, commit=False)
-                _ensure_source_campaign_capacity(service, campaign)
+                _ensure_source_campaign_capacity(
+                    service, campaign, root_folder_id=plan.root_folder_id
+                )
             else:
                 campaign.name = _source_campaign_name(plan)
                 campaign.discovery_mode = "product_context"
                 campaign.product_snapshot_json = product_snapshot
                 campaign.product_reference_snapshot_json = reference_snapshot
                 campaign.product_context_json = profile
-                campaign.target_count = RRUGC_SOURCE_TARGET_COUNT
+                campaign.target_count = source_plan_target_count(plan.root_folder_id)
                 campaign.query = queries[0]
                 campaign.search_queries_json = queries
                 campaign.search_query_anchors_json = anchors
@@ -1416,7 +1493,7 @@ class RrugcSourcePlanAnalyzeJobHandler:
                 service.refresh_campaign_discovery(campaign, commit=False)
 
             plan.visual_context_json = visual_context
-            plan.target_count = RRUGC_SOURCE_TARGET_COUNT
+            plan.target_count = source_plan_target_count(plan.root_folder_id)
             plan.status = "ready"
             plan.last_error_code = None
             plan.analyzed_at = datetime.now(timezone.utc)
