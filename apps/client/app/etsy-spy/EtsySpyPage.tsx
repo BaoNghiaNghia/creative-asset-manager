@@ -590,7 +590,6 @@ export function EtsySpyPage() {
                 onClick={() => selectTab("products", { observedDay: day })}>
                 <span>{label}</span>
                 <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
-                <small>06:00–06:00</small>
               </button>;
             })}
           </div>

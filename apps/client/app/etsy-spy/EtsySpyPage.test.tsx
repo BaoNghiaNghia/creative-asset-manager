@@ -255,6 +255,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     const today = vietnamCalendarDay();
     const expectedDays = recentObservedDays(today);
     expect(days).toHaveLength(10);
+    expect(days.every(day => !day.textContent?.includes("06:00–06:00"))).toBe(true);
+    expect(days.every(day => !day.querySelector("small"))).toBe(true);
     expect(days.map(day => day.dataset.observedDay)).toEqual(expectedDays);
     expect(days[0].textContent).toContain("Hôm nay");
     expect(days[1].textContent).toContain("Hôm qua");
