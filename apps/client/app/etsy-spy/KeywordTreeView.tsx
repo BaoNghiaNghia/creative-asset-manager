@@ -135,10 +135,11 @@ export function KeywordTreeView({
 
   useEffect(() => {
     if (!current) return;
-    // Show a couple of real branches on first load; leave others collapsed.
+    // Keep root cards legible on first load. A large Scout branch may contain
+    // hundreds of children, and auto-expanding it shrinks the entire mindmap
+    // to unreadable text. Users can expand each branch or use Expand all.
     setExpanded(new Set(forest.roots.filter(key => forest.nodes.get(key)?.children.length).slice(0, 2)));
-    setMindmapExpanded(new Set(grouped.roots.filter(key =>
-      grouped.nodes.get(key)?.children.length).slice(0, 1)));
+    setMindmapExpanded(new Set());
   }, [current?.key]);
 
   useEffect(() => {
@@ -173,8 +174,28 @@ export function KeywordTreeView({
     [...grouped.nodes.values()].filter(node => node.children.length &&
       groupProjection.visible.has(node.key)).map(node => node.key),
   [grouped, groupProjection]);
-  return <>
-    <ParentKeywordManager refresh={refresh} canManage={canManage} />
+  return <div className="etsy-keyword-page">
+    <div className="etsy-keyword-metrics" aria-label="Keyword Tree statistics">
+      <div className="etsy-keyword-metric">
+        <span aria-hidden="true">▤</span><div><strong>{valid ? forest.realCount.toLocaleString() : "—"}</strong>
+        <small>keyword records</small></div>
+      </div>
+      <div className="etsy-keyword-metric">
+        <span aria-hidden="true">♧</span><div><strong>{valid ? grouped.realGroups.toLocaleString() : "—"}</strong>
+        <small>grouped nodes</small></div>
+      </div>
+      <div className="etsy-keyword-metric">
+        <span aria-hidden="true">▣</span><div><strong>{valid ? grouped.mergedRecords.toLocaleString() : "—"}</strong>
+        <small>duplicates merged</small></div>
+      </div>
+      <div className="etsy-keyword-metric">
+        <span aria-hidden="true">⑂</span><div><strong>{valid ? grouped.roots.length.toLocaleString() : "—"}</strong>
+        <small>root groups</small></div>
+      </div>
+    </div>
+    <div className="etsy-keyword-grid">
+      <ParentKeywordManager refresh={refresh} canManage={canManage} />
+      <section className="etsy-keyword-workspace" aria-label="Keyword mindmap and tree">
     <div className="etsy-tree-toolbar" aria-label="Keyword tree controls">
       <span className="etsy-tree-summary">
         {valid ? <>
@@ -234,5 +255,7 @@ export function KeywordTreeView({
           </table>
         </div>}
     </div>
-  </>;
+      </section>
+    </div>
+  </div>;
 }

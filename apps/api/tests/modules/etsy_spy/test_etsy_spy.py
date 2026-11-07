@@ -191,6 +191,17 @@ def test_parent_keywords_saved_priorities_and_agent_sync(scenario):
     assert edited.status_code == 200
     assert edited.json()["items"][0]["priority"] == 90
     assert edited.json()["items"][0]["source"] == "observed"
+    normal = client.put(url, json={
+        "keyword": "Santa Claus Rudolph boop shirt", "priority": 0,
+    })
+    assert normal.status_code == 200
+    assert normal.json()["items"][0]["priority"] == 0
+    assert client.get(remote, headers=headers).json()["items"][0]["priority"] == 0
+    restored = client.put(url, json={
+        "keyword": "Santa Claus Rudolph boop shirt", "priority": 90,
+    })
+    assert restored.status_code == 200
+    assert restored.json()["items"][0]["priority"] == 90
     added = client.post(url, json={"keyword": "  Halloween   Ghost Shirt ",
                                   "priority": 75})
     assert added.status_code == 200
@@ -206,7 +217,7 @@ def test_parent_keywords_saved_priorities_and_agent_sync(scenario):
     assert remote_items.json()["items"][0]["priority"] == 99
     assert remote_items.json()["revision"] != original.json()["revision"]
 
-    for invalid in (0, -1, 101, 3.5, True, "99"):
+    for invalid in (-1, 101, 3.5, True, "99"):
         assert client.post(url, json={"keyword": "valid", "priority": invalid}).status_code == 422
     assert client.post(url, json={"keyword": "x", "priority": 50}).status_code == 422
     assert client.post(url, json={"keyword": "a" * 181, "priority": 50}).status_code == 422

@@ -299,6 +299,8 @@ def _parent_keyword_key(name: str) -> str:
 def _parent_keyword_items(db: Session, tenant: str) -> dict:
     # Historical root nodes remain read-only. Manually configured settings
     # override the display and scheduler priority without rewriting Scout rows.
+    # Priority 0 is the non-prioritized mode; it sorts last and is still sent
+    # to Windows Agent (never silently deleted or excluded from Scout history).
     roots = db.execute(select(Keyword.keyword).where(
         Keyword.tenant_id == tenant, Keyword.parent_id.is_(None),
         Keyword.depth == 0).order_by(desc(Keyword.updated_at)).limit(20_000)).scalars()
@@ -345,8 +347,10 @@ async def _upsert_parent_keyword(request: Request, tenant: str, db: Session) -> 
         raise HTTPException(422, "JSON object required")
     name = _parent_keyword_name(body.get("keyword"))
     priority = body.get("priority", 50)
-    if isinstance(priority, bool) or not isinstance(priority, int) or not 1 <= priority <= 100:
-        raise HTTPException(422, "Priority must be an integer from 1 to 100")
+    # Zero explicitly means normal/non-prioritized, while 1..100 retains the
+    # existing Windows Agent ranking contract; no schema or data migration.
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+        raise HTTPException(422, "Priority must be an integer from 0 to 100")
     key = _parent_keyword_key(name)
     row = db.get(ParentKeyword, (tenant, key))
     if row is None:

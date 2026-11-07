@@ -20,6 +20,7 @@ const MAX_VISIBLE = 260;
 type MapNodeData = Record<string, unknown> & {
   label: string;
   status: string;
+  depth: number;
   sessions: number;
   occurrences: number;
   branchRecords: number;
@@ -49,7 +50,10 @@ function KeywordCard({ id, data }: NodeProps<MapFlowNode>) {
           {data.occurrences}×
         </span>}
       </div>
-      <strong className="etsy-map-node-title">{data.label}</strong>
+      <div className="etsy-map-node-title-row">
+        <span className="etsy-map-node-symbol" aria-hidden="true">{data.depth === 0 ? "▱" : "▤"}</span>
+        <strong className="etsy-map-node-title">{data.label}</strong>
+      </div>
       <div className="etsy-map-node-bottom">
         <span>{data.sessions} session{data.sessions !== 1 ? "s" : ""}</span>
         <span>{data.listings ?? "—"} listings</span>
@@ -86,7 +90,7 @@ function createFlowLayout(
 ): { nodes: MapFlowNode[]; edges: Edge[] } {
   const hub: MapFlowNode = {
     id: "keyword-map-hub", type: "hub", position: { x: 0, y: 0 },
-    data: { label: "Keyword Map", status: "hub", sessions: 0, occurrences: 0,
+    data: { label: "Keyword Map", status: "hub", depth: -1, sessions: 0, occurrences: 0,
       branchRecords: 0, listings: null, children: 0, isOpen: true,
       selected: false, missingParent: false,
       total: forest.rawCount, unique: forest.realGroups },
@@ -101,7 +105,8 @@ function createFlowLayout(
       position: { x: level * (NODE_WIDTH + 80), y: 0 },
       draggable: false,
       data: {
-        label: group.keyword, status: group.status, sessions: group.sessions.length,
+        label: group.keyword, status: group.status, depth: group.depth,
+        sessions: group.sessions.length,
         occurrences: group.members.length,
         branchRecords: group.branchRecords, listings: group.matchedCount,
         children: group.children.length, isOpen, selected: selected === group.key,
@@ -142,14 +147,23 @@ function FlowCanvas({
   nodes: MapFlowNode[]; edges: Edge[]; onSelect: (key: string) => void;
   layoutKey: string;
 }) {
-  const { fitView } = useReactFlow<MapFlowNode, Edge>();
+  const { fitView, getViewport, setCenter } = useReactFlow<MapFlowNode, Edge>();
   useEffect(() => {
-    // Recenter after an expansion changes the graph bounds.
+    let active = true;
+    // Large Scout branches should not shrink every label to a few pixels.
+    // Keep the viewport legible; pan/zoom and the minimap reveal the remainder.
     const timeout = window.setTimeout(() => {
-      void fitView({ padding: 0.18, maxZoom: 1, duration: 220 });
+      void fitView({ padding: 0.15, maxZoom: 1, duration: 180 }).then(() => {
+        if (!active || getViewport().zoom >= 0.58) return;
+        const hub = nodes.find(node => node.type === "hub");
+        if (hub) {
+          void setCenter(hub.position.x + HUB_WIDTH / 2 + 150,
+            hub.position.y + HUB_HEIGHT / 2, { zoom: 0.62, duration: 180 });
+        }
+      });
     }, 35);
-    return () => window.clearTimeout(timeout);
-  }, [fitView, layoutKey]);
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [fitView, getViewport, setCenter, layoutKey]);
 
   return <ReactFlow<MapFlowNode, Edge>
     nodes={nodes} edges={edges} nodeTypes={NODE_TYPES}

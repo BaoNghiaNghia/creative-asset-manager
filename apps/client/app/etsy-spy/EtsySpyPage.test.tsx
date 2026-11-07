@@ -575,6 +575,11 @@ describe("Etsy Spy native CAM dashboard", () => {
       ".etsy-map-mode-switch button") || []);
     expect(modeButtons.map(button => button.textContent)).toEqual(["Mindmap", "Tree"]);
     expect(modeButtons[0].getAttribute("aria-pressed")).toBe("true");
+    const layout = container?.querySelector(".etsy-keyword-grid");
+    expect(layout?.children).toHaveLength(2);
+    expect(layout?.firstElementChild?.classList.contains("etsy-parent-keywords")).toBe(true);
+    expect(layout?.lastElementChild?.classList.contains("etsy-keyword-workspace")).toBe(true);
+    expect(container?.querySelectorAll(".etsy-keyword-metric")).toHaveLength(4);
     await act(async () => { modeButtons[1].click(); await new Promise(resolve => setTimeout(resolve, 35)); });
     expect(modeButtons[1].getAttribute("aria-pressed")).toBe("true");
     expect(container?.querySelector(".etsy-data-table.is-keyword-tree")).toBeTruthy();
@@ -640,6 +645,27 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(parentKeywords[0].keywordKey).toBe("a root seed");
     expect(parentKeywords[0].priority).toBe(98);
+    const priorityMode = container?.querySelector(
+      '[role="group"][aria-label="Priority mode for A Root Seed"]',
+    );
+    expect(priorityMode?.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(1);
+    const noPriority = Array.from(priorityMode?.querySelectorAll("button") || [])
+      .find(button => button.textContent?.includes("Không ưu tiên")) as HTMLButtonElement;
+    await act(async () => {
+      noPriority.click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(parentKeywords.find(row => row.keywordKey === "a root seed")?.priority).toBe(0);
+    expect(noPriority.getAttribute("aria-pressed")).toBe("true");
+    const withPriority = Array.from(priorityMode?.querySelectorAll("button") || [])
+      .find(button => button.textContent?.includes("Ưu tiên") &&
+        !button.textContent?.includes("Không")) as HTMLButtonElement;
+    await act(async () => {
+      withPriority.click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(parentKeywords.find(row => row.keywordKey === "a root seed")?.priority).toBe(98);
+    expect(withPriority.getAttribute("aria-pressed")).toBe("true");
     expect(observed.some(url => url.endsWith("/parent-keywords"))).toBe(true);
     expect(container?.querySelectorAll(".etsy-parent-row")).toHaveLength(2);
     expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(0);
