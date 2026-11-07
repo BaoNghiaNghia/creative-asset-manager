@@ -22,6 +22,7 @@ from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
+    EtsySpyWinKeyword as WinKeyword,
     EtsySpySession as SessionRow,
     EtsySpyKeyword as Keyword, EtsySpyListing as Listing,
     EtsySpyTrademark as Trademark, EtsySpyLog as Log,
@@ -200,6 +201,71 @@ def remove_blacklist(phrase: str, principal: CurrentPrincipal = Depends(MANAGE),
             db.commit()
     return {**_blacklist_view(db, principal.active_tenant_id),
             "visible_products": _blacklist_visible_count(db, principal.active_tenant_id)}
+
+
+def _win_keyword_value(raw: Any) -> str:
+    """Keep human-entered wording and punctuation, de-duplicate case-insensitively."""
+    if not isinstance(raw, str) or len(raw) > 220:
+        raise HTTPException(422, "Win Keyword must be a string of at most 220 characters")
+    keyword = " ".join(raw.split())
+    if len(keyword) < 2 or len(keyword) > 220:
+        raise HTTPException(422, "Win Keyword must contain 2-220 characters")
+    return keyword
+
+
+def _win_keyword_view(db: Session, tenant: str) -> dict:
+    rows = db.scalars(
+        select(WinKeyword).where(WinKeyword.tenant_id == tenant)
+        .order_by(WinKeyword.keyword_key)
+    ).all()
+    return {"keywords": [row.keyword for row in rows], "count": len(rows)}
+
+
+@router.get("/win-keywords")
+def list_win_keywords(
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    return _win_keyword_view(db, principal.active_tenant_id)
+
+
+@router.post("/win-keywords")
+async def add_win_keywords(
+    request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    payload = await request.json()
+    raw = payload.get("keywords") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 40:
+        raise HTTPException(422, "Provide 1-40 Win Keywords")
+    keywords = {}
+    for item in raw:
+        keyword = _win_keyword_value(item)
+        keywords.setdefault(keyword.casefold(), keyword)
+    tenant = principal.active_tenant_id
+    current = set(db.scalars(select(WinKeyword.keyword_key)
+                             .where(WinKeyword.tenant_id == tenant)).all())
+    if len(current | set(keywords)) > 1000:
+        raise HTTPException(422, "Win Keyword list is limited to 1000 entries")
+    for key, keyword in keywords.items():
+        if key not in current:
+            db.add(WinKeyword(tenant_id=tenant, keyword_key=key,
+                              keyword=keyword, created_at=utcnow()))
+    db.commit()
+    return _win_keyword_view(db, tenant)
+
+
+@router.delete("/win-keywords")
+async def remove_win_keyword(
+    request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    payload = await request.json()
+    keyword = _win_keyword_value(payload.get("keyword") if isinstance(payload, dict) else None)
+    item = db.get(WinKeyword, (principal.active_tenant_id, keyword.casefold()))
+    if item is not None:
+        db.delete(item)
+        db.commit()
+    return _win_keyword_view(db, principal.active_tenant_id)
 
 
 def _observed_day_bounds(day: date) -> tuple[datetime, datetime]:

@@ -41,6 +41,15 @@ class EtsySpyBlacklist(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyWinKeyword(Base):
+    """Passive, tenant-owned keyword notes; never used by filtering or Scout."""
+    __tablename__ = "etsy_spy_win_keywords"
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    keyword_key: Mapped[str] = mapped_column(String(220), primary_key=True)
+    keyword: Mapped[str] = mapped_column(String(220), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class EtsySpyPicked(Base):
     """User-picked Etsy listings, stable across sync sessions and source agents."""
     __tablename__ = "etsy_spy_picked"

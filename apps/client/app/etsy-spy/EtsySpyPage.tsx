@@ -42,7 +42,7 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
 type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
   pickState: "eligible" | "picked";
-  blacklistView: boolean;
+  blacklistView: boolean; winKeywordsView: boolean;
   observedDay: string;
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
@@ -66,7 +66,7 @@ export function recentObservedDays(today: string): string[] {
 
 const baseOptions: Options = {
   tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
-  blacklistView: false, observedDay: vietnamCalendarDay(),
+  blacklistView: false, winKeywordsView: false, observedDay: vietnamCalendarDay(),
   sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
@@ -78,6 +78,7 @@ function fromLocation(): Options {
     ...baseOptions, tab,
     pickState: p.get("pick_state") === "picked" ? "picked" : "eligible",
     blacklistView: tab === "products" && p.get("panel") === "blacklist",
+    winKeywordsView: tab === "products" && p.get("panel") === "win-keywords",
     observedDay: p.get("observed_day") === "all" ? "all"
       : /^\d{4}-\d{2}-\d{2}$/.test(p.get("observed_day") || "")
         ? p.get("observed_day")! : vietnamCalendarDay(),
@@ -96,11 +97,12 @@ function queryFor(o: Options): URLSearchParams {
   query.set("page", String(o.page));
   query.set("page_size", String(o.pageSize));
   if (o.q.trim()) query.set("q", o.q.trim());
-  if (o.tab === "products" && o.pickState === "picked" && !o.blacklistView)
+  if (o.tab === "products" && o.pickState === "picked" && !o.blacklistView && !o.winKeywordsView)
     query.set("pick_state", "picked");
-  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView)
+  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView && !o.winKeywordsView)
     query.set("observed_day", o.observedDay);
   if (o.tab === "products" && o.blacklistView) query.set("panel", "blacklist");
+  if (o.tab === "products" && o.winKeywordsView) query.set("panel", "win-keywords");
   if (o.sessionId) query.set("session_id", o.sessionId);
   if (o.source) query.set("source", o.source);
   if (o.badge) query.set("badge", o.badge);
@@ -151,6 +153,7 @@ const SUMMARY_ICONS = [
   "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
   "M4 12.5 9 17l11-11",
   "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M5 5l14 14",
+  "m12 2 3.2 6.5 7.2 1-5.2 5.1 1.2 7.3-6.4-3.4L5.6 21l1.2-7.3L1.6 9.6l7.2-1L12 2Z",
   "M15.5 7.5a5 5 0 1 0-1 4.2L21 18v3h-3v-3h-3v-3l-1.7-1.7",
   "m12 2 10 5-10 5L2 7l10-5Zm-10 10 10 5 10-5M2 17l10 5 10-5",
   "M2 3h2l2.5 11h12L21 6H5M9 20h.01M18 20h.01",
@@ -309,6 +312,10 @@ export function EtsySpyPage() {
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistBusy, setBlacklistBusy] = useState(false);
   const [blacklistError, setBlacklistError] = useState("");
+  const [winKeywordInput, setWinKeywordInput] = useState("");
+  const [winKeywords, setWinKeywords] = useState<string[]>([]);
+  const [winKeywordBusy, setWinKeywordBusy] = useState(false);
+  const [winKeywordError, setWinKeywordError] = useState("");
   const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
   const [pickError, setPickError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -334,7 +341,8 @@ export function EtsySpyPage() {
   // Never render a page for one tab/filter using rows from another request.
   // useEffect runs after render, so merely setting loading=true in the effect
   // cannot prevent an intermediate render with the previous tab's row shape.
-  const requestKey = options.tab + (options.blacklistView ? ":blacklist" : ":records") +
+  const requestKey = options.tab + (options.blacklistView ? ":blacklist"
+    : options.winKeywordsView ? ":win-keywords" : ":records") +
     "?" + apiQuery(options).toString() + "#" + refresh;
   const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
   const loading = fetching || tableResult?.requestKey !== requestKey;
@@ -356,11 +364,13 @@ export function EtsySpyPage() {
       spyFetch<Summary>("/summary"),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
       spyFetch<{ phrases: string[] }>("/blacklist"),
+      spyFetch<{ keywords: string[] }>("/win-keywords"),
       fetchAccessIdentity(),
-    ]).then(([overview, currentAgents, rules, identity]) => {
+    ]).then(([overview, currentAgents, rules, winList, identity]) => {
       if (!alive) return;
       setSummary(overview); setAgents(currentAgents.items);
       setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
+      setWinKeywords(Array.isArray(winList.keywords) ? winList.keywords : []);
       setCanManage(identity.permissions.includes("etsy_spy.manage"));
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
@@ -387,7 +397,7 @@ export function EtsySpyPage() {
   useEffect(() => {
     // Keyword Tree loads all source pages in its own panel, not a single paged slice.
     if (options.tab === "keywords" ||
-      (options.tab === "products" && options.blacklistView)) return;
+      (options.tab === "products" && (options.blacklistView || options.winKeywordsView))) return;
     let alive = true;
     setFetching(true); setError("");
     const endpoint = { products: "/listings", keywords: "/keywords",
@@ -433,6 +443,33 @@ export function EtsySpyPage() {
       setBlacklistError(e instanceof Error ? e.message : "Cannot remove phrase");
     } finally {setBlacklistBusy(false);}
   };
+  const addWinKeywords = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canManage || winKeywordBusy) return;
+    const keywords = winKeywordInput.split(/[;,\n]+/).map(value => value.trim()).filter(Boolean);
+    if (!keywords.length) return;
+    setWinKeywordBusy(true); setWinKeywordError("");
+    try {
+      const response = await spyFetch<{ keywords: string[] }>("/win-keywords", {
+        method: "POST", body: JSON.stringify({ keywords }),
+      });
+      setWinKeywords(response.keywords); setWinKeywordInput("");
+    } catch (err) {
+      setWinKeywordError(err instanceof Error ? err.message : "Cannot save Win Keyword");
+    } finally { setWinKeywordBusy(false); }
+  };
+  const removeWinKeyword = async (keyword: string) => {
+    if (!canManage || winKeywordBusy) return;
+    setWinKeywordBusy(true); setWinKeywordError("");
+    try {
+      const response = await spyFetch<{ keywords: string[] }>("/win-keywords", {
+        method: "DELETE", body: JSON.stringify({ keyword }),
+      });
+      setWinKeywords(response.keywords);
+    } catch (err) {
+      setWinKeywordError(err instanceof Error ? err.message : "Cannot remove Win Keyword");
+    } finally { setWinKeywordBusy(false); }
+  };
   const togglePicked = async (item: Listing) => {
     if (!canManage || pickBusyKey !== null) return;
     setPickBusyKey(item.listingKey);
@@ -467,16 +504,20 @@ export function EtsySpyPage() {
   });
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
+  const isWinKeywordsView = activeTab === "products" && options.winKeywordsView;
   const dailyCards = recentObservedDays(clockDay).map((day, index) => ({
     day, index, count: observedDays?.find(item => item.day === day)?.count ?? null,
   }));
   const filteredBlacklist = blacklist.filter(phrase =>
     phrase.toLowerCase().includes(typedSearch.trim().toLowerCase()));
+  const filteredWinKeywords = winKeywords.filter(keyword =>
+    keyword.toLocaleLowerCase().includes(typedSearch.trim().toLocaleLowerCase()));
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
     setTypedSearch("");
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "",
-      status: "", level: "", phase: "", pickState: "eligible", blacklistView: false,
+      status: "", level: "", phase: "", pickState: "eligible",
+      blacklistView: false, winKeywordsView: false,
       observedDay: clockDay,
       sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
         : tab === "trademarks" ? "checkedAt" : "updatedAt",
@@ -489,15 +530,18 @@ export function EtsySpyPage() {
   }[] = [
     { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
       tone: "total", tab: "products", filters: { observedDay: "all" },
-      selected: activeTab === "products" && !isBlacklistView &&
+      selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "eligible" && !options.source && !options.tm },
     { title: "Picked", value: summary?.picked ?? 0, hint: "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked" },
-      selected: activeTab === "products" && !isBlacklistView &&
+      selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
     { title: "Blacklist", value: blacklist.length, hint: "Blocked keyword phrases",
       tone: "blacklist", tab: "products", filters: { blacklistView: true },
       selected: isBlacklistView },
+    { title: "Win Keyword", value: winKeywords.length, hint: "Saved keyword notes",
+      tone: "win-keyword", tab: "products", filters: { winKeywordsView: true },
+      selected: isWinKeywordsView },
     { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
   ];
@@ -543,7 +587,7 @@ export function EtsySpyPage() {
               : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>
           </div>
           <div className="etsy-stage-heading-actions">
-            {activeTab === "products" && <form className="etsy-blacklist-form"
+            {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"
               onSubmit={addBlacklist} aria-label="Blacklist product title phrases">
               <span className="etsy-blacklist-icon" aria-hidden="true">⊘</span>
               <input type="text" aria-label="Add blacklist phrases" value={blacklistInput}
@@ -552,10 +596,20 @@ export function EtsySpyPage() {
                 title="Enter to blacklist phrases; separate multiple phrases with commas"
                 disabled={!canManage || blacklistBusy} maxLength={400}/>
             </form>}
+            {isWinKeywordsView && <form className="etsy-blacklist-form etsy-win-keyword-form"
+              onSubmit={addWinKeywords} aria-label="Win Keyword list">
+              <span className="etsy-blacklist-icon" aria-hidden="true">☆</span>
+              <input type="text" aria-label="Add Win Keyword" value={winKeywordInput}
+                onChange={event => setWinKeywordInput(event.target.value)}
+                placeholder={canManage ? "Win Keyword · Enter" : "Win Keyword (read only)"}
+                title="Press Enter to save phrases; separate multiple phrases with commas"
+                disabled={!canManage || winKeywordBusy} maxLength={400} />
+            </form>}
             <div className="etsy-search-box">
               <svg className="etsy-search-svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
               <input type="search" aria-label="Search Spy records"
                 placeholder={isBlacklistView ? "Search blocked phrases…" :
+                  isWinKeywordsView ? "Search saved Win Keywords…" :
                   activeTab === "logs" ? "Search message or stack…" : "Search keyword or product…"}
                 value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
             </div>
@@ -580,7 +634,7 @@ export function EtsySpyPage() {
             {dailyCards.map(({ day, index, count }) => {
               const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
                 : day.split("-").reverse().join("-");
-              const selected = activeTab === "products" && !isBlacklistView &&
+              const selected = activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
                 options.pickState === "eligible" && options.observedDay === day;
               return <button type="button" key={day}
                 className={"etsy-observed-day" + (selected ? " active" : "")}
@@ -616,6 +670,28 @@ export function EtsySpyPage() {
             <p className="etsy-blacklist-empty">{blacklist.length
               ? "No blocked phrases match your search."
               : "Blacklist is empty. Enter a keyword phrase above and press Enter."}</p>}
+        </section> : isWinKeywordsView ? <section className="etsy-blacklist-panel etsy-win-keyword-panel"
+          aria-label="Win Keyword management" aria-labelledby="etsy-win-keyword-heading">
+          <div className="etsy-blacklist-panel-header">
+            <div>
+              <h2 id="etsy-win-keyword-heading">Win Keyword <span>({winKeywords.length})</span></h2>
+              <p>Save keywords for reference. These entries do not affect Scout, product filtering or trademark checks.
+                Add keywords using the Win Keyword field above and press Enter.</p>
+            </div>
+            <span className="etsy-blacklist-panel-counter">{winKeywords.length} saved</span>
+          </div>
+          {winKeywordError && <p className="etsy-blacklist-error" role="alert">{winKeywordError}</p>}
+          {filteredWinKeywords.length > 0 ?
+            <div className="etsy-blacklist-chips" aria-label="Saved Win Keywords">
+              {filteredWinKeywords.map(keyword => <span className="etsy-blacklist-chip" key={keyword}>
+                {keyword}{canManage && <button type="button"
+                  aria-label={"Remove Win Keyword " + keyword}
+                  disabled={winKeywordBusy} onClick={() => removeWinKeyword(keyword)}>×</button>}
+              </span>)}
+            </div> :
+            <p className="etsy-blacklist-empty">{winKeywords.length
+              ? "No Win Keywords match your search."
+              : "No Win Keywords yet. Enter a keyword phrase above and press Enter."}</p>}
         </section> : <>
     {activeTab === "trademarks" && <section className="etsy-lookup">
       <div><strong>Cached trademark lookup</strong>

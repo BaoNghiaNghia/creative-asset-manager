@@ -21,6 +21,7 @@ from app.modules.authorization.navigation_scope import (
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
+    EtsySpyWinKeyword,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -29,6 +30,7 @@ from app.modules.etsy_spy.service import create_agent
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
+    EtsySpyWinKeyword,
 )
 
 
@@ -111,6 +113,55 @@ def sync(client, agent, headers, value):
     return client.post(f"/api/v1/etsy-spy/agents/{agent.id}/sync",
                        content=json.dumps(value, separators=(",", ":")),
                        headers={**headers, "Content-Type": "application/json"})
+
+
+def test_win_keyword_notes_are_tenant_scoped_persistent_and_have_no_side_effects(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    baseline = client.get("/api/v1/etsy-spy/summary").json()
+    baseline_listings = client.get("/api/v1/etsy-spy/listings").json()["total"]
+    url = "/api/v1/etsy-spy/win-keywords"
+
+    empty = client.get(url)
+    assert empty.status_code == 200 and empty.json() == {"keywords": [], "count": 0}
+    saved = client.post(url, json={"keywords": [
+        "  Popular   Now! ", "POPULAR now!", "Santa Claus / Rudolph",
+    ]})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["count"] == 2
+    assert saved.json()["keywords"] == ["Popular Now!", "Santa Claus / Rudolph"]
+    assert db.query(EtsySpyWinKeyword).count() == 2
+    assert client.get(url).json()["keywords"] == saved.json()["keywords"]
+
+    # Notes must not change qualification, blacklist, Pick, summary, or exports.
+    assert client.get("/api/v1/etsy-spy/summary").json() == baseline
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == baseline_listings
+    assert client.get("/api/v1/etsy-spy/blacklist").json()["phrases"] == []
+    assert "Rudolph T-Shirt" in client.get("/api/v1/etsy-spy/export.csv").text
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 0
+
+    # Reload-safe, idempotent and tenant-isolated; viewers cannot write.
+    assert client.post(url, json={"keywords": ["popular now!"]}).json()["count"] == 2
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(url).json()["count"] == 0
+    assert client.post(url, json={"keywords": ["ANOTHER"]}).json()["count"] == 1
+    principal.active_tenant_id = "boostgame"
+    assert client.get(url).json()["count"] == 2
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.post(url, json={"keywords": ["Unauthorised"]}).status_code == 403
+    assert client.request("DELETE", url, json={"keyword": "Popular Now!"}).status_code == 403
+    principal.effective_permissions = frozenset({"etsy_spy.read", "etsy_spy.manage"})
+
+    assert client.post(url, json={"keywords": []}).status_code == 422
+    assert client.post(url, json={"keywords": ["x"]}).status_code == 422
+    assert client.post(url, json={"keywords": [123]}).status_code == 422
+    assert client.post(url, json={"keywords": ["Z" * 221]}).status_code == 422
+    removed = client.request("DELETE", url, json={"keyword": "POPULAR NOW!"})
+    assert removed.status_code == 200 and removed.json() == {
+        "keywords": ["Santa Claus / Rudolph"], "count": 1}
+    assert client.request("DELETE", url, json={"keyword": "POPULAR NOW!"}).json()["count"] == 1
+    assert client.get("/api/v1/etsy-spy/summary").json() == baseline
 
 
 def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):

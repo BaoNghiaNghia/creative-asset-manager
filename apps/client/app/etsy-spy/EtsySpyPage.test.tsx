@@ -17,6 +17,7 @@ vi.mock("../../features/access_management", () => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const observed: string[] = [];
 let blockedTerms: string[] = [];
+let savedWinKeywords: string[] = [];
 let pickedKeys = new Set<string>();
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
@@ -70,10 +71,26 @@ function json(value: unknown) {
     headers: {"content-type": "application/json"}});
 }
 function installFetch() {
-  observed.length = 0; blockedTerms = []; pickedKeys = new Set<string>();
+  observed.length = 0; blockedTerms = []; savedWinKeywords = []; pickedKeys = new Set<string>();
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     observed.push(url);
+    if (url.endsWith("/win-keywords") && init?.method === "POST") {
+      const { keywords } = JSON.parse(String(init.body)) as { keywords: string[] };
+      for (const raw of keywords) {
+        const value = raw.trim().replace(/\\s+/g, " ");
+        if (!savedWinKeywords.some(item => item.toLowerCase() === value.toLowerCase()))
+          savedWinKeywords.push(value);
+      }
+      return json({ keywords: [...savedWinKeywords], count: savedWinKeywords.length });
+    }
+    if (url.endsWith("/win-keywords") && init?.method === "DELETE") {
+      const { keyword } = JSON.parse(String(init.body)) as { keyword: string };
+      savedWinKeywords = savedWinKeywords.filter(value => value.toLowerCase() !== keyword.toLowerCase());
+      return json({ keywords: [...savedWinKeywords], count: savedWinKeywords.length });
+    }
+    if (url.endsWith("/win-keywords"))
+      return json({ keywords: [...savedWinKeywords], count: savedWinKeywords.length });
     if (url.endsWith("/blacklist") && init?.method === "POST") {
       const input = JSON.parse(String(init.body)) as { phrases: string[] };
       blockedTerms = [...new Set([...blockedTerms, ...input.phrases.map(x => x.toLowerCase())])];
@@ -213,7 +230,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(4);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(5);
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards[1].classList.contains("etsy-stat-picked")).toBe(true);
     expect(cards[2].classList.contains("etsy-stat-blacklist")).toBe(true);
@@ -311,12 +328,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     ]);
   });
 
-  it("keeps only the four requested KPI cards and uses them to navigate", async () => {
+  it("keeps five KPI cards and uses them to navigate", async () => {
     await start();
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
-    expect(cards).toHaveLength(4);
+    expect(cards).toHaveLength(5);
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
-      "Eligible listings", "Picked", "Blacklist", "Keyword nodes",
+      "Eligible listings", "Picked", "Blacklist", "Win Keyword", "Keyword nodes",
     ]);
     expect(container?.querySelector(".etsy-stat-shop")).toBeNull();
     expect(container?.querySelector(".etsy-stat-pending")).toBeNull();
@@ -494,6 +511,68 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(new URLSearchParams(window.location.search).has("panel")).toBe(false);
     expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+  });
+
+  it("saves Win Keywords as passive notes, never filters products or alters Blacklist", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const card = container?.querySelector<HTMLButtonElement>(".etsy-stat-win-keyword");
+    expect(card).toBeTruthy();
+    expect(card?.querySelector("strong")?.textContent).toBe("0");
+    await act(async () => { card?.click(); await new Promise(resolve => setTimeout(resolve, 45)); });
+    expect(card?.getAttribute("aria-pressed")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("panel")).toBe("win-keywords");
+    expect(container?.querySelector(".etsy-win-keyword-panel")).toBeTruthy();
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
+    expect(container?.querySelector<HTMLInputElement>('input[aria-label="Add blacklist phrases"]')).toBeNull();
+
+    const input = container?.querySelector<HTMLInputElement>('input[aria-label="Add Win Keyword"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    const listingsBefore = observed.filter(url => url.includes("/listings?")).length;
+    await act(async () => {
+      setter.call(input, "  Popular Now! , Santa Claus / Rudolph ");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLFormElement>(".etsy-win-keyword-form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    expect(savedWinKeywords).toEqual(["Popular Now!", "Santa Claus / Rudolph"]);
+    expect(card?.querySelector("strong")?.textContent).toBe("2");
+    expect(container?.querySelectorAll(".etsy-win-keyword-panel .etsy-blacklist-chip")).toHaveLength(2);
+    expect(blockedTerms).toEqual([]);
+    expect(observed.filter(url => url.includes("/listings?")).length).toBe(listingsBefore);
+    expect(observed.some(url => url.includes("/win-keywords"))).toBe(true);
+
+    // Keyword notes survive navigation and never change the Eligible/Picked lists.
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
+    });
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    await act(async () => {
+      card?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
+    });
+    expect(container?.querySelectorAll(".etsy-win-keyword-panel .etsy-blacklist-chip")).toHaveLength(2);
+    const search = container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]');
+    await act(async () => {
+      setter.call(search, "Rudolph");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 400));
+    });
+    expect(container?.querySelectorAll(".etsy-win-keyword-panel .etsy-blacklist-chip")).toHaveLength(1);
+    expect(observed.filter(url => url.includes("/listings?")).length).toBe(listingsBefore + 1);
+
+    const remove = container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove Win Keyword Santa Claus / Rudolph"]');
+    await act(async () => { remove?.click(); await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(savedWinKeywords).toEqual(["Popular Now!"]);
+    expect(card?.querySelector("strong")?.textContent).toBe("1");
+    expect(blockedTerms).toEqual([]);
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {

@@ -486,6 +486,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-stat-total{--etsy-stat-color:#3d5e90;background:#f7f9fc}
 .etsy-stat-picked{--etsy-stat-color:#227654;background:#f0faf4}
 .etsy-stat-blacklist{--etsy-stat-color:#98566c;background:#fcf6f8}
+.etsy-stat-win-keyword{--etsy-stat-color:#537e52;background:#f4faf4}
 .etsy-stat-keywords{--etsy-stat-color:#3f65bc;background:#f3f6ff}
 .etsy-stat-search{--etsy-stat-color:#3a73c6;background:#f3f7ff}
 .etsy-stat-shop{--etsy-stat-color:#378568;background:#f1faf6}
@@ -632,7 +633,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-agent-rows{align-items:flex-start}
 .etsy-agent-rows>div{background:#fff}
 @media(max-width:1500px){
-  .etsy-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .etsy-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
   .etsy-stat{min-height:70px}
 }
 @media(max-width:1050px){
@@ -1044,7 +1045,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-lookup,.etsy-agents{min-width:0}
 }
 /* Compact 06:00–06:00 Vietnam observation buckets, directly below the four KPIs. */
-.etsy-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.etsy-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
 .etsy-observed-days{margin:0 0 13px}
 .etsy-observed-day-grid{
   display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;
@@ -1071,4 +1072,22 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 }
 @media(prefers-reduced-motion:reduce){
   .etsy-observed-day{transition:none}
+}
+/* Passive Win Keyword notes share Blacklist's compact panel, not its filters. */
+.etsy-win-keyword-form input{border-color:#d5e3d5}
+.etsy-win-keyword-form input:focus{border-color:#76a475;outline:2px solid #e6f4e5}
+.etsy-win-keyword-form input::placeholder{color:#788b78}
+.etsy-win-keyword-form .etsy-blacklist-icon{color:#608f60}
+.etsy-win-keyword-panel{border-color:#dae8d9}
+.etsy-win-keyword-panel h2 span{color:#537e52}
+.etsy-win-keyword-panel .etsy-blacklist-panel-counter{
+  border-color:#daead8;background:#f3faf2;color:#477548;
+}
+.etsy-win-keyword-panel .etsy-blacklist-chip{
+  border-color:#dbead9;background:#f3faf2;color:#3c6a40;
+}
+.etsy-win-keyword-panel .etsy-blacklist-chip button{color:#527e52}
+.etsy-win-keyword-panel .etsy-blacklist-chip button:hover{color:#2d7135}
+@media(min-width:601px) and (max-width:1050px){
+  .etsy-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
