@@ -67,6 +67,136 @@ SEARCH_QUERIES = (
 )
 PUBLIC_ITEM_RE = re.compile(r"https://(?:www\.)?(?:etsy|amazon|pinterest)\.com/[^\s<>\]\[\"']+", re.I)
 CAP_RE = re.compile(r"\b(hats?|caps?|trucker|embroider(?:ed|y|ing)|baseball|snapback)\b", re.I)
+SHOP_LIBRARY_ENDPOINT = "https://creative-assets.ddns.net/api/v1/branding-dna/scout-agents"
+SHOP_AGENT_RE = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", re.I)
+SHOP_SEGMENT_RE = re.compile(r"[a-zA-Z0-9._-]{2,120}")
+SHOP_FETCH_MAX_BYTES = 160_000
+
+
+def shop_target(record: object) -> dict | None:
+    """Allow only public CAM shop names for search *queries*, never browser URLs.
+
+    A shop registry entry does not assert a legal right to scrape, reuse assets,
+    or attribute a discovered listing to the seller. US search only for now.
+    """
+    if not isinstance(record, dict) or not SHOP_AGENT_RE.fullmatch(str(record.get("id", ""))):
+        return None
+    if record.get("status") not in ("active", "draft") or record.get("platform") not in ("amazon", "etsy"):
+        return None
+    url = record.get("storefront_url")
+    if not isinstance(url, str) or not 20 <= len(url) <= 500:
+        return None
+    try:
+        parts = urlsplit(url)
+        if parts.scheme != "https" or parts.username or parts.password or parts.port not in (None, 443):
+            return None
+        if parts.query or parts.fragment or parts.hostname not in ("www.etsy.com", "etsy.com", "www.amazon.com", "amazon.com"):
+            return None
+        segments = parts.path.strip("/").split("/")
+    except ValueError:
+        return None
+    platform = record["platform"]
+    if platform == "etsy":
+        if parts.hostname not in ("www.etsy.com", "etsy.com") or len(segments) != 2 or segments[0].lower() != "shop":
+            return None
+    elif parts.hostname not in ("www.amazon.com", "amazon.com") or len(segments) < 2 or segments[0].lower() != "stores":
+        return None
+    if (not SHOP_SEGMENT_RE.fullmatch(segments[1])
+        or any(not SHOP_SEGMENT_RE.fullmatch(segment) for segment in segments[2:])
+        or any(".." in segment or "%" in segment or "\\" in segment for segment in segments)):
+        return None
+    # No arbitrary 'site:' operators, quotes, URL fragments or control chars
+    # from an untrusted registry display name can reach a search API.
+    label = record.get("display_name")
+    label = label if isinstance(label, str) and len(label) <= 90 else segments[1]
+    words = re.findall(r"[A-Za-z0-9]+", label)
+    name = " ".join(words)[:58].strip()
+    if len(name) < 2:
+        name = " ".join(re.findall(r"[A-Za-z0-9]+", segments[1]))[:58].strip()
+    if len(name) < 2:
+        return None
+    source = platform
+    return {"id": record["id"].lower(), "source": source,
+            "query": f'site:{source}.com/{"listing" if source == "etsy" else "dp"} "{name}" embroidered cap'}
+
+
+def fetch_cam_shop_targets() -> list[dict]:
+    """One tenant-scoped, read-only CAM request using the existing research token.
+
+    Reuses the current dedicated Scout pairing; never accesses site HTML,
+    cookies, marketplace APIs, shared user sessions or a second credential.
+    Fail closed to *generic* search queries when unavailable.
+    """
+    agent = os.environ.get("CAM_RESEARCH_SCOUT_AGENT_ID", "")
+    token = os.environ.get("CAM_RESEARCH_SCOUT_TOKEN", "")
+    if not SHOP_AGENT_RE.fullmatch(agent) or not 20 <= len(token) <= 512 or "\r" in token or "\n" in token:
+        raise RuntimeError("cam_shop_catalog_unavailable")
+    session = requests.Session()
+    session.trust_env = False
+    try:
+        response = session.get(
+            SHOP_LIBRARY_ENDPOINT + "/" + agent + "/shops",
+            headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+            timeout=(5, 12), allow_redirects=False,
+        )
+        if response.status_code != 200 or len(response.content) > SHOP_FETCH_MAX_BYTES or (
+            "application/json" not in response.headers.get("content-type", "").lower()
+        ):
+            raise RuntimeError("cam_shop_catalog_unavailable")
+        try:
+            data = response.json()
+        except ValueError:
+            raise RuntimeError("cam_shop_catalog_unavailable") from None
+    except requests.RequestException:
+        raise RuntimeError("cam_shop_catalog_unavailable") from None
+    finally:
+        session.close()
+    if not isinstance(data, dict) or data.get("scan_enabled") is not False or (
+        not isinstance(data.get("dispatch"), dict)
+    ) or data["dispatch"].get("state") != "disabled" or data["dispatch"].get("active_scan_jobs") != 0:
+        raise RuntimeError("cam_shop_catalog_unavailable")
+    rows = data.get("items")
+    if not isinstance(rows, list) or len(rows) > 200 or data.get("count") != len(rows):
+        raise RuntimeError("cam_shop_catalog_unavailable")
+    targets = [shop_target(row) for row in rows]
+    targets = [row for row in targets if row is not None]
+    if len({row["id"] for row in targets}) != len(targets):
+        raise RuntimeError("cam_shop_catalog_unavailable")
+    return targets
+
+
+def select_shop_target(db: sqlite3.Connection, targets: list[dict]) -> dict | None:
+    """Round-robin by oldest attempt across days, including new CAM shops."""
+    attempted = {row[0]: row[1] for row in db.execute(
+        "SELECT shop_id,last_attempt_at FROM discovery_shop_history"
+    )}
+    used_today = {row[0] for row in db.execute(
+        "SELECT shop_id FROM discovery_shop_attempt WHERE day=?", (today(),)
+    )}
+    eligible = [row for row in targets if row["id"] not in used_today]
+    if not eligible:
+        return None
+    # Cover both platforms early (one Amazon versus many Etsy shops) and then
+    # rotate least-recently queried shops. Never allocate half the budget to
+    # one Amazon shop after its platform has already been covered.
+    totals = {source: sum(x["source"] == source for x in targets)
+              for source in ("amazon", "etsy")}
+    seen = {source: sum(x["source"] == source and x["id"] in attempted
+                        for x in targets) for source in totals}
+    return min(eligible, key=lambda row: (
+        seen[row["source"]] / max(1, totals[row["source"]]),
+        attempted.get(row["id"], ""),
+        0 if row["source"] == "amazon" else 1, row["id"]))
+
+
+def record_shop_attempt(db: sqlite3.Connection, shop_id: str) -> None:
+    stamp = now_iso()
+    db.execute("INSERT INTO discovery_shop_attempt(day,shop_id,run_at) VALUES(?,?,?)",
+               (today(), shop_id, stamp))
+    db.execute("""INSERT INTO discovery_shop_history(shop_id,last_attempt_at,runs)
+      VALUES(?,?,1) ON CONFLICT(shop_id) DO UPDATE SET
+      last_attempt_at=excluded.last_attempt_at,runs=runs+1""", (shop_id, stamp))
+    db.commit()
 
 
 def today() -> str:
@@ -81,6 +211,15 @@ def prepare_state(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS discovery_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS discovery_attempt (day TEXT NOT NULL, query_index INTEGER NOT NULL, "
                "run_at TEXT NOT NULL, PRIMARY KEY (day,query_index))")
+    # Local additive metadata only; never writes CAM/PostgreSQL.
+    db.execute("""CREATE TABLE IF NOT EXISTS discovery_shop_attempt (
+      day TEXT NOT NULL, shop_id TEXT NOT NULL, run_at TEXT NOT NULL,
+      PRIMARY KEY(day,shop_id)
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS discovery_shop_history (
+      shop_id TEXT PRIMARY KEY, last_attempt_at TEXT NOT NULL,
+      runs INTEGER NOT NULL DEFAULT 0
+    )""")
     # Constant size (one row per immutable query), safe with existing SQLite outboxes.
     db.execute("""CREATE TABLE IF NOT EXISTS discovery_query_metrics (
       query_index INTEGER PRIMARY KEY, runs INTEGER NOT NULL DEFAULT 0,
@@ -548,7 +687,9 @@ def verify_selected_titles(db: sqlite3.Connection, items: list[dict], *,
 def status_dict(db: sqlite3.Connection) -> dict:
     prepare_state(db)
     day = today()
-    attempts = db.execute("SELECT COUNT(*) FROM discovery_attempt WHERE day=?", (day,)).fetchone()[0]
+    fixed_attempts = db.execute("SELECT COUNT(*) FROM discovery_attempt WHERE day=?", (day,)).fetchone()[0]
+    shop_attempts = db.execute("SELECT COUNT(*) FROM discovery_shop_attempt WHERE day=?", (day,)).fetchone()[0]
+    attempts = fixed_attempts + shop_attempts
     pending = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='pending'").fetchone()[0]
     paired = bool(os.getenv("CAM_RESEARCH_SCOUT_AGENT_ID") and os.getenv("CAM_RESEARCH_SCOUT_TOKEN"))
     synced = db.execute("SELECT COUNT(*) FROM research_signal WHERE status='synced'").fetchone()[0]
@@ -571,7 +712,10 @@ def status_dict(db: sqlite3.Connection) -> dict:
             "synced_total": int(synced), "last_run_at": meta(db, "last_run_at") or None,
             "last_success_at": meta(db, "last_success_at") or None,
             "last_error": meta(db, "last_error") or None,
-            "queries_today": attempts, "pending_outbox": pending,
+            "queries_today": attempts, "shop_queries_today": shop_attempts,
+            "shop_query_mode": "enabled" if os.environ.get("CAM_RESEARCH_SHOP_QUERIES_ENABLED", "0") == "1" else "disabled",
+            "shop_catalog_status": meta(db, "shop_catalog_status", "not_checked"),
+            "pending_outbox": pending,
             "added_last_run": int(meta(db, "added_last_run", "0")),
             "duplicates_last_run": int(meta(db, "duplicates_last_run", "0"))}
 
@@ -652,25 +796,49 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
         return {"status": "error" if sync_error else "provider_cooldown", **status_dict(db)}
     attempts = db.execute("SELECT query_index FROM discovery_attempt WHERE day=?", (today(),)).fetchall()
     attempted = {int(row[0]) for row in attempts}
-    used = len(attempted)
+    shop_used = db.execute("SELECT COUNT(*) FROM discovery_shop_attempt WHERE day=?",
+                           (today(),)).fetchone()[0]
+    used = len(attempted) + shop_used
     max_queries = max(0, min(3, max_queries, max(0, daily_limit - used)))
     if max_queries == 0:
         sync_error = flush_outbox(db)
         heartbeat("error" if sync_error else "ready", sync_error)
         return {"status": "error" if sync_error else "rate_budget_exhausted", **status_dict(db)}
+    shop = None
+    if (os.getenv("CAM_RESEARCH_SHOP_QUERIES_ENABLED", "0") == "1"
+            and provider == TAVILY_PROVIDER):
+        try:
+            # An authenticated CAM *read* is not a marketplace scan or extra
+            # provider search. A failure leaves old generic discovery intact.
+            shop = select_shop_target(db, fetch_cam_shop_targets())
+            save_meta(db, shop_catalog_status="ready")
+        except RuntimeError:
+            save_meta(db, shop_catalog_status="unavailable")
+    elif os.getenv("CAM_RESEARCH_SHOP_QUERIES_ENABLED", "0") == "1":
+        save_meta(db, shop_catalog_status="free_provider_only")
     start = int(meta(db, "query_cursor", "0")) % len(SEARCH_QUERIES)
-    candidates = [(start + i) % len(SEARCH_QUERIES) for i in range(len(SEARCH_QUERIES))]
-    planned = select_queries(db, attempted, max_queries, start)
+    shop_turn = int(meta(db, "shop_turn", "0")) % 2
+    use_shop = bool(shop and (max_queries >= 2 or shop_turn == 0))
+    planned = select_queries(db, attempted, max_queries - int(use_shop), start)
+    jobs = [("fixed", index, *SEARCH_QUERIES[index]) for index in planned]
+    if use_shop:
+        jobs.insert(0, ("shop", shop["id"], shop["source"], shop["query"]))
+        if max_queries == 1:
+            save_meta(db, shop_turn=1)
+    elif shop and max_queries == 1:
+        save_meta(db, shop_turn=0)
     added = duplicates = 0
     error = ""
     heartbeat("busy")
-    for index in planned:
-        source, query = SEARCH_QUERIES[index]
-        # Journal the search *before* the provider call. No hidden unlimited
-        # retry loops after a crash/429.
-        db.execute("INSERT OR IGNORE INTO discovery_attempt (day,query_index,run_at) VALUES(?,?,?)",
-                   (today(), index, now_iso()))
-        db.commit()
+    for kind, key, source, query in jobs:
+        # Journal the *shared-budget* search before contacting the provider.
+        # Crash/429 cannot trigger an invisible repeat or a second billable call.
+        if kind == "shop":
+            record_shop_attempt(db, key)
+        else:
+            db.execute("INSERT OR IGNORE INTO discovery_attempt (day,query_index,run_at) VALUES(?,?,?)",
+                       (today(), key, now_iso()))
+            db.commit()
         try:
             items = parse_marketplace_results(source, search.search(query), query, provider)
             # Skip expensive browser checks for URLs already stored in the outbox.
@@ -684,10 +852,12 @@ def run_once(db: sqlite3.Connection, *, max_queries: int = 2, daily_limit: int =
                 query_duplicates += repeated
             added += query_added
             duplicates += query_duplicates
-            update_query_metrics(db, index, query_added, query_duplicates)
+            if kind == "fixed":
+                update_query_metrics(db, key, query_added, query_duplicates)
+                save_meta(db, query_cursor=(key + 1) % len(SEARCH_QUERIES))
+            # Search snippets never independently prove shop membership.
             verify_selected_titles(db, fresh)
-            save_meta(db, query_cursor=(index + 1) % len(SEARCH_QUERIES),
-                      last_success_at=now_iso(), last_error="", **{cooldown_key: ""})
+            save_meta(db, last_success_at=now_iso(), last_error="", **{cooldown_key: ""})
         except (RuntimeError, requests.RequestException, ValueError) as exc:
             error = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
             # Never include search-provider result contents or secrets in error.

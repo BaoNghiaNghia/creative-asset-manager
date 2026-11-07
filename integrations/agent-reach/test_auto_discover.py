@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 
 HERE = Path(__file__).resolve().parent
@@ -468,6 +468,261 @@ class AutoDiscoverTests(unittest.TestCase):
                     "https://www.etsy.com/search?q=cap"):
             with self.assertRaises(ValueError):
                 auto.canonical_marketplace_url("etsy", url)
+
+
+class ShopAwareDiscoverTests(unittest.TestCase):
+    agent = "12345678-1234-1234-1234-123456789abc"
+    token = "fixture-only-research-token-long-enough"
+
+    @staticmethod
+    def shop(identifier, platform="etsy", status="active"):
+        url = ("https://www.etsy.com/shop/CapSayingStudio" if platform == "etsy"
+               else "https://www.amazon.com/stores/HatQuoteCo/page/US01")
+        return {"id": identifier, "platform": platform, "status": status,
+                "storefront_url": url, "display_name": "Cap Saying Studio" if platform == "etsy" else "Hat Quote Co"}
+
+    def test_shop_query_uses_only_bounded_canonical_public_us_identity(self):
+        etsy = self.shop(self.agent)
+        amazon = self.shop("12345678-1234-1234-1234-123456789abd", "amazon", "draft")
+        self.assertEqual(auto.shop_target(etsy)["query"],
+                         'site:etsy.com/listing "Cap Saying Studio" embroidered cap')
+        self.assertEqual(auto.shop_target(amazon)["query"],
+                         'site:amazon.com/dp "Hat Quote Co" embroidered cap')
+        self.assertIsNone(auto.shop_target({**etsy, "status": "paused"}))
+        self.assertIsNone(auto.shop_target({**etsy, "status": "archived"}))
+        self.assertIsNone(auto.shop_target({**etsy, "platform": "shopify"}))
+        self.assertIsNone(auto.shop_target({**etsy, "storefront_url": "https://www.etsy.com.evil.test/shop/CapSayingStudio"}))
+        self.assertIsNone(auto.shop_target({**etsy, "storefront_url": "http://www.etsy.com/shop/CapSayingStudio"}))
+        self.assertIsNone(auto.shop_target({**etsy, "storefront_url": "https://www.etsy.com/shop/CapSayingStudio?token=123"}))
+        self.assertIsNone(auto.shop_target({**etsy, "storefront_url": "https://www.etsy.com/shop/CapSayingStudio/x"}))
+        self.assertIsNone(auto.shop_target({**amazon, "storefront_url": "https://www.amazon.co.uk/stores/HatQuoteCo"}))
+        self.assertIsNone(auto.shop_target({**amazon, "storefront_url": "https://www.amazon.com/stores/HatQuoteCo/../redirect"}))
+        self.assertIsNone(auto.shop_target({**etsy, "id": "arbitrary-id"}))
+        hostile = self.shop(self.agent)
+        hostile["display_name"] = 'A" site:evil.example 123\nOR sensitive:site'
+        query = auto.shop_target(hostile)["query"]
+        self.assertNotIn("site:evil.example", query)
+        self.assertNotIn("\n", query)
+        self.assertTrue(query.startswith("site:etsy.com/listing "))
+        self.assertLess(len(query), 120)
+
+    def test_authenticated_catalog_has_fixed_origin_no_marketplace_requests(self):
+        data = {"scan_enabled": False, "dispatch": {"state": "disabled", "active_scan_jobs": 0},
+                "count": 2,
+                "items": [self.shop(self.agent),
+                          self.shop("12345678-1234-1234-1234-123456789abd", "amazon")]}
+        response = Mock(status_code=200, content=b'{"items":[]}',
+                        headers={"content-type": "application/json"}, json=lambda: data)
+        with patch.dict(os.environ, {"CAM_RESEARCH_SCOUT_AGENT_ID": self.agent,
+                                     "CAM_RESEARCH_SCOUT_TOKEN": self.token}), patch.object(
+                                         auto.requests, "Session") as sessions:
+            sessions.return_value.get.return_value = response
+            targets = auto.fetch_cam_shop_targets()
+        self.assertEqual([x["source"] for x in targets], ["etsy", "amazon"])
+        self.assertFalse(sessions.return_value.trust_env)
+        sessions.return_value.get.assert_called_once()
+        args, kwargs = sessions.return_value.get.call_args
+        self.assertEqual(args[0], auto.SHOP_LIBRARY_ENDPOINT + "/" + self.agent + "/shops")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer " + self.token)
+        self.assertFalse(kwargs["allow_redirects"])
+        self.assertEqual(kwargs["timeout"], (5, 12))
+        sessions.return_value.close.assert_called_once()
+
+    def test_catalog_contract_token_and_failure_modes_are_fail_closed(self):
+        rows = [self.shop(self.agent)]
+        base = {"scan_enabled": False, "dispatch": {"state": "disabled", "active_scan_jobs": 0},
+                "count": 1, "items": rows}
+        with patch.dict(os.environ, {"CAM_RESEARCH_SCOUT_AGENT_ID": self.agent,
+                                     "CAM_RESEARCH_SCOUT_TOKEN": self.token}), patch.object(
+                                         auto.requests, "Session") as sessions:
+            response = Mock(status_code=200, content=b'{}',
+                            headers={"content-type": "application/json"})
+            sessions.return_value.get.return_value = response
+            for value in (
+                {**base, "scan_enabled": True},
+                {**base, "dispatch": {"state": "enabled", "active_scan_jobs": 0}},
+                {**base, "dispatch": {"state": "disabled", "active_scan_jobs": 1}},
+                {**base, "count": 3},
+                {**base, "items": [rows[0], rows[0]], "count": 2},
+            ):
+                response.json.return_value = value
+                with self.assertRaisesRegex(RuntimeError, "^cam_shop_catalog_unavailable$"):
+                    auto.fetch_cam_shop_targets()
+            response.content = b'x' * (auto.SHOP_FETCH_MAX_BYTES + 1)
+            with self.assertRaisesRegex(RuntimeError, "^cam_shop_catalog_unavailable$"):
+                auto.fetch_cam_shop_targets()
+            response.content = b'{}'
+            response.status_code = 403
+            with self.assertRaisesRegex(RuntimeError, "^cam_shop_catalog_unavailable$"):
+                auto.fetch_cam_shop_targets()
+        with patch.dict(os.environ, {"CAM_RESEARCH_SCOUT_AGENT_ID": self.agent,
+                                     "CAM_RESEARCH_SCOUT_TOKEN": ""}), patch.object(
+                                         auto.requests, "Session") as sessions:
+            with self.assertRaisesRegex(RuntimeError, "^cam_shop_catalog_unavailable$"):
+                auto.fetch_cam_shop_targets()
+            sessions.assert_not_called()
+
+    def test_durable_oldest_shop_first_and_never_twice_per_day(self):
+        a, b, c = [auto.shop_target(self.shop("12345678-1234-1234-1234-123456789ab" + letter))
+                   for letter in "cde"]
+        with tempfile.TemporaryDirectory() as folder, auto.init_db(
+                Path(folder) / "discover.sqlite3") as db:
+            auto.prepare_state(db)
+            with patch.object(auto, "today", return_value="2026-10-22"):
+                order = []
+                for _ in range(3):
+                    selected = auto.select_shop_target(db, [c, a, b])
+                    order.append(selected["id"])
+                    auto.record_shop_attempt(db, selected["id"])
+                self.assertEqual(order, sorted([a["id"], b["id"], c["id"]]))
+                self.assertIsNone(auto.select_shop_target(db, [a, b, c]))
+            with patch.object(auto, "today", return_value="2026-10-23"):
+                self.assertEqual(auto.select_shop_target(db, [a, b, c])["id"], a["id"])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_shop_history").fetchone()[0], 3)
+
+    def test_platform_balance_covers_the_one_amazon_shop_early_without_starvation(self):
+        targets = [auto.shop_target(self.shop("12345678-1234-1234-1234-" + f"{i:012d}"))
+                   for i in range(32)]
+        amazon = auto.shop_target(self.shop("12345678-1234-1234-1234-999999999999", "amazon"))
+        targets.append(amazon)
+        with tempfile.TemporaryDirectory() as folder, auto.init_db(
+                Path(folder) / "discover.sqlite3") as db:
+            auto.prepare_state(db)
+            with patch.object(auto, "today", return_value="2026-10-22"):
+                first = auto.select_shop_target(db, targets)
+                self.assertEqual(first["source"], "amazon")
+                auto.record_shop_attempt(db, first["id"])
+                second = auto.select_shop_target(db, targets)
+                self.assertEqual(second["source"], "etsy")
+                auto.record_shop_attempt(db, second["id"])
+                rest = []
+                for _ in range(31):
+                    nxt = auto.select_shop_target(db, targets)
+                    rest.append(nxt)
+                    auto.record_shop_attempt(db, nxt["id"])
+                self.assertTrue(all(s["source"] == "etsy" for s in rest))
+                self.assertEqual(len({s["id"] for s in [first, second, *rest]}), 33)
+                self.assertIsNone(auto.select_shop_target(db, targets))
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_shop_and_generic_share_one_free_provider_budget(self, heartbeat, gate):
+        target = auto.shop_target(self.shop(self.agent))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", return_value=[target]) as catalog:
+            with auto.init_db(Path(folder) / "discover.sqlite3") as db:
+                source = FakeSearch()
+                source.provider = auto.TAVILY_PROVIDER
+                result = auto.run_once(db, max_queries=2, daily_limit=2, search_provider=source)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["queries_today"], 2)
+                self.assertEqual(result["shop_queries_today"], 1)
+                self.assertEqual(result["shop_catalog_status"], "ready")
+                self.assertEqual(source.calls[0], target["query"])
+                self.assertEqual(len(source.calls), 2)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_attempt").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_shop_attempt").fetchone()[0], 1)
+                self.assertEqual(auto.run_once(db, max_queries=2, daily_limit=2, search_provider=source)["status"],
+                                 "rate_budget_exhausted")
+                self.assertEqual(len(source.calls), 2)
+        catalog.assert_called_once()
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_single_slot_alternates_and_shop_catalog_failure_uses_fixed_queries(self, heartbeat, gate):
+        targets = [auto.shop_target(self.shop("12345678-1234-1234-1234-123456789ab" + ch))
+                   for ch in "cde"]
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", return_value=targets):
+            with auto.init_db(Path(folder) / "discover.sqlite3") as db:
+                source = FakeSearch()
+                source.provider = auto.TAVILY_PROVIDER
+                for _ in range(3):
+                    self.assertEqual(auto.run_once(
+                        db, max_queries=1, daily_limit=3, search_provider=source)["status"], "ok")
+                self.assertEqual(sum("Cap Saying Studio" in q for q in source.calls), 2)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_shop_attempt").fetchone()[0], 2)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM discovery_attempt").fetchone()[0], 1)
+                self.assertEqual(auto.status_dict(db)["queries_today"], 3)
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", side_effect=RuntimeError("secret-in-error")):
+            with auto.init_db(Path(folder) / "discover.sqlite3") as db:
+                source = FakeSearch()
+                source.provider = auto.TAVILY_PROVIDER
+                result = auto.run_once(db, max_queries=1, daily_limit=1, search_provider=source)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["shop_catalog_status"], "unavailable")
+                self.assertNotIn("secret", str(result))
+                self.assertEqual(result["shop_queries_today"], 0)
+                self.assertEqual(len(source.calls), 1)
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_shop_queries_never_use_keyed_or_unknown_search_provider(self, heartbeat, gate):
+        targets = [auto.shop_target(self.shop(self.agent))]
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", return_value=targets) as catalog:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                search = FakeSearch()  # no trustworthy free-provider assertion
+                result = auto.run_once(db, max_queries=2, daily_limit=2, search_provider=search)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["shop_queries_today"], 0)
+                self.assertEqual(result["shop_catalog_status"], "free_provider_only")
+                self.assertEqual(len(search.calls), 2)
+            catalog.assert_not_called()
+
+    @patch.object(auto, "service_gate", return_value=True)
+    @patch.object(auto, "heartbeat")
+    def test_shop_query_rate_limit_stops_shared_budget_and_cools_down(self, heartbeat, gate):
+        class Limited:
+            provider = auto.TAVILY_PROVIDER
+            def __init__(self):
+                self.calls = 0
+            def search(self, query):
+                self.calls += 1
+                raise RuntimeError("tavily_rate_limited")
+        target = auto.shop_target(self.shop(self.agent))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", return_value=[target]) as catalog:
+            with auto.init_db(Path(folder) / "state.sqlite") as db:
+                provider = Limited()
+                initial = auto.run_once(db, max_queries=2, daily_limit=2, search_provider=provider)
+                self.assertEqual(initial["status"], "error")
+                self.assertEqual(initial["last_error"], "tavily_rate_limited")
+                self.assertEqual(initial["queries_today"], 1)
+                self.assertEqual(initial["shop_queries_today"], 1)
+                next_run = auto.run_once(db, max_queries=2, daily_limit=2, search_provider=provider)
+                self.assertEqual(next_run["status"], "provider_cooldown")
+                self.assertEqual(provider.calls, 1)
+                catalog.assert_called_once()
+
+    @patch.object(auto, "heartbeat")
+    def test_paused_cooldown_or_disabled_never_queries_shop_catalog(self, heartbeat):
+        target = auto.shop_target(self.shop(self.agent))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "1"}
+        ), patch.object(auto, "fetch_cam_shop_targets", return_value=[target]) as catalog:
+            with auto.init_db(Path(folder) / "discover.sqlite3") as db:
+                with patch.object(auto, "service_gate", return_value=False):
+                    self.assertEqual(auto.run_once(db, search_provider=FakeSearch())["status"], "paused")
+                auto.prepare_state(db)
+                auto.save_meta(db, cooldown_until=(datetime.now(timezone.utc) +
+                               timedelta(hours=2)).isoformat())
+                with patch.object(auto, "service_gate", return_value=True):
+                    self.assertEqual(auto.run_once(db, search_provider=FakeSearch())["status"], "provider_cooldown")
+            catalog.assert_not_called()
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+            os.environ, {"CAM_RESEARCH_SHOP_QUERIES_ENABLED": "0"}
+        ), patch.object(auto, "fetch_cam_shop_targets") as catalog:
+            with auto.init_db(Path(folder) / "discover.sqlite3") as db, patch.object(
+                    auto, "service_gate", return_value=True):
+                auto.run_once(db, search_provider=FakeSearch(), daily_limit=1)
+            catalog.assert_not_called()
 
 
 if __name__ == "__main__":
