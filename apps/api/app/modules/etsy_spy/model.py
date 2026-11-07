@@ -75,6 +75,35 @@ class EtsySpyPicked(Base):
     )
 
 
+class EtsySpyLaterSeed(Base):
+    """Manual Later examples: one topic seed per tenant and Etsy Listing ID."""
+    __tablename__ = "etsy_spy_later_seeds"
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    title: Mapped[str] = mapped_column(String(700), nullable=False)
+    analysis_json: Mapped[object | None] = mapped_column(JSON())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False,
+    )
+
+
+class EtsySpyLaterMatch(Base):
+    """Materialized, reversible Later queue; dismissed suggestions remain suppressed."""
+    __tablename__ = "etsy_spy_later_matches"
+    __table_args__ = (
+        Index("ix_etsy_spy_later_tenant_state", "tenant_id", "state"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    seed_listing_key: Mapped[str | None] = mapped_column(String(150))
+    score: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    reason: Mapped[str | None] = mapped_column(String(180))
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="matched")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False,
+    )
+
+
 class EtsySpyBatch(Base):
     __tablename__ = "etsy_spy_sync_batches"
     __table_args__ = (UniqueConstraint("tenant_id", "agent_id", "batch_id", name="uq_etsy_spy_batch"),)

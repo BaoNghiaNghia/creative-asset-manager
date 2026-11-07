@@ -21,6 +21,7 @@ let savedWinKeywords: string[] = [];
 let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number;
   source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
+let laterSeedKeys = new Set<string>();
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -76,7 +77,8 @@ function json(value: unknown) {
     headers: {"content-type": "application/json"}});
 }
 function installFetch() {
-  observed.length = 0; blockedTerms = []; savedWinKeywords = []; pickedKeys = new Set<string>();
+  observed.length = 0; blockedTerms = []; savedWinKeywords = [];
+  pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -124,6 +126,12 @@ function installFetch() {
       return json({phrases: blockedTerms});
     }
     if (url.endsWith("/blacklist")) return json({phrases: blockedTerms});
+    if (url.includes("/listings/") && url.endsWith("/later") && init?.method === "PUT") {
+      const id = url.split("/listings/")[1]?.split("/")[0] || "";
+      const body = JSON.parse(String(init.body)) as { later: boolean };
+      if (body.later) laterSeedKeys.add(id); else laterSeedKeys.delete(id);
+      return json({listingKey: id, later: body.later});
+    }
     if (url.includes("/listings/") && url.endsWith("/pick") && init?.method === "PUT") {
       const id = url.split("/listings/")[1]?.split("/")[0] || "";
       const body = JSON.parse(String(init.body)) as { picked: boolean };
@@ -140,7 +148,8 @@ function installFetch() {
       });
     }
     if (url.includes("/summary")) return json({
-      ...summary, picked: pickedKeys.size, listings: summary.listings - pickedKeys.size,
+      ...summary, picked: pickedKeys.size, later: [...laterSeedKeys].filter(id => !pickedKeys.has(id)).length,
+      listings: summary.listings - pickedKeys.size - [...laterSeedKeys].filter(id => !pickedKeys.has(id)).length,
     });
     if (url.includes("/sessions")) return json({ items: [
       { id: "one", keyword: "Rudolph", status: "completed" },
@@ -176,10 +185,14 @@ function installFetch() {
       });
     }
     if (url.includes("/listings?")) {
-      const pickedView = new URL(url, "http://localhost").searchParams.get("pick_state") === "picked";
+      const pickState = new URL(url, "http://localhost").searchParams.get("pick_state") || "eligible";
       const visible = [listing, popularNoMatch, deadListing].filter(x =>
-        pickedKeys.has(x.listingKey) === pickedView).map(x =>
-          ({ ...x, picked: pickedKeys.has(x.listingKey) }));
+        pickState === "picked" ? pickedKeys.has(x.listingKey)
+        : pickState === "later" ? laterSeedKeys.has(x.listingKey) && !pickedKeys.has(x.listingKey)
+        : !pickedKeys.has(x.listingKey) && !laterSeedKeys.has(x.listingKey)).map(x =>
+          ({ ...x, picked: pickedKeys.has(x.listingKey),
+             later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
+             laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
       return json({items: visible, page: 1, page_size: 50,
         total: visible.length, pages: 1, last_synced_at: summary.last_synced_at,
         source_status: "offline"});
@@ -296,10 +309,11 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(5);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(6);
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards[1].classList.contains("etsy-stat-picked")).toBe(true);
-    expect(cards[2].classList.contains("etsy-stat-blacklist")).toBe(true);
+    expect(cards[2].classList.contains("etsy-stat-later")).toBe(true);
+    expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
@@ -401,12 +415,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     ]);
   });
 
-  it("keeps five KPI cards and uses them to navigate", async () => {
+  it("keeps six compact KPI cards, including Later after Picked", async () => {
     await start();
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
-    expect(cards).toHaveLength(5);
+    expect(cards).toHaveLength(6);
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
-      "Eligible listings", "Picked", "Blacklist", "Win Keyword", "Keyword nodes",
+      "Eligible listings", "Picked", "Later", "Blacklist", "Win Keyword", "Keyword nodes",
     ]);
     expect(container?.querySelector(".etsy-stat-shop")).toBeNull();
     expect(container?.querySelector(".etsy-stat-pending")).toBeNull();
@@ -700,6 +714,54 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(savedWinKeywords).toEqual(["Popular Now!"]);
     expect(card?.querySelector("strong")?.textContent).toBe("1");
     expect(blockedTerms).toEqual([]);
+  });
+
+  it("places Later after the Etsy link and moves a saved topic into the Later card", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const row = Array.from(container?.querySelectorAll(".etsy-product-row") || [])
+      .find(item => item.textContent?.includes("Rudolph Shirt")) as HTMLTableRowElement;
+    const actions = row?.querySelector(".etsy-row-actions") as HTMLElement;
+    const openLink = actions?.querySelector<HTMLAnchorElement>('a[title="Open on Etsy"]');
+    const laterBtn = actions?.querySelector<HTMLButtonElement>(".etsy-later-button");
+    expect(openLink).toBeTruthy();
+    expect(laterBtn?.textContent).toBe("Later");
+    expect(laterBtn?.querySelector("svg")).toBeTruthy();
+    expect(Array.from(actions.children).indexOf(laterBtn!) >
+      Array.from(actions.children).indexOf(openLink!)).toBe(true);
+    expect(container?.querySelector(".etsy-stat-later")).toBeTruthy();
+    const statCards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
+    expect(statCards.indexOf(container!.querySelector(".etsy-stat-later")!) -
+      statCards.indexOf(container!.querySelector(".etsy-stat-picked")!)).toBe(1);
+
+    await act(async () => { laterBtn?.click(); await new Promise(resolve => setTimeout(resolve, 75)); });
+    expect(laterSeedKeys.has(listing.listingKey)).toBe(true);
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(2);
+    expect(container?.querySelector(".etsy-stat-later strong")?.textContent).toBe("1");
+    expect(observed.some(url => url.includes("/listings/123456789/later"))).toBe(true);
+
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-later")?.click();
+      await new Promise(resolve => setTimeout(resolve, 70));
+    });
+    expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("later");
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
+    expect(container?.querySelector(".etsy-later-match-reason")?.textContent).toContain("Later mẫu");
+    expect(container?.querySelector(".etsy-later-button.is-later")).toBeTruthy();
+
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>('button[aria-label="Remove Later seed Rudolph Shirt"]')?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(laterSeedKeys.size).toBe(0);
+    expect(container?.querySelector(".etsy-stat-later strong")?.textContent).toBe("0");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {

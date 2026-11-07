@@ -1374,3 +1374,44 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-parent-title{flex-basis:100%}
   .etsy-parent-row label{flex:1}
 }
+
+/* Etsy Spy Later V1: compact actions and a separate explainable review queue. */
+.etsy-stats{
+  display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:flex-start;gap:7px;
+}
+.etsy-stats>.etsy-stat{
+  flex:0 0 auto;width:max-content;min-width:116px;max-width:154px;
+}
+.etsy-stat-later{--etsy-stat-color:#966929;background:#fff9ee}
+.etsy-action-cell .etsy-later-button{
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  width:max-content;min-height:26px;flex:0 0 auto;
+  border:1px solid #e7d5b2;border-radius:7px;padding:4px 8px;
+  background:#fffaf1;color:#946b32;font-size:10px;font-weight:750;white-space:nowrap;
+  transition:background .14s ease,border-color .14s ease;
+}
+.etsy-action-cell .etsy-later-button svg{
+  width:14px;height:14px;flex:0 0 14px;
+}
+.etsy-action-cell .etsy-later-button:hover:not(:disabled){
+  background:#fff1d9;border-color:#c99a4e;color:#77501d;
+}
+.etsy-action-cell .etsy-later-button.is-later{
+  color:#79501d;background:#ffedc7;border-color:#c59a4e;
+}
+.etsy-action-cell .etsy-later-button:disabled{opacity:.45;cursor:default}
+.etsy-table-wrap .etsy-data-table.is-products th:last-child,
+.etsy-table-wrap .etsy-data-table.is-products td:last-child{min-width:246px}
+.etsy-later-match-reason{
+  display:block;max-width:100%;margin-top:3px;color:#936b32;
+  font-size:9px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.etsy-later-help{
+  margin:0 0 8px;padding:8px 11px;background:#fffaf1;
+  border:1px solid #f0e5d2;border-radius:7px;
+  color:#816a46;font-size:10px;line-height:1.5;
+}
+@media(max-width:680px){
+  .etsy-stats>.etsy-stat{min-width:112px;max-width:150px}
+  .etsy-action-cell .etsy-later-button{min-height:33px;padding:6px 10px}
+}

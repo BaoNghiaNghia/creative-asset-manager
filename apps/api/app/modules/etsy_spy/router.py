@@ -16,12 +16,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, asc, desc, func, or_, select, not_, literal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
+    EtsySpyLaterSeed as LaterSeed, EtsySpyLaterMatch as LaterMatch,
     EtsySpyWinKeyword as WinKeyword,
     EtsySpyParentKeyword as ParentKeyword,
     EtsySpySession as SessionRow,
@@ -29,6 +30,7 @@ from .model import (
     EtsySpyTrademark as Trademark, EtsySpyLog as Log,
     utcnow,
 )
+from .later_queue import refresh_later_matches, seed_analysis
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -149,6 +151,15 @@ def _picked_condition(tenant: str):
     return (select(literal(1)).select_from(Picked)
             .where(Picked.tenant_id == tenant,
                    Picked.listing_key == Listing.listing_key)
+            .exists())
+
+
+def _later_condition(tenant: str):
+    # Matching is materialized once per Etsy Listing ID. Dismissals persist.
+    return (select(literal(1)).select_from(LaterMatch)
+            .where(LaterMatch.tenant_id == tenant,
+                   LaterMatch.listing_key == Listing.listing_key,
+                   LaterMatch.state == "matched")
             .exists())
 
 
@@ -380,8 +391,8 @@ def _listings_query(
     sort: str = "observedAt", direction: str = "desc",
     pick_state: str = "eligible", observed_day: date | None = None,
 ) -> tuple[Any, Any]:
-    if pick_state not in {"eligible", "picked"}:
-        raise HTTPException(422, "Invalid Picked view")
+    if pick_state not in {"eligible", "picked", "later"}:
+        raise HTTPException(422, "Invalid product view")
     condition = [
         Listing.tenant_id == tenant,
         Listing.is_current.is_(True),
@@ -389,8 +400,10 @@ def _listings_query(
         ~Listing.title.ilike("%custom%"),
         _blacklist_condition(tenant),
         _qualified_listing_condition(),
-        _picked_condition(tenant) if pick_state == "picked"
-        else not_(_picked_condition(tenant)),
+        (_picked_condition(tenant) if pick_state == "picked"
+         else and_(not_(_picked_condition(tenant)), _later_condition(tenant))
+         if pick_state == "later"
+         else and_(not_(_picked_condition(tenant)), not_(_later_condition(tenant)))),
     ]
     if observed_day is not None:
         since, before = _observed_day_bounds(observed_day)
@@ -416,23 +429,55 @@ def _listings_query(
                   Trademark.check_id == Listing.tm_key,
                   Trademark.kind == "product")
     status = _tm_expression()
-    if tm in {"LIVE", "DEAD", "no_match", "pending", "unverified"}:
-        condition.append(status == tm)
+    tm_condition = status == tm if tm in {
+        "LIVE", "DEAD", "no_match", "pending", "unverified"} else None
+    if tm_condition is not None and pick_state != "later":
+        condition.append(tm_condition)
+
+    # Only the Later queue is deduplicated at query level: each Etsy Listing
+    # ID appears once, even if discovered by several keywords/Search+Shop.
+    root = Listing
+    rank_filter = None
+    if pick_state == "later":
+        ranked = select(
+            Listing,
+            func.row_number().over(
+                partition_by=(Listing.tenant_id, Listing.listing_key),
+                order_by=(Listing.observed_at.desc().nulls_last(),
+                          Listing.updated_at.desc().nulls_last(),
+                          Listing.agent_id, Listing.source_session_id,
+                          Listing.keyword, Listing.source_kind),
+            ).label("later_rank"),
+        ).where(*condition).subquery("etsy_later_ranked")
+        root = aliased(Listing, ranked)
+        rank_filter = ranked.c.later_rank == 1
+        joined = and_(
+            Trademark.tenant_id == root.tenant_id,
+            Trademark.agent_id == root.agent_id,
+            Trademark.check_id == root.tm_key,
+            Trademark.kind == "product",
+        )
     cols = {
-        "observedAt": Listing.observed_at, "keyword": Listing.keyword,
-        "sourceKind": Listing.source_kind, "badge": Listing.badge,
-        "bought24h": Listing.bought24h, "views24h": Listing.views24h,
-        "inCarts": Listing.in_carts, "demandScore": Listing.demand_score,
-        "pageTitle": Listing.title, "tm": status,
+        "observedAt": root.observed_at, "keyword": root.keyword,
+        "sourceKind": root.source_kind, "badge": root.badge,
+        "bought24h": root.bought24h, "views24h": root.views24h,
+        "inCarts": root.in_carts, "demandScore": root.demand_score,
+        "pageTitle": root.title, "tm": status,
     }
-    column = cols.get(sort, Listing.observed_at)
-    query = (select(Listing, Trademark)
-             .outerjoin(Trademark, joined)
-             .where(*condition)
-             .order_by(_direction(direction)(column), Listing.source_session_id,
-                       Listing.keyword, Listing.listing_key))
-    total = (select(func.count()).select_from(Listing)
-             .outerjoin(Trademark, joined).where(*condition))
+    column = cols.get(sort, root.observed_at)
+    query = select(root, Trademark).outerjoin(Trademark, joined)
+    total = select(func.count()).select_from(root).outerjoin(Trademark, joined)
+    if pick_state == "later":
+        query = query.where(rank_filter)
+        total = total.where(rank_filter)
+        if tm_condition is not None:
+            query = query.where(tm_condition)
+            total = total.where(tm_condition)
+    else:
+        query = query.where(*condition)
+        total = total.where(*condition)
+    query = query.order_by(_direction(direction)(column),
+                           root.source_session_id, root.keyword, root.listing_key)
     return query, total
 
 
@@ -448,7 +493,10 @@ def _tm_expression():
     )
 
 
-def _listing_item(row: Listing, check: Trademark | None, *, picked: bool = False) -> dict:
+def _listing_item(
+    row: Listing, check: Trademark | None, *, picked: bool = False,
+    later_match: LaterMatch | None = None, later_manual: bool = False,
+) -> dict:
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
     return {
         "sessionId": row.source_session_id, "keyword": row.keyword,
@@ -456,6 +504,11 @@ def _listing_item(row: Listing, check: Trademark | None, *, picked: bool = False
         "sourceKinds": [kind for kind, present in (
             ("search", row.has_search), ("shop", row.has_shop)) if present],
         "listingKey": row.listing_key, "picked": picked,
+        "later": later_match is not None and not picked,
+        "laterManual": later_manual,
+        "laterReason": later_match.reason if later_match else None,
+        "laterScore": later_match.score if later_match else None,
+        "laterSeedKey": later_match.seed_listing_key if later_match else None,
         "pageTitle": row.title, "url": row.url, "badge": row.badge,
         "thumbnailUrl": verified_image_url(metadata.get("thumbnailUrl")),
         "fullImageUrl": verified_image_url(metadata.get("fullImageUrl")),
@@ -490,9 +543,12 @@ def summary(
     # A listing may be discovered in *both* Search and Shop.
     unique = func.count(func.distinct(Listing.listing_key))
     picked_filter = _picked_condition(tenant)
-    eligible = [*active, not_(picked_filter)]
+    later_filter = _later_condition(tenant)
+    eligible = [*active, not_(picked_filter), not_(later_filter)]
+    later = [*active, not_(picked_filter), later_filter]
     listings_count = int(db.scalar(select(unique).where(*eligible)) or 0)
     picked_count = int(db.scalar(select(unique).where(*active, picked_filter)) or 0)
+    later_count = int(db.scalar(select(unique).where(*later)) or 0)
     search_count = int(db.scalar(select(unique).where(
         *eligible, _valid_source_badge("search"))) or 0)
     shop_count = int(db.scalar(select(unique).where(
@@ -522,6 +578,7 @@ def summary(
         **fresh, "sessions": count(db, SessionRow, tenant),
         "keywords": count(db, Keyword, tenant),
         "listings": listings_count, "picked": picked_count,
+        "later": later_count, "later_seeds": count(db, LaterSeed, tenant),
         "search": search_count, "shop": shop_count,
         "trademarks": count(db, Trademark, tenant),
         "tm_pending": pending, "tm_checked": checked,
@@ -606,9 +663,22 @@ def listings(
         observed_day=observed_day,
     )
     rows, total = _paged(db, query, total_q, page, page_size)
-    return _response([_listing_item(listing, tmcheck, picked=pick_state == "picked")
-                      for listing, tmcheck in rows],
-                     total, page, page_size, freshness(db, tenant))
+    later_by_key: dict[str, LaterMatch] = {}
+    seed_ids: set[str] = set()
+    if pick_state == "later" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        later_by_key = {entry.listing_key: entry for entry in db.scalars(
+            select(LaterMatch).where(LaterMatch.tenant_id == tenant,
+                                    LaterMatch.listing_key.in_(ids),
+                                    LaterMatch.state == "matched")).all()}
+        seed_ids = set(db.scalars(select(LaterSeed.listing_key).where(
+            LaterSeed.tenant_id == tenant, LaterSeed.listing_key.in_(ids))).all())
+    return _response([
+        _listing_item(listing, tmcheck, picked=pick_state == "picked",
+                      later_match=later_by_key.get(listing.listing_key),
+                      later_manual=listing.listing_key in seed_ids)
+        for listing, tmcheck in rows
+    ], total, page, page_size, freshness(db, tenant))
 
 
 @router.put("/listings/{listing_key}/pick")
@@ -646,6 +716,68 @@ async def set_listing_pick(
         db.delete(target)
     db.commit()
     return {"listingKey": listing_key, "picked": payload["picked"]}
+
+
+@router.put("/listings/{listing_key}/later")
+async def set_listing_later(
+    listing_key: str, request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE), db: Session = Depends(get_db),
+):
+    """Use one listing as a Later topic seed; related current/future IDs follow.
+
+    Later is an internal review classification, not a blacklist or Scout command.
+    Removing a manual seed recomputes its related group; dismissing an automatic
+    match suppresses only that listing, even after future Windows syncs.
+    """
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("later"), bool):
+        raise HTTPException(422, "later must be true or false")
+    tenant = principal.active_tenant_id
+    identity = (tenant, listing_key)
+    seed = db.get(LaterSeed, identity)
+    match = db.get(LaterMatch, identity)
+    if payload["later"]:
+        if db.get(Picked, identity) is not None:
+            raise HTTPException(409, "Unpick this product before using Later")
+        # Keep the same qualification, tenant and blacklist gates as Pick.
+        source = db.scalar(select(Listing).where(
+            Listing.tenant_id == tenant,
+            Listing.listing_key == listing_key,
+            Listing.is_current.is_(True),
+            ~Listing.title.ilike("%custom%"),
+            _blacklist_condition(tenant),
+            _qualified_listing_condition(),
+        ).order_by(desc(Listing.observed_at)).limit(1))
+        if source is None:
+            raise HTTPException(404, "Eligible listing not found")
+        if seed is None:
+            if count(db, LaterSeed, tenant) >= 500:
+                raise HTTPException(422, "Later has reached the 500 seed limit")
+            db.add(LaterSeed(
+                tenant_id=tenant, listing_key=listing_key,
+                title=source.title, analysis_json=seed_analysis(source.title),
+                created_at=utcnow(),
+            ))
+        elif seed.title != source.title:
+            seed.title = source.title
+            seed.analysis_json = seed_analysis(source.title)
+        db.flush()
+        refresh_later_matches(db, tenant)
+    elif seed is not None:
+        db.delete(seed)
+        db.flush()
+        refresh_later_matches(db, tenant)
+    elif match is not None and match.state != "dismissed":
+        match.state = "dismissed"
+        match.reason = "Đã ẩn khỏi Later"
+        match.updated_at = utcnow()
+    db.commit()
+    return {"listingKey": listing_key, "later": payload["later"]}
 
 
 @router.get("/keywords")

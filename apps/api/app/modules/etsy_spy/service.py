@@ -19,6 +19,7 @@ from .model import (
     EtsySpyAgent, EtsySpyBatch, EtsySpySession, EtsySpyKeyword,
     EtsySpyListing, EtsySpyTrademark, EtsySpyLog, utcnow,
 )
+from .later_queue import refresh_later_matches
 
 MAX_BATCH_BYTES = 2 * 1024 * 1024
 MAX_BATCH_ROWS = 200
@@ -407,6 +408,15 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
                             incoming_meta[image_key] = verified_image_url(previous_meta[image_key])
             for key, value in values.items():
                 setattr(row, key, value)
+    # Future listings are classified inside the same transaction that saves
+    # their Scout observations. This never changes Windows source records.
+    touched_listing_ids = {
+        identity["listing_key"] for section, _model, identity, _values in validated
+        if section == "listings"
+    }
+    if touched_listing_ids:
+        db.flush()
+        refresh_later_matches(db, agent.tenant_id, touched_listing_ids)
     db.add(EtsySpyBatch(
         id=str(uuid4()), tenant_id=agent.tenant_id, agent_id=agent.id,
         batch_id=batch_id, payload_sha256=payload_sha,

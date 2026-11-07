@@ -21,6 +21,7 @@ from app.modules.authorization.navigation_scope import (
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
+    EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword,
 )
 from app.modules.etsy_spy.router import router
@@ -30,6 +31,7 @@ from app.modules.etsy_spy.service import create_agent
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
+    EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword,
 )
 
@@ -407,6 +409,121 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     assert client.get(base + "/observed-days").json()["items"][0]["count"] == 1
     assert client.put(base + "/1234567891/pick", json={"picked": False}).status_code == 200
     assert client.get(base + "/observed-days").json()["items"][0]["pickedCount"] == 0
+
+
+def test_later_is_topic_seed_with_related_current_and_future_listing_ids(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    initial = batch("later-existing")
+    initial["records"]["listings"] = [
+        {**product(keyword="houseplant collection",
+                   title="Oops I Got Another Plant Shirt Gardening Sweatshirt"),
+         "listingKey": "1234500001"},
+        {**product(keyword="potted plant shirts",
+                   title="Botanical Succulent Lover Apparel Cute Tee"),
+         "listingKey": "1234500002"},
+        {**product(keyword="books gifts",
+                   title="Cozy Book Lover Shirt Fall Teacher Gift"),
+         "listingKey": "1234500003"},
+        {**product(keyword="shirt template",
+                   title="Comfort Colors Gildan Funny Graphic Tee Gift"),
+         "listingKey": "1234500004"},
+    ]
+    for item in initial["records"]["listings"]:
+        item["url"] = "https://www.etsy.com/listing/" + item["listingKey"]
+    assert sync(client, agent, headers, initial).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings"
+    assert client.get(endpoint).json()["total"] == 4
+    created = client.put(endpoint + "/1234500001/later", json={"later": True})
+    assert created.status_code == 200, created.text
+
+    summary = client.get("/api/v1/etsy-spy/summary").json()
+    assert summary["later"] == 2 and summary["later_seeds"] == 1
+    assert summary["listings"] == 2 and summary["picked"] == 0
+    result = client.get(endpoint, params={"pick_state": "later"}).json()
+    assert result["total"] == 2
+    items = {item["listingKey"]: item for item in result["items"]}
+    assert set(items) == {"1234500001", "1234500002"}
+    assert items["1234500001"]["laterManual"] is True
+    assert items["1234500002"]["laterManual"] is False
+    assert "chủ đề" in items["1234500002"]["laterReason"]
+    assert client.get(endpoint, params={"pick_state": "eligible"}).json()["total"] == 2
+
+    # One future listing comes back via two different keywords and source
+    # observations, but has exactly one Later table row.
+    fresh = batch("later-future")
+    fresh["records"]["listings"] = [
+        {**product(keyword="plant obsession",
+                   title="Gardener Houseplant Obsession Sweatshirt"),
+         "listingKey": "1234500005"},
+        {**product(keyword="botanical gift",
+                   title="Gardener Houseplant Obsession Sweatshirt"),
+         "listingKey": "1234500005", "sourceKind": "shop"},
+        {**product(keyword="general gift",
+                   title="Christmas Family Matching Gift Funny Shirt"),
+         "listingKey": "1234500006"},
+    ]
+    for item in fresh["records"]["listings"]:
+        item["url"] = "https://www.etsy.com/listing/" + item["listingKey"]
+    assert sync(client, agent, headers, fresh).status_code == 200
+    future = client.get(endpoint, params={"pick_state": "later"}).json()
+    assert future["total"] == 3
+    assert len({row["listingKey"] for row in future["items"]}) == 3
+    assert "1234500006" not in {row["listingKey"] for row in future["items"]}
+    # Picking is a higher-priority decision than Later.
+    assert client.put(endpoint + "/1234500005/pick", json={"picked": True}).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 2
+    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 2  # two source rows, one Etsy ID
+    # Future syncing does not erase matching metadata or user Pick decisions.
+    assert sync(client, agent, headers, batch("later-other")).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 2
+    # Automatically added result may be dismissed permanently.
+    assert client.put(endpoint + "/1234500002/later", json={"later": False}).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 1
+    assert sync(client, agent, headers, batch("later-different")).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 1
+    # Removing a manual seed dissolves its derived group.
+    assert client.put(endpoint + "/1234500001/later", json={"later": False}).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 0
+    assert client.get("/api/v1/etsy-spy/summary").json()["later_seeds"] == 0
+    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 2  # two source rows, one Etsy ID
+    principal.active_tenant_id = "another-tenant"
+    assert client.get("/api/v1/etsy-spy/summary").json()["later"] == 0
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 0
+
+
+def test_later_rejects_invalid_scope_and_can_reseed_dismissed_product(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch("later-permissions")).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings"
+    assert client.put(endpoint + "/abc/later", json={"later": True}).status_code == 422
+    assert client.put(endpoint + "/1234567890/later", json={"later": "yes"}).status_code == 422
+    assert client.put(endpoint + "/9999999999/later", json={"later": True}).status_code == 404
+    principal.active_tenant_id = "another-tenant"
+    assert client.put(endpoint + "/1234567890/later", json={"later": True}).status_code == 404
+    principal.active_tenant_id = "boostgame"
+    assert client.put(endpoint + "/1234567890/later", json={"later": True}).status_code == 200
+    assert client.put(endpoint + "/1234567890/later", json={"later": False}).status_code == 200
+    assert client.put(endpoint + "/1234567890/later", json={"later": True}).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 1
+    assert client.put(endpoint + "/1234567890/pick", json={"picked": True}).status_code == 200
+    assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 0
+    assert client.put(endpoint + "/1234567890/later", json={"later": True}).status_code == 409
+
+
+def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
+    from app.modules.etsy_spy.later_matching import analyze_title, match_title
+    assert match_title("Oops I Got Another Plant Shirt", "Botanical Succulent Lover Tee")
+    assert match_title("Silly Goose on the Loose Shirt", "Funny Geese Sweatshirt")
+    assert match_title("I Wish I Lacked Critical Thinking Skills",
+                       "Anxious Overthinker Shirt")
+    assert match_title("Rudolph Nose Boop Sweatshirt", "Reindeer Booping Gift Tee")
+    assert match_title("Talarico Hinojosa Victory Shirt", "Talarico Hinojosa Texas Tee")
+    assert match_title("Comfort Colors Gildan Funny Shirt", "Graphic Tee Gift") is None
+    assert match_title("Christmas Family Gift Shirt", "Christmas Funny Teacher Tee") is None
+    assert match_title("Plant Shirt", "Goose Shirt") is None
+    assert not analyze_title("Comfort Colors Gildan Shirt Gift Tee").terms
 
 
 def test_bad_credentials_custom_titles_oversize_and_separate_permissions(scenario):

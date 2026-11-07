@@ -40,7 +40,7 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
 };
 type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
-  pickState: "eligible" | "picked";
+  pickState: "eligible" | "picked" | "later";
   blacklistView: boolean; winKeywordsView: boolean;
   observedDay: string;
   sessionId: string; source: string; badge: string; tm: string;
@@ -75,7 +75,8 @@ function fromLocation(): Options {
   const tab = TABS.find(t => t.id === p.get("tab"))?.id || "products";
   return {
     ...baseOptions, tab,
-    pickState: p.get("pick_state") === "picked" ? "picked" : "eligible",
+    pickState: p.get("pick_state") === "picked" ? "picked"
+      : p.get("pick_state") === "later" ? "later" : "eligible",
     blacklistView: tab === "products" && p.get("panel") === "blacklist",
     winKeywordsView: tab === "products" && p.get("panel") === "win-keywords",
     observedDay: p.get("observed_day") === "all" ? "all"
@@ -96,8 +97,8 @@ function queryFor(o: Options): URLSearchParams {
   query.set("page", String(o.page));
   query.set("page_size", String(o.pageSize));
   if (o.q.trim()) query.set("q", o.q.trim());
-  if (o.tab === "products" && o.pickState === "picked" && !o.blacklistView && !o.winKeywordsView)
-    query.set("pick_state", "picked");
+  if (o.tab === "products" && o.pickState !== "eligible" && !o.blacklistView && !o.winKeywordsView)
+    query.set("pick_state", o.pickState);
   if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView && !o.winKeywordsView)
     query.set("observed_day", o.observedDay);
   if (o.tab === "products" && o.blacklistView) query.set("panel", "blacklist");
@@ -151,6 +152,7 @@ function tmDescription(status: string, deadMatches = 0) {
 const SUMMARY_ICONS = [
   "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
   "M4 12.5 9 17l11-11",
+  "M12 7v5l3 2M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
   "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M5 5l14 14",
   "m12 2 3.2 6.5 7.2 1-5.2 5.1 1.2 7.3-6.4-3.4L5.6 21l1.2-7.3L1.6 9.6l7.2-1L12 2Z",
   "M15.5 7.5a5 5 0 1 0-1 4.2L21 18v3h-3v-3h-3v-3l-1.7-1.7",
@@ -207,8 +209,9 @@ function ProductThumbnail({ item }: { item: Listing }) {
   </a>;
 }
 
-function ProductRow({ item, canPick, busy, onPick }: {
-  item: Listing; canPick: boolean; busy: boolean; onPick: (item: Listing) => void;
+function ProductRow({ item, canPick, busy, onPick, onLater }: {
+  item: Listing; canPick: boolean; busy: boolean;
+  onPick: (item: Listing) => void; onLater: (item: Listing) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [smsExpanded, setSmsExpanded] = useState(false);
@@ -231,6 +234,10 @@ function ProductRow({ item, canPick, busy, onPick }: {
             <small>#{item.listingKey}</small>
             {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
           </div>
+          {item.later && <small className="etsy-later-match-reason"
+            title={item.laterReason || "Grouped by Later keyword theme"}>
+            {item.laterManual ? "Later mẫu" : "Tự gom"} · {item.laterReason || "Chủ đề thiết kế liên quan"}
+          </small>}
         </div>
       </div>
     </td>
@@ -282,6 +289,26 @@ function ProductRow({ item, canPick, busy, onPick }: {
         </button>
         {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer"
           aria-label={"Open Etsy listing: " + item.pageTitle} title="Open on Etsy">↗</a>}
+        <button type="button"
+          className={"etsy-later-button" + (item.later ? " is-later" : "")}
+          aria-label={(item.later
+            ? (item.laterManual ? "Remove Later seed " : "Dismiss Later suggestion ")
+            : "Later ") + item.pageTitle}
+          title={!canPick ? "Manage permission required"
+            : item.picked ? "Unpick first to move to Later"
+            : item.later ? (item.laterManual
+                ? "Remove this Later topic and recompute related products"
+                : "Hide this suggestion; future sync will not bring it back")
+              : "Later · save as design theme and group related future products"}
+          aria-pressed={Boolean(item.later)} disabled={!canPick || busy || item.picked}
+          onClick={() => onLater(item)}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 7v5l3 2"/>
+          </svg>
+          <span>Later</span>
+        </button>
       </div>
     </td>
   </tr>;
@@ -340,6 +367,8 @@ export function EtsySpyPage() {
   const [winKeywordError, setWinKeywordError] = useState("");
   const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
   const [pickError, setPickError] = useState("");
+  const [laterBusyKey, setLaterBusyKey] = useState<string | null>(null);
+  const [laterError, setLaterError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
@@ -511,6 +540,23 @@ export function EtsySpyPage() {
       setPickBusyKey(null);
     }
   };
+  const toggleLater = async (item: Listing) => {
+    if (!canManage || laterBusyKey !== null || pickBusyKey !== null || item.picked) return;
+    setLaterBusyKey(item.listingKey);
+    setLaterError("");
+    try {
+      await spyFetch<{ listingKey: string; later: boolean }>(
+        "/listings/" + encodeURIComponent(item.listingKey) + "/later", {
+          method: "PUT", body: JSON.stringify({ later: !item.later }),
+        });
+      update({ page: 1 });
+      setRefresh(n => n + 1);
+    } catch (e) {
+      setLaterError(e instanceof Error ? e.message : "Cannot update Later");
+    } finally {
+      setLaterBusyKey(null);
+    }
+  };
   const columns = useMemo(() => {
     if (options.tab === "products") return SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
@@ -562,6 +608,10 @@ export function EtsySpyPage() {
       tone: "picked", tab: "products", filters: { pickState: "picked" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
+    { title: "Later", value: summary?.later ?? 0, hint: "Auto-grouped design themes",
+      tone: "later", tab: "products", filters: { pickState: "later", observedDay: "all" },
+      selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
+        options.pickState === "later" },
     { title: "Blacklist", value: blacklist.length, hint: "Blocked keyword phrases",
       tone: "blacklist", tab: "products", filters: { blacklistView: true },
       selected: isBlacklistView },
@@ -760,6 +810,11 @@ export function EtsySpyPage() {
         target="_blank" rel="noopener noreferrer" href="https://tsdr.uspto.gov/">USPTO TSDR</a>.</small>
     </section>}
     {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
+    {laterError && <div role="alert" className="etsy-error">Cannot update Later: {laterError}</div>}
+    {activeTab === "products" && options.pickState === "later" && !isBlacklistView && !isWinKeywordsView &&
+      <p className="etsy-later-help">Later groups similar design themes from your saved examples.
+        Automatically matched products include a reason. Remove a seed to update its group,
+        or dismiss one suggestion without affecting Scout.</p>}
     {error && <div role="alert" className="etsy-error">Cannot load Etsy Spy data: {error}
       <button onClick={() => setRefresh(n => n + 1)}>Retry</button></div>}
     {activeTab !== "products" && <div className="etsy-table-section-header">
@@ -776,8 +831,12 @@ export function EtsySpyPage() {
         canManage={canManage} onSort={sortColumn} />
       : <div className="etsy-table-card">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
-        : !rows?.items.length ? <div className="etsy-empty">No matching records. {summary?.source_status === "never_synced"
-          ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</div>
+        : !rows?.items.length ? <div className="etsy-empty">
+          {activeTab === "products" && options.pickState === "later"
+            ? "No Later products yet. Use the Later button beside Open on Etsy to group related design themes."
+            : <>No matching records. {summary?.source_status === "never_synced"
+                ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</>}
+        </div>
         : <div className="etsy-table-wrap">
           <table className={"etsy-data-table is-" + activeTab}><thead><tr>
             {columns.map(col => <th key={col.id}
@@ -794,8 +853,9 @@ export function EtsySpyPage() {
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
-                item={item} canPick={canManage} busy={pickBusyKey !== null}
-                onPick={togglePicked} />)
+                item={item} canPick={canManage}
+                busy={pickBusyKey !== null || laterBusyKey !== null}
+                onPick={togglePicked} onLater={toggleLater} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
