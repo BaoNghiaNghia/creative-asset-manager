@@ -9,6 +9,13 @@ export type AgentStatus = {
   last_synced_at: string | null; extension_version: string | null;
   local_api_version: string | null;
 };
+export type ExtractionOverview = {
+  enabled: boolean; daily_cap: number; claimed_today: number;
+  remaining_today: number; queued: number; processing: number;
+  completed_today: number; needs_review_today: number;
+  needs_ai_today: number; failed_today: number;
+  timezone: "Asia/Ho_Chi_Minh";
+};
 export type Summary = {
   keywords: number; listings: number; picked: number; later?: number; later_seeds?: number; sessions: number;
   search: number; shop: number; trademarks: number; tm_pending: number; tm_checked?: number;

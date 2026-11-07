@@ -898,9 +898,13 @@ def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario,
     assert job.cancellation_requested is True
     assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
     repick = client.put(endpoint + "/pick", json={"picked": True})
-    assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
+    assert repick.status_code == 200
+    fresh = client.get(endpoint + "/extraction").json()["job_id"]
+    assert fresh != job.id
     db.refresh(job)
-    assert job.cancellation_requested is False
+    assert job.cancellation_requested is True
+    assert db.get(ProcessingJobModel, fresh).cancellation_requested is False
+    assert db.query(ProcessingJobModel).count() == 2
     principal.active_tenant_id = "other-tenant"
     assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
 
@@ -1057,3 +1061,137 @@ def test_extraction_feature_off_never_creates_backlog(scenario, monkeypatch):
                       json={"picked": True}).status_code == 200
     assert db.query(ProcessingJobModel).count() == 0
     assert client.get("/api/v1/etsy-spy/listings/1234567890/extraction").json()["status"] == "disabled"
+
+
+def test_unpick_repick_gets_fresh_generation_and_rejects_old_lease(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _ = scenario
+    scout, scout_auth = pair(client, db)
+    sample = batch("repick-new-generation")
+    sample["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, scout, scout_auth, sample).status_code == 200
+    listing = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    original = client.get(listing + "/extraction").json()["job_id"]
+    assert original
+    # Repeated Pick *without* Unpick is idempotent, including SQLite naive date.
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    assert client.get(listing + "/extraction").json()["job_id"] == original
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Replay Isolation"}).json()
+    device_url = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+    claim = client.post(device_url + "/claim", headers=auth).json()
+    assert claim["task"]["id"] == original
+    lease = claim["lease_token"]
+    assert client.put(listing + "/pick", json={"picked": False}).status_code == 200
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    fresh = client.get(listing + "/extraction").json()
+    assert fresh["job_id"] != original
+    old = db.get(ProcessingJobModel, original)
+    db.refresh(old)
+    assert old.cancellation_requested is True
+    check = client.post(device_url + "/check-job", headers=auth,
+                        json={"job_id": original, "lease_token": lease})
+    assert check.status_code == 200
+    assert check.json()["status"] == "cancelled"
+    assert client.post(device_url + "/result", headers=auth, json={
+        "job_id": original, "lease_token": lease,
+        "status": "needs_ai", "engine": "ai_review",
+    }).status_code == 409
+    next_claim = client.post(device_url + "/claim", headers=auth)
+    assert next_claim.status_code == 200
+    assert next_claim.json()["task"]["id"] == fresh["job_id"]
+
+
+def test_expired_image_lease_reclaimed_only_with_new_token(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _ = scenario
+    scout, scout_auth = pair(client, db)
+    sample = batch("expired-image-claim")
+    sample["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, scout, scout_auth, sample).status_code == 200
+    listing = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    one = client.post("/api/v1/etsy-spy/image-agents",
+                      json={"name": "First Device"}).json()
+    two = client.post("/api/v1/etsy-spy/image-agents",
+                      json={"name": "Recovery Device"}).json()
+    endpoint1 = "/api/v1/etsy-spy/image-agents/" + one["agent_id"]
+    endpoint2 = "/api/v1/etsy-spy/image-agents/" + two["agent_id"]
+    auth1 = {"Authorization": "Bearer " + one["token"]}
+    auth2 = {"Authorization": "Bearer " + two["token"]}
+    initial = client.post(endpoint1 + "/claim", headers=auth1).json()
+    assert initial["task"]
+    job = db.get(ProcessingJobModel, initial["task"]["id"])
+    assert job.attempt_count == 1
+    # Never steal a still-valid lease.
+    assert client.post(endpoint2 + "/claim", headers=auth2).json()["task"] is None
+    job.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.commit()
+    recovered = client.post(endpoint2 + "/claim", headers=auth2)
+    assert recovered.status_code == 200, recovered.text
+    payload = recovered.json()
+    assert payload["task"]["id"] == job.id
+    assert payload["lease_token"] != initial["lease_token"]
+    db.refresh(job)
+    assert job.attempt_count == 2
+    assert job.claimed_by == "etsy-image:" + two["agent_id"]
+    assert client.post(endpoint1 + "/check-job", headers=auth1, json={
+        "job_id": job.id, "lease_token": initial["lease_token"],
+    }).status_code == 409
+    assert client.post(endpoint1 + "/result", headers=auth1, json={
+        "job_id": job.id, "lease_token": initial["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+    }).status_code == 403
+    assert client.post(endpoint2 + "/check-job", headers=auth2, json={
+        "job_id": job.id, "lease_token": payload["lease_token"],
+    }).json()["status"] == "processing"
+
+
+def test_image_agent_daily_cap_and_tenant_overview(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    client, db, principal = scenario
+    scout, scout_auth = pair(client, db)
+    data = batch("cap-200-day")
+    data["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, scout, scout_auth, data).status_code == 200
+    listing = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Daily Cap Device"}).json()
+    endpoint = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+    first = client.post(endpoint + "/claim", headers=auth).json()
+    assert first["task"]
+    result = client.post(endpoint + "/result", headers=auth, json={
+        "job_id": first["task"]["id"], "lease_token": first["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+    })
+    assert result.status_code == 200
+    assert client.put(listing + "/pick", json={"picked": False}).status_code == 200
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    limited = client.post(endpoint + "/claim", headers=auth)
+    assert limited.status_code == 200
+    assert limited.json()["task"] is None
+    assert limited.json()["pause_reason"] == "daily_cap_reached"
+    overview = client.get("/api/v1/etsy-spy/image-agents/overview")
+    assert overview.status_code == 200
+    info = overview.json()
+    assert info["daily_cap"] == 1
+    assert info["claimed_today"] == 1
+    assert info["remaining_today"] == 0
+    assert info["queued"] == 1
+    assert info["needs_ai_today"] == 1
+    principal.active_tenant_id = "other-tenant"
+    assert client.get("/api/v1/etsy-spy/image-agents/overview").json()["claimed_today"] == 0

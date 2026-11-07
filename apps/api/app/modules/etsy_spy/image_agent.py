@@ -13,13 +13,13 @@ import hmac
 import json
 import os
 import re
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -36,6 +36,67 @@ READ = require_permission("etsy_spy.read")
 MANAGE = require_permission("etsy_spy.manage")
 MAX_RECEIPT_BYTES = 31_000_000
 MAX_PNG_BYTES = 22_000_000
+VN_TIMEZONE = timezone(timedelta(hours=7))
+
+
+def daily_cap() -> int:
+    """Bound daily outbound claims to the intended 200/day pilot capacity."""
+    raw = os.getenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "200")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 200
+    return max(1, min(1000, value))
+
+
+def daily_start_utc() -> datetime:
+    local = datetime.now(VN_TIMEZONE)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+def claimed_today(db: Session, tenant: str) -> int:
+    return int(db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.claimed_at >= daily_start_utc(),
+    )) or 0)
+
+
+def extraction_overview(db: Session, tenant: str) -> dict:
+    counts = dict(db.execute(select(ProcessingJobModel.status, func.count()).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ).group_by(ProcessingJobModel.status)).all())
+    completed_today = db.scalars(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.status == "completed",
+        ProcessingJobModel.completed_at >= daily_start_utc(),
+    ).order_by(desc(ProcessingJobModel.completed_at)).limit(1000)).all()
+    result_counts = {"needs_review": 0, "needs_ai": 0, "failed": 0}
+    for job in completed_today:
+        payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        status = result.get("status")
+        if status in result_counts:
+            result_counts[status] += 1
+    today = claimed_today(db, tenant)
+    limit = daily_cap()
+    return {
+        "enabled": transport_enabled(),
+        "daily_cap": limit,
+        "claimed_today": today,
+        "remaining_today": max(0, limit - today),
+        "queued": int(counts.get("pending", 0) + counts.get("retry", 0)),
+        "processing": int(counts.get("processing", 0)),
+        "completed_today": len(completed_today),
+        "needs_review_today": result_counts["needs_review"],
+        "needs_ai_today": result_counts["needs_ai"],
+        "failed_today": result_counts["failed"],
+        "cancellation_excluded": True,
+        "timezone": "Asia/Ho_Chi_Minh",
+    }
 
 
 def transport_enabled() -> bool:
@@ -174,6 +235,13 @@ def list_image_agents(principal: CurrentPrincipal = Depends(READ),
     ]}
 
 
+@image_router.get("/overview")
+def read_image_agent_overview(principal: CurrentPrincipal = Depends(READ),
+                              db: Session = Depends(get_db)):
+    """Tenant-scoped 200/day extraction pilot metrics; safe when worker is off."""
+    return extraction_overview(db, principal.active_tenant_id)
+
+
 @image_router.post("/{agent_id}/claim")
 def claim_image_job(
     agent_id: str, authorization: str | None = Header(None),
@@ -182,6 +250,7 @@ def claim_image_job(
     agent = _authenticate(db, agent_id, authorization)
     _enabled()
     worker = "etsy-image:" + agent.id
+    now = utcnow()
     # If HTTP response was lost, return the same task + lease. Never create a
     # second attempt or claim a new task while the original remains unresolved.
     active = db.scalar(select(ProcessingJobModel).where(
@@ -189,15 +258,31 @@ def claim_image_job(
         ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
         ProcessingJobModel.claimed_by == worker,
         ProcessingJobModel.status == "processing",
+        ProcessingJobModel.lease_expires_at > now,
         ProcessingJobModel.cancellation_requested.is_(False),
     ).order_by(ProcessingJobModel.claimed_at.desc()).limit(1))
     if active is not None:
         return _task(active, agent)
+    # Conservative per-tenant cap for the requested ~200/day workload.
+    # Existing leased work can still renew through /check-job.
+    if claimed_today(db, agent.tenant_id) >= daily_cap():
+        agent.last_seen_at = now
+        db.commit()
+        return {"task": None, "pause_reason": "daily_cap_reached"}
     job = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == agent.tenant_id,
         ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
         ProcessingJobModel.provider_key == EXTRACTION_ENGINE,
-        ProcessingJobModel.status.in_(("pending", "retry")),
+        or_(
+            and_(
+                ProcessingJobModel.status.in_(("pending", "retry")),
+                ProcessingJobModel.next_attempt_at <= now,
+            ),
+            and_(
+                ProcessingJobModel.status == "processing",
+                ProcessingJobModel.lease_expires_at <= now,
+            ),
+        ),
         ProcessingJobModel.cancellation_requested.is_(False),
         ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
         select(EtsySpyPicked.listing_key).where(
@@ -212,8 +297,8 @@ def claim_image_job(
         return {"task": None}
     job.status = "processing"
     job.claimed_by = worker
-    job.claimed_at = utcnow()
-    job.lease_expires_at = job.claimed_at + timedelta(minutes=30)
+    job.claimed_at = now
+    job.lease_expires_at = now + timedelta(minutes=30)
     job.attempt_count += 1
     agent.last_seen_at = job.claimed_at
     db.commit()

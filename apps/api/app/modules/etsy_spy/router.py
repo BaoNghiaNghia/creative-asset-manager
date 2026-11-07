@@ -741,9 +741,10 @@ async def set_listing_pick(
         if eligible is None:
             raise HTTPException(404, "Eligible listing not found")
         if target is None:
-            db.add(Picked(tenant_id=tenant, listing_key=listing_key,
-                          picked_at=utcnow()))
-        extraction_job = create_extraction_on_pick(db, tenant, eligible)
+            target = Picked(tenant_id=tenant, listing_key=listing_key,
+                            picked_at=utcnow())
+            db.add(target)
+        extraction_job = create_extraction_on_pick(db, tenant, eligible, target.picked_at)
     else:
         if target is not None:
             db.delete(target)

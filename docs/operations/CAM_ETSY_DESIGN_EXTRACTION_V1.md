@@ -13,6 +13,11 @@ Rollout: implementation staged; external production execution remains OFF by def
 - Job relay is opt-in outbound HTTPS, single lane with a local D: journal; ambiguous responses retry identical receipt bytes.
 - Review assets require persistent CAM storage and tenant authentication. Every result remains print_ready=false, rights_status=unverified.
 - Unpick cancels pending, retry and processing extraction, but never deletes historical results.
+- A new Pick after Unpick opens a fresh `pick_generation` even if source image URL is unchanged; stale old leases and receipts remain rejected.
+- Expired processing leases are claimable by another paired Image Agent with a rotated token/attempt; a still-valid lease is never stolen.
+- Windows outbound relay uses a per-device, process-exclusive lock on D: (plus stale lock recovery) to stop duplicate processing from two launches.
+- The claim API enforces `CAM_ETSY_EXTRACTION_DAILY_CAP` (default 200; supported 1..1000) per tenant and Vietnam calendar day. The Windows relay backs off for 5 minutes on `daily_cap_reached`.
+- Tenant-scoped read-only metrics: `GET /api/v1/etsy-spy/image-agents/overview` gives queued, processing, daily claim count, `needs_review`, and `needs_ai`. The Picked summary card shows a condensed snapshot.
 
 ## Before production activation
 

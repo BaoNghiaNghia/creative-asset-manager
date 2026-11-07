@@ -6,6 +6,7 @@ processing workers. No existing IMAGE_GENERATE job or provider selection changes
 from __future__ import annotations
 
 from hashlib import sha256
+from datetime import datetime, timezone
 import os
 
 from sqlalchemy import select
@@ -34,7 +35,9 @@ def extraction_enabled() -> bool:
     )
 
 
-def create_extraction_on_pick(db: Session, tenant_id: str, listing: EtsySpyListing) -> ProcessingJobModel | None:
+def create_extraction_on_pick(
+    db: Session, tenant_id: str, listing: EtsySpyListing, picked_at: datetime,
+) -> ProcessingJobModel | None:
     """Create one immutable source-version task in the caller's Pick transaction.
 
     Source URLs are metadata only; this code does not fetch Etsy or render assets.
@@ -48,14 +51,20 @@ def create_extraction_on_pick(db: Session, tenant_id: str, listing: EtsySpyListi
     if not source_url:
         return None
     source_revision = sha256(source_url.encode("utf-8")).hexdigest()
-    key = f"etsy-extract:{EXTRACTION_VERSION}:{listing.listing_key}:{source_revision}"
+    # Pick after Unpick starts a *new* generation. Reusing a cancelled
+    # processing row would otherwise make the old worker's lease valid again.
+    # Canonicalize SQLite-naive picked_at and PostgreSQL-aware picked_at to UTC.
+    pick_utc = (picked_at.replace(tzinfo=timezone.utc) if picked_at.tzinfo is None
+                else picked_at.astimezone(timezone.utc))
+    generation = sha256(pick_utc.isoformat(timespec="microseconds").encode()).hexdigest()[:24]
+    key = f"etsy-extract:{EXTRACTION_VERSION}:{listing.listing_key}:{source_revision}:{generation}"
     previous = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == tenant_id,
         ProcessingJobModel.idempotency_key == key,
     ))
     if previous is not None:
-        if previous.status in {"pending", "retry", "processing"} and previous.cancellation_requested:
-            previous.cancellation_requested = False
+        # Never revive a cancelled generation: its lease might still exist
+        # on an offline worker, and revival would accept a stale PNG.
         return previous
     payload = {
         "schema": "cam-etsy-extraction-v1",
@@ -63,6 +72,7 @@ def create_extraction_on_pick(db: Session, tenant_id: str, listing: EtsySpyListi
         "listing_title": listing.title[:500],
         "source": {"type": "etsy_cdn", "url": source_url},
         "source_url_sha256": source_revision,
+        "pick_generation": generation,
         "engine": "auto",
         "fallback": "ai_review",
         "rights_status": "unverified",

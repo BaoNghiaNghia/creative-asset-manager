@@ -4,7 +4,7 @@ import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/Worksp
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
-  type SpyTab, type Page, type Summary, type Listing,
+  type SpyTab, type Page, type Summary, type ExtractionOverview, type Listing,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
   type ObservedDaysSummary, type ObservedDayBucket,
 } from "./api";
@@ -445,6 +445,7 @@ export function EtsySpyPage() {
   const [laterBusyKey, setLaterBusyKey] = useState<string | null>(null);
   const [laterError, setLaterError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [extraction, setExtraction] = useState<ExtractionOverview | null>(null);
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
@@ -488,13 +489,14 @@ export function EtsySpyPage() {
     let alive = true;
     Promise.all([
       spyFetch<Summary>("/summary"),
+      spyFetch<ExtractionOverview>("/image-agents/overview").catch(() => null),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
       spyFetch<{ phrases: string[] }>("/blacklist"),
       spyFetch<{ keywords: string[] }>("/win-keywords"),
       fetchAccessIdentity(),
-    ]).then(([overview, currentAgents, rules, winList, identity]) => {
+    ]).then(([overview, extractionOverview, currentAgents, rules, winList, identity]) => {
       if (!alive) return;
-      setSummary(overview); setAgents(currentAgents.items);
+      setSummary(overview); setExtraction(extractionOverview); setAgents(currentAgents.items);
       setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
       setWinKeywords(Array.isArray(winList.keywords) ? winList.keywords : []);
       setCanManage(identity.permissions.includes("etsy_spy.manage"));
@@ -679,7 +681,11 @@ export function EtsySpyPage() {
       tone: "total", tab: "products", filters: { observedDay: "all" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "eligible" && !options.source && !options.tm },
-    { title: "Picked", value: summary?.picked ?? 0, hint: "Manually selected products",
+    { title: "Picked", value: summary?.picked ?? 0,
+      hint: extraction ? (extraction.enabled
+        ? `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
+        : "Selected · Image Agent off")
+        : "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
