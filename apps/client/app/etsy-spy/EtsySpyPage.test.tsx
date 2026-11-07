@@ -309,6 +309,28 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(document.body.querySelector(".etsy-product-hover-preview")).toBeNull();
   });
 
+  it("separates the two-line title clamp from the padded tooltip footer", async () => {
+    const originalTitle = listing.pageTitle;
+    const longTitle = "Tis the Season Gingham Sweatshirt, Embroidered Santa Wreath Christmas Crewneck, Cozy Vintage Holiday Pullover";
+    listing.pageTitle = longTitle;
+    try {
+      await start();
+      const first = container?.querySelector<HTMLTableRowElement>(".etsy-product-row");
+      await act(async () => {
+        first?.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+      });
+      const preview = document.body.querySelector(".etsy-product-hover-preview");
+      const paddedFooter = preview?.querySelector(".etsy-product-preview-title");
+      const twoLineText = paddedFooter?.querySelector(".etsy-product-preview-title-text");
+      expect(twoLineText?.textContent).toBe(longTitle);
+      expect(paddedFooter?.children).toHaveLength(1);
+      expect(twoLineText?.children).toHaveLength(0);
+      expect(preview?.querySelector("img")?.getAttribute("alt")).toBe(longTitle);
+    } finally {
+      listing.pageTitle = originalTitle;
+    }
+  });
+
   it("keeps the Etsy preview inside a short or narrow viewport", async () => {
     await start();
     vi.stubGlobal("innerWidth", 270);

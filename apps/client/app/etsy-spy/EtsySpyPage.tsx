@@ -364,7 +364,9 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
               setImagePreview(null);
             }
           }} />
-        <span className="etsy-product-preview-title">{item.pageTitle}</span>
+        <span className="etsy-product-preview-title">
+          <span className="etsy-product-preview-title-text">{item.pageTitle}</span>
+        </span>
       </div>, document.body,
     )}
   </>;

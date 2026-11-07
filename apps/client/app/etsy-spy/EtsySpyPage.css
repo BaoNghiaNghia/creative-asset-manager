@@ -578,9 +578,16 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   border-radius:0;
 }
 .etsy-product-preview-title{
+  /* Keep padding outside the line-clamped element: padding inside a clamped
+     box can reveal a clipped third line in Chromium. */
+  display:block;flex:0 0 auto;box-sizing:border-box;
+  padding:8px 10px 10px;overflow:hidden;
+  color:#2e465f;font-size:11px;line-height:1.4;font-weight:700;
+}
+.etsy-product-preview-title-text{
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
-  padding:8px 10px 10px;
-  overflow:hidden;color:#2e465f;font-size:11px;line-height:1.4;font-weight:700;
+  max-height:2.8em;overflow:hidden;text-overflow:ellipsis;
+  overflow-wrap:anywhere;
 }
 @media(hover:none),(pointer:coarse){
   .etsy-product-hover-preview{display:none}
