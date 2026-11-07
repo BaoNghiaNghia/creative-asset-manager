@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-08 — Agent Harness Phase 3C.2: inert study registry and keyword reservations
+
+- [x] Add additive schema 0204 for tenant-scoped immutable study registration, candidate-source digest, and unique prospective keyword arm reservations.
+- [x] Add strictly gated (default OFF) authenticated study/keyword APIs: dry-run first, immutable version, candidate-current verification, Stage1 generation not yet queued, and same-transaction operator audit.
+- [x] Keep registered/reserved distinct from active/exposed. No Stage 1/2 job routing, learner promotion, background agent, QA claim or paid model calls.
+- [x] Rollback bridge e130f82d4 was deployed BEFORE 0204 migration; prior backend validates exact additive tables/FKs/uniqueness.
+- [ ] Validate PostgreSQL 0204 migration, head, backward-compatible bridge, and test canary before allowing operator registration flags.
+- [ ] Phase 3C.3: pre-generation Stage0/1 trial admission, immutable exposure + independent QA telemetry, signed owner promotion and gated rollback.
+
+
 ## 2026-11-08 — Agent Harness Phase 3C.2 rollback bridge
 
 - [x] Predeploy database startup compatibility for exactly one future, structurally validated 0204 holdout schema without changing Alembic HEAD or any live job.

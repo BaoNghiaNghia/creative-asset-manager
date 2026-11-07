@@ -15,6 +15,16 @@ from app.core.database import (
 from app.modules.agent_harness.model import AgentDefinitionModel, AgentExperienceModel
 
 
+@pytest.fixture(autouse=True)
+def pretend_this_is_previous_0203_release(monkeypatch):
+    # The old 0203 test verifies the 0202->0203 contract; newer releases
+    # have HEAD 0204 but must retain this earlier rollback contract.
+    monkeypatch.setattr(
+        "app.core.database.expected_alembic_head",
+        lambda url: "0203_cam_agent_harness_store",
+    )
+
+
 def _revision(engine, revision: str) -> None:
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(64) PRIMARY KEY)"))

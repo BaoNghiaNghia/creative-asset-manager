@@ -73,6 +73,7 @@ FEATURE_FLAG_NAMES = (
     "RRUGC_SOURCE_AUTO_SYNC_ENABLED",
     "AGENT_HARNESS_READ_API_ENABLED",
     "AGENT_HARNESS_MANAGEMENT_API_ENABLED",
+    "AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED",
     "AGENT_HARNESS_FEEDBACK_SYNC_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED",
@@ -129,6 +130,8 @@ class Settings(BaseSettings):
     AGENT_HARNESS_READ_API_ENABLED: bool = False
     # Separate reviewed configuration-write gate; does not enable execution.
     AGENT_HARNESS_MANAGEMENT_API_ENABLED: bool = False
+    # Manual prospective study/keyword reservation ONLY. No generation or agent execution.
+    AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED: bool = False
     # Opt-in admin-only candidate evidence sync; never promotes or runs agents.
     AGENT_HARNESS_FEEDBACK_SYNC_ENABLED: bool = False
     # Independent, opt-in Stage 1 vote outbox capture (same DB transaction).

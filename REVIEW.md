@@ -1,3 +1,12 @@
+## 2026-11-08 — Agent Harness Phase 3C.2 registration ledger
+
+- Added migration `0204_cam_agent_holdout_studies`, ORM models `cam_agent_trials`/`cam_agent_trial_assignments`, source-verified registry/reservation service, strict payload validation, and read-only count summary.
+- Registered study is NOT activated; assigned keyword is `reserved` (NOT exposed). The unique tenant+keyword constraint prevents overlapping study contamination.
+- All mutations require `AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED=false` to be explicitly enabled with read/management flags, exact tenant scope, operator configure permission, plus system emergency-stop guard.
+- `dry_run=true` by default; explicit persist uses server-verified current feedback candidate and ungenerated Stage0 keyword, deterministic control/challenger mapping, same-transaction audit and idempotency.
+- The 0204 schema is additive; both tables start empty. Manual downgrade aborts if any study/assignment records exist. Existing 0203 rollback bridge is required as previous production backend.
+- No new AI calls, worker dispatch, user-facing UI, creative policy change, or automatic promotion. Runbook: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C2_STUDIES.md`.
+
 ## 2026-11-08 — Agent Harness Phase 3C.2 rollback bridge
 
 - Added a narrowly scoped Alembic 0203→0204 compatibility check, gated by full trial/assignment columns, tenant-scoped FKs and unique keyword assignment across studies. Unknown versions/missing constraints fail closed.

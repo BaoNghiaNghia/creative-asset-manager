@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,10 +26,12 @@ from .holdout import evaluation_readiness_from_audit
 from .executor_readiness import (
     ExecutorSnapshot, browser_snapshot, preview_route, probe_codex,
 )
-from .model import AgentExperienceModel
+from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .registry import AgentRegistryError
 from .repository import AgentHarnessRepository, _event_key
 from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
+from .trial_schema import HoldoutStudyRegistration, HoldoutKeywordReservation
+from .trial_registration import HoldoutStudyConflict, register_study, reserve_keywords
 from .stage1_feedback import AGENT_ID as FEEDBACK_AGENT_ID, SOURCE_VERSION, snapshots
 
 
@@ -49,6 +51,138 @@ def _require_management_flag() -> None:
     if not (settings.AGENT_HARNESS_READ_API_ENABLED
             and settings.AGENT_HARNESS_MANAGEMENT_API_ENABLED):
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _require_trial_registration_flag() -> None:
+    settings = get_settings()
+    if not (
+        settings.AGENT_HARNESS_READ_API_ENABLED
+        and settings.AGENT_HARNESS_MANAGEMENT_API_ENABLED
+        and settings.AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED
+        and not getattr(settings, "AI_EMERGENCY_STOP_ENABLED", False)
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.post("/{tenant_id}/trials/stage1", status_code=status.HTTP_201_CREATED)
+def register_stage1_holdout_study(
+    tenant_id: str,
+    body: HoldoutStudyRegistration,
+    response: Response,
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Register only an inert, immutable, evidence-linked study."""
+    _require_trial_registration_flag()
+    require_tenant_scope(principal, tenant_id)
+    try:
+        result, created = register_study(
+            db, tenant_id=tenant_id, body=body, actor_id=principal.user_id,
+        )
+        if not body.dry_run and created:
+            db.add(AuthAuditEventModel(
+                tenant_id=tenant_id, actor_id=principal.user_id,
+                action="agent_holdout_study_registered",
+                detail_json={
+                    "study_id": body.study_id, "cohort": body.cohort,
+                    "trial_version": body.trial_version, "holdout_percent": body.holdout_percent,
+                    "reason": body.reason, "trial_active": False,
+                },
+            ))
+            db.commit()
+        else:
+            response.status_code = status.HTTP_200_OK
+    except HoldoutStudyConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="immutable_study_conflict") from exc
+    except Exception:
+        db.rollback()
+        raise
+    return {**result, "created": created, "dry_run": body.dry_run,
+            "trial_active": False, "generation_enabled": False,
+            "automatic_promotion_enabled": False}
+
+
+@router.post("/{tenant_id}/trials/stage1/{study_id}/reservations")
+def reserve_stage1_trial_keywords(
+    tenant_id: str,
+    body: HoldoutKeywordReservation,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    principal: CurrentPrincipal = Depends(CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Reserve keyword arms before any Stage 1 generation exists."""
+    _require_trial_registration_flag()
+    require_tenant_scope(principal, tenant_id)
+    try:
+        result = reserve_keywords(
+            db, tenant_id=tenant_id, study_id=study_id, body=body,
+            actor_id=principal.user_id,
+        )
+        if not body.dry_run and result.new_assignments:
+            db.add(AuthAuditEventModel(
+                tenant_id=tenant_id, actor_id=principal.user_id,
+                action="agent_holdout_keywords_reserved",
+                detail_json={
+                    "study_id": study_id, "new_assignments": result.new_assignments,
+                    "reason": body.reason, "trial_active": False,
+                },
+            ))
+            db.commit()
+    except HoldoutStudyConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="keyword_assignment_conflict") from exc
+    except Exception:
+        db.rollback()
+        raise
+    return {
+        "tenant_id": tenant_id, "study_id": study_id,
+        "dry_run": body.dry_run, **result.summary(),
+        "automatic_promotion_enabled": False,
+    }
+
+
+@router.get("/{tenant_id}/trials/stage1/{study_id}")
+def read_stage1_trial_registration(
+    tenant_id: str,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read tenant-only planning status; no keyword identities in the summary."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    study = db.get(AgentHoldoutStudyModel, (tenant_id, study_id))
+    if study is None:
+        raise HTTPException(status_code=404, detail="Study not found")
+    counts = {"control": 0, "challenger": 0}
+    rows = db.execute(
+        select(AgentHoldoutAssignmentModel.arm, func.count())
+        .where(
+            AgentHoldoutAssignmentModel.tenant_id == tenant_id,
+            AgentHoldoutAssignmentModel.study_id == study_id,
+        ).group_by(AgentHoldoutAssignmentModel.arm)
+    ).all()
+    for arm, count in rows:
+        if arm in counts:
+            counts[arm] = int(count)
+    return {
+        "tenant_id": tenant_id, "study_id": study_id,
+        "cohort": study.cohort, "status": study.status,
+        "trial_version": study.trial_version,
+        "holdout_percent": study.holdout_percent,
+        "assignment_counts": counts,
+        "trial_active": False,
+        "generation_enabled": False,
+        "independent_qa_verified": False,
+        "automatic_promotion_enabled": False,
+    }
 
 
 @router.get("/{tenant_id}/overview")

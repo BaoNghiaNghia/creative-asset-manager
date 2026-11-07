@@ -9,13 +9,21 @@ from sqlalchemy import create_engine, text
 from app.core.database import DatabaseStartupError, validate_alembic_head
 
 
+@pytest.fixture(autouse=True)
+def pretend_previous_0203_release(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.database.expected_alembic_head",
+        lambda url: "0203_cam_agent_harness_store",
+    )
+
+
 def _prepare(tmp_path):
     url = "sqlite:///" + str(tmp_path / "bridge.sqlite")
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", url)
     config.attributes["configure_logger"] = False
     engine = create_engine(url)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0203_cam_agent_harness_store")
     assert validate_alembic_head(engine, database_url=url) == "0203_cam_agent_harness_store"
     return engine, url
 
