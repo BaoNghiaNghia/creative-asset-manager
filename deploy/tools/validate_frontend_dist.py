@@ -17,7 +17,7 @@ _STATIC_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("database environment marker", re.compile(r"(?<![A-Za-z0-9_])DATABASE_URL(?![A-Za-z0-9_])")),
     ("PostgreSQL URI", re.compile(r"postgres(?:ql)?://", re.I)),
     ("Google API key", re.compile(r"AIza[0-9A-Za-z_-]{20,}")),
-    ("OpenAI API key", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
+    ("OpenAI API key", re.compile(r"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}")),
     ("Google OAuth access token", re.compile(r"ya29[.][0-9A-Za-z_-]{20,}")),
     ("Google OAuth refresh token", re.compile(r"1//[0-9A-Za-z_-]{20,}")),
     ("Google OAuth client secret", re.compile(r"GOCSPX-[0-9A-Za-z_-]{16,}")),

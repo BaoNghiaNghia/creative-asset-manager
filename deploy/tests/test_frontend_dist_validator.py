@@ -40,6 +40,21 @@ class FrontendDistValidatorTest(unittest.TestCase):
         found = self.scan('window.config={client_secret:"abcdefghijklmnop123456"};')
         self.assertEqual(found, [("app.js", "literal OAuth credential")])
 
+    def test_allows_react_flow_minimap_css_properties(self):
+        # "mask-background" contains the substring "sk-background", but is
+        # not a literal OpenAI credential.
+        self.assertEqual(self.scan(
+            ':root{--xy-minimap-mask-background-color:transparent;'
+            '--xy-minimap-mask-stroke-color:#fff}'
+            'const tokenName="--xy-minimap-mask-background-color";'
+        ), [])
+
+    def test_rejects_realistic_openai_key_shape_with_redacted_diagnostics(self):
+        value = "sk-" + "Z" * 32
+        found = self.scan(f'const key="{value}";')
+        self.assertEqual(found, [("app.js", "OpenAI API key")])
+        self.assertNotIn(value, repr(found))
+
     def test_rejects_local_endpoint(self):
         self.assertEqual(
             self.scan('const endpoint="http://localhost:8000/api";'),
