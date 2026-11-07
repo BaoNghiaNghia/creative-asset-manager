@@ -133,7 +133,10 @@ function installFetch() {
     if (url.endsWith("/listings/observed-days")) {
       const days = recentObservedDays(vietnamCalendarDay());
       return json({ timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
-        items: days.map((day, index) => ({ day, count: index === 0 ? 3 : index === 1 ? 2 : 0 })),
+        items: days.map((day, index) => ({
+          day, count: index === 0 ? 3 : index === 1 ? 2 : 0,
+          pickedCount: index === 0 ? 1 : index === 1 ? 4 : 0,
+        })),
       });
     }
     if (url.includes("/summary")) return json({
@@ -339,12 +342,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     const expectedDays = recentObservedDays(today);
     expect(days).toHaveLength(10);
     expect(days.every(day => !day.textContent?.includes("06:00–06:00"))).toBe(true);
-    expect(days.every(day => !day.querySelector("small"))).toBe(true);
+    expect(days.every(day => day.querySelector(".etsy-observed-day-eligible"))).toBe(true);
     expect(days.map(day => day.dataset.observedDay)).toEqual(expectedDays);
     expect(days[0].textContent).toContain("Hôm nay");
     expect(days[1].textContent).toContain("Hôm qua");
-    expect(days[2].textContent).toContain(expectedDays[2].split("-").reverse().join("-"));
-    expect(days[0].textContent).toContain("3");
+    expect(days[2].textContent).toContain(expectedDays[2].slice(8, 10) + "/" + expectedDays[2].slice(5, 7));
+    expect(days[0].querySelector(".etsy-observed-day-pick")?.textContent).toContain("1đã Pick");
+    expect(days[0].querySelector(".etsy-observed-day-eligible")?.textContent).toContain("3 khả dụng");
+    expect(days[1].querySelector(".etsy-observed-day-pick")?.textContent).toContain("4đã Pick");
+    expect(days[2].querySelector(".etsy-observed-day-pick")?.textContent).toContain("0đã Pick");
+    expect(days[0].getAttribute("aria-label")).toContain("1 sản phẩm đã Pick");
     expect(days[0].getAttribute("aria-pressed")).toBe("true");
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("observed_day=" + today))).toBe(true);

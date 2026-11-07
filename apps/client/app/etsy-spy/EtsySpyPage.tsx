@@ -527,9 +527,13 @@ export function EtsySpyPage() {
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
   const isWinKeywordsView = activeTab === "products" && options.winKeywordsView;
-  const dailyCards = recentObservedDays(clockDay).map((day, index) => ({
-    day, index, count: observedDays?.find(item => item.day === day)?.count ?? null,
-  }));
+  const dailyCards = recentObservedDays(clockDay).map((day, index) => {
+    const bucket = observedDays?.find(item => item.day === day);
+    return {
+      day, index, count: bucket?.count ?? null,
+      pickedCount: bucket?.pickedCount ?? null,
+    };
+  });
   const filteredBlacklist = blacklist.filter(phrase =>
     phrase.toLowerCase().includes(typedSearch.trim().toLowerCase()));
   const filteredWinKeywords = winKeywords.filter(keyword =>
@@ -651,21 +655,34 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        <section className="etsy-observed-days" aria-label="Sản phẩm theo ngày Observed, 06:00 đến 06:00 giờ Việt Nam">
+        <section className="etsy-observed-days"
+          aria-label="Số sản phẩm đã Pick và listing khả dụng theo ngày, 06:00 đến 06:00 giờ Việt Nam">
           <div className="etsy-observed-day-grid">
-            {dailyCards.map(({ day, index, count }) => {
+            {dailyCards.map(({ day, index, count, pickedCount }) => {
               const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
-                : day.split("-").reverse().join("-");
+                : day.slice(8, 10) + "/" + day.slice(5, 7);
               const selected = activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
                 options.pickState === "eligible" && options.observedDay === day;
+              const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
               return <button type="button" key={day}
                 className={"etsy-observed-day" + (selected ? " active" : "")}
                 data-observed-day={day} aria-pressed={selected}
-                aria-label={label + ": " + (count ?? "Chưa tải") + " sản phẩm; từ 06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo, GMT+7"}
-                title={day + " · 06:00 → 06:00 hôm sau (GMT+7)"}
+                aria-label={label + ": " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick, " +
+                  (count ?? "Chưa tải") + " listing khả dụng; " + dateRange + ". Nhấn để lọc listing theo ngày quan sát"}
+                title={"Ngày " + day + " · " + dateRange +
+                  " · Nhấn để lọc listing khả dụng theo ngày quan sát"}
                 onClick={() => selectTab("products", { observedDay: day })}>
-                <span>{label}</span>
-                <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
+                <span className="etsy-observed-day-label">{label}</span>
+                <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16"
+                    fill="none" stroke="currentColor" strokeWidth="2.2"
+                    strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 3.1 3L13 4"/></svg>
+                  <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
+                  <small>đã Pick</small>
+                </span>
+                <span className="etsy-observed-day-eligible">
+                  {count === null ? "—" : count.toLocaleString("vi-VN")} khả dụng
+                </span>
               </button>;
             })}
           </div>

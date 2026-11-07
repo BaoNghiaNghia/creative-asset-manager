@@ -547,10 +547,10 @@ def sessions(principal: CurrentPrincipal = Depends(READ), db: Session = Depends(
 def listing_observed_days(
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
-    """Ten recent 06:00–06:00 VN buckets of current eligible Etsy Listing IDs.
+    """Ten 06:00–06:00 VN buckets: eligible observed IDs and user Pick actions.
 
-    Reuse the same qualification, blacklist and Pick rules as /listings.
-    A single SQL aggregate avoids one round trip per date and duplicate IDs.
+    Keep observed/eligible qualification and blacklist rules as /listings;
+    count Picked by picked_at independently, per tenant and listing ID.
     """
     today = datetime.now(VIETNAM_TZ).date()
     days = [today - timedelta(days=index) for index in range(10)]
@@ -568,11 +568,24 @@ def listing_observed_days(
         Listing.observed_at >= windows[-1][0],
         Listing.observed_at < windows[0][1],
     )).one()
+    # Pick is a user action, not a listing observation: aggregate by picked_at.
+    # One row exists per tenant/listing ID; this remains independent of how
+    # many keywords, sources or sessions discovered the same product.
+    picked_expressions = [
+        func.count().filter(Picked.picked_at >= since, Picked.picked_at < before)
+        for since, before in windows
+    ]
+    picked_counts = db.execute(select(*picked_expressions).where(
+        Picked.tenant_id == principal.active_tenant_id,
+        Picked.picked_at >= windows[-1][0],
+        Picked.picked_at < windows[0][1],
+    )).one()
     return {
         "timezone": "Asia/Ho_Chi_Minh",
         "start_hour": 6,
         "items": [
-            {"day": day.isoformat(), "count": int(counts[index] or 0)}
+            {"day": day.isoformat(), "count": int(counts[index] or 0),
+             "pickedCount": int(picked_counts[index] or 0)}
             for index, day in enumerate(days)
         ],
     }

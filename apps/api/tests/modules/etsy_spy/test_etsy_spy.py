@@ -370,8 +370,8 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     body = buckets.json()
     assert body["timezone"] == "Asia/Ho_Chi_Minh" and body["start_hour"] == 6
     assert len(body["items"]) == 10
-    assert body["items"][0] == {"day": today_key, "count": 2}
-    assert body["items"][1] == {"day": yesterday, "count": 1}
+    assert body["items"][0] == {"day": today_key, "count": 2, "pickedCount": 0}
+    assert body["items"][1] == {"day": yesterday, "count": 1, "pickedCount": 0}
     assert len({entry["day"] for entry in body["items"]}) == 10
 
     # A Pick removes the listing from both the daily card and Eligible listings.
@@ -380,15 +380,33 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     assert client.get(base, params={"observed_day": today_key}).json()["total"] == 1
     assert client.get(base, params={
         "observed_day": today_key, "pick_state": "picked"}).json()["total"] == 1
-    assert client.get(base + "/observed-days").json()["items"][0]["count"] == 1
+    pick_record = db.get(EtsySpyPicked, ("boostgame", "1234567891"))
+    assert pick_record is not None
+    pick_record.picked_at = today_start
+    db.commit()
+    updated = client.get(base + "/observed-days").json()["items"]
+    assert updated[0] == {"day": today_key, "count": 1, "pickedCount": 1}
+    assert updated[1] == {"day": yesterday, "count": 1, "pickedCount": 0}
+    # Pick time, not original product observation, determines the Pick bucket.
+    pick_record.picked_at = today_start - timedelta(microseconds=1)
+    db.commit()
+    boundary = client.get(base + "/observed-days").json()["items"]
+    assert boundary[0]["pickedCount"] == 0
+    assert boundary[1]["pickedCount"] == 1
+    pick_record.picked_at = today_start
+    db.commit()
 
-    # Blacklist still takes precedence over both Picked and Eligible date buckets.
+    # Blacklist hides eligible observations but never erases the Pick decision.
     assert client.post("/api/v1/etsy-spy/blacklist",
                        json={"phrases": ["Rudolph"]}).status_code == 200
-    assert client.get(base + "/observed-days").json()["items"][0]["count"] == 0
+    blacklisted_bucket = client.get(base + "/observed-days").json()["items"][0]
+    assert blacklisted_bucket["count"] == 0
+    assert blacklisted_bucket["pickedCount"] == 1
     assert client.get(base, params={"observed_day": today_key}).json()["total"] == 0
     assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 200
     assert client.get(base + "/observed-days").json()["items"][0]["count"] == 1
+    assert client.put(base + "/1234567891/pick", json={"picked": False}).status_code == 200
+    assert client.get(base + "/observed-days").json()["items"][0]["pickedCount"] == 0
 
 
 def test_bad_credentials_custom_titles_oversize_and_separate_permissions(scenario):
