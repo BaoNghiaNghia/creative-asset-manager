@@ -257,6 +257,7 @@ function ProductRow({ item, canPick, busy, onPick }: {
             stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12.5 10 17l9-10" />
           </svg>
+          <span>{item.picked ? "Picked" : "Pick"}</span>
         </button>
         {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer"
           aria-label={"Open Etsy listing: " + item.pageTitle} title="Open on Etsy">↗</a>}

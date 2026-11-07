@@ -587,6 +587,8 @@ describe("Etsy Spy native CAM dashboard", () => {
       'button[aria-label="Pick Rudolph Shirt"]');
     expect(button?.disabled).toBe(false);
     expect(button?.querySelector("svg")).toBeTruthy();
+    expect(button?.querySelector("span")?.textContent).toBe("Pick");
+    expect(button?.textContent).toBe("Pick");
     await act(async () => {
       button?.click();
       await new Promise(resolve => setTimeout(resolve, 65));
@@ -608,6 +610,9 @@ describe("Etsy Spy native CAM dashboard", () => {
     const unpick = container?.querySelector<HTMLButtonElement>(
       'button[aria-label="Unpick Rudolph Shirt"]');
     expect(unpick?.getAttribute("aria-pressed")).toBe("true");
+    expect(unpick?.querySelector("svg")).toBeTruthy();
+    expect(unpick?.querySelector("span")?.textContent).toBe("Picked");
+    expect(unpick?.textContent).toBe("Picked");
     await act(async () => {
       unpick?.click();
       await new Promise(resolve => setTimeout(resolve, 65));
@@ -621,8 +626,10 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 60));
     });
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
-    expect(container?.querySelector<HTMLButtonElement>(
-      'button[aria-label="Pick Rudolph Shirt"]')).toBeTruthy();
+    const restoredPick = container?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Pick Rudolph Shirt"]');
+    expect(restoredPick?.textContent).toBe("Pick");
+    expect(restoredPick?.querySelector("svg")).toBeTruthy();
   });
 
   it("disables Pick for users without manage permission", async () => {
