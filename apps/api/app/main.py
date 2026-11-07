@@ -20,6 +20,7 @@ from app.core.scout_log_ingress import ScoutTelemetryLimiter, scout_log_agent_fr
 from app.core.database import SessionLocal, dispose_database, init_database
 from app.core.health import readiness_report
 from app.modules.ai_governance.router import router as ai_governance_router
+from app.modules.agent_harness.router import router as agent_harness_router
 from app.modules.branding_dna.router import router as branding_dna_router
 from app.modules.branding_dna.access_declaration_router import router as branding_dna_access_declaration_router
 from app.modules.branding_dna.worker_router import router as branding_dna_worker_router
@@ -254,6 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     api.include_router(ai_governance_router)
+    api.include_router(agent_harness_router)
     api.include_router(branding_dna_router)
     api.include_router(branding_dna_access_declaration_router)
     api.include_router(branding_dna_worker_router)

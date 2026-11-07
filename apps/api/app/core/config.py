@@ -71,6 +71,8 @@ FEATURE_FLAG_NAMES = (
     "R2_VIDEO_PLAYBACK_DERIVED_ENABLED",
     "RRUGC_DELIVERY_AUTOMATION_ENABLED",
     "RRUGC_SOURCE_AUTO_SYNC_ENABLED",
+    "AGENT_HARNESS_READ_API_ENABLED",
+    "AGENT_HARNESS_EXECUTION_ENABLED",
 )
 
 
@@ -119,6 +121,10 @@ class Settings(BaseSettings):
     # Desktop application login remains disabled until an explicit rollout.
     DESKTOP_OAUTH_ENABLED: bool = False
     PROCESSING_JOBS_ENABLED: bool = False
+    # Passive read-only Agent Harness catalog. Never enables dispatch or learning.
+    AGENT_HARNESS_READ_API_ENABLED: bool = False
+    # Reserved safety gate: no worker references this until a later reviewed phase.
+    AGENT_HARNESS_EXECUTION_ENABLED: bool = False
     EXTERNAL_ASSET_DOWNLOADER_ENABLED: bool = False
     MANAGED_ASSET_STORAGE_ENABLED: bool = False
     # Read-only, tenant-scoped fallback when managed storage auth is permanently unavailable.

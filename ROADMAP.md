@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-07 — Agent Harness V2 Phase 2
+
+- [x] Add disabled-by-default typed API and execution flags, tenant-scoped ORM/repository, immutable agent version registration and read-only authenticated overview; no worker or API write path. Phase 2A can ship without a schema change.
+- [x] Implement and locally test a proposed additive PostgreSQL 0202 migration in an isolated branch; 19/19 module checks and Etsy migration regression pass.
+- [ ] Hold Phase 2B migration deployment until exact Alembic-head rollback compatibility is proven; previous 0201 release cannot boot against 0202 by default.
+- [ ] After schema activation, canary read API separately, then add authorized writes and verified Experience ingestion without changing job routing.
+
+
 ## 2026-11-07 — CAM Agent Harness V2 (Phase 0/1)
 
 - [x] Establish version-pinned, capability-based in-memory Agent Registry and a standalone verified-experience promotion gate. 14/14 standard-library tests passed; neither module connects to workers, API routes, queues, or a new database.

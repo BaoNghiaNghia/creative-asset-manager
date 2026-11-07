@@ -1,3 +1,11 @@
+## 2026-11-07 — CAM Agent Harness V2 Phase 2A (code-only release candidate)
+
+- Adds `agent_harness/model.py`, `repository.py`, `router.py`: tenant-filtered agent catalog/evidence ledger, immutable agent versions, idempotent candidate records, and a read-only overview guarded by existing `ai_operations.read` and tenant scope.
+- Adds typed flags `AGENT_HARNESS_READ_API_ENABLED=false` and `AGENT_HARNESS_EXECUTION_ENABLED=false`. No new agent processes or worker hooks.
+- Regression: 14/14 original core tests, 4/4 new repository and API tests, 1/1 new migration smoke, existing Etsy migration test also passed on isolated environment.
+- Rollback Phase 2A: previous immutable backend release; database Alembic version stays at 0201. Phase 2B additive migration is kept separate pending exact-head rollback compatibility verification.
+- Security: no write API, no anonymous access, no cross-tenant read, no secrets/new provider costs. See `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE2_RELEASE.md`.
+
 ## 2026-11-07 — CAM Agent Harness V2 foundation (no runtime cutover)
 
 - Added pure `apps/api/app/modules/agent_harness/registry.py` for immutable versioned agent policies, capability pre-dispatch routing, exact tool allowlists, registered executor fallback, and strict input bounds.
