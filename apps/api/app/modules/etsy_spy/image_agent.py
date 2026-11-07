@@ -290,6 +290,31 @@ def read_image_agent_overview(principal: CurrentPrincipal = Depends(READ),
     return extraction_overview(db, principal.active_tenant_id)
 
 
+@image_router.get("/{agent_id}/probe")
+def probe_image_agent(
+    agent_id: str, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Read-only transport handshake; valid even when extraction is disabled.
+
+    No claims, listing reads, PNG transfers, or backfill are triggered. Dedicated
+    device credentials cannot access Scout APIs with this role.
+    """
+    agent = _authenticate(db, agent_id, authorization)
+    agent.last_seen_at = utcnow()
+    db.commit()
+    return {
+        "paired": True,
+        "agent_id": agent.id,
+        "tenant_id": agent.tenant_id,
+        "transport_enabled": transport_enabled(),
+        "storage_ready": storage_capacity()["ready"],
+        "daily_cap": daily_cap(),
+        "claimed_today": claimed_today(db, agent.tenant_id),
+        "lease_protocol": "v1",
+    }
+
+
 @image_router.post("/{agent_id}/claim")
 def claim_image_job(
     agent_id: str, authorization: str | None = Header(None),

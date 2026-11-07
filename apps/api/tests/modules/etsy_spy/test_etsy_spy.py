@@ -1258,3 +1258,37 @@ def test_image_agent_storage_guard_and_scout_identity_isolation(scenario, monkey
     claim = client.post(claim_url, headers=headers)
     assert claim.status_code == 200 and claim.json()["task"] is not None
     assert claim.json()["task"]["rights_status"] == "unverified"
+
+
+def test_offline_hashed_image_agent_pairing_and_read_only_probe(scenario, monkeypatch):
+    from hashlib import sha256
+    from uuid import uuid4
+    from app.modules.etsy_spy.image_agent_pairing import register_hashed_image_agent
+    client, db, _ = scenario
+    agent_id = str(uuid4())
+    token = "A" * 64
+    digest = sha256(token.encode()).hexdigest()
+    assert register_hashed_image_agent(db, agent_id=agent_id, token_sha256=digest) == "paired"
+    assert register_hashed_image_agent(db, agent_id=agent_id, token_sha256=digest) == "already_paired"
+    assert client.get("/api/v1/etsy-spy/agents").json()["items"] == []
+    assert client.get("/api/v1/etsy-spy/image-agents").json()["items"][0]["id"] == agent_id
+    route = "/api/v1/etsy-spy/image-agents/" + agent_id + "/probe"
+    assert client.get(route).status_code == 401
+    probe = client.get(route, headers={"Authorization": "Bearer " + token})
+    assert probe.status_code == 200, probe.text
+    data = probe.json()
+    assert data["paired"] is True and data["tenant_id"] == "boostgame"
+    assert data["transport_enabled"] is False
+    assert data["lease_protocol"] == "v1"
+    assert db.get(EtsySpyAgent, agent_id).last_seen_at is not None
+    assert client.post("/api/v1/etsy-spy/agents/" + agent_id + "/heartbeat",
+        json={}, headers={"Authorization": "Bearer " + token}).status_code == 403
+    from pytest import raises
+    with raises(ValueError, match="device_id_collision_or_revoked"):
+        register_hashed_image_agent(db, agent_id=agent_id, token_sha256="0" * 64)
+    with raises(ValueError, match="unauthorized_tenant"):
+        register_hashed_image_agent(
+            db, agent_id=str(uuid4()), token_sha256=digest, tenant_id="other"
+        )
+    with raises(ValueError, match="duplicate_device_credential"):
+        register_hashed_image_agent(db, agent_id=str(uuid4()), token_sha256=digest)

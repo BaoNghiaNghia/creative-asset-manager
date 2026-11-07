@@ -22,6 +22,13 @@ Rollout: implementation staged; external production execution remains OFF by def
 - The claim API enforces `CAM_ETSY_EXTRACTION_DAILY_CAP` (default 200; supported 1..1000) per tenant and Vietnam calendar day. The Windows relay backs off for 5 minutes on `daily_cap_reached`.
 - Tenant-scoped read-only metrics: `GET /api/v1/etsy-spy/image-agents/overview` gives queued, processing, daily claim count, `needs_review`, and `needs_ai`. The Picked summary card shows a condensed snapshot.
 
+## Offline-paired dedicated device (2026-11-07)
+
+- The Windows tool may generate a random 64-character bearer token locally using `node agent/self-pair.mjs`. The token remains only in `D:\\CAM Image Extension\\.runtime\\extraction\\cam-config.json`, with `enabled:false`.
+- Only the device UUID and SHA256 token digest are sent to the CAM production host. The operator runs `PYTHONPATH=apps/api apps/api/.venv/bin/python scripts/pair-cam-image-agent-hash.py --agent-id <uuid> --token-sha256 <digest>` on the authorized VPS; the script refuses SQLite, foreign tenant, token reuse or conflicting/revoked identity.
+- `GET /api/v1/etsy-spy/image-agents/{agent_id}/probe` accepts only the dedicated device bearer credential and reports pairing/storage/capacity without claiming a job. Windows checks via `CHECK_CAM_IMAGE_PAIR.cmd` with the relay still off.
+- Do not print, log, paste or transfer the plaintext token through agent handoffs. Device may be revoked through existing admin controls.
+
 ## Before production activation
 
 1. Deploy from main only, run health checks and preserve a rollback release.
