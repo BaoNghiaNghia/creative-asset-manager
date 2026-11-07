@@ -23,6 +23,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
     EtsySpyWinKeyword as WinKeyword,
+    EtsySpyParentKeyword as ParentKeyword,
     EtsySpySession as SessionRow,
     EtsySpyKeyword as Keyword, EtsySpyListing as Listing,
     EtsySpyTrademark as Trademark, EtsySpyLog as Log,
@@ -266,6 +267,103 @@ async def remove_win_keyword(
         db.delete(item)
         db.commit()
     return _win_keyword_view(db, principal.active_tenant_id)
+
+
+def _parent_keyword_name(raw: Any) -> str:
+    if not isinstance(raw, str) or len(raw) > 180:
+        raise HTTPException(422, "Parent keyword must be a string of 2-180 characters")
+    name = " ".join(raw.split())
+    if len(name) < 2 or len(name) > 180:
+        raise HTTPException(422, "Parent keyword must be 2-180 characters")
+    return name
+
+
+def _parent_keyword_key(name: str) -> str:
+    return name.casefold()
+
+
+def _parent_keyword_items(db: Session, tenant: str) -> dict:
+    # Historical root nodes remain read-only. Manually configured settings
+    # override the display and scheduler priority without rewriting Scout rows.
+    roots = db.execute(select(Keyword.keyword).where(
+        Keyword.tenant_id == tenant, Keyword.parent_id.is_(None),
+        Keyword.depth == 0).order_by(desc(Keyword.updated_at)).limit(20_000)).scalars()
+    items: dict[str, dict] = {}
+    for raw in roots:
+        name = " ".join((raw or "").split())
+        if len(name) < 2 or len(name) > 180:
+            continue
+        key = _parent_keyword_key(name)
+        if key not in items:
+            items[key] = {"keyword": name, "keywordKey": key, "priority": 50,
+                          "source": "observed", "occurrences": 0}
+        items[key]["occurrences"] += 1
+    rows = db.scalars(select(ParentKeyword).where(
+        ParentKeyword.tenant_id == tenant)).all()
+    for row in rows:
+        previous = items.get(row.keyword_key)
+        items[row.keyword_key] = {
+            "keyword": row.keyword, "keywordKey": row.keyword_key,
+            "priority": row.priority, "source": row.source,
+            "occurrences": previous["occurrences"] if previous else 0,
+        }
+    ordered = sorted(items.values(), key=lambda item: (
+        -item["priority"], item["keyword"].casefold()))
+    fingerprint = hashlib.sha256("|".join(
+        f'{item["keywordKey"]}:{item["priority"]}:{item["source"]}'
+        for item in ordered).encode("utf-8")).hexdigest()[:16]
+    return {"items": ordered, "count": len(ordered), "revision": fingerprint}
+
+
+@router.get("/parent-keywords")
+def list_parent_keywords(
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    return _parent_keyword_items(db, principal.active_tenant_id)
+
+
+async def _upsert_parent_keyword(request: Request, tenant: str, db: Session) -> dict:
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(body, dict):
+        raise HTTPException(422, "JSON object required")
+    name = _parent_keyword_name(body.get("keyword"))
+    priority = body.get("priority", 50)
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 1 <= priority <= 100:
+        raise HTTPException(422, "Priority must be an integer from 1 to 100")
+    key = _parent_keyword_key(name)
+    row = db.get(ParentKeyword, (tenant, key))
+    if row is None:
+        current = _parent_keyword_items(db, tenant)
+        if key not in {entry["keywordKey"] for entry in current["items"]} and current["count"] >= 200:
+            raise HTTPException(422, "Parent keyword list limited to 200 entries")
+        origin = "observed" if any(entry["keywordKey"] == key for entry in current["items"]) else "manual"
+        db.add(ParentKeyword(tenant_id=tenant, keyword_key=key, keyword=name,
+                             priority=priority, source=origin,
+                             created_at=utcnow(), updated_at=utcnow()))
+    else:
+        row.priority = priority
+        row.updated_at = utcnow()
+    db.commit()
+    return _parent_keyword_items(db, tenant)
+
+
+@router.post("/parent-keywords")
+async def add_parent_keyword(
+    request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    return await _upsert_parent_keyword(request, principal.active_tenant_id, db)
+
+
+@router.put("/parent-keywords")
+async def update_parent_priority(
+    request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    return await _upsert_parent_keyword(request, principal.active_tenant_id, db)
 
 
 def _observed_day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -821,6 +919,15 @@ async def agent_heartbeat(
     agent.last_seen_at = utcnow()
     db.commit()
     return {"ok": True, "agent_id": agent.id, "server_time": utcnow()}
+
+
+@router.get("/agents/{agent_id}/parent-keywords")
+def agent_parent_keywords(
+    agent_id: str, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent = authenticate_agent(db, agent_id, authorization)
+    return {"ok": True, **_parent_keyword_items(db, agent.tenant_id)}
 
 
 @router.get("/agents/{agent_id}/blacklist")

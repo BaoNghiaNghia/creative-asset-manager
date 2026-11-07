@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, MetaData, Table, Column, String, DateTime,
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
-    EtsySpyWinKeyword,
+    EtsySpyWinKeyword, EtsySpyParentKeyword,
 )
 
 
@@ -60,11 +60,12 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
         EtsySpyTrademark.__tablename__, EtsySpyLog.__tablename__,
         EtsySpyBatch.__tablename__, EtsySpyBlacklist.__tablename__,
         EtsySpyPicked.__tablename__, EtsySpyWinKeyword.__tablename__,
+        EtsySpyParentKeyword.__tablename__,
     }
     with engine.connect() as c:
         tables = set(inspect(c).get_table_names())
         assert expected.issubset(tables)
-        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0200_etsy_spy_win_keywords"
+        assert c.scalar(text("SELECT version_num FROM alembic_version")) == "0201_etsy_spy_parent_keywords"
         assert {"is_current", "has_search", "has_shop"}.issubset({
             column["name"] for column in inspect(c).get_columns("etsy_spy_listings")})
         assert {"last_inventory_at", "last_inventory_count"}.issubset({
@@ -81,14 +82,18 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
         )).all()
         assert set(assigned) == {("tenant_admin", "etsy_spy.read"),
                                  ("tenant_admin", "etsy_spy.manage")}
+    command.downgrade(config, "0200_etsy_spy_win_keywords")
+    with engine.connect() as c:
+        assert "etsy_spy_parent_keywords" not in inspect(c).get_table_names()
+        assert expected - {"etsy_spy_parent_keywords"} <= set(inspect(c).get_table_names())
     # A passive Win Keyword list can be downgraded independently of Scout data.
     command.downgrade(config, "0199_etsy_spy_logs_12h")
     with engine.connect() as c:
         assert "etsy_spy_win_keywords" not in inspect(c).get_table_names()
-        assert (expected - {"etsy_spy_win_keywords"}).issubset(set(inspect(c).get_table_names()))
+        assert (expected - {"etsy_spy_win_keywords", "etsy_spy_parent_keywords"}).issubset(set(inspect(c).get_table_names()))
     command.downgrade(config, "0198_etsy_spy_picked")
     with engine.connect() as c:
-        assert (expected - {"etsy_spy_win_keywords"}).issubset(set(inspect(c).get_table_names()))
+        assert (expected - {"etsy_spy_win_keywords", "etsy_spy_parent_keywords"}).issubset(set(inspect(c).get_table_names()))
     # User Pick decisions are independently reversible and never alter raw listings.
     command.downgrade(config, "0197_etsy_spy_blacklist")
     with engine.connect() as c:
@@ -99,7 +104,7 @@ def test_migration_adds_tables_and_admin_only_permissions(tmp_path):
         assert "etsy_spy_blacklist" not in inspect(c).get_table_names()
     command.downgrade(config, "0195_etsy_spy_projection")
     with engine.connect() as c:
-        assert expected - {"etsy_spy_blacklist", "etsy_spy_picked", "etsy_spy_win_keywords"} <= set(inspect(c).get_table_names())
+        assert expected - {"etsy_spy_blacklist", "etsy_spy_picked", "etsy_spy_win_keywords", "etsy_spy_parent_keywords"} <= set(inspect(c).get_table_names())
         assert "is_current" not in {
             column["name"] for column in inspect(c).get_columns("etsy_spy_listings")}
     # Empty 0195 tables can still be downgraded without deleting source history.

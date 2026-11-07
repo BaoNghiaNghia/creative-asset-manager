@@ -18,6 +18,8 @@ vi.mock("../../features/access_management", () => ({
 const observed: string[] = [];
 let blockedTerms: string[] = [];
 let savedWinKeywords: string[] = [];
+let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number;
+  source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
@@ -72,9 +74,27 @@ function json(value: unknown) {
 }
 function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = []; pickedKeys = new Set<string>();
+  parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
+    priority: 50, source: "observed", occurrences: 1}];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     observed.push(url);
+    if (url.endsWith("/parent-keywords") && ["POST", "PUT"].includes(init?.method || "")) {
+      const {keyword, priority} = JSON.parse(String(init?.body)) as {
+        keyword: string; priority: number;
+      };
+      const clean = keyword.trim().replace(/\\s+/g, " ");
+      const key = clean.toLowerCase();
+      const exists = parentKeywords.find(value => value.keywordKey === key);
+      if (exists) exists.priority = priority;
+      else parentKeywords.push({
+        keyword: clean, keywordKey: key, priority, source: "manual", occurrences: 0,
+      });
+      parentKeywords.sort((a, b) => b.priority - a.priority);
+      return json({items: [...parentKeywords],count:parentKeywords.length,revision:"fake"});
+    }
+    if (url.endsWith("/parent-keywords"))
+      return json({items: [...parentKeywords],count:parentKeywords.length,revision:"fake"});
     if (url.endsWith("/win-keywords") && init?.method === "POST") {
       const { keywords } = JSON.parse(String(init.body)) as { keywords: string[] };
       for (const raw of keywords) {
@@ -433,6 +453,54 @@ describe("Etsy Spy native CAM dashboard", () => {
     const expandAll = allButtons.find(el => el.textContent === "Expand all")!;
     await act(async () => { expandAll.click(); });
     expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(5);
+  });
+
+  it("adds parent keywords and edits the actual scheduler priority from Keyword Tree", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const tab = Array.from(container?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-stage-nav [role='tab']") || []).find(item =>
+      item.textContent?.includes("Keyword Tree"))!;
+    await act(async () => { tab.click(); await new Promise(resolve => setTimeout(resolve, 100)); });
+    expect(container?.querySelector(".etsy-parent-keywords")).toBeTruthy();
+    expect(container?.textContent).toContain("A Root Seed");
+    const input = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="New parent keyword"]')!;
+    const priority = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="New parent priority"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "  Halloween   ghost shirt ");
+      input.dispatchEvent(new Event("input", {bubbles:true}));
+      setter.call(priority, "85");
+      priority.dispatchEvent(new Event("input", {bubbles:true}));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLFormElement>(".etsy-parent-create")?.dispatchEvent(
+        new Event("submit", {bubbles:true,cancelable:true}));
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    expect(parentKeywords.find(k => k.keywordKey === "halloween ghost shirt")?.priority).toBe(85);
+    expect(container?.textContent).toContain("Halloween ghost shirt");
+    const rowPriority = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Priority for A Root Seed"]')!;
+    await act(async () => {
+      setter.call(rowPriority, "98");
+      rowPriority.dispatchEvent(new Event("input", {bubbles:true}));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Save priority for A Root Seed"]')?.click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(parentKeywords[0].keywordKey).toBe("a root seed");
+    expect(parentKeywords[0].priority).toBe(98);
+    expect(observed.some(url => url.endsWith("/parent-keywords"))).toBe(true);
+    expect(container?.querySelectorAll(".etsy-parent-row")).toHaveLength(2);
+    expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(0);
+    expect(container?.textContent).toContain("Windows Agent will apply this priority");
   });
 
   it("keeps compact tabs keyboard-navigable with one active tab", async () => {

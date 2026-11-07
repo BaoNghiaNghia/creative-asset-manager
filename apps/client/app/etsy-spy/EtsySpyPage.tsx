@@ -728,7 +728,8 @@ export function EtsySpyPage() {
     </div>}
     {activeTab === "keywords" ?
       <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
-        sort={options.sort} direction={options.dir} refresh={refresh} onSort={sortColumn} />
+        sort={options.sort} direction={options.dir} refresh={refresh}
+        canManage={canManage} onSort={sortColumn} />
       : <div className="etsy-table-card">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty">No matching records. {summary?.source_status === "never_synced"

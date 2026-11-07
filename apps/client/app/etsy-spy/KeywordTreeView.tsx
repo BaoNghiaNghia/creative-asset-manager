@@ -5,6 +5,7 @@ import {
   visibleKeywordRows, type KeywordVisibleRow,
 } from "./keywordTree";
 import { createKeywordGroupForest, filterKeywordGroupForest } from "./keywordMindmap";
+import { ParentKeywordManager } from "./ParentKeywordManager";
 
 const KeywordMindmapCanvas = lazy(() => import("./KeywordMindmapCanvas")
   .then(module => ({ default: module.KeywordMindmapCanvas })));
@@ -16,6 +17,7 @@ type Props = {
   sort: string;
   direction: "asc" | "desc";
   refresh: number;
+  canManage: boolean;
   onSort: (column: string) => void;
 };
 
@@ -83,7 +85,7 @@ function KeywordTreeRow({
 }
 
 export function KeywordTreeView({
-  sessionId, search, status, sort, direction, refresh, onSort,
+  sessionId, search, status, sort, direction, refresh, canManage, onSort,
 }: Props) {
   const requestKey = JSON.stringify([sessionId, refresh]);
   const [result, setResult] = useState<{
@@ -172,6 +174,7 @@ export function KeywordTreeView({
       groupProjection.visible.has(node.key)).map(node => node.key),
   [grouped, groupProjection]);
   return <>
+    <ParentKeywordManager refresh={refresh} canManage={canManage} />
     <div className="etsy-tree-toolbar" aria-label="Keyword tree controls">
       <span className="etsy-tree-summary">
         {valid ? <>

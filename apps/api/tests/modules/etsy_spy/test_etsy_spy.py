@@ -21,7 +21,7 @@ from app.modules.authorization.navigation_scope import (
 from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
-    EtsySpyWinKeyword,
+    EtsySpyWinKeyword, EtsySpyParentKeyword,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -30,7 +30,7 @@ from app.modules.etsy_spy.service import create_agent
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
-    EtsySpyWinKeyword,
+    EtsySpyWinKeyword, EtsySpyParentKeyword,
 )
 
 
@@ -162,6 +162,56 @@ def test_win_keyword_notes_are_tenant_scoped_persistent_and_have_no_side_effects
         "keywords": ["Santa Claus / Rudolph"], "count": 1}
     assert client.request("DELETE", url, json={"keyword": "POPULAR NOW!"}).json()["count"] == 1
     assert client.get("/api/v1/etsy-spy/summary").json() == baseline
+
+
+def test_parent_keywords_saved_priorities_and_agent_sync(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    url = "/api/v1/etsy-spy/parent-keywords"
+    remote = f"/api/v1/etsy-spy/agents/{agent.id}/parent-keywords"
+    db.add(EtsySpyKeyword(
+        tenant_id="boostgame", agent_id=agent.id, source_session_id="seed-session",
+        node_id="root-1", parent_id=None, depth=0, priority=50,
+        keyword="Santa Claus Rudolph boop shirt", status="done",
+    ))
+    db.commit()
+    original = client.get(url)
+    assert original.status_code == 200
+    assert original.json()["items"][0]["source"] == "observed"
+    assert original.json()["items"][0]["priority"] == 50
+    assert client.get(remote, headers=headers).json()["items"] == original.json()["items"]
+    assert client.get(remote).status_code == 401
+
+    edited = client.put(url, json={"keyword": "SANTA CLAUS RUDOLPH BOOP SHIRT",
+                                   "priority": 90})
+    assert edited.status_code == 200
+    assert edited.json()["items"][0]["priority"] == 90
+    assert edited.json()["items"][0]["source"] == "observed"
+    added = client.post(url, json={"keyword": "  Halloween   Ghost Shirt ",
+                                  "priority": 75})
+    assert added.status_code == 200
+    assert added.json()["count"] == 2
+    assert added.json()["items"][1]["keyword"] == "Halloween Ghost Shirt"
+    assert added.json()["items"][1]["source"] == "manual"
+    assert client.post(url, json={"keyword": "halloween ghost shirt",
+                                  "priority": 99}).json()["count"] == 2
+    assert db.query(EtsySpyParentKeyword).count() == 2
+    assert db.query(EtsySpyKeyword).one().priority == 50
+    remote_items = client.get(remote, headers=headers)
+    assert remote_items.status_code == 200
+    assert remote_items.json()["items"][0]["priority"] == 99
+    assert remote_items.json()["revision"] != original.json()["revision"]
+
+    for invalid in (0, -1, 101, 3.5, True, "99"):
+        assert client.post(url, json={"keyword": "valid", "priority": invalid}).status_code == 422
+    assert client.post(url, json={"keyword": "x", "priority": 50}).status_code == 422
+    assert client.post(url, json={"keyword": "a" * 181, "priority": 50}).status_code == 422
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.put(url, json={"keyword": "Halloween", "priority": 1}).status_code == 403
+    principal.active_tenant_id = "another-tenant"
+    assert client.get(url).json()["count"] == 0
+    principal.active_tenant_id = "boostgame"
+    assert client.get(url).json()["count"] == 2
 
 
 def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):

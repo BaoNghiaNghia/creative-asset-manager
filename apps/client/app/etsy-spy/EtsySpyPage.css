@@ -1283,3 +1283,66 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 @media(prefers-reduced-motion:reduce){
   .etsy-map-node{transition:none}
 }
+/* Parent Keyword priority controls, shared between Mindmap and Tree. */
+.etsy-parent-keywords{
+  margin:11px 0 12px;padding:13px 15px;border:1px solid #dce6f3;
+  border-radius:10px;background:#fbfdff;
+}
+.etsy-parent-keywords-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.etsy-parent-keywords-heading h3{font-size:12px;font-weight:820;margin:0;color:#314c73}
+.etsy-parent-keywords-heading h3 span{color:#7692b0}
+.etsy-parent-keywords-heading p{margin:4px 0 0;color:#8694a8;font-size:10px;line-height:1.4}
+.etsy-parent-legend{font-size:9px;white-space:nowrap;color:#6e88a6;border:1px solid #e1e8f2;border-radius:6px;padding:4px 7px;background:#fff}
+.etsy-parent-create{display:flex;align-items:stretch;gap:7px;margin-top:12px}
+.etsy-parent-create>input{flex:1 1 220px;width:100%;min-width:0;height:35px}
+.etsy-parent-create>input,.etsy-parent-row input{
+  border:1px solid #d5e0ef;border-radius:6px;color:#344b68;
+  background:#fff;padding:6px 9px;font-size:11px;
+}
+.etsy-parent-create input:focus,.etsy-parent-row input:focus{outline:2px solid #c7def9;border-color:#729ed4}
+.etsy-parent-create label,.etsy-parent-row label{
+  display:flex;align-items:center;gap:7px;color:#7b8ca3;font-size:10px;font-weight:700;
+}
+.etsy-parent-create label input,.etsy-parent-row label input{
+  width:62px;height:35px;text-align:center;font-variant-numeric:tabular-nums;
+}
+.etsy-parent-create button,.etsy-parent-save{
+  min-height:35px;white-space:nowrap;border:1px solid #477cbd;border-radius:6px;
+  padding:7px 12px;background:#4b7fbd;color:#fff;font-size:10px;font-weight:800;
+}
+.etsy-parent-create button:hover:not(:disabled),.etsy-parent-save:hover:not(:disabled){background:#326bac}
+.etsy-parent-create button:disabled,.etsy-parent-save:disabled{opacity:.45;cursor:default}
+.etsy-parent-error{margin:8px 0;color:#b14144;font-size:10px}
+.etsy-parent-notice{margin:8px 0;color:#387751;font-size:10px}
+.etsy-parent-loading,.etsy-parent-empty{padding:9px 0;color:#8a9bb0;font-size:10px}
+.etsy-parent-list{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;
+  max-height:220px;overflow:auto;overscroll-behavior:contain;margin-top:11px;
+}
+.etsy-parent-row{
+  display:flex;align-items:center;gap:8px;min-width:0;padding:9px 10px;
+  background:#fff;border:1px solid #e2e9f4;border-radius:8px;
+}
+.etsy-parent-title{flex:1 1 auto;display:flex;flex-direction:column;gap:3px;min-width:0}
+.etsy-parent-title strong{font-size:11px;line-height:1.3;font-weight:760;color:#30547c;overflow-wrap:anywhere}
+.etsy-parent-title small{font-size:9px;color:#8a9cb2}
+.etsy-parent-row label{gap:5px}
+.etsy-parent-row label input{height:29px;width:56px;padding:4px}
+.etsy-parent-save{min-height:29px;padding:4px 9px}
+.etsy-parent-readonly{display:block;margin-top:7px;color:#9caabe;font-size:9px}
+@media(max-width:900px){
+  .etsy-parent-list{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  .etsy-parent-keywords{padding:11px}
+  .etsy-parent-keywords-heading{align-items:flex-start}
+  .etsy-parent-legend{display:none}
+  .etsy-parent-create{flex-wrap:wrap;gap:7px}
+  .etsy-parent-create>input{flex-basis:100%;height:37px}
+  .etsy-parent-create label{flex:1}
+  .etsy-parent-create label input{width:70px}
+  .etsy-parent-create button{flex:0 0 auto}
+  .etsy-parent-row{gap:5px;flex-wrap:wrap}
+  .etsy-parent-title{flex-basis:100%}
+  .etsy-parent-row label{flex:1}
+}

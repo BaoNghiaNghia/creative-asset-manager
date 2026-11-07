@@ -50,6 +50,18 @@ class EtsySpyWinKeyword(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyParentKeyword(Base):
+    """Tenant-owned root Scout priorities; source records remain unchanged."""
+    __tablename__ = "etsy_spy_parent_keywords"
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    keyword_key: Mapped[str] = mapped_column(String(180), primary_key=True)
+    keyword: Mapped[str] = mapped_column(String(180), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer(), nullable=False, default=50)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class EtsySpyPicked(Base):
     """User-picked Etsy listings, stable across sync sessions and source agents."""
     __tablename__ = "etsy_spy_picked"
