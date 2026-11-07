@@ -29,6 +29,13 @@ Rollout: implementation staged; external production execution remains OFF by def
 - `GET /api/v1/etsy-spy/image-agents/{agent_id}/probe` accepts only the dedicated device bearer credential and reports pairing/storage/capacity without claiming a job. Windows checks via `CHECK_CAM_IMAGE_PAIR.cmd` with the relay still off.
 - Do not print, log, paste or transfer the plaintext token through agent handoffs. Device may be revoked through existing admin controls.
 
+## One-listing pilot safeguards
+
+- `scripts/cam-etsy-image-pilot-control.py status` reports only the relevant tenant's storage, daily cap, queue count, Picked count and agent pairing, without secrets or source URLs.
+- `scripts/cam-etsy-image-pilot-control.py arm --agent-id <device uuid>` checks that the device has probed in the last 30 minutes, storage is healthy, daily cap is exactly 1, no job has been claimed today, and no extraction jobs are pending/processing. It changes only `CAM_ETSY_EXTRACTION_WORKER_ENABLED=1` in the protected production environment. Restart **only** the API to load it.
+- Windows `agent/pilot-control.mjs arm` probes production and only enables the relay if the device is paired, CAM transport enabled, storage ready, daily cap exactly 1 and zero already claimed. No credential is logged.
+- New Picks only; no automatic backfill or Unpick/Repick of existing listings. Outputs always require QA and rights assessment, never print-ready. `disarm` on either machine stops new claims without removing existing assets.
+
 ## Before production activation
 
 1. Deploy from main only, run health checks and preserve a rollback release.
