@@ -5,6 +5,7 @@ import {
   spyFetch, readableTime,
   type SpyTab, type Page, type Summary, type Listing,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
+  type ObservedDaysSummary, type ObservedDayBucket,
 } from "./api";
 import "./EtsySpyPage.css";
 import { KeywordTreeView } from "./KeywordTreeView";
@@ -42,12 +43,30 @@ type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
   pickState: "eligible" | "picked";
   blacklistView: boolean;
+  observedDay: string;
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
+export function vietnamCalendarDay(moment: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(moment);
+  const value = (part: string) => parts.find(item => item.type === part)?.value || "00";
+  return value("year") + "-" + value("month") + "-" + value("day");
+}
+
+export function recentObservedDays(today: string): string[] {
+  const start = new Date(today + "T00:00:00Z");
+  return Array.from({ length: 10 }, (_, index) => {
+    const at = new Date(start);
+    at.setUTCDate(start.getUTCDate() - index);
+    return at.toISOString().slice(0, 10);
+  });
+}
+
 const baseOptions: Options = {
   tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
-  blacklistView: false,
+  blacklistView: false, observedDay: vietnamCalendarDay(),
   sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
@@ -59,6 +78,9 @@ function fromLocation(): Options {
     ...baseOptions, tab,
     pickState: p.get("pick_state") === "picked" ? "picked" : "eligible",
     blacklistView: tab === "products" && p.get("panel") === "blacklist",
+    observedDay: p.get("observed_day") === "all" ? "all"
+      : /^\d{4}-\d{2}-\d{2}$/.test(p.get("observed_day") || "")
+        ? p.get("observed_day")! : vietnamCalendarDay(),
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
     q: p.get("q") || "", sessionId: p.get("session_id") || "",
@@ -76,6 +98,8 @@ function queryFor(o: Options): URLSearchParams {
   if (o.q.trim()) query.set("q", o.q.trim());
   if (o.tab === "products" && o.pickState === "picked" && !o.blacklistView)
     query.set("pick_state", "picked");
+  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView)
+    query.set("observed_day", o.observedDay);
   if (o.tab === "products" && o.blacklistView) query.set("panel", "blacklist");
   if (o.sessionId) query.set("session_id", o.sessionId);
   if (o.source) query.set("source", o.source);
@@ -98,6 +122,7 @@ function apiQuery(o: Options): URLSearchParams {
   result.delete("level");
   result.delete("phase");
   if (o.tab === "products") {
+    if (result.get("observed_day") === "all") result.delete("observed_day");
     for (const key of ["source", "badge", "tm"] as const) if (o[key]) result.set(key, o[key]);
   } else if (o.tab === "keywords") {
     if (o.status) result.set("status", o.status);
@@ -287,6 +312,8 @@ export function EtsySpyPage() {
   const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
   const [pickError, setPickError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [clockDay, setClockDay] = useState(vietnamCalendarDay);
+  const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
@@ -338,6 +365,25 @@ export function EtsySpyPage() {
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
   }, [refresh]);
+  useEffect(() => {
+    let alive = true;
+    spyFetch<ObservedDaysSummary>("/listings/observed-days")
+      .then(response => { if (alive) setObservedDays(response.items); })
+      .catch(() => { if (alive) setObservedDays(null); });
+    return () => { alive = false; };
+  }, [refresh]);
+  useEffect(() => {
+    // Keep Today in Vietnam synchronized if the dashboard stays open overnight.
+    const interval = window.setInterval(() => {
+      const next = vietnamCalendarDay();
+      if (next === clockDay) return;
+      setOptions(current => current.observedDay === clockDay
+        ? { ...current, observedDay: next, page: 1 } : current);
+      setClockDay(next);
+      setRefresh(current => current + 1);
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [clockDay]);
   useEffect(() => {
     // Keyword Tree loads all source pages in its own panel, not a single paged slice.
     if (options.tab === "keywords" ||
@@ -421,6 +467,9 @@ export function EtsySpyPage() {
   });
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
+  const dailyCards = recentObservedDays(clockDay).map((day, index) => ({
+    day, index, count: observedDays?.find(item => item.day === day)?.count ?? null,
+  }));
   const filteredBlacklist = blacklist.filter(phrase =>
     phrase.toLowerCase().includes(typedSearch.trim().toLowerCase()));
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
@@ -428,6 +477,7 @@ export function EtsySpyPage() {
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "",
       status: "", level: "", phase: "", pickState: "eligible", blacklistView: false,
+      observedDay: clockDay,
       sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
         : tab === "trademarks" ? "checkedAt" : "updatedAt",
       dir: "desc", page: 1, ...filters,
@@ -438,7 +488,7 @@ export function EtsySpyPage() {
     tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
   }[] = [
     { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
-      tone: "total", tab: "products",
+      tone: "total", tab: "products", filters: { observedDay: "all" },
       selected: activeTab === "products" && !isBlacklistView &&
         options.pickState === "eligible" && !options.source && !options.tm },
     { title: "Picked", value: summary?.picked ?? 0, hint: "Manually selected products",
@@ -524,6 +574,26 @@ export function EtsySpyPage() {
             <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
             <small>{card.hint}</small>
           </button>)}
+        </section>
+        <section className="etsy-observed-days" aria-label="Sản phẩm theo ngày Observed, 06:00 đến 06:00 giờ Việt Nam">
+          <div className="etsy-observed-day-grid">
+            {dailyCards.map(({ day, index, count }) => {
+              const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
+                : day.split("-").reverse().join("-");
+              const selected = activeTab === "products" && !isBlacklistView &&
+                options.pickState === "eligible" && options.observedDay === day;
+              return <button type="button" key={day}
+                className={"etsy-observed-day" + (selected ? " active" : "")}
+                data-observed-day={day} aria-pressed={selected}
+                aria-label={label + ": " + (count ?? "Chưa tải") + " sản phẩm; từ 06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo, GMT+7"}
+                title={day + " · 06:00 → 06:00 hôm sau (GMT+7)"}
+                onClick={() => selectTab("products", { observedDay: day })}>
+                <span>{label}</span>
+                <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
+                <small>06:00–06:00</small>
+              </button>;
+            })}
+          </div>
         </section>
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">

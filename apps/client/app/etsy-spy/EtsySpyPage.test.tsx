@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { EtsySpyPage } from "./EtsySpyPage";
+import { EtsySpyPage, vietnamCalendarDay, recentObservedDays } from "./EtsySpyPage";
 import { fetchAccessIdentity } from "../../features/access_management";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
@@ -90,6 +90,12 @@ function installFetch() {
       if (body.picked) pickedKeys.add(id); else pickedKeys.delete(id);
       return json({listingKey: id, picked: body.picked});
     }
+    if (url.endsWith("/listings/observed-days")) {
+      const days = recentObservedDays(vietnamCalendarDay());
+      return json({ timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
+        items: days.map((day, index) => ({ day, count: index === 0 ? 3 : index === 1 ? 2 : 0 })),
+      });
+    }
     if (url.includes("/summary")) return json({
       ...summary, picked: pickedKeys.size, listings: summary.listings - pickedKeys.size,
     });
@@ -176,7 +182,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.textContent).toContain("mama christian sweatshirt");
     expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
-    expect(html).toContain("Listings reconciled");
+    expect(html).not.toContain("Listings reconciled");
     expect(html).toContain("Search + Shop");
     expect(html).not.toContain("Safe");
     const pill = Array.from(container?.querySelectorAll("button") || [])
@@ -207,7 +213,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(9);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(4);
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards[1].classList.contains("etsy-stat-picked")).toBe(true);
     expect(cards[2].classList.contains("etsy-stat-blacklist")).toBe(true);
@@ -215,7 +221,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
-    expect(container?.querySelector(".etsy-search-filters .etsy-actions select")).toBeTruthy();
+    expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(10);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
     expect(container?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
     expect(container?.querySelector(".etsy-action-cell a[href*='etsy.com/listing']")).toBeTruthy();
@@ -223,21 +229,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
-    const source = container?.querySelector("select[aria-label='Source']") as HTMLSelectElement;
-    await act(async () => {
-      source.value = "shop";
-      source.dispatchEvent(new Event("change", { bubbles: true }));
-      await new Promise(resolve => setTimeout(resolve, 35));
-    });
-    expect(observed.some(url => url.includes("/listings?") && url.includes("source=shop"))).toBe(true);
-    const clear = Array.from(container?.querySelectorAll("button") || [])
-      .find(button => button.textContent?.includes("Clear filters")) as HTMLButtonElement;
-    expect(clear).toBeTruthy();
-    await act(async () => {
-      clear.click();
-      await new Promise(resolve => setTimeout(resolve, 35));
-    });
-    expect(source.value).toBe("");
+    const today = vietnamCalendarDay();
+    expect(observed.some(url => url.includes("/listings?") &&
+      url.includes("observed_day=" + today))).toBe(true);
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
+      "data-observed-day")).toBe(today);
   });
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {
@@ -252,31 +248,88 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async () => {keyword.click(); await new Promise(resolve => setTimeout(resolve, 30));});
     expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
   });
-  it("uses Stage 0-style KPI cards to jump into real server-side filters", async () => {
+  it("shows ten compact 06:00 observation buckets and filters Eligible listings by date", async () => {
     await start();
-    const shop = container?.querySelector(".etsy-stat-shop") as HTMLButtonElement;
+    const days = Array.from(container?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-observed-day") || []);
+    const today = vietnamCalendarDay();
+    const expectedDays = recentObservedDays(today);
+    expect(days).toHaveLength(10);
+    expect(days.map(day => day.dataset.observedDay)).toEqual(expectedDays);
+    expect(days[0].textContent).toContain("Hôm nay");
+    expect(days[1].textContent).toContain("Hôm qua");
+    expect(days[2].textContent).toContain(expectedDays[2].split("-").reverse().join("-"));
+    expect(days[0].textContent).toContain("3");
+    expect(days[0].getAttribute("aria-pressed")).toBe("true");
+    expect(observed.some(url => url.includes("/listings?") &&
+      url.includes("observed_day=" + today))).toBe(true);
+
     await act(async () => {
-      shop.click();
-      await new Promise(resolve => setTimeout(resolve, 35));
+      days[1].click();
+      await new Promise(resolve => setTimeout(resolve, 55));
     });
-    expect(shop.getAttribute("aria-pressed")).toBe("true");
-    expect(observed.some(url => url.includes("/listings?") && url.includes("source=shop"))).toBe(true);
-    const pending = container?.querySelector(".etsy-stat-pending") as HTMLButtonElement;
+    expect(days[1].getAttribute("aria-pressed")).toBe("true");
+    expect(days[0].getAttribute("aria-pressed")).toBe("false");
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(expectedDays[1]);
+    expect(observed.some(url => url.includes("/listings?") &&
+      url.includes("observed_day=" + expectedDays[1]))).toBe(true);
+
+    // Top Eligible listings card must still provide the unfiltered historical list.
     await act(async () => {
-      pending.click();
-      await new Promise(resolve => setTimeout(resolve, 35));
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
     });
-    expect(observed.some(url => url.includes("/listings?") && url.includes("tm=pending"))).toBe(true);
-    const keywords = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
-      .find(item => item.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")).toBeNull();
+    const totalUrls = observed.filter(url => url.includes("/listings?"));
+    expect(totalUrls.at(-1)).not.toContain("observed_day");
+
     await act(async () => {
-      keywords.click();
-      await new Promise(resolve => setTimeout(resolve, 35));
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    const pickedFetches = observed.filter(url => url.includes("/listings?") &&
+      url.includes("pick_state=picked"));
+    expect(pickedFetches.length).toBeGreaterThan(0);
+    expect(pickedFetches.every(url => !url.includes("observed_day="))).toBe(true);
+    await act(async () => {
+      days[0].click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    expect(days[0].getAttribute("aria-pressed")).toBe("true");
+    expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+  });
+
+  it("computes Vietnamese calendar days independently from browser timezone", () => {
+    expect(vietnamCalendarDay(new Date("2026-11-06T16:59:59Z"))).toBe("2026-11-06");
+    expect(vietnamCalendarDay(new Date("2026-11-06T17:00:00Z"))).toBe("2026-11-07");
+    expect(recentObservedDays("2026-11-07").slice(0, 4)).toEqual([
+      "2026-11-07", "2026-11-06", "2026-11-05", "2026-11-04",
+    ]);
+  });
+
+  it("keeps only the four requested KPI cards and uses them to navigate", async () => {
+    await start();
+    const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
+    expect(cards).toHaveLength(4);
+    expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
+      "Eligible listings", "Picked", "Blacklist", "Keyword nodes",
+    ]);
+    expect(container?.querySelector(".etsy-stat-shop")).toBeNull();
+    expect(container?.querySelector(".etsy-stat-pending")).toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
+    });
+    expect(observed.some(url => url.includes("/listings?") &&
+      url.includes("pick_state=picked"))).toBe(true);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-keywords")?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
     });
     expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
-    expect(keywords.getAttribute("aria-selected")).toBe("true");
     expect(container?.querySelector(".etsy-agents")?.tagName).toBe("DETAILS");
-    expect((container?.querySelector(".etsy-agents") as HTMLDetailsElement).open).toBe(false);
   });
 
   it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
@@ -438,7 +491,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-blacklist-panel")).toBeNull();
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(new URLSearchParams(window.location.search).has("panel")).toBe(false);
-    expect(container?.querySelector(".etsy-table-section-header h2")?.textContent).toContain("Picked");
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {
@@ -467,8 +520,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(picked?.getAttribute("aria-pressed")).toBe("true");
-    expect(container?.querySelector(".etsy-table-section-header h2")?.textContent)
-      .toContain("Picked");
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
     expect(container?.textContent).toContain("Rudolph Shirt");
     expect(observed.some(x => x.includes("pick_state=picked"))).toBe(true);

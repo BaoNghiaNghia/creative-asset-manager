@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 
 import pytest
@@ -188,6 +189,71 @@ def test_offline_data_retention_search_sort_pagination_and_csv(scenario):
     logs_csv = client.get("/api/v1/etsy-spy/logs/export.csv")
     assert "'=HYPERLINK" in logs_csv.text
     assert client.get("/api/v1/etsy-spy/logs/stats").json()["errors"] == 1
+
+
+def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibility(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    vn = ZoneInfo("Asia/Ho_Chi_Minh")
+    today = datetime.now(vn).date()
+    today_start = datetime.combine(today, time(6), tzinfo=vn).astimezone(timezone.utc)
+    def utc_iso(moment):
+        return moment.isoformat().replace("+00:00", "Z")
+    observations = [
+        ("1234567890", today_start - timedelta(seconds=1)),
+        ("1234567891", today_start),
+        ("1234567892", today_start + timedelta(days=1, seconds=-1)),
+        ("1234567893", today_start + timedelta(days=1)),
+    ]
+    payload = batch("observed-buckets")
+    payload["records"]["listings"] = [
+        {**product(title=f"Rudolph shirt {index}"), "listingKey": listing_id,
+         "url": f"https://www.etsy.com/listing/{listing_id}/test",
+         "observedAt": utc_iso(moment)}
+        for index, (listing_id, moment) in enumerate(observations)
+    ]
+    assert sync(client, agent, headers, payload).status_code == 200
+    base = "/api/v1/etsy-spy/listings"
+    yesterday = (today - timedelta(days=1)).isoformat()
+    today_key = today.isoformat()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    assert client.get(base, params={"observed_day": yesterday}).json()["total"] == 1
+    today_result = client.get(base, params={"observed_day": today_key}).json()
+    assert today_result["total"] == 2
+    assert {row["listingKey"] for row in today_result["items"]} == {
+        "1234567891", "1234567892"}
+    assert client.get(base, params={"observed_day": tomorrow}).json()["total"] == 1
+    assert client.get(base, params={"observed_day": "not-a-date"}).status_code == 422
+    assert client.get(base, params={"observed_day": "2026-02-30"}).status_code == 422
+    csv_text = client.get("/api/v1/etsy-spy/export.csv",
+                          params={"observed_day": today_key}).text
+    assert "1234567891" in csv_text and "1234567892" in csv_text
+    assert "1234567890" not in csv_text and "1234567893" not in csv_text
+
+    buckets = client.get("/api/v1/etsy-spy/listings/observed-days")
+    assert buckets.status_code == 200, buckets.text
+    body = buckets.json()
+    assert body["timezone"] == "Asia/Ho_Chi_Minh" and body["start_hour"] == 6
+    assert len(body["items"]) == 10
+    assert body["items"][0] == {"day": today_key, "count": 2}
+    assert body["items"][1] == {"day": yesterday, "count": 1}
+    assert len({entry["day"] for entry in body["items"]}) == 10
+
+    # A Pick removes the listing from both the daily card and Eligible listings.
+    picked = client.put(base + "/1234567891/pick", json={"picked": True})
+    assert picked.status_code == 200, picked.text
+    assert client.get(base, params={"observed_day": today_key}).json()["total"] == 1
+    assert client.get(base, params={
+        "observed_day": today_key, "pick_state": "picked"}).json()["total"] == 1
+    assert client.get(base + "/observed-days").json()["items"][0]["count"] == 1
+
+    # Blacklist still takes precedence over both Picked and Eligible date buckets.
+    assert client.post("/api/v1/etsy-spy/blacklist",
+                       json={"phrases": ["Rudolph"]}).status_code == 200
+    assert client.get(base + "/observed-days").json()["items"][0]["count"] == 0
+    assert client.get(base, params={"observed_day": today_key}).json()["total"] == 0
+    assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 200
+    assert client.get(base + "/observed-days").json()["items"][0]["count"] == 1
 
 
 def test_bad_credentials_custom_titles_oversize_and_separate_permissions(scenario):

@@ -8,7 +8,8 @@ import csv
 import io
 import re
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -35,6 +36,8 @@ router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
 READ = require_permission("etsy_spy.read")
 MANAGE = require_permission("etsy_spy.manage")
 MAX_CSV_ROWS = 20_000
+VIETNAM_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+OBSERVED_DAY_START = time(6, 0)
 
 def freshness(db: Session, tenant: str) -> dict[str, Any]:
     rows = db.scalars(select(Agent).where(Agent.tenant_id == tenant, Agent.active.is_(True))).all()
@@ -199,11 +202,18 @@ def remove_blacklist(phrase: str, principal: CurrentPrincipal = Depends(MANAGE),
             "visible_products": _blacklist_visible_count(db, principal.active_tenant_id)}
 
 
+def _observed_day_bounds(day: date) -> tuple[datetime, datetime]:
+    """The Vietnamese calendar day begins at 06:00, with an exclusive end."""
+    start = datetime.combine(day, OBSERVED_DAY_START, tzinfo=VIETNAM_TZ)
+    end = datetime.combine(day + timedelta(days=1), OBSERVED_DAY_START, tzinfo=VIETNAM_TZ)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
 def _listings_query(
     tenant: str, *, q: str = "", session_id: str | None = None,
     source: str = "", badge: str = "", tm: str = "",
     sort: str = "observedAt", direction: str = "desc",
-    pick_state: str = "eligible",
+    pick_state: str = "eligible", observed_day: date | None = None,
 ) -> tuple[Any, Any]:
     if pick_state not in {"eligible", "picked"}:
         raise HTTPException(422, "Invalid Picked view")
@@ -217,6 +227,9 @@ def _listings_query(
         _picked_condition(tenant) if pick_state == "picked"
         else not_(_picked_condition(tenant)),
     ]
+    if observed_day is not None:
+        since, before = _observed_day_bounds(observed_day)
+        condition.extend((Listing.observed_at >= since, Listing.observed_at < before))
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
                              Listing.keyword.ilike("%" + q[:160] + "%")))
@@ -363,18 +376,54 @@ def sessions(principal: CurrentPrincipal = Depends(READ), db: Session = Depends(
     ], **freshness(db, tenant)})
 
 
+@router.get("/listings/observed-days")
+def listing_observed_days(
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    """Ten recent 06:00–06:00 VN buckets of current eligible Etsy Listing IDs.
+
+    Reuse the same qualification, blacklist and Pick rules as /listings.
+    A single SQL aggregate avoids one round trip per date and duplicate IDs.
+    """
+    today = datetime.now(VIETNAM_TZ).date()
+    days = [today - timedelta(days=index) for index in range(10)]
+    windows = [_observed_day_bounds(day) for day in days]
+    expressions = [
+        func.count(func.distinct(Listing.listing_key)).filter(
+            Listing.observed_at >= since, Listing.observed_at < before,
+        )
+        for since, before in windows
+    ]
+    _, total_query = _listings_query(principal.active_tenant_id)
+    counts = db.execute(total_query.with_only_columns(
+        *expressions, maintain_column_froms=True,
+    ).where(
+        Listing.observed_at >= windows[-1][0],
+        Listing.observed_at < windows[0][1],
+    )).one()
+    return {
+        "timezone": "Asia/Ho_Chi_Minh",
+        "start_hour": 6,
+        "items": [
+            {"day": day.isoformat(), "count": int(counts[index] or 0)}
+            for index, day in enumerate(days)
+        ],
+    }
+
+
 @router.get("/listings")
 def listings(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
-    pick_state: str = "eligible",
+    pick_state: str = "eligible", observed_day: date | None = None,
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     tenant = principal.active_tenant_id
     query, total_q = _listings_query(
         tenant, q=q, session_id=session_id, source=source, badge=badge,
         tm=tm, sort=sort, direction=dir, pick_state=pick_state,
+        observed_day=observed_day,
     )
     rows, total = _paged(db, query, total_q, page, page_size)
     return _response([_listing_item(listing, tmcheck, picked=pick_state == "picked")
@@ -601,12 +650,13 @@ def _csv_response(headers: list[str], rows: list[dict], filename: str):
 def export_listings(
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
-    pick_state: str = "eligible",
+    pick_state: str = "eligible", observed_day: date | None = None,
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     query, _ = _listings_query(principal.active_tenant_id, q=q, session_id=session_id,
                               source=source, badge=badge, tm=tm,
-                              sort=sort, direction=dir, pick_state=pick_state)
+                              sort=sort, direction=dir, pick_state=pick_state,
+                              observed_day=observed_day)
     rows = db.execute(query.limit(MAX_CSV_ROWS)).all()
     headers = ["sessionId", "keyword", "sourceKind", "badge", "tm", "bought24h",
                "views24h", "inCarts", "demandScore", "pageTitle", "url", "observedAt"]
