@@ -22,6 +22,7 @@ from app.modules.authorization.principal import (
 )
 
 from .evidence_audit import audit_stage1_candidates
+from .holdout import evaluation_readiness_from_audit
 from .executor_readiness import (
     ExecutorSnapshot, browser_snapshot, preview_route, probe_codex,
 )
@@ -137,6 +138,23 @@ def register_agent_definition(
         "tenant_id": tenant_id, "agent_id": row.agent_id, "version": row.version,
         "enabled": False, "created": True, "execution_enabled": False,
     }
+
+
+@router.get("/{tenant_id}/feedback/stage1/evaluation-readiness")
+def read_stage1_evaluation_readiness(
+    tenant_id: str,
+    cohort: Literal["music", "western", "pets", "healthcare", "coffee", "family", "outdoors"],
+    limit: int = Query(default=20, ge=1, le=30),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Preflight only. Historical Pick/Reject is NOT an independent holdout."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    audit = audit_stage1_candidates(
+        db, tenant_id=tenant_id, cohort=cohort, limit=limit,
+    )
+    return evaluation_readiness_from_audit(audit)
 
 
 @router.get("/{tenant_id}/feedback/stage1/evidence-audit")

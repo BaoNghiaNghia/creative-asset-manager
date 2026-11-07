@@ -1,3 +1,10 @@
+## 2026-11-08 — Agent Harness V2 Phase 3C.1 (read-only evaluation readiness)
+
+- New pure `holdout.py` provides deterministic keyword-level control/challenger design, strictly validated QA aggregates, blinded provenance gates, conservative 95% Wilson confidence bounds, cost/critical-defect checks. All favorable results still require independent owner review; policy promotion is ALWAYS false.
+- New `GET /api/v1/admin/agent-harness/{tenant_id}/feedback/stage1/evaluation-readiness`: compares existing evidence audit with future prospective/QA requirements; requires both read/configure privileges, tenant scope and existing READ feature flag default false.
+- Returns limited status/counts and blocking reasons, never source keywords, vote identifiers, artwork hashes or prompts. Does not register a trial, apply policy, start agent, change Stage 1 outputs, run API models, write database or change migration/feature flags.
+- Source/runbook: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C1_HOLDOUT.md`. Rollback: retained previous backend release, same DB schema.
+
 ## 2026-11-08 — Agent Harness V2 Phase 3B.2: candidate provenance audit (backend-only)
 
 - `GET /api/v1/admin/agent-harness/{tenant_id}/feedback/stage1/evidence-audit?cohort=<enum>&limit=20` is protected by the existing READ feature flag, both `ai_operations.read` and `ai_provider.configure` permissions, and tenant scope.

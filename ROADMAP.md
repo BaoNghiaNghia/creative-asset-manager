@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-08 — CAM Agent Harness Phase 3C.1 (prospective holdout preflight)
+
+- [x] Add deterministic tenant/cohort/trial/keyword-level assignment kernel for a future control/challenger trial; assignments are planning-only, NOT registered or activated.
+- [x] Add no-provider QA/holdout contract with independent-provenance attestations, keyword-level minima, conservative Wilson confidence intervals, critical-defect/cost checks and manual-review-only favorable outcome.
+- [x] Add default-off read-only evaluation-readiness endpoint derived from existing Stage 3B.2 tenant-scoped source audit. No new migration, database write, execution, or automatic promotion.
+- [ ] Persist immutable prospective registrations and arm exposure before generation, derive QA telemetry from independent reviewers, then evaluate true held-out outcomes.
+- [ ] Add audited owner approval and canary rollback only after real evidence and security gates; do not apply learning to current jobs.
+
+
 ## 2026-11-08 — Agent Harness V2 Phase 3B.2: read-only feedback evidence audit
 
 - [x] Add tenant/RBAC-guarded Stage 1 candidate Evidence Audit (no new schema), with explicit source-current/stale/rejected/promoted review statuses and at most 30 results.
