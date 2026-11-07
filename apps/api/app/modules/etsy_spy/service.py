@@ -154,7 +154,12 @@ def create_agent(db: Session, tenant_id: str, name: str) -> tuple[EtsySpyAgent, 
     return agent, secret
 
 
-def authenticate_agent(db: Session, agent_id: str, authorization: str | None) -> EtsySpyAgent:
+IMAGE_AGENT_NAME_PREFIX = "CAM Image Agent / "
+
+
+def authenticate_agent(
+    db: Session, agent_id: str, authorization: str | None, *, image_only: bool = False,
+) -> EtsySpyAgent:
     agent = db.get(EtsySpyAgent, agent_id)
     match = re.fullmatch(r"Bearer ([A-Za-z0-9_-]{64,128})", authorization or "")
     candidate = hashlib.sha256((match.group(1) if match else "").encode()).hexdigest()
@@ -163,6 +168,10 @@ def authenticate_agent(db: Session, agent_id: str, authorization: str | None) ->
                  hmac.compare_digest(candidate, expected))
     if not valid:
         raise HTTPException(401, "Invalid or revoked Etsy Spy agent credential")
+    # Device role is immutable: ordinary Etsy Scout tokens must not claim image
+    # jobs, and the Image Agent token must not sync or mutate Scout records.
+    if bool(agent.name.startswith(IMAGE_AGENT_NAME_PREFIX)) != image_only:
+        raise HTTPException(403, "Agent token is not authorized for this device role")
     return agent
 
 

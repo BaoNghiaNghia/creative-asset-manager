@@ -26,13 +26,15 @@ from app.modules.etsy_spy.model import (
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
+from app.modules.processing.model import ProcessingJobModel
+from app.domain.processing.types import JOB_TYPES
 
 
 TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
-    EtsySpyWinKeyword, EtsySpyParentKeyword,
+    EtsySpyWinKeyword, EtsySpyParentKeyword, ProcessingJobModel,
 )
 
 
@@ -218,6 +220,8 @@ def test_parent_keywords_saved_priorities_and_agent_sync(scenario):
 
 def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
     client, db, principal = scenario
+    assert client.post("/api/v1/etsy-spy/agents",
+        json={"name": "CAM Image Agent / counterfeit"}).status_code == 422
     created = client.post("/api/v1/etsy-spy/agents", json={"name": "Desktop Spy"})
     assert created.status_code == 201, created.text
     token = created.json()["token"]
@@ -848,3 +852,197 @@ def test_pick_is_tenant_scoped_across_sources_and_blacklist(scenario):
     assert db.get(EtsySpyPicked, ("boostgame", "1234567890")) is not None
     assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 200
     assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 1
+
+def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    payload = batch("pick-extraction")
+    payload["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.design.jpg"
+    )
+    assert sync(client, agent, headers, payload).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings/1234567890"
+    first = client.put(endpoint + "/pick", json={"picked": True})
+    assert first.status_code == 200, first.text
+    data = client.get(endpoint + "/extraction").json()
+    assert data["status"] == "pending" and data["job_id"]
+    job = db.get(ProcessingJobModel, data["job_id"])
+    assert job is not None
+    assert job.tenant_id == "boostgame"
+    assert job.job_type == "etsy_design_extract"
+    assert job.job_type not in JOB_TYPES
+    assert job.provider_key == "windows_image_agent"
+    assert job.payload_json["engine"] == "auto"
+    assert job.payload_json["rights_status"] == "unverified"
+    assert job.payload_json["manual_qa_required"] is True
+    assert job.payload_json["source"]["url"] == payload["records"]["listings"][0]["fullImageUrl"]
+    assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
+    again = client.put(endpoint + "/pick", json={"picked": True})
+    assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
+    assert db.query(ProcessingJobModel).count() == 1
+    assert client.put(endpoint + "/pick", json={"picked": False}).status_code == 200
+    db.refresh(job)
+    assert job.cancellation_requested is True
+    assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
+    repick = client.put(endpoint + "/pick", json={"picked": True})
+    assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
+    db.refresh(job)
+    assert job.cancellation_requested is False
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
+
+
+def test_picked_without_verified_source_never_invents_an_image(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch("pick-no-image")).status_code == 200
+    reply = client.put("/api/v1/etsy-spy/listings/1234567890/pick", json={"picked": True})
+    assert reply.status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings/1234567890/extraction").json()["status"] == "source_missing"
+    assert db.query(ProcessingJobModel).count() == 0
+    assert db.get(EtsySpyPicked, ("boostgame", "1234567890")) is not None
+
+
+def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, principal = scenario
+    agent, spy_headers = pair(client, db)
+    image = batch("image-agent-pilot")
+    image["records"]["listings"][0]["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    assert sync(client, agent, spy_headers, image).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick", json={"picked": True}).status_code == 200
+    created = client.post("/api/v1/etsy-spy/image-agents", json={"name": "Windows CPU Pilot"})
+    assert created.status_code == 201, created.text
+    agent_id, token = created.json()["agent_id"], created.json()["token"]
+    path = f"/api/v1/etsy-spy/image-agents/{agent_id}"
+    auth = {"Authorization": "Bearer " + token}
+    monkeypatch.delenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", raising=False)
+    assert client.post(path + "/claim", headers=auth).status_code == 503
+    assert client.post(path + "/claim", headers=spy_headers).status_code == 401
+    assert client.post(f"/api/v1/etsy-spy/agents/{agent_id}/sync",
+                       json={}, headers=auth).status_code == 403
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    first = client.post(path + "/claim", headers=auth)
+    assert first.status_code == 200, first.text
+    claim = first.json()
+    assert claim["task"]["tenant_id"] == "boostgame"
+    assert claim["task"]["source"]["type"] == "etsy_cdn"
+    assert claim["task"]["rights_status"] == "unverified"
+    replay = client.post(path + "/claim", headers=auth).json()
+    assert replay["task"]["id"] == claim["task"]["id"]
+    assert replay["lease_token"] == claim["lease_token"]
+    # Windows may have been offline beyond the 30-minute lease. Only the
+    # originally paired device may renew the same token for the same task.
+    leased = db.get(ProcessingJobModel, claim["task"]["id"])
+    leased.lease_expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    db.commit()
+    check = client.post(path + "/check-job", json={
+        "job_id": leased.id, "lease_token": claim["lease_token"],
+    }, headers=auth)
+    assert check.status_code == 200, check.text
+    assert check.json()["status"] == "processing"
+    assert client.post(path + "/check-job", json={
+        "job_id": leased.id, "lease_token": "bad",
+    }, headers=auth).status_code == 409
+    db.refresh(leased)
+    assert leased.lease_expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+    pending = {
+        "job_id": claim["task"]["id"], "lease_token": claim["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+    }
+    assert client.post(path + "/result", json={**pending,
+                "lease_token": "invalid"}, headers=auth).status_code == 403
+    result = client.post(path + "/result", json=pending, headers=auth)
+    assert result.status_code == 200, result.text
+    assert result.json()["ok"] and result.json()["receipt_id"]
+    identical = client.post(path + "/result", json=pending, headers=auth)
+    assert identical.status_code == 200
+    assert identical.json()["receipt_id"] == result.json()["receipt_id"]
+    completed = client.post(path + "/check-job", json={
+        "job_id": claim["task"]["id"], "lease_token": claim["lease_token"]
+    }, headers=auth)
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["receipt_id"] == result.json()["receipt_id"]
+    listing = client.get("/api/v1/etsy-spy/listings",
+                         params={"pick_state": "picked"}).json()["items"][0]
+    assert listing["extraction"]["status"] == "needs_ai"
+    assert listing["extraction"]["manual_qa_required"] is True
+    assert client.post(path + "/claim", headers=auth).json()["task"] is None
+    principal.active_tenant_id = "foreign"
+    assert client.get("/api/v1/etsy-spy/image-agents").json()["items"] == []
+    assert client.get("/api/v1/etsy-spy/image-agents/assets/" + claim["task"]["id"]).status_code == 404
+
+
+def test_image_agent_valid_png_asset_and_unpick_revocation(scenario, monkeypatch, tmp_path):
+    import zlib
+    import struct
+    import binascii
+    import base64 as b64
+    import hashlib as hashmod
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _principal = scenario
+    agent, headers = pair(client, db)
+    payload = batch("image-agent-png")
+    payload["records"]["listings"][0]["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    assert sync(client, agent, headers, payload).status_code == 200
+    base = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(base + "/pick", json={"picked": True}).status_code == 200
+    created = client.post("/api/v1/etsy-spy/image-agents", json={"name": "RGBA Pilot"}).json()
+    auth = {"Authorization": "Bearer " + created["token"]}
+    remote = "/api/v1/etsy-spy/image-agents/" + created["agent_id"]
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    task = client.post(remote + "/claim", headers=auth).json()
+    claim_id = task["task"]["id"]
+    def chunk(kind, data):
+        payload = kind + data
+        return struct.pack(">I", len(data)) + payload + struct.pack(">I", binascii.crc32(payload) & 0xFFFFFFFF)
+    # A valid 4500x5400 RGBA image, compressed as zero-filled scanlines.
+    header = struct.pack(">IIBBBBB", 4500, 5400, 8, 6, 0, 0, 0)
+    scanline = bytes(1 + 4500 * 4)
+    compressed = zlib.compress(scanline * 5400, 6)
+    png = (bytes([137, 80, 78, 71, 13, 10, 26, 10])
+           + chunk(b"IHDR", header) + chunk(b"IDAT", compressed) + chunk(b"IEND", b""))
+    request = {
+        "job_id": claim_id, "lease_token": task["lease_token"],
+        "status": "needs_review", "engine": "fast_cpu",
+        "png_base64": b64.b64encode(png).decode(),
+        "output_sha256": hashmod.sha256(png).hexdigest(),
+    }
+    invalid = {**request, "output_sha256": "0" * 64}
+    assert client.post(remote + "/result", json=invalid, headers=auth).status_code == 422
+    receipt = client.post(remote + "/result", json=request, headers=auth)
+    assert receipt.status_code == 200, receipt.text
+    image = client.get("/api/v1/etsy-spy/image-agents/assets/" + claim_id)
+    assert image.status_code == 200 and image.content == png
+    assert image.headers["cache-control"] == "private, no-store"
+    assert client.put(base + "/pick", json={"picked": False}).status_code == 200
+    assert client.get(base + "/extraction").json()["status"] == "not_picked"
+    abandoned = client.post(remote + "/check-job", json={
+        "job_id": claim_id, "lease_token": task["lease_token"]
+    }, headers=auth)
+    assert abandoned.status_code == 200
+    assert abandoned.json()["status"] == "cancelled"
+
+def test_extraction_feature_off_never_creates_backlog(scenario, monkeypatch):
+    monkeypatch.delenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", raising=False)
+    monkeypatch.delenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", raising=False)
+    client, db, _principal = scenario
+    agent, headers = pair(client, db)
+    image = batch("image-agent-disabled")
+    image["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, agent, headers, image).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    assert db.query(ProcessingJobModel).count() == 0
+    assert client.get("/api/v1/etsy-spy/listings/1234567890/extraction").json()["status"] == "disabled"

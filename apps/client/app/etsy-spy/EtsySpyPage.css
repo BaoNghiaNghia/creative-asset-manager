@@ -1450,3 +1450,32 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-stats>.etsy-stat{min-width:112px;max-width:150px}
   .etsy-action-cell .etsy-later-button{min-height:33px;padding:6px 10px}
 }
+/* Etsy Picked: compact extraction lifecycle, no extra grid column. */
+.etsy-spy-page .etsy-extraction-status {
+  display:inline-flex;
+  align-items:center;
+  width:fit-content;
+  max-width:100%;
+  padding:2px 7px;
+  border:1px solid #c8d3dc;
+  border-radius:5px;
+  background:#f8fafc;
+  color:#465469;
+  font-size:11px;
+  font-weight:600;
+  line-height:1.3;
+}
+
+.etsy-spy-page .etsy-extraction-open {
+  display:inline-block;
+  width:fit-content;
+  color:#135e96;
+  font-size:11px;
+  font-weight:600;
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+.etsy-spy-page .etsy-extraction-open:focus-visible {
+  outline:2px solid #135e96;
+  outline-offset:2px;
+}

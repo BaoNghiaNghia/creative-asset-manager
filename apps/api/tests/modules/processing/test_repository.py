@@ -97,6 +97,32 @@ class ProcessingRepositoryTest(unittest.TestCase):
             self.assertEqual(first.id, second.id)
             self.assertEqual(repository.count_jobs(), 1)
 
+    def test_external_image_agent_jobs_never_reach_normal_codex_claim(self) -> None:
+        """Unknown/external-only job types are not a general worker fallback."""
+        with self.sessions() as session:
+            session.add(ProcessingJobModel(
+                tenant_id="tenant-a", job_type="etsy_design_extract",
+                entity_type="etsy_listing", entity_id="1234567890",
+                idempotency_key="external-etsy-test",
+                payload_json={}, provider_key="windows_image_agent",
+                priority=99, next_attempt_at=NOW, status="pending",
+            ))
+            session.commit()
+        known_job = self._enqueue(key="source:known-job")
+        with self.sessions() as session:
+            repo = ProcessingRepository(session)
+            selected = repo.claim_next_job(
+                worker_id="ordinary-codex-worker", lease_seconds=60, now=NOW)
+            self.assertIsNotNone(selected)
+            self.assertEqual(selected.id, known_job)
+            selected_again = repo.claim_next_job(
+                worker_id="ordinary-codex-worker", lease_seconds=60, now=NOW)
+            self.assertIsNone(selected_again)
+            external = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.job_type == "etsy_design_extract"))
+            self.assertEqual(external.status, "pending")
+            self.assertEqual(external.attempt_count, 0)
+
     def test_two_workers_do_not_claim_the_same_job(self) -> None:
         job_id = self._enqueue()
         barrier = threading.Barrier(2)

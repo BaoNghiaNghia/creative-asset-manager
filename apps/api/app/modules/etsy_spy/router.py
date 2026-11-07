@@ -19,6 +19,7 @@ from sqlalchemy import and_, asc, desc, func, or_, select, not_, literal
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
+from app.modules.processing.model import ProcessingJobModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
@@ -31,10 +32,11 @@ from .model import (
     utcnow,
 )
 from .later_queue import refresh_later_matches, seed_analysis
+from .extraction import (create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
-    verified_image_url,
+    verified_image_url, IMAGE_AGENT_NAME_PREFIX,
 )
 
 router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
@@ -673,10 +675,34 @@ def listings(
                                     LaterMatch.state == "matched")).all()}
         seed_ids = set(db.scalars(select(LaterSeed.listing_key).where(
             LaterSeed.tenant_id == tenant, LaterSeed.listing_key.in_(ids))).all())
+    # One batched query, never one extraction lookup per Picked row.
+    extraction_by_key: dict[str, dict] = {}
+    if pick_state == "picked" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        jobs = db.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == "etsy_design_extract",
+            ProcessingJobModel.entity_id.in_(ids),
+        ).order_by(desc(ProcessingJobModel.created_at),
+                   desc(ProcessingJobModel.id))).all()
+        for job in jobs:
+            if job.entity_id in extraction_by_key:
+                continue
+            detail = job.payload_json if isinstance(job.payload_json, dict) else {}
+            result = detail.get("result") if isinstance(detail.get("result"), dict) else {}
+            extraction_by_key[job.entity_id] = {
+                "job_id": job.id, "status": result.get("status") or
+                    ("cancelled" if job.cancellation_requested else job.status),
+                "engine": result.get("engine") or "fast_then_ai",
+                "manual_qa_required": True,
+            }
     return _response([
-        _listing_item(listing, tmcheck, picked=pick_state == "picked",
-                      later_match=later_by_key.get(listing.listing_key),
-                      later_manual=listing.listing_key in seed_ids)
+        {**_listing_item(listing, tmcheck, picked=pick_state == "picked",
+                       later_match=later_by_key.get(listing.listing_key),
+                       later_manual=listing.listing_key in seed_ids),
+         **({"extraction": extraction_by_key.get(listing.listing_key,
+              {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
+            if pick_state == "picked" else {})}
         for listing, tmcheck in rows
     ], total, page, page_size, freshness(db, tenant))
 
@@ -697,26 +723,51 @@ async def set_listing_pick(
         raise HTTPException(422, "picked must be true or false")
     tenant = principal.active_tenant_id
     target = db.get(Picked, (tenant, listing_key))
+    extraction_job = None
     if payload["picked"]:
-        # Never pick an unqualified, blacklisted or foreign-tenant product.
-        eligible = db.scalar(select(literal(1)).select_from(Listing).where(
+        # Pick and the external-only extraction job are committed atomically.
+        eligible = db.scalar(select(Listing).where(
             Listing.tenant_id == tenant,
             Listing.listing_key == listing_key,
             Listing.is_current.is_(True),
             ~Listing.title.ilike("%custom%"),
             _blacklist_condition(tenant),
             _qualified_listing_condition(),
-        ).limit(1))
+        ).order_by(desc(Listing.observed_at), desc(Listing.updated_at)).limit(1))
         if eligible is None:
             raise HTTPException(404, "Eligible listing not found")
         if target is None:
             db.add(Picked(tenant_id=tenant, listing_key=listing_key,
                           picked_at=utcnow()))
-    elif target is not None:
-        db.delete(target)
+        extraction_job = create_extraction_on_pick(db, tenant, eligible)
+    else:
+        if target is not None:
+            db.delete(target)
+        cancel_pending_extractions(db, tenant, listing_key)
     db.commit()
     return {"listingKey": listing_key, "picked": payload["picked"]}
 
+@router.get("/listings/{listing_key}/extraction")
+def listing_extraction_status(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    """Read-only, tenant-scoped status; no image generation or external side effects."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        return {"listingKey": listing_key, "status": "not_picked", "job_id": None}
+    job = latest_extraction_job(db, tenant, listing_key)
+    if job is None:
+        return {"listingKey": listing_key, "status": "source_missing" if extraction_enabled() else "disabled",
+                "job_id": None}
+    return {
+        "listingKey": listing_key, "job_id": job.id, "status": job.status,
+        "cancellation_requested": job.cancellation_requested,
+        "engine": "fast_then_ai", "manual_qa_required": True,
+        "last_error": job.last_error_code,
+    }
 
 @router.put("/listings/{listing_key}/later")
 async def set_listing_later(
@@ -1017,6 +1068,8 @@ async def pair_agent(
     if not isinstance(payload, dict):
         raise HTTPException(422, "Invalid request")
     name = text(payload.get("name"), 100, required=True)
+    if name.startswith(IMAGE_AGENT_NAME_PREFIX):
+        raise HTTPException(422, "Image Agent identity must be paired through the dedicated endpoint")
     agent, secret = create_agent(db, principal.active_tenant_id, name)
     return {"agent_id": agent.id, "token": secret,
             "notice": "Save this token on the Windows tool now. It will not be shown again."}
@@ -1126,3 +1179,7 @@ async def ingest_agent(
         if size > MAX_BATCH_BYTES: raise HTTPException(413, "Sync batch too large")
         chunks.append(chunk)
     return sync_batch(db, agent, b"".join(chunks))
+
+# Mounted after standard Etsy Spy routes; transport remains opt-in.
+from .image_agent import image_router
+router.include_router(image_router)

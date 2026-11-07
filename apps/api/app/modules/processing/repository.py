@@ -178,7 +178,10 @@ class ProcessingRepository:
         claimed_at = now or utcnow()
         self._repair_exhausted_queued_jobs(claimed_at)
         self._terminalize_exhausted_jobs(claimed_at)
-        eligibility = self._job_eligibility(claimed_at)
+        # Strictly exclude external-only job types from ordinary CAM/Codex workers.
+        # A dedicated agent claims those through its own scoped device endpoint.
+        eligibility = and_(self._job_eligibility(claimed_at),
+                           ProcessingJobModel.job_type.in_(JOB_TYPES))
         lease_expires_at = claimed_at + timedelta(seconds=lease_seconds)
 
         if enforce_tenant_policy:

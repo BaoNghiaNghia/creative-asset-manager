@@ -32,6 +32,7 @@ export type Mark = {
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
+  extraction?: { job_id?: string | null; status: string; engine?: string; manual_qa_required?: boolean };
   later?: boolean; laterManual?: boolean; laterReason?: string | null;
   laterScore?: number | null; laterSeedKey?: string | null;
   pageTitle: string; url: string | null; badge: string | null;

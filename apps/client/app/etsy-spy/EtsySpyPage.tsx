@@ -271,6 +271,23 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
             <small>#{item.listingKey}</small>
             {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
           </div>
+          {item.picked && <small className="etsy-extraction-status"
+            title="Extracted artwork is for internal review until fidelity and usage rights are verified">
+            Extraction · {({
+              pending: "Queued", retry: "Retry", processing: "Extracting",
+              needs_review: "Review PNG", needs_ai: "Needs AI",
+              failed: "Failed", cancelled: "Cancelled",
+              source_missing: "Source image missing", disabled: "Worker inactive",
+            } as Record<string, string>)[item.extraction?.status || "source_missing"] ||
+              item.extraction?.status || "Pending"}
+          </small>}
+          {item.picked && item.extraction?.status === "needs_review" && item.extraction.job_id &&
+            <a className="etsy-extraction-open"
+              href={"/api/v1/etsy-spy/image-agents/assets/" + encodeURIComponent(item.extraction.job_id)}
+              target="_blank" rel="noopener noreferrer"
+              title="Open transparent PNG for manual artwork and rights review">
+              View PNG
+            </a>}
           {item.later && <small className="etsy-later-match-reason"
             title={item.laterReason || "Grouped by Later keyword theme"}>
             {item.laterManual ? "Later mẫu" : "Tự gom"} · {item.laterReason || "Chủ đề thiết kế liên quan"}
