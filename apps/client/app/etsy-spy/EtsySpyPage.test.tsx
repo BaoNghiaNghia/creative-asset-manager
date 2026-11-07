@@ -165,6 +165,12 @@ function installFetch() {
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 async function start() {
+  // jsdom does not ship ResizeObserver, while the real browser provides it.
+  vi.stubGlobal("ResizeObserver", class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
   installFetch();
   window.history.replaceState(null, "", "/etsy-spy");
   container = document.createElement("div");
@@ -402,6 +408,12 @@ describe("Etsy Spy native CAM dashboard", () => {
       .find(el => el.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
     await act(async () => { tab.click(); await new Promise(resolve => setTimeout(resolve, 70)); });
     expect(observed.some(url => url.includes("/keywords?") && url.includes("page_size=200"))).toBe(true);
+    const modeButtons = Array.from(container?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-map-mode-switch button") || []);
+    expect(modeButtons.map(button => button.textContent)).toEqual(["Mindmap", "Tree"]);
+    expect(modeButtons[0].getAttribute("aria-pressed")).toBe("true");
+    await act(async () => { modeButtons[1].click(); await new Promise(resolve => setTimeout(resolve, 35)); });
+    expect(modeButtons[1].getAttribute("aria-pressed")).toBe("true");
     expect(container?.querySelector(".etsy-data-table.is-keyword-tree")).toBeTruthy();
     expect(container?.querySelector(".etsy-pager")).toBeNull();
     expect(container?.textContent).toContain("Parent not synced");

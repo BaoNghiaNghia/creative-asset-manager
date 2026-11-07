@@ -1085,3 +1085,201 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 @media(min-width:601px) and (max-width:1050px){
   .etsy-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+/* Etsy Spy Keyword Mindmap: grouped Scout evidence, no mutation of original nodes. */
+.etsy-map-mode-switch{
+  display:inline-flex;align-items:center;gap:2px;padding:3px;
+  border:1px solid #dce6f4;background:#f3f6fb;border-radius:8px;
+}
+.etsy-tree-actions .etsy-map-mode-switch button{
+  border:0;min-height:26px;background:transparent;box-shadow:none;
+  padding:5px 11px;color:#71819c;
+}
+.etsy-tree-actions .etsy-map-mode-switch button[aria-pressed="true"]{
+  color:#24569b;background:#fff;box-shadow:0 1px 4px #17355e17;
+}
+.etsy-map-shell{overflow:hidden;min-height:550px}
+.etsy-map-layout{
+  display:grid;grid-template-columns:minmax(0,1fr) 290px;
+  min-height:555px;background:#fff;
+}
+.etsy-map-main{display:flex;flex-direction:column;min-width:0;border-right:1px solid #e4eaf3}
+.etsy-map-canvas-toolbar{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:8px;padding:10px 14px;border-bottom:1px solid #edf1f6;
+  color:#667a97;font-size:10px;font-weight:650;
+}
+.etsy-map-canvas-toolbar button,.etsy-map-inspector-actions button,.etsy-map-show-all{
+  border:1px solid #d2e0f1;background:#f4f8ff;border-radius:6px;
+  color:#396aa5;padding:5px 10px;font-size:10px;font-weight:720;
+}
+.etsy-map-canvas-toolbar button:hover,.etsy-map-inspector-actions button:hover{
+  background:#e9f2ff;border-color:#a9c6eb;
+}
+.etsy-map-overflow{
+  margin:0;padding:8px 14px;background:#fff8e8;border-bottom:1px solid #f1dfb5;
+  color:#856322;font-size:10px;line-height:1.5;
+}
+.etsy-map-canvas{
+  position:relative;flex:1;min-height:500px;height:min(70vh,740px);
+  background:#fcfdff;isolation:isolate;
+}
+.etsy-map-canvas .react-flow{width:100%;height:100%;font-family:inherit}
+.etsy-map-canvas .react-flow__node-keyword{width:248px;height:88px}
+.etsy-map-canvas .react-flow__node-hub{width:180px;height:84px}
+.etsy-map-canvas .react-flow__node-keyword:focus-visible .etsy-map-node{
+  outline:2px solid #4e7fd2;outline-offset:3px;
+}
+.etsy-map-canvas .react-flow__handle{
+  width:6px;height:6px;background:#96b1d2;border:1px solid white;
+}
+.etsy-map-node{
+  display:flex;flex-direction:column;justify-content:space-between;
+  width:100%;height:100%;padding:9px 11px 8px;border:1px solid #d8e4f2;
+  border-radius:10px;background:#fff;box-shadow:0 3px 12px #294f8910;
+  color:#2b425e;cursor:pointer;transition:border-color .14s,box-shadow .14s;
+}
+.etsy-map-node:hover{border-color:#87aadc;box-shadow:0 5px 18px #39679d1b}
+.etsy-map-node.is-selected{border-color:#4b7dcb;box-shadow:0 0 0 2px #cfe2fc,0 5px 18px #294f8918}
+.etsy-map-node.is-missing{border-style:dashed;background:#fffaf2;border-color:#dfcda8}
+.etsy-map-node-top,.etsy-map-node-bottom{display:flex;align-items:center;justify-content:space-between;gap:7px}
+.etsy-map-node-top{min-height:16px}
+.etsy-map-status{
+  display:inline-flex;align-items:center;width:max-content;
+  padding:2px 6px;border-radius:5px;font-size:9px;line-height:1.2;
+  font-weight:770;white-space:nowrap;text-transform:capitalize;
+  background:#eef2f8;color:#71829a;
+}
+.etsy-map-status.done,.etsy-map-status.completed{background:#eaf7ef;color:#247b4c}
+.etsy-map-status.exploring,.etsy-map-status.running{background:#eaf2ff;color:#3e68a9}
+.etsy-map-status.failed,.etsy-map-status.error{background:#fff0ec;color:#ad594f}
+.etsy-map-status.pending{background:#f1f4f9;color:#758398}
+.etsy-map-status.mixed{background:#f2ecff;color:#7560ad}
+.etsy-map-status.missing{background:#fff2d8;color:#95703a}
+.etsy-map-occurrences{
+  border-radius:7px;padding:1px 5px;background:#f0f5fd;color:#4775a9;
+  font-size:10px;font-weight:850;font-variant-numeric:tabular-nums;
+}
+.etsy-map-node-title{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;
+  font-size:11px;line-height:1.3;font-weight:780;color:#274468;
+  overflow:hidden;overflow-wrap:anywhere;
+}
+.etsy-map-node-bottom{justify-content:flex-start;color:#8292a8;font-size:9px;font-weight:600}
+.etsy-map-node-bottom>span{white-space:nowrap}
+.etsy-map-expand{
+  display:inline-flex;align-items:center;justify-content:center;gap:3px;
+  margin-left:auto;min-width:37px;height:19px;padding:1px 5px;
+  border:1px solid #b8cfed;border-radius:6px;background:#eef5ff;
+  color:#3c70b2;font-size:13px;line-height:1;font-weight:820;
+}
+.etsy-map-expand span{font-size:9px}
+.etsy-map-expand:hover{background:#dceafe;border-color:#7faadc}
+.etsy-map-hub{
+  width:100%;height:100%;display:flex;flex-direction:column;justify-content:center;
+  align-items:flex-start;gap:4px;padding:13px 15px;border-radius:12px;
+  background:linear-gradient(125deg,#24518c,#3b74c6);box-shadow:0 7px 16px #2d58902c;
+  color:#fff;
+}
+.etsy-map-hub span{font-size:9px;font-weight:850;letter-spacing:.07em;opacity:.82}
+.etsy-map-hub strong{font-size:16px;line-height:1.2;font-weight:810}
+.etsy-map-hub small{font-size:9px;opacity:.88}
+.etsy-map-canvas .react-flow__controls{
+  border:1px solid #dce6f2;border-radius:8px;overflow:hidden;
+  box-shadow:0 2px 9px #203d6914;
+}
+.etsy-map-canvas .react-flow__controls-button{background:#fff;color:#4d6993;border-bottom-color:#e9eef5}
+.etsy-map-canvas .react-flow__minimap{
+  border:1px solid #d9e5f2;border-radius:8px;overflow:hidden;
+  box-shadow:0 2px 10px #203d6914;background:#fff;
+}
+.etsy-map-footer{
+  padding:8px 14px;border-top:1px solid #e9eef5;background:#fafcff;
+  color:#8c9bb0;font-size:9px;
+}
+.etsy-map-inspector{
+  min-width:0;padding:12px 13px 16px;overflow-y:auto;max-height:790px;
+  background:#fff;color:#304764;
+}
+.etsy-map-inspector-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.etsy-map-inspector-heading>strong{font-size:11px;font-weight:800;color:#314c75}
+.etsy-map-inspector-heading>button{
+  width:24px;height:24px;display:grid;place-items:center;border:1px solid #e0e7f2;
+  border-radius:6px;background:#fff;color:#71859c;font-size:17px;
+}
+.etsy-map-inspector h3{
+  margin:14px 0 4px;font-size:13px;line-height:1.4;color:#233f68;
+  overflow-wrap:anywhere;
+}
+.etsy-map-inspector-empty{
+  display:flex;flex-direction:column;gap:5px;margin-top:18px;padding:18px 12px;
+  border:1px dashed #d6e2f2;border-radius:10px;background:#fafcff;
+}
+.etsy-map-inspector-empty strong{font-size:11px;color:#617b9e}
+.etsy-map-inspector-empty p{font-size:10px;line-height:1.65;color:#8697ab;margin:0}
+.etsy-map-breadcrumb{
+  display:block;color:#8c9aad;font-size:9px;line-height:1.45;overflow-wrap:anywhere;
+}
+.etsy-map-detail-stats{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:13px 0 9px;
+}
+.etsy-map-detail-stats>div{
+  padding:8px 9px;background:#f6f9fd;border:1px solid #e4ecf6;
+  border-radius:8px;display:flex;flex-direction:column;gap:3px;
+}
+.etsy-map-detail-stats strong{font-size:15px;color:#365e93;font-weight:850;font-variant-numeric:tabular-nums}
+.etsy-map-detail-stats span{font-size:9px;color:#8493a8}
+.etsy-map-inspector-actions{display:flex;gap:8px;margin:8px 0}
+.etsy-map-metric-note{display:block;color:#8494a9;font-size:9px;line-height:1.5}
+.etsy-map-status-breakdown{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 14px}
+.etsy-map-aliases{
+  margin:12px 0;padding:9px;border:1px solid #e4e8f8;
+  background:#f7f7ff;border-radius:8px;
+}
+.etsy-map-aliases>strong{display:block;font-size:10px;color:#5f61a5;margin-bottom:7px}
+.etsy-map-aliases>div{display:flex;flex-wrap:wrap;gap:5px}
+.etsy-map-aliases button{
+  padding:5px 8px;border-radius:6px;border:1px solid #cbd3f5;background:#fff;
+  font-size:9px;font-weight:720;color:#555fa4;
+}
+.etsy-map-aliases button:hover{background:#ecefff}
+.etsy-map-records-title{display:block;font-size:10px;color:#476485;margin-bottom:8px}
+.etsy-map-records{display:flex;flex-direction:column;gap:5px}
+.etsy-map-record{
+  padding:7px 8px;border:1px solid #e4ebf5;border-radius:7px;background:#fff;
+  font-size:9px;color:#5a7190;overflow-wrap:anywhere;
+}
+.etsy-map-record summary{
+  display:flex;gap:6px;justify-content:space-between;align-items:center;cursor:pointer;
+}
+.etsy-map-record summary>span:first-child{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;
+}
+.etsy-map-record>div{margin-top:6px}
+.etsy-map-record p{margin:7px 0;line-height:1.5}
+.etsy-map-record pre{
+  max-height:160px;padding:6px;margin:6px 0;overflow:auto;background:#f4f7fb;
+  border-radius:5px;font:9px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+.etsy-map-record a{color:#3968ae;font-weight:720}
+.etsy-map-show-all{margin-top:8px}
+@media(max-width:980px){
+  .etsy-map-layout{grid-template-columns:minmax(0,1fr) 250px}
+  .etsy-map-inspector{padding:10px}
+}
+@media(max-width:760px){
+  .etsy-map-layout{display:flex;flex-direction:column}
+  .etsy-map-main{border-right:0;border-bottom:1px solid #e4eaf3}
+  .etsy-map-canvas{min-height:430px;height:60vh;max-height:650px}
+  .etsy-map-inspector{max-height:370px;overflow:auto;padding:14px}
+  .etsy-map-detail-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .etsy-map-inspector-empty{margin-top:6px;padding:10px 12px}
+  .etsy-tree-toolbar .etsy-tree-actions{flex-wrap:wrap}
+}
+@media(max-width:460px){
+  .etsy-map-canvas{height:470px;min-height:470px}
+  .etsy-map-detail-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .etsy-map-canvas .react-flow__minimap{width:112px;height:82px}
+}
+@media(prefers-reduced-motion:reduce){
+  .etsy-map-node{transition:none}
+}

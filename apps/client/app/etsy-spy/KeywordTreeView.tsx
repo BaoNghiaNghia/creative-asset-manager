@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { spyFetch, type Keyword, type Page } from "./api";
 import {
   createKeywordForest, fetchKeywordPages, filterKeywordForest,
   visibleKeywordRows, type KeywordVisibleRow,
 } from "./keywordTree";
+import { createKeywordGroupForest, filterKeywordGroupForest } from "./keywordMindmap";
+
+const KeywordMindmapCanvas = lazy(() => import("./KeywordMindmapCanvas")
+  .then(module => ({ default: module.KeywordMindmapCanvas })));
 
 type Props = {
   sessionId: string;
@@ -88,6 +92,8 @@ export function KeywordTreeView({
   const [requestError, setRequestError] = useState("");
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [mindmapExpanded, setMindmapExpanded] = useState<Set<string>>(() => new Set());
+  const [mode, setMode] = useState<"mindmap" | "tree">("mindmap");
 
   useEffect(() => {
     const abort = new AbortController();
@@ -116,11 +122,21 @@ export function KeywordTreeView({
     [current?.items, sort, direction]);
   const projection = useMemo(() => filterKeywordForest(forest, search, status),
     [forest, search, status]);
+  const grouped = useMemo(() => createKeywordGroupForest(forest), [forest]);
+  const groupProjection = useMemo(() => filterKeywordGroupForest(grouped, search, status),
+    [grouped, search, status]);
+  const effectiveMapExpanded = useMemo(() => {
+    const keys = new Set(mindmapExpanded);
+    for (const ancestor of groupProjection.ancestors) keys.add(ancestor);
+    return keys;
+  }, [mindmapExpanded, groupProjection]);
 
   useEffect(() => {
     if (!current) return;
     // Show a couple of real branches on first load; leave others collapsed.
     setExpanded(new Set(forest.roots.filter(key => forest.nodes.get(key)?.children.length).slice(0, 2)));
+    setMindmapExpanded(new Set(grouped.roots.filter(key =>
+      grouped.nodes.get(key)?.children.length).slice(0, 1)));
   }, [current?.key]);
 
   useEffect(() => {
@@ -140,44 +156,69 @@ export function KeywordTreeView({
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+  const toggleMindmapNode = useCallback((key: string) => setMindmapExpanded(old => {
+    const next = new Set(old);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  }), []);
   const expandable = useMemo(() =>
     [...forest.nodes.values()].filter(node => node.children.length &&
       projection.visible.has(node.key)).map(node => node.key),
   [forest, projection]);
   const valid = Boolean(current);
   const showLoading = !valid && (loading || !requestError);
+  const mapExpandable = useMemo(() =>
+    [...grouped.nodes.values()].filter(node => node.children.length &&
+      groupProjection.visible.has(node.key)).map(node => node.key),
+  [grouped, groupProjection]);
   return <>
     <div className="etsy-tree-toolbar" aria-label="Keyword tree controls">
       <span className="etsy-tree-summary">
         {valid ? <>
-          <strong>{forest.realCount.toLocaleString()}</strong> keyword nodes
+          <strong>{forest.realCount.toLocaleString()}</strong> keyword records
           <span className="etsy-tree-summary-divider">·</span>
-          <strong>{forest.roots.length.toLocaleString()}</strong> root branches
-          {projection.filtered && <>
+          <strong>{grouped.realGroups.toLocaleString()}</strong> grouped nodes
+          <span className="etsy-tree-summary-divider">·</span>
+          <strong>{grouped.mergedRecords.toLocaleString()}</strong> duplicates merged
+          <span className="etsy-tree-summary-divider">·</span>
+          <strong>{grouped.roots.length.toLocaleString()}</strong> root groups
+          {(mode === "mindmap" ? groupProjection.filtered : projection.filtered) && <>
             <span className="etsy-tree-summary-divider">·</span>
-            <strong>{projection.matchedCount.toLocaleString()}</strong> matches
+            <strong>{mode === "mindmap" ? groupProjection.matchedCount.toLocaleString()
+              : projection.matchedCount.toLocaleString()}</strong> matches
           </>}
-          <span className="etsy-tree-summary-divider">·</span>
-          {visible.length.toLocaleString()} visible rows
         </> : "Loading complete keyword hierarchy…"}
       </span>
       <div className="etsy-tree-actions">
-        <button type="button" disabled={!valid || !expandable.length}
-          onClick={() => setExpanded(new Set(expandable))}>Expand all</button>
-        <button type="button" disabled={!valid || !expandable.length}
-          onClick={() => setExpanded(new Set())}>Collapse all</button>
+        <div className="etsy-map-mode-switch" role="group" aria-label="Keyword view mode">
+          <button type="button" aria-pressed={mode === "mindmap"}
+            onClick={() => setMode("mindmap")}>Mindmap</button>
+          <button type="button" aria-pressed={mode === "tree"}
+            onClick={() => setMode("tree")}>Tree</button>
+        </div>
+        <button type="button" disabled={!valid || !(mode === "mindmap" ? mapExpandable.length : expandable.length)}
+          onClick={() => mode === "mindmap" ? setMindmapExpanded(new Set(mapExpandable))
+            : setExpanded(new Set(expandable))}>Expand all</button>
+        <button type="button" disabled={!valid || !(mode === "mindmap" ? mapExpandable.length : expandable.length)}
+          onClick={() => mode === "mindmap" ? setMindmapExpanded(new Set())
+            : setExpanded(new Set())}>Collapse all</button>
       </div>
     </div>
     {valid && (current?.truncated || forest.missingParents > 0) && <div className="etsy-tree-notice" role="status">
       {current?.truncated && <span>Showing {forest.realCount.toLocaleString()} of {current.total.toLocaleString()} nodes. Select a session to narrow the tree. </span>}
       {forest.missingParents > 0 && <span>{forest.missingParents.toLocaleString()} parent records are not synced; placeholder branches keep their children visible.</span>}
     </div>}
-    <div className="etsy-table-card etsy-tree-table-card">
-      {showLoading ? <div role="status" className="etsy-skeleton">Loading all keyword pages for the tree…</div>
+    <div className={"etsy-table-card " + (mode === "mindmap" ? "etsy-map-shell" : "etsy-tree-table-card")}>
+      {showLoading ? <div role="status" className="etsy-skeleton">Loading all keyword pages for the keyword map…</div>
         : requestError ? <div role="alert" className="etsy-error">Cannot load keyword tree: {requestError}</div>
-        : !visible.length ? <div className="etsy-empty">
-            {projection.filtered ? "No keyword nodes match the current search/status filters." : "No keyword nodes available."}
+        : !(mode === "mindmap" ? groupProjection.visible.size : visible.length) ? <div className="etsy-empty">
+            {(mode === "mindmap" ? groupProjection.filtered : projection.filtered)
+              ? "No keyword nodes match the current search/status filters." : "No keyword nodes available."}
           </div>
+        : mode === "mindmap" ? <Suspense fallback={<div role="status" className="etsy-skeleton">Loading interactive map…</div>}>
+            <KeywordMindmapCanvas forest={grouped} raw={forest} projection={groupProjection}
+              expanded={effectiveMapExpanded} onToggle={toggleMindmapNode} />
+          </Suspense>
         : <div className="etsy-table-wrap etsy-tree-table-wrap">
           <table className="etsy-data-table is-keyword-tree" aria-label="Expandable keyword hierarchy">
             <thead><tr>{TREE_COLUMNS.map(col => <th key={col.id}

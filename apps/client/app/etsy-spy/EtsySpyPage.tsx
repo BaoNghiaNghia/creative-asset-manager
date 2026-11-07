@@ -723,7 +723,7 @@ export function EtsySpyPage() {
         ? (options.sessionId ? "Session" : summary?.keywords?.toLocaleString() ?? "—")
         : rows ? rows.total.toLocaleString() : "—"})</span></h2>
       <span className="etsy-table-count">{activeTab === "keywords"
-        ? "Hierarchical view · expand or collapse any keyword branch"
+        ? "Interactive Mindmap · grouped keywords · original Scout history preserved"
         : "Sorted and filtered from synchronized Windows data"}</span>
     </div>}
     {activeTab === "keywords" ?
