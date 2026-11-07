@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-07 — Agent Harness Phase 3A: Stage 1 Feedback Intelligence
+
+- [x] Reuse Stage 1 persisted Pick/Reject and keyword cohort classifier for a bounded, tenant-authoritative candidate evidence snapshot; no new queue, migration or provider.
+- [x] Verify persisted artwork hash, output-to-job lineage, actor/timestamp, technical QA, distinct keyword and sample thresholds; deduplicate source assets and cap per keyword.
+- [x] Add default dry-run admin preview and explicit audited candidate sync, behind READ + MANAGEMENT + separate feedback-sync feature flags, with no promotion or execution path.
+- [x] Test tenant/RBAC, missing sources, undo, stale candidate prevention, idempotency, contradictory/duplicate votes, failure rollback and emergency stop.
+- [ ] Deploy Phase 3A backend-only after CI review and production health checks; keep source votes and worker queues untouched.
+- [ ] Phase 3B: event outbox for automatic incremental capture, stale snapshot revalidation and independent QA/holdout-controlled manual promotion.
+
+
 ## 2026-11-07 — Agent Harness Phase 2C.2 executor readiness
 
 - [x] Add tenant-scoped Codex CLI account-pool readiness using existing enabled profile login status and FLOCK slot probes; zero new job execution or queue changes.

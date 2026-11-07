@@ -65,6 +65,15 @@ class AgentCatalogRegistration(BaseModel):
         )
 
 
+class Stage1FeedbackSyncRequest(BaseModel):
+    """Explicit, bounded operator action; default preview never persists."""
+
+    model_config = ConfigDict(extra="forbid")
+    cohort: Literal["music", "western", "pets", "healthcare", "coffee", "family", "outdoors"]
+    agent_version: str = Field(min_length=2, max_length=20, pattern=r"^v[1-9][0-9]*(?:[.][0-9]+){0,2}$")
+    dry_run: bool = True
+
+
 class AgentRoutePreviewRequest(BaseModel):
     """Read-only route simulation for RRUGC stages, never a job payload."""
 

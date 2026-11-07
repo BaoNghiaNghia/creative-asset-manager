@@ -20,9 +20,11 @@ from app.modules.authorization.principal import (
 from .executor_readiness import (
     ExecutorSnapshot, browser_snapshot, preview_route, probe_codex,
 )
+from .model import AgentExperienceModel
 from .registry import AgentRegistryError
-from .repository import AgentHarnessRepository
-from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest
+from .repository import AgentHarnessRepository, _event_key
+from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
+from .stage1_feedback import AGENT_ID as FEEDBACK_AGENT_ID, SOURCE_VERSION, snapshots
 
 
 router = APIRouter(prefix="/api/v1/admin/agent-harness", tags=["agent-harness"])
@@ -130,6 +132,108 @@ def register_agent_definition(
         "tenant_id": tenant_id, "agent_id": row.agent_id, "version": row.version,
         "enabled": False, "created": True, "execution_enabled": False,
     }
+
+
+@router.post("/{tenant_id}/feedback/stage1/candidates")
+def sync_stage1_feedback_candidates(
+    tenant_id: str,
+    body: Stage1FeedbackSyncRequest,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Derive only inert candidate snapshots from existing Stage 1 votes.
+
+    Default dry run is read-only; explicit sync requires a separately enabled
+    flag, reviewed dormant feedback agent version, actor and tenant RBAC.
+    """
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    settings = get_settings()
+    if settings.AI_EMERGENCY_STOP_ENABLED:
+        raise HTTPException(status_code=503, detail="AI operations emergency stop")
+    if not body.dry_run and not (
+        settings.AGENT_HARNESS_MANAGEMENT_API_ENABLED
+        and settings.AGENT_HARNESS_FEEDBACK_SYNC_ENABLED
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    summaries = snapshots(
+        db, tenant_id=tenant_id,
+        cohort=body.cohort, agent_version=body.agent_version,
+    )
+    result = {
+        "tenant_id": tenant_id,
+        "cohort": body.cohort,
+        "source_version": SOURCE_VERSION,
+        "dry_run": body.dry_run,
+        "eligible_patterns": len(summaries),
+        "created_candidates": 0,
+        "candidate_only": True,
+        "can_promote": False,
+        "agent_execution_enabled": False,
+        "patterns": [item.summary() for item in summaries],
+    }
+    if body.dry_run:
+        return result
+
+    repository = AgentHarnessRepository(db)
+    agent = repository.get_definition(tenant_id, FEEDBACK_AGENT_ID, body.agent_version)
+    if (agent is None
+            or agent.enabled
+            or "feedback_analyze" not in agent.capabilities_json
+            or "feedback.read" not in agent.allowed_tools_json):
+        raise HTTPException(
+            status_code=409,
+            detail="Register a disabled, read-only feedback intelligence agent version first",
+        )
+    created = 0
+    try:
+        for item in summaries:
+            candidate = item.candidate
+            key = _event_key(candidate)
+            existing = db.get(AgentExperienceModel, (tenant_id, key))
+            row = repository.record_candidate(candidate)
+            if existing is not None:
+                if existing.status != "candidate":
+                    raise ValueError("Feedback snapshot already has a different status")
+                continue
+            row.evaluation_json = {
+                "source_kind": SOURCE_VERSION,
+                "evidence_status": "unverified_human_preference",
+                "distinct_keyword_count": item.distinct_keywords,
+                "holdout_verified": False,
+                "independent_qa_passed": False,
+                "promotion_allowed": False,
+            }
+            created += 1
+        if created:
+            db.add(AuthAuditEventModel(
+                tenant_id=tenant_id,
+                actor_id=principal.user_id,
+                action="agent_stage1_feedback_candidates_synced",
+                detail_json={
+                    "source_version": SOURCE_VERSION,
+                    "cohort": body.cohort,
+                    "agent_id": FEEDBACK_AGENT_ID,
+                    "agent_version": body.agent_version,
+                    "candidate_count": created,
+                    "promotion_allowed": False,
+                },
+            ))
+            db.commit()
+        else:
+            db.rollback()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Candidate snapshot conflict") from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Candidate snapshot conflict") from exc
+    except Exception:
+        db.rollback()
+        raise
+    result["created_candidates"] = created
+    return result
 
 
 @router.post("/{tenant_id}/agents/{agent_id}/{version}/route-preview")

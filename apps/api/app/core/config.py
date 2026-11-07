@@ -73,6 +73,7 @@ FEATURE_FLAG_NAMES = (
     "RRUGC_SOURCE_AUTO_SYNC_ENABLED",
     "AGENT_HARNESS_READ_API_ENABLED",
     "AGENT_HARNESS_MANAGEMENT_API_ENABLED",
+    "AGENT_HARNESS_FEEDBACK_SYNC_ENABLED",
     "AGENT_HARNESS_EXECUTION_ENABLED",
 )
 
@@ -126,6 +127,8 @@ class Settings(BaseSettings):
     AGENT_HARNESS_READ_API_ENABLED: bool = False
     # Separate reviewed configuration-write gate; does not enable execution.
     AGENT_HARNESS_MANAGEMENT_API_ENABLED: bool = False
+    # Opt-in admin-only candidate evidence sync; never promotes or runs agents.
+    AGENT_HARNESS_FEEDBACK_SYNC_ENABLED: bool = False
     # Reserved safety gate: no worker references this until a later reviewed phase.
     AGENT_HARNESS_EXECUTION_ENABLED: bool = False
     EXTERNAL_ASSET_DOWNLOADER_ENABLED: bool = False

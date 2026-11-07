@@ -1,3 +1,11 @@
+## 2026-11-07 — Agent Harness V2 Phase 3A: verified-source candidate-only feedback
+
+- Reads current persisted Stage 1 picked/rejected outputs joined to tenant-owned keyword image jobs; validates stored asset hash, QA, reviewer and time. Recognizes safe 1/4/4 concept enums and fixed rejection reasons only, never passes free-text comments, source image bytes or prompts to the agent store.
+- Bounded cohort sampling requires 10 distinct hashed artworks across 3 keywords, max 4 votes per keyword and 40 per rule. Candidate-only confidence 0.25 and no verification_refs, so nothing is auto-promoted or applied to Creative Brief.
+- New dry-run default and explicit sync under a dedicated default-off feature flag; requires registered inert feedback agent and existing tenant RBAC. Candidate and audit persist atomically; retries idempotent, undo does not generate a candidate.
+- Stage 1 vote endpoint and current Scout/image queues remain unchanged; no schema migration, agent execution, CLI or paid providers.
+- Runbook: docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3_STAGE1_FEEDBACK.md.
+
 ## 2026-11-07 — Agent Harness V2 Phase 2C.2: read-only executor readiness
 
 - Reused Codex Account Pool's tenant-scoped configured profiles, bounded local CLI login status probe and FLOCK active slot count for advisory capacity. No new model calls, account provisioning, credential copying, job reservation or scheduler.
