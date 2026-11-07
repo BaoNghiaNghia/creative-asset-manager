@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-07 — Agent Harness Phase 2C.2 executor readiness
+
+- [x] Add tenant-scoped Codex CLI account-pool readiness using existing enabled profile login status and FLOCK slot probes; zero new job execution or queue changes.
+- [x] Add explicit fail-closed Browser Extension status until verified website provider, output lineage and durable Windows acknowledgements are available.
+- [x] Add version-pinned, capability/tool-permission checked route preview with agent concurrency upper bound, emergency-stop awareness and separate flags; never returns dispatch permission.
+- [ ] Release backend-only to production after tests and CI review; confirm latest /version and /ready, API and workers, keep current + previous and leave READ/execution flags default off.
+- [ ] Future: trusted actual worker heartbeat and job lease, browser extension end-to-end test, verified Stage 1 Pick/Reject candidate ingestion.
+
+
 ## 2026-11-07 — CAM Agent Harness Phase 2C.1
 
 - [x] Implement metadata-only, version-pinned Agent Catalog registration (Codex/Browser preferences), strict capability/tool allowlist and concurrency limits.

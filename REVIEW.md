@@ -1,3 +1,10 @@
+## 2026-11-07 — Agent Harness V2 Phase 2C.2: read-only executor readiness
+
+- Reused Codex Account Pool's tenant-scoped configured profiles, bounded local CLI login status probe and FLOCK active slot count for advisory capacity. No new model calls, account provisioning, credential copying, job reservation or scheduler.
+- New strict POST route preview for registered pinned agent version and RRUGC stage, requiring BOTH ai_operations.read and ai_provider.configure plus tenant scope and existing READ feature flag. Rejects unknown tools, stages, capabilities and cross-tenant requests before probing local CLI.
+- Hard-off dispatch_allowed and execution_enabled fields independent of all flags. Even if a candidate executor is observed, no ProcessingJob changes are possible. Global emergency stop fails closed.
+- Browser extension is explicitly unverified and never a fallback for production. See docs/architecture/CAM_AGENT_HARNESS_V2_PHASE2C2_READINESS.md.
+
 ## 2026-11-07 — Agent Harness V2 Phase 2C.1: metadata-only admin API
 
 - Added Agent Catalog POST with existing ai_provider.configure permission, tenant scope, strict Pydantic payload, reviewed executor/capability/tool IDs and a dedicated AGENT_HARNESS_MANAGEMENT_API_ENABLED flag default false. Existing READ flag must also be on.

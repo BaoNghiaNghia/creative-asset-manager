@@ -63,3 +63,24 @@ class AgentCatalogRegistration(BaseModel):
             max_concurrent=self.max_concurrent,
             max_retries=self.max_retries,
         )
+
+
+class AgentRoutePreviewRequest(BaseModel):
+    """Read-only route simulation for RRUGC stages, never a job payload."""
+
+    model_config = ConfigDict(extra="forbid")
+    stage: Literal["stage1", "stage2", "stage4"]
+    required_capabilities: list[Literal["generate_text", "image_edit"]] = Field(
+        min_length=1, max_length=2,
+    )
+    required_tools: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_preflight(self):
+        if len(set(self.required_capabilities)) != len(self.required_capabilities):
+            raise ValueError("duplicate required capability")
+        if len(set(self.required_tools)) != len(self.required_tools):
+            raise ValueError("duplicate required tool")
+        if not set(self.required_tools).issubset(KNOWN_TOOLS):
+            raise ValueError("unrecognized required tool")
+        return self
