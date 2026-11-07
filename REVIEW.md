@@ -1,3 +1,12 @@
+## 2026-11-08 — Agent Harness V2 Phase 3B.2: candidate provenance audit (backend-only)
+
+- `GET /api/v1/admin/agent-harness/{tenant_id}/feedback/stage1/evidence-audit?cohort=<enum>&limit=20` is protected by the existing READ feature flag, both `ai_operations.read` and `ai_provider.configure` permissions, and tenant scope.
+- Pure read-only verification re-derives Stage 1 human-vote source snapshots, compares immutable candidate identities and flags stale/unsupported/rejected/already-promoted anomalies without any DB write, model call or worker dispatch.
+- Response is bounded and redacted: no source keywords, raw event IDs, SHA256s, reviewer identity, source prompts, images or credentials. Always reports holdout/independent QA and automatic promotion OFF.
+- No new migration, dependency, secret, frontend change, feature switch, processing task or source asset mutation. Existing feedback capture/process defaults remain unchanged.
+- Scoped regression includes Stage1 source audit, strict auth/tenant, invalid params, undo/stale data, anomalous verification and snapshot parity. Runbook: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3B2_AUDIT.md`.
+- Rollback: previous immutable backend release; database schema remains 0203 and no data needs to be reverted.
+
 ## 2026-11-07 — Agent Harness V2 Phase 3B.1: outbox-backed automatic feedback evidence
 
 - Captures only changed Stage 1 Pick/Reject/Undo votes from existing two API paths. Tenant-cohort event metadata lives in existing outbox_events in same DB transaction, with deterministic hash idempotency and no raw keywords, tokens or prompts.

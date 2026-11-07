@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-08 — Agent Harness V2 Phase 3B.2: read-only feedback evidence audit
+
+- [x] Add tenant/RBAC-guarded Stage 1 candidate Evidence Audit (no new schema), with explicit source-current/stale/rejected/promoted review statuses and at most 30 results.
+- [x] Re-derive current trusted source votes against stored candidate identity without leaking keywords, asset hashes, reviewer data, prompts or output IDs.
+- [x] Keep independent QA, holdout, automatic promotion and agent execution hard-off; preserve current Stage 1/2 jobs and existing feedback outbox.
+- [ ] Canary the authenticated read flag separately after deployment verification and operator role check; never activate self-learning by default.
+- [ ] Phase 3C: independently evaluated holdout + objective QA and audited policy review/promotion with reversible scope. Do not treat user Pick ratios as objective quality proof.
+
+
 ## 2026-11-07 — Agent Harness Phase 3B.1: durable incremental feedback
 
 - [x] Reuse existing processing outbox ledger; on Stage 1 Pick/Reject/Undo change, append an idempotent tenant-scoped event in the same transaction. No event on repeated identical feedback or unclassified keywords.

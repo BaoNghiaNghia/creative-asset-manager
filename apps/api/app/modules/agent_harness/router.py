@@ -6,7 +6,9 @@ and no Experience candidate can be promoted by these endpoints.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,6 +21,7 @@ from app.modules.authorization.principal import (
     CurrentPrincipal, require_all_permissions, require_permission, require_tenant_scope,
 )
 
+from .evidence_audit import audit_stage1_candidates
 from .executor_readiness import (
     ExecutorSnapshot, browser_snapshot, preview_route, probe_codex,
 )
@@ -134,6 +137,22 @@ def register_agent_definition(
         "tenant_id": tenant_id, "agent_id": row.agent_id, "version": row.version,
         "enabled": False, "created": True, "execution_enabled": False,
     }
+
+
+@router.get("/{tenant_id}/feedback/stage1/evidence-audit")
+def audit_stage1_feedback_evidence(
+    tenant_id: str,
+    cohort: Literal["music", "western", "pets", "healthcare", "coffee", "family", "outdoors"],
+    limit: int = Query(default=20, ge=1, le=30),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Review bounded source provenance; never promote or start an agent."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    return audit_stage1_candidates(
+        db, tenant_id=tenant_id, cohort=cohort, limit=limit,
+    )
 
 
 @router.get("/{tenant_id}/feedback/stage1/outbox-status")
