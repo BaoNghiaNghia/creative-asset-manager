@@ -5369,7 +5369,7 @@ def select_stage1_design_for_products_stage2(
         RrugcImageOutputVersionModel.stage == "stage1",
         RrugcImageOutputVersionModel.job_id == job_id,
         RrugcImageOutputVersionModel.version == version,
-    ))
+    ).with_for_update())
     if version_row is None or not version_row.remote_file_id:
         raise HTTPException(status_code=404, detail="Stage 1 design version not found")
     filename = PurePosixPath((version_row.output_name or f"design_{version:02d}.png").replace("\\", "/")).name
@@ -5384,9 +5384,16 @@ def select_stage1_design_for_products_stage2(
         RrugcSourcePlanModel.source_file_id == version_row.remote_file_id,
     ).with_for_update())
     from app.modules.realistic_review_ugc.stage1_design_learning import set_design_feedback
-    set_design_feedback(
+    from app.modules.agent_harness.feedback_outbox import capture_if_enabled
+    previous_review = (version_row.font_info_json or {}).get("creative_feedback")
+    current_review = set_design_feedback(
         version_row, decision="picked" if selected else "neutral",
         reason="unspecified", actor_id=principal.user_id,
+    )
+    capture_if_enabled(
+        session, row=version_row, keyword=job.keyword_text,
+        previous_review=previous_review, current_review=current_review,
+        settings=get_settings(),
     )
     if selected and plan is None:
         plan = RrugcSourcePlanModel(
@@ -5446,15 +5453,22 @@ def save_stage1_design_feedback(
     ).with_for_update())
     if row is None:
         raise HTTPException(status_code=404, detail="Stage 1 design not found")
-    job = session.scalar(select(RrugcKeywordImageJobModel.id).where(
+    job = session.scalar(select(RrugcKeywordImageJobModel).where(
         RrugcKeywordImageJobModel.tenant_id == principal.active_tenant_id,
         RrugcKeywordImageJobModel.id == job_id,
     ))
     if job is None:
         raise HTTPException(status_code=404, detail="Stage 1 job not found")
+    from app.modules.agent_harness.feedback_outbox import capture_if_enabled
+    previous_review = (row.font_info_json or {}).get("creative_feedback")
     review = set_design_feedback(
         row, decision=body.decision,
         reason=body.reason, actor_id=principal.user_id,
+    )
+    capture_if_enabled(
+        session, row=row, keyword=job.keyword_text,
+        previous_review=previous_review, current_review=review,
+        settings=get_settings(),
     )
     if body.decision == "rejected":
         plan = session.scalar(select(RrugcSourcePlanModel).where(

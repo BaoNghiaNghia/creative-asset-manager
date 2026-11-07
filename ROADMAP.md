@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-07 — Agent Harness Phase 3B.1: durable incremental feedback
+
+- [x] Reuse existing processing outbox ledger; on Stage 1 Pick/Reject/Undo change, append an idempotent tenant-scoped event in the same transaction. No event on repeated identical feedback or unclassified keywords.
+- [x] Add opt-in operational scheduler to consume only its outbox event type with PostgreSQL SKIP LOCKED, bounded 24 events / 3 cohorts per 120s. Do not add model calls, ProcessingJob types or new migrations.
+- [x] Recompute current Stage 1 verified-source evidence, revoke stale cohort candidates including undone votes, and persist new snapshots only as non-promotable candidates for registered disabled feedback-only agents.
+- [x] Add two separate default-off flags for capture and processing, retain existing emergency stop; current execution and manual promotion remain disabled.
+- [ ] Deploy backend-only to production after CI and regression verification; keep flags off, check worker health and current + rollback releases.
+- [ ] Phase 3B.2: controlled production canary plus independent QA/holdout, dashboard and approved promotion with source revalidation.
+
+
 ## 2026-11-07 — Agent Harness Phase 3A: Stage 1 Feedback Intelligence
 
 - [x] Reuse Stage 1 persisted Pick/Reject and keyword cohort classifier for a bounded, tenant-authoritative candidate evidence snapshot; no new queue, migration or provider.

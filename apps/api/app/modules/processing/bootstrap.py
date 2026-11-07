@@ -61,6 +61,7 @@ from app.modules.realistic_review_ugc.handler import (
     RrugcCandidateImportJobHandler,
 )
 from app.modules.realistic_review_ugc.source_plan_scheduler import RrugcSourcePlanSyncScheduler
+from app.modules.agent_harness.feedback_scheduler import AgentFeedbackOutboxScheduler
 from app.modules.realistic_review_ugc.maintenance import RrugcMaintenanceScheduler
 from app.modules.realistic_review_ugc.source_plans import RrugcSourcePlanAnalyzeJobHandler
 from app.modules.realistic_review_ugc.generation_handler import RrugcGenerateJobHandler
@@ -470,6 +471,7 @@ def run_worker(
     rrugc_maintenance_scheduler: RrugcMaintenanceScheduler | None = None
     products_run_all_scheduler: ProductsRunAllScheduler | None = None
     rrugc_source_scheduler: RrugcSourcePlanSyncScheduler | None = None
+    agent_feedback_scheduler: AgentFeedbackOutboxScheduler | None = None
     video_cache_cleanup: VideoCacheCleanupRunner | None = None
     visual_backfill_scheduler: VisualSearchBackfillScheduler | None = None
     try:
@@ -512,6 +514,13 @@ def run_worker(
                 logger=worker_logger,
             )
             rrugc_source_scheduler.start()
+            # Opt-in metadata-only feedback drain shares operational scheduler
+            # lifecycle; never creates processing jobs or AI model requests.
+            if getattr(settings, "AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED", False):
+                agent_feedback_scheduler = AgentFeedbackOutboxScheduler(
+                    session_factory, settings, logger=worker_logger,
+                )
+                agent_feedback_scheduler.start()
             # Durable seven-slot generation must outlive browser sessions.
             # Start only on the operational-scheduler worker to avoid busy polling.
             products_run_all_scheduler = ProductsRunAllScheduler(session_factory, settings)
@@ -605,6 +614,8 @@ def run_worker(
             source_sync_scheduler.stop()
         if rrugc_source_scheduler is not None:
             rrugc_source_scheduler.stop()
+        if agent_feedback_scheduler is not None:
+            agent_feedback_scheduler.stop()
         if rrugc_maintenance_scheduler is not None:
             rrugc_maintenance_scheduler.stop()
         if products_run_all_scheduler is not None:

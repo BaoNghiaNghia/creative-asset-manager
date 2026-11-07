@@ -74,6 +74,8 @@ FEATURE_FLAG_NAMES = (
     "AGENT_HARNESS_READ_API_ENABLED",
     "AGENT_HARNESS_MANAGEMENT_API_ENABLED",
     "AGENT_HARNESS_FEEDBACK_SYNC_ENABLED",
+    "AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED",
+    "AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED",
     "AGENT_HARNESS_EXECUTION_ENABLED",
 )
 
@@ -129,6 +131,10 @@ class Settings(BaseSettings):
     AGENT_HARNESS_MANAGEMENT_API_ENABLED: bool = False
     # Opt-in admin-only candidate evidence sync; never promotes or runs agents.
     AGENT_HARNESS_FEEDBACK_SYNC_ENABLED: bool = False
+    # Independent, opt-in Stage 1 vote outbox capture (same DB transaction).
+    AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED: bool = False
+    # Independent bounded outbox processing; does not dispatch AI or promote.
+    AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED: bool = False
     # Reserved safety gate: no worker references this until a later reviewed phase.
     AGENT_HARNESS_EXECUTION_ENABLED: bool = False
     EXTERNAL_ASSET_DOWNLOADER_ENABLED: bool = False

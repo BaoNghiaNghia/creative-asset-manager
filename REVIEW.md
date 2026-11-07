@@ -1,3 +1,11 @@
+## 2026-11-07 — Agent Harness V2 Phase 3B.1: outbox-backed automatic feedback evidence
+
+- Captures only changed Stage 1 Pick/Reject/Undo votes from existing two API paths. Tenant-cohort event metadata lives in existing outbox_events in same DB transaction, with deterministic hash idempotency and no raw keywords, tokens or prompts.
+- Opt-in 120s operational scheduler drains up to 24 events (3 cohort groups) using PostgreSQL SKIP LOCKED and only its named event type; existing generic processing queue and other outbox events untouched.
+- Re-derives Phase 3A source evidence; stale or undone candidate/promoted snapshots are downgraded to rejected with promotion_allowed false. Replacement candidates remain confidence 0.25, no holdout/QA verification. Rejected snapshots never resurrect.
+- No new table, Alembic migration, AI provider, Codex dispatch, new frontend or tenant secret. Auto-capture and auto-process flags both default false and independent; existing emergency stop blocks both.
+- Runbook: docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3B_OUTBOX.md.
+
 ## 2026-11-07 — Agent Harness V2 Phase 3A: verified-source candidate-only feedback
 
 - Reads current persisted Stage 1 picked/rejected outputs joined to tenant-owned keyword image jobs; validates stored asset hash, QA, reviewer and time. Recognizes safe 1/4/4 concept enums and fixed rejection reasons only, never passes free-text comments, source image bytes or prompts to the agent store.

@@ -7,12 +7,14 @@ and no Experience candidate can be promoted by these endpoints.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.auth_persistence.model import AuthAuditEventModel
+from app.modules.processing.model import OutboxEventModel
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_all_permissions, require_permission, require_tenant_scope,
 )
@@ -131,6 +133,42 @@ def register_agent_definition(
     return {
         "tenant_id": tenant_id, "agent_id": row.agent_id, "version": row.version,
         "enabled": False, "created": True, "execution_enabled": False,
+    }
+
+
+@router.get("/{tenant_id}/feedback/stage1/outbox-status")
+def read_stage1_feedback_outbox_status(
+    tenant_id: str,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Aggregated queue status only; never expose vote payloads or identities."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    from .feedback_outbox import EVENT_TYPE
+    counts = {status: 0 for status in ("pending", "processing", "published", "failed")}
+    rows = db.execute(
+        select(OutboxEventModel.status, func.count())
+        .where(
+            OutboxEventModel.tenant_id == tenant_id,
+            OutboxEventModel.event_type == EVENT_TYPE,
+        )
+        .group_by(OutboxEventModel.status)
+    ).all()
+    for state, count in rows:
+        if state in counts:
+            counts[state] = int(count)
+    config = get_settings()
+    return {
+        "tenant_id": tenant_id,
+        "outbox_event_type": EVENT_TYPE,
+        "counts": counts,
+        "auto_capture_enabled": bool(config.AGENT_HARNESS_FEEDBACK_SYNC_ENABLED
+                                     and config.AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED),
+        "auto_process_enabled": bool(config.AGENT_HARNESS_FEEDBACK_SYNC_ENABLED
+                                     and config.AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED),
+        "execution_enabled": False,
+        "automatic_promotion_enabled": False,
     }
 
 
