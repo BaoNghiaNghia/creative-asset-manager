@@ -5,8 +5,9 @@
 - [x] Add disabled-by-default typed API and execution flags, tenant-scoped ORM/repository, immutable agent version registration and read-only authenticated overview; no worker or API write path. Phase 2A can ship without a schema change.
 - [x] Detect migration collision with newest Etsy Spy `0202_etsy_spy_later`; supersede the old Agent Harness `0202` draft with a unique `0203` successor.
 - [x] Implement narrow two-release rollback bridge for the reviewed additive `0203` schema; reject unknown revisions and missing tenant-key foreign keys. Validate with negative tests.
-- [ ] Deploy bridge backend-only (`--no-migrate`) and verify live current/previous, before activating the new migration.
-- [ ] Migrate using a dedicated `0203_cam_agent_harness_store` release; preserve bridge as rollback; no live job or executor activation.
+- [x] Deployed bridge backend-only (`--no-migrate`) as `0ca25dd83`; `/version`, `/ready` and worker health verified, with previous release retained.
+- [x] Renumbered prepared Agent Harness schema to additive `0203_cam_agent_harness_store` after Etsy Spy `0202`; tested isolated upgrade/downgrade and schema-compatibility checks.
+- [ ] Deploy `0203_cam_agent_harness_store` after passing CI PostgreSQL migration checks; preserve bridge as rollback and keep execution flags off.
 - [ ] After schema activation, canary read API separately, then add authorized writes and verified Experience ingestion without changing job routing.
 
 

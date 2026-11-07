@@ -6,7 +6,7 @@ Date: 2026-11-07 | Revision 2 | Owner: CAM backend
 
 - Phase 1: pure Agent Registry, fail-closed routing, verified Experience Gate in main and production.
 - Phase 2A: tenant-scoped ORM, repository and a READ-ONLY overview route in main and production. Both `AGENT_HARNESS_READ_API_ENABLED` and `AGENT_HARNESS_EXECUTION_ENABLED` are false by default. No new tables created yet and no agent dispatch.
-- As of 2026-11-07 13:45 VN, main is at `16bc02dc5`, while verified public API was `77919d0ab`; source has advanced since original plan. Active schema revision is now `0202_etsy_spy_later`, NOT `0201_etsy_spy_parent_keywords`.
+- The reviewed rollback bridge `0ca25dd83` was deployed successfully at 2026-11-07 13:56 VN with `--no-migrate`; production `/version`, `/ready` and worker checks passed. Active schema revision is `0202_etsy_spy_later`, not `0201_etsy_spy_parent_keywords`.
 - Original held `0202_cam_agent_harness_store` migration is obsolete/conflicting. Do NOT cherry-pick or deploy that revision; a unique successor `0203_cam_agent_harness_store` must follow Etsy `0202`.
 
 ## Two-step safe database deployment

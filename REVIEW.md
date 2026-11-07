@@ -1,3 +1,10 @@
+## 2026-11-07 — Agent Harness V2 migration 0203 after safe bridge rollout
+
+- The rollback bridge `0ca25dd83` deployed through the approved backend release script with `--no-migrate`; public `/version` and `/ready` match and production workers were healthy, current/previous retention is enforced.
+- Added migration `0203_cam_agent_harness_store` after `0202_etsy_spy_later`; creates tenant-scoped Agent Registry and Experience tables, candidate-only status and exact FK. No data backfill, executor activation, AI API calls, new secret or change to existing Etsy/UGC records.
+- Added model import for Alembic metadata and isolated schema migration regression, with new code requiring exact `0203` AND verified table/foreign-key shape. Bridge release accepts `0203` only through strict one-step successor verification.
+- Deployment gate: PostgreSQL migration CI and backend smoke must pass before production schema is upgraded; no direct DB edits. Roll back to bridge without downgrading the schema. No authorization/feature flags changed.
+
 ## 2026-11-07 — Agent Harness V2 rollback bridge and latest-schema audit
 
 - Latest source contains `0202_etsy_spy_later` (Etsy Spy) whereas prior held Agent Harness migration used the same prefix `0202`; do not merge the old migration. Roll forward on a new `0203_cam_agent_harness_store` revision after a separate rollback bridge release.

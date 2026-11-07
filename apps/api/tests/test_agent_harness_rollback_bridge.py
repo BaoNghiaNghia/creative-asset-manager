@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.core.database import (
-    DatabaseStartupError, validate_alembic_head,
+    DatabaseStartupError, validate_alembic_head, _verified_agent_harness_successor,
 )
 from app.modules.agent_harness.model import AgentDefinitionModel, AgentExperienceModel
 
@@ -29,21 +29,29 @@ def _complete_agent_schema(engine) -> None:
     AgentExperienceModel.__table__.create(engine)
 
 
-def test_current_0202_revision_remains_accepted() -> None:
+def test_new_release_rejects_old_0202_revision_before_migration() -> None:
     engine = create_engine("sqlite:///:memory:")
     try:
         _revision(engine, "0202_etsy_spy_later")
-        assert validate_alembic_head(engine, database_url="sqlite:///:memory:") == "0202_etsy_spy_later"
+        with pytest.raises(DatabaseStartupError, match="not at Alembic head"):
+            validate_alembic_head(engine, database_url="sqlite:///:memory:")
     finally:
         engine.dispose()
 
 
-def test_exact_additive_0203_schema_allows_prior_release_to_start() -> None:
+def test_exact_0203_schema_accepted_and_still_rollback_compatible() -> None:
     engine = create_engine("sqlite:///:memory:")
     try:
         _revision(engine, "0203_cam_agent_harness_store")
         _complete_agent_schema(engine)
-        assert validate_alembic_head(engine, database_url="sqlite:///:memory:") == "0202_etsy_spy_later"
+        assert validate_alembic_head(engine, database_url="sqlite:///:memory:") == "0203_cam_agent_harness_store"
+        with engine.connect() as connection:
+            assert _verified_agent_harness_successor(
+                connection, "0202_etsy_spy_later", ("0203_cam_agent_harness_store",),
+            )
+            assert not _verified_agent_harness_successor(
+                connection, "0202_etsy_spy_later", ("0204_unreviewed_change",),
+            )
     finally:
         engine.dispose()
 

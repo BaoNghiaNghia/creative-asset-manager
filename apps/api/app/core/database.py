@@ -97,16 +97,12 @@ def expected_alembic_head(database_url: str) -> str:
     return heads[0]
 
 
-def _verified_agent_harness_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
-    """Permit only the reviewed additive 0203 rollout after 0202 Etsy Spy.
+def _agent_harness_schema_complete(connection) -> bool:
+    """Verify the exact additive Agent Harness schema before accepting 0203.
 
-    This narrow, temporary rollback bridge lets the prior backend release boot
-    *after* the Agent Harness-only migration. It rejects unknown revisions,
-    other branch heads, partial migrations, and incompatible table layouts.
-    It never applies migrations or grants extra application permissions.
+    Both the new release and the previous rollback bridge reject missing tables,
+    missing required columns, and a missing tenant-bound agent-version FK.
     """
-    if expected_head != "0202_etsy_spy_later" or current_heads != ("0203_cam_agent_harness_store",):
-        return False
     schema = inspect(connection)
     required = {
         "cam_agent_definitions": {"tenant_id", "agent_id", "version", "capabilities_json",
@@ -133,6 +129,15 @@ def _verified_agent_harness_successor(connection, expected_head: str, current_he
         return False
 
 
+def _verified_agent_harness_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """A previous 0202 backend may roll back after only this reviewed migration."""
+    return (
+        expected_head == "0202_etsy_spy_later"
+        and current_heads == ("0203_cam_agent_harness_store",)
+        and _agent_harness_schema_complete(connection)
+    )
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -145,8 +150,16 @@ def validate_alembic_head(
             approved_successor = _verified_agent_harness_successor(
                 connection, expected_head, tuple(current_heads),
             ) if tuple(current_heads) != (expected_head,) else False
+            exact_agent_schema_valid = (
+                _agent_harness_schema_complete(connection)
+                if expected_head == "0203_cam_agent_harness_store"
+                and tuple(current_heads) == (expected_head,)
+                else True
+            )
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
+    if not exact_agent_schema_valid:
+        raise DatabaseStartupError("Agent Harness schema incomplete at revision 0203")
     if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(
