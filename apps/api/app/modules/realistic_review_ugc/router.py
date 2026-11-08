@@ -4654,10 +4654,18 @@ def set_keyword_analysis_pick(
     if row.picked and settings.RRUGC_CREATIVE_BRIEF_ENABLED:
         from app.modules.realistic_review_ugc.creative_brief_service import queue_brief
         session.flush()
-        queue_brief(
-            session, tenant_id=principal.active_tenant_id,
-            keyword_id=row.id, settings=settings, priority=20,
-        )
+        try:
+            queue_brief(
+                session, tenant_id=principal.active_tenant_id,
+                keyword_id=row.id, settings=settings, priority=20,
+                actor_id=principal.user_id,
+            )
+        except Exception as exc:
+            from app.modules.agent_harness.trial_admission import TrialAdmissionConflict
+            session.rollback()
+            if isinstance(exc, TrialAdmissionConflict):
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise
     session.commit()
     session.refresh(row)
     return _keyword_volume_response(

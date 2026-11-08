@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-08 — Agent Harness Phase 3C.3A: pre-generation shadow admission
+
+- [x] Add independent default-OFF `AGENT_HARNESS_TRIAL_ADMISSION_ENABLED`; additionally require existing READ, MANAGEMENT, registration gates and no emergency stop.
+- [x] On the first Stage 0 Pick/Stage 1 Creative Brief enqueue, revalidate reserved keyword's tenant, cohort, frozen candidate digest and deterministic arm; reject prior generation and stale reservations.
+- [x] Persist shadow-only (NOT actual exposure) manifest on the existing ProcessingJob and actor audit atomically; never change prompts, run agents or promote candidate.
+- [x] Add negative tests for mutated keyword/arm, cancelled study, stale source, historical Brief, opt-out, repeated queue.
+- [ ] Deploy with all flags OFF after full security/integration checks, verify production Alembic 0204 and backward-compatible release, health and rollback.
+- [ ] Phase 3C.3B: authoritative applied-treatment exposure, independent blinded QA/cost telemetry and owner-reviewed rollback/promotion. Never count a shadow assignment as objective QA.
+
+
 ## 2026-11-08 — Agent Harness Phase 3C.2: inert study registry and keyword reservations
 
 - [x] Add additive schema 0204 for tenant-scoped immutable study registration, candidate-source digest, and unique prospective keyword arm reservations.

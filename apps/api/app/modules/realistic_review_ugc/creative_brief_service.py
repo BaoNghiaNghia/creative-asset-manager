@@ -174,6 +174,7 @@ def queue_brief(
     session: Session, *, tenant_id: str, keyword_id: str,
     settings: Settings | None = None, retry: bool = False,
     priority: int = BACKGROUND_BRIEF_PRIORITY,
+    actor_id: str | None = None,
 ) -> tuple[str, bool]:
     settings = settings or get_settings()
     if not settings.RRUGC_CREATIVE_BRIEF_ENABLED:
@@ -207,6 +208,13 @@ def queue_brief(
                     ).values(priority=priority).execution_options(synchronize_session=False)
                 )
             return row.status, False
+    # Validate prospective reservations BEFORE any Stage 1 mutation. This
+    # admission is shadow-only: no changed prompt, actual exposure or QA.
+    from app.modules.agent_harness.trial_admission import prepare_shadow_admission
+    shadow_admission = prepare_shadow_admission(
+        session, tenant_id=tenant_id, keyword=keyword,
+        has_prior_brief=row is not None, settings=settings, actor_id=actor_id,
+    )
     # When upgrading the entire picked library, reuse unstarted queued jobs
     # instead of inserting a second ~500-job backlog. Claimed/running jobs
     # are NOT reused: their old worker will detect the superseded job ID.
@@ -265,6 +273,12 @@ def queue_brief(
         priority=priority, max_attempts=(2 if auto_retry_enabled(settings) else 1), provider_key=None, provider_scope=None,
     )
     row.processing_job_id = task.id
+    if shadow_admission is not None:
+        from app.modules.agent_harness.trial_admission import record_shadow_admission
+        record_shadow_admission(
+            session, tenant_id=tenant_id, admission=shadow_admission,
+            processing_job=task,
+        )
     session.flush()
     return "queued", True
 

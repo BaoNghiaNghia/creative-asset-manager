@@ -229,9 +229,16 @@ def creative_brief_generate(
         status, queued = queue_brief(
             session, tenant_id=principal.active_tenant_id,
             keyword_id=keyword_id, settings=get_settings(), retry=True,
-            priority=INTERACTIVE_BRIEF_PRIORITY,
+            priority=INTERACTIVE_BRIEF_PRIORITY, actor_id=principal.user_id,
         )
         session.commit()
     except LookupError as exc:
+        session.rollback()
         raise HTTPException(status_code=404, detail="Picked keyword not found") from exc
+    except Exception as exc:
+        from app.modules.agent_harness.trial_admission import TrialAdmissionConflict
+        session.rollback()
+        if isinstance(exc, TrialAdmissionConflict):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise
     return {"keyword_id": keyword_id, "status": status, "queued": queued}

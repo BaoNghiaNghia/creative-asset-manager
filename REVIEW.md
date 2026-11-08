@@ -1,3 +1,10 @@
+## 2026-11-08 — Agent Harness Phase 3C.3A shadow-only pre-generation admission
+
+- Adds a separately gated Stage 0 Pick/Stage 1 Creative Brief server-side admission for previously reserved, ungenerated tenant-owned keywords. Pins deterministic arm, source/keyword digest and immutable study identity in the existing ProcessingJob JSON, with same-transaction audit.
+- Explicitly **not** an applied treatment or real trial exposure: assignment remains reserved, prompts/worker behavior remain unchanged, blind QA unimplemented and automatic candidate promotion disabled.
+- No migration, dependency, paid provider, secret, frontend or new ProcessingJob type. Feature flag OFF until separately reviewed canary; existing jobs unchanged; rollback is code-only to previous release.
+- Tests: 49/49 focused reservation/Creative Brief/shadow-admission tests; 201/201 expanded Agent Harness/holdout/migration/Creative Brief tests; 1/1 Stage 0 Pick API regression. All passed in isolated checkout using existing API venv. Existing deprecation warnings remain. Implementation/runbook: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3A_SHADOW_ADMISSION.md`.
+
 ## 2026-11-08 — Agent Harness Phase 3C.2 registration ledger
 
 - Added migration `0204_cam_agent_holdout_studies`, ORM models `cam_agent_trials`/`cam_agent_trial_assignments`, source-verified registry/reservation service, strict payload validation, and read-only count summary.
