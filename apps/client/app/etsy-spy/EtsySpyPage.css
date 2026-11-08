@@ -1730,117 +1730,137 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-extraction-backfill button:disabled { opacity: .45; cursor: not-allowed; }
 .etsy-extraction-backfill [role="status"] { flex-basis: 100%; font-size: 12px; color: #334155; }
 
-/* Etsy Spy mobile: cover ordinary phone viewports AND Chrome Android
-   "Desktop site" mode (often a 980px layout viewport on a touch phone).
-   The last CSS block wins over legacy KPI flex wrapping and tiny chips. */
-@media(max-width:760px), (any-pointer:coarse) and (max-width:1200px){
-  .etsy-spy-page .etsy-stats{
+/* Compact mobile dashboard: keep six KPIs, dates and categories visible
+   without wasting vertical space. Also cover Chrome Android 'Desktop site'
+   mode (a touch device with a ~980px CSS viewport). */
+@media (max-width:760px), (any-pointer:coarse) and (max-width:1200px) {
+  .etsy-spy-page .etsy-stats {
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
-    align-items:stretch;gap:9px;margin:0 0 15px;
+    gap:7px;align-items:stretch;margin:0 0 10px;
   }
-  .etsy-spy-page .etsy-stats>.etsy-stat{
-    box-sizing:border-box;display:flex;flex:none;width:100%;max-width:none;min-width:0;
-    min-height:89px;padding:12px 11px;gap:6px;border-radius:11px;
-    align-items:flex-start;justify-content:space-between;
+  .etsy-spy-page .etsy-stats>.etsy-stat {
+    box-sizing:border-box;display:grid;
+    grid-template-columns:minmax(0,1fr) max-content;
+    flex:none;width:100%;min-width:0;max-width:none;
+    min-height:55px;padding:9px 10px;gap:5px;
+    align-items:center;justify-content:initial;border-radius:9px;
   }
-  .etsy-spy-page .etsy-stat-heading{gap:6px;align-items:flex-start}
-  .etsy-spy-page .etsy-stat-heading>span:last-child{
-    font-size:12px;line-height:1.3;white-space:normal;overflow:visible;
-    text-overflow:clip;overflow-wrap:anywhere;letter-spacing:0;
+  .etsy-spy-page .etsy-stat-heading {
+    display:flex;min-width:0;align-items:center;gap:5px;
   }
-  .etsy-spy-page .etsy-stat>strong{font-size:23px;line-height:1.08}
-  .etsy-spy-page .etsy-stat>small{
-    font-size:10px;line-height:1.3;white-space:normal;overflow:visible;
-    text-overflow:clip;overflow-wrap:anywhere;
+  .etsy-spy-page .etsy-stat-heading>span:last-child {
+    font-size:11px;line-height:1.2;letter-spacing:0;font-weight:720;
+    white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;
   }
-  .etsy-spy-page .etsy-stat-errors{grid-column:auto}
-
-  .etsy-spy-page .etsy-observed-days{min-width:0;margin:0 0 13px}
-  .etsy-spy-page .etsy-observed-day-grid{
-    display:flex;flex-wrap:nowrap;gap:9px;padding:2px 2px 9px;
+  .etsy-spy-page .etsy-stat>strong {
+    min-width:0;font-size:20px;line-height:1.1;text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  /* The heading and number are the useful information on a phone. */
+  .etsy-spy-page .etsy-stat>small {display:none}
+  .etsy-spy-page .etsy-stat-errors {grid-column:auto}
+  .etsy-spy-page .etsy-observed-days {min-width:0;margin:0 0 9px}
+  .etsy-spy-page .etsy-observed-day-grid {
+    display:flex;flex-wrap:nowrap;gap:7px;padding:1px 2px 7px;
     overflow-x:auto;overscroll-behavior-x:contain;
     scroll-snap-type:x proximity;scroll-padding-inline:2px;
     -webkit-overflow-scrolling:touch;
   }
-  .etsy-spy-page .etsy-observed-day{
-    flex:0 0 159px;min-width:159px;width:159px;min-height:75px;
-    padding:11px 10px;gap:11px;border-radius:10px;
+  .etsy-spy-page .etsy-observed-day {
+    box-sizing:border-box;flex:0 0 150px;min-width:150px;width:150px;
+    min-height:58px;padding:8px 9px;gap:7px;border-radius:9px;
   }
-  .etsy-spy-page .etsy-observed-day-label{font-size:12px;line-height:1.15}
-  .etsy-spy-page .etsy-observed-day-metrics{gap:9px}
+  .etsy-spy-page .etsy-observed-day-label {
+    font-size:11px;line-height:1.2;
+  }
+  .etsy-spy-page .etsy-observed-day-metrics {gap:5px}
   .etsy-spy-page .etsy-observed-day-eligible,
-  .etsy-spy-page .etsy-observed-day-pick{gap:3px}
+  .etsy-spy-page .etsy-observed-day-pick {gap:2px}
   .etsy-spy-page .etsy-observed-day-eligible strong,
-  .etsy-spy-page .etsy-observed-day-pick strong{font-size:15px}
+  .etsy-spy-page .etsy-observed-day-pick strong {font-size:13px}
   .etsy-spy-page .etsy-observed-day-eligible small,
-  .etsy-spy-page .etsy-observed-day-pick small{font-size:10px}
-
-  .etsy-spy-page .etsy-day-groups{
+  .etsy-spy-page .etsy-observed-day-pick small {font-size:9px}
+  .etsy-spy-page .etsy-day-groups {
     display:flex;flex-direction:column;align-items:stretch;
-    flex-wrap:nowrap;gap:8px;min-width:0;margin:0 0 16px;padding:0;
+    flex-wrap:nowrap;gap:6px;min-width:0;
+    margin:0 0 10px;padding:0;
   }
-  .etsy-spy-page .etsy-day-groups-title{
-    display:block;font-size:12px;font-weight:800;line-height:1.35;
-    letter-spacing:.005em;color:#556d8c;
+  .etsy-spy-page .etsy-day-groups-title {
+    display:block;font-size:11px;font-weight:800;line-height:1.2;
+    color:#556d8c;
   }
-  .etsy-spy-page .etsy-day-groups-list{
-    display:flex;flex:0 1 auto;flex-wrap:wrap;
-    min-width:0;gap:8px;align-items:stretch;
+  /* Only two rows high; remaining categories remain accessible by swiping.
+     Do not hide or truncate interactive filter options. */
+  .etsy-spy-page .etsy-day-groups-list {
+    display:grid;grid-auto-flow:column;
+    grid-template-rows:repeat(2,28px);grid-auto-columns:max-content;
+    align-items:stretch;justify-content:start;
+    gap:5px 6px;flex:0 1 auto;
+    width:100%;max-width:100%;min-width:0;
+    padding:1px 2px 6px;
+    overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;
   }
-  .etsy-spy-page .etsy-day-group{
-    min-height:37px;padding:8px 10px;gap:8px;border-radius:10px;
-    font-size:12px;line-height:1.25;font-weight:710;
-    white-space:nowrap;max-width:100%;
-    touch-action:manipulation;
+  .etsy-spy-page .etsy-day-group {
+    box-sizing:border-box;display:inline-flex;align-items:center;
+    width:max-content;max-width:none;min-height:28px;height:28px;
+    padding:4px 8px;gap:6px;border-radius:8px;
+    white-space:nowrap;font-size:11px;line-height:1.15;font-weight:690;
+    touch-action:manipulation;scroll-snap-align:start;
   }
-  .etsy-spy-page .etsy-day-group strong{
+  .etsy-spy-page .etsy-day-group strong {
     display:inline-grid;place-items:center;flex:0 0 auto;
-    min-width:23px;padding:3px 5px;border-radius:6px;
+    min-width:19px;padding:2px 4px;border-radius:5px;
     background:#edf3fb;color:#355a89;
-    font-size:11px;font-weight:800;
+    font-size:10px;font-weight:800;
   }
-  .etsy-spy-page .etsy-day-group.active strong{
+  .etsy-spy-page .etsy-day-group.active strong {
     background:#dbe9ff;color:#2859a3;
   }
-  .etsy-spy-page .etsy-day-groups-empty{font-size:12px;line-height:1.4}
+  .etsy-spy-page .etsy-day-groups-empty {font-size:11px;line-height:1.3}
 }
-@media(max-width:380px){
-  .etsy-spy-page .etsy-observed-day{
-    flex-basis:152px;min-width:152px;width:152px;
-  }
-  .etsy-spy-page .etsy-day-group{
-    min-height:36px;padding:7px 9px;gap:6px;font-size:11.5px;
+@media (max-width:360px) {
+  .etsy-spy-page .etsy-stats>.etsy-stat {padding:7px 8px;gap:4px}
+  .etsy-spy-page .etsy-stat-heading>span:last-child {font-size:10.5px}
+  .etsy-spy-page .etsy-stat>strong {font-size:19px}
+  .etsy-spy-page .etsy-observed-day {
+    flex-basis:146px;min-width:146px;width:146px;
   }
 }
-/* When Chrome Android requests a desktop-width layout viewport, its
-   content is visually downscaled. Increase touch controls and typography
-   specifically for that mode without changing desktop mouse layouts. */
-@media(min-width:761px) and (max-width:1200px) and (any-pointer:coarse){
-  .etsy-spy-page .etsy-stats{gap:13px;margin-bottom:20px}
-  .etsy-spy-page .etsy-stats>.etsy-stat{
-    min-height:116px;padding:18px 17px;gap:9px;border-radius:14px;
+@media (min-width:761px) and (max-width:1200px) and (any-pointer:coarse) {
+  .etsy-spy-page .etsy-stats {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:9px;margin-bottom:13px;
   }
-  .etsy-spy-page .etsy-stat-heading>span:last-child{font-size:16px;line-height:1.35}
-  .etsy-spy-page .etsy-stat>strong{font-size:31px}
-  .etsy-spy-page .etsy-stat>small{font-size:14px;line-height:1.3}
-  .etsy-spy-page .etsy-observed-day-grid{gap:12px;padding-bottom:13px}
-  .etsy-spy-page .etsy-observed-day{
-    flex:0 0 204px;min-width:204px;width:204px;
-    min-height:100px;padding:15px 14px;gap:15px;border-radius:13px;
+  .etsy-spy-page .etsy-stats>.etsy-stat {
+    min-height:74px;padding:12px 13px;gap:9px;border-radius:11px;
   }
-  .etsy-spy-page .etsy-observed-day-label{font-size:16px}
+  .etsy-spy-page .etsy-stat-heading>span:last-child {font-size:15px}
+  .etsy-spy-page .etsy-stat>strong {font-size:26px}
+  .etsy-spy-page .etsy-observed-day-grid {gap:9px;padding-bottom:9px}
+  .etsy-spy-page .etsy-observed-day {
+    flex:0 0 177px;min-width:177px;width:177px;
+    min-height:70px;padding:10px 11px;gap:9px;
+  }
+  .etsy-spy-page .etsy-observed-day-label {font-size:14px}
   .etsy-spy-page .etsy-observed-day-eligible strong,
-  .etsy-spy-page .etsy-observed-day-pick strong{font-size:21px}
+  .etsy-spy-page .etsy-observed-day-pick strong {font-size:18px}
   .etsy-spy-page .etsy-observed-day-eligible small,
-  .etsy-spy-page .etsy-observed-day-pick small{font-size:13px}
-  .etsy-spy-page .etsy-day-groups{gap:12px;margin-bottom:20px}
-  .etsy-spy-page .etsy-day-groups-title{font-size:16px;line-height:1.4}
-  .etsy-spy-page .etsy-day-groups-list{gap:12px}
-  .etsy-spy-page .etsy-day-group{
-    min-height:48px;padding:11px 14px;
-    gap:10px;border-radius:12px;font-size:16px;
+  .etsy-spy-page .etsy-observed-day-pick small {font-size:11px}
+  .etsy-spy-page .etsy-day-groups {
+    display:grid;grid-template-columns:125px minmax(0,1fr);
+    align-items:center;gap:9px;margin-bottom:12px;
   }
-  .etsy-spy-page .etsy-day-group strong{
-    min-width:29px;padding:4px 6px;font-size:14px;
+  .etsy-spy-page .etsy-day-groups-title {font-size:14px}
+  .etsy-spy-page .etsy-day-groups-list {
+    grid-template-rows:repeat(2,34px);
+    gap:6px 8px;padding-bottom:6px;
+  }
+  .etsy-spy-page .etsy-day-group {
+    min-height:34px;height:34px;padding:6px 10px;
+    font-size:13px;gap:7px;
+  }
+  .etsy-spy-page .etsy-day-group strong {
+    min-width:23px;font-size:12px;padding:2px 5px;
   }
 }

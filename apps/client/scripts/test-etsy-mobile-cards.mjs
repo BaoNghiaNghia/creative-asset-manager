@@ -29,13 +29,16 @@ const groups=[['Tất cả',174],['Christmas',50],['Khác',48],['Crafts',14],
   '"><span>'+n+'</span><strong>'+amount+'</strong></button>').join('');
 const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
-  const scenarios = [320,360,375,390,414,430,600,760].map(w=>({w,touch:true,mobile:true}));
-  scenarios.push({w:768,touch:false,mobile:false},
+  const scenarios=[320,360,375,390,414,430,600,760]
+    .map(w=>({w,touch:true,mobile:true}));
+  scenarios.push(
+    {w:768,touch:false,mobile:false},
     {w:980,touch:false,mobile:false},
-    {w:980,touch:true,mobile:false}, // Chrome Android Desktop site
+    {w:980,touch:true,mobile:false}, // Chrome Android desktop-site viewport
     {w:1024,touch:true,mobile:false},
     {w:1100,touch:true,mobile:false},
-    {w:1024,touch:false,mobile:false});
+    {w:1024,touch:false,mobile:false},
+  );
   for(const {w,touch,mobile} of scenarios){
     const page=await browser.newPage({viewport:{width:w,height:900},
       deviceScaleFactor:touch?2:1,hasTouch:touch,isMobile:mobile});
@@ -50,59 +53,93 @@ try{
     await page.evaluate(()=>document.fonts.ready);
     const data=await page.evaluate(()=>{
       const rect=el=>el.getBoundingClientRect();
-      const grid=document.querySelector('.etsy-stats');
-      const cards=[...grid.children];
-      const dayScroller=document.querySelector('.etsy-observed-day-grid');
-      const dayCards=[...dayScroller.children];
-      const groupBtns=[...document.querySelectorAll('.etsy-day-group')];
+      const root=document.querySelector('.etsy-spy-page');
+      const stats=root.querySelector('.etsy-stats');
+      const kpis=[...stats.children];
+      const dayScroller=root.querySelector('.etsy-observed-day-grid');
+      const dates=[...dayScroller.children];
+      const groupScroller=root.querySelector('.etsy-day-groups-list');
+      const badgeEls=[...groupScroller.children];
+      const statsBox=rect(stats),groupBox=rect(groupScroller);
       return {
         bodyWidth:document.documentElement.scrollWidth,
-        gridDisplay:getComputedStyle(grid).display,
-        cards:cards.map(x=>({x:rect(x).x,y:rect(x).y,width:rect(x).width,
-          height:rect(x).height,
-          clipped:[...x.querySelectorAll('.etsy-stat-heading span:last-child,strong,small')]
-            .some(t=>t.scrollWidth>t.clientWidth+1)})),
-        days:dayCards.map(x=>{
-          const date=rect(x.querySelector('.etsy-observed-day-label'));
-          const left=rect(x.querySelector('.etsy-observed-day-eligible'));
-          const right=rect(x.querySelector('.etsy-observed-day-pick'));
-          return {width:rect(x).width,height:rect(x).height,
-            overlap:left.right>right.left-2,
-            topDate:date.bottom<=left.top+1,
-            clipped:[...x.querySelectorAll('strong,small')].some(t=>t.scrollWidth>t.clientWidth+1)};
+        statsDisplay:getComputedStyle(stats).display,
+        statsColumns:getComputedStyle(stats).gridTemplateColumns.split(' ').length,
+        statsHeight:statsBox.height,
+        kpis:kpis.map(el=>{
+          const name=rect(el.querySelector('.etsy-stat-heading'));
+          const number=rect(el.querySelector('strong'));
+          return {left:rect(el).left,top:rect(el).top,
+            height:rect(el).height,width:rect(el).width,
+            overlap:name.right>number.left-2,
+            hintVisible:getComputedStyle(el.querySelector('small')).display!=='none',
+            clipped:[...el.querySelectorAll('.etsy-stat-heading span:last-child,strong')]
+              .some(t=>t.scrollWidth>t.clientWidth+1)};
+        }),
+        days:dates.map(el=>{
+          const label=rect(el.querySelector('.etsy-observed-day-label'));
+          const left=rect(el.querySelector('.etsy-observed-day-eligible'));
+          const right=rect(el.querySelector('.etsy-observed-day-pick'));
+          return {width:rect(el).width,height:rect(el).height,
+            overlap:left.right>right.left-2,topDate:label.bottom<=left.top+1,
+            clipped:[...el.querySelectorAll('strong,small')].some(t=>t.scrollWidth>t.clientWidth+1)};
         }),
         dayScrolls:dayScroller.scrollWidth>dayScroller.clientWidth,
-        badges:groupBtns.map(x=>({
-          height:rect(x).height,
-          textSize:parseFloat(getComputedStyle(x).fontSize),
-          clipped:x.scrollWidth>x.clientWidth+1,
-          labelOverlaps:rect(x.querySelector('span')).right+2>rect(x.querySelector('strong')).left,
-          offscreen:rect(x).right>document.documentElement.clientWidth+1,
-        })),
+        groupDisplay:getComputedStyle(groupScroller).display,
+        groupFlow:getComputedStyle(groupScroller).gridAutoFlow,
+        groupHeight:groupBox.height,
+        groupScrolls:groupScroller.scrollWidth>groupScroller.clientWidth,
+        badges:badgeEls.map(el=>{
+          const r=rect(el);
+          return {height:r.height,width:r.width,
+            textSize:parseFloat(getComputedStyle(el).fontSize),
+            clipped:el.scrollWidth>el.clientWidth+1,
+            overlapping:rect(el.querySelector('span')).right+2>rect(el.querySelector('strong')).left};
+        }),
       };
     });
-    assert.ok(data.bodyWidth<=w+2,'Page has horizontal overflow at '+w+': '+data.bodyWidth);
-    assert.ok(data.days.every(x=>!x.overlap&&x.topDate&&!x.clipped),
-      'Day card text overlaps at '+w+': '+JSON.stringify(data.days));
-    assert.ok(data.badges.every(x=>!x.clipped&&!x.labelOverlaps&&!x.offscreen),
-      'Badge text overlaps or exits viewport at '+w);
-    if(w<=760||(touch&&w<=1200)){
-      assert.equal(data.gridDisplay,'grid','Mobile KPIs must use grid at '+w);
-      assert.equal(data.cards.length,6);
-      assert.ok(Math.abs(data.cards[0].y-data.cards[1].y)<2,'Two KPI columns');
-      assert.ok(data.cards[1].x>data.cards[0].x+35,'Second KPI on the right');
-      assert.ok(data.cards[2].y>data.cards[0].y+35,'Third KPI on next row');
-      assert.ok(Math.abs(data.cards[2].y-data.cards[3].y)<2,'Two KPIs in second row');
-      assert.ok(data.cards.every(x=>x.height>=(w>760?108:78)&&x.width>=120&&!x.clipped),
-        'Mobile KPI clipped at '+w+': '+JSON.stringify(data.cards));
-      assert.ok(data.days.every(x=>x.height>=(w>760?95:73)&&x.width>=150),'Mobile date card too small');
-      assert.ok(data.dayScrolls,'Days should scroll horizontally on phones');
-      assert.ok(data.badges.every(x=>x.height>=(w>760?46:35)&&x.textSize>=(w>760?15.5:11.4)),
-        'Mobile badges need touch-size text');
+    assert.ok(data.bodyWidth<=w+2,'Page horizontal overflow at '+w+': '+data.bodyWidth);
+    assert.ok(data.days.every(d=>!d.overlap&&d.topDate&&!d.clipped),
+      'Day labels/counts collide at '+w+': '+JSON.stringify(data.days));
+    assert.ok(data.badges.every(b=>!b.clipped&&!b.overlapping),
+      'Badge text clipped/overlapping at '+w);
+    const touchLayout=w<=760||(touch&&w<=1200);
+    if(touchLayout){
+      assert.equal(data.statsDisplay,'grid','KPI layout must be grid at '+w);
+      assert.equal(data.kpis.length,6);
+      const cols=w>760?3:2;
+      assert.equal(data.statsColumns,cols,'Wrong columns at '+w);
+      assert.ok(data.kpis.every(x=>!x.overlap&&!x.clipped&&!x.hintVisible),
+        'KPI labels/values collide or hints take up space at '+w+': '+JSON.stringify(data.kpis));
+      for(let i=0;i<6;i++){
+        const row=Math.floor(i/cols),col=i%cols;
+        const rowBase=data.kpis[row*cols].top;
+        assert.ok(Math.abs(data.kpis[i].top-rowBase)<2,'Wrong KPI row '+i+' at '+w);
+        if(col>0)assert.ok(data.kpis[i].left>data.kpis[i-1].left+30,
+          'Wrong KPI column '+i+' at '+w);
+      }
+      assert.ok(data.statsHeight<=(w>760?190:235),
+        'KPI section too tall at '+w+': '+data.statsHeight);
+      assert.ok(data.kpis.every(x=>x.height<=(w>760?90:82)&&x.width>=105),
+        'Cards too large or too narrow at '+w);
+      assert.ok(data.days.every(x=>x.height<=(w>760?82:72)),
+        'Day cards too tall at '+w);
+      assert.equal(data.dayScrolls,true,'Day cards need horizontal scroll');
+      assert.equal(data.groupDisplay,'grid','Groups should use two-row scrolling grid');
+      assert.equal(data.groupFlow,'column','Group order should fill columns');
+      assert.ok(data.groupHeight<=(w>760?90:78),
+        'Group badges section too tall at '+w+': '+data.groupHeight);
+      assert.equal(data.groupScrolls,true,'Every group must be reachable by horizontal swipe');
+      assert.ok(data.badges.every(x=>x.height>=27&&x.height<=37),
+        'Group badge too small/large at '+w);
+      await page.locator('.etsy-day-groups-list').evaluate(node=>{node.scrollLeft=9999});
+      const scrolled=await page.locator('.etsy-day-groups-list').evaluate(node=>node.scrollLeft);
+      assert.ok(scrolled>0,'Swipe target inaccessible at '+w);
     }
-    console.log('PASS '+w+'px: KPI, date cards, group badges fit without collisions'+
-      ((w<=760||(touch&&w<=1200))?' (2-column mobile grid)':'')+
-      (touch&&w>760?' [touch desktop-site viewport]':''));
+    console.log('PASS '+w+'px '+(touch?'touch':'mouse')+': '+
+      (touchLayout?colsLabel(w)+' compact KPIs, ':'desktop preserved, ')+
+      'compact dates, 2-row swipeable groups, no collisions');
     await page.close();
   }
 }finally{await browser.close();}
+function colsLabel(w){return w>760?'3x2':'2x3';}
