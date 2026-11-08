@@ -826,21 +826,21 @@ export function EtsySpyPage() {
               return <button type="button" key={day}
                 className={"etsy-observed-day" + (selected ? " active" : "")}
                 data-observed-day={day} aria-pressed={selected}
-                aria-label={label + ": " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick, " +
-                  (count ?? "Chưa tải") + " listing khả dụng; " + dateRange + ". Nhấn để lọc listing theo ngày quan sát"}
+                aria-label={label + ": " + (count ?? "Chưa tải") + " listing khả dụng, " +
+                  (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick; " + dateRange + ". Nhấn để lọc listing theo ngày quan sát"}
                 title={"Ngày " + day + " · " + dateRange +
                   " · Nhấn để lọc listing khả dụng theo ngày quan sát"}
                 onClick={() => selectTab("products", { observedDay: day })}>
                 <span className="etsy-observed-day-label">{label}</span>
-                <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
-                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16"
-                    fill="none" stroke="currentColor" strokeWidth="2.2"
-                    strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 3.1 3L13 4"/></svg>
-                  <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
-                  <small>đã Pick</small>
-                </span>
-                <span className="etsy-observed-day-eligible">
-                  {count === null ? "—" : count.toLocaleString("vi-VN")} khả dụng
+                <span className="etsy-observed-day-metrics">
+                  <span className="etsy-observed-day-eligible">
+                    <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
+                    <small>Khả dụng</small>
+                  </span>
+                  <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
+                    <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
+                    <small>Picked</small>
+                  </span>
                 </span>
               </button>;
             })}

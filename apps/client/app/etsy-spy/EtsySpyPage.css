@@ -1092,8 +1092,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;
 }
 .etsy-observed-day{
-  display:flex;flex:0 0 96px;flex-direction:column;align-items:flex-start;justify-content:center;
-  min-width:0;min-height:73px;padding:8px 9px;gap:4px;
+  display:flex;flex:0 0 100px;flex-direction:column;align-items:stretch;justify-content:center;
+  min-width:0;min-height:57px;padding:8px 6px;gap:7px;
   border:1px solid #dfe7f1;border-radius:8px;background:#fff;
   color:#51627d;cursor:pointer;text-align:left;
   transition:border-color .14s ease,background .14s ease,box-shadow .14s ease;
@@ -1101,23 +1101,25 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-observed-day-label{
   font-size:10px;line-height:1.2;font-weight:750;color:#526480;white-space:nowrap;
 }
-.etsy-observed-day-pick{
-  display:inline-flex;align-items:baseline;gap:4px;white-space:nowrap;
-  color:#65738a;font-variant-numeric:tabular-nums;
+.etsy-observed-day-metrics{
+  display:grid;grid-template-columns:minmax(0,1fr) max-content;
+  gap:2px;align-items:baseline;min-width:0;
 }
-.etsy-observed-day-pick svg{align-self:center;flex:0 0 12px;color:#7f91a4}
-.etsy-observed-day-pick strong{
-  font-size:17px;line-height:1;letter-spacing:-.025em;font-weight:800;color:#2a4c78;
-}
-.etsy-observed-day-pick small{font-size:9px;font-weight:650;line-height:1.2}
-.etsy-observed-day-pick.has-picks,
-.etsy-observed-day-pick.has-picks svg{color:#247747}
-.etsy-observed-day-pick.has-picks strong{color:#1d7545}
-.etsy-observed-day-eligible{
-  width:100%;border-top:1px solid #e6ebf2;padding-top:4px;
-  font-size:9px;line-height:1.15;color:#718097;white-space:nowrap;
+.etsy-observed-day-eligible,.etsy-observed-day-pick{
+  display:inline-flex;align-items:baseline;gap:2px;
+  min-width:0;white-space:nowrap;line-height:1.15;
   font-variant-numeric:tabular-nums;
 }
+.etsy-observed-day-eligible{color:#546b89}
+.etsy-observed-day-pick{justify-self:end;color:#65738a}
+.etsy-observed-day-eligible strong,.etsy-observed-day-pick strong{
+  font-size:12px;line-height:1;font-weight:800;letter-spacing:-.025em;
+  color:#2a4c78;
+}
+.etsy-observed-day-eligible small,.etsy-observed-day-pick small{
+  font-size:7.7px;font-weight:650;line-height:1.15;
+}
+.etsy-observed-day-pick.has-picks,.etsy-observed-day-pick.has-picks strong{color:#1d7545}
 .etsy-observed-day:hover{border-color:#91add7;background:#f8fafd}
 .etsy-observed-day.active{border-color:#5279ba;background:#f3f7ff;box-shadow:0 0 0 1px #5279ba26}
 .etsy-observed-day:focus-visible{outline:2px solid #4478c8;outline-offset:2px}

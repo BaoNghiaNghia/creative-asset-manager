@@ -481,10 +481,18 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(days[0].textContent).toContain("Hôm nay");
     expect(days[1].textContent).toContain("Hôm qua");
     expect(days[2].textContent).toContain(expectedDays[2].slice(8, 10) + "/" + expectedDays[2].slice(5, 7));
-    expect(days[0].querySelector(".etsy-observed-day-pick")?.textContent).toContain("1đã Pick");
-    expect(days[0].querySelector(".etsy-observed-day-eligible")?.textContent).toContain("3 khả dụng");
-    expect(days[1].querySelector(".etsy-observed-day-pick")?.textContent).toContain("4đã Pick");
-    expect(days[2].querySelector(".etsy-observed-day-pick")?.textContent).toContain("0đã Pick");
+    // The date stays on top; one compact row below puts Available at
+    // the left and Picked at the right without changing either count.
+    expect(days.every(day => day.children.length === 2)).toBe(true);
+    expect(days.every(day => day.firstElementChild?.classList.contains("etsy-observed-day-label"))).toBe(true);
+    expect(days.every(day => Array.from(
+      day.querySelector(".etsy-observed-day-metrics")?.children ?? [],
+      child => child.classList[0],
+    ).join(",") === "etsy-observed-day-eligible,etsy-observed-day-pick")).toBe(true);
+    expect(days[0].querySelector(".etsy-observed-day-eligible")?.textContent).toBe("3Khả dụng");
+    expect(days[0].querySelector(".etsy-observed-day-pick")?.textContent).toBe("1Picked");
+    expect(days[1].querySelector(".etsy-observed-day-pick")?.textContent).toBe("4Picked");
+    expect(days[2].querySelector(".etsy-observed-day-pick")?.textContent).toBe("0Picked");
     expect(days[0].getAttribute("aria-label")).toContain("1 sản phẩm đã Pick");
     expect(days[0].getAttribute("aria-pressed")).toBe("true");
     expect(observed.some(url => url.includes("/listings?") &&
