@@ -257,12 +257,14 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 .etsy-muted{font-size:11px;color:#8995a4}
 .etsy-table-wrap th .etsy-static-header{display:block;min-height:37px;padding:10px 11px}
 .etsy-sms-cell{font-size:10px}
-.etsy-sms-preview{max-width:215px}
-.etsy-sms-primary{display:block;max-width:210px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#28476d;font-weight:680}
-.etsy-sms-expand{margin-top:4px;padding:1px 5px;border:1px solid #cbd9ec;border-radius:5px;background:#f7faff;color:#285db2;font-size:10px;font-weight:700}
-.etsy-sms-expand:hover{background:#edf4ff}
-.etsy-sms-more{display:flex;flex-direction:column;gap:3px;margin-top:6px}
-.etsy-sms-more>div{padding:3px 0;border-bottom:1px dashed #e2eaf3;overflow-wrap:anywhere;color:#41556e}
+.etsy-sms-preview{width:100%;max-width:100%;min-width:0}
+.etsy-sms-list{
+  display:-webkit-box;-webkit-box-orient:vertical;
+  -webkit-line-clamp:4;line-clamp:4;
+  max-height:calc(4 * 1.5em);line-height:1.5;
+  color:#28476d;font-weight:630;
+  overflow:hidden;overflow-wrap:anywhere;white-space:normal;
+}
 .etsy-details-trigger{display:block;margin-top:6px;padding:3px 0;border:0;background:transparent;text-decoration:underline;font-size:11px;text-align:left;color:#285eaa}
 .etsy-mark-items{max-height:220px;overflow-y:auto;margin-top:6px;font-size:10px}
 .etsy-mark-items>div{display:flex;flex-wrap:wrap;gap:7px;padding:5px 0;border-bottom:1px dashed #dfe4ed}
@@ -1033,8 +1035,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-product-copy strong{font-size:13px;line-height:1.4}
   .etsy-product-copy .etsy-title-meta a{font-size:11px}
   .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}
-  .etsy-sms-preview,.etsy-sms-primary{max-width:none}
-  .etsy-sms-primary{font-size:12px;white-space:normal;overflow-wrap:anywhere}
+  .etsy-sms-preview{max-width:none}
+  .etsy-sms-list{font-size:12px;white-space:normal;overflow-wrap:anywhere}
   .etsy-action-cell a{width:37px;height:37px}
   .etsy-action-cell .etsy-pick-button{
     width:max-content;min-height:37px;padding:7px 10px;font-size:12px;gap:6px;

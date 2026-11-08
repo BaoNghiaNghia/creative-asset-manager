@@ -382,10 +382,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(headings).not.toContain("Keyword");
     expect(headings).not.toContain("Source");
     expect(html).toContain("mama christian shirt");
-    const expandSms = container?.querySelector(".etsy-sms-expand") as HTMLButtonElement;
-    expect(expandSms?.textContent).toBe("+2");
-    await act(async () => {expandSms.click();});
-    expect(container?.textContent).toContain("mama christian sweatshirt");
+    const smsList = container?.querySelector(".etsy-sms-list");
+    expect(smsList?.textContent).toBe(
+      "mama christian shirt, mama christian hoodie, mama christian sweatshirt");
+    expect(smsList?.parentElement?.getAttribute("title")).toBe(smsList?.textContent);
+    expect(container?.querySelector(".etsy-sms-expand")).toBeNull();
     expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
     expect(html).not.toContain("Listings reconciled");

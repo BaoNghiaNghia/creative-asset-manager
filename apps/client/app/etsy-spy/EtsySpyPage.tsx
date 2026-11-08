@@ -215,7 +215,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [smsExpanded, setSmsExpanded] = useState(false);
   const [imagePreview, setImagePreview] = useState<{
     left: number; bottom: number; width: number; maxHeight: number; imageMaxHeight: number;
   } | null>(null);
@@ -250,6 +249,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   };
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
     (Array.isArray(item.metadata?.keywordSms) ? item.metadata.keywordSms : []);
+  const smsText = sms.map(value => typeof value === "string" ? value.trim() : "")
+    .filter(Boolean).join(", ");
   const smsStatus = item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
   const tmMatches = safeMarks(item.tmMatches);
   const hasMarks = tmMatches.length > 0;
@@ -296,19 +297,12 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
       </div>
     </td>
     <td className="etsy-sms-cell">
-      {sms.length ? <div className="etsy-sms-preview">
-        <span className="etsy-sms-primary" title={sms[0]}>{sms[0]}</span>
-        {sms.length > 1 && <button type="button" className="etsy-sms-expand"
-          aria-expanded={smsExpanded} aria-label={"Show " + sms.length + " keyword SMS suggestions"}
-          onClick={() => setSmsExpanded(!smsExpanded)}>
-          {smsExpanded ? "Less" : "+" + (sms.length - 1)}
-        </button>}
-        {smsExpanded && <div className="etsy-sms-more">
-          {sms.slice(1).map((value, index) => <div key={index} title={value}>{value}</div>)}
-        </div>}
+      {smsText ? <div className="etsy-sms-preview" title={smsText}>
+        <span className="etsy-sms-list">{smsText}</span>
       </div> : <span className="etsy-muted"
-        title={smsStatus === "no_suggestions" ? "Etsy returned no apparel suffixes" : "Autocomplete has not been checked"}>
-        {smsStatus === "no_suggestions" ? "None" : "—"}
+        title={smsStatus === "not_checked" ? "Chưa kiểm tra gợi ý Etsy" :
+          "Chưa có gợi ý hợp lệ · " + smsStatus}>
+        {smsStatus === "not_checked" ? "Chưa kiểm tra" : "None"}
       </span>}
     </td>
     <td><div className="etsy-badge-stack">
