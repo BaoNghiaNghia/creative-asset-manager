@@ -395,19 +395,31 @@ def _observed_day_bounds(day: date) -> tuple[datetime, datetime]:
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
 
-def _listings_query(
-    tenant: str, *, q: str = "", session_id: str | None = None,
-    source: str = "", badge: str = "", tm: str = "",
-    sort: str = "observedAt", direction: str = "desc",
-    pick_state: str = "eligible", observed_day: date | None = None,
-    group_key: str = "",
-) -> tuple[Any, Any]:
+def _state_day_condition(tenant: str, pick_state: str, since: datetime, before: datetime):
+    """The date belongs to the selected parent: observed, Picked, or Later action."""
+    if pick_state == "picked":
+        return (select(literal(1)).select_from(Picked).where(
+            Picked.tenant_id == tenant, Picked.listing_key == Listing.listing_key,
+            Picked.picked_at >= since, Picked.picked_at < before,
+        ).exists())
+    if pick_state == "later":
+        return (select(literal(1)).select_from(LaterMatch).where(
+            LaterMatch.tenant_id == tenant, LaterMatch.listing_key == Listing.listing_key,
+            LaterMatch.state == "matched",
+            LaterMatch.updated_at >= since, LaterMatch.updated_at < before,
+        ).exists())
+    return and_(Listing.observed_at >= since, Listing.observed_at < before)
+
+
+def _listing_state_conditions(
+    tenant: str, pick_state: str = "eligible", observed_day: date | None = None,
+) -> list[Any]:
+    """One source of truth for the table, daily counts and topic groups."""
     if pick_state not in {"eligible", "picked", "later"}:
         raise HTTPException(422, "Invalid product view")
     condition = [
         Listing.tenant_id == tenant,
         Listing.is_current.is_(True),
-        # Defend against the source accidentally reporting an excluded Custom title.
         ~Listing.title.ilike("%custom%"),
         _blacklist_condition(tenant),
         _qualified_listing_condition(),
@@ -418,16 +430,29 @@ def _listings_query(
     ]
     if observed_day is not None:
         since, before = _observed_day_bounds(observed_day)
-        condition.extend((Listing.observed_at >= since, Listing.observed_at < before))
+        condition.append(_state_day_condition(tenant, pick_state, since, before))
+    return condition
+
+
+def _listings_query(
+    tenant: str, *, q: str = "", session_id: str | None = None,
+    source: str = "", badge: str = "", tm: str = "",
+    sort: str = "observedAt", direction: str = "desc",
+    pick_state: str = "eligible", observed_day: date | None = None,
+    group_key: str = "",
+) -> tuple[Any, Any]:
+    condition = _listing_state_conditions(tenant, pick_state, observed_day)
+    group_keys = None
     if group_key:
-        if group_key not in GROUP_LABELS or observed_day is None or pick_state != "eligible":
+        if group_key not in GROUP_LABELS or observed_day is None:
             raise HTTPException(422, "Invalid daily group filter")
-        # Every Etsy Listing ID belongs to precisely one category, even if
-        # it appears under multiple Search/Shop keywords on that day.
-        ranks = _day_group_listing_ranks(tenant, observed_day)
+        # Every Etsy Listing ID belongs to one deterministic group in its
+        # parent status and selected day, regardless of repeated source rows.
+        ranks = _day_group_listing_ranks(tenant, observed_day, pick_state=pick_state)
         rank = GROUP_RANKS.get(group_key, len(CATEGORY_GROUPS))
-        condition.append(Listing.listing_key.in_(
-            select(ranks.c.listing_key).where(ranks.c.rank == rank)))
+        group_keys = select(ranks.c.listing_key).where(ranks.c.rank == rank)
+        if pick_state != "later":
+            condition.append(Listing.listing_key.in_(group_keys))
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
                              Listing.keyword.ilike("%" + q[:160] + "%")))
@@ -490,6 +515,11 @@ def _listings_query(
     if pick_state == "later":
         query = query.where(rank_filter)
         total = total.where(rank_filter)
+        # Keep the expensive topic CASE *outside* the source-row ranking
+        # subquery. SQLite otherwise overflows its SQL parser stack.
+        if group_keys is not None:
+            query = query.where(root.listing_key.in_(group_keys))
+            total = total.where(root.listing_key.in_(group_keys))
         if tm_condition is not None:
             query = query.where(tm_condition)
             total = total.where(tm_condition)
@@ -503,14 +533,14 @@ def _listings_query(
 
 
 
-def _day_group_listing_ranks(tenant: str, day: date):
-    """Deduplicate first, then assign the earliest matching topic category."""
-    _, qualified = _listings_query(tenant, observed_day=day)
-    return qualified.with_only_columns(
+def _day_group_listing_ranks(tenant: str, day: date, *, pick_state: str = "eligible"):
+    """Exclusive topic per Listing ID, scoped to one parent state and day."""
+    return select(
         Listing.listing_key.label("listing_key"),
         func.min(category_rank_expression(Listing)).label("rank"),
-        maintain_column_froms=True,
-    ).group_by(Listing.listing_key).subquery("etsy_day_group_ranks")
+    ).where(*_listing_state_conditions(tenant, pick_state, day)).group_by(
+        Listing.listing_key
+    ).subquery("etsy_day_group_ranks")
 
 def _tm_expression():
     from sqlalchemy import case
@@ -633,43 +663,44 @@ def sessions(principal: CurrentPrincipal = Depends(READ), db: Session = Depends(
 
 @router.get("/listings/observed-days")
 def listing_observed_days(
+    pick_state: str = Query("eligible", pattern="^(eligible|picked|later)$"),
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
-    """Ten 06:00–06:00 VN buckets: eligible observed IDs and user Pick actions.
+    """Ten 06:00 VN buckets, scoped to the selected product parent.
 
-    Keep observed/eligible qualification and blacklist rules as /listings;
-    count Picked by picked_at independently, per tenant and listing ID.
+    Eligible dates use observation time, Picked dates use user picked_at,
+    and Later dates use the last matching time. Every count is distinct
+    per Etsy Listing ID and uses the same visibility rules as /listings.
+    Eligible retains the independent Picked activity metric for its overview.
     """
+    tenant = principal.active_tenant_id
     today = datetime.now(VIETNAM_TZ).date()
     days = [today - timedelta(days=index) for index in range(10)]
     windows = [_observed_day_bounds(day) for day in days]
     expressions = [
         func.count(func.distinct(Listing.listing_key)).filter(
-            Listing.observed_at >= since, Listing.observed_at < before,
-        )
+            _state_day_condition(tenant, pick_state, since, before))
         for since, before in windows
     ]
-    _, total_query = _listings_query(principal.active_tenant_id)
-    counts = db.execute(total_query.with_only_columns(
-        *expressions, maintain_column_froms=True,
-    ).where(
-        Listing.observed_at >= windows[-1][0],
-        Listing.observed_at < windows[0][1],
+    counts = db.execute(select(*expressions).select_from(Listing).where(
+        *_listing_state_conditions(tenant, pick_state)
     )).one()
-    # Pick is a user action, not a listing observation: aggregate by picked_at.
-    # One row exists per tenant/listing ID; this remains independent of how
-    # many keywords, sources or sessions discovered the same product.
-    picked_expressions = [
-        func.count().filter(Picked.picked_at >= since, Picked.picked_at < before)
-        for since, before in windows
-    ]
-    picked_counts = db.execute(select(*picked_expressions).where(
-        Picked.tenant_id == principal.active_tenant_id,
-        Picked.picked_at >= windows[-1][0],
-        Picked.picked_at < windows[0][1],
-    )).one()
+
+    picked_counts = [0] * len(days)
+    if pick_state == "eligible":
+        # Preserve the historic right-side Picked metric in Eligible cards.
+        # It records user actions even if their source rows later disappear.
+        picked_expressions = [
+            func.count().filter(Picked.picked_at >= since, Picked.picked_at < before)
+            for since, before in windows
+        ]
+        picked_counts = db.execute(select(*picked_expressions).where(
+            Picked.tenant_id == tenant,
+        )).one()
+    elif pick_state == "picked":
+        picked_counts = counts
     return {
-        "timezone": "Asia/Ho_Chi_Minh",
+        "pick_state": pick_state, "timezone": "Asia/Ho_Chi_Minh",
         "start_hour": 6,
         "items": [
             {"day": day.isoformat(), "count": int(counts[index] or 0),
@@ -681,15 +712,13 @@ def listing_observed_days(
 
 @router.get("/listings/observed-day-groups")
 def listing_observed_day_groups(
-    day: date, principal: CurrentPrincipal = Depends(READ),
+    day: date,
+    pick_state: str = Query("eligible", pattern="^(eligible|picked|later)$"),
+    principal: CurrentPrincipal = Depends(READ),
     db: Session = Depends(get_db),
 ):
-    """One exclusive topic badge per eligible Etsy listing in a VN 06:00 day.
-
-    Matches the eligibility/blacklist/Unpick rules of the daily cards, not
-    the current paginated UI slice. 'Other' is an honest fallback.
-    """
-    ranks = _day_group_listing_ranks(principal.active_tenant_id, day)
+    """Topic groups for exactly the selected product parent and calendar day."""
+    ranks = _day_group_listing_ranks(principal.active_tenant_id, day, pick_state=pick_state)
     results = db.execute(select(
         ranks.c.rank, func.count().label("count"),
     ).group_by(ranks.c.rank)).all()
@@ -705,8 +734,9 @@ def listing_observed_day_groups(
                        "count": other})
     groups.sort(key=lambda entry: (-entry["count"],
                                   GROUP_RANKS.get(entry["key"], len(CATEGORY_GROUPS))))
-    return {"day": day.isoformat(), "timezone": "Asia/Ho_Chi_Minh",
-            "start_hour": 6, "total": sum(values.values()), "items": groups}
+    return {"day": day.isoformat(), "pick_state": pick_state,
+            "timezone": "Asia/Ho_Chi_Minh", "start_hour": 6,
+            "total": sum(values.values()), "items": groups}
 
 
 @router.get("/listings")

@@ -1864,3 +1864,16 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
     min-width:23px;font-size:12px;padding:2px 5px;
   }
 }
+/* Scoped child facets: keyword management panels must not reuse product-day cards. */
+.etsy-spy-page .etsy-facet-context {
+  margin:0 0 12px;padding:9px 11px;
+  border:1px solid #dae5f1;border-radius:9px;
+  background:#f8fbff;color:#5b6e89;
+  font-size:11px;line-height:1.4;
+}
+.etsy-spy-page .etsy-observed-day[data-pick-state="picked"] .etsy-observed-day-eligible {
+  color:#28734d;
+}
+.etsy-spy-page .etsy-observed-day[data-pick-state="later"] .etsy-observed-day-eligible {
+  color:#95662e;
+}

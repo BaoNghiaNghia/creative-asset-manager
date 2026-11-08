@@ -143,24 +143,36 @@ function installFetch() {
       return json({listingKey: id, picked: body.picked});
     }
     if (url.includes("/listings/observed-day-groups?")) {
-      const day = new URL(url, "http://localhost").searchParams.get("day");
+      const params = new URL(url, "http://localhost").searchParams;
+      const day = params.get("day");
+      const pick_state = params.get("pick_state") || "eligible";
       const days = recentObservedDays(vietnamCalendarDay());
-      const items = day === days[0] ? [
-        {key: "christmas", label: "Christmas", count: newSpyListingSynced ? 3 : 2},
-        {key: "thanksgiving", label: "Thanksgiving", count: 1},
-      ] : day === days[1] ? [
-        {key: "books", label: "Books", count: 2},
-      ] : [];
-      return json({day, timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
+      const items = pick_state === "picked"
+        ? day === days[0] ? [{key: "christmas", label: "Christmas", count: 1}]
+          : day === days[1] ? [{key: "books", label: "Books", count: 4}] : []
+        : pick_state === "later"
+          ? day === days[0] ? [{key: "animals", label: "Animals", count: 2}]
+            : day === days[1] ? [{key: "family", label: "Family", count: 1}] : []
+          : day === days[0] ? [
+            {key: "christmas", label: "Christmas", count: newSpyListingSynced ? 3 : 2},
+            {key: "thanksgiving", label: "Thanksgiving", count: 1},
+          ] : day === days[1] ? [
+            {key: "books", label: "Books", count: 2},
+          ] : [];
+      return json({day, pick_state, timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
         total: items.reduce((sum, item) => sum + item.count, 0), items});
     }
-    if (url.endsWith("/listings/observed-days")) {
+    if (url.includes("/listings/observed-days?")) {
+      const pick_state = new URL(url, "http://localhost").searchParams.get("pick_state") || "eligible";
       const days = recentObservedDays(vietnamCalendarDay());
-      return json({ timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
-        items: days.map((day, index) => ({
-          day, count: index === 0 ? (newSpyListingSynced ? 4 : 3) : index === 1 ? 2 : 0,
-          pickedCount: index === 0 ? 1 : index === 1 ? 4 : 0,
-        })),
+      return json({pick_state, timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
+        items: days.map((day, index) => {
+          const count = pick_state === "picked" ? (index === 0 ? 1 : index === 1 ? 4 : 0)
+            : pick_state === "later" ? (index === 0 ? 2 : index === 1 ? 1 : 0)
+            : index === 0 ? (newSpyListingSynced ? 4 : 3) : index === 1 ? 2 : 0;
+          return {day, count, pickedCount: pick_state === "picked" ? count
+            : pick_state === "eligible" ? (index === 0 ? 1 : index === 1 ? 4 : 0) : 0};
+        }),
       });
     }
     if (url.includes("/summary")) return json({
@@ -606,15 +618,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("observed_day=" + expectedDays[1]))).toBe(true);
 
-    // Top Eligible listings card must still provide the unfiltered historical list.
+    // Selecting the Eligible parent restores the screenshot default: Today + All groups.
     await act(async () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
       await new Promise(resolve => setTimeout(resolve, 45));
     });
-    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
-    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")).toBeNull();
-    const totalUrls = observed.filter(url => url.includes("/listings?"));
-    expect(totalUrls.at(-1)).not.toContain("observed_day");
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
+      "data-observed-day")).toBe(today);
 
     await act(async () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
@@ -623,14 +634,89 @@ describe("Etsy Spy native CAM dashboard", () => {
     const pickedFetches = observed.filter(url => url.includes("/listings?") &&
       url.includes("pick_state=picked"));
     expect(pickedFetches.length).toBeGreaterThan(0);
-    expect(pickedFetches.every(url => !url.includes("observed_day="))).toBe(true);
+    expect(pickedFetches.at(-1)).not.toContain("group=");
+    expect(pickedFetches.at(-1)).not.toContain("observed_day=");
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")).toBeNull();
     await act(async () => {
       days[0].click();
       await new Promise(resolve => setTimeout(resolve, 50));
     });
     expect(days[0].getAttribute("aria-pressed")).toBe("true");
-    expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("picked");
     expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+  });
+
+
+  it("scopes every product subcard to Picked/Later and hides irrelevant product facets in keyword panels", async () => {
+    await start();
+    const today = vietnamCalendarDay();
+    const yesterday = recentObservedDays(today)[1];
+    // Default follows the requested screenshot: Eligible > Today > All groups.
+    expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute("data-observed-day"))
+      .toBe(today);
+    expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
+      .toContain("Tất cả");
+
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    expect(observed.some(url => url.includes("/listings/observed-days?pick_state=picked"))).toBe(true);
+    const pickedDay = container?.querySelector<HTMLButtonElement>(
+      '.etsy-observed-day[data-pick-state="picked"][data-observed-day="' + yesterday + '"]');
+    expect(pickedDay?.textContent).toBe("Hôm qua4Picked");
+    expect(pickedDay?.querySelector(".etsy-observed-day-pick")).toBeNull();
+    expect(container?.querySelector(".etsy-day-groups-empty")?.textContent)
+      .toContain("Chọn một ngày");
+    await act(async () => {
+      pickedDay?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(observed.some(url => url.includes("/observed-day-groups?") &&
+      url.includes("pick_state=picked") && url.includes("day=" + yesterday))).toBe(true);
+    expect(container?.querySelector(".etsy-day-groups-list")?.textContent).toContain("Books4");
+    const books = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-day-group") || [])
+      .find(node => node.textContent?.includes("Books"));
+    await act(async () => {
+      books?.click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(observed.some(url => url.includes("/listings?") && url.includes("pick_state=picked") &&
+      url.includes("observed_day=" + yesterday) && url.includes("group=books"))).toBe(true);
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-later")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelector(".etsy-observed-day[data-pick-state=picked]")).toBeNull();
+    expect(container?.querySelector(".etsy-observed-day[data-pick-state=later]")).toBeTruthy();
+    expect(observed.some(url => url.includes("/observed-days?pick_state=later"))).toBe(true);
+    expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(
+        '.etsy-observed-day[data-pick-state=later][data-observed-day="' + today + '"]')?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(container?.querySelector(".etsy-day-groups-list")?.textContent).toContain("Animals2");
+    const animals = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-day-group") || [])
+      .find(node => node.textContent?.includes("Animals"));
+    await act(async () => { animals?.click(); await new Promise(resolve => setTimeout(resolve, 45)); });
+    expect(observed.some(url => url.includes("/listings?") && url.includes("pick_state=later") &&
+      url.includes("observed_day=" + today) && url.includes("group=animals"))).toBe(true);
+
+    for (const section of ["blacklist", "win-keyword", "keywords"] as const) {
+      await act(async () => {
+        container?.querySelector<HTMLButtonElement>(".etsy-stat-" + section)?.click();
+        await new Promise(resolve => setTimeout(resolve, 45));
+      });
+      expect(container?.querySelector(".etsy-observed-day")).toBeNull();
+      expect(container?.querySelector(".etsy-day-group")).toBeNull();
+      if (section === "blacklist" || section === "win-keyword")
+        expect(container?.querySelector(".etsy-facet-context")).toBeTruthy();
+    }
   });
 
   it("computes Vietnamese calendar days independently from browser timezone", () => {

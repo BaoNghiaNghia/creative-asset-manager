@@ -33,12 +33,15 @@ export type Summary = {
   last_inventory_at?: string | null;
 };
 export type ObservedDayBucket = { day: string; count: number; pickedCount: number };
+export type ListingScope = "eligible" | "picked" | "later";
 export type ObservedDaysSummary = {
+  pick_state: ListingScope;
   timezone: "Asia/Ho_Chi_Minh"; start_hour: 6; items: ObservedDayBucket[];
 };
 export type DayGroup = { key: string; label: string; count: number };
 export type DayGroupsSummary = {
-  day: string; timezone: "Asia/Ho_Chi_Minh"; start_hour: 6;
+  day: string; pick_state: ListingScope;
+  timezone: "Asia/Ho_Chi_Minh"; start_hour: 6;
   total: number; items: DayGroup[];
 };
 export type Session = {

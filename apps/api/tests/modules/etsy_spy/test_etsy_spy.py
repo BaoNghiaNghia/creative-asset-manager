@@ -532,6 +532,104 @@ def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
                       params={"day": day}).json()["items"] == []
 
 
+def test_picked_and_later_date_groups_follow_parent_state_and_action_time(scenario):
+    """Parent -> day -> theme -> listing must use one consistent scoped dataset."""
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    vn = ZoneInfo("Asia/Ho_Chi_Minh")
+    today = datetime.now(vn).date()
+    start = datetime.combine(today, time(6), tzinfo=vn).astimezone(timezone.utc)
+    yesterday = (today - timedelta(days=1)).isoformat()
+    today_key = today.isoformat()
+    earlier = start - timedelta(hours=1)
+    later = start + timedelta(hours=1)
+    rows = [
+        ("1234600001", "Santa Christmas Favorite", "Santa Gift", earlier),
+        ("1234600002", "Bookworm Reading Tee", "Reading Club", later),
+        ("1234600003", "Silly Goose Graphic", "Goose Gift", earlier),
+        ("1234600004", "Thanksgiving Turkey Day", "Thanksgiving", later),
+    ]
+    payload = batch("parent-scoped-dates")
+    payload["records"]["listings"] = [
+        {**product(title=title, keyword=keyword), "listingKey": key,
+         "url": f"https://www.etsy.com/listing/{key}/test",
+         "observedAt": observed.isoformat(), "updatedAt": observed.isoformat()}
+        for key, title, keyword, observed in rows
+    ]
+    # The same Etsy ID in a second source must not double a date or group.
+    payload["records"]["listings"].append({
+        **product(title="Santa Christmas Favorite", keyword="Santa Gift (Shop)"),
+        "listingKey": "1234600001", "sourceKind": "shop",
+        "url": "https://www.etsy.com/listing/1234600001/test",
+        "observedAt": earlier.isoformat(), "updatedAt": earlier.isoformat(),
+    })
+    assert sync(client, agent, headers, payload).status_code == 200
+    path = "/api/v1/etsy-spy/listings"
+    for key in ("1234600001", "1234600002"):
+        assert client.put(path + "/" + key + "/pick", json={"picked": True}).status_code == 200
+    db.get(EtsySpyPicked, ("boostgame", "1234600001")).picked_at = later
+    db.get(EtsySpyPicked, ("boostgame", "1234600002")).picked_at = earlier
+    db.add(EtsySpyLaterMatch(tenant_id="boostgame", listing_key="1234600003",
+        score=90, reason="Goose theme", state="matched", updated_at=later))
+    db.add(EtsySpyLaterMatch(tenant_id="boostgame", listing_key="1234600004",
+        score=90, reason="Thanksgiving", state="matched", updated_at=earlier))
+    db.commit()
+
+    picked_days = client.get(path + "/observed-days", params={"pick_state": "picked"})
+    later_days = client.get(path + "/observed-days", params={"pick_state": "later"})
+    assert picked_days.status_code == 200 and later_days.status_code == 200
+    assert picked_days.json()["pick_state"] == "picked"
+    assert later_days.json()["pick_state"] == "later"
+    assert [day["count"] for day in picked_days.json()["items"][:2]] == [1, 1]
+    assert [day["count"] for day in later_days.json()["items"][:2]] == [1, 1]
+
+    for state, day, category, expected in [
+        ("picked", today_key, "christmas", {"1234600001"}),
+        ("picked", yesterday, "books", {"1234600002"}),
+        ("later", today_key, "animals", {"1234600003"}),
+        ("later", yesterday, "thanksgiving", {"1234600004"}),
+    ]:
+        group = client.get(path + "/observed-day-groups", params={
+            "day": day, "pick_state": state,
+        })
+        assert group.status_code == 200, group.text
+        result = group.json()
+        assert result["pick_state"] == state and result["day"] == day
+        assert result["total"] == 1
+        assert {item["key"]: item["count"] for item in result["items"]} == {category: 1}
+        listing_response = client.get(path, params={
+            "pick_state": state, "observed_day": day, "group": category,
+        })
+        assert listing_response.status_code == 200, listing_response.text
+        assert {item["listingKey"] for item in listing_response.json()["items"]} == expected
+        # The exact same date and group in another parent cannot leak records.
+        other = "later" if state == "picked" else "picked"
+        mismatched = client.get(path, params={
+            "pick_state": other, "observed_day": day, "group": category,
+        }).json()
+        assert mismatched["total"] == 0
+
+    # The selected parent is still the authority when a user Picks a Later match.
+    assert client.put(path + "/1234600003/pick", json={"picked": True}).status_code == 200
+    assert client.get(path + "/observed-day-groups", params={
+        "day": today_key, "pick_state": "later",
+    }).json()["total"] == 0
+    assert client.get(path, params={
+        "pick_state": "later", "observed_day": today_key, "group": "animals",
+    }).json()["total"] == 0
+
+    for endpoint in (path + "/observed-days", path + "/observed-day-groups"):
+        assert client.get(endpoint, params={"pick_state": "unknown",
+            **({"day": today_key} if endpoint.endswith("groups") else {})}).status_code == 422
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(path + "/observed-days", params={
+        "pick_state": "picked",
+    }).json()["items"][0]["count"] == 0
+    assert client.get(path + "/observed-day-groups", params={
+        "day": today_key, "pick_state": "later",
+    }).json()["total"] == 0
+
+
 def test_later_is_topic_seed_with_related_current_and_future_listing_ids(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)

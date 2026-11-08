@@ -101,7 +101,7 @@ function queryFor(o: Options): URLSearchParams {
   if (o.q.trim()) query.set("q", o.q.trim());
   if (o.tab === "products" && o.pickState !== "eligible" && !o.blacklistView && !o.winKeywordsView)
     query.set("pick_state", o.pickState);
-  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView && !o.winKeywordsView) {
+  if (o.tab === "products" && !o.blacklistView && !o.winKeywordsView) {
     query.set("observed_day", o.observedDay);
     if (o.group && o.observedDay !== "all") query.set("group", o.group);
   }
@@ -446,7 +446,7 @@ export function EtsySpyPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [extraction, setExtraction] = useState<ExtractionOverview | null>(null);
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
-  const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
+  const [observedDays, setObservedDays] = useState<ObservedDaysSummary | null>(null);
   const [dayGroups, setDayGroups] = useState<DayGroupsSummary | null>(null);
   const [dayGroupError, setDayGroupError] = useState(false);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
@@ -512,29 +512,38 @@ export function EtsySpyPage() {
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
   }, [refresh]);
+  // Date and theme counts must belong to the currently selected product
+  // parent, never to a stale Eligible fetch after switching to Picked/Later.
+  const facetScope = options.pickState;
+  const showProductFacets = options.tab === "products" &&
+    !options.blacklistView && !options.winKeywordsView;
+  const facetDay = options.observedDay === "all" ? null : options.observedDay;
   useEffect(() => {
+    if (!showProductFacets) return;
     let alive = true;
-    spyFetch<ObservedDaysSummary>("/listings/observed-days")
-      .then(response => { if (alive) setObservedDays(response.items); })
+    spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope)
+      .then(response => { if (alive) setObservedDays(response); })
       .catch(() => { if (alive) setObservedDays(null); });
     return () => { alive = false; };
-  }, [refresh]);
-  const categoryDay = options.observedDay === "all" ? clockDay : options.observedDay;
+  }, [facetScope, showProductFacets, refresh]);
   useEffect(() => {
+    if (!showProductFacets || !facetDay) return;
     let alive = true;
     setDayGroupError(false);
     spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
-      encodeURIComponent(categoryDay))
+      encodeURIComponent(facetDay) + "&pick_state=" + facetScope)
       .then(result => { if (alive) setDayGroups(result); })
       .catch(() => { if (alive) { setDayGroups(null); setDayGroupError(true); } });
     return () => { alive = false; };
-  }, [categoryDay, refresh]);
+  }, [facetDay, facetScope, showProductFacets, refresh]);
   useEffect(() => {
     // Classification is computed from every new Windows Spy sync in SQLite/PG.
     // While this dashboard stays open, check lightweight day aggregates once
     // per minute; refresh the table and badges only if the data has changed.
     // Hidden tabs do no polling; focusing the page checks immediately.
-    if (!observedDays || !dayGroups || dayGroups.day !== categoryDay) return;
+    if (!showProductFacets || !facetDay || !observedDays ||
+        observedDays.pick_state !== facetScope || !dayGroups ||
+        dayGroups.pick_state !== facetScope || dayGroups.day !== facetDay) return;
     let disposed = false;
     let checking = false;
     const daySignature = (items: ObservedDayBucket[]) =>
@@ -542,16 +551,16 @@ export function EtsySpyPage() {
     const groupSignature = (item: DayGroupsSummary) =>
       item.day + ":" + item.total + "|" +
       item.items.map(group => group.key + ":" + group.count).join("|");
-    const baselineDays = daySignature(observedDays);
+    const baselineDays = daySignature(observedDays.items);
     const baselineGroups = groupSignature(dayGroups);
     const poll = async () => {
       if (disposed || checking || document.visibilityState === "hidden") return;
       checking = true;
       try {
         const [latestDays, latestGroups] = await Promise.all([
-          spyFetch<ObservedDaysSummary>("/listings/observed-days"),
+          spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope),
           spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
-            encodeURIComponent(categoryDay)),
+            encodeURIComponent(facetDay) + "&pick_state=" + facetScope),
         ]);
         if (!disposed && (daySignature(latestDays.items) !== baselineDays ||
           groupSignature(latestGroups) !== baselineGroups)) {
@@ -571,7 +580,7 @@ export function EtsySpyPage() {
       window.clearInterval(interval);
       window.removeEventListener("focus", poll);
     };
-  }, [observedDays, dayGroups, categoryDay]);
+  }, [observedDays, dayGroups, facetDay, facetScope, showProductFacets]);
   useEffect(() => {
     // Keep Today in Vietnam synchronized if the dashboard stays open overnight.
     const interval = window.setInterval(() => {
@@ -736,7 +745,8 @@ export function EtsySpyPage() {
   const isBlacklistView = activeTab === "products" && options.blacklistView;
   const isWinKeywordsView = activeTab === "products" && options.winKeywordsView;
   const dailyCards = recentObservedDays(clockDay).map((day, index) => {
-    const bucket = observedDays?.find(item => item.day === day);
+    const bucket = observedDays?.pick_state === facetScope
+      ? observedDays.items.find(item => item.day === day) : undefined;
     return {
       day, index, count: bucket?.count ?? null,
       pickedCount: bucket?.pickedCount ?? null,
@@ -763,7 +773,7 @@ export function EtsySpyPage() {
     tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
   }[] = [
     { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
-      tone: "total", tab: "products", filters: { observedDay: "all" },
+      tone: "total", tab: "products", filters: { observedDay: clockDay },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "eligible" && !options.source && !options.tm },
     { title: "Picked", value: summary?.picked ?? 0,
@@ -772,7 +782,7 @@ export function EtsySpyPage() {
           : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
         : "Selected · Image Agent off")
         : "Manually selected products",
-      tone: "picked", tab: "products", filters: { pickState: "picked" },
+      tone: "picked", tab: "products", filters: { pickState: "picked", observedDay: "all" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
     { title: "Later", value: summary?.later ?? 0, hint: "Auto-grouped design themes",
@@ -872,67 +882,76 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        <section className="etsy-observed-days"
-          aria-label="Số sản phẩm đã Pick và listing khả dụng theo ngày, 06:00 đến 06:00 giờ Việt Nam">
-          <div className="etsy-observed-day-grid">
-            {dailyCards.map(({ day, index, count, pickedCount }) => {
-              const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
-                : day.slice(8, 10) + "/" + day.slice(5, 7);
-              const selected = activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
-                options.pickState === "eligible" && options.observedDay === day;
-              const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
-              return <button type="button" key={day}
-                className={"etsy-observed-day" + (selected ? " active" : "")}
-                data-observed-day={day} aria-pressed={selected}
-                aria-label={label + ": " + (count ?? "Chưa tải") + " listing khả dụng, " +
-                  (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick; " + dateRange + ". Nhấn để lọc listing theo ngày quan sát"}
-                title={"Ngày " + day + " · " + dateRange +
-                  " · Nhấn để lọc listing khả dụng theo ngày quan sát"}
-                onClick={() => selectTab("products", { observedDay: day })}>
-                <span className="etsy-observed-day-label">{label}</span>
-                <span className="etsy-observed-day-metrics">
-                  <span className="etsy-observed-day-eligible">
-                    <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
-                    <small>Khả dụng</small>
+        {showProductFacets && <>
+          <section className="etsy-observed-days"
+            aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
+            <div className="etsy-observed-day-grid">
+              {dailyCards.map(({ day, index, count, pickedCount }) => {
+                const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
+                  : day.slice(8, 10) + "/" + day.slice(5, 7);
+                const selected = options.observedDay === day;
+                const statusLabel = facetScope === "eligible" ? "Khả dụng"
+                  : facetScope === "picked" ? "Picked" : "Later";
+                const dateBasis = facetScope === "picked" ? "ngày Pick"
+                  : facetScope === "later" ? "ngày phân loại Later" : "ngày quan sát";
+                const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
+                return <button type="button" key={day}
+                  className={"etsy-observed-day" + (selected ? " active" : "")}
+                  data-observed-day={day} data-pick-state={facetScope} aria-pressed={selected}
+                  aria-label={label + ": " + (count ?? "Chưa tải") + " " + statusLabel +
+                    (facetScope === "eligible" ? ", " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick" : "") +
+                    "; " + dateRange + ". Nhấn để lọc theo " + dateBasis}
+                  title={"Ngày " + day + " · " + dateBasis + " · " + dateRange}
+                  onClick={() => update({ observedDay: selected ? "all" : day, group: "" })}>
+                  <span className="etsy-observed-day-label">{label}</span>
+                  <span className="etsy-observed-day-metrics">
+                    <span className="etsy-observed-day-eligible">
+                      <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
+                      <small>{statusLabel}</small>
+                    </span>
+                    {facetScope === "eligible" && <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
+                      <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
+                      <small>Picked</small>
+                    </span>}
                   </span>
-                  <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
-                    <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
-                    <small>Picked</small>
-                  </span>
-                </span>
-              </button>;
-            })}
-          </div>
-        </section>
-        <section className="etsy-day-groups" aria-label={"Nhóm sản phẩm ngày " + categoryDay}>
-          <span className="etsy-day-groups-title">Nhóm · {
-            categoryDay === clockDay ? "Hôm nay" :
-            categoryDay === recentObservedDays(clockDay)[1] ? "Hôm qua" :
-            categoryDay.slice(8, 10) + "/" + categoryDay.slice(5, 7)
-          }</span>
-          {dayGroups?.day === categoryDay ? (
-            dayGroups.total > 0 ? <div className="etsy-day-groups-list">
-              {[{key: "", label: "Tất cả", count: dayGroups.total}, ...dayGroups.items]
-                .map(item => {
-                  const pressed = activeTab === "products" && !isBlacklistView &&
-                    !isWinKeywordsView && options.pickState === "eligible" &&
-                    options.observedDay === categoryDay && options.group === item.key;
-                  return <button type="button" key={item.key || "all"}
-                    className={"etsy-day-group" + (pressed ? " active" : "")}
-                    aria-pressed={pressed}
-                    title={"Lọc " + item.label + " trong ngày " + categoryDay}
-                    onClick={() => selectTab("products", {
-                      observedDay: categoryDay,
-                      group: item.key === options.group && pressed ? "" : item.key,
-                    })}>
-                    <span>{item.label}</span><strong>{item.count.toLocaleString("vi-VN")}</strong>
-                  </button>;
-                })}
-            </div> : <span className="etsy-day-groups-empty">Chưa có sản phẩm khả dụng</span>
-          ) : <span className="etsy-day-groups-empty">
-            {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
-          </span>}
-        </section>
+                </button>;
+              })}
+            </div>
+          </section>
+          <section className="etsy-day-groups" aria-label={"Nhóm " + facetScope + " ngày " + (facetDay ?? "tất cả")}>
+            <span className="etsy-day-groups-title">Nhóm · {
+              !facetDay ? "Tất cả ngày" :
+              facetDay === clockDay ? "Hôm nay" :
+              facetDay === recentObservedDays(clockDay)[1] ? "Hôm qua" :
+              facetDay.slice(8, 10) + "/" + facetDay.slice(5, 7)
+            }</span>
+            {!facetDay ? <span className="etsy-day-groups-empty">Chọn một ngày phía trên để xem nhóm {facetScope}.</span>
+              : dayGroups?.day === facetDay && dayGroups.pick_state === facetScope ? (
+              dayGroups.total > 0 ? <div className="etsy-day-groups-list">
+                {[{key: "", label: "Tất cả", count: dayGroups.total}, ...dayGroups.items]
+                  .map(item => {
+                    const pressed = options.observedDay === facetDay && options.group === item.key;
+                    return <button type="button" key={item.key || "all"}
+                      className={"etsy-day-group" + (pressed ? " active" : "")}
+                      aria-pressed={pressed}
+                      title={"Lọc " + facetScope + " · " + item.label + " trong ngày " + facetDay}
+                      onClick={() => update({
+                        group: item.key === options.group && pressed ? "" : item.key,
+                      })}>
+                      <span>{item.label}</span><strong>{item.count.toLocaleString("vi-VN")}</strong>
+                    </button>;
+                  })}
+              </div> : <span className="etsy-day-groups-empty">Không có sản phẩm {facetScope} trong ngày này</span>
+            ) : <span className="etsy-day-groups-empty">
+              {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
+            </span>}
+          </section>
+        </>}
+        {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
+          {isBlacklistView
+            ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
+            : "Win Keyword · danh sách ghi chú keyword, không sử dụng phân nhóm sản phẩm theo ngày."}
+        </div>}
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">
           <div className="etsy-blacklist-panel-header">
