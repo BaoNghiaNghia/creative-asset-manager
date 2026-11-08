@@ -268,27 +268,37 @@ def _trial_evidence_schema_complete(connection) -> bool:
             "cam_agent_trial_qa_reviews", ("tenant_id", "output_version_id"),
         ):
             return False
-        def checked(table: str, name: str, *required_fragments: str) -> bool:
+        def checked(table: str, name: str, column: str, *labels: str) -> bool:
+            # PostgreSQL rewrites CHECK (column IN (...)) as
+            # (column)::text = ANY ((ARRAY[...])::text[]). SQLite preserves IN.
+            # Retain the exact named constraint and supported enum members;
+            # never accept a permissive CHECK (1 = 1) with the same name.
             for row in schema.get_check_constraints(table):
                 if row.get("name") != name:
                     continue
                 body = "".join(str(row.get("sqltext") or "").lower().split())
                 body = body.replace('"', "").replace("`", "")
-                return all(fragment in body for fragment in required_fragments)
+                if column not in body or any(label not in body for label in labels):
+                    return False
+                if name == "ck_cam_trial_qa_critical":
+                    # The generated PG expression may use De Morgan
+                    # normalization; both NOT(...) and NOT col OR <> qualify.
+                    return ("not" in body or "<>" in body)
+                return ("in(" in body or "=any(" in body)
             return False
 
         return (
             checked(
                 "cam_agent_trial_exposures", "ck_cam_trial_exposure_arm",
-                "armin(", "'control'", "'challenger'",
+                "arm", "'control'", "'challenger'",
             )
             and checked(
                 "cam_agent_trial_qa_reviews", "ck_cam_trial_qa_verdict",
-                "verdictin(", "'accepted'", "'rejected'",
+                "verdict", "'accepted'", "'rejected'",
             )
             and checked(
                 "cam_agent_trial_qa_reviews", "ck_cam_trial_qa_critical",
-                "not(", "critical_defect", "verdict", "'accepted'",
+                "critical_defect", "verdict", "'accepted'",
             )
         )
     except SQLAlchemyError:

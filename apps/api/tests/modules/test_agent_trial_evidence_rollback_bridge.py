@@ -103,6 +103,44 @@ def test_bridge_rejects_weakened_0205_evidence(old_release_db, weakened):
         validate_alembic_head(engine, database_url=url)
 
 
+def test_bridge_accepts_postgresql_rewritten_check_constraints(old_release_db, monkeypatch):
+    """PG normalizes IN -> = ANY and may rewrite NOT ... AND via OR."""
+    from sqlalchemy import inspect as sqlalchemy_inspect
+    from app.core import database as module
+
+    engine, url = old_release_db
+    _simulate_future_0205(engine)
+    rewrites = {
+        "ck_cam_trial_exposure_arm": (
+            "((arm)::text = ANY ((ARRAY['control'::character varying, "
+            "'challenger'::character varying])::text[]))"
+        ),
+        "ck_cam_trial_qa_verdict": (
+            "((verdict)::text = ANY ((ARRAY['accepted'::character varying, "
+            "'rejected'::character varying])::text[]))"
+        ),
+        "ck_cam_trial_qa_critical": (
+            "((NOT critical_defect) OR ((verdict)::text <> 'accepted'::text))"
+        ),
+    }
+
+    class InspectorProxy:
+        def __init__(self, connection):
+            self.real = sqlalchemy_inspect(connection)
+
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+
+        def get_check_constraints(self, table):
+            return [
+                {**row, "sqltext": rewrites.get(row.get("name"), row.get("sqltext"))}
+                for row in self.real.get_check_constraints(table)
+            ]
+
+    monkeypatch.setattr(module, "inspect", InspectorProxy)
+    assert validate_alembic_head(engine, database_url=url) == "0204_cam_agent_holdout_studies"
+
+
 def test_bridge_rejects_named_but_semantically_weak_check(old_release_db):
     engine, url = old_release_db
     _simulate_future_0205(engine, arm_check="weak")
