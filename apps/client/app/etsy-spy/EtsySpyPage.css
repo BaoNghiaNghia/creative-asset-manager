@@ -1730,10 +1730,10 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-extraction-backfill button:disabled { opacity: .45; cursor: not-allowed; }
 .etsy-extraction-backfill [role="status"] { flex-basis: 100%; font-size: 12px; color: #334155; }
 
-/* Etsy Spy mobile: override the later desktop flex KPI rule, restore a
-   true 2-column touch grid and readable horizontal day cards/topic chips.
-   Keep the existing desktop/tablet layout unchanged. */
-@media(max-width:760px){
+/* Etsy Spy mobile: cover ordinary phone viewports AND Chrome Android
+   "Desktop site" mode (often a 980px layout viewport on a touch phone).
+   The last CSS block wins over legacy KPI flex wrapping and tiny chips. */
+@media(max-width:760px), (any-pointer:coarse) and (max-width:1200px){
   .etsy-spy-page .etsy-stats{
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
     align-items:stretch;gap:9px;margin:0 0 15px;
@@ -1810,5 +1810,37 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   }
   .etsy-spy-page .etsy-day-group{
     min-height:36px;padding:7px 9px;gap:6px;font-size:11.5px;
+  }
+}
+/* When Chrome Android requests a desktop-width layout viewport, its
+   content is visually downscaled. Increase touch controls and typography
+   specifically for that mode without changing desktop mouse layouts. */
+@media(min-width:761px) and (max-width:1200px) and (any-pointer:coarse){
+  .etsy-spy-page .etsy-stats{gap:13px;margin-bottom:20px}
+  .etsy-spy-page .etsy-stats>.etsy-stat{
+    min-height:116px;padding:18px 17px;gap:9px;border-radius:14px;
+  }
+  .etsy-spy-page .etsy-stat-heading>span:last-child{font-size:16px;line-height:1.35}
+  .etsy-spy-page .etsy-stat>strong{font-size:31px}
+  .etsy-spy-page .etsy-stat>small{font-size:14px;line-height:1.3}
+  .etsy-spy-page .etsy-observed-day-grid{gap:12px;padding-bottom:13px}
+  .etsy-spy-page .etsy-observed-day{
+    flex:0 0 204px;min-width:204px;width:204px;
+    min-height:100px;padding:15px 14px;gap:15px;border-radius:13px;
+  }
+  .etsy-spy-page .etsy-observed-day-label{font-size:16px}
+  .etsy-spy-page .etsy-observed-day-eligible strong,
+  .etsy-spy-page .etsy-observed-day-pick strong{font-size:21px}
+  .etsy-spy-page .etsy-observed-day-eligible small,
+  .etsy-spy-page .etsy-observed-day-pick small{font-size:13px}
+  .etsy-spy-page .etsy-day-groups{gap:12px;margin-bottom:20px}
+  .etsy-spy-page .etsy-day-groups-title{font-size:16px;line-height:1.4}
+  .etsy-spy-page .etsy-day-groups-list{gap:12px}
+  .etsy-spy-page .etsy-day-group{
+    min-height:48px;padding:11px 14px;
+    gap:10px;border-radius:12px;font-size:16px;
+  }
+  .etsy-spy-page .etsy-day-group strong{
+    min-width:29px;padding:4px 6px;font-size:14px;
   }
 }

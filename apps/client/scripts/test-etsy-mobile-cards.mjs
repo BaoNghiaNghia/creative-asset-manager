@@ -29,9 +29,16 @@ const groups=[['Tất cả',174],['Christmas',50],['Khác',48],['Crafts',14],
   '"><span>'+n+'</span><strong>'+amount+'</strong></button>').join('');
 const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
-  for(const w of [320,360,375,390,414,430,600,760,768,1024]){
+  const scenarios = [320,360,375,390,414,430,600,760].map(w=>({w,touch:true,mobile:true}));
+  scenarios.push({w:768,touch:false,mobile:false},
+    {w:980,touch:false,mobile:false},
+    {w:980,touch:true,mobile:false}, // Chrome Android Desktop site
+    {w:1024,touch:true,mobile:false},
+    {w:1100,touch:true,mobile:false},
+    {w:1024,touch:false,mobile:false});
+  for(const {w,touch,mobile} of scenarios){
     const page=await browser.newPage({viewport:{width:w,height:900},
-      deviceScaleFactor:1,hasTouch:w<=760,isMobile:w<=760});
+      deviceScaleFactor:touch?2:1,hasTouch:touch,isMobile:mobile});
     await page.setContent('<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/>'+
       '<style>html,body{margin:0;padding:0;width:100%;}'+css+'</style></head>'+
       '<body><div class="etsy-spy-page"><div class="etsy-stage-canvas"><div class="etsy-stage-card">'+
@@ -79,21 +86,23 @@ try{
       'Day card text overlaps at '+w+': '+JSON.stringify(data.days));
     assert.ok(data.badges.every(x=>!x.clipped&&!x.labelOverlaps&&!x.offscreen),
       'Badge text overlaps or exits viewport at '+w);
-    if(w<=760){
+    if(w<=760||(touch&&w<=1200)){
       assert.equal(data.gridDisplay,'grid','Mobile KPIs must use grid at '+w);
       assert.equal(data.cards.length,6);
       assert.ok(Math.abs(data.cards[0].y-data.cards[1].y)<2,'Two KPI columns');
       assert.ok(data.cards[1].x>data.cards[0].x+35,'Second KPI on the right');
       assert.ok(data.cards[2].y>data.cards[0].y+35,'Third KPI on next row');
       assert.ok(Math.abs(data.cards[2].y-data.cards[3].y)<2,'Two KPIs in second row');
-      assert.ok(data.cards.every(x=>x.height>=78&&x.width>=120&&!x.clipped),
+      assert.ok(data.cards.every(x=>x.height>=(w>760?108:78)&&x.width>=120&&!x.clipped),
         'Mobile KPI clipped at '+w+': '+JSON.stringify(data.cards));
-      assert.ok(data.days.every(x=>x.height>=73&&x.width>=150),'Mobile date card too small');
+      assert.ok(data.days.every(x=>x.height>=(w>760?95:73)&&x.width>=150),'Mobile date card too small');
       assert.ok(data.dayScrolls,'Days should scroll horizontally on phones');
-      assert.ok(data.badges.every(x=>x.height>=35&&x.textSize>=11.4),'Mobile badges need touch-size text');
+      assert.ok(data.badges.every(x=>x.height>=(w>760?46:35)&&x.textSize>=(w>760?15.5:11.4)),
+        'Mobile badges need touch-size text');
     }
     console.log('PASS '+w+'px: KPI, date cards, group badges fit without collisions'+
-      (w<=760?' (2-column mobile grid)':''));
+      ((w<=760||(touch&&w<=1200))?' (2-column mobile grid)':'')+
+      (touch&&w>760?' [touch desktop-site viewport]':''));
     await page.close();
   }
 }finally{await browser.close();}
