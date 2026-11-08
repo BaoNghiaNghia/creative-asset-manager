@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Agent Harness Phase 3C.3B0: immutable evidence rollback bridge
+
+- [x] Define prospective 0205 exposure + blinded independent QA ledger contract with tenant-study-keyword lineage, per-job/output uniqueness and bounded verdict constraints.
+- [x] Prepare 0204 backend startup compatibility for exactly `0205_cam_agent_trial_evidence` only when structural integrity is intact; reject missing/weak/unknown successors.
+- [x] Preserve 0204 as current migration. No actual experiment activation, new job, worker routing, automatic promotion, provider cost or independent QA claims.
+- [ ] Verify bridge on SQLite scratch database, migration regression and security tests; deploy backend-only from `main` with `--no-migrate` and all flags unchanged.
+- [ ] Phase 3C.3B1: add separate 0205 migration + models **after** this bridge is live; capture actual worker-applied treatment only with provenance, separate from shadow-only admission.
+- [ ] Phase 3C.3B2: blinded reviewer provenance + output/cost telemetry, read-only held-out evaluation and independently approved rollback/rollout.
+
+
 ## 2026-11-08 — Agent Harness Phase 3C.3A: pre-generation shadow admission
 
 - [x] Add independent default-OFF `AGENT_HARNESS_TRIAL_ADMISSION_ENABLED`; additionally require existing READ, MANAGEMENT, registration gates and no emergency stop.

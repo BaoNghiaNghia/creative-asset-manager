@@ -197,6 +197,115 @@ def _verified_holdout_successor(connection, expected_head: str, current_heads: t
     )
 
 
+def _trial_evidence_schema_complete(connection) -> bool:
+    """Validate the exact additive 0205 exposure/QA ledger before rollback.
+
+    Neither existence of these tables nor successful migration constitutes a
+    real trial, applied challenger treatment or independent QA verification.
+    The 0204 release may start against 0205 only with the reviewed FK,
+    uniqueness, immutable-identity and restricted-verdict constraints intact.
+    """
+    schema = inspect(connection)
+    required = {
+        "cam_agent_trial_exposures": {
+            "tenant_id", "study_id", "keyword_id", "processing_job_id",
+            "arm", "policy_version", "policy_sha256", "worker_identity",
+            "applied_at",
+        },
+        "cam_agent_trial_qa_reviews": {
+            "tenant_id", "review_id", "study_id", "keyword_id",
+            "output_version_id", "artifact_sha256", "blind_token_sha256",
+            "reviewer_id", "verdict", "critical_defect", "reviewed_at",
+        },
+    }
+    try:
+        if not set(required).issubset(set(schema.get_table_names())):
+            return False
+        for table, cols in required.items():
+            if not cols.issubset({item["name"] for item in schema.get_columns(table)}):
+                return False
+        if (schema.get_pk_constraint("cam_agent_trial_exposures").get("constrained_columns")
+                != ["tenant_id", "study_id", "keyword_id"]):
+            return False
+        if (schema.get_pk_constraint("cam_agent_trial_qa_reviews").get("constrained_columns")
+                != ["tenant_id", "review_id"]):
+            return False
+
+        def has_fk(table, referred, source, target):
+            return any(
+                row.get("referred_table") == referred
+                and row.get("constrained_columns") == list(source)
+                and row.get("referred_columns") == list(target)
+                for row in schema.get_foreign_keys(table)
+            )
+
+        if not has_fk(
+            "cam_agent_trial_exposures", "cam_agent_trial_assignments",
+            ("tenant_id", "study_id", "keyword_id"),
+            ("tenant_id", "study_id", "keyword_id"),
+        ) or not has_fk(
+            "cam_agent_trial_exposures", "processing_jobs",
+            ("processing_job_id",), ("id",),
+        ) or not has_fk(
+            "cam_agent_trial_qa_reviews", "cam_agent_trial_exposures",
+            ("tenant_id", "study_id", "keyword_id"),
+            ("tenant_id", "study_id", "keyword_id"),
+        ) or not has_fk(
+            "cam_agent_trial_qa_reviews", "rrugc_image_output_versions",
+            ("output_version_id",), ("id",),
+        ):
+            return False
+
+        def has_unique(table, columns):
+            return any(
+                tuple(row.get("column_names") or ()) == tuple(columns)
+                for row in schema.get_unique_constraints(table)
+            )
+
+        if not has_unique(
+            "cam_agent_trial_exposures", ("tenant_id", "processing_job_id"),
+        ) or not has_unique(
+            "cam_agent_trial_qa_reviews", ("tenant_id", "output_version_id"),
+        ):
+            return False
+        def checked(table: str, name: str, *required_fragments: str) -> bool:
+            for row in schema.get_check_constraints(table):
+                if row.get("name") != name:
+                    continue
+                body = "".join(str(row.get("sqltext") or "").lower().split())
+                body = body.replace('"', "").replace("`", "")
+                return all(fragment in body for fragment in required_fragments)
+            return False
+
+        return (
+            checked(
+                "cam_agent_trial_exposures", "ck_cam_trial_exposure_arm",
+                "armin(", "'control'", "'challenger'",
+            )
+            and checked(
+                "cam_agent_trial_qa_reviews", "ck_cam_trial_qa_verdict",
+                "verdictin(", "'accepted'", "'rejected'",
+            )
+            and checked(
+                "cam_agent_trial_qa_reviews", "ck_cam_trial_qa_critical",
+                "not(", "critical_defect", "verdict", "'accepted'",
+            )
+        )
+    except SQLAlchemyError:
+        return False
+
+
+def _verified_trial_evidence_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """0204 can only roll back across the one exact 0205 additive revision."""
+    return (
+        expected_head == "0204_cam_agent_holdout_studies"
+        and current_heads == ("0205_cam_agent_trial_evidence",)
+        and _agent_harness_schema_complete(connection)
+        and _holdout_study_schema_complete(connection)
+        and _trial_evidence_schema_complete(connection)
+    )
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -209,6 +318,7 @@ def validate_alembic_head(
             approved_successor = (
                 _verified_agent_harness_successor(connection, expected_head, tuple(current_heads))
                 or _verified_holdout_successor(connection, expected_head, tuple(current_heads))
+                or _verified_trial_evidence_successor(connection, expected_head, tuple(current_heads))
             ) if tuple(current_heads) != (expected_head,) else False
             exact_agent_schema_valid = (
                 _agent_harness_schema_complete(connection)
@@ -223,12 +333,22 @@ def validate_alembic_head(
                 and tuple(current_heads) == (expected_head,)
                 else True
             )
+            exact_trial_evidence_valid = (
+                _agent_harness_schema_complete(connection)
+                and _holdout_study_schema_complete(connection)
+                and _trial_evidence_schema_complete(connection)
+                if expected_head == "0205_cam_agent_trial_evidence"
+                and tuple(current_heads) == (expected_head,)
+                else True
+            )
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
     if not exact_agent_schema_valid:
         raise DatabaseStartupError("Agent Harness schema incomplete at revision 0203")
     if not exact_holdout_schema_valid:
         raise DatabaseStartupError("Agent Harness holdout schema incomplete at revision 0204")
+    if not exact_trial_evidence_valid:
+        raise DatabaseStartupError("Agent Harness evidence schema incomplete at revision 0205")
     if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(

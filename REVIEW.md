@@ -1,3 +1,10 @@
+## 2026-11-09 — Agent Harness Phase 3C.3B0 future evidence rollback bridge
+
+- Extends database startup to accept exactly successor 0205 when new trial exposure and independent QA tables have the required composite tenant FKs, PKs, uniqueness and constrained fields. A 0204 binary cannot accept arbitrary future revisions or weakened schema.
+- No migration yet; 0204 remains authoritative. No exposure/QA is ever inserted or inferred from 3C.3A shadow admission. Stage 1 worker, agent execution, candidate/prompt routing, independent QA and promotion stay unchanged/OFF.
+- Safe sequence: release this backend-only 0204 bridge from main, then separately deploy migration 0205 and recorders after compatibility is proven. No new dependencies, keys, or client UI. Rollback to prior 0204 while schema remains 0204; once upgraded to 0205, rollback only to this bridge.
+- Tests: new `test_agent_trial_evidence_rollback_bridge.py` validates exact future schema and rejects missing FKs/uniques/checks, absent tables, unknown versions and skip-over-two-revisions. Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3B0_ROLLBACK_BRIDGE.md`.
+
 ## 2026-11-08 — Agent Harness Phase 3C.3A shadow-only pre-generation admission
 
 - Adds a separately gated Stage 0 Pick/Stage 1 Creative Brief server-side admission for previously reserved, ungenerated tenant-owned keywords. Pins deterministic arm, source/keyword digest and immutable study identity in the existing ProcessingJob JSON, with same-transaction audit.
