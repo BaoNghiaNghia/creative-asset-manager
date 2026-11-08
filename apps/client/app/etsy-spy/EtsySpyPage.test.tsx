@@ -23,6 +23,7 @@ let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number
   source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
 let laterSeedKeys = new Set<string>();
+let newSpyListingSynced = false;
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -81,6 +82,7 @@ function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = [];
   registeredImageAgents = [];
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
+  newSpyListingSynced = false;
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -144,7 +146,7 @@ function installFetch() {
       const day = new URL(url, "http://localhost").searchParams.get("day");
       const days = recentObservedDays(vietnamCalendarDay());
       const items = day === days[0] ? [
-        {key: "christmas", label: "Christmas", count: 2},
+        {key: "christmas", label: "Christmas", count: newSpyListingSynced ? 3 : 2},
         {key: "thanksgiving", label: "Thanksgiving", count: 1},
       ] : day === days[1] ? [
         {key: "books", label: "Books", count: 2},
@@ -156,7 +158,7 @@ function installFetch() {
       const days = recentObservedDays(vietnamCalendarDay());
       return json({ timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
         items: days.map((day, index) => ({
-          day, count: index === 0 ? 3 : index === 1 ? 2 : 0,
+          day, count: index === 0 ? (newSpyListingSynced ? 4 : 3) : index === 1 ? 2 : 0,
           pickedCount: index === 0 ? 1 : index === 1 ? 4 : 0,
         })),
       });
@@ -215,7 +217,13 @@ function installFetch() {
     }
     if (url.includes("/listings?")) {
       const pickState = new URL(url, "http://localhost").searchParams.get("pick_state") || "eligible";
-      const visible = [listing, popularNoMatch, deadListing].filter(x =>
+      const newlySynced = {
+        ...listing, listingKey: "333", pageTitle: "Merry Christmas Reindeer Tee",
+        url: "https://www.etsy.com/listing/333/christmas-reindeer",
+      };
+      const visible = [
+        listing, popularNoMatch, deadListing, ...(newSpyListingSynced ? [newlySynced] : []),
+      ].filter(x =>
         pickState === "picked" ? pickedKeys.has(x.listingKey)
         : pickState === "later" ? laterSeedKeys.has(x.listingKey) && !pickedKeys.has(x.listingKey)
         : !pickedKeys.has(x.listingKey) && !laterSeedKeys.has(x.listingKey)).map(x =>
@@ -511,6 +519,39 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 45));
     });
     expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
+  });
+
+  it("automatically refreshes group counts and listings after a new Spy sync", async () => {
+    await start();
+    const initial = container?.querySelector(".etsy-day-groups-list");
+    expect(initial?.textContent).toContain("Christmas2");
+    const initialListFetches = observed.filter(url => url.includes("/listings?")).length;
+
+    // A new qualified Etsy listing arrives in the backend while the
+    // dashboard remains open. No manual refresh or categorization job.
+    newSpyListingSynced = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+    expect(container?.querySelector(".etsy-day-groups-list")?.textContent)
+      .toContain("Christmas3");
+    expect(container?.querySelector<HTMLButtonElement>(
+      ".etsy-observed-day")?.querySelector(".etsy-observed-day-eligible")?.textContent)
+      .toBe("4Khả dụng");
+    expect(container?.textContent).toContain("Merry Christmas Reindeer Tee");
+    expect(observed.filter(url => url.includes("/listings?")).length)
+      .toBeGreaterThan(initialListFetches);
+
+    // A focus with identical server aggregates must not trigger another
+    // expensive table fetch or disturb the current product filters.
+    const afterUpdateFetches = observed.filter(url => url.includes("/listings?")).length;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(observed.filter(url => url.includes("/listings?")).length)
+      .toBe(afterUpdateFetches);
   });
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {

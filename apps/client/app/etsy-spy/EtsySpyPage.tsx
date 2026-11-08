@@ -530,6 +530,49 @@ export function EtsySpyPage() {
     return () => { alive = false; };
   }, [categoryDay, refresh]);
   useEffect(() => {
+    // Classification is computed from every new Windows Spy sync in SQLite/PG.
+    // While this dashboard stays open, check lightweight day aggregates once
+    // per minute; refresh the table and badges only if the data has changed.
+    // Hidden tabs do no polling; focusing the page checks immediately.
+    if (!observedDays || !dayGroups || dayGroups.day !== categoryDay) return;
+    let disposed = false;
+    let checking = false;
+    const daySignature = (items: ObservedDayBucket[]) =>
+      items.map(item => item.day + ":" + item.count + ":" + item.pickedCount).join("|");
+    const groupSignature = (item: DayGroupsSummary) =>
+      item.day + ":" + item.total + "|" +
+      item.items.map(group => group.key + ":" + group.count).join("|");
+    const baselineDays = daySignature(observedDays);
+    const baselineGroups = groupSignature(dayGroups);
+    const poll = async () => {
+      if (disposed || checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const [latestDays, latestGroups] = await Promise.all([
+          spyFetch<ObservedDaysSummary>("/listings/observed-days"),
+          spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
+            encodeURIComponent(categoryDay)),
+        ]);
+        if (!disposed && (daySignature(latestDays.items) !== baselineDays ||
+          groupSignature(latestGroups) !== baselineGroups)) {
+          setRefresh(value => value + 1);
+        }
+      } catch {
+        // Transient Scout/backend outages must not interrupt the active table
+        // or discard its last good counts; the next tick will retry.
+      } finally {
+        checking = false;
+      }
+    };
+    const interval = window.setInterval(poll, 60_000);
+    window.addEventListener("focus", poll);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", poll);
+    };
+  }, [observedDays, dayGroups, categoryDay]);
+  useEffect(() => {
     // Keep Today in Vietnam synchronized if the dashboard stays open overnight.
     const interval = window.setInterval(() => {
       const next = vietnamCalendarDay();

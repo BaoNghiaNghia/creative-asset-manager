@@ -496,6 +496,36 @@ def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
                             params={"day": day}).json()
     assert after_pick["total"] == 6
     assert {g["key"]: g["count"] for g in after_pick["items"]}["christmas"] == 2
+    # Future Scout inventory pushes inherit the same deterministic category
+    # rules immediately, without any manual categorization/backfill job.
+    fresh_batch = batch("day-group-future-sync")
+    fresh_batch["records"]["listings"] = [
+        {**product(title="Merry Christmas Reindeer Tee",
+                   keyword="Christmas reindeer artwork"),
+         "listingKey": "1234567897",
+         "url": "https://www.etsy.com/listing/1234567897/test",
+         "observedAt": observed_at, "updatedAt": observed_at},
+        {**product(title="Abstract Contemporary Illustrated Tee",
+                   keyword="Minimal design print"),
+         "listingKey": "1234567898",
+         "url": "https://www.etsy.com/listing/1234567898/test",
+         "observedAt": observed_at, "updatedAt": observed_at},
+    ]
+    assert sync(client, agent, headers, fresh_batch).status_code == 200
+    after_sync = client.get(path + "/observed-day-groups",
+                            params={"day": day}).json()
+    assert after_sync["total"] == 8
+    latest_groups = {item["key"]: item["count"] for item in after_sync["items"]}
+    assert latest_groups["christmas"] == 3
+    assert latest_groups["other"] == 1
+    assert sum(latest_groups.values()) == after_sync["total"]
+    christmas_latest = client.get(path, params={
+        "observed_day": day, "group": "christmas"}).json()
+    assert "1234567897" in {item["listingKey"] for item in christmas_latest["items"]}
+    other_latest = client.get(path, params={
+        "observed_day": day, "group": "other"}).json()
+    assert {item["listingKey"] for item in other_latest["items"]} == {"1234567898"}
+
     # Classification and visibility are tenant-scoped.
     principal.active_tenant_id = "other-tenant"
     assert client.get(path + "/observed-day-groups",
