@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Phase 3C.3B1 PostgreSQL startup incident follow-up
+
+- [x] Fix PostgreSQL-normalized 0205 CHECK introspection in `6db036aa6`, preserve structural fail-closed enforcement and add dialect-rewrite regression tests.
+- [x] Re-validate PostgreSQL 0205 production schema and recover healthy API/managed workers without database downgrade or feature activation.
+- [ ] Establish second 0205-compatible production release so rollback never selects the broken pre-fix backend; clean releases only after verifying both pointers.
+- [ ] Add disposable PostgreSQL migration/startup gate to CI and a pre-activation rollback-release compatibility check.
+- [ ] Proceed to verified treatment-aware worker receipts and blinded independent QA only after safety gates.
+
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B1: exposure and QA evidence schema
 
 - [x] Add migration `0205_cam_agent_trial_evidence` for tenant-scoped worker-applied exposure receipts and independent blinded QA reviews. Add SQLAlchemy mappings, composite FKs, uniqueness and nonempty-downgrade refusal.

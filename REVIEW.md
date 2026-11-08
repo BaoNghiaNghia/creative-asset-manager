@@ -1,3 +1,9 @@
+## 2026-11-09 — Agent Harness 0205 production startup recovery and rollback hardening
+
+- 0205 schema was applied but API startup rejected PostgreSQL-normalized CHECK SQL, despite the same schema passing SQLite migration tests; first migration deploy failed its API health gate.
+- Hotfix `6db036aa6` handles PostgreSQL `= ANY(ARRAY[...])` expressions and normalized critical-defect checks without trusting a named but permissive constraint. Targeted dialect-compatibility tests and actual production schema gate passed, and API/worker health recovered.
+- Incident and rollback instructions: `docs/operations/CAM_AGENT_TRIAL_0205_INCIDENT_20261109.md`. A second documentation-only release is needed so both current and previous backends are 0205-compatible, before pruning broken pre-hotfix releases.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B1 inert evidence ledger (0205)
 
 - Added **additive** migration `0205_cam_agent_trial_evidence`: `cam_agent_trial_exposures` and `cam_agent_trial_qa_reviews`, composite tenant-study-keyword lineage FKs, processing job/output references, per-job and per-output uniqueness, fixed arm/verdict checks, database timestamps and guarded downgrade refusing nonempty evidence.
