@@ -25,7 +25,7 @@ def test_agent_harness_additive_schema_and_downgrade(tmp_path):
     assert {"tenant_id", "event_key", "status", "source_event_ids_json"}.issubset(experience)
     with engine.connect() as connection:
         assert _agent_harness_schema_complete(connection)
-    assert validate_alembic_head(engine, database_url=url) == "0204_cam_agent_holdout_studies"
+    assert validate_alembic_head(engine, database_url=url) == "0205_cam_agent_trial_evidence"
     assert any(
         fk.get("referred_table") == "cam_agent_definitions"
         and fk.get("constrained_columns") == ["tenant_id", "agent_id", "agent_version"]
@@ -33,7 +33,7 @@ def test_agent_harness_additive_schema_and_downgrade(tmp_path):
     )
 
     with engine.begin() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0204_cam_agent_holdout_studies"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0205_cam_agent_trial_evidence"
         conn.execute(text(
             "INSERT INTO cam_agent_definitions "
             "(tenant_id,agent_id,version,capabilities_json,allowed_tools_json,"

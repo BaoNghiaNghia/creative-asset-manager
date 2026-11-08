@@ -134,3 +134,91 @@ class AgentHoldoutAssignmentModel(Base):
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, server_default=text("CURRENT_TIMESTAMP"),
     )
+
+
+class AgentTrialExposureModel(Base):
+    """Immutable claim of an actual treatment applied by a verified worker.
+
+    Phase 3C.3B1 creates the ledger ONLY; no current worker may insert it.
+    An assignment/shadow admission alone never constitutes exposure.
+    """
+
+    __tablename__ = "cam_agent_trial_exposures"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "study_id", "keyword_id"],
+            ["cam_agent_trial_assignments.tenant_id",
+             "cam_agent_trial_assignments.study_id",
+             "cam_agent_trial_assignments.keyword_id"],
+            name="fk_cam_trial_exposure_assignment", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["processing_job_id"], ["processing_jobs.id"],
+            name="fk_cam_trial_exposure_job", ondelete="RESTRICT",
+        ),
+        UniqueConstraint("tenant_id", "processing_job_id",
+                         name="uq_cam_trial_exposure_tenant_job"),
+        CheckConstraint("arm IN ('control', 'challenger')",
+                        name="ck_cam_trial_exposure_arm"),
+        Index("ix_cam_trial_exposure_tenant_study_arm",
+              "tenant_id", "study_id", "arm"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    study_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    keyword_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    processing_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    arm: Mapped[str] = mapped_column(String(12), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    worker_identity: Mapped[str] = mapped_column(String(96), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class AgentTrialQaReviewModel(Base):
+    """Immutable blinded independent QA result; never sourced from Pick/Reject.
+
+    Phase 3C.3B1 does not accept, process or evaluate review submissions.
+    Future service must verify reviewer independence and output provenance.
+    """
+
+    __tablename__ = "cam_agent_trial_qa_reviews"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "study_id", "keyword_id"],
+            ["cam_agent_trial_exposures.tenant_id",
+             "cam_agent_trial_exposures.study_id",
+             "cam_agent_trial_exposures.keyword_id"],
+            name="fk_cam_trial_qa_exposure", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["output_version_id"], ["rrugc_image_output_versions.id"],
+            name="fk_cam_trial_qa_output", ondelete="RESTRICT",
+        ),
+        UniqueConstraint("tenant_id", "output_version_id",
+                         name="uq_cam_trial_qa_tenant_output"),
+        CheckConstraint("verdict IN ('accepted', 'rejected')",
+                        name="ck_cam_trial_qa_verdict"),
+        CheckConstraint("NOT (critical_defect AND verdict = 'accepted')",
+                        name="ck_cam_trial_qa_critical"),
+        Index("ix_cam_trial_qa_tenant_study_keyword",
+              "tenant_id", "study_id", "keyword_id"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    review_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    study_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    keyword_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    output_version_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    blind_token_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(12), nullable=False)
+    critical_defect: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )

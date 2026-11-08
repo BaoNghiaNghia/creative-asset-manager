@@ -1,3 +1,11 @@
+## 2026-11-09 — Agent Harness Phase 3C.3B1 inert evidence ledger (0205)
+
+- Added **additive** migration `0205_cam_agent_trial_evidence`: `cam_agent_trial_exposures` and `cam_agent_trial_qa_reviews`, composite tenant-study-keyword lineage FKs, processing job/output references, per-job and per-output uniqueness, fixed arm/verdict checks, database timestamps and guarded downgrade refusing nonempty evidence.
+- Added matching ORM models, isolated scratch migration/rollback tests and updated earlier migration tests to pin 0204 explicitly. No existing Stage 0/1/2 record, background job or AI prompt changes. Both ledgers start empty and are NOT populated from 3C.3A shadow admission.
+- No write API, worker recorder, QA role UI, provider cost calculation, claims of verified improvement, policy promotion or new feature flag. No new dependency/secret. Next reviewed phase must implement worker-applied treatment receipt with independent provenance and blinded QA; do not count shadow manifests as exposure.
+- Targeted verification: 26/26 isolated migration + rollback bridge tests passed; earlier focused 0205 migration tests 4/4 passed. Python compileall and Git diff check passed. Only dependency deprecations were reported.
+- Production must have 0204 rollback bridge `610b3ddda` live **before** 0205 migration. Rollback code-only to that bridge; do not destructively downgrade PostgreSQL. Runbook: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3B1_EVIDENCE_LEDGER.md`.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B0 future evidence rollback bridge
 
 - Extends database startup to accept exactly successor 0205 when new trial exposure and independent QA tables have the required composite tenant FKs, PKs, uniqueness and constrained fields. A 0204 binary cannot accept arbitrary future revisions or weakened schema.

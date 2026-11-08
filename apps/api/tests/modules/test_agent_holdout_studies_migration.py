@@ -31,13 +31,15 @@ def _db(tmp_path):
     return engine, url, config
 
 
-def test_0204_migration_and_empty_downgrade_preserve_existing_tables(tmp_path):
+def test_0204_migration_and_empty_downgrade_preserve_existing_tables(tmp_path, monkeypatch):
     engine, url, config = _db(tmp_path)
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0204_cam_agent_holdout_studies")
         with engine.connect() as conn:
             assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0204_cam_agent_holdout_studies"
             assert _holdout_study_schema_complete(conn)
+        monkeypatch.setattr("app.core.database.expected_alembic_head",
+                            lambda _url: "0204_cam_agent_holdout_studies")
         assert validate_alembic_head(engine, database_url=url) == "0204_cam_agent_holdout_studies"
         schema = inspect(engine)
         names = set(schema.get_table_names())
@@ -73,7 +75,7 @@ def test_0204_migration_and_empty_downgrade_preserve_existing_tables(tmp_path):
 def test_0204_refuses_destructive_schema_downgrade_when_studies_exist(tmp_path):
     engine, url, config = _db(tmp_path)
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0204_cam_agent_holdout_studies")
         with engine.begin() as conn:
             conn.execute(text("""
                 INSERT INTO cam_agent_trials

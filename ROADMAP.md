@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Agent Harness Phase 3C.3B1: exposure and QA evidence schema
+
+- [x] Add migration `0205_cam_agent_trial_evidence` for tenant-scoped worker-applied exposure receipts and independent blinded QA reviews. Add SQLAlchemy mappings, composite FKs, uniqueness and nonempty-downgrade refusal.
+- [x] Keep both ledgers empty, with no backfill from shadow admission, no write API or worker hooks, no policy change, no cost telemetry claim and no automatic promotion.
+- [ ] Run isolated 0205 migration/rollback and 0204 bridge regression tests; deploy with migrations only after bridge `610b3ddda` is verified production current and compatibility confirmed.
+- [ ] Phase 3C.3B2: real verified worker treatment receipts and independent QA/cost pipeline, then statistically sound holdout evaluation and signed owner review.
+
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B0: immutable evidence rollback bridge
 
 - [x] Define prospective 0205 exposure + blinded independent QA ledger contract with tenant-study-keyword lineage, per-job/output uniqueness and bounded verdict constraints.
