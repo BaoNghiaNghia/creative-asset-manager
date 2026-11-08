@@ -442,6 +442,8 @@ export function EtsySpyPage() {
   const [winKeywordError, setWinKeywordError] = useState("");
   const [pickBusyKey, setPickBusyKey] = useState<string | null>(null);
   const [pickError, setPickError] = useState("");
+  const [extractionBackfillBusy, setExtractionBackfillBusy] = useState(false);
+  const [extractionBackfillMessage, setExtractionBackfillMessage] = useState("");
   const [laterBusyKey, setLaterBusyKey] = useState<string | null>(null);
   const [laterError, setLaterError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -605,6 +607,29 @@ export function EtsySpyPage() {
     } catch (err) {
       setWinKeywordError(err instanceof Error ? err.message : "Cannot remove Win Keyword");
     } finally { setWinKeywordBusy(false); }
+  };
+  const queuePreviouslyPicked = async () => {
+    if (!canManage || extractionBackfillBusy || !extraction?.enabled) return;
+    setExtractionBackfillBusy(true);
+    setExtractionBackfillMessage("");
+    try {
+      const batchSize = extraction.daily_cap === 1 ? 1 : Math.min(20, extraction.daily_cap);
+      const result = await spyFetch<{
+        created: number; ready: number; blocked?: string;
+        skipped_no_source: number;
+      }>("/extractions/backfill", {
+        method: "POST", body: JSON.stringify({ limit: batchSize, dry_run: false }),
+      });
+      setExtractionBackfillMessage(result.blocked === "pilot_job_pending"
+        ? "Image Agent pilot đang xử lý job trước đó."
+        : "Đã đưa " + result.created + " design vào hàng đợi · " +
+          result.skipped_no_source + " ảnh thiếu nguồn hợp lệ. PNG cần QA và xác minh quyền.");
+      setRefresh(previous => previous + 1);
+    } catch (err) {
+      setExtractionBackfillMessage(err instanceof Error ? err.message : "Cannot queue Picked designs");
+    } finally {
+      setExtractionBackfillBusy(false);
+    }
   };
   const togglePicked = async (item: Listing) => {
     if (!canManage || pickBusyKey !== null) return;
@@ -899,6 +924,21 @@ export function EtsySpyPage() {
       <small>LIVE is a potential warning. DEAD or no match never proves trademark clearance. Verify at <a
         target="_blank" rel="noopener noreferrer" href="https://tsdr.uspto.gov/">USPTO TSDR</a>.</small>
     </section>}
+    {activeTab === "products" && options.pickState === "picked" &&
+      !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
+        aria-label="Picked design extraction queue">
+        <div>
+          <strong>Picked → Transparent PNG</strong>
+          <small>Fast Extraction trước · AI review khi ảnh khó · mọi kết quả cần QA và xác minh quyền.</small>
+        </div>
+        <button type="button" disabled={!canManage || !extraction?.enabled ||
+          extractionBackfillBusy || extraction.storage?.ready !== true}
+          onClick={queuePreviouslyPicked}>
+          {extractionBackfillBusy ? "Đang tạo hàng đợi…" :
+            extraction?.daily_cap === 1 ? "Queue 1 Picked (pilot)" : "Queue Picked designs"}
+        </button>
+        {extractionBackfillMessage && <span role="status">{extractionBackfillMessage}</span>}
+      </section>}
     {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
     {laterError && <div role="alert" className="etsy-error">Cannot update Later: {laterError}</div>}
     {activeTab === "products" && options.pickState === "later" && !isBlacklistView && !isWinKeywordsView &&

@@ -1674,3 +1674,29 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-keyword-metric small{font-size:9px}
 }
 @media(prefers-reduced-motion:reduce){.etsy-parent-row{transition:none}}
+/* Picked image extraction: compact operational action, never blocks the table. */
+.etsy-extraction-backfill {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--etsy-border, #dce3eb);
+  border-radius: 10px;
+  background: var(--etsy-card-bg, #fff);
+  margin-bottom: 10px;
+}
+.etsy-extraction-backfill > div { display: grid; gap: 2px; flex: 1 1 230px; }
+.etsy-extraction-backfill strong { font-size: 13px; }
+.etsy-extraction-backfill small { font-size: 11px; color: #64748b; }
+.etsy-extraction-backfill button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.etsy-extraction-backfill button:disabled { opacity: .45; cursor: not-allowed; }
+.etsy-extraction-backfill [role="status"] { flex-basis: 100%; font-size: 12px; color: #334155; }

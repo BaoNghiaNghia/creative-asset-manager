@@ -909,6 +909,62 @@ def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario,
     assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
 
 
+def test_backfill_previously_picked_is_preview_first_and_idempotent(
+    scenario, monkeypatch, tmp_path,
+):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    payload = batch("historic-picked-for-extraction")
+    payload["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.owned.jpg"
+    )
+    assert sync(client, agent, headers, payload).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings/1234567890"
+    # Previously picked while the Windows extraction queue was disabled.
+    assert client.put(endpoint + "/pick", json={"picked": True}).status_code == 200
+    assert db.query(ProcessingJobModel).count() == 0
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_MIN_FREE_BYTES", "22000000")
+    backfill = "/api/v1/etsy-spy/extractions/backfill"
+    preview = client.post(backfill, json={"limit": 1})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["dry_run"] is True
+    assert preview.json()["ready"] == 1
+    assert preview.json()["created"] == 0
+    assert db.query(ProcessingJobModel).count() == 0
+
+    applied = client.post(backfill, json={"limit": 1, "dry_run": False})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["created"] == 1
+    assert applied.json()["rights_status"] == "unverified"
+    job = db.query(ProcessingJobModel).one()
+    assert job.job_type == "etsy_design_extract"
+    assert job.payload_json["manual_qa_required"] is True
+    assert job.payload_json["print_ready"] is False
+    again = client.post(backfill, json={"limit": 1, "dry_run": False})
+    assert again.json()["created"] == 0
+    assert again.json()["blocked"] == "pilot_job_pending"
+    assert db.query(ProcessingJobModel).count() == 1
+    principal.active_tenant_id = "other-tenant"
+    assert client.post(backfill, json={"limit": 1}).json()["ready"] == 0
+
+
+def test_backfill_refuses_disabled_worker_and_invalid_limit(
+    scenario, monkeypatch, tmp_path,
+):
+    client, _db, _principal = scenario
+    backfill = "/api/v1/etsy-spy/extractions/backfill"
+    monkeypatch.delenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", raising=False)
+    assert client.post(backfill, json={"limit": 1}).status_code == 503
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_MIN_FREE_BYTES", "22000000")
+    for limit in (0, 201, True, "200"):
+        assert client.post(backfill, json={"limit": limit}).status_code == 422
+
+
 def test_picked_without_verified_source_never_invents_an_image(scenario, monkeypatch, tmp_path):
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))

@@ -34,7 +34,7 @@ Rollout: implementation staged; external production execution remains OFF by def
 - `scripts/cam-etsy-image-pilot-control.py status` reports only the relevant tenant's storage, daily cap, queue count, Picked count and agent pairing, without secrets or source URLs.
 - `scripts/cam-etsy-image-pilot-control.py arm --agent-id <device uuid>` checks that the device has probed in the last 30 minutes, storage is healthy, daily cap is exactly 1, no job has been claimed today, and no extraction jobs are pending/processing. It changes only `CAM_ETSY_EXTRACTION_WORKER_ENABLED=1` in the protected production environment. Restart **only** the API to load it.
 - Windows `agent/pilot-control.mjs arm` probes production and only enables the relay if the device is paired, CAM transport enabled, storage ready, daily cap exactly 1 and zero already claimed. No credential is logged.
-- New Picks only; no automatic backfill or Unpick/Repick of existing listings. Outputs always require QA and rights assessment, never print-ready. `disarm` on either machine stops new claims without removing existing assets.
+- Fresh Picks automatically create jobs. Historical Picked listings can now be queued via the manage-only, preview-first `POST /api/v1/etsy-spy/extractions/backfill` endpoint or its compact Picked panel action, only while extraction transport and storage are ready. The 1/day pilot can enqueue only one unfinished task; completed and previously queued items are not blindly regenerated. Outputs always require QA and rights assessment, never print-ready. `disarm` on either machine stops new claims without removing existing assets.
 
 ## Before production activation
 
@@ -57,5 +57,11 @@ Rollout: implementation staged; external production execution remains OFF by def
 ## Non-goals
 
 - No programmatic ChatGPT browser Send/Save/scraping, no changes to Codex CLI or existing bridge on 8791/8792.
-- No background backfill of past Picked listings, no permission inference from Etsy trademarks.
+- No unbounded background backfill; historical Picked backfill is explicitly batched (1 during pilot, at most 200 per request after cap increases), limited to eligible listings and verified Etsy CDN image URLs. No permission inference from Etsy trademarks.
 - No print-ready claim based solely on PNG size. Commercial usage requires verified image rights and fidelity.
+## Historical Picked backfill (2026-11-08)
+
+- `POST /api/v1/etsy-spy/extractions/backfill` requires `etsy_spy.manage`, configured persistent storage and enabled extraction transport. Request `{"limit": 1, "dry_run": true}` previews without writing; `dry_run: false` creates review-only jobs.
+- Only current, eligible Picked listings are considered. Existing noncancelled extraction jobs are excluded by a SQL EXISTS guard, while the existing source-version idempotency key is still enforced by `create_extraction_on_pick`.
+- Sources remain Etsy CDN URLs, never arbitrary remote addresses. Missing usable source images are skipped, not hallucinated. Each output remains `manual_qa_required: true`, `rights_status: unverified` and `print_ready: false`.
+- The Picked panel exposes a compact action; during the one-slot pilot it queues at most one, even if a larger limit is requested. Do not increase the daily extraction cap or auto-approve images until a real sample passes PNG quality and provenance review.

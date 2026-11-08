@@ -755,6 +755,100 @@ async def set_listing_pick(
     db.commit()
     return {"listingKey": listing_key, "picked": payload["picked"]}
 
+@router.post("/extractions/backfill")
+async def backfill_picked_extractions(
+    request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Enqueue previously Picked designs without replaying Pick or Scout.
+
+    Conservative one-slot pilot first; after the daily cap is raised, each
+    operator request can enqueue at most 200 verified-source jobs. Results
+    remain unverified, manual-QA-only and never print-ready.
+    """
+    from .image_agent import daily_cap, claimed_today, storage_capacity
+    from .extraction import EXTRACTION_JOB_TYPE
+    if not extraction_enabled():
+        raise HTTPException(503, "Windows Image Agent extraction is disabled")
+    if not storage_capacity()["ready"]:
+        raise HTTPException(503, "Etsy extraction storage is not ready")
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "JSON object required")
+    limit = payload.get("limit", 1)
+    preview = payload.get("dry_run", True)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
+        raise HTTPException(422, "limit must be an integer between 1 and 200")
+    if not isinstance(preview, bool):
+        raise HTTPException(422, "dry_run must be boolean")
+    tenant = principal.active_tenant_id
+    cap = daily_cap()
+    max_jobs = min(limit, 1 if cap == 1 else cap)
+    # Do not flood a still-unverified one-slot pilot or lose a pending receipt.
+    if cap == 1:
+        if claimed_today(db, tenant) >= 1:
+            return {"ok": True, "dry_run": preview, "created": 0,
+                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_daily_cap_reached"}
+        unresolved = db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+            ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+            ProcessingJobModel.cancellation_requested.is_(False),
+        )) or 0
+        if unresolved:
+            return {"ok": True, "dry_run": preview, "created": 0,
+                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_job_pending"}
+
+    existing = select(ProcessingJobModel.id).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.entity_type == "etsy_listing",
+        ProcessingJobModel.entity_id == Picked.listing_key,
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ).correlate(Picked).exists()
+    eligible = (
+        select(Picked, Listing)
+        .join(Listing, and_(Listing.tenant_id == Picked.tenant_id,
+                            Listing.listing_key == Picked.listing_key))
+        .where(Picked.tenant_id == tenant, Listing.is_current.is_(True),
+               ~Listing.title.ilike("%custom%"),
+               _blacklist_condition(tenant), _qualified_listing_condition(),
+               ~existing)
+        .order_by(Picked.picked_at.asc(), Picked.listing_key.asc(),
+                  desc(Listing.observed_at), desc(Listing.updated_at))
+        .limit(2000)
+    )
+    seen: set[str] = set()
+    count_created = count_ready = no_source = 0
+    for picked, listing in db.execute(eligible):
+        if picked.listing_key in seen:
+            continue
+        seen.add(picked.listing_key)
+        metadata = listing.metadata_json if isinstance(listing.metadata_json, dict) else {}
+        source = verified_image_url(metadata.get("fullImageUrl")) or verified_image_url(
+            metadata.get("thumbnailUrl"))
+        if not source:
+            no_source += 1
+            continue
+        count_ready += 1
+        if not preview:
+            job = create_extraction_on_pick(db, tenant, listing, picked.picked_at)
+            if job is not None:
+                count_created += 1
+        if count_ready >= max_jobs:
+            break
+    if not preview:
+        db.commit()
+    return {"ok": True, "dry_run": preview, "created": count_created,
+            "ready": count_ready, "skipped_no_source": no_source,
+            "limit": max_jobs, "manual_qa_required": True,
+            "rights_status": "unverified"}
+
+
 @router.get("/listings/{listing_key}/extraction")
 def listing_extraction_status(
     listing_key: str,
