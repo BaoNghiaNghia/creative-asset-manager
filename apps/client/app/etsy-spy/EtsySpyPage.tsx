@@ -6,7 +6,7 @@ import {
   spyFetch, readableTime,
   type SpyTab, type Page, type Summary, type ExtractionOverview, type ImageAgentStatus, type Listing,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
-  type ObservedDaysSummary, type ObservedDayBucket,
+  type ObservedDaysSummary, type ObservedDayBucket, type DayGroupsSummary,
 } from "./api";
 import "./EtsySpyPage.css";
 import { KeywordTreeView } from "./KeywordTreeView";
@@ -43,7 +43,7 @@ type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
   pickState: "eligible" | "picked" | "later";
   blacklistView: boolean; winKeywordsView: boolean;
-  observedDay: string;
+  observedDay: string; group: string;
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
@@ -66,7 +66,7 @@ export function recentObservedDays(today: string): string[] {
 
 const baseOptions: Options = {
   tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
-  blacklistView: false, winKeywordsView: false, observedDay: vietnamCalendarDay(),
+  blacklistView: false, winKeywordsView: false, observedDay: vietnamCalendarDay(), group: "",
   sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
@@ -83,6 +83,7 @@ function fromLocation(): Options {
     observedDay: p.get("observed_day") === "all" ? "all"
       : /^\d{4}-\d{2}-\d{2}$/.test(p.get("observed_day") || "")
         ? p.get("observed_day")! : vietnamCalendarDay(),
+    group: (p.get("group") || "").slice(0,40),
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
     q: p.get("q") || "", sessionId: p.get("session_id") || "",
@@ -100,8 +101,10 @@ function queryFor(o: Options): URLSearchParams {
   if (o.q.trim()) query.set("q", o.q.trim());
   if (o.tab === "products" && o.pickState !== "eligible" && !o.blacklistView && !o.winKeywordsView)
     query.set("pick_state", o.pickState);
-  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView && !o.winKeywordsView)
+  if (o.tab === "products" && o.pickState === "eligible" && !o.blacklistView && !o.winKeywordsView) {
     query.set("observed_day", o.observedDay);
+    if (o.group && o.observedDay !== "all") query.set("group", o.group);
+  }
   if (o.tab === "products" && o.blacklistView) query.set("panel", "blacklist");
   if (o.tab === "products" && o.winKeywordsView) query.set("panel", "win-keywords");
   if (o.sessionId) query.set("session_id", o.sessionId);
@@ -444,6 +447,8 @@ export function EtsySpyPage() {
   const [extraction, setExtraction] = useState<ExtractionOverview | null>(null);
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDayBucket[] | null>(null);
+  const [dayGroups, setDayGroups] = useState<DayGroupsSummary | null>(null);
+  const [dayGroupError, setDayGroupError] = useState(false);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [imageAgents, setImageAgents] = useState<ImageAgentStatus[]>([]);
   const [imagePairName, setImagePairName] = useState("DESKTOP-3FR0LF0");
@@ -514,6 +519,16 @@ export function EtsySpyPage() {
       .catch(() => { if (alive) setObservedDays(null); });
     return () => { alive = false; };
   }, [refresh]);
+  const categoryDay = options.observedDay === "all" ? clockDay : options.observedDay;
+  useEffect(() => {
+    let alive = true;
+    setDayGroupError(false);
+    spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
+      encodeURIComponent(categoryDay))
+      .then(result => { if (alive) setDayGroups(result); })
+      .catch(() => { if (alive) { setDayGroups(null); setDayGroupError(true); } });
+    return () => { alive = false; };
+  }, [categoryDay, refresh]);
   useEffect(() => {
     // Keep Today in Vietnam synchronized if the dashboard stays open overnight.
     const interval = window.setInterval(() => {
@@ -691,7 +706,7 @@ export function EtsySpyPage() {
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
     setTypedSearch("");
     update({
-      tab, q: "", sessionId: "", source: "", badge: "", tm: "",
+      tab, q: "", sessionId: "", source: "", badge: "", tm: "", group: "",
       status: "", level: "", phase: "", pickState: "eligible",
       blacklistView: false, winKeywordsView: false,
       observedDay: clockDay,
@@ -845,6 +860,35 @@ export function EtsySpyPage() {
               </button>;
             })}
           </div>
+        </section>
+        <section className="etsy-day-groups" aria-label={"Nhóm sản phẩm ngày " + categoryDay}>
+          <span className="etsy-day-groups-title">Nhóm · {
+            categoryDay === clockDay ? "Hôm nay" :
+            categoryDay === recentObservedDays(clockDay)[1] ? "Hôm qua" :
+            categoryDay.slice(8, 10) + "/" + categoryDay.slice(5, 7)
+          }</span>
+          {dayGroups?.day === categoryDay ? (
+            dayGroups.total > 0 ? <div className="etsy-day-groups-list">
+              {[{key: "", label: "Tất cả", count: dayGroups.total}, ...dayGroups.items]
+                .map(item => {
+                  const pressed = activeTab === "products" && !isBlacklistView &&
+                    !isWinKeywordsView && options.pickState === "eligible" &&
+                    options.observedDay === categoryDay && options.group === item.key;
+                  return <button type="button" key={item.key || "all"}
+                    className={"etsy-day-group" + (pressed ? " active" : "")}
+                    aria-pressed={pressed}
+                    title={"Lọc " + item.label + " trong ngày " + categoryDay}
+                    onClick={() => selectTab("products", {
+                      observedDay: categoryDay,
+                      group: item.key === options.group && pressed ? "" : item.key,
+                    })}>
+                    <span>{item.label}</span><strong>{item.count.toLocaleString("vi-VN")}</strong>
+                  </button>;
+                })}
+            </div> : <span className="etsy-day-groups-empty">Chưa có sản phẩm khả dụng</span>
+          ) : <span className="etsy-day-groups-empty">
+            {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
+          </span>}
         </section>
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">

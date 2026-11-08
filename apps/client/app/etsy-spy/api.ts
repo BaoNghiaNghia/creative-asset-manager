@@ -36,6 +36,11 @@ export type ObservedDayBucket = { day: string; count: number; pickedCount: numbe
 export type ObservedDaysSummary = {
   timezone: "Asia/Ho_Chi_Minh"; start_hour: 6; items: ObservedDayBucket[];
 };
+export type DayGroup = { key: string; label: string; count: number };
+export type DayGroupsSummary = {
+  day: string; timezone: "Asia/Ho_Chi_Minh"; start_hour: 6;
+  total: number; items: DayGroup[];
+};
 export type Session = {
   id: string; status: string | null; keyword: string | null;
   phase: string | null; revision: number; startedAt: string | null; updatedAt: string | null;

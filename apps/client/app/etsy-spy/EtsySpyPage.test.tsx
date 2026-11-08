@@ -140,6 +140,18 @@ function installFetch() {
       if (body.picked) pickedKeys.add(id); else pickedKeys.delete(id);
       return json({listingKey: id, picked: body.picked});
     }
+    if (url.includes("/listings/observed-day-groups?")) {
+      const day = new URL(url, "http://localhost").searchParams.get("day");
+      const days = recentObservedDays(vietnamCalendarDay());
+      const items = day === days[0] ? [
+        {key: "christmas", label: "Christmas", count: 2},
+        {key: "thanksgiving", label: "Thanksgiving", count: 1},
+      ] : day === days[1] ? [
+        {key: "books", label: "Books", count: 2},
+      ] : [];
+      return json({day, timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
+        total: items.reduce((sum, item) => sum + item.count, 0), items});
+    }
     if (url.endsWith("/listings/observed-days")) {
       const days = recentObservedDays(vietnamCalendarDay());
       return json({ timezone: "Asia/Ho_Chi_Minh", start_hour: 6,
@@ -454,6 +466,51 @@ describe("Etsy Spy native CAM dashboard", () => {
       url.includes("observed_day=" + today))).toBe(true);
     expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
       "data-observed-day")).toBe(today);
+  });
+
+  it("shows exclusive daily topic badges and filters the selected day's listings", async () => {
+    await start();
+    const today = vietnamCalendarDay();
+    const section = container?.querySelector(".etsy-day-groups");
+    expect(section?.getAttribute("aria-label")).toContain(today);
+    const todayBadges = Array.from(section?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-day-group") || []);
+    expect(todayBadges.map(badge => badge.textContent)).toEqual([
+      "Tất cả3", "Christmas2", "Thanksgiving1",
+    ]);
+    expect(observed.some(url => url.includes("/listings/observed-day-groups?day=" + today)))
+      .toBe(true);
+    await act(async () => {
+      todayBadges[1].click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(new URLSearchParams(window.location.search).get("group")).toBe("christmas");
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+    expect(observed.some(url => url.includes("/listings?") && url.includes("group=christmas")))
+      .toBe(true);
+    expect(container?.querySelector<HTMLButtonElement>(
+      ".etsy-day-group[aria-pressed='true']")?.textContent).toContain("Christmas");
+
+    // Selecting a different date changes the category family, clears the
+    // stale Christmas filter, and never reuses yesterday's badge totals.
+    const yesterday = container?.querySelectorAll<HTMLButtonElement>(".etsy-observed-day")[1];
+    await act(async () => {
+      yesterday?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("observed_day"))
+      .toBe(recentObservedDays(today)[1]);
+    const after = Array.from(container?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-day-group") || []);
+    expect(after.map(badge => badge.textContent)).toEqual(["Tất cả2", "Books2"]);
+    await act(async () => {after[1].click(); await new Promise(r => setTimeout(r, 40));});
+    expect(new URLSearchParams(window.location.search).get("group")).toBe("books");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 45));
+    });
+    expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
   });
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {

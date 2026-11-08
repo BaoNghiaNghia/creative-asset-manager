@@ -32,6 +32,7 @@ from .model import (
     utcnow,
 )
 from .later_queue import refresh_later_matches, seed_analysis
+from .groups import CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY, category_rank_expression
 from .extraction import (create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
@@ -399,6 +400,7 @@ def _listings_query(
     source: str = "", badge: str = "", tm: str = "",
     sort: str = "observedAt", direction: str = "desc",
     pick_state: str = "eligible", observed_day: date | None = None,
+    group_key: str = "",
 ) -> tuple[Any, Any]:
     if pick_state not in {"eligible", "picked", "later"}:
         raise HTTPException(422, "Invalid product view")
@@ -417,6 +419,15 @@ def _listings_query(
     if observed_day is not None:
         since, before = _observed_day_bounds(observed_day)
         condition.extend((Listing.observed_at >= since, Listing.observed_at < before))
+    if group_key:
+        if group_key not in GROUP_LABELS or observed_day is None or pick_state != "eligible":
+            raise HTTPException(422, "Invalid daily group filter")
+        # Every Etsy Listing ID belongs to precisely one category, even if
+        # it appears under multiple Search/Shop keywords on that day.
+        ranks = _day_group_listing_ranks(tenant, observed_day)
+        rank = GROUP_RANKS.get(group_key, len(CATEGORY_GROUPS))
+        condition.append(Listing.listing_key.in_(
+            select(ranks.c.listing_key).where(ranks.c.rank == rank)))
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
                              Listing.keyword.ilike("%" + q[:160] + "%")))
@@ -489,6 +500,17 @@ def _listings_query(
                            root.source_session_id, root.keyword, root.listing_key)
     return query, total
 
+
+
+
+def _day_group_listing_ranks(tenant: str, day: date):
+    """Deduplicate first, then assign the earliest matching topic category."""
+    _, qualified = _listings_query(tenant, observed_day=day)
+    return qualified.with_only_columns(
+        Listing.listing_key.label("listing_key"),
+        func.min(category_rank_expression(Listing)).label("rank"),
+        maintain_column_froms=True,
+    ).group_by(Listing.listing_key).subquery("etsy_day_group_ranks")
 
 def _tm_expression():
     from sqlalchemy import case
@@ -657,19 +679,50 @@ def listing_observed_days(
     }
 
 
+@router.get("/listings/observed-day-groups")
+def listing_observed_day_groups(
+    day: date, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    """One exclusive topic badge per eligible Etsy listing in a VN 06:00 day.
+
+    Matches the eligibility/blacklist/Unpick rules of the daily cards, not
+    the current paginated UI slice. 'Other' is an honest fallback.
+    """
+    ranks = _day_group_listing_ranks(principal.active_tenant_id, day)
+    results = db.execute(select(
+        ranks.c.rank, func.count().label("count"),
+    ).group_by(ranks.c.rank)).all()
+    values = {int(rank): int(amount) for rank, amount in results}
+    groups = [
+        {"key": code, "label": label, "count": values.get(index, 0)}
+        for index, (code, label, _) in enumerate(CATEGORY_GROUPS)
+        if values.get(index, 0) > 0
+    ]
+    other = values.get(len(CATEGORY_GROUPS), 0)
+    if other:
+        groups.append({"key": OTHER_GROUP_KEY, "label": GROUP_LABELS[OTHER_GROUP_KEY],
+                       "count": other})
+    groups.sort(key=lambda entry: (-entry["count"],
+                                  GROUP_RANKS.get(entry["key"], len(CATEGORY_GROUPS))))
+    return {"day": day.isoformat(), "timezone": "Asia/Ho_Chi_Minh",
+            "start_hour": 6, "total": sum(values.values()), "items": groups}
+
+
 @router.get("/listings")
 def listings(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
     pick_state: str = "eligible", observed_day: date | None = None,
+    group_key: str = Query("", alias="group"),
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     tenant = principal.active_tenant_id
     query, total_q = _listings_query(
         tenant, q=q, session_id=session_id, source=source, badge=badge,
         tm=tm, sort=sort, direction=dir, pick_state=pick_state,
-        observed_day=observed_day,
+        observed_day=observed_day, group_key=group_key,
     )
     rows, total = _paged(db, query, total_q, page, page_size)
     later_by_key: dict[str, LaterMatch] = {}
@@ -1116,12 +1169,13 @@ def export_listings(
     q: str = "", session_id: str | None = None, source: str = "",
     badge: str = "", tm: str = "", sort: str = "observedAt", dir: str = "desc",
     pick_state: str = "eligible", observed_day: date | None = None,
+    group_key: str = Query("", alias="group"),
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
     query, _ = _listings_query(principal.active_tenant_id, q=q, session_id=session_id,
                               source=source, badge=badge, tm=tm,
                               sort=sort, direction=dir, pick_state=pick_state,
-                              observed_day=observed_day)
+                              observed_day=observed_day, group_key=group_key)
     rows = db.execute(query.limit(MAX_CSV_ROWS)).all()
     headers = ["sessionId", "keyword", "sourceKind", "badge", "tm", "bought24h",
                "views24h", "inCarts", "demandScore", "pageTitle", "url", "observedAt"]

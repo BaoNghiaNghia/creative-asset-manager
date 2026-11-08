@@ -426,6 +426,82 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     assert client.get(base + "/observed-days").json()["items"][0]["pickedCount"] == 0
 
 
+
+def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    vn = ZoneInfo("Asia/Ho_Chi_Minh")
+    today = datetime.now(vn).date()
+    start = datetime.combine(today, time(6), tzinfo=vn).astimezone(timezone.utc)
+    observed_at = (start + timedelta(hours=1)).isoformat()
+    rows = [
+        ("1234567890", "Santa's Favorite Sweatshirt", "Santa Shirt"),
+        ("1234567891", "Christmas Film Shirt", "White Christmas Movie"),
+        ("1234567892", "Family Thanksgiving shirt", "Family"),
+        ("1234567893", "Reading Bookworm Tee", "Bookworm"),
+        ("1234567894", "Gaming Shirt", "Video Games Shirt"),
+        ("1234567895", "Silly Goose Graphic", "Goose"),
+        ("1234567896", "Unknown Illustrated Tee", "Abstract design shirt"),
+    ]
+    payload = batch("day-group-primary")
+    payload["records"]["listings"] = [
+        {**product(title=title, keyword=keyword), "listingKey": key,
+         "url": f"https://www.etsy.com/listing/{key}/test",
+         "observedAt": observed_at, "updatedAt": observed_at}
+        for key, title, keyword in rows
+    ]
+    assert sync(client, agent, headers, payload).status_code == 200
+    duplicate = batch("day-group-repeat")
+    duplicate["records"]["listings"] = [
+        {**product(title="Unknown Illustrated Tee", keyword="Christmas T-shirt",
+                   session="second-source"), "listingKey": "1234567896",
+         "url": "https://www.etsy.com/listing/1234567896/test",
+         "observedAt": observed_at, "updatedAt": observed_at},
+    ]
+    assert sync(client, agent, headers, duplicate).status_code == 200
+
+    day = today.isoformat()
+    path = "/api/v1/etsy-spy/listings"
+    grouped = client.get(path + "/observed-day-groups", params={"day": day})
+    assert grouped.status_code == 200, grouped.text
+    data = grouped.json()
+    assert data["day"] == day and data["total"] == 7
+    counts = {entry["key"]: entry["count"] for entry in data["items"]}
+    assert counts == {
+        "christmas": 3, "thanksgiving": 1, "books": 1,
+        "gaming": 1, "animals": 1,
+    }
+    assert sum(counts.values()) == data["total"]
+    # /listings can return repeated Search/Shop rows. Daily cards and
+    # topic badges deliberately count distinct Etsy Listing IDs.
+    unfiltered = client.get(path, params={"observed_day": day}).json()
+    assert len({entry["listingKey"] for entry in unfiltered["items"]}) == 7
+    christmas = client.get(path, params={
+        "observed_day": day, "group": "christmas"}).json()
+    assert christmas["total"] >= 3  # One listing may have multiple source rows.
+    assert {item["listingKey"] for item in christmas["items"]} == {
+        "1234567890", "1234567891", "1234567896"}
+    assert "1234567892" not in {item["listingKey"] for item in christmas["items"]}
+    csv = client.get("/api/v1/etsy-spy/export.csv", params={
+        "observed_day": day, "group": "books"})
+    assert csv.status_code == 200 and "1234567893" in csv.text
+    assert "1234567890" not in csv.text
+    assert client.get(path, params={"group": "christmas"}).status_code == 422
+    assert client.get(path, params={"observed_day": day, "group": "fake"}).status_code == 422
+    assert client.get(path + "/observed-day-groups", params={
+        "day": "not-a-date"}).status_code == 422
+    assert client.put(path + "/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    after_pick = client.get(path + "/observed-day-groups",
+                            params={"day": day}).json()
+    assert after_pick["total"] == 6
+    assert {g["key"]: g["count"] for g in after_pick["items"]}["christmas"] == 2
+    # Classification and visibility are tenant-scoped.
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(path + "/observed-day-groups",
+                      params={"day": day}).json()["items"] == []
+
+
 def test_later_is_topic_seed_with_related_current_and_future_listing_ids(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)

@@ -1128,6 +1128,30 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-observed-day:hover{border-color:#91add7;background:#f8fafd}
 .etsy-observed-day.active{border-color:#5279ba;background:#f3f7ff;box-shadow:0 0 0 1px #5279ba26}
 .etsy-observed-day:focus-visible{outline:2px solid #4478c8;outline-offset:2px}
+/* Groups below the day cards are exclusive, day-scoped topic counts. */
+.etsy-day-groups{
+  display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+  min-width:0;margin:-5px 0 13px;padding:0 2px;
+}
+.etsy-day-groups-title{
+  flex:0 0 auto;font-size:10px;font-weight:750;line-height:24px;
+  color:#61728b;white-space:nowrap;
+}
+.etsy-day-groups-list{display:flex;flex:1 1 400px;flex-wrap:wrap;gap:6px;min-width:0}
+.etsy-day-group{
+  display:inline-flex;align-items:center;gap:6px;
+  min-height:25px;padding:4px 8px;border:1px solid #dce6f2;
+  border-radius:999px;background:#fff;color:#49617f;
+  white-space:nowrap;font-size:10px;line-height:1.2;font-weight:650;
+  cursor:pointer;transition:border-color .14s ease,background .14s ease;
+}
+.etsy-day-group strong{font-size:10px;font-weight:800;color:#2b527c;font-variant-numeric:tabular-nums}
+.etsy-day-group:hover{background:#f4f8ff;border-color:#9cb9e0}
+.etsy-day-group.active{background:#eaf2ff;color:#2859a3;border-color:#739bda}
+.etsy-day-group.active strong{color:#2859a3}
+.etsy-day-group:focus-visible{outline:2px solid #4478c8;outline-offset:2px}
+.etsy-day-groups-empty{font-size:10px;color:#8290a4}
+
 @media(max-width:600px){
   .etsy-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .etsy-observed-day-grid{gap:7px}
