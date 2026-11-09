@@ -229,6 +229,61 @@ def test_parent_keywords_saved_priorities_and_agent_sync(scenario):
     assert client.get(url).json()["count"] == 2
 
 
+def test_picked_agent_feed_is_full_tenant_scoped_versioned_and_revocable(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    url = f"/api/v1/etsy-spy/agents/{agent.id}/picked-listings"
+    assert client.get(url).status_code == 401
+    empty = client.get(url, headers=headers)
+    assert empty.status_code == 200, empty.text
+    assert empty.headers["cache-control"] == "no-store"
+    baseline = empty.json()
+    assert baseline["ok"] and baseline["complete"]
+    assert baseline["items"] == [] and baseline["total"] == 0
+    assert len(baseline["revision"]) == 64
+
+    assert sync(client, agent, headers, batch()).status_code == 200
+    pick_url = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(pick_url, json={"picked": True}).status_code == 200
+    picked = client.get(url, headers=headers).json()
+    assert picked["complete"] is True and picked["total"] == 1
+    assert picked["revision"] != baseline["revision"]
+    assert picked["items"][0]["listingId"] == "1234567890"
+    assert picked["items"][0]["pickedAt"].endswith("Z")
+    assert client.get(url, headers=headers).json() == picked
+
+    # One complete feed includes all picks, sorted by numeric ID, regardless
+    # of whether they are still in the active Windows inventory.
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234567891",
+                         picked_at=datetime(2026, 11, 9, tzinfo=timezone.utc)))
+    db.commit()
+    ordered = client.get(url, headers=headers).json()
+    assert [x["listingId"] for x in ordered["items"]] == ["1234567890", "1234567891"]
+    assert ordered["total"] == 2 and ordered["revision"] != picked["revision"]
+
+    other_agent, other_headers = pair(client, db, tenant="another-tenant")
+    other_url = f"/api/v1/etsy-spy/agents/{other_agent.id}/picked-listings"
+    other_snapshot = client.get(other_url, headers=other_headers).json()
+    assert other_snapshot["total"] == 0 and other_snapshot["revision"] == baseline["revision"]
+    assert client.get(other_url, headers=headers).status_code == 401
+
+    # Local malformed historic rows must be rejected instead of publishing
+    # an apparently complete snapshot that could clear valid Windows picks.
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="invalid-id",
+                         picked_at=datetime(2026, 11, 9, tzinfo=timezone.utc)))
+    db.commit()
+    assert client.get(url, headers=headers).status_code == 409
+    db.query(EtsySpyPicked).filter_by(tenant_id="boostgame", listing_key="invalid-id").delete()
+    db.commit()
+
+    assert client.put(pick_url, json={"picked": False}).status_code == 200
+    remaining = client.get(url, headers=headers).json()
+    assert remaining["total"] == 1 and remaining["items"][0]["listingId"] == "1234567891"
+
+    assert client.post(f"/api/v1/etsy-spy/agents/{agent.id}/revoke").status_code == 200
+    assert client.get(url, headers=headers).status_code == 401
+
+
 def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
     client, db, principal = scenario
     assert client.post("/api/v1/etsy-spy/agents",

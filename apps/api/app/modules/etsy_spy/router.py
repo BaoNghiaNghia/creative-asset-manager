@@ -7,12 +7,13 @@ from __future__ import annotations
 import csv
 import io
 import re
+import json
 import hashlib
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, asc, desc, func, or_, select, not_, literal
@@ -1324,6 +1325,47 @@ def agent_blacklist(agent_id: str, authorization: str | None = Header(None),
                     db: Session = Depends(get_db)):
     agent = authenticate_agent(db, agent_id, authorization)
     return {"ok": True, **_blacklist_view(db, agent.tenant_id)}
+
+
+@router.get("/agents/{agent_id}/picked-listings")
+def agent_picked_listings(
+    agent_id: str, response: Response,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Complete, tenant-scoped Picked snapshot for the outbound Windows agent.
+
+    A partial list must never be represented as complete: the Windows agent
+    uses this checksum to atomically replace its last verified Picked IDs.
+    """
+    agent = authenticate_agent(db, agent_id, authorization)
+    if agent.name.startswith(IMAGE_AGENT_NAME_PREFIX):
+        raise HTTPException(403, "Windows Etsy Spy agent required")
+    rows = db.execute(
+        select(Picked.listing_key, Picked.picked_at)
+        .where(Picked.tenant_id == agent.tenant_id)
+        .order_by(Picked.listing_key.asc())
+        .limit(10_001)
+    ).all()
+    if len(rows) > 10_000:
+        raise HTTPException(413, "Picked snapshot exceeds safe Windows limit")
+    items = []
+    for listing_id, picked_at in rows:
+        if not re.fullmatch(r"[0-9]{5,20}", listing_id):
+            raise HTTPException(409, "Picked inventory contains an invalid Etsy listing ID")
+        if picked_at is None:
+            raise HTTPException(409, "Picked inventory contains an invalid timestamp")
+        if picked_at.tzinfo is None:
+            picked_at = picked_at.replace(tzinfo=timezone.utc)
+        items.append({"listingId": listing_id,
+                      "pickedAt": picked_at.astimezone(timezone.utc)
+                          .isoformat(timespec="microseconds").replace("+00:00", "Z")})
+    revision = hashlib.sha256(json.dumps(
+        items, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True, "complete": True, "total": len(items),
+            "revision": revision, "items": items}
 
 
 @router.get("/agents/{agent_id}/sync-status")
