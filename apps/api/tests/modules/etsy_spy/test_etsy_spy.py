@@ -559,17 +559,24 @@ def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
     grouped = client.get(path + "/observed-day-groups", params={"day": day})
     assert grouped.status_code == 200, grouped.text
     data = grouped.json()
-    assert data["day"] == day and data["total"] == 7
+    assert data["day"] == day and data["total"] == 6
     counts = {entry["key"]: entry["count"] for entry in data["items"]}
     assert counts == {
-        "christmas": 3, "thanksgiving": 1, "books": 1,
+        "christmas": 3, "books": 1,
         "gaming": 1, "animals": 1,
+    }
+    # Seasonal titles are automatically routed to Later, not Eligible.
+    later_grouped = client.get(path + "/observed-day-groups", params={
+        "day": day, "pick_state": "later"}).json()
+    assert later_grouped["total"] == 1
+    assert {entry["key"]: entry["count"] for entry in later_grouped["items"]} == {
+        "thanksgiving": 1,
     }
     assert sum(counts.values()) == data["total"]
     # /listings can return repeated Search/Shop rows. Daily cards and
     # topic badges deliberately count distinct Etsy Listing IDs.
     unfiltered = client.get(path, params={"observed_day": day}).json()
-    assert len({entry["listingKey"] for entry in unfiltered["items"]}) == 7
+    assert len({entry["listingKey"] for entry in unfiltered["items"]}) == 6
     christmas = client.get(path, params={
         "observed_day": day, "group": "christmas"}).json()
     assert christmas["total"] >= 3  # One listing may have multiple source rows.
@@ -588,7 +595,7 @@ def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
                       json={"picked": True}).status_code == 200
     after_pick = client.get(path + "/observed-day-groups",
                             params={"day": day}).json()
-    assert after_pick["total"] == 6
+    assert after_pick["total"] == 5
     assert {g["key"]: g["count"] for g in after_pick["items"]}["christmas"] == 2
     # Future Scout inventory pushes inherit the same deterministic category
     # rules immediately, without any manual categorization/backfill job.
@@ -608,7 +615,7 @@ def test_daily_topic_badges_count_unique_listings_and_filter_by_day(scenario):
     assert sync(client, agent, headers, fresh_batch).status_code == 200
     after_sync = client.get(path + "/observed-day-groups",
                             params={"day": day}).json()
-    assert after_sync["total"] == 8
+    assert after_sync["total"] == 7
     latest_groups = {item["key"]: item["count"] for item in after_sync["items"]}
     assert latest_groups["christmas"] == 3
     assert latest_groups["other"] == 1
@@ -837,6 +844,89 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
     assert match_title("Christmas Family Gift Shirt", "Christmas Funny Teacher Tee") is None
     assert match_title("Plant Shirt", "Goose Shirt") is None
     assert not analyze_title("Comfort Colors Gildan Shirt Gift Tee").terms
+
+
+def test_automatic_season_keyword_later_routes_existing_and_future_without_unpick(scenario):
+    """Thanksgiving/Halloween are CAM review routing rules, not Scout blacklist."""
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    payload = batch("season-current")
+    payload["records"]["listings"] = [
+        {**product(title="Witchy Halloween Graphic Shirt", keyword="witch illustration"),
+         "listingKey": "1234500201"},
+        {**product(title="Autumn Harvest Tee", keyword="Thanksgiving turkey tee"),
+         "listingKey": "1234500202"},
+        {**product(title="Classical Thanksgiving Sweatshirt", keyword="fall gifts"),
+         "listingKey": "1234500203"},
+        {**product(title="Cozy Pumpkin Tee", keyword="halloween-collection"),
+         "listingKey": "1234500204"},
+        {**product(title="Classic Plant Lover Shirt", keyword="botanical tees"),
+         "listingKey": "1234500205"},
+        # Same Listing ID with no season in this alias: it must NOT leak to Eligible.
+        {**product(title="Witchy Graphic Tee", keyword="witch illustration"),
+         "listingKey": "1234500201", "sourceKind": "shop"},
+    ]
+    for row in payload["records"]["listings"]:
+        row["url"] = "https://www.etsy.com/listing/" + row["listingKey"]
+    assert sync(client, agent, headers, payload).status_code == 200
+    url = "/api/v1/etsy-spy/listings"
+    summary = client.get("/api/v1/etsy-spy/summary").json()
+    assert summary["later"] == 4 and summary["listings"] == 1
+    later = client.get(url, params={"pick_state": "later"}).json()
+    assert later["total"] == 4
+    assert {row["listingKey"] for row in later["items"]} == {
+        "1234500201", "1234500202", "1234500203", "1234500204",
+    }
+    assert all(row["later"] and not row["picked"] for row in later["items"])
+    assert {row["laterAutoKeyword"] for row in later["items"]} == {
+        "Halloween", "Thanksgiving",
+    }
+    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 1
+
+    # Existing manual Pick is recoverable but has effective Later visibility;
+    # no direct deletion of Picked or extraction/related production records.
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234500201"))
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234500205"))
+    db.commit()
+    assert db.get(EtsySpyPicked, ("boostgame", "1234500201")) is not None
+    assert client.get(url, params={"pick_state": "picked"}).json()["total"] == 1
+    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 4
+    feed = client.get(f"/api/v1/etsy-spy/agents/{agent.id}/picked-listings",
+                      headers=headers)
+    assert feed.status_code == 200
+    assert {row["listingId"] for row in feed.json()["items"]} == {"1234500205"}
+    assert client.put(url + "/1234500202/pick", json={"picked": True}).status_code == 409
+    assert client.put(url + "/1234500201/later", json={"later": False}).status_code == 409
+    assert client.put(url + "/1234500201/later", json={"later": True}).json()["auto"]
+
+    # A later Windows sync automatically brings a new qualified topic into Later.
+    future = batch("season-future")
+    future["records"]["listings"] = [
+        {**product(title="Halloween Pumpkin Sweatshirt", keyword="autumn harvest"),
+         "listingKey": "1234500206"},
+        {**product(title="Halloween Pumpkin Sweatshirt", keyword="seasonal art"),
+         "listingKey": "1234500206", "sourceKind": "shop"},
+        {**product(title="Book Reading Shirt", keyword="literature"),
+         "listingKey": "1234500207"},
+    ]
+    for row in future["records"]["listings"]:
+        row["url"] = "https://www.etsy.com/listing/" + row["listingKey"]
+    assert sync(client, agent, headers, future).status_code == 200
+    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 5
+    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 1
+    assert client.get(url, params={"pick_state": "picked"}).json()["total"] == 1
+
+    # No cross-tenant leakage: even the same words stay Eligible elsewhere.
+    principal.active_tenant_id = "separate-tenant"
+    other_agent, other_headers = pair(client, db, tenant="separate-tenant")
+    other_payload = batch("season-other-tenant")
+    other_payload["records"]["listings"] = [
+        {**product(title="Thanksgiving Turkey Shirt", keyword="Thanksgiving"),
+         "listingKey": "1234500208"},
+    ]
+    assert sync(client, other_agent, other_headers, other_payload).status_code == 200
+    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 0
+    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 1
 
 
 def test_bad_credentials_custom_titles_oversize_and_separate_permissions(scenario):

@@ -33,6 +33,7 @@ from .model import (
     utcnow,
 )
 from .later_queue import refresh_later_matches, seed_analysis
+from .auto_later_keywords import keywords_for_tenant, batch_auto_later_labels
 from .groups import CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY, category_rank_expression
 from .extraction import (create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .service import (
@@ -168,6 +169,57 @@ def _later_condition(tenant: str):
                    LaterMatch.listing_key == Listing.listing_key,
                    LaterMatch.state == "matched")
             .exists())
+
+
+def _auto_later_ids(tenant: str):
+    """All active Etsy listing IDs with an exact operator-designated topic.
+
+    The lookup spans every source keyword and title for a listing ID, so one
+    Search/Shop alias cannot leave the same product in both Later and Eligible.
+    """
+    source = aliased(Listing)
+    words = keywords_for_tenant(tenant)
+    terms = [
+        or_(source.title.ilike("%" + word + "%"),
+            source.keyword.ilike("%" + word + "%"))
+        for word in words
+    ]
+    return select(source.listing_key).where(
+        source.tenant_id == tenant,
+        source.is_current.is_(True),
+        or_(*terms) if terms else literal(False),
+    ).distinct()
+
+
+def _auto_later_condition(tenant: str):
+    if not keywords_for_tenant(tenant):
+        return literal(False)
+    return Listing.listing_key.in_(_auto_later_ids(tenant))
+
+
+def _effective_picked_condition(tenant: str):
+    # Explicit season routing takes visible precedence without destroying
+    # previously Picked records or pending extraction provenance.
+    return and_(_picked_condition(tenant), not_(_auto_later_condition(tenant)))
+
+
+def _effective_later_condition(tenant: str):
+    return or_(_later_condition(tenant), _auto_later_condition(tenant))
+
+
+def _auto_later_labels_for_ids(
+    db: Session, tenant: str, listing_ids: set[str],
+) -> dict[str, str]:
+    if not listing_ids or not keywords_for_tenant(tenant):
+        return {}
+    rows = db.execute(select(
+        Listing.listing_key, Listing.title, Listing.keyword,
+    ).where(
+        Listing.tenant_id == tenant,
+        Listing.is_current.is_(True),
+        Listing.listing_key.in_(listing_ids),
+    )).all()
+    return batch_auto_later_labels(tenant, rows)
 
 
 def _blacklist_visible_count(db: Session, tenant: str):
@@ -404,11 +456,34 @@ def _state_day_condition(tenant: str, pick_state: str, since: datetime, before: 
             Picked.picked_at >= since, Picked.picked_at < before,
         ).exists())
     if pick_state == "later":
-        return (select(literal(1)).select_from(LaterMatch).where(
+        manual_day = (select(literal(1)).select_from(LaterMatch).where(
             LaterMatch.tenant_id == tenant, LaterMatch.listing_key == Listing.listing_key,
             LaterMatch.state == "matched",
             LaterMatch.updated_at >= since, LaterMatch.updated_at < before,
         ).exists())
+        if not keywords_for_tenant(tenant):
+            return manual_day
+        manual_exists = (select(literal(1)).select_from(LaterMatch).where(
+            LaterMatch.tenant_id == tenant,
+            LaterMatch.listing_key == Listing.listing_key,
+            LaterMatch.state == "matched",
+        ).exists())
+        # Auto-Later is classified from current title/keyword observations;
+        # use the latest active observation date for one Listing ID only if
+        # no pre-existing manual Later action date exists.
+        active = aliased(Listing)
+        newest_observation = select(func.max(active.observed_at)).where(
+            active.tenant_id == tenant,
+            active.listing_key == Listing.listing_key,
+            active.is_current.is_(True),
+        ).scalar_subquery()
+        auto = _auto_later_condition(tenant)
+        return or_(
+            manual_day,
+            and_(not_(manual_exists), auto,
+                 newest_observation >= since,
+                 newest_observation < before),
+        )
     return and_(Listing.observed_at >= since, Listing.observed_at < before)
 
 
@@ -424,10 +499,12 @@ def _listing_state_conditions(
         ~Listing.title.ilike("%custom%"),
         _blacklist_condition(tenant),
         _qualified_listing_condition(),
-        (_picked_condition(tenant) if pick_state == "picked"
-         else and_(not_(_picked_condition(tenant)), _later_condition(tenant))
+        (_effective_picked_condition(tenant) if pick_state == "picked"
+         else and_(not_(_effective_picked_condition(tenant)),
+                   _effective_later_condition(tenant))
          if pick_state == "later"
-         else and_(not_(_picked_condition(tenant)), not_(_later_condition(tenant)))),
+         else and_(not_(_effective_picked_condition(tenant)),
+                   not_(_effective_later_condition(tenant)))),
     ]
     if observed_day is not None:
         since, before = _observed_day_bounds(observed_day)
@@ -558,6 +635,7 @@ def _tm_expression():
 def _listing_item(
     row: Listing, check: Trademark | None, *, picked: bool = False,
     later_match: LaterMatch | None = None, later_manual: bool = False,
+    auto_later_keyword: str | None = None,
 ) -> dict:
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
     return {
@@ -566,11 +644,15 @@ def _listing_item(
         "sourceKinds": [kind for kind, present in (
             ("search", row.has_search), ("shop", row.has_shop)) if present],
         "listingKey": row.listing_key, "picked": picked,
-        "later": later_match is not None and not picked,
-        "laterManual": later_manual,
-        "laterReason": later_match.reason if later_match else None,
-        "laterScore": later_match.score if later_match else None,
-        "laterSeedKey": later_match.seed_listing_key if later_match else None,
+        "later": bool((later_match is not None or auto_later_keyword) and not picked),
+        "laterManual": later_manual and not auto_later_keyword,
+        "laterReason": ("Tự động Later theo keyword: " + auto_later_keyword)
+            if auto_later_keyword else later_match.reason if later_match else None,
+        "laterScore": 100 if auto_later_keyword else
+            later_match.score if later_match else None,
+        "laterSeedKey": None if auto_later_keyword else
+            later_match.seed_listing_key if later_match else None,
+        "laterAutoKeyword": auto_later_keyword,
         "pageTitle": row.title, "url": row.url, "badge": row.badge,
         "thumbnailUrl": verified_image_url(metadata.get("thumbnailUrl")),
         "fullImageUrl": verified_image_url(metadata.get("fullImageUrl")),
@@ -604,8 +686,8 @@ def summary(
     # Same denominator as the Windows Diagnostics: unique Etsy Listing IDs.
     # A listing may be discovered in *both* Search and Shop.
     unique = func.count(func.distinct(Listing.listing_key))
-    picked_filter = _picked_condition(tenant)
-    later_filter = _later_condition(tenant)
+    picked_filter = _effective_picked_condition(tenant)
+    later_filter = _effective_later_condition(tenant)
     eligible = [*active, not_(picked_filter), not_(later_filter)]
     later = [*active, not_(picked_filter), later_filter]
     listings_count = int(db.scalar(select(unique).where(*eligible)) or 0)
@@ -718,6 +800,7 @@ def listing_observed_days(
         ]
         picked_counts = db.execute(select(*picked_expressions).where(
             Picked.tenant_id == tenant,
+            Picked.listing_key.not_in(_auto_later_ids(tenant)),
         )).one()
     elif pick_state == "picked":
         picked_counts = counts
@@ -778,9 +861,11 @@ def listings(
     )
     rows, total = _paged(db, query, total_q, page, page_size)
     later_by_key: dict[str, LaterMatch] = {}
+    auto_by_key: dict[str, str] = {}
     seed_ids: set[str] = set()
     if pick_state == "later" and rows:
         ids = {listing.listing_key for listing, _ in rows}
+        auto_by_key = _auto_later_labels_for_ids(db, tenant, ids)
         later_by_key = {entry.listing_key: entry for entry in db.scalars(
             select(LaterMatch).where(LaterMatch.tenant_id == tenant,
                                     LaterMatch.listing_key.in_(ids),
@@ -811,7 +896,8 @@ def listings(
     return _response([
         {**_listing_item(listing, tmcheck, picked=pick_state == "picked",
                        later_match=later_by_key.get(listing.listing_key),
-                       later_manual=listing.listing_key in seed_ids),
+                       later_manual=listing.listing_key in seed_ids,
+                       auto_later_keyword=auto_by_key.get(listing.listing_key)),
          **({"extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
@@ -848,6 +934,11 @@ async def set_listing_pick(
         ).order_by(desc(Listing.observed_at), desc(Listing.updated_at)).limit(1))
         if eligible is None:
             raise HTTPException(404, "Eligible listing not found")
+        if db.scalar(select(Listing.listing_key).where(
+            Listing.tenant_id == tenant, Listing.listing_key == listing_key,
+            _auto_later_condition(tenant),
+        ).limit(1)) is not None:
+            raise HTTPException(409, "Listing is automatically classified Later by seasonal keyword")
         if target is None:
             target = Picked(tenant_id=tenant, listing_key=listing_key,
                             picked_at=utcnow())
@@ -999,6 +1090,13 @@ async def set_listing_later(
     identity = (tenant, listing_key)
     seed = db.get(LaterSeed, identity)
     match = db.get(LaterMatch, identity)
+    if db.scalar(select(Listing.listing_key).where(
+        Listing.tenant_id == tenant, Listing.listing_key == listing_key,
+        _auto_later_condition(tenant),
+    ).limit(1)) is not None:
+        if not payload["later"]:
+            raise HTTPException(409, "Automatic Later keyword rule cannot be dismissed")
+        return {"listingKey": listing_key, "later": True, "auto": True}
     if payload["later"]:
         if db.get(Picked, identity) is not None:
             raise HTTPException(409, "Unpick this product before using Later")
@@ -1364,7 +1462,8 @@ def agent_picked_listings(
         raise HTTPException(403, "Windows Etsy Spy agent required")
     rows = db.execute(
         select(Picked.listing_key, Picked.picked_at)
-        .where(Picked.tenant_id == agent.tenant_id)
+        .where(Picked.tenant_id == agent.tenant_id,
+               Picked.listing_key.not_in(_auto_later_ids(agent.tenant_id)))
         .order_by(Picked.listing_key.asc())
         .limit(10_001)
     ).all()
