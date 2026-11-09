@@ -846,24 +846,87 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
     assert not analyze_title("Comfort Colors Gildan Shirt Gift Tee").terms
 
 
+@pytest.mark.parametrize("title,keyword,expected", [
+    ("Halloween Shirt", "holiday tee", "Halloween"),
+    ("Witchy Graphic Shirt", "fall outfits", "Halloween"),
+    ("Cozy Pumpkin Sweatshirt", "autumn", "Halloween"),
+    ("Spooky Ghost Tee", "trick-or-treat", "Halloween"),
+    ("Haunted House Hoodie", "hocus pocus", "Halloween"),
+    ("Harvest Shirt", "GOBBLE GOBBLE turkey day", "Thanksgiving"),
+    ("Friendsgiving Comfort Tee", "family", "Thanksgiving"),
+    ("Thanksgiving Graphic Tee", "gifts", "Thanksgiving"),
+    ("Halloweentown Tee", "pumpkinhead", None),
+    ("Illustrated Plant Tee", "pumpkinhead holiday", None),
+    ("Holiday Pumpkin Tee", "summer", "Halloween"),
+])
+def test_auto_later_matches_exact_topic_badge_vocabulary(title, keyword, expected):
+    from app.modules.etsy_spy.auto_later_keywords import match_auto_later
+    assert match_auto_later("boostgame", title, keyword) == expected
+    assert match_auto_later("other-tenant", title, keyword) is None
+
+
+def test_auto_later_badge_groups_leave_eligible_and_follow_day_after_sync(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    vn = ZoneInfo("Asia/Ho_Chi_Minh")
+    day = datetime.now(vn).date()
+    at = (datetime.combine(day, time(6), tzinfo=vn)
+          .astimezone(timezone.utc) + timedelta(hours=1)).isoformat()
+    payload = batch("auto-season-day-badges")
+    payload["records"]["listings"] = [
+        {**product(title="Funny Turkey Day Shirt", keyword="fall harvest"),
+         "listingKey": "1234500901", "observedAt": at, "updatedAt": at},
+        {**product(title="Spooky Ghost Tee", keyword="autumn clothes"),
+         "listingKey": "1234500902", "observedAt": at, "updatedAt": at},
+        {**product(title="Pumpkin Lover Tee", keyword="autumn"),
+         "listingKey": "1234500903", "observedAt": at, "updatedAt": at},
+        {**product(title="Botanical Illustration Shirt", keyword="plant"),
+         "listingKey": "1234500904", "observedAt": at, "updatedAt": at},
+    ]
+    for listing in payload["records"]["listings"]:
+        listing["url"] = "https://www.etsy.com/listing/" + listing["listingKey"]
+    assert sync(client, agent, headers, payload).status_code == 200
+    base = "/api/v1/etsy-spy/listings"
+    day_params = {"day": day.isoformat()}
+    eligible = client.get(base + "/observed-day-groups", params=day_params).json()
+    assert eligible["total"] == 1
+    assert not {item["key"] for item in eligible["items"]} & {
+        "thanksgiving", "halloween",
+    }
+    later = client.get(base + "/observed-day-groups", params={
+        **day_params, "pick_state": "later",
+    }).json()
+    assert later["total"] == 3
+    assert {item["key"]: item["count"] for item in later["items"]} == {
+        "halloween": 2, "thanksgiving": 1,
+    }
+    for group, expected in [("thanksgiving", {"1234500901"}),
+                            ("halloween", {"1234500902", "1234500903"})]:
+        results = client.get(base, params={
+            "pick_state": "later", "observed_day": day.isoformat(), "group": group,
+        })
+        assert results.status_code == 200
+        assert {row["listingKey"] for row in results.json()["items"]} == expected
+
+
 def test_automatic_season_keyword_later_routes_existing_and_future_without_unpick(scenario):
     """Thanksgiving/Halloween are CAM review routing rules, not Scout blacklist."""
     client, db, principal = scenario
     agent, headers = pair(client, db)
     payload = batch("season-current")
     payload["records"]["listings"] = [
-        {**product(title="Witchy Halloween Graphic Shirt", keyword="witch illustration"),
+        {**product(title="Witchy Graphic Shirt", keyword="witch illustration"),
          "listingKey": "1234500201"},
-        {**product(title="Autumn Harvest Tee", keyword="Thanksgiving turkey tee"),
+        {**product(title="Autumn Harvest Tee", keyword="Turkey Day harvest gifts"),
          "listingKey": "1234500202"},
-        {**product(title="Classical Thanksgiving Sweatshirt", keyword="fall gifts"),
+        {**product(title="Classical Friendsgiving Sweatshirt", keyword="fall gifts"),
          "listingKey": "1234500203"},
-        {**product(title="Cozy Pumpkin Tee", keyword="halloween-collection"),
+        {**product(title="Cozy Pumpkin Tee", keyword="autumn collection"),
          "listingKey": "1234500204"},
         {**product(title="Classic Plant Lover Shirt", keyword="botanical tees"),
          "listingKey": "1234500205"},
         # Same Listing ID with no season in this alias: it must NOT leak to Eligible.
-        {**product(title="Witchy Graphic Tee", keyword="witch illustration"),
+        {**product(title="Illustrated Graphic Tee", keyword="minimal illustration"),
          "listingKey": "1234500201", "sourceKind": "shop"},
     ]
     for row in payload["records"]["listings"]:
@@ -902,9 +965,9 @@ def test_automatic_season_keyword_later_routes_existing_and_future_without_unpic
     # A later Windows sync automatically brings a new qualified topic into Later.
     future = batch("season-future")
     future["records"]["listings"] = [
-        {**product(title="Halloween Pumpkin Sweatshirt", keyword="autumn harvest"),
+        {**product(title="Hocus Pocus Spooky Sweatshirt", keyword="autumn harvest"),
          "listingKey": "1234500206"},
-        {**product(title="Halloween Pumpkin Sweatshirt", keyword="seasonal art"),
+        {**product(title="Hocus Pocus Spooky Sweatshirt", keyword="seasonal art"),
          "listingKey": "1234500206", "sourceKind": "shop"},
         {**product(title="Book Reading Shirt", keyword="literature"),
          "listingKey": "1234500207"},

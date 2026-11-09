@@ -6,6 +6,8 @@ Search/Shop/keyword observations of the same Etsy Listing ID.
 """
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import case, func, literal, or_
 
 # Higher-signal design themes take precedence over generic product wording.
@@ -65,6 +67,32 @@ def _words(value):
     for _ in range(2):
         value = func.replace(value, "  ", " ")
     return literal(" ") + func.trim(value) + literal(" ")
+
+
+def category_phrase_condition(listing, group_code: str):
+    """Match the same word-bounded phrases used by the topic badge.
+
+    This intentionally ignores other groups' precedence: if the title or
+    search keyword contains a requested season, it must route to Later even
+    when another group appears earlier in the daily category CASE.
+    """
+    phrases = next(
+        (phrases for code, _label, phrases in CATEGORY_GROUPS
+         if code == group_code), ()
+    )
+    if not phrases:
+        return literal(False)
+    # A compact word-boundary regex reuses the existing group vocabulary but
+    # avoids embedding the sixteen nested punctuation REPLACE operations once
+    # per phrase inside every distinct/day-group query. SQLAlchemy compiles
+    # regexp_match for PostgreSQL (~) and SQLite (REGEXP via re.search).
+    phrases_regex = "|".join(
+        re.escape(phrase).replace(r"\ ", "[^a-z0-9]+") for phrase in phrases
+    )
+    pattern = r"(^|[^a-z0-9])(" + phrases_regex + r")([^a-z0-9]|$)"
+    source = func.lower(func.coalesce(listing.title, "") + literal(" ") +
+                        func.coalesce(listing.keyword, ""))
+    return source.regexp_match(pattern)
 
 
 def category_rank_expression(listing):

@@ -1,14 +1,16 @@
-"""Explicit tenant-scoped, deterministic Later routing for seasonal Etsy listings.
+"""Operator-owned automatic Later routing using CAM's daily topic groups.
 
-These are operator-directed review rules, not blacklist keywords or Scout seeds.
-They intentionally do not mutate original Picked rows, source observations,
-search histories, or extraction records.
+The same category phrase tables classify past and newly synced Etsy listings.
+This is view routing, NOT a blacklist or source/Picked database rewrite.
 """
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
-# Requested for CAM's sole operating tenant on 2026-11-09.
+from .groups import CATEGORY_GROUPS
+
+# A tenant-scoped rule; matching phrases are taken from CATEGORY_GROUPS.
 TENANT_AUTO_LATER_KEYWORDS: dict[str, tuple[str, ...]] = {
     "boostgame": ("Thanksgiving", "Halloween"),
 }
@@ -18,20 +20,24 @@ def keywords_for_tenant(tenant: str) -> tuple[str, ...]:
     return TENANT_AUTO_LATER_KEYWORDS.get(tenant, ())
 
 
+def _padded_source(title: str | None, keyword: str | None) -> str:
+    # Mirror groups._words: case, punctuation and padded word boundaries.
+    combined = str(title or "") + " " + str(keyword or "")
+    normalized = re.sub(r"[-_./&,'’:!?()#]", " ", combined.lower())
+    return " " + " ".join(normalized.split()) + " "
+
+
 def match_auto_later(
     tenant: str, title: str | None = None, keyword: str | None = None,
 ) -> str | None:
-    """Classify an exact named season in either Etsy listing title or search keyword."""
-    words = keywords_for_tenant(tenant)
-    if not words:
+    """Return the first configured category matching title OR search keyword."""
+    configured = {name.lower(): name for name in keywords_for_tenant(tenant)}
+    if not configured:
         return None
-    haystacks = (str(title or "").casefold(), str(keyword or "").casefold())
-    for word in words:
-        lowered = word.casefold()
-        # Long, distinctive seasonal terms; intentionally cover attached Etsy
-        # forms such as Halloween-themed as well as whitespace-separated terms.
-        if any(lowered in value for value in haystacks):
-            return word
+    source = _padded_source(title, keyword)
+    for code, _label, phrases in CATEGORY_GROUPS:
+        if code in configured and any(" " + phrase + " " in source for phrase in phrases):
+            return configured[code]
     return None
 
 

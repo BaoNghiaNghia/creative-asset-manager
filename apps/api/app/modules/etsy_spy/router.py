@@ -34,7 +34,8 @@ from .model import (
 )
 from .later_queue import refresh_later_matches, seed_analysis
 from .auto_later_keywords import keywords_for_tenant, batch_auto_later_labels
-from .groups import CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY, category_rank_expression
+from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY,
+                     category_rank_expression, category_phrase_condition)
 from .extraction import (create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
@@ -180,8 +181,7 @@ def _auto_later_ids(tenant: str):
     source = aliased(Listing)
     words = keywords_for_tenant(tenant)
     terms = [
-        or_(source.title.ilike("%" + word + "%"),
-            source.keyword.ilike("%" + word + "%"))
+        category_phrase_condition(source, word.lower())
         for word in words
     ]
     return select(source.listing_key).where(
