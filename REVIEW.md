@@ -1,3 +1,12 @@
+## 2026-11-09 — Agent Harness Phase 3C.3B2C1 Stage 1 artwork provenance
+
+- Added no-migration read-only provenance chain from actual 0205 control/challenger exposure to exact completed Creative Brief, completed generation jobs and current Stage 1 output version, checking tenant/study/keyword, pinned `creative_v3` source SHA/fingerprint, metadata SHA, PNG type and bounded dimensions. Never infer a real treatment from prospective shadow admission.
+- Added tenant-authorized read-only lineage GET and separate, explicitly flagged, managed Google Drive byte verification POST. Actual remote bytes are streamed with 16 MiB cap and checked for SHA-256, length, PNG validity and dimensions. Revalidate DB claim after I/O, fail closed on source changes. No raw prompt, keyword or reviewer arm returned.
+- `AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED` defaults OFF, so no Drive I/O without explicit approved invocation. No new dependency, API credentials, AI request, image generation, output overwrite, migration or implicit runtime flag update.
+- No QA verdict is inserted, no independent review claimed, no automatic promotion. Existing `0205` QA FK to output history would otherwise risk interfering with Stage 1 Regenerate; reviewed-artifact retention and blinded reviewer auth must precede writes.
+- Validation: the initial broad regression passed 191 cases and surfaced one PNG CRC exception mapping; fixed to fail closed for Pillow `SyntaxError`, then re-ran **173/173 affected tests successfully**, including all new lineage tests, worker/holdout/registration and Stage 1 outputs. Migration/rollback tests remain unchanged and passed in the initial broad regression. Python compileall and Git diff check passed.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3B2C1_ARTWORK_LINEAGE.md`.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B2B controlled challenger prompt
 
 - Added an independent **OFF-by-default** `AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED` flag. The real Creative Brief worker now optionally applies a **different** versioned `trial-144-ch1` directive to preregistered challenger-arm keywords only, derived from a fixed server-owned mapping of safe Pick/Reject rule enums. No candidate-generated prompt, change to 1/4/4 structure, additional provider call or UI.

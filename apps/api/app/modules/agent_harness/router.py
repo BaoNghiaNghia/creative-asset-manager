@@ -33,6 +33,10 @@ from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1Fe
 from .trial_schema import HoldoutStudyRegistration, HoldoutKeywordReservation
 from .trial_registration import HoldoutStudyConflict, register_study, reserve_keywords
 from .trial_evidence_status import read_stage1_trial_evidence
+from .trial_artwork_lineage import (
+    TrialArtworkLineageError, artwork_lineage, public_lineage_status,
+)
+from .trial_artwork_bytes import verify_stored_artwork_bytes
 from .stage1_feedback import AGENT_ID as FEEDBACK_AGENT_ID, SOURCE_VERSION, snapshots
 
 
@@ -203,6 +207,72 @@ def read_trial_stage1_evidence_status(
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="Study not found") from None
+
+
+@router.get("/{tenant_id}/trials/stage1/{study_id}/artwork/{output_version_id}/lineage")
+def read_stage1_artwork_provenance(
+    tenant_id: str,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    output_version_id: str = Path(min_length=36, max_length=36),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read-only DB chain, NEVER independent image-byte or QA attestation."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    try:
+        return public_lineage_status(artwork_lineage(
+            db, tenant_id=tenant_id, study_id=study_id,
+            output_version_id=output_version_id,
+        ))
+    except TrialArtworkLineageError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+
+@router.post("/{tenant_id}/trials/stage1/{study_id}/artwork/{output_version_id}/verify-bytes")
+async def verify_stage1_artwork_provenance_bytes(
+    tenant_id: str,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    output_version_id: str = Path(min_length=36, max_length=36),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Explicit opt-in Drive read; capped bytes, no QA writes, no AI requests."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    settings = get_settings()
+    if not (
+        getattr(settings, "AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED", False)
+        and settings.AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED
+        and not settings.AI_EMERGENCY_STOP_ENABLED
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        claim = artwork_lineage(
+            db, tenant_id=tenant_id, study_id=study_id,
+            output_version_id=output_version_id,
+        )
+        from app.modules.storage.provider_factory import build_managed_storage_provider
+        from app.domain.providers.contracts import StorageProviderError
+        try:
+            result = await verify_stored_artwork_bytes(
+                build_managed_storage_provider(settings), claim,
+            )
+        except StorageProviderError:
+            raise HTTPException(
+                status_code=503, detail="Stored artwork temporarily unavailable",
+            ) from None
+        # The output, Brief or exposure may have changed during Drive I/O:
+        # re-read fresh DB state rather than accepting a stale cached claim.
+        db.expire_all()
+        if artwork_lineage(
+            db, tenant_id=tenant_id, study_id=study_id,
+            output_version_id=output_version_id,
+        ) != claim:
+            raise TrialArtworkLineageError("trial_artifact_lineage_changed")
+        return result
+    except TrialArtworkLineageError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
 
 
 @router.get("/{tenant_id}/overview")

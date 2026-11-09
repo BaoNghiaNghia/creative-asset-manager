@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
+
+- [x] Build explicit, tenant-scoped read-only lineage: exposure receipt → completed Creative Brief and ProcessingJob → pinned 1/4/4 image generation job → output-version SHA-256 and source fingerprint. Invalidate stale/regenerated/other-tenant/other-study records rather than infer exposure from shadow.
+- [x] Add secure evidence preflight GET and explicit remote-byte verifier POST, restricted to authorized admin scope. Verify Drive bytes, PNG encoding, dimensions and checksum with 16 MiB cap, retry-safe pre/post-I/O revalidation and no saved prompt/artwork bytes.
+- [x] Add new `AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED` independent default-OFF flag for any Drive access. No AI provider calls, output mutations, database schema upgrade or new secrets.
+- [x] Preserve `cam_agent_trial_qa_reviews` as unwritten: writes before reviewed-artwork retention could block current Stage 1 Regenerate through restrictive FK.
+- [x] Verify 173/173 affected Agent Harness, Stage 1, lineage, authorization and error-path tests on the final revision; syntax/compile/diff checks passed. Unchanged 0205 migration/bridge tests also covered in broad pre-fix regression (all those cases passed).
+- [ ] Deploy backend `main` with `--no-migrate`, verify services/rollback/flags.
+- [ ] Phase 3C.3B2C2: immutable reviewed-asset snapshot retention, blinded independent reviewer credentials/assignment, QA writes and trusted provider usage/cost receipts; no evaluation/promotion before all are independently verified.
+
+
 ## 2026-11-09 — Phase 3C.3B2B: isolated challenger treatment and receipt
 
 - [x] Add default-OFF `AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED` gate, dependent on registration, shadow admission and baseline control capture with emergency-stop fail closed.
