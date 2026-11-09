@@ -10,6 +10,7 @@ No API endpoint, auto-learning, QA verdict or promotion is created here.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 import hashlib
 import re
 
@@ -34,6 +35,9 @@ from .trial_registration import _digest_source
 _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _BRIEF_JOB_TYPE = "rrugc_creative_brief_generate"
 
+if TYPE_CHECKING:
+    from .trial_challenger import ChallengerPlan
+
 
 class TrialExposureConflict(ValueError):
     """Fail closed without disclosing source keywords or prompts."""
@@ -47,12 +51,12 @@ def control_capture_enabled(settings: object) -> bool:
     )
 
 
-def record_verified_control_exposure(
+def record_verified_trial_exposure(
     session: Session, *, job: ClaimedJob, keyword_id: str,
     policy_version: str, applied_prompt_sha256: str,
-    settings: object,
+    settings: object, challenger_plan: ChallengerPlan | None = None,
 ) -> bool:
-    """Attest one baseline Codex execution; return True only for a NEW receipt.
+    """Attest a worker-applied control or explicitly planned challenger receipt.
 
     Preconditions are re-checked from the DB under transaction locks. No client
     can call this method via an API. The digest is built by the worker from
@@ -64,6 +68,18 @@ def record_verified_control_exposure(
     """
     if not control_capture_enabled(settings):
         return False
+    from .trial_challenger import (
+        BASELINE_BRIEF_VERSION, CHALLENGER_POLICY_VERSION,
+        challenger_enabled, directive_for_rule,
+    )
+    arm = "challenger" if challenger_plan is not None else "control"
+    if arm == "challenger":
+        if not challenger_enabled(settings):
+            raise TrialExposureConflict("trial_challenger_gate_closed")
+        if policy_version != CHALLENGER_POLICY_VERSION:
+            raise TrialExposureConflict("trial_challenger_policy_version_invalid")
+    elif policy_version != BASELINE_BRIEF_VERSION:
+        raise TrialExposureConflict("trial_control_policy_version_invalid")
 
     if (
         not job.tenant_id or not keyword_id
@@ -123,11 +139,10 @@ def record_verified_control_exposure(
     ).with_for_update())
     if assignment is None or assignment.arm != manifest.get("arm"):
         raise TrialExposureConflict("trial_assignment_mismatch")
-    if assignment.arm == "challenger":
-        # The current worker still uses the BASELINE policy for both arms.
-        # Never count this as challenger treatment or move status to exposed.
+    if assignment.arm == "challenger" and challenger_plan is None:
+        # Shadow-only and baseline generation never attest challenger success.
         return False
-    if assignment.arm != "control" or assignment.status not in ("reserved", "exposed"):
+    if assignment.arm != arm or assignment.status not in ("reserved", "exposed"):
         raise TrialExposureConflict("trial_assignment_invalid")
 
     study = session.scalar(select(AgentHoldoutStudyModel).where(
@@ -156,6 +171,24 @@ def record_verified_control_exposure(
         or _digest_source(candidate) != study.candidate_source_digest
     ):
         raise TrialExposureConflict("trial_candidate_changed")
+    if challenger_plan is not None:
+        from .trial_registration import _agent_source_current
+        if (
+            challenger_plan.tenant_id != job.tenant_id
+            or challenger_plan.study_id != study_id
+            or challenger_plan.keyword_id != keyword_id
+            or challenger_plan.processing_job_id != job.id
+            or challenger_plan.candidate_event_key != candidate.event_key
+            or challenger_plan.candidate_source_digest != study.candidate_source_digest
+            or challenger_plan.rule_key != candidate.rule_key
+            or challenger_plan.policy_version != CHALLENGER_POLICY_VERSION
+            or challenger_plan.directive != directive_for_rule(candidate.rule_key)
+            or not _agent_source_current(
+                session, tenant_id=job.tenant_id,
+                cohort=study.cohort, candidate=candidate,
+            )
+        ):
+            raise TrialExposureConflict("trial_challenger_plan_changed")
 
     keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
         RrugcKeywordVolumeModel.id == keyword_id,
@@ -181,7 +214,7 @@ def record_verified_control_exposure(
     ).with_for_update())
     if (
         brief is None or brief.status != "completed"
-        or brief.prompt_version != policy_version
+        or brief.prompt_version != BASELINE_BRIEF_VERSION
         or brief.keyword_sha256 != hashlib.sha256(
             keyword.keyword.encode("utf-8"),
         ).hexdigest()
@@ -190,10 +223,13 @@ def record_verified_control_exposure(
     ):
         raise TrialExposureConflict("trial_completed_brief_unverified")
 
+    if challenger_plan is not None and challenger_plan.keyword_sha256 != keyword_digest:
+        raise TrialExposureConflict("trial_challenger_keyword_changed")
+
     existing = session.get(AgentTrialExposureModel, (job.tenant_id, study_id, keyword_id))
     if existing is not None:
         if (
-            existing.arm != "control"
+            existing.arm != arm
             or existing.processing_job_id != job.id
             or existing.policy_version != policy_version
             or existing.policy_sha256 != applied_prompt_sha256
@@ -207,7 +243,7 @@ def record_verified_control_exposure(
 
     session.add(AgentTrialExposureModel(
         tenant_id=job.tenant_id, study_id=study_id, keyword_id=keyword_id,
-        processing_job_id=job.id, arm="control",
+        processing_job_id=job.id, arm=arm,
         policy_version=policy_version,
         policy_sha256=applied_prompt_sha256,
         worker_identity=job.lease_owner,
@@ -215,11 +251,12 @@ def record_verified_control_exposure(
     assignment.status = "exposed"
     session.add(AuthAuditEventModel(
         tenant_id=job.tenant_id, actor_id=f"system:{job.lease_owner}"[:255],
-        action="agent_trial_control_exposed",
+        action="agent_trial_control_exposed" if arm == "control"
+               else "agent_trial_challenger_exposed",
         detail_json={
             "study_id": study_id, "keyword_id": keyword_id,
             "processing_job_id": job.id,
-            "arm": "control", "policy_version": policy_version,
+            "arm": arm, "policy_version": policy_version,
             "policy_sha256": applied_prompt_sha256,
             "source": "trusted_creative_brief_worker",
             "independent_qa_verified": False,
@@ -227,3 +264,17 @@ def record_verified_control_exposure(
     ))
     session.flush()
     return True
+
+
+def record_verified_control_exposure(
+    session: Session, *, job: ClaimedJob, keyword_id: str,
+    policy_version: str, applied_prompt_sha256: str,
+    settings: object,
+) -> bool:
+    """Backwards-compatible control-only entrypoint; cannot attest challenger."""
+    return record_verified_trial_exposure(
+        session, job=job, keyword_id=keyword_id,
+        policy_version=policy_version,
+        applied_prompt_sha256=applied_prompt_sha256,
+        settings=settings, challenger_plan=None,
+    )

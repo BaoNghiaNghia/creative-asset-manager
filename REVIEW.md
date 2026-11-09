@@ -1,3 +1,11 @@
+## 2026-11-09 — Agent Harness Phase 3C.3B2B controlled challenger prompt
+
+- Added an independent **OFF-by-default** `AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED` flag. The real Creative Brief worker now optionally applies a **different** versioned `trial-144-ch1` directive to preregistered challenger-arm keywords only, derived from a fixed server-owned mapping of safe Pick/Reject rule enums. No candidate-generated prompt, change to 1/4/4 structure, additional provider call or UI.
+- Before Codex invocation, re-checks tenant/lease/payload, assignment and study, deterministic frozen arm, keyword/cohort, source digest and live feedback candidate. Before committing completed brief, independently re-checks source/policy plan and writes append-only exposure receipt with exact prompt SHA-256 and audit. Failures, changed leases or unregistered jobs never become evidence.
+- All existing baseline jobs, control arm semantics and 3C.3A shadow manifests remain unchanged while feature is OFF. No schema migration, external secrets, blind QA submission or policy promotion. Even real challenger exposure does not establish an independently reviewed Stage 1 artwork.
+- Verification: 184/184 Agent Harness, control/challenger worker, registration, evidence and Creative Brief regression tests passed; Python compile and Git diff check passed. Tests exercise control unchanged, stage1 challenger prompt actually applied, exact digest, pre/post Codex rollback, stale source, other tenant, bad claim and closed flags.
+- Architecture and rollback: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3B2B_CHALLENGER.md`. Next reviewed phase is 3C.3B2C output/version lineage plus independent QA and provider cost.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B2A baseline receipt and evidence status
 
 - Implements opt-in **CONTROL-ONLY** worker capture after successful Creative Brief Codex execution. Validates tenant, job lease, frozen arm, keyword/source/prompt version and immutable digest before writing `cam_agent_trial_exposures` in the same transaction as completed brief. Raw prompts are not saved; no retroactive exposure, QA or candidate promotion.

@@ -199,6 +199,7 @@ def read_trial_stage1_evidence_status(
     try:
         return read_stage1_trial_evidence(
             db, tenant_id=tenant_id, study_id=study_id,
+            settings=get_settings(),
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="Study not found") from None

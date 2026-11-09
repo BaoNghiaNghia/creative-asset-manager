@@ -16,8 +16,11 @@ from .model import (
 
 def read_stage1_trial_evidence(
     session: Session, *, tenant_id: str, study_id: str,
+    settings: object | None = None,
 ) -> dict:
     """Caller must first authorize the tenant and pass the read feature gate."""
+    from .trial_challenger import challenger_enabled
+    is_challenger_enabled = bool(settings is not None and challenger_enabled(settings))
     study = session.get(AgentHoldoutStudyModel, (tenant_id, study_id))
     if study is None:
         raise LookupError("study_not_found")
@@ -68,13 +71,16 @@ def read_stage1_trial_evidence(
         "recorded_exposure_receipts": receipts,
         "qa_rows_unverified": qa_record_count,
         "evaluation_status": "blocked",
-        "evaluation_blockers": [
-            "challenger_policy_not_applied",
-            "independent_qa_provenance_unavailable",
-            "trusted_provider_cost_unavailable",
-        ],
+        "evaluation_blockers": (
+            (["control_exposure_missing"] if receipts["control"] == 0 else [])
+            + (["challenger_policy_not_applied"] if receipts["challenger"] == 0 else [])
+            + ["independent_qa_provenance_unavailable", "trusted_provider_cost_unavailable"]
+        ),
         "trial_active": False,
-        "challenger_treatment_enabled": False,
+        "control_treatment_detected": receipts["control"] > 0,
+        "challenger_treatment_detected": receipts["challenger"] > 0,
+        # This boolean describes the independent feature-gate state only.
+        "challenger_treatment_enabled": is_challenger_enabled,
         "independent_qa_verified": False,
         "automatic_promotion_enabled": False,
     }

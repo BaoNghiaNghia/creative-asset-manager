@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Phase 3C.3B2B: isolated challenger treatment and receipt
+
+- [x] Add default-OFF `AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED` gate, dependent on registration, shadow admission and baseline control capture with emergency-stop fail closed.
+- [x] Map only preregistered Stage 1 Pick/Reject rule enums to fixed, human-reviewed typography directives (no freeform candidate prompt).
+- [x] Worker preflight re-verifies tenant, claimed job, reserved study/assignment, deterministic arm, cohort and current candidate source before one Codex call; includes a distinct challenger directive while preserving baseline 1/4/4 schema.
+- [x] After successful Codex, verify frozen plan and append immutable versioned challenger exposure plus SHA-256 prompt receipt in the completed Brief's transaction; no evidence on failure.
+- [x] Validate 184/184 full Agent Harness / Stage 1 regression and adverse-scenario tests, compile and diff checks.
+- [ ] Deploy reviewed `main` backend `--no-migrate` with feature flags untouched, check API/worker/rollback.
+- [ ] Phase 3C.3B2C: establish authenticated immutable Stage1 artwork lineage, blinded independent reviewer with verified stored image bytes, trusted per-arm cost telemetry, safety approvals; **no automatic promotion** until all exist.
+
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B2A baseline/control exposure receipt
 
 - [x] Add default-OFF `AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED`, separate from existing 3C.3A shadow admission.

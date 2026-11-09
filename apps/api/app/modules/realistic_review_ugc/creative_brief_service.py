@@ -509,6 +509,26 @@ class CreativeBriefGenerateHandler:
                     feedback_context = (
                         feedback_context + "\n" + reference_learning["guidance"]
                     ).strip()[:4500]
+            from app.modules.agent_harness.trial_challenger import (
+                TrialChallengerConflict, prepare_challenger_plan,
+            )
+            try:
+                challenger_plan = prepare_challenger_plan(
+                    session, job=context.job, keyword_id=keyword.id,
+                    settings=self.settings, brief_prompt_version=PROMPT_VERSION,
+                )
+            except TrialChallengerConflict:
+                row.status = "failed"
+                row.last_error_code = "creative_brief_trial_challenger_conflict"
+                session.commit()
+                return JobHandlerResult.non_retryable(
+                    "creative_brief_trial_challenger_conflict",
+                    "Trial reservation or policy changed; cannot generate.",
+                )
+            if challenger_plan is not None:
+                feedback_context = (
+                    feedback_context + "\n" + challenger_plan.directive
+                ).strip()
             session.commit()
         try:
             brief: CreativeBrief = asyncio.run(generate_brief(
@@ -532,7 +552,10 @@ class CreativeBriefGenerateHandler:
             )
 
         from app.modules.agent_harness.trial_exposure import (
-            TrialExposureConflict, control_capture_enabled, record_verified_control_exposure,
+            TrialExposureConflict, control_capture_enabled, record_verified_trial_exposure,
+        )
+        from app.modules.agent_harness.trial_challenger import (
+            TrialChallengerConflict, challenger_enabled,
         )
         try:
             with context.dependencies.session_factory() as session:
@@ -555,21 +578,26 @@ class CreativeBriefGenerateHandler:
                 row.status = "completed"
                 row.last_error_code = None
                 row.completed_at = _utcnow()
-                if control_capture_enabled(self.settings):
-                    # Only after the exact baseline Codex invocation succeeded:
-                    # recompute the SHA-256 of the prompt arguments actually
-                    # passed to generate_brief. No raw prompt is persisted.
+                if challenger_plan is not None and not challenger_enabled(self.settings):
+                    raise TrialExposureConflict("trial_challenger_gate_closed_after_execution")
+                if challenger_plan is not None or control_capture_enabled(self.settings):
+                    # SHA-256 of exactly the prompt args passed to the Codex
+                    # invocation, without saving user text or raw prompt.
                     applied_digest = hashlib.sha256(build_prompt(
                         phrase, learning_context=feedback_context,
                     ).encode("utf-8")).hexdigest()
-                    record_verified_control_exposure(
+                    record_verified_trial_exposure(
                         session, job=context.job, keyword_id=keyword.id,
-                        policy_version=PROMPT_VERSION,
+                        policy_version=(
+                            challenger_plan.policy_version
+                            if challenger_plan is not None else PROMPT_VERSION
+                        ),
                         applied_prompt_sha256=applied_digest,
                         settings=self.settings,
+                        challenger_plan=challenger_plan,
                     )
                 session.commit()
-        except TrialExposureConflict:
+        except (TrialExposureConflict, TrialChallengerConflict):
             self._set_status(context, "failed", "creative_brief_trial_exposure_conflict")
             return JobHandlerResult.non_retryable(
                 "creative_brief_trial_exposure_conflict",
