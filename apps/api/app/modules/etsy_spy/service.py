@@ -60,6 +60,20 @@ def text(value: Any, maximum: int = 200, *, required: bool = False) -> str | Non
     return result or None
 
 
+
+def title_keyword_fallback(title: Any) -> str:
+    """Literal first Etsy title clause, not an observed autocomplete suggestion."""
+    if not isinstance(title, str):
+        return ""
+    first = " ".join(re.split(r"[,|;]", title, maxsplit=1)[0].split())
+    first = first.strip(" \"'“”‘’")
+    if len(first) > 150:
+        first = first[:150].rsplit(" ", 1)[0].strip()
+    if len(first) < 3 or not any(char.isalpha() for char in first):
+        return ""
+    return "" if first.casefold() in {"none", "null", "undefined", "n/a"} else first
+
+
 def moment(value: Any) -> datetime | None:
     if not value:
         return None
@@ -243,6 +257,12 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
         if not isinstance(sms_raw, list) or len(sms_raw) > 12:
             raise HTTPException(422, "Invalid keyword SMS evidence")
         sms = [text(x, 150) for x in sms_raw if isinstance(x, str) and text(x, 150)]
+        sms_status = text(row.get("keywordSmsStatus"), 32) or "not_checked"
+        if not sms:
+            fallback = title_keyword_fallback(title)
+            if fallback:
+                sms = [fallback]
+                sms_status = "title_fallback"
         thumbnail_url = verified_image_url(row.get("thumbnailUrl"))
         full_image_url = verified_image_url(row.get("fullImageUrl"))
         metadata = {
@@ -255,7 +275,7 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
             "sessionCount": integer(row.get("sessionCount")),
             "keywordSms": sms,
             "keywordSmsQuery": text(row.get("keywordSmsQuery"), 180),
-            "keywordSmsStatus": text(row.get("keywordSmsStatus"), 32) or "not_checked",
+            "keywordSmsStatus": sms_status,
             "keywordSmsCheckedAt": text(row.get("keywordSmsCheckedAt"), 45),
         }
         values = {
@@ -415,6 +435,15 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
                     for image_key in ("thumbnailUrl", "fullImageUrl"):
                         if not incoming_meta.get(image_key) and previous_meta.get(image_key):
                             incoming_meta[image_key] = verified_image_url(previous_meta[image_key])
+                    # A weaker title fallback must never erase earlier authentic Etsy evidence.
+                    if (incoming_meta.get("keywordSmsStatus") == "title_fallback"
+                            and previous_meta.get("keywordSmsStatus") in
+                            {"ready", "cached", "reused_etsy_evidence"}
+                            and isinstance(previous_meta.get("keywordSms"), list)
+                            and any(previous_meta["keywordSms"])):
+                        for key in ("keywordSms", "keywordSmsStatus", "keywordSmsQuery",
+                                    "keywordSmsCheckedAt"):
+                            incoming_meta[key] = previous_meta.get(key)
             for key, value in values.items():
                 setattr(row, key, value)
     # Future listings are classified inside the same transaction that saves
