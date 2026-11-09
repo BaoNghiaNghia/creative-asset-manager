@@ -820,7 +820,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(5);
   });
 
-  it("adds parent keywords and edits the actual scheduler priority from Keyword Tree", async () => {
+  it("shows only keywords and two-mode priority toggles while preserving the API contract", async () => {
     vi.mocked(fetchAccessIdentity).mockResolvedValue({
       permissions: ["etsy_spy.read", "etsy_spy.manage"],
     } as never);
@@ -833,35 +833,26 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.textContent).toContain("A Root Seed");
     const input = container?.querySelector<HTMLInputElement>(
       'input[aria-label="New parent keyword"]')!;
-    const priority = container?.querySelector<HTMLInputElement>(
-      'input[aria-label="New parent priority"]')!;
+    expect(container?.querySelector('input[type="number"]')).toBeNull();
+    expect(container?.querySelector(".etsy-parent-priority-field")).toBeNull();
+    expect(container?.textContent).not.toContain("Scout record(s)");
+    expect(container?.textContent).not.toContain("2 priority modes");
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
       setter.call(input, "  Halloween   ghost shirt ");
       input.dispatchEvent(new Event("input", {bubbles:true}));
-      setter.call(priority, "85");
-      priority.dispatchEvent(new Event("input", {bubbles:true}));
     });
     await act(async () => {
       container?.querySelector<HTMLFormElement>(".etsy-parent-create")?.dispatchEvent(
         new Event("submit", {bubbles:true,cancelable:true}));
       await new Promise(resolve => setTimeout(resolve, 35));
     });
-    expect(parentKeywords.find(k => k.keywordKey === "halloween ghost shirt")?.priority).toBe(85);
+    expect(parentKeywords.find(k => k.keywordKey === "halloween ghost shirt")?.priority).toBe(50);
     expect(container?.textContent).toContain("Halloween ghost shirt");
-    const rowPriority = container?.querySelector<HTMLInputElement>(
-      'input[aria-label="Priority for A Root Seed"]')!;
-    await act(async () => {
-      setter.call(rowPriority, "98");
-      rowPriority.dispatchEvent(new Event("input", {bubbles:true}));
-    });
-    await act(async () => {
-      container?.querySelector<HTMLButtonElement>(
-        'button[aria-label="Save priority for A Root Seed"]')?.click();
-      await new Promise(resolve => setTimeout(resolve, 40));
-    });
+    expect(container?.querySelector('input[type="number"]')).toBeNull();
+    expect(container?.querySelector(".etsy-parent-priority-field")).toBeNull();
     expect(parentKeywords[0].keywordKey).toBe("a root seed");
-    expect(parentKeywords[0].priority).toBe(98);
+    expect(parentKeywords[0].priority).toBe(50);
     const priorityMode = container?.querySelector(
       '[role="group"][aria-label="Priority mode for A Root Seed"]',
     );
@@ -881,12 +872,12 @@ describe("Etsy Spy native CAM dashboard", () => {
       withPriority.click();
       await new Promise(resolve => setTimeout(resolve, 40));
     });
-    expect(parentKeywords.find(row => row.keywordKey === "a root seed")?.priority).toBe(98);
+    expect(parentKeywords.find(row => row.keywordKey === "a root seed")?.priority).toBe(50);
     expect(withPriority.getAttribute("aria-pressed")).toBe("true");
     expect(observed.some(url => url.endsWith("/parent-keywords"))).toBe(true);
     expect(container?.querySelectorAll(".etsy-parent-row")).toHaveLength(2);
     expect(container?.querySelectorAll(".etsy-tree-row")).toHaveLength(0);
-    expect(container?.textContent).toContain("Windows Agent will apply this priority");
+    expect(container?.textContent).not.toContain("Windows Agent will apply this priority");
   });
 
   it("keeps compact tabs keyboard-navigable with one active tab", async () => {
