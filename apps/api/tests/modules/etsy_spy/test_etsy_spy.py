@@ -300,6 +300,45 @@ def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
     assert denied.status_code == 403
 
 
+def test_summary_picked_source_image_completeness_tracks_qualified_distinct_listings(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch("image-source-1")).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"] == {
+        "checked": 0, "complete": 0, "missing": 0,
+    }
+    pick_url = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(pick_url, json={"picked": True}).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"] == {
+        "checked": 1, "complete": 0, "missing": 1,
+    }
+    partial = batch("image-source-2")
+    partial["records"]["listings"][0]["updatedAt"] = "2026-11-06T00:00:05Z"
+    partial["records"]["listings"][0]["thumbnailUrl"] = (
+        "https://i.etsystatic.com/123/il_170x135.test.jpg"
+    )
+    assert sync(client, agent, headers, partial).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"]["missing"] == 1
+
+    full = batch("image-source-3")
+    full["records"]["listings"][0]["updatedAt"] = "2026-11-06T00:00:10Z"
+    full["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.test.jpg"
+    )
+    assert sync(client, agent, headers, full).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"] == {
+        "checked": 1, "complete": 1, "missing": 0,
+    }
+    assert client.put(pick_url, json={"picked": False}).status_code == 200
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"] == {
+        "checked": 0, "complete": 0, "missing": 0,
+    }
+    principal.active_tenant_id = "another-tenant"
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked_images"] == {
+        "checked": 0, "complete": 0, "missing": 0,
+    }
+
+
 def test_listing_thumbnail_and_full_image_urls_sync_without_binary_or_data_loss(scenario):
     client, db, _principal = scenario
     agent, headers = pair(client, db)

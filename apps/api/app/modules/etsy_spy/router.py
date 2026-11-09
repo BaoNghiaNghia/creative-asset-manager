@@ -610,6 +610,26 @@ def summary(
     later = [*active, not_(picked_filter), later_filter]
     listings_count = int(db.scalar(select(unique).where(*eligible)) or 0)
     picked_count = int(db.scalar(select(unique).where(*active, picked_filter)) or 0)
+    # Read-only image source completeness for the same qualified Picked
+    # denominator. Missing CDN URLs are distinct from transparent PNG jobs.
+    picked_sources = {}
+    for listing_key, metadata in db.execute(
+        select(Listing.listing_key, Listing.metadata_json)
+        .where(*active, picked_filter)
+    ):
+        source = metadata if isinstance(metadata, dict) else {}
+        thumb = verified_image_url(source.get("thumbnailUrl"))
+        full = verified_image_url(source.get("fullImageUrl"))
+        # Older CAM projection mirrors a thumbnail into fullImageUrl when
+        # no full URL was supplied. That alias is not full-size evidence.
+        full_size_alias = bool(full and re.search(
+            r"/il_(?:fullxfull|[6-9][0-9]{2}x|[1-9][0-9]{3,}x)",
+            full, flags=re.IGNORECASE))
+        complete = bool(thumb and full and (thumb != full or full_size_alias))
+        picked_sources[listing_key] = picked_sources.get(listing_key, False) or complete
+    complete_count = sum(picked_sources.values())
+    picked_images = {"checked": len(picked_sources), "complete": complete_count,
+                     "missing": len(picked_sources) - complete_count}
     later_count = int(db.scalar(select(unique).where(*later)) or 0)
     search_count = int(db.scalar(select(unique).where(
         *eligible, _valid_source_badge("search"))) or 0)
@@ -640,6 +660,7 @@ def summary(
         **fresh, "sessions": count(db, SessionRow, tenant),
         "keywords": count(db, Keyword, tenant),
         "listings": listings_count, "picked": picked_count,
+        "picked_images": picked_images,
         "later": later_count, "later_seeds": count(db, LaterSeed, tenant),
         "search": search_count, "shop": shop_count,
         "trademarks": count(db, Trademark, tenant),

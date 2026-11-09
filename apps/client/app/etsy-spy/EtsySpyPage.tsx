@@ -880,6 +880,10 @@ export function EtsySpyPage() {
             </span>
             <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
             <small>{card.hint}</small>
+            {card.title === "Picked" && summary?.picked_images &&
+              <span className="etsy-picked-image-status" aria-label="Picked listing image URL completeness">
+                URL ảnh: {summary.picked_images.missing.toLocaleString("vi-VN")} thiếu · {summary.picked_images.complete.toLocaleString("vi-VN")} đủ
+              </span>}
           </button>)}
         </section>
         {showProductFacets && <>

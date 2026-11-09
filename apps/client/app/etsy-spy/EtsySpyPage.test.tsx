@@ -176,7 +176,9 @@ function installFetch() {
       });
     }
     if (url.includes("/summary")) return json({
-      ...summary, picked: pickedKeys.size, later: [...laterSeedKeys].filter(id => !pickedKeys.has(id)).length,
+      ...summary, picked: pickedKeys.size, picked_images: {
+        checked: pickedKeys.size, complete: 0, missing: pickedKeys.size,
+      }, later: [...laterSeedKeys].filter(id => !pickedKeys.has(id)).length,
       listings: summary.listings - pickedKeys.size - [...laterSeedKeys].filter(id => !pickedKeys.has(id)).length,
     });
     if (url.includes("/sessions")) return json({ items: [
@@ -731,6 +733,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     await start();
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards).toHaveLength(6);
+    expect(cards[1].querySelector(".etsy-picked-image-status")?.textContent)
+      .toContain("URL ảnh: 0 thiếu · 0 đủ");
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
       "Eligible listings", "Picked", "Later", "Blacklist", "Win Keyword", "Keyword nodes",
     ]);
