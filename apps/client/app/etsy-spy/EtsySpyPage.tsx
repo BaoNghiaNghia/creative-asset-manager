@@ -47,6 +47,15 @@ type Options = {
   sessionId: string; source: string; badge: string; tm: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
+export function titleKeywordFallback(title: string | null | undefined): string {
+  const first = String(title || "").normalize("NFKC").split(/[,|;]/, 1)[0]
+    .replace(/[\u0000-\u001f\u007f]/g, " ").trim().replace(/\s+/g, " ")
+    .replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").trim();
+  const bounded = first.length <= 150 ? first : first.slice(0, 150).replace(/\s+\S*$/, "").trim();
+  return bounded.length >= 3 && /\p{L}/u.test(bounded) &&
+    !/^(none|null|undefined|n\/?a)$/i.test(bounded) ? bounded : "";
+}
+
 export function vietnamCalendarDay(moment: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit",
@@ -252,9 +261,13 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
   };
   const sms = Array.isArray(item.keywordSms) ? item.keywordSms :
     (Array.isArray(item.metadata?.keywordSms) ? item.metadata.keywordSms : []);
-  const smsText = sms.map(value => typeof value === "string" ? value.trim() : "")
-    .filter(Boolean).join(", ");
-  const smsStatus = item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
+  const sourceSms = sms.map(value => typeof value === "string" ? value.trim() : "")
+    .filter(Boolean);
+  const fallback = sourceSms.length ? "" : titleKeywordFallback(item.pageTitle);
+  const smsText = (sourceSms.length ? sourceSms : fallback ? [fallback] : []).join(", ");
+  const smsStatus = sourceSms.length
+    ? item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "ready"
+    : fallback ? "title_fallback" : item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
   const tmMatches = safeMarks(item.tmMatches);
   const hasMarks = tmMatches.length > 0;
   const deadMatches = tmMatches.filter(mark => mark.liveStatus?.toUpperCase() === "DEAD").length;
@@ -300,7 +313,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
       </div>
     </td>
     <td className="etsy-sms-cell">
-      {smsText ? <div className="etsy-sms-preview" title={smsText}>
+      {smsText ? <div className="etsy-sms-preview"
+        title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
         <span className="etsy-sms-list">{smsText}</span>
       </div> : <span className="etsy-muted"
         title={smsStatus === "not_checked" ? "Chưa kiểm tra gợi ý Etsy" :
