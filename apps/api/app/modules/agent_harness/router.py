@@ -32,6 +32,7 @@ from .repository import AgentHarnessRepository, _event_key
 from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
 from .trial_schema import HoldoutStudyRegistration, HoldoutKeywordReservation
 from .trial_registration import HoldoutStudyConflict, register_study, reserve_keywords
+from .trial_evidence_status import read_stage1_trial_evidence
 from .stage1_feedback import AGENT_ID as FEEDBACK_AGENT_ID, SOURCE_VERSION, snapshots
 
 
@@ -183,6 +184,24 @@ def read_stage1_trial_registration(
         "independent_qa_verified": False,
         "automatic_promotion_enabled": False,
     }
+
+
+@router.get("/{tenant_id}/trials/stage1/{study_id}/evidence")
+def read_trial_stage1_evidence_status(
+    tenant_id: str,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read receipt/QA counts, not improvement claims, without dispatching AI."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    try:
+        return read_stage1_trial_evidence(
+            db, tenant_id=tenant_id, study_id=study_id,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Study not found") from None
 
 
 @router.get("/{tenant_id}/overview")

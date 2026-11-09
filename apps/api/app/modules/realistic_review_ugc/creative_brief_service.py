@@ -20,7 +20,7 @@ from app.core.config import Settings, get_settings
 from app.domain.processing.handlers import DeferredJobOutcome, JobHandlerContext, JobHandlerResult
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.processing.model import ProcessingJobModel
-from app.modules.realistic_review_ugc.creative_brief import CodexBriefUnavailable, CreativeBrief, generate_brief
+from app.modules.realistic_review_ugc.creative_brief import CodexBriefUnavailable, CreativeBrief, build_prompt, generate_brief
 from app.modules.realistic_review_ugc.creative_engine_v3 import SCHEMA_VERSION as V3_SCHEMA, build_v3_preview
 from app.modules.realistic_review_ugc.model import (
     RrugcKeywordCreativeBriefModel, RrugcKeywordVolumeModel,
@@ -531,25 +531,48 @@ class CreativeBriefGenerateHandler:
                 "creative_brief_generation_failed", "Codex text generation or schema validation failed."
             )
 
-        with context.dependencies.session_factory() as session:
-            row = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
-                RrugcKeywordCreativeBriefModel.id == context.job.entity_id,
-                RrugcKeywordCreativeBriefModel.tenant_id == context.job.tenant_id,
-            ).with_for_update())
-            keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
-                RrugcKeywordVolumeModel.id == row.keyword_id,
-                RrugcKeywordVolumeModel.tenant_id == row.tenant_id,
-                RrugcKeywordVolumeModel.picked.is_(True),
-            )) if row else None
-            if (row is None or keyword is None or row.processing_job_id != context.job.id
-                    or row.keyword_sha256 != _digest(keyword.keyword)
-                    or row.prompt_version != PROMPT_VERSION):
-                return JobHandlerResult.non_retryable(
-                    "creative_brief_source_changed", "Keyword changed during generation."
-                )
-            row.brief_json = brief.model_dump(mode="json")
-            row.status = "completed"
-            row.last_error_code = None
-            row.completed_at = _utcnow()
-            session.commit()
+        from app.modules.agent_harness.trial_exposure import (
+            TrialExposureConflict, control_capture_enabled, record_verified_control_exposure,
+        )
+        try:
+            with context.dependencies.session_factory() as session:
+                row = session.scalar(select(RrugcKeywordCreativeBriefModel).where(
+                    RrugcKeywordCreativeBriefModel.id == context.job.entity_id,
+                    RrugcKeywordCreativeBriefModel.tenant_id == context.job.tenant_id,
+                ).with_for_update())
+                keyword = session.scalar(select(RrugcKeywordVolumeModel).where(
+                    RrugcKeywordVolumeModel.id == row.keyword_id,
+                    RrugcKeywordVolumeModel.tenant_id == row.tenant_id,
+                    RrugcKeywordVolumeModel.picked.is_(True),
+                )) if row else None
+                if (row is None or keyword is None or row.processing_job_id != context.job.id
+                        or row.keyword_sha256 != _digest(keyword.keyword)
+                        or row.prompt_version != PROMPT_VERSION):
+                    return JobHandlerResult.non_retryable(
+                        "creative_brief_source_changed", "Keyword changed during generation."
+                    )
+                row.brief_json = brief.model_dump(mode="json")
+                row.status = "completed"
+                row.last_error_code = None
+                row.completed_at = _utcnow()
+                if control_capture_enabled(self.settings):
+                    # Only after the exact baseline Codex invocation succeeded:
+                    # recompute the SHA-256 of the prompt arguments actually
+                    # passed to generate_brief. No raw prompt is persisted.
+                    applied_digest = hashlib.sha256(build_prompt(
+                        phrase, learning_context=feedback_context,
+                    ).encode("utf-8")).hexdigest()
+                    record_verified_control_exposure(
+                        session, job=context.job, keyword_id=keyword.id,
+                        policy_version=PROMPT_VERSION,
+                        applied_prompt_sha256=applied_digest,
+                        settings=self.settings,
+                    )
+                session.commit()
+        except TrialExposureConflict:
+            self._set_status(context, "failed", "creative_brief_trial_exposure_conflict")
+            return JobHandlerResult.non_retryable(
+                "creative_brief_trial_exposure_conflict",
+                "Trial provenance changed; contact an administrator.",
+            )
         return JobHandlerResult.completed()

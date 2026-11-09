@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-09 — Agent Harness Phase 3C.3B2A baseline/control exposure receipt
+
+- [x] Add default-OFF `AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED`, separate from existing 3C.3A shadow admission.
+- [x] Add internal post-success Creative Brief worker receipt with DB-authoritative tenant/job/study/keyword/lease validation, deterministic frozen control arm and exact prompt digest, same-transaction audit and immutable/idempotent insert.
+- [x] Keep challenger reservations unexposed; no candidate policy activation, new AI requests, feedback-pick reuse or automatic promotion.
+- [x] Add tenant-scoped read-only `/trials/stage1/{study_id}/evidence` audit, showing counts and blocked evaluation (not QA quality claims).
+- [ ] Final regression/security tests, deploy `main` backend `--no-migrate`, health and rollback checks; no production flag changes.
+- [ ] Phase 3C.3B2B: pre-reviewed challenger-specific treatment on actual Stage 1 worker and genuine independent blinded QA on saved design outputs, with verified cost telemetry.
+
+
 ## 2026-11-09 — Phase 3C.3B1 PostgreSQL startup incident follow-up
 
 - [x] Fix PostgreSQL-normalized 0205 CHECK introspection in `6db036aa6`, preserve structural fail-closed enforcement and add dialect-rewrite regression tests.

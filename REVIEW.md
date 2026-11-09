@@ -1,3 +1,10 @@
+## 2026-11-09 — Agent Harness Phase 3C.3B2A baseline receipt and evidence status
+
+- Implements opt-in **CONTROL-ONLY** worker capture after successful Creative Brief Codex execution. Validates tenant, job lease, frozen arm, keyword/source/prompt version and immutable digest before writing `cam_agent_trial_exposures` in the same transaction as completed brief. Raw prompts are not saved; no retroactive exposure, QA or candidate promotion.
+- New gate `AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED` defaults OFF; requires all pre-existing shadow admission gates. Challenger assignments continue using unmodified baseline until distinct policy routing is separately implemented and therefore stay `reserved`; no false comparison.
+- Adds read-only authorized tenant-scoped evidence count endpoint; always reports A/B evaluation blocked, independent QA unverified and autopromotion disabled.
+- Architecture and operations contract: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE3C3B2A_CONTROL_RECEIPT.md`. No migration, dependencies, secrets, UI, external AI or settings writes.
+
 ## 2026-11-09 — Agent Harness 0205 production startup recovery and rollback hardening
 
 - 0205 schema was applied but API startup rejected PostgreSQL-normalized CHECK SQL, despite the same schema passing SQLite migration tests; first migration deploy failed its API health gate.

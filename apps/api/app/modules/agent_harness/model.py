@@ -139,7 +139,8 @@ class AgentHoldoutAssignmentModel(Base):
 class AgentTrialExposureModel(Base):
     """Immutable claim of an actual treatment applied by a verified worker.
 
-    Phase 3C.3B1 creates the ledger ONLY; no current worker may insert it.
+    Phase 3C.3B2A allows opt-in post-success BASELINE control receipts
+    from the trusted Creative Brief worker only; challenger stays disabled.
     An assignment/shadow admission alone never constitutes exposure.
     """
 

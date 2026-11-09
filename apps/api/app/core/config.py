@@ -75,6 +75,7 @@ FEATURE_FLAG_NAMES = (
     "AGENT_HARNESS_MANAGEMENT_API_ENABLED",
     "AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED",
     "AGENT_HARNESS_TRIAL_ADMISSION_ENABLED",
+    "AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED",
     "AGENT_HARNESS_FEEDBACK_SYNC_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED",
@@ -135,6 +136,9 @@ class Settings(BaseSettings):
     AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED: bool = False
     # Shadow-only pre-generation admission; never activates treatment/exposure.
     AGENT_HARNESS_TRIAL_ADMISSION_ENABLED: bool = False
+    # Only a trusted successful Stage 1 worker may attest baseline/control.
+    # OFF by default; challenger routing and promotion remain forbidden.
+    AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED: bool = False
     # Opt-in admin-only candidate evidence sync; never promotes or runs agents.
     AGENT_HARNESS_FEEDBACK_SYNC_ENABLED: bool = False
     # Independent, opt-in Stage 1 vote outbox capture (same DB transaction).
