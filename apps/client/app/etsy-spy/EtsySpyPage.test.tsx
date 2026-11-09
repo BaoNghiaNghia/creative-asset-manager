@@ -130,6 +130,23 @@ function installFetch() {
       return json({phrases: blockedTerms});
     }
     if (url.endsWith("/blacklist")) return json({phrases: blockedTerms});
+    if (url.endsWith("/listings/bulk") && init?.method === "POST") {
+      const {action, listingKeys} = JSON.parse(String(init.body)) as {
+        action: "pick" | "later"; listingKeys: string[];
+      };
+      const appliedListingKeys: string[] = [];
+      const skipped: Array<{listingKey: string; reason: string}> = [];
+      for (const id of listingKeys) {
+        if (action === "pick" && !pickedKeys.has(id) && !laterSeedKeys.has(id)) {
+          pickedKeys.add(id); appliedListingKeys.push(id);
+        } else if (action === "later" && !pickedKeys.has(id) && !laterSeedKeys.has(id)) {
+          laterSeedKeys.add(id); appliedListingKeys.push(id);
+        } else skipped.push({listingKey: id, reason: "already_decided"});
+      }
+      return json({ok: true, action, requested: listingKeys.length,
+        applied: appliedListingKeys.length, appliedListingKeys,
+        skippedCount: skipped.length, skipped});
+    }
     if (url.includes("/listings/") && url.endsWith("/later") && init?.method === "PUT") {
       const id = url.split("/listings/")[1]?.split("/")[0] || "";
       const body = JSON.parse(String(init.body)) as { later: boolean };
@@ -405,13 +422,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
-    const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th") || [])
+    const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th:not(.etsy-select-header)") || [])
       .map(x => (x.textContent || "").trim().replace(/\s*[↑↓]$/, ""));
     expect(headings).toEqual([
       "Product / Etsy", "Keyword SMS", "Etsy Badge + TM",
       "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
     ]);
-    expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(8);
+    expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(9);
+    expect(container?.querySelector(".etsy-select-header input[type='checkbox']")).toBeTruthy();
     expect(container?.querySelector(".etsy-data-table.is-products .etsy-keyword-cell")).toBeNull();
     expect(headings).not.toContain("Keyword");
     expect(headings).not.toContain("Source");
@@ -437,7 +455,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("renders Carts 20+ without changing numeric values or other rows", async () => {
     await start();
-    const cells = Array.from(container?.querySelectorAll(".etsy-product-row td:nth-child(6)") || []);
+    const cells = Array.from(container?.querySelectorAll(".etsy-product-row td:nth-child(7)") || []);
     expect(cells.map(cell => cell.textContent)).toEqual(["20+", "25", "—"]);
     expect(listing.inCarts).toBe(20);
     expect(popularNoMatch.inCarts).toBe(25);
@@ -480,7 +498,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
-    const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(6)");
+    const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
     expect(cartsCells).toHaveLength(3);
     expect(Array.from(cartsCells || [], cell => cell.textContent)).toEqual(["20+", "25", "—"]);
     const today = vietnamCalendarDay();
@@ -1098,6 +1116,75 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 55));
     });
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+  });
+
+  it("selects multiple Eligible listings and submits one bulk Pick request", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const all = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Chọn tất cả sản phẩm trên trang hiện tại"]');
+    expect(all).toBeTruthy();
+    expect(all?.checked).toBe(false);
+    const rows = container?.querySelectorAll(".etsy-product-row");
+    expect(rows).toHaveLength(3);
+    const first = rows?.[0].querySelector<HTMLInputElement>(".etsy-row-checkbox");
+    expect(first?.getAttribute("aria-label")).toContain("Rudolph Shirt");
+    await act(async () => { first?.click(); });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("1 đã chọn");
+    expect(all?.indeterminate).toBe(true);
+    expect(rows?.[0].classList.contains("is-selected")).toBe(true);
+    await act(async () => { all?.click(); });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("3 đã chọn");
+    expect(all?.checked).toBe(true);
+    expect(all?.indeterminate).toBe(false);
+    const pick = container?.querySelector<HTMLButtonElement>(".etsy-bulk-actions .etsy-primary");
+    expect(pick?.textContent).toContain("Pick (3)");
+    await act(async () => {pick?.click(); await new Promise(resolve => setTimeout(resolve, 100));});
+    expect(pickedKeys.size).toBe(3);
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(0);
+    expect(observed.filter(x => x.includes("/listings/bulk"))).toHaveLength(1);
+    expect(container?.querySelector(".etsy-bulk-feedback")?.textContent).toContain("3/3");
+    expect(container?.querySelector(".etsy-stat-picked strong")?.textContent).toBe("3");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 75));
+    });
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    // Picked is not an Eligible multi-select surface; no accidental bulk re-Pick.
+    expect(container?.querySelector(".etsy-bulk-actions")).toBeNull();
+  });
+
+  it("bulk Later saves selected seeds, clears selection and respects view changes", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start();
+    const checkboxes = container?.querySelectorAll<HTMLInputElement>(".etsy-row-checkbox");
+    await act(async () => { checkboxes?.[1].click(); checkboxes?.[2].click(); });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("2 đã chọn");
+    const later = container?.querySelector<HTMLButtonElement>(".etsy-bulk-actions .etsy-bulk-later");
+    expect(later?.textContent).toContain("Later (2)");
+    await act(async () => { later?.click(); await new Promise(resolve => setTimeout(resolve, 85)); });
+    expect(laterSeedKeys.size).toBe(2);
+    expect(pickedKeys.size).toBe(0);
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
+    expect(container?.querySelector(".etsy-bulk-feedback")?.textContent).toContain("2/2");
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+    const only = container?.querySelector<HTMLInputElement>(".etsy-row-checkbox");
+    await act(async () => { only?.click(); });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("1 đã chọn");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-later")?.click();
+      await new Promise(resolve => setTimeout(resolve, 80));
+    });
+    expect(container?.querySelector(".etsy-bulk-actions")).toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 80));
+    });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {

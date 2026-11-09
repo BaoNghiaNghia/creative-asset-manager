@@ -489,12 +489,14 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     picked = client.put(base + "/1234567891/pick", json={"picked": True})
     assert picked.status_code == 200, picked.text
     assert client.get(base, params={"observed_day": today_key}).json()["total"] == 1
-    assert client.get(base, params={
-        "observed_day": today_key, "pick_state": "picked"}).json()["total"] == 1
+    # Freeze the Pick action within this 06:00 business day. Running the test
+    # between midnight and 06:00 local time otherwise assigns it to yesterday.
     pick_record = db.get(EtsySpyPicked, ("boostgame", "1234567891"))
     assert pick_record is not None
     pick_record.picked_at = today_start
     db.commit()
+    assert client.get(base, params={
+        "observed_day": today_key, "pick_state": "picked"}).json()["total"] == 1
     updated = client.get(base + "/observed-days").json()["items"]
     assert updated[0] == {"day": today_key, "count": 1, "pickedCount": 1}
     assert updated[1] == {"day": yesterday, "count": 1, "pickedCount": 0}
@@ -1799,3 +1801,75 @@ def test_offline_hashed_image_agent_pairing_and_read_only_probe(scenario, monkey
         )
     with raises(ValueError, match="duplicate_device_credential"):
         register_hashed_image_agent(db, agent_id=str(uuid4()), token_sha256=digest)
+
+def test_bulk_pick_later_selected_listings_idempotent_and_guarded(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    source = batch("bulk-listings")
+    source["records"]["listings"] = [
+        {**product(title="Mountain Hiking Sweatshirt"), "listingKey": "1234580001"},
+        {**product(title="Botanical Flowers Shirt"), "listingKey": "1234580002"},
+        {**product(title="Halloween Witch Shirt"), "listingKey": "1234580003"},
+        {**product(title="Gecko Lizards Sweatshirt"), "listingKey": "1234580004"},
+    ]
+    for item in source["records"]["listings"]:
+        item["url"] = "https://www.etsy.com/listing/" + item["listingKey"]
+    assert sync(client, agent, headers, source).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings/bulk"
+
+    # Validate the entire list before making a single mutation.
+    for body in [
+        {"action": "pick", "listingKeys": []},
+        {"action": "pick", "listingKeys": ["1234580001", "1234580001"]},
+        {"action": "pick", "listingKeys": ["1234580001", "bad-id"]},
+        {"action": "later", "listingKeys": ["1234580001"] * 201},
+        {"action": "delete", "listingKeys": ["1234580001"]},
+    ]:
+        assert client.post(endpoint, json=body).status_code == 422
+    assert db.query(EtsySpyPicked).count() == 0
+    assert db.query(EtsySpyLaterSeed).count() == 0
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.post(endpoint, json={
+        "action": "pick", "listingKeys": ["1234580001"],
+    }).status_code == 403
+    principal.effective_permissions = frozenset({"etsy_spy.read", "etsy_spy.manage"})
+
+    picked = client.post(endpoint, json={
+        "action": "pick", "listingKeys": ["1234580001", "1234580003", "1234580004"],
+    })
+    assert picked.status_code == 200, picked.text
+    result = picked.json()
+    assert result["applied"] == 2
+    assert result["appliedListingKeys"] == ["1234580001", "1234580004"]
+    assert result["skipped"] == [{"listingKey": "1234580003",
+                                  "reason": "automatic_later"}]
+    assert db.query(EtsySpyPicked).count() == 2
+    feed = client.get(f"/api/v1/etsy-spy/agents/{agent.id}/picked-listings",
+                      headers=headers).json()
+    assert feed["complete"] and feed["total"] == 2
+    assert {item["listingId"] for item in feed["items"]} == {
+        "1234580001", "1234580004"}
+    again = client.post(endpoint, json={"action": "pick", "listingKeys": ["1234580001"]})
+    assert again.status_code == 200
+    assert again.json()["applied"] == 0
+    assert again.json()["skipped"][0]["reason"] == "already_picked"
+    assert db.query(EtsySpyPicked).count() == 2
+
+    later = client.post(endpoint, json={
+        "action": "later", "listingKeys": ["1234580001", "1234580002", "1234580003"],
+    })
+    assert later.status_code == 200, later.text
+    result = later.json()
+    assert result["applied"] == 1
+    assert result["appliedListingKeys"] == ["1234580002"]
+    assert {item["reason"] for item in result["skipped"]} == {
+        "must_unpick_first", "automatic_later"}
+    assert db.query(EtsySpyLaterSeed).count() == 1
+    assert client.post(endpoint, json={
+        "action": "later", "listingKeys": ["1234580002"],
+    }).json()["skipped"][0]["reason"] == "already_later"
+    principal.active_tenant_id = "another-tenant"
+    assert client.post(endpoint, json={
+        "action": "pick", "listingKeys": ["1234580002"],
+    }).json()["skipped"][0]["reason"] == "not_eligible"
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0

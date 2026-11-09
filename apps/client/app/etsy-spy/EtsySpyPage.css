@@ -2006,3 +2006,92 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
     align-self: flex-start;
   }
 }
+
+/* Etsy Spy multi-select: independent narrow checkbox column and quiet action bar. */
+.etsy-bulk-bar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  min-height:47px;padding:9px 13px;margin:4px 0 9px;
+  background:#f8fafd;border:1px solid #e4eaf3;border-radius:10px;
+}
+.etsy-bulk-bar.has-selection{background:#f0f5ff;border-color:#cbdcf8}
+.etsy-bulk-select-all{display:none;align-items:center;gap:7px;color:#3b5271;font-weight:720}
+.etsy-bulk-indicator{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+.etsy-bulk-indicator strong{font-size:11px;color:#294b87;font-weight:800}
+.etsy-bulk-indicator span{color:#7d8da3;font-size:10px}
+.etsy-bulk-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+.etsy-bulk-actions .etsy-btn{min-height:31px;padding:6px 12px;font-size:11px;font-weight:780}
+.etsy-bulk-actions .etsy-btn span{font-size:15px;line-height:10px}
+.etsy-bulk-actions .etsy-bulk-later{color:#3d5473;border-color:#c9d5e7;background:#fff}
+.etsy-bulk-actions .etsy-bulk-later:hover{background:#eef3fb}
+.etsy-bulk-clear{min-height:31px;padding:5px 9px;border:0;background:transparent;color:#667b98;font-weight:700}
+.etsy-bulk-clear:hover{color:#184b99;text-decoration:underline}
+.etsy-bulk-feedback{margin:4px 0 10px;padding:9px 12px;border:1px solid #d5e8df;border-radius:9px;background:#f3faf6;color:#306c4c;font-size:11px}
+.etsy-row-checkbox,.etsy-select-header input,.etsy-bulk-select-all input{
+  width:17px;height:17px;margin:0;accent-color:#2e63bf;cursor:pointer;
+}
+.etsy-row-checkbox:disabled,.etsy-select-header input:disabled{cursor:not-allowed}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable{min-width:1065px}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:first-child,
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:first-child{
+  width:42px;min-width:42px;max-width:42px;padding:8px 9px;text-align:center;
+}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(2),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(2){min-width:235px;width:25%}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(3),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(3){min-width:145px;width:18%}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(4),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(4){min-width:160px;width:18%}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(5),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(6),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(7),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(5),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(6),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(7){width:7%;min-width:77px}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(8),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(8){min-width:115px}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable th:nth-child(9),
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable td:nth-child(9){min-width:145px}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable tr.is-selected td{
+  background:#f0f5fe;
+}
+.etsy-table-wrap .etsy-data-table.is-products.is-selectable tbody tr.is-selected:hover td{
+  background:#eaf2ff;
+}
+@media(max-width:680px){
+  .etsy-bulk-bar{gap:8px;padding:10px;margin-bottom:11px}
+  .etsy-bulk-select-all{display:inline-flex;min-height:32px;font-size:11px}
+  .etsy-bulk-indicator{flex:1 1 145px}
+  .etsy-bulk-indicator span{font-size:9px}
+  .etsy-bulk-actions{flex:1 1 100%;gap:6px;margin-left:0}
+  .etsy-bulk-actions .etsy-btn{flex:1;min-height:38px;white-space:nowrap}
+  .etsy-bulk-clear{min-height:38px}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row{position:relative}
+  .etsy-table-wrap .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(1){
+    position:absolute;top:8px;right:8px;z-index:1;width:36px;min-width:36px;max-width:36px;
+    padding:9px;text-align:center;
+  }
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(2){
+    grid-column:1/-1;padding-right:36px;
+  }
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(3),
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4){grid-column:1/-1}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(5),
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(6),
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(7){
+    grid-column:auto;padding:8px;border:1px solid #edf1f6;
+    border-radius:8px;background:#f8fafc!important;font-size:15px;font-weight:800;
+  }
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(8){
+    grid-column:1/2;align-self:center;
+  }
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(9){
+    grid-column:2/-1;justify-self:end;
+  }
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(2)::before{content:none}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(3)::before{content:"Keyword SMS"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(5)::before{content:"Bought / 24h"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(6)::before{content:"Views / 24h"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(7)::before{content:"Carts"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(8)::before{content:"Observed"}
+}

@@ -1140,6 +1140,86 @@ async def set_listing_later(
     return {"listingKey": listing_key, "later": payload["later"]}
 
 
+@router.post("/listings/bulk")
+async def bulk_listing_decision(
+    request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """One guarded transaction for the currently selected Eligible rows.
+
+    The Later operation adds topic seeds and rebuilds related matches only once.
+    Pick continues to create its existing external-only extraction receipt.
+    Windows SMS Ideas sees new picks through the complete Picked feed.
+    """
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "JSON object required")
+    action = payload.get("action")
+    ids = payload.get("listingKeys")
+    if action not in {"pick", "later"}:
+        raise HTTPException(422, "action must be pick or later")
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 200:
+        raise HTTPException(422, "Select 1-200 listing IDs from the visible page")
+    if any(not isinstance(item, str) or not re.fullmatch(r"[0-9]{5,20}", item)
+           for item in ids) or len(set(ids)) != len(ids):
+        raise HTTPException(422, "Invalid or duplicate Etsy listing ID")
+    tenant = principal.active_tenant_id
+    qualified = db.scalars(select(Listing).where(
+        Listing.tenant_id == tenant, Listing.listing_key.in_(ids),
+        Listing.is_current.is_(True), ~Listing.title.ilike("%custom%"),
+        _blacklist_condition(tenant), _qualified_listing_condition(),
+    ).order_by(desc(Listing.observed_at), desc(Listing.updated_at))).all()
+    sources = {}
+    for source in qualified:
+        sources.setdefault(source.listing_key, source)
+    blocked = set(db.scalars(select(Listing.listing_key).where(
+        Listing.tenant_id == tenant, Listing.listing_key.in_(ids),
+        _auto_later_condition(tenant),
+    )).all())
+    picked = {row.listing_key: row for row in db.scalars(select(Picked).where(
+        Picked.tenant_id == tenant, Picked.listing_key.in_(ids))).all()}
+    seeds = set(db.scalars(select(LaterSeed.listing_key).where(
+        LaterSeed.tenant_id == tenant, LaterSeed.listing_key.in_(ids))).all())
+    remaining_seeds = max(0, 500 - count(db, LaterSeed, tenant)) if action == "later" else 0
+    applied, skipped = [], []
+    for listing_id in ids:
+        source = sources.get(listing_id)
+        reason = (
+            "not_eligible" if source is None else
+            "automatic_later" if listing_id in blocked else
+            "already_picked" if action == "pick" and listing_id in picked else
+            "must_unpick_first" if action == "later" and listing_id in picked else
+            "already_later" if action == "later" and listing_id in seeds else
+            "later_limit_reached" if action == "later" and remaining_seeds <= 0 else None
+        )
+        if reason:
+            skipped.append({"listingKey": listing_id, "reason": reason})
+            continue
+        if action == "pick":
+            decision = Picked(tenant_id=tenant, listing_key=listing_id, picked_at=utcnow())
+            db.add(decision)
+            create_extraction_on_pick(db, tenant, source, decision.picked_at)
+        else:
+            db.add(LaterSeed(
+                tenant_id=tenant, listing_key=listing_id,
+                title=source.title, analysis_json=seed_analysis(source.title),
+                created_at=utcnow(),
+            ))
+            remaining_seeds -= 1
+        applied.append(listing_id)
+    if action == "later" and applied:
+        db.flush()
+        refresh_later_matches(db, tenant)
+    db.commit()
+    return {"ok": True, "action": action, "requested": len(ids),
+            "applied": len(applied), "appliedListingKeys": applied,
+            "skippedCount": len(skipped), "skipped": skipped}
+
+
 @router.get("/keywords")
 def keywords(
     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),

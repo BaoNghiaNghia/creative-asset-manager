@@ -222,9 +222,10 @@ function ProductThumbnail({ item }: { item: Listing }) {
   </a>;
 }
 
-function ProductRow({ item, canPick, busy, onPick, onLater }: {
+function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected, onSelect }: {
   item: Listing; canPick: boolean; busy: boolean;
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
+  selectable: boolean; selected: boolean; onSelect: (listingKey: string, checked: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imagePreview, setImagePreview] = useState<{
@@ -275,10 +276,16 @@ function ProductRow({ item, canPick, busy, onPick, onLater }: {
     item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
   const tmLabel = tmDescription(item.tm, deadMatches);
   return <>
-    <tr className="etsy-product-row"
+    <tr className={"etsy-product-row" + (selected ? " is-selected" : "")}
       onPointerEnter={showImagePreview}
       onPointerLeave={() => setImagePreview(null)}
       onPointerCancel={() => setImagePreview(null)}>
+    {selectable && <td className="etsy-select-cell">
+      <input type="checkbox" className="etsy-row-checkbox"
+        aria-label={"Chọn sản phẩm " + item.pageTitle}
+        checked={selected} disabled={!canPick || busy}
+        onChange={event => onSelect(item.listingKey, event.target.checked)} />
+    </td>}
     <td className="etsy-title">
       <div className="etsy-product-identity">
         <ProductThumbnail item={item} />
@@ -457,6 +464,10 @@ export function EtsySpyPage() {
   const [extractionBackfillMessage, setExtractionBackfillMessage] = useState("");
   const [laterBusyKey, setLaterBusyKey] = useState<string | null>(null);
   const [laterError, setLaterError] = useState("");
+  const [selectedListings, setSelectedListings] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkError, setBulkError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [extraction, setExtraction] = useState<ExtractionOverview | null>(null);
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
@@ -494,6 +505,29 @@ export function EtsySpyPage() {
     "?" + apiQuery(options).toString() + "#" + refresh;
   const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
   const loading = fetching || tableResult?.requestKey !== requestKey;
+  const selectable = options.tab === "products" && options.pickState === "eligible" &&
+    !options.blacklistView && !options.winKeywordsView;
+  const pageListingKeys = selectable && rows ? Array.from(new Set(
+    (rows.items as Listing[]).map(item => item.listingKey))) : [];
+  const selectedOnPage = pageListingKeys.filter(key => selectedListings.has(key));
+  const allSelectedOnPage = pageListingKeys.length > 0 &&
+    selectedOnPage.length === pageListingKeys.length;
+  const updateSelection = (listingKey: string, checked: boolean) => {
+    setSelectedListings(current => {
+      const next = new Set(current);
+      if (checked) next.add(listingKey); else next.delete(listingKey);
+      return next;
+    });
+    setBulkError(""); setBulkMessage("");
+  };
+  const updatePageSelection = (checked: boolean) => {
+    setSelectedListings(checked ? new Set(pageListingKeys) : new Set());
+    setBulkError(""); setBulkMessage("");
+  };
+  useEffect(() => {
+    // Selection is deliberately page-scoped. Never apply an old tab/filter selection.
+    setSelectedListings(new Set());
+  }, [requestKey]);
   const update = useCallback((changes: Partial<Options>) => {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
@@ -707,7 +741,7 @@ export function EtsySpyPage() {
     }
   };
   const togglePicked = async (item: Listing) => {
-    if (!canManage || pickBusyKey !== null) return;
+    if (!canManage || pickBusyKey !== null || bulkBusy) return;
     setPickBusyKey(item.listingKey);
     setPickError("");
     try {
@@ -726,7 +760,7 @@ export function EtsySpyPage() {
     }
   };
   const toggleLater = async (item: Listing) => {
-    if (!canManage || laterBusyKey !== null || pickBusyKey !== null || item.picked) return;
+    if (!canManage || laterBusyKey !== null || pickBusyKey !== null || bulkBusy || item.picked) return;
     setLaterBusyKey(item.listingKey);
     setLaterError("");
     try {
@@ -740,6 +774,29 @@ export function EtsySpyPage() {
       setLaterError(e instanceof Error ? e.message : "Cannot update Later");
     } finally {
       setLaterBusyKey(null);
+    }
+  };
+  const applyBulk = async (action: "pick" | "later") => {
+    const ids = pageListingKeys.filter(key => selectedListings.has(key));
+    if (!selectable || !canManage || bulkBusy || pickBusyKey || laterBusyKey || !ids.length) return;
+    setBulkBusy(true); setBulkError(""); setBulkMessage("");
+    try {
+      const result = await spyFetch<{
+        requested: number; applied: number; skippedCount: number;
+        skipped: Array<{listingKey: string; reason: string}>;
+      }>("/listings/bulk", {
+        method: "POST", body: JSON.stringify({action, listingKeys: ids}),
+      });
+      const label = action === "pick" ? "Picked" : "Later";
+      setBulkMessage("Đã chuyển " + result.applied + "/" + result.requested +
+        " sản phẩm sang " + label + (result.skippedCount
+          ? " · Bỏ qua " + result.skippedCount + " không đủ điều kiện." : "."));
+      setSelectedListings(new Set());
+      setRefresh(previous => previous + 1);
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : "Cannot update selected listings");
+    } finally {
+      setBulkBusy(false);
     }
   };
   const columns = useMemo(() => {
@@ -1059,6 +1116,35 @@ export function EtsySpyPage() {
       </section>}
     {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
     {laterError && <div role="alert" className="etsy-error">Cannot update Later: {laterError}</div>}
+    {bulkError && <div role="alert" className="etsy-error">Không thể cập nhật sản phẩm đã chọn: {bulkError}</div>}
+    {bulkMessage && <div role="status" className="etsy-bulk-feedback">{bulkMessage}</div>}
+    {selectable && !loading && pageListingKeys.length > 0 && <section
+      className={"etsy-bulk-bar" + (selectedOnPage.length ? " has-selection" : "")}
+      aria-label="Thao tác hàng loạt cho sản phẩm Etsy">
+      <label className="etsy-bulk-select-all">
+        <input type="checkbox" aria-label="Chọn tất cả sản phẩm trong trang"
+          checked={allSelectedOnPage} disabled={!canManage || bulkBusy}
+          ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
+          onChange={event => updatePageSelection(event.target.checked)} />
+        Chọn trang này
+      </label>
+      <div className="etsy-bulk-indicator" aria-live="polite">
+        <strong>{selectedOnPage.length ? selectedOnPage.length + " đã chọn" : "Chọn sản phẩm"}</strong>
+        <span>trong {pageListingKeys.length} sản phẩm ở trang hiện tại</span>
+      </div>
+      {selectedOnPage.length > 0 && <div className="etsy-bulk-actions">
+        <button type="button" className="etsy-btn etsy-primary" onClick={() => applyBulk("pick")}
+          disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
+          <span aria-hidden="true">✓</span> Pick ({selectedOnPage.length})
+        </button>
+        <button type="button" className="etsy-btn etsy-bulk-later" onClick={() => applyBulk("later")}
+          disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
+          <span aria-hidden="true">◷</span> Later ({selectedOnPage.length})
+        </button>
+        <button type="button" className="etsy-bulk-clear" disabled={bulkBusy}
+          onClick={() => updatePageSelection(false)}>Bỏ chọn</button>
+      </div>}
+    </section>}
     {activeTab === "products" && options.pickState === "later" && !isBlacklistView && !isWinKeywordsView &&
       <p className="etsy-later-help">Later groups similar design themes from your saved examples.
         Automatically matched products include a reason. Remove a seed to update its group,
@@ -1086,7 +1172,13 @@ export function EtsySpyPage() {
                 ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</>}
         </div>
         : <div className="etsy-table-wrap">
-          <table className={"etsy-data-table is-" + activeTab}><thead><tr>
+          <table className={"etsy-data-table is-" + activeTab + (selectable ? " is-selectable" : "")}><thead><tr>
+            {selectable && <th className="etsy-select-header">
+              <input type="checkbox" aria-label="Chọn tất cả sản phẩm trên trang hiện tại"
+                checked={allSelectedOnPage} disabled={!canManage || bulkBusy}
+                ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
+                onChange={event => updatePageSelection(event.target.checked)} />
+            </th>}
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               {col.id === "keywordSms" ? <span className="etsy-static-header" title="Search Match Suggestions">
@@ -1102,7 +1194,9 @@ export function EtsySpyPage() {
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
                 item={item} canPick={canManage}
-                busy={pickBusyKey !== null || laterBusyKey !== null}
+                busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy}
+                selectable={selectable} selected={selectedListings.has(item.listingKey)}
+                onSelect={updateSelection}
                 onPick={togglePicked} onLater={toggleLater} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)
