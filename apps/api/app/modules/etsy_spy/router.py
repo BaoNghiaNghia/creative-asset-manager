@@ -40,7 +40,7 @@ from .extraction import (create_extraction_on_pick, latest_extraction_job, cance
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
-    verified_image_url, IMAGE_AGENT_NAME_PREFIX,
+    verified_image_url, IMAGE_AGENT_NAME_PREFIX, title_keyword_fallback,
 )
 
 router = APIRouter(prefix="/api/v1/etsy-spy", tags=["etsy-spy"])
@@ -638,6 +638,10 @@ def _listing_item(
     auto_later_keyword: str | None = None,
 ) -> dict:
     metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+    sms = metadata.get("keywordSms")
+    sms = [keyword for keyword in sms if isinstance(keyword, str) and keyword.strip()] if isinstance(sms, list) else []
+    fallback = title_keyword_fallback(row.title) if not sms else ""
+    sms_status = metadata.get("keywordSmsStatus") if sms else ("title_fallback" if fallback else (metadata.get("keywordSmsStatus") or "not_checked"))
     return {
         "sessionId": row.source_session_id, "keyword": row.keyword,
         "sourceKind": row.source_kind,
@@ -662,9 +666,9 @@ def _listing_item(
         "searchPosition": row.search_position, "sourceShopUrl": row.source_shop_url,
         "bestseller": row.bestseller, "observedAt": row.observed_at,
         "metadata": row.metadata_json,
-        "keywordSms": metadata.get("keywordSms", []) if isinstance(metadata.get("keywordSms"), list) else [],
-        "keywordSmsQuery": metadata.get("keywordSmsQuery", ""),
-        "keywordSmsStatus": metadata.get("keywordSmsStatus", "not_checked"),
+        "keywordSms": sms or ([fallback] if fallback else []),
+        "keywordSmsQuery": metadata.get("keywordSmsQuery") if sms else (fallback or metadata.get("keywordSmsQuery", "")),
+        "keywordSmsStatus": sms_status,
         "keywordSmsCheckedAt": metadata.get("keywordSmsCheckedAt"),
         "tm": _tm_label(check), "tmStatus": check.status if check else "pending",
         "tmSource": check.source if check else None,
