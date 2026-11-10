@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-10 — Phase 3C.3B2C2A: independently retained QA artwork snapshots
+
+- [x] Add 0207 append-only `cam_agent_trial_artwork_snapshots` schema without a destructive Output History FK; downgrade refuses non-empty data.
+- [x] Add independent default-OFF `AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED` gate, strict manual dry-run/create contract, safe tenant/RBAC and provenance checks, durable reservation + unique idempotency, verified PNG/Drive copy.
+- [x] Keep 0205 QA review table unwritten and A/B evaluation/promotion blocked. A verified snapshot is not a blinded QA verdict or trusted provider cost.
+- [x] Stage an isolated 0206-compatible schema rollback bridge from current production commit before the new migration.
+- [ ] Two-stage production release, PostgreSQL 12/16 migration test and independent smoke of production services. Do not migrate until prior code release accepts 0207.
+- [ ] Phase 3C.3B2C2B: separate snapshot-bound blinded review provenance/permissions and image cost receipts, then measured controlled study.
+
+
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
 
 - [x] Build explicit, tenant-scoped read-only lineage: exposure receipt → completed Creative Brief and ProcessingJob → pinned 1/4/4 image generation job → output-version SHA-256 and source fingerprint. Invalidate stale/regenerated/other-tenant/other-study records rather than infer exposure from shadow.

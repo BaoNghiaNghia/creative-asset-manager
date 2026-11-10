@@ -29,6 +29,24 @@ class HoldoutStudyRegistration(BaseModel):
         return value
 
 
+
+
+
+class TrialArtworkSnapshotCapture(BaseModel):
+    """Operator-authenticated, explicit, single-artifact archive request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    dry_run: bool = Field(default=True, strict=True)
+    reason: str = Field(min_length=10, max_length=200)
+
+    @field_validator("reason")
+    @classmethod
+    def reason_is_safe(cls, value: str) -> str:
+        if value != value.strip() or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("invalid reason")
+        return value
+
+
 class HoldoutKeywordReservation(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 

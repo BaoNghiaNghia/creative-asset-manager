@@ -30,13 +30,16 @@ from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAss
 from .registry import AgentRegistryError
 from .repository import AgentHarnessRepository, _event_key
 from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
-from .trial_schema import HoldoutStudyRegistration, HoldoutKeywordReservation
+from .trial_schema import HoldoutStudyRegistration, HoldoutKeywordReservation, TrialArtworkSnapshotCapture
 from .trial_registration import HoldoutStudyConflict, register_study, reserve_keywords
 from .trial_evidence_status import read_stage1_trial_evidence
 from .trial_artwork_lineage import (
     TrialArtworkLineageError, artwork_lineage, public_lineage_status,
 )
 from .trial_artwork_bytes import verify_stored_artwork_bytes
+from .trial_artwork_snapshot import (
+    TrialArtworkSnapshotError, capture_snapshot, get_snapshot, snapshot_status,
+)
 from .stage1_feedback import AGENT_ID as FEEDBACK_AGENT_ID, SOURCE_VERSION, snapshots
 
 
@@ -272,6 +275,77 @@ async def verify_stage1_artwork_provenance_bytes(
             raise TrialArtworkLineageError("trial_artifact_lineage_changed")
         return result
     except TrialArtworkLineageError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+
+@router.get("/{tenant_id}/trials/stage1/{study_id}/artwork/{output_version_id}/snapshot")
+def read_stage1_artwork_snapshot(
+    tenant_id: str,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    output_version_id: str = Path(min_length=36, max_length=36),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read snapshot registry independently of deletable Output History rows."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    row = get_snapshot(db, tenant_id=tenant_id, study_id=study_id,
+                       output_version_id=output_version_id)
+    return snapshot_status(row)
+
+
+@router.post("/{tenant_id}/trials/stage1/{study_id}/artwork/{output_version_id}/snapshot")
+async def capture_stage1_artwork_snapshot(
+    tenant_id: str,
+    body: TrialArtworkSnapshotCapture,
+    study_id: str = Path(min_length=4, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{3,63}$"),
+    output_version_id: str = Path(min_length=36, max_length=36),
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Reserve/verify a separate PNG copy. NO verdict, promotion or auto-capture."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    settings = get_settings()
+    if not (
+        getattr(settings, "AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED", False)
+        and settings.AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED
+        and settings.AGENT_HARNESS_TRIAL_REGISTRATION_ENABLED
+        and not settings.AI_EMERGENCY_STOP_ENABLED
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        claim = artwork_lineage(
+            db, tenant_id=tenant_id, study_id=study_id,
+            output_version_id=output_version_id,
+        )
+        existing = get_snapshot(db, tenant_id=tenant_id, study_id=study_id,
+                                output_version_id=output_version_id)
+        if body.dry_run:
+            return (
+                {**snapshot_status(existing), "dry_run": True}
+                if existing is not None
+                else {
+                    **snapshot_status(None), "dry_run": True,
+                    "snapshot_status": "ready_for_explicit_capture",
+                    "storage_bytes_verified": False,
+                }
+            )
+        from app.modules.storage.provider_factory import build_managed_storage_provider
+        from app.domain.providers.contracts import StorageProviderError
+        try:
+            result = await capture_snapshot(
+                db, build_managed_storage_provider(settings),
+                claim=claim, actor_id=principal.user_id,
+            )
+        except StorageProviderError:
+            db.rollback()
+            raise HTTPException(
+                status_code=503, detail="Stored artwork temporarily unavailable",
+            ) from None
+        return {**result, "dry_run": False}
+    except (TrialArtworkLineageError, TrialArtworkSnapshotError) as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
 
