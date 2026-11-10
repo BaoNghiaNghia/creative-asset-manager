@@ -37,7 +37,8 @@ from .later_queue import refresh_later_matches, seed_analysis
 from .auto_later_keywords import keywords_for_tenant, batch_auto_later_labels
 from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY,
                      category_rank_expression, category_phrase_condition)
-from .extraction import (create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
+from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
+from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -891,6 +892,7 @@ def listings(
             }
     # One batched query, never one extraction lookup per Picked row.
     extraction_by_key: dict[str, dict] = {}
+    designs_by_key: dict[str, list[dict]] = {}
     if pick_state == "picked" and rows:
         ids = {listing.listing_key for listing, _ in rows}
         jobs = db.scalars(select(ProcessingJobModel).where(
@@ -900,6 +902,11 @@ def listings(
         ).order_by(desc(ProcessingJobModel.created_at),
                    desc(ProcessingJobModel.id))).all()
         for job in jobs:
+            if job.cancellation_requested:
+                continue
+            mapped = designs_by_key.setdefault(job.entity_id, [])
+            if len(mapped) < MAX_DESIGNS_PER_JOB + 2:
+                mapped.extend(project_design_assets(job)[:MAX_DESIGNS_PER_JOB + 2 - len(mapped)])
             if job.entity_id in extraction_by_key:
                 continue
             detail = job.payload_json if isinstance(job.payload_json, dict) else {}
@@ -925,6 +932,7 @@ def listings(
                        later_manual=listing.listing_key in seed_ids,
                        auto_later_keyword=auto_by_key.get(listing.listing_key)),
          **({"smsPush": sms_by_key.get(listing.listing_key),
+             "designs": designs_by_key.get(listing.listing_key, []),
              "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
@@ -978,54 +986,11 @@ async def set_listing_pick(
     db.commit()
     return {"listingKey": listing_key, "picked": payload["picked"]}
 
-@router.post("/extractions/backfill")
-async def backfill_picked_extractions(
-    request: Request,
-    principal: CurrentPrincipal = Depends(MANAGE),
-    db: Session = Depends(get_db),
-):
-    """Enqueue previously Picked designs without replaying Pick or Scout.
+def _enqueue_missing_picked(db: Session, tenant: str, max_jobs: int, preview: bool) -> dict:
+    """Shared idempotent SQL selection for API and explicit production backfill.
 
-    Conservative one-slot pilot first; after the daily cap is raised, each
-    operator request can enqueue at most 200 verified-source jobs. Results
-    remain unverified, manual-QA-only and never print-ready.
+    Queueing work is independent from claiming work; worker daily caps still apply.
     """
-    from .image_agent import daily_cap, claimed_today, storage_capacity
-    from .extraction import EXTRACTION_JOB_TYPE
-    if not extraction_enabled():
-        raise HTTPException(503, "Windows Image Agent extraction is disabled")
-    if not storage_capacity()["ready"]:
-        raise HTTPException(503, "Etsy extraction storage is not ready")
-    try:
-        payload = await request.json()
-    except ValueError:
-        raise HTTPException(422, "JSON object required") from None
-    if not isinstance(payload, dict):
-        raise HTTPException(422, "JSON object required")
-    limit = payload.get("limit", 1)
-    preview = payload.get("dry_run", True)
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
-        raise HTTPException(422, "limit must be an integer between 1 and 200")
-    if not isinstance(preview, bool):
-        raise HTTPException(422, "dry_run must be boolean")
-    tenant = principal.active_tenant_id
-    cap = daily_cap()
-    max_jobs = min(limit, 1 if cap == 1 else cap)
-    # Do not flood a still-unverified one-slot pilot or lose a pending receipt.
-    if cap == 1:
-        if claimed_today(db, tenant) >= 1:
-            return {"ok": True, "dry_run": preview, "created": 0,
-                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_daily_cap_reached"}
-        unresolved = db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
-            ProcessingJobModel.tenant_id == tenant,
-            ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
-            ProcessingJobModel.status.in_(("pending", "retry", "processing")),
-            ProcessingJobModel.cancellation_requested.is_(False),
-        )) or 0
-        if unresolved:
-            return {"ok": True, "dry_run": preview, "created": 0,
-                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_job_pending"}
-
     existing = select(ProcessingJobModel.id).where(
         ProcessingJobModel.tenant_id == tenant,
         ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
@@ -1066,11 +1031,67 @@ async def backfill_picked_extractions(
             break
     if not preview:
         db.commit()
-    return {"ok": True, "dry_run": preview, "created": count_created,
-            "ready": count_ready, "skipped_no_source": no_source,
-            "limit": max_jobs, "manual_qa_required": True,
-            "rights_status": "unverified"}
+    return {"created": count_created, "ready": count_ready,
+            "skipped_no_source": no_source}
 
+
+@router.post("/extractions/backfill")
+async def backfill_picked_extractions(
+    request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Enqueue previously Picked designs without replaying Pick or Scout.
+
+    Conservative one-slot pilot first; after the daily cap is raised, each
+    operator request can enqueue at most 200 verified-source jobs. Results
+    remain unverified, manual-QA-only and never print-ready.
+    """
+    from .image_agent import daily_cap, claimed_today, storage_capacity
+    from .extraction import EXTRACTION_JOB_TYPE
+    if not extraction_enabled():
+        raise HTTPException(503, "Windows Image Agent extraction is disabled")
+    if not storage_capacity()["ready"]:
+        raise HTTPException(503, "Etsy extraction storage is not ready")
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "JSON object required")
+    limit = payload.get("limit", 1)
+    preview = payload.get("dry_run", True)
+    queue_only = payload.get("queue_only", False)
+    if type(queue_only) is not bool:
+        raise HTTPException(422, "queue_only must be boolean")
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
+        raise HTTPException(422, "limit must be an integer between 1 and 200")
+    if not isinstance(preview, bool):
+        raise HTTPException(422, "dry_run must be boolean")
+    tenant = principal.active_tenant_id
+    cap = daily_cap()
+    # Queue-only backfill creates idempotent metadata jobs; the independent
+    # claim cap still limits actual downloads/extraction from Windows.
+    max_jobs = min(limit, 200) if queue_only else min(limit, 1 if cap == 1 else cap)
+    # Keep the original strict pilot behavior unless explicitly queueing only.
+    if cap == 1 and not queue_only:
+        if claimed_today(db, tenant) >= 1:
+            return {"ok": True, "dry_run": preview, "created": 0,
+                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_daily_cap_reached"}
+        unresolved = db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+            ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+            ProcessingJobModel.cancellation_requested.is_(False),
+        )) or 0
+        if unresolved:
+            return {"ok": True, "dry_run": preview, "created": 0,
+                    "ready": 0, "skipped_no_source": 0, "blocked": "pilot_job_pending"}
+
+    results = _enqueue_missing_picked(db, tenant, max_jobs, preview)
+    return {"ok": True, "dry_run": preview, "queue_only": queue_only,
+            **results, "limit": max_jobs, "manual_qa_required": True,
+            "rights_status": "unverified"}
 
 @router.get("/listings/{listing_key}/extraction")
 def listing_extraction_status(

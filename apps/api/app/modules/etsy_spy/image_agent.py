@@ -747,6 +747,178 @@ def read_review_candidate(
                  "Content-Disposition": 'inline; filename="cam-design-candidate-review.png"'})
 
 
+
+def _design_media(job: ProcessingJobModel, asset_id: str) -> tuple[Path, str]:
+    """Resolve a mapped or historical image only from authenticated job data."""
+    from .design_artifacts import project_design_assets
+    if asset_id not in {"fast", "candidate"} and not re.fullmatch(r"[0-9a-f]{24}", asset_id):
+        raise HTTPException(404, "Design not found")
+    match = next((item for item in project_design_assets(job) if item["id"] == asset_id), None)
+    if match is None:
+        raise HTTPException(404, "Design not found")
+    original = _storage_path(job.tenant_id, job.id)
+    if asset_id == "fast":
+        return original, match["output_sha256"]
+    if asset_id == "candidate":
+        return original.with_suffix(".candidate.png"), match["output_sha256"]
+    return original.with_name(f"{job.id}.design.{asset_id}.png"), match["output_sha256"]
+
+
+def _checked_design_media(
+    job_id: str, asset_id: str, db: Session, tenant: str,
+) -> tuple[Path, str]:
+    job = db.get(ProcessingJobModel, job_id)
+    if (job is None or job.tenant_id != tenant or job.job_type != EXTRACTION_JOB_TYPE
+        or job.cancellation_requested or
+        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        raise HTTPException(404, "Design not found")
+    source, digest = _design_media(job, asset_id)
+    if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != digest:
+        raise HTTPException(404, "Design asset missing or changed")
+    return source, digest
+
+
+@image_router.post("/{agent_id}/designs")
+async def upload_design_mapping(
+    agent_id: str, request: Request, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Map up to 12 immutable, position-specific PNGs to one completed Picked job.
+
+    A thumbnail is generated on demand; positions may only be set from genuine
+    source evidence, not guessed from the garment's visible front mockup.
+    """
+    from .design_artifacts import (
+        DESIGN_POSITIONS, DESIGN_METHODS, MAX_DESIGNS_PER_JOB, design_asset_id,
+    )
+    agent = _authenticate(db, agent_id, authorization)
+    _enabled()
+    data = await _bounded_json(request, MAX_RECEIPT_BYTES)
+    job_id = str(data.get("job_id") or "")
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == job_id,
+    ).with_for_update())
+    if job is None or job.tenant_id != agent.tenant_id or job.job_type != EXTRACTION_JOB_TYPE:
+        raise HTTPException(404, "Extraction job not found")
+    if (job.status != "completed" or job.cancellation_requested or
+        job.claimed_by != "etsy-image:" + agent.id or
+        db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None):
+        raise HTTPException(409, "Job is not available for position mapping")
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    if result.get("status") not in {"needs_review", "needs_ai"}:
+        raise HTTPException(409, "Only completed extraction jobs accept design mappings")
+    source_sha = str(data.get("source_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", source_sha) or source_sha != result.get("source_sha256"):
+        raise HTTPException(422, "Design source hash mismatch")
+    position, method, variant = data.get("position"), data.get("method"), data.get("variant")
+    if position not in DESIGN_POSITIONS or method not in DESIGN_METHODS:
+        raise HTTPException(422, "Unsupported position or extraction method")
+    if type(variant) is not int or not 1 <= variant <= 12:
+        raise HTTPException(422, "Variant must be 1..12")
+    if (position != "unknown" and data.get("position_verified") is not True):
+        raise HTTPException(422, "Design position must be verified against source evidence")
+    if any(data.get(key) is not False for key in ("print_ready", "rights_verified", "ocr_verified")):
+        raise HTTPException(422, "Design requires print, OCR and rights review")
+    digest = str(data.get("output_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise HTTPException(422, "Invalid design SHA256")
+    raw_b64 = data.get("png_base64")
+    if not isinstance(raw_b64, str) or len(raw_b64) > MAX_RECEIPT_BYTES:
+        raise HTTPException(422, "Design PNG required")
+    try:
+        raw = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "Invalid design base64") from None
+    _verify_png(raw)
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise HTTPException(422, "Design PNG hash mismatch")
+    assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
+    for current in assets:
+        if current.get("position") == position and current.get("variant") == variant:
+            if current.get("output_sha256") != digest or current.get("method") != method:
+                raise HTTPException(409, "Position/variant already has another immutable PNG")
+            return {"ok": True, "job_id": job.id, "design_id": current["id"],
+                    "status": "needs_review", "already_mapped": True}
+    if len(assets) >= MAX_DESIGNS_PER_JOB:
+        raise HTTPException(409, "Maximum design versions reached")
+    asset_id = design_asset_id(job.id, position, variant, digest)
+    original = _storage_path(agent.tenant_id, job.id)
+    target = original.with_name(f"{job.id}.design.{asset_id}.png")
+    if target.is_file():
+        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            raise HTTPException(409, "Design asset path hash mismatch")
+    else:
+        if not storage_capacity(len(raw))["ready"]:
+            raise HTTPException(507, "Design storage unavailable")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pending = target.with_suffix(".pending")
+        if pending.is_file():
+            if hashlib.sha256(pending.read_bytes()).hexdigest() == digest:
+                pending.replace(target)
+            else:
+                pending.unlink()
+        if not target.is_file():
+            with pending.open("xb") as file:
+                file.write(raw)
+                file.flush()
+                os.fsync(file.fileno())
+            pending.replace(target)
+    entry = {
+        "id": asset_id, "position": position, "variant": variant,
+        "method": method, "output_sha256": digest,
+        "source_sha256": source_sha, "position_verified": position != "unknown",
+        "status": "needs_review", "created_at": utcnow().isoformat(),
+        "print_ready": False, "rights_status": "unverified",
+    }
+    job.payload_json = {**payload, "design_assets": [*assets, entry]}
+    agent.last_seen_at = utcnow()
+    db.commit()
+    return {"ok": True, "job_id": job.id, "design_id": asset_id,
+            "status": "needs_review", "already_mapped": False,
+            "print_ready": False, "rights_status": "unverified"}
+
+
+@image_router.get("/designs/{job_id}/{asset_id}/original")
+def view_design_original(
+    job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
+    return FileResponse(str(source), media_type="image/png",
+        headers={"Cache-Control": "private, no-store",
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Disposition": 'inline; filename="design-review.png"'})
+
+
+@image_router.get("/designs/{job_id}/{asset_id}/thumbnail")
+def view_design_thumbnail(
+    job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    import io
+    from PIL import Image, UnidentifiedImageError
+    source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
+    thumb = source.with_name(source.name[:-4] + ".thumb.png")
+    if not thumb.is_file():
+        try:
+            with Image.open(source) as img:
+                img.load()
+                img = img.convert("RGBA")
+                img.thumbnail((192, 192), Image.Resampling.LANCZOS)
+                pending = thumb.with_suffix(".pending")
+                with pending.open("wb") as file:
+                    img.save(file, "PNG", optimize=True)
+                    file.flush()
+                    os.fsync(file.fileno())
+                pending.replace(thumb)
+        except (OSError, ValueError, UnidentifiedImageError):
+            raise HTTPException(404, "Design preview unavailable") from None
+    return FileResponse(str(thumb), media_type="image/png",
+        headers={"Cache-Control": "private, no-store",
+                 "X-Content-Type-Options": "nosniff"})
+
+
 @image_router.get("/assets/{job_id}")
 def review_image_asset(
     job_id: str, principal: CurrentPrincipal = Depends(READ),

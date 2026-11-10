@@ -1653,6 +1653,13 @@ def test_needs_ai_candidate_is_private_review_only_and_keeps_original_receipt(
                         params={"pick_state": "picked"}).json()["items"][0]
     assert picked["extraction"]["candidate_ready"] is True
     assert picked["extraction"]["status"] == "needs_ai"
+    assert len(picked["designs"]) == 1
+    assert picked["designs"][0]["source"] == "legacy_candidate"
+    assert picked["designs"][0]["position"] == "unknown"
+    assert picked["designs"][0]["output_sha256"] == digest
+    assert picked["designs"][0]["print_ready"] is False
+    assert client.get(picked["designs"][0]["original_url"]).content == png
+    assert client.get(picked["designs"][0]["thumbnail_url"]).status_code == 200
     assert client.get(base + "assets/" + job_id).status_code == 404
     candidate = client.get(base + "candidates/" + job_id)
     assert candidate.status_code == 200 and candidate.content == png
@@ -2106,3 +2113,152 @@ def test_bulk_pick_later_selected_listings_idempotent_and_guarded(scenario):
         "action": "pick", "listingKeys": ["1234580002"],
     }).json()["skipped"][0]["reason"] == "not_eligible"
     assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
+
+
+def test_multiple_designs_are_mapped_by_position_to_one_picked_listing(
+    scenario, monkeypatch, tmp_path,
+):
+    import base64
+    import binascii
+    import hashlib as hashing
+    import struct
+    import zlib
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    client, db, principal = scenario
+    scout, scout_auth = pair(client, db)
+    incoming = batch("multi-design-sample")
+    incoming["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.multi.jpg")
+    assert sync(client, scout, scout_auth, incoming).status_code == 200
+    listing = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing + "/pick", json={"picked": True}).status_code == 200
+    device = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Multi-position QA"}).json()
+    other_device = client.post("/api/v1/etsy-spy/image-agents",
+                               json={"name": "Other device"}).json()
+    base = "/api/v1/etsy-spy/image-agents"
+    worker = base + "/" + device["agent_id"]
+    auth = {"Authorization": "Bearer " + device["token"]}
+    other_auth = {"Authorization": "Bearer " + other_device["token"]}
+    claimed = client.post(worker + "/claim", headers=auth).json()
+    job_id = claimed["task"]["id"]
+    assert client.post(worker + "/result", headers=auth, json={
+        "job_id": job_id, "lease_token": claimed["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+        "source_sha256": "a" * 64,
+        "reason": "textured_or_nonuniform_background",
+    }).status_code == 200
+
+    def chunk(kind, raw):
+        signed = kind + raw
+        return (struct.pack(">I", len(raw)) + signed +
+                struct.pack(">I", binascii.crc32(signed) & 0xFFFFFFFF))
+
+    head = struct.pack(">IIBBBBB", 4500, 5400, 8, 6, 0, 0, 0)
+    pixel_line = bytes(4500 * 4 + 1)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
+           + chunk(b"IDAT", zlib.compress(pixel_line * 5400, 6))
+           + chunk(b"IEND", b""))
+    hash_png = hashing.sha256(png).hexdigest()
+    request = {
+        "job_id": job_id, "source_sha256": "a" * 64,
+        "output_sha256": hash_png,
+        "png_base64": base64.b64encode(png).decode(),
+        "position": "front", "position_verified": True,
+        "variant": 1, "method": "local_layered",
+        "print_ready": False, "rights_verified": False, "ocr_verified": False,
+    }
+    endpoint = worker + "/designs"
+    assert client.post(endpoint, headers=other_auth, json=request).status_code in (401, 403, 409)
+    assert client.post(endpoint, headers=auth,
+        json={**request, "position_verified": False}).status_code == 422
+    assert client.post(endpoint, headers=auth,
+        json={**request, "rights_verified": True}).status_code == 422
+    assert client.post(endpoint, headers=auth,
+        json={**request, "source_sha256": "f" * 64}).status_code == 422
+    one = client.post(endpoint, headers=auth, json=request)
+    assert one.status_code == 200, one.text
+    assert one.json()["already_mapped"] is False
+    assert client.post(endpoint, headers=auth, json=request).json()["already_mapped"] is True
+    two = client.post(endpoint, headers=auth,
+                      json={**request, "position": "back"})
+    assert two.status_code == 200, two.text
+    assert two.json()["design_id"] != one.json()["design_id"]
+
+    mapped = client.get("/api/v1/etsy-spy/listings",
+                        params={"pick_state": "picked"}).json()["items"][0]
+    designs = mapped["designs"]
+    assert [d["position"] for d in designs] == ["front", "back"]
+    assert all(d["print_ready"] is False and
+               d["rights_status"] == "unverified" for d in designs)
+    assert all(d["listing_key"] == "1234567890" and
+               d["job_id"] == job_id for d in designs)
+    assert mapped["extraction"]["status"] == "needs_ai"
+    image = client.get(designs[0]["original_url"])
+    assert image.status_code == 200 and image.content == png
+    thumb = client.get(designs[0]["thumbnail_url"])
+    assert thumb.status_code == 200 and thumb.content.startswith(b"\x89PNG")
+    assert thumb.headers["cache-control"] == "private, no-store"
+    assert client.get(listing + "/extraction").json()["status"] == "needs_ai"
+    db.refresh(db.get(ProcessingJobModel, job_id))
+    assert db.get(ProcessingJobModel, job_id).payload_json["result"]["status"] == "needs_ai"
+    assert len(db.get(ProcessingJobModel, job_id).payload_json["design_assets"]) == 2
+    assert client.post(worker + "/claim", headers=auth).json()["pause_reason"] == "daily_cap_reached"
+
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(designs[0]["original_url"]).status_code == 404
+    principal.active_tenant_id = "boostgame"
+    assert client.put(listing + "/pick", json={"picked": False}).status_code == 200
+    assert client.get(designs[0]["original_url"]).status_code == 404
+
+
+def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
+    scenario, monkeypatch, tmp_path,
+):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    original = batch("backfill-existing-job")
+    original["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.initial.jpg")
+    assert sync(client, agent, headers, original).status_code == 200
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+
+    # A second listing was picked earlier, without extraction enabled.
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "0")
+    second = batch("backfill-second-source")
+    second["records"]["listings"][0].update({
+        "listingKey": "1234567888",
+        "url": "https://www.etsy.com/listing/1234567888/other",
+        "pageTitle": "Other Design Sweatshirt",
+        "fullImageUrl": "https://i.etsystatic.com/123/il_fullxfull.other.jpg",
+    })
+    assert sync(client, agent, headers, second).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567888/pick",
+                      json={"picked": True}).status_code == 200
+    assert db.query(ProcessingJobModel).count() == 1
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    backfill = "/api/v1/etsy-spy/extractions/backfill"
+    # Existing pilot behavior remains unchanged.
+    assert client.post(backfill, json={"limit": 50, "dry_run": False}).json()["blocked"] == "pilot_job_pending"
+    assert client.post(backfill, json={"queue_only": "yes"}).status_code == 422
+    preview = client.post(backfill, json={"limit": 200, "queue_only": True}).json()
+    assert preview["ready"] == 1 and preview["created"] == 0
+    applied = client.post(backfill, json={
+        "limit": 200, "queue_only": True, "dry_run": False,
+    })
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["created"] == 1
+    assert applied.json()["queue_only"] is True
+    assert db.query(ProcessingJobModel).count() == 2
+    assert client.post(backfill, json={
+        "limit": 200, "queue_only": True, "dry_run": False,
+    }).json()["created"] == 0
+    assert db.query(ProcessingJobModel).count() == 2

@@ -53,9 +53,18 @@ export type Mark = {
   markText: string; serialNumber: string; liveStatus: string;
   type?: string; filedOn?: string; registeredOn?: string; source?: string;
 };
+export type DesignAsset = {
+  id: string; job_id: string; listing_key: string;
+  position: string; variant: number; method: string;
+  status: string; source: string; output_sha256: string;
+  thumbnail_url: string; original_url: string;
+  print_ready: false; rights_status: "unverified";
+  manual_qa_required: true; created_at?: string | null;
+};
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
+  designs?: DesignAsset[];
   smsPush?: { status: string; code?: string | null; sentAt?: string | null;
     updatedAt?: string | null } | null;
   extraction?: { job_id?: string | null; status: string; engine?: string;

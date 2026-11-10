@@ -10,6 +10,7 @@ import {
 } from "./api";
 import "./EtsySpyPage.css";
 import { KeywordTreeView } from "./KeywordTreeView";
+import { DesignCell } from "./DesignCell";
 
 const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
@@ -369,6 +370,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
         </div>
       </div>
     </td>
+    {item.picked && <td className="etsy-design-cell"><DesignCell item={item} /></td>}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -800,17 +802,15 @@ export function EtsySpyPage() {
     setExtractionBackfillBusy(true);
     setExtractionBackfillMessage("");
     try {
-      const batchSize = extraction.daily_cap === 1 ? 1 : Math.min(20, extraction.daily_cap);
+      const batchSize = 200; // queue-only, never changes the worker's daily claim cap
       const result = await spyFetch<{
         created: number; ready: number; blocked?: string;
         skipped_no_source: number;
       }>("/extractions/backfill", {
-        method: "POST", body: JSON.stringify({ limit: batchSize, dry_run: false }),
+        method: "POST", body: JSON.stringify({ limit: batchSize, dry_run: false, queue_only: true }),
       });
-      setExtractionBackfillMessage(result.blocked === "pilot_job_pending"
-        ? "Image Agent pilot đang xử lý job trước đó."
-        : "Đã đưa " + result.created + " design vào hàng đợi · " +
-          result.skipped_no_source + " ảnh thiếu nguồn hợp lệ. PNG cần QA và xác minh quyền.");
+      setExtractionBackfillMessage("Đã bổ sung " + result.created + " job Picked chưa có vào hàng đợi · " +
+        result.skipped_no_source + " ảnh thiếu nguồn. Hạn mức xử lý/ngày không đổi.");
       setRefresh(previous => previous + 1);
     } catch (err) {
       setExtractionBackfillMessage(err instanceof Error ? err.message : "Cannot queue Picked designs");
@@ -878,11 +878,13 @@ export function EtsySpyPage() {
     }
   };
   const columns = useMemo(() => {
-    if (options.tab === "products") return SORTS.products;
+    if (options.tab === "products") return options.pickState === "picked"
+      ? [SORTS.products[0], { id: "design", text: "Design" }, ...SORTS.products.slice(1)]
+      : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     if (options.tab === "trademarks") return SORTS.trademarks;
     return SORTS.logs;
-  }, [options.tab]);
+  }, [options.tab, options.pickState]);
   const syncLabel = summary?.source_status === "online" ? "Agent online"
     : summary?.source_status === "sync_delayed" ? "Sync delayed"
     : summary?.source_status === "never_synced" ? "Never synced" : "Agent offline";
@@ -1195,7 +1197,7 @@ export function EtsySpyPage() {
           extractionBackfillBusy || extraction.storage?.ready !== true}
           onClick={queuePreviouslyPicked}>
           {extractionBackfillBusy ? "Đang tạo hàng đợi…" :
-            extraction?.daily_cap === 1 ? "Queue 1 Picked (pilot)" : "Queue Picked designs"}
+            "Backfill Picked chưa có job"}
         </button>
         {extractionBackfillMessage && <span role="status">{extractionBackfillMessage}</span>}
       </section>}
@@ -1266,7 +1268,8 @@ export function EtsySpyPage() {
             </th>}
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              {col.id === "keywordSms" ? <span className="etsy-static-header" title="Search Match Suggestions">
+              {col.id === "keywordSms" || col.id === "design" ? <span className="etsy-static-header"
+                title={col.id === "design" ? "Design PNG theo vị trí · nhiều ảnh/sản phẩm · cần QA" : "Search Match Suggestions"}>
                 {col.text}
               </span> : <button type="button" onClick={() => sortColumn(col.id)}
                 aria-label={"Sort by " + col.text}>

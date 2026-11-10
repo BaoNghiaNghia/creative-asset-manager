@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EtsySpyPage, vietnamCalendarDay, recentObservedDays } from "./EtsySpyPage";
 import { fetchAccessIdentity } from "../../features/access_management";
+import type { DesignAsset } from "./api";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
   WorkspacePageHeader: ({ actions }: { actions: React.ReactNode }) =>
@@ -23,6 +24,7 @@ let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number
   source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
 let smsProjection: { status: string; code?: string; sentAt?: string } | null = null;
+let designProjection: DesignAsset[] = [];
 let extractionProjection: { job_id: string; status: string; review_flags?: string[];
   upscale_factor?: number | null; rights_status: string; print_ready: boolean;
   candidate_ready?: boolean; candidate_method?: string | null } | null = null;
@@ -87,7 +89,7 @@ function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = [];
   registeredImageAgents = [];
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
-  smsProjection = null; extractionProjection = null;
+  smsProjection = null; extractionProjection = null; designProjection = [];
   newSpyListingSynced = false; extractionPilotOn = false;
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
@@ -268,6 +270,7 @@ function installFetch() {
           ({ ...x, picked: pickedKeys.has(x.listingKey),
              smsPush: pickedKeys.has(x.listingKey) ? smsProjection : null,
              extraction: pickedKeys.has(x.listingKey) ? extractionProjection : null,
+             designs: pickedKeys.has(x.listingKey) ? designProjection : [],
              later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
              laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
       return json({items: visible, page: 1, page_size: 50,
@@ -1245,6 +1248,56 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 80));
     });
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+  });
+
+  it("shows multiple mapped Design PNGs per Picked product and a position gallery", async () => {
+    await start();
+    pickedKeys.add(listing.listingKey);
+    const job = "00000000-1111-4222-8333-444444444444";
+    designProjection = ["front", "back", "left_sleeve", "right_sleeve"].map((position, index) => ({
+      id: "d".repeat(23) + index, job_id: job, listing_key: listing.listingKey,
+      position, variant: 1, method: index ? "local_layered" : "fast_cpu",
+      status: "needs_review", source: "mapped", output_sha256: "b".repeat(64),
+      thumbnail_url: "/api/v1/etsy-spy/image-agents/designs/" + job +
+        "/mock-" + index + "/thumbnail",
+      original_url: "/api/v1/etsy-spy/image-agents/designs/" + job +
+        "/mock-" + index + "/original",
+      print_ready: false, rights_status: "unverified", manual_qa_required: true,
+    }));
+    extractionProjection = {job_id: job, status: "needs_ai",
+      rights_status: "unverified", print_ready: false};
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 75));
+    });
+    expect(Array.from(container?.querySelectorAll(".etsy-data-table th") || [])
+      .map(x => x.textContent)).toContain("Design");
+    expect(container?.querySelectorAll(".etsy-design-cell .etsy-design-thumb")).toHaveLength(3);
+    expect(container?.querySelector(".etsy-design-more")?.textContent).toContain("+1");
+    expect(container?.querySelector(".etsy-design-open")?.textContent).toContain("4 design");
+    expect(container?.querySelector(".etsy-design-review-label")?.textContent).toContain("cần QA");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-design-more")?.click();
+    });
+    expect(document.body.querySelector('[role="dialog"][aria-label*="Design sản phẩm"]'))
+      .not.toBeNull();
+    expect(document.body.querySelector(".etsy-design-gallery-list")?.querySelectorAll("button"))
+      .toHaveLength(4);
+    expect(document.body.querySelector(".etsy-design-gallery-main aside")?.textContent)
+      .toContain("Tay phải");
+    expect(document.body.querySelector(".etsy-design-gallery-main aside")?.textContent)
+      .toContain("Chưa xác minh quyền");
+    expect(document.body.querySelector<HTMLAnchorElement>(".etsy-design-gallery-main aside a")
+      ?.getAttribute("href")).toContain("mock-3/original");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape"}));
+    });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    expect(container?.querySelector(".etsy-data-table th")?.textContent).not.toContain("Design");
   });
 
   it("shows honest QA evidence for picked Fast CPU PNG without print-ready claims", async () => {
