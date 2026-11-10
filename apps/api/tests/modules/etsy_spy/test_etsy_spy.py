@@ -1592,7 +1592,21 @@ def test_image_agent_valid_png_asset_and_unpick_revocation(scenario, monkeypatch
         "status": "needs_review", "engine": "fast_cpu",
         "png_base64": b64.b64encode(png).decode(),
         "output_sha256": hashmod.sha256(png).hexdigest(),
+        "reason": "quality_gate_pending",
+        "qa": {
+            "source_resolution": [1400, 1400],
+            "cropped_artwork": [650, 720],
+            "foreground_coverage": 0.24,
+            "border_noise": 2,
+            "upscale_factor": 6.23,
+            "review_flags": ["upscaled_preview"],
+            "print_ready": False, "ocr_verified": False,
+            "rights_verified": False,
+        },
     }
+    rejected_qa = {**request, "qa": {**request["qa"], "rights_verified": True}}
+    assert client.post(remote + "/result", json=rejected_qa, headers=auth).status_code == 422
+    assert db.get(ProcessingJobModel, claim_id).status == "processing"
     invalid = {**request, "output_sha256": "0" * 64}
     assert client.post(remote + "/result", json=invalid, headers=auth).status_code == 422
     # When the quota is exhausted, keep the lease and the local PNG intact:
@@ -1615,6 +1629,23 @@ def test_image_agent_valid_png_asset_and_unpick_revocation(scenario, monkeypatch
     receipt = client.post(remote + "/result", json=request, headers=auth)
     assert not pending.exists()
     assert receipt.status_code == 200, receipt.text
+    db.refresh(db.get(ProcessingJobModel, claim_id))
+    saved_result = db.get(ProcessingJobModel, claim_id).payload_json["result"]
+    assert saved_result["reason"] == "quality_gate_pending"
+    assert saved_result["qa"]["upscale_factor"] == 6.23
+    assert saved_result["qa"]["review_flags"] == ["upscaled_preview"]
+    assert saved_result["qa"]["rights_verified"] is False
+    status = client.get(base + "/extraction").json()
+    assert status["status"] == "needs_review"
+    assert status["job_status"] == "completed"
+    assert status["review_flags"] == ["upscaled_preview"]
+    assert status["upscale_factor"] == 6.23
+    assert status["rights_status"] == "unverified"
+    assert status["print_ready"] is False
+    list_item = client.get("/api/v1/etsy-spy/listings",
+                           params={"pick_state": "picked"}).json()["items"][0]
+    assert list_item["extraction"]["review_flags"] == ["upscaled_preview"]
+    assert list_item["extraction"]["rights_status"] == "unverified"
     image = client.get("/api/v1/etsy-spy/image-agents/assets/" + claim_id)
     assert image.status_code == 200 and image.content == png
     assert image.headers["cache-control"] == "private, no-store"

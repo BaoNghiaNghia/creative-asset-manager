@@ -904,11 +904,17 @@ def listings(
                 continue
             detail = job.payload_json if isinstance(job.payload_json, dict) else {}
             result = detail.get("result") if isinstance(detail.get("result"), dict) else {}
+            qa = result.get("qa") if isinstance(result.get("qa"), dict) else {}
             extraction_by_key[job.entity_id] = {
                 "job_id": job.id, "status": result.get("status") or
                     ("cancelled" if job.cancellation_requested else job.status),
                 "engine": result.get("engine") or "fast_then_ai",
                 "manual_qa_required": True,
+                "reason": result.get("reason") if isinstance(result.get("reason"), str) else None,
+                "review_flags": qa.get("review_flags", []),
+                "upscale_factor": qa.get("upscale_factor"),
+                "print_ready": False,
+                "rights_status": "unverified",
             }
     return _response([
         {**_listing_item(listing, tmcheck, picked=pick_state == "picked",
@@ -1078,10 +1084,19 @@ def listing_extraction_status(
     if job is None:
         return {"listingKey": listing_key, "status": "source_missing" if extraction_enabled() else "disabled",
                 "job_id": None}
+    detail = job.payload_json if isinstance(job.payload_json, dict) else {}
+    result = detail.get("result") if isinstance(detail.get("result"), dict) else {}
+    qa = result.get("qa") if isinstance(result.get("qa"), dict) else {}
     return {
-        "listingKey": listing_key, "job_id": job.id, "status": job.status,
+        "listingKey": listing_key, "job_id": job.id,
+        "status": result.get("status") or job.status,
+        "job_status": job.status,
         "cancellation_requested": job.cancellation_requested,
-        "engine": "fast_then_ai", "manual_qa_required": True,
+        "engine": result.get("engine") or "fast_then_ai", "manual_qa_required": True,
+        "reason": result.get("reason") if isinstance(result.get("reason"), str) else None,
+        "review_flags": qa.get("review_flags", []),
+        "upscale_factor": qa.get("upscale_factor"),
+        "print_ready": False, "rights_status": "unverified",
         "last_error": job.last_error_code,
     }
 

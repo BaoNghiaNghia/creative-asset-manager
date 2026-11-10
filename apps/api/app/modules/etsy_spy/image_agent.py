@@ -11,6 +11,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -257,6 +258,56 @@ def _verify_png(raw: bytes) -> None:
         raise HTTPException(422, "PNG image chunks incomplete")
 
 
+REVIEW_FLAGS = {"low_native_resolution", "upscaled_preview", "edge_noise"}
+
+
+def _validated_review_evidence(payload: dict, status: str) -> tuple[str | None, dict | None]:
+    """Bound optional worker QA metadata. Never infer print or IP clearance."""
+    reason = payload.get("reason")
+    if reason is not None and (
+        not isinstance(reason, str) or not re.fullmatch(r"[a-z0-9_]{2,72}", reason)
+    ):
+        raise HTTPException(422, "Invalid extraction reason")
+    raw = payload.get("qa")
+    if raw is None:
+        return reason, None  # Older journal receipts remain replayable.
+    required = {"source_resolution", "cropped_artwork", "foreground_coverage",
+                "border_noise", "upscale_factor", "review_flags",
+                "print_ready", "ocr_verified", "rights_verified"}
+    if status != "needs_review" or not isinstance(raw, dict) or set(raw) != required:
+        raise HTTPException(422, "Unexpected extraction QA fields")
+    for field in ("print_ready", "ocr_verified", "rights_verified"):
+        if raw[field] is not False:
+            raise HTTPException(422, "Unverified source cannot be print or rights cleared")
+    dimensions = {}
+    for field in ("source_resolution", "cropped_artwork"):
+        value = raw[field]
+        if (not isinstance(value, list) or len(value) != 2 or
+            any(type(item) is not int or item < 1 or item > 32000 for item in value)):
+            raise HTTPException(422, "Invalid original extraction dimensions")
+        dimensions[field] = value
+    if any(dimensions["cropped_artwork"][i] > dimensions["source_resolution"][i]
+           for i in range(2)):
+        raise HTTPException(422, "Original artwork exceeds source dimensions")
+    coverage, upscale = raw["foreground_coverage"], raw["upscale_factor"]
+    if (type(coverage) not in (int, float) or not math.isfinite(coverage) or
+        not 0 <= coverage <= 1 or type(upscale) not in (int, float) or
+        not math.isfinite(upscale) or not 0 < upscale <= 1000):
+        raise HTTPException(422, "Invalid extraction confidence metrics")
+    noise, flags = raw["border_noise"], raw["review_flags"]
+    if type(noise) is not int or not 0 <= noise <= 255:
+        raise HTTPException(422, "Invalid image border noise")
+    if (not isinstance(flags, list) or len(flags) > len(REVIEW_FLAGS) or
+        any(flag not in REVIEW_FLAGS for flag in flags) or len(set(flags)) != len(flags)):
+        raise HTTPException(422, "Untrusted review flag")
+    return reason, {
+        **dimensions, "foreground_coverage": float(coverage),
+        "border_noise": noise, "upscale_factor": float(upscale),
+        "review_flags": sorted(flags), "print_ready": False,
+        "ocr_verified": False, "rights_verified": False,
+    }
+
+
 @image_router.post("", status_code=201)
 async def pair_image_agent(
     request: Request, principal: CurrentPrincipal = Depends(MANAGE),
@@ -460,6 +511,7 @@ async def submit_image_result(
     source_sha256 = str(data.get("source_sha256") or "")
     if source_sha256 and not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
         raise HTTPException(422, "Invalid source hash")
+    reason, qa = _validated_review_evidence(data, status)
     previous = (job.payload_json or {}).get("result")
     if job.status == "completed" and isinstance(previous, dict):
         if (previous.get("status") == status and
@@ -525,6 +577,10 @@ async def submit_image_result(
         "print_ready": False, "manual_qa_required": True,
         "rights_status": "unverified", "finished_at": utcnow().isoformat(),
     }
+    if reason is not None:
+        result["reason"] = reason
+    if qa is not None:
+        result["qa"] = qa
     job.payload_json = {**(job.payload_json or {}), "result": result}
     job.status = "completed"
     job.completed_at = utcnow()

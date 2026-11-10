@@ -29,3 +29,10 @@
 - Source changes are limited to offline device registration, tenant-aware pilot controls and paired Windows agent. No Scout Queue V3 job, Picked row or source image is modified to change tenant.
 - To halt new claims, use `node agent/pilot-control.mjs disarm` on Windows. CAM can also disarm the transport with `scripts/cam-etsy-image-pilot-control.py disarm --tenant-id creative-assets-prod` (affects all extraction agents; restart API). Retain all journal, backup config and review assets.
 - Keep one current and one rollback CAM release only after successful smoke tests; never purge data, extracted PNGs or token backup files.
+
+## Fast CPU QA provenance (2026-11-10)
+
+- The Windows Fast Extraction report now records the original artwork box, estimated upscaling factor and conservative flags `low_native_resolution`, `upscaled_preview`, `edge_noise`. The 4500×5400 output canvas is **not** proof of recovered native resolution.
+- The CAM Image Agent uploads the QA metadata with the existing SHA256-bound PNG receipt. CAM validates dimensions, coverage, noise, flags and explicitly rejects any automatic `print_ready`, `ocr_verified` or `rights_verified` claim.
+- Tenant-scoped Picked listings and `GET /listings/{listing_key}/extraction` now expose safe QA flags, the upscaling factor and actual review status. Existing browsers show the Review PNG link for `needs_review`. Older receipts without metadata continue to work.
+- Pilot not yet performed on a real Etsy listing: tool-controlled execution of the claim/extraction command was blocked. The 246 existing jobs remain pending, cap 1/day, zero claims. The operator can use the already provided `START_CAM_EXTRACTION_RELAY.cmd` on the authorized Windows computer when ready to exercise the single pilot; do not launch duplicate relays or change quota yet.
