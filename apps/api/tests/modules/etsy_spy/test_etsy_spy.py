@@ -915,6 +915,7 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
 def test_auto_later_matches_exact_topic_badge_vocabulary(title, keyword, expected):
     from app.modules.etsy_spy.auto_later_keywords import match_auto_later
     assert match_auto_later("boostgame", title, keyword) == expected
+    assert match_auto_later("creative-assets-prod", title, keyword) == expected
     assert match_auto_later("other-tenant", title, keyword) is None
 
 

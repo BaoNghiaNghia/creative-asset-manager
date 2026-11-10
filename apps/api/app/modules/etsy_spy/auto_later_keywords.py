@@ -13,6 +13,9 @@ from .groups import CATEGORY_GROUPS
 # A tenant-scoped rule; matching phrases are taken from CATEGORY_GROUPS.
 TENANT_AUTO_LATER_KEYWORDS: dict[str, tuple[str, ...]] = {
     "boostgame": ("Thanksgiving", "Halloween"),
+    # The production tenant UUID/key may differ from its display slug.
+    # Preserve the same operator-owned seasonal routing for this tenant.
+    "creative-assets-prod": ("Thanksgiving", "Halloween"),
 }
 
 

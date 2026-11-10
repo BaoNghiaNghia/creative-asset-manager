@@ -82,7 +82,9 @@ def report(db, tenant: str, rows):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tenant", default="boostgame")
+    # Explicit tenant identity avoids a misleading zero-row dry run when the
+    # display slug differs from the production tenant database key.
+    parser.add_argument("--tenant", required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--expected-fingerprint", default="")
     parser.add_argument("--max-candidates", type=int, default=100)
