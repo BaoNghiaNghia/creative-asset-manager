@@ -887,6 +887,15 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
     assert match_title("Comfort Colors Gildan Funny Shirt", "Graphic Tee Gift") is None
     assert match_title("Christmas Family Gift Shirt", "Christmas Funny Teacher Tee") is None
     assert match_title("Plant Shirt", "Goose Shirt") is None
+    # Cat/dog are broad animal categories, not proof of the same artwork.
+    assert match_title("Embroidered Ghost Cat Sweatshirt, Halloween",
+                       "Black Cat Reading Shirt, Cozy Reader") is None
+    assert match_title("Vintage 90s Cartoon Dog Shirt",
+                       "Dachshund Christmas Shirt, Through the Snow") is None
+    assert match_title("Black Cat Reading Shirt, Moonlit Book",
+                       "Cat Reading Book Sweatshirt, Moonlit Book") is not None
+    assert match_title("Dog Dachshund Snow Shirt",
+                       "Dachshund Snow Dog Sweatshirt") is not None
     assert not analyze_title("Comfort Colors Gildan Shirt Gift Tee").terms
 
 

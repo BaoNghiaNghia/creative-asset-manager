@@ -66,6 +66,11 @@ THEME_LABELS = {
 }
 ALIASES = {word: theme for theme, words in THEMES.items() for word in words}
 # Common thematic terms like 'family' or 'teacher' alone may be misleading.
+# Broad animal categories are not designs by themselves. A cat/dog listing
+# needs additional shared design evidence; never route it to Later solely
+# because an operator previously selected an unrelated cat/dog illustration.
+BROAD_THEMES_REQUIRING_DETAIL = frozenset({"cat", "dog"})
+
 SINGLE_THEME_ALLOWED = frozenset({
     "plant", "goose", "frog", "duck", "cat", "dog", "cow", "owl", "tiger",
     "raccoon", "reindeer", "hockey", "reading", "coffee", "pickleball",
@@ -114,7 +119,8 @@ def match_title(seed_title: str, candidate_title: str) -> Match | None:
     if not seed.terms or not candidate.terms:
         return None
 
-    high_signal = sorted(seed.themes & candidate.themes & SINGLE_THEME_ALLOWED)
+    high_signal = sorted((seed.themes & candidate.themes & SINGLE_THEME_ALLOWED)
+                         - BROAD_THEMES_REQUIRING_DETAIL)
     if high_signal:
         theme = high_signal[0]
         return Match(88, "Cùng chủ đề: " + THEME_LABELS.get(theme, theme))
