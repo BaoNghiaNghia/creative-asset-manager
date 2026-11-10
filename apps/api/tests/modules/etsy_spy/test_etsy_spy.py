@@ -1495,6 +1495,7 @@ def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, mon
     created = client.post("/api/v1/etsy-spy/image-agents", json={"name": "Windows CPU Pilot"})
     assert created.status_code == 201, created.text
     agent_id, token = created.json()["agent_id"], created.json()["token"]
+    assert created.json()["tenant_id"] == "boostgame"
     path = f"/api/v1/etsy-spy/image-agents/{agent_id}"
     auth = {"Authorization": "Bearer " + token}
     monkeypatch.delenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", raising=False)
@@ -1884,6 +1885,20 @@ def test_offline_hashed_image_agent_pairing_and_read_only_probe(scenario, monkey
         )
     with raises(ValueError, match="duplicate_device_credential"):
         register_hashed_image_agent(db, agent_id=str(uuid4()), token_sha256=digest)
+
+def test_image_agent_copy_config_is_bound_to_active_tenant(scenario):
+    client, db, principal = scenario
+    principal.active_tenant_id = "creative-assets-prod"
+    response = client.post("/api/v1/etsy-spy/image-agents",
+                           json={"name": "Tenant-scoped config"})
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["tenant_id"] == "creative-assets-prod"
+    assert db.get(EtsySpyAgent, data["agent_id"]).tenant_id == "creative-assets-prod"
+    principal.active_tenant_id = "boostgame"
+    assert all(agent["id"] != data["agent_id"] for agent in
+               client.get("/api/v1/etsy-spy/image-agents").json()["items"])
+
 
 def test_offline_image_agent_production_tenant_isolated_from_legacy_tenant(scenario):
     from hashlib import sha256

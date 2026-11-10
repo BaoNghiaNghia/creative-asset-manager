@@ -318,6 +318,7 @@ async def pair_image_agent(
     agent, token = create_agent(db, principal.active_tenant_id,
                                 IMAGE_AGENT_NAME_PREFIX + label)
     return {"agent_id": agent.id, "token": token,
+            "tenant_id": principal.active_tenant_id,
             "notice": "Dedicated Image Agent secret. Save on the Windows D: drive only."}
 
 

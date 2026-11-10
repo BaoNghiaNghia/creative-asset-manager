@@ -23,6 +23,8 @@ let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number
   source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
 let smsProjection: { status: string; code?: string; sentAt?: string } | null = null;
+let extractionProjection: { job_id: string; status: string; review_flags?: string[];
+  upscale_factor?: number | null; rights_status: string; print_ready: boolean } | null = null;
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
 const summary = {
@@ -82,7 +84,8 @@ function json(value: unknown) {
 function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = [];
   registeredImageAgents = [];
-  pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>(); smsProjection = null;
+  pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
+  smsProjection = null; extractionProjection = null;
   newSpyListingSynced = false;
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
@@ -207,7 +210,7 @@ function installFetch() {
       const agent_id = "11111111-1111-4111-8111-111111111111";
       registeredImageAgents.push({id: agent_id,
         name: "CAM Image Agent / " + name, active: true, last_seen_at: null});
-      return json({agent_id, token: "A".repeat(70)});
+      return json({agent_id, token: "A".repeat(70), tenant_id: "creative-assets-prod"});
     }
     if (url.endsWith("/image-agents")) return json({items: [...registeredImageAgents]});
     if (url.endsWith("/image-agents/overview")) return json({
@@ -261,6 +264,7 @@ function installFetch() {
         : !pickedKeys.has(x.listingKey) && !laterSeedKeys.has(x.listingKey)).map(x =>
           ({ ...x, picked: pickedKeys.has(x.listingKey),
              smsPush: pickedKeys.has(x.listingKey) ? smsProjection : null,
+             extraction: pickedKeys.has(x.listingKey) ? extractionProjection : null,
              later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
              laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
       return json({items: visible, page: 1, page_size: 50,
@@ -1189,6 +1193,38 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
   });
 
+  it("shows honest QA evidence for picked Fast CPU PNG without print-ready claims", async () => {
+    await start();
+    pickedKeys.add(listing.listingKey);
+    extractionProjection = {
+      job_id: "00000000-1111-4222-8333-444444444444",
+      status: "needs_review", review_flags: ["upscaled_preview", "low_native_resolution"],
+      upscale_factor: 6.23, rights_status: "unverified", print_ready: false,
+    };
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    const warning = container?.querySelector<HTMLElement>(".etsy-extraction-qa");
+    expect(warning?.textContent).toContain("Cần QA độ nét");
+    expect(warning?.textContent).toContain("Phóng ×6.2");
+    expect(warning?.getAttribute("title")).toContain("Thiết kế gốc có độ phân giải thấp");
+    expect(warning?.getAttribute("title")).toContain("quyền thương mại chưa xác minh");
+    const preview = container?.querySelector<HTMLAnchorElement>(".etsy-extraction-open");
+    expect(preview?.getAttribute("href")).toBe(
+      "/api/v1/etsy-spy/image-agents/assets/" + extractionProjection.job_id);
+    expect(preview?.textContent).toContain("View PNG");
+
+    extractionProjection = {...extractionProjection, status: "needs_ai"};
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(container?.querySelector(".etsy-extraction-status")?.textContent).toContain("Needs AI");
+    expect(container?.querySelector(".etsy-extraction-qa")).toBeNull();
+    expect(container?.querySelector(".etsy-extraction-open")).toBeNull();
+  });
+
   it("shows SMS confirmation only when the Picked listing has a receipt", async () => {
     await start();
     pickedKeys.add(listing.listingKey);
@@ -1304,7 +1340,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       tenant_id: string; token: string;
     };
     expect(config.enabled).toBe(false);
-    expect(config.tenant_id).toBe("boostgame");
+    expect(config.tenant_id).toBe("creative-assets-prod");
     expect(config.agent_id).toBe(registeredImageAgents[0].id);
     expect(config.token.length).toBe(70);
     expect(localStorage.length).toBe(0);

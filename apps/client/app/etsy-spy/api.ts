@@ -58,7 +58,10 @@ export type Listing = {
   picked: boolean;
   smsPush?: { status: string; code?: string | null; sentAt?: string | null;
     updatedAt?: string | null } | null;
-  extraction?: { job_id?: string | null; status: string; engine?: string; manual_qa_required?: boolean };
+  extraction?: { job_id?: string | null; status: string; engine?: string;
+    manual_qa_required?: boolean; reason?: string | null;
+    review_flags?: string[]; upscale_factor?: number | null;
+    print_ready?: boolean; rights_status?: string };
   later?: boolean; laterManual?: boolean; laterReason?: string | null;
   laterScore?: number | null; laterSeedKey?: string | null;
   pageTitle: string; url: string | null; badge: string | null;

@@ -275,6 +275,18 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
   const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
     item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
   const tmLabel = tmDescription(item.tm, deadMatches);
+  const qaFlags = new Set(Array.isArray(item.extraction?.review_flags)
+    ? item.extraction.review_flags.filter(flag => [
+        "low_native_resolution", "upscaled_preview", "edge_noise",
+      ].includes(flag)) : []);
+  const qaNotes = [
+    qaFlags.has("low_native_resolution") ? "Thiết kế gốc có độ phân giải thấp" : null,
+    qaFlags.has("upscaled_preview") ? "PNG được phóng lớn; chưa có chi tiết gốc tương ứng" : null,
+    qaFlags.has("edge_noise") ? "Cần kiểm tra viền, rìa và vải nền" : null,
+  ].filter(Boolean);
+  const upscale = item.extraction?.upscale_factor;
+  const upscaleText = typeof upscale === "number" && Number.isFinite(upscale) &&
+    upscale > 1 ? "Phóng ×" + upscale.toFixed(1) : null;
   return <>
     <tr className={"etsy-product-row" + (selected ? " is-selected" : "")}
       onPointerEnter={showImagePreview}
@@ -325,6 +337,11 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
             } as Record<string, string>)[item.extraction?.status || "source_missing"] ||
               item.extraction?.status || "Pending"}
           </small>}
+          {item.picked && item.extraction?.status === "needs_review" && qaNotes.length > 0 &&
+            <small className="etsy-extraction-qa" title={[...qaNotes,
+              "Chỉ dùng để kiểm tra nội bộ; quyền thương mại chưa xác minh"].join(" · ")}>
+              ⚠ Cần QA độ nét{upscaleText ? " · " + upscaleText : ""}
+            </small>}
           {item.picked && item.extraction?.status === "needs_review" && item.extraction.job_id &&
             <a className="etsy-extraction-open"
               href={"/api/v1/etsy-spy/image-agents/assets/" + encodeURIComponent(item.extraction.job_id)}
@@ -500,7 +517,9 @@ export function EtsySpyPage() {
   const [imagePairOpen, setImagePairOpen] = useState(false);
   const [imagePairBusy, setImagePairBusy] = useState(false);
   const [imagePairError, setImagePairError] = useState("");
-  const [imagePairSecret, setImagePairSecret] = useState<{ agent_id: string; token: string } | null>(null);
+  const [imagePairSecret, setImagePairSecret] = useState<{
+    agent_id: string; token: string; tenant_id: string;
+  } | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
     requestKey: string; data: Page<Listing | Keyword | Trademark | SpyLog> | null;
@@ -1342,7 +1361,9 @@ export function EtsySpyPage() {
                 disabled={imagePairBusy || !imagePairName.trim()} onClick={async () => {
                   setImagePairBusy(true); setImagePairError(""); setImagePairSecret(null);
                   try {
-                    const paired = await spyFetch<{ agent_id: string; token: string }>("/image-agents", {
+                    const paired = await spyFetch<{
+                      agent_id: string; token: string; tenant_id: string;
+                    }>("/image-agents", {
                       method: "POST", body: JSON.stringify({ name: imagePairName.trim() }),
                     });
                     setImagePairSecret(paired);
@@ -1364,7 +1385,7 @@ export function EtsySpyPage() {
                   enabled: false,
                   cam_origin: window.location.origin,
                   agent_id: imagePairSecret.agent_id,
-                  tenant_id: "boostgame",
+                  tenant_id: imagePairSecret.tenant_id,
                   token: imagePairSecret.token,
                 };
                 void navigator.clipboard?.writeText(JSON.stringify(config, null, 2));
