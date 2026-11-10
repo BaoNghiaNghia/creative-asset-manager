@@ -295,6 +295,26 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
             <small>#{item.listingKey}</small>
             {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View on Etsy <span aria-hidden="true">↗</span></a>}
           </div>
+          {item.picked && <span
+            className={"etsy-sms-push-status status-" + (item.smsPush?.status || "unknown")}
+            title={item.smsPush?.status === "sent"
+              ? "SMS Idea Inbox đã xác nhận" +
+                (item.smsPush.code ? " · " + item.smsPush.code : "") +
+                (item.smsPush.sentAt ? " · " + readableTime(item.smsPush.sentAt) : "")
+              : item.smsPush ? "SMS queue: " + item.smsPush.status +
+                (item.smsPush.updatedAt ? " · " + readableTime(item.smsPush.updatedAt) : "")
+                : "Windows Agent chưa đồng bộ trạng thái gửi SMS"}
+            aria-label={"SMS: " + (item.smsPush?.status === "sent" ? "Đã có trên SMS"
+              : item.smsPush?.status || "Chưa đồng bộ")}>
+            {item.smsPush?.status === "sent" ? "✓ Đã có trên SMS"
+              : ["pending", "backfill_waiting", "retry_wait", "sending"].includes(item.smsPush?.status || "")
+                ? "◷ Chờ SMS"
+              : item.smsPush?.status === "blocked_auth" ? "SMS thiếu quyền"
+              : item.smsPush?.status === "needs_review" ? "SMS cần kiểm tra"
+              : item.smsPush?.status === "failed" ? "SMS gửi lỗi"
+              : item.smsPush?.status === "needs_source" ? "SMS thiếu nguồn"
+              : "SMS chưa đồng bộ"}
+          </span>}
           {item.picked && <small className="etsy-extraction-status"
             title="Extracted artwork is for internal review until fidelity and usage rights are verified">
             Extraction · {({
@@ -661,6 +681,32 @@ export function EtsySpyPage() {
       } });
     return () => { alive = false; };
   }, [requestKey]);
+  useEffect(() => {
+    // SMS receipts change without changing Scout inventory/day counts.
+    // Refresh only the visible Picked page, without clearing rows or scroll.
+    if (options.tab !== "products" || options.pickState !== "picked" ||
+        options.blacklistView || options.winKeywordsView) return;
+    let disposed = false;
+    let polling = false;
+    const poll = async () => {
+      if (disposed || polling || document.visibilityState === "hidden") return;
+      polling = true;
+      try {
+        const latest = await spyFetch<Page<Listing>>("/listings?" + apiQuery(options).toString());
+        if (!disposed) setTableResult(current => current?.requestKey === requestKey
+          ? { requestKey, data: latest } : current);
+      } catch {
+        // Preserve the last confirmed receipt on transient sync/API failures.
+      } finally { polling = false; }
+    };
+    const interval = window.setInterval(poll, 30_000);
+    window.addEventListener("focus", poll);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", poll);
+    };
+  }, [requestKey, options]);
   const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManage || blacklistBusy) return;

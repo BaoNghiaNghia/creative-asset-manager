@@ -22,6 +22,7 @@ let savedWinKeywords: string[] = [];
 let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number;
   source: "manual" | "observed"; occurrences: number}> = [];
 let pickedKeys = new Set<string>();
+let smsProjection: { status: string; code?: string; sentAt?: string } | null = null;
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
 const summary = {
@@ -81,7 +82,7 @@ function json(value: unknown) {
 function installFetch() {
   observed.length = 0; blockedTerms = []; savedWinKeywords = [];
   registeredImageAgents = [];
-  pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
+  pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>(); smsProjection = null;
   newSpyListingSynced = false;
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
@@ -259,6 +260,7 @@ function installFetch() {
         : pickState === "later" ? laterSeedKeys.has(x.listingKey) && !pickedKeys.has(x.listingKey)
         : !pickedKeys.has(x.listingKey) && !laterSeedKeys.has(x.listingKey)).map(x =>
           ({ ...x, picked: pickedKeys.has(x.listingKey),
+             smsPush: pickedKeys.has(x.listingKey) ? smsProjection : null,
              later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
              laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
       return json({items: visible, page: 1, page_size: 50,
@@ -1185,6 +1187,32 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 80));
     });
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+  });
+
+  it("shows SMS confirmation only when the Picked listing has a receipt", async () => {
+    await start();
+    pickedKeys.add(listing.listingKey);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 70));
+    });
+    expect(container?.querySelector(".etsy-sms-push-status")?.textContent)
+      .toContain("SMS chưa đồng bộ");
+    smsProjection = { status: "pending" };
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 70));
+    });
+    expect(container?.querySelector(".etsy-sms-push-status")?.textContent)
+      .toContain("Chờ SMS");
+    smsProjection = { status: "sent", code: "307", sentAt: "2026-11-10T00:05:48Z" };
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 70));
+    });
+    const badge = container?.querySelector(".etsy-sms-push-status.status-sent");
+    expect(badge?.textContent).toContain("Đã có trên SMS");
+    expect(badge?.getAttribute("title")).toContain("307");
   });
 
   it("moves a product with icon Pick into the Picked card and restores on Unpick", async () => {

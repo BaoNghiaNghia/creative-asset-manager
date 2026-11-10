@@ -22,7 +22,7 @@ from app.modules.etsy_spy.model import (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
-    EtsySpyWinKeyword, EtsySpyParentKeyword,
+    EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -34,7 +34,7 @@ TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
-    EtsySpyWinKeyword, EtsySpyParentKeyword, ProcessingJobModel,
+    EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus, ProcessingJobModel,
 )
 
 
@@ -117,6 +117,48 @@ def sync(client, agent, headers, value):
     return client.post(f"/api/v1/etsy-spy/agents/{agent.id}/sync",
                        content=json.dumps(value, separators=(",", ":")),
                        headers={**headers, "Content-Type": "application/json"})
+
+
+
+
+def test_sms_receipt_projection_picked_only_and_immutable_sent(scenario):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    picked_url = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(picked_url, json={"picked": True}).status_code == 200
+    route = f"/api/v1/etsy-spy/agents/{agent.id}/sms-status"
+    now = datetime.now(timezone.utc).isoformat()
+    present = {"listingId": "1234567890", "status": "sent",
+               "smsCode": "307", "smsId": "idea-123",
+               "sentAt": now, "updatedAt": now}
+    assert client.post(route, json={"items": [present]}).status_code == 401
+    assert client.post(route, headers=headers, json={"items": [
+        {**present, "smsCode": None, "smsId": None},
+    ]}).status_code == 422
+    assert client.post(route, headers=headers, json={"items": [
+        present, present
+    ]}).status_code == 422
+    response = client.post(route, headers=headers, json={"items": [present]})
+    assert response.status_code == 200, response.text
+    assert response.json()["updated"] == 1
+    rows = client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["items"]
+    assert rows and rows[0]["smsPush"]["status"] == "sent"
+    assert rows[0]["smsPush"]["code"] == "307"
+    # A late local snapshot must never turn a confirmed SMS receipt into pending.
+    stale = {"listingId": "1234567890", "status": "pending", "updatedAt": now}
+    assert client.post(route, headers=headers, json={"items": [stale]}).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["items"][0]["smsPush"]["status"] == "sent"
+    # Re-Pick preserves status by Listing ID, not a particular Picked row.
+    assert client.put(picked_url, json={"picked": False}).status_code == 200
+    assert client.put(picked_url, json={"picked": True}).status_code == 200
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["items"][0]["smsPush"]["status"] == "sent"
+    # Cross-tenant agent cannot write a status for this tenant's listing.
+    other_agent, other_headers = pair(client, db, tenant="other-tenant")
+    assert client.post(f"/api/v1/etsy-spy/agents/{other_agent.id}/sms-status",
+                       headers=other_headers, json={"items": [present]}).json()["updated"] == 0
+    assert db.query(EtsySpySmsStatus).count() == 1
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=eligible").json()["items"] == []
 
 
 def test_win_keyword_notes_are_tenant_scoped_persistent_and_have_no_side_effects(scenario):

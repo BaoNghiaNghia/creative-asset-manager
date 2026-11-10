@@ -25,6 +25,7 @@ from app.modules.authorization.principal import CurrentPrincipal, require_permis
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
     EtsySpyLaterSeed as LaterSeed, EtsySpyLaterMatch as LaterMatch,
+    EtsySpySmsStatus as SmsStatus,
     EtsySpyWinKeyword as WinKeyword,
     EtsySpyParentKeyword as ParentKeyword,
     EtsySpySession as SessionRow,
@@ -876,6 +877,18 @@ def listings(
                                     LaterMatch.state == "matched")).all()}
         seed_ids = set(db.scalars(select(LaterSeed.listing_key).where(
             LaterSeed.tenant_id == tenant, LaterSeed.listing_key.in_(ids))).all())
+    # One batched lookup for SMS receipts, distinct from keyword suggestions.
+    sms_by_key: dict[str, dict] = {}
+    if pick_state == "picked" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        for sms in db.scalars(select(SmsStatus).where(
+            SmsStatus.tenant_id == tenant, SmsStatus.listing_key.in_(ids)
+        )).all():
+            sms_by_key[sms.listing_key] = {
+                "status": sms.status, "code": sms.sms_code if sms.status == "sent" else None,
+                "sentAt": sms.sent_at if sms.status == "sent" else None,
+                "updatedAt": sms.updated_at,
+            }
     # One batched query, never one extraction lookup per Picked row.
     extraction_by_key: dict[str, dict] = {}
     if pick_state == "picked" and rows:
@@ -902,7 +915,8 @@ def listings(
                        later_match=later_by_key.get(listing.listing_key),
                        later_manual=listing.listing_key in seed_ids,
                        auto_later_keyword=auto_by_key.get(listing.listing_key)),
-         **({"extraction": extraction_by_key.get(listing.listing_key,
+         **({"smsPush": sms_by_key.get(listing.listing_key),
+             "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
         for listing, tmcheck in rows
@@ -1570,6 +1584,114 @@ def agent_picked_listings(
     response.headers["Cache-Control"] = "no-store"
     return {"ok": True, "complete": True, "total": len(items),
             "revision": revision, "items": items}
+
+
+
+_SMS_STATES = frozenset({
+    "pending", "retry_wait", "backfill_waiting", "needs_source",
+    "sending", "sent", "blocked_auth", "needs_review", "failed",
+})
+
+
+def _sms_datetime(value: object) -> datetime:
+    if not isinstance(value, str) or len(value) > 40:
+        raise HTTPException(422, "Invalid SMS timestamp")
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(422, "Invalid SMS timestamp") from None
+    if timestamp.tzinfo is None:
+        raise HTTPException(422, "SMS timestamp must include timezone")
+    timestamp = timestamp.astimezone(timezone.utc)
+    if timestamp > utcnow() + timedelta(minutes=5):
+        raise HTTPException(422, "SMS timestamp is in the future")
+    return timestamp
+
+
+@router.post("/agents/{agent_id}/sms-status")
+async def ingest_agent_sms_status(
+    agent_id: str, request: Request,
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    """Idempotent per-listing delivery state from the paired Windows SMS worker.
+
+    Only a receipt-bearing 'sent' is shown as present on SMS. A stale pending
+    snapshot never overwrites a confirmed send, including across re-Picks.
+    """
+    agent = authenticate_agent(db, agent_id, authorization)
+    if agent.name.startswith(IMAGE_AGENT_NAME_PREFIX):
+        raise HTTPException(403, "Windows Etsy Spy agent required")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > 1_000_000:
+            raise HTTPException(413, "SMS status batch too large")
+        chunks.append(chunk)
+    try:
+        payload = json.loads(b"".join(chunks))
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Invalid SMS status JSON") from None
+    values = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(values, list) or len(values) > 2500:
+        raise HTTPException(422, "Invalid SMS status batch")
+    normalized = []
+    identifiers = set()
+    for item in values:
+        if not isinstance(item, dict):
+            raise HTTPException(422, "Invalid SMS status entry")
+        listing_id = item.get("listingId")
+        status = item.get("status")
+        if not isinstance(listing_id, str) or not re.fullmatch(r"[0-9]{5,20}", listing_id):
+            raise HTTPException(422, "Invalid SMS listing ID")
+        if listing_id in identifiers or status not in _SMS_STATES:
+            raise HTTPException(422, "Duplicate listing or invalid SMS state")
+        identifiers.add(listing_id)
+        code = item.get("smsCode")
+        sms_id = item.get("smsId")
+        if code is not None and (not isinstance(code, str) or len(code) > 80):
+            raise HTTPException(422, "Invalid SMS receipt code")
+        if sms_id is not None and (not isinstance(sms_id, str) or len(sms_id) > 80):
+            raise HTTPException(422, "Invalid SMS receipt ID")
+        sent_at = _sms_datetime(item["sentAt"]) if item.get("sentAt") else None
+        updated_at = _sms_datetime(item.get("updatedAt"))
+        if status == "sent" and (not (code or sms_id) or sent_at is None):
+            raise HTTPException(422, "Confirmed SMS receipt required")
+        normalized.append((listing_id, status, code, sms_id, sent_at, updated_at))
+    tenant = agent.tenant_id
+    picked = set(db.scalars(select(Picked.listing_key).where(
+        Picked.tenant_id == tenant, Picked.listing_key.in_(identifiers)
+    )).all()) if identifiers else set()
+    current = {item.listing_key: item for item in db.scalars(
+        select(SmsStatus).where(
+            SmsStatus.tenant_id == tenant, SmsStatus.listing_key.in_(picked)
+        )
+    ).all()} if picked else {}
+    changed = 0
+    for listing_id, status, code, sms_id, sent_at, updated_at in normalized:
+        if listing_id not in picked:
+            continue  # An Unpick raced with the worker snapshot.
+        old = current.get(listing_id)
+        if old:
+            prior = old.updated_at
+            if prior.tzinfo is None:
+                prior = prior.replace(tzinfo=timezone.utc)
+            if (old.status == "sent" and status != "sent") or prior > updated_at:
+                continue
+            if old.status == "sent" and status == "sent" and prior == updated_at:
+                continue
+        if old is None:
+            old = SmsStatus(tenant_id=tenant, listing_key=listing_id,
+                            status=status, updated_at=updated_at)
+            db.add(old)
+        old.status = status
+        old.updated_at = updated_at
+        if status == "sent":
+            old.sms_code = code
+            old.sms_id = sms_id
+            old.sent_at = sent_at
+        changed += 1
+    db.commit()
+    return {"ok": True, "received": len(normalized), "updated": changed}
 
 
 @router.get("/agents/{agent_id}/sync-status")

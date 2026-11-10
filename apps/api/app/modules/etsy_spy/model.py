@@ -75,6 +75,19 @@ class EtsySpyPicked(Base):
     )
 
 
+
+
+class EtsySpySmsStatus(Base):
+    """Windows SMS Idea Inbox receipt projection, distinct from Keyword SMS suggestions."""
+    __tablename__ = "etsy_spy_sms_statuses"
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    sms_code: Mapped[str | None] = mapped_column(String(80))
+    sms_id: Mapped[str | None] = mapped_column(String(80))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
 class EtsySpyLaterSeed(Base):
     """Manual Later examples: one topic seed per tenant and Etsy Listing ID."""
     __tablename__ = "etsy_spy_later_seeds"
