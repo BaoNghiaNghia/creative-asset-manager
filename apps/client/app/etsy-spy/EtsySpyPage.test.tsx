@@ -664,16 +664,28 @@ describe("Etsy Spy native CAM dashboard", () => {
       url.includes("pick_state=picked"));
     expect(pickedFetches.length).toBeGreaterThan(0);
     expect(pickedFetches.at(-1)).not.toContain("group=");
-    expect(pickedFetches.at(-1)).not.toContain("observed_day=");
-    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")).toBeNull();
+    expect(pickedFetches.at(-1)).toContain("observed_day=" + today);
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
+      "data-observed-day")).toBe(today);
+    expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
+      .toContain("Tất cả");
+    // Selecting a different day is still supported within the Picked card.
     await act(async () => {
-      days[0].click();
+      container?.querySelector<HTMLButtonElement>(
+        '.etsy-observed-day[data-observed-day="' + expectedDays[1] + '"]')?.click();
       await new Promise(resolve => setTimeout(resolve, 50));
     });
-    expect(days[0].getAttribute("aria-pressed")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("observed_day"))
+      .toBe(expectedDays[1]);
+    // Re-selecting the Picked KPI resets the day back to Today.
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
     expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
     expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("picked");
     expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+    expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
   });
 
 
@@ -697,8 +709,11 @@ describe("Etsy Spy native CAM dashboard", () => {
       '.etsy-observed-day[data-pick-state="picked"][data-observed-day="' + yesterday + '"]');
     expect(pickedDay?.textContent).toBe("Hôm qua4Picked");
     expect(pickedDay?.querySelector(".etsy-observed-day-pick")).toBeNull();
-    expect(container?.querySelector(".etsy-day-groups-empty")?.textContent)
-      .toContain("Chọn một ngày");
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
+      "data-observed-day")).toBe(today);
+    expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
+      .toContain("Tất cả");
+    expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
     await act(async () => {
       pickedDay?.click();
       await new Promise(resolve => setTimeout(resolve, 55));
@@ -724,17 +739,42 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-observed-day[data-pick-state=later]")).toBeTruthy();
     expect(observed.some(url => url.includes("/observed-days?pick_state=later"))).toBe(true);
     expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
-    await act(async () => {
-      container?.querySelector<HTMLButtonElement>(
-        '.etsy-observed-day[data-pick-state=later][data-observed-day="' + today + '"]')?.click();
-      await new Promise(resolve => setTimeout(resolve, 55));
-    });
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(today);
+    expect(container?.querySelector(
+      '.etsy-observed-day[data-pick-state=later][aria-pressed=true]')?.getAttribute(
+        "data-observed-day")).toBe(today);
+    expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
+      .toContain("Tất cả");
     expect(container?.querySelector(".etsy-day-groups-list")?.textContent).toContain("Animals2");
     const animals = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-day-group") || [])
       .find(node => node.textContent?.includes("Animals"));
     await act(async () => { animals?.click(); await new Promise(resolve => setTimeout(resolve, 45)); });
     expect(observed.some(url => url.includes("/listings?") && url.includes("pick_state=later") &&
       url.includes("observed_day=" + today) && url.includes("group=animals"))).toBe(true);
+
+    // Switching between any KPI parents must reset both facets, not keep the
+    // previously clicked Books / Animals badge or a prior observation date.
+    for (const [card, pickState] of [
+      [".etsy-stat-total", "eligible"],
+      [".etsy-stat-picked", "picked"],
+      [".etsy-stat-later", "later"],
+    ] as const) {
+      await act(async () => {
+        container?.querySelector<HTMLButtonElement>(card)?.click();
+        await new Promise(resolve => setTimeout(resolve, 65));
+      });
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("pick_state") ?? "eligible").toBe(pickState);
+      expect(params.get("observed_day")).toBe(today);
+      expect(params.get("group")).toBeNull();
+      expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
+        "data-observed-day")).toBe(today);
+      expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
+        .toContain("Tất cả");
+      const listQueries = observed.filter(url => url.includes("/listings?"));
+      expect(listQueries.at(-1)).toContain("observed_day=" + today);
+      expect(listQueries.at(-1)).not.toContain("group=");
+    }
 
     for (const section of ["blacklist", "win-keyword", "keywords"] as const) {
       await act(async () => {

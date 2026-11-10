@@ -911,6 +911,7 @@ export function EtsySpyPage() {
       tab, q: "", sessionId: "", source: "", badge: "", tm: "", group: "",
       status: "", level: "", phase: "", pickState: "eligible",
       blacklistView: false, winKeywordsView: false,
+      // Each product KPI card starts at Today + All groups, not the previous date/theme.
       observedDay: clockDay,
       sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
         : tab === "trademarks" ? "checkedAt" : "updatedAt",
@@ -939,11 +940,11 @@ export function EtsySpyPage() {
           : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued}`
         : "Selected · Image Agent off")
         : "Manually selected products",
-      tone: "picked", tab: "products", filters: { pickState: "picked", observedDay: "all" },
+      tone: "picked", tab: "products", filters: { pickState: "picked" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
     { title: "Later", value: summary?.later ?? 0, hint: "Auto-grouped design themes",
-      tone: "later", tab: "products", filters: { pickState: "later", observedDay: "all" },
+      tone: "later", tab: "products", filters: { pickState: "later" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "later" },
     { title: "Blacklist", value: blacklist.length, hint: "Blocked keyword phrases",
