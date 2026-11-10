@@ -591,6 +591,162 @@ async def submit_image_result(
     return {"ok": True, "receipt_id": receipt_id, "output_sha256": output_hash}
 
 
+
+CANDIDATE_METHOD = "colour_layer_preview_not_ai"
+
+
+def _validated_candidate_metrics(payload: dict) -> dict:
+    """Validate review-only provenance, never AI/print/right clearance."""
+    qa = payload.get("qa")
+    if not isinstance(qa, dict):
+        raise HTTPException(422, "Candidate QA metadata required")
+    for key in ("manual_visual_review_required", "not_an_ai_model"):
+        if qa.get(key) is not True:
+            raise HTTPException(422, "Candidate must require manual review")
+    for key in ("print_ready", "rights_verified", "ocr_verified"):
+        if qa.get(key) is not False:
+            raise HTTPException(422, "Candidate cannot claim print or rights approval")
+    metrics = {}
+    for key in ("source_width", "source_height",
+                "native_artwork_width", "native_artwork_height"):
+        value = qa.get(key)
+        if type(value) is not int or not 1 <= value <= 32000:
+            raise HTTPException(422, "Invalid candidate dimensions")
+        metrics[key] = value
+    if (metrics["native_artwork_width"] > metrics["source_width"] or
+        metrics["native_artwork_height"] > metrics["source_height"]):
+        raise HTTPException(422, "Recovered artwork exceeds original source")
+    factor = qa.get("upscale_factor")
+    if (type(factor) not in (float, int) or not math.isfinite(factor)
+        or not 0.1 <= factor <= 100):
+        raise HTTPException(422, "Invalid candidate upscaling metric")
+    foreground = qa.get("foreground_pixels")
+    if type(foreground) is not int or not 1 <= foreground <= 32000 * 32000:
+        raise HTTPException(422, "Invalid candidate alpha mask")
+    return {**metrics, "upscale_factor": round(float(factor), 2),
+            "foreground_pixels": foreground,
+            "print_ready": False, "rights_verified": False,
+            "ocr_verified": False, "manual_visual_review_required": True,
+            "not_an_ai_model": True}
+
+
+@image_router.post("/{agent_id}/review-candidate")
+async def submit_review_candidate(
+    agent_id: str, request: Request, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Store an isolated, unapproved PNG candidate for a previously completed needs_ai job.
+
+    Never replaces the original immutable Fast Extraction receipt; does not
+    claim another job or increment the daily quota. The exact original paired
+    device and SHA-256 source are required.
+    """
+    agent = _authenticate(db, agent_id, authorization)
+    data = await _bounded_json(request, MAX_RECEIPT_BYTES)
+    job_id = str(data.get("job_id") or "")
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == job_id,
+    ).with_for_update())
+    if (job is None or job.tenant_id != agent.tenant_id or
+        job.job_type != EXTRACTION_JOB_TYPE):
+        raise HTTPException(404, "Extraction job not found")
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    original = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    if (job.status != "completed" or original.get("status") != "needs_ai" or
+        job.claimed_by != "etsy-image:" + agent.id or
+        job.cancellation_requested or
+        db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None):
+        raise HTTPException(409, "Original needs_ai job is not available for review")
+    if data.get("method") != CANDIDATE_METHOD:
+        raise HTTPException(422, "Unsupported local review candidate method")
+    source_sha = str(data.get("source_sha256") or "")
+    if (not re.fullmatch(r"[0-9a-f]{64}", source_sha) or
+        source_sha != original.get("source_sha256")):
+        raise HTTPException(422, "Candidate source SHA256 does not match original")
+    qa = _validated_candidate_metrics(data)
+    output_sha = str(data.get("output_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", output_sha):
+        raise HTTPException(422, "Invalid candidate SHA256")
+    old = payload.get("review_candidate")
+    if isinstance(old, dict) and old.get("output_sha256") != output_sha:
+        raise HTTPException(409, "Candidate revision is immutable")
+    raw_b64 = data.get("png_base64")
+    if not isinstance(raw_b64, str) or len(raw_b64) > MAX_RECEIPT_BYTES:
+        raise HTTPException(422, "Candidate PNG required")
+    try:
+        raw = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, "Candidate base64 malformed") from None
+    _verify_png(raw)
+    if hashlib.sha256(raw).hexdigest() != output_sha:
+        raise HTTPException(422, "Candidate PNG SHA256 mismatch")
+    target = _storage_path(agent.tenant_id, job.id).with_suffix(".candidate.png")
+    if target.is_file():
+        if hashlib.sha256(target.read_bytes()).hexdigest() != output_sha:
+            raise HTTPException(409, "Candidate storage revision mismatch")
+    else:
+        pending = target.with_suffix(".pending")
+        if pending.is_file():
+            if hashlib.sha256(pending.read_bytes()).hexdigest() != output_sha:
+                raise HTTPException(409, "Candidate staging revision mismatch")
+            pending.replace(target)
+        else:
+            if not storage_capacity(len(raw))["ready"]:
+                raise HTTPException(507, "Candidate review storage exhausted")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with pending.open("xb") as file:
+                file.write(raw)
+                file.flush()
+                os.fsync(file.fileno())
+            pending.replace(target)
+    if not isinstance(old, dict):
+        job.payload_json = {**payload, "review_candidate": {
+            "status": "review_candidate",
+            "method": CANDIDATE_METHOD,
+            "source_sha256": source_sha,
+            "output_sha256": output_sha,
+            "bytes": len(raw),
+            "qa": qa,
+            "manual_qa_required": True,
+            "rights_status": "unverified",
+            "print_ready": False,
+            "created_at": utcnow().isoformat(),
+        }}
+        agent.last_seen_at = utcnow()
+        db.commit()
+    return {"ok": True, "job_id": job.id, "candidate_ready": True,
+            "output_sha256": output_sha, "status": "review_candidate",
+            "original_result_status": "needs_ai",
+            "print_ready": False, "rights_status": "unverified"}
+
+
+@image_router.get("/candidates/{job_id}")
+def read_review_candidate(
+    job_id: str, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    tenant = principal.active_tenant_id
+    job = db.get(ProcessingJobModel, job_id)
+    if (job is None or job.tenant_id != tenant or
+        job.job_type != EXTRACTION_JOB_TYPE or job.cancellation_requested or
+        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        raise HTTPException(404, "Review candidate not found")
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    original = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    review = payload.get("review_candidate")
+    if (original.get("status") != "needs_ai" or
+        not isinstance(review, dict) or
+        review.get("status") != "review_candidate"):
+        raise HTTPException(404, "Review candidate not available")
+    file = _storage_path(tenant, job.id).with_suffix(".candidate.png")
+    if not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != review.get("output_sha256"):
+        raise HTTPException(404, "Review candidate asset missing or changed")
+    return FileResponse(str(file), media_type="image/png",
+        headers={"Cache-Control": "private, no-store",
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Disposition": 'inline; filename="cam-design-candidate-review.png"'})
+
+
 @image_router.get("/assets/{job_id}")
 def review_image_asset(
     job_id: str, principal: CurrentPrincipal = Depends(READ),

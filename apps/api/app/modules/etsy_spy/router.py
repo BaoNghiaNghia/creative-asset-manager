@@ -905,6 +905,7 @@ def listings(
             detail = job.payload_json if isinstance(job.payload_json, dict) else {}
             result = detail.get("result") if isinstance(detail.get("result"), dict) else {}
             qa = result.get("qa") if isinstance(result.get("qa"), dict) else {}
+            candidate = detail.get("review_candidate") if isinstance(detail.get("review_candidate"), dict) else {}
             extraction_by_key[job.entity_id] = {
                 "job_id": job.id, "status": result.get("status") or
                     ("cancelled" if job.cancellation_requested else job.status),
@@ -915,6 +916,8 @@ def listings(
                 "upscale_factor": qa.get("upscale_factor"),
                 "print_ready": False,
                 "rights_status": "unverified",
+                "candidate_ready": candidate.get("status") == "review_candidate",
+                "candidate_method": candidate.get("method") if candidate.get("status") == "review_candidate" else None,
             }
     return _response([
         {**_listing_item(listing, tmcheck, picked=pick_state == "picked",
@@ -1087,6 +1090,7 @@ def listing_extraction_status(
     detail = job.payload_json if isinstance(job.payload_json, dict) else {}
     result = detail.get("result") if isinstance(detail.get("result"), dict) else {}
     qa = result.get("qa") if isinstance(result.get("qa"), dict) else {}
+    candidate = detail.get("review_candidate") if isinstance(detail.get("review_candidate"), dict) else {}
     return {
         "listingKey": listing_key, "job_id": job.id,
         "status": result.get("status") or job.status,
@@ -1096,6 +1100,9 @@ def listing_extraction_status(
         "reason": result.get("reason") if isinstance(result.get("reason"), str) else None,
         "review_flags": qa.get("review_flags", []),
         "upscale_factor": qa.get("upscale_factor"),
+        "candidate_ready": candidate.get("status") == "review_candidate",
+        "candidate_method": candidate.get("method") if candidate.get("status") == "review_candidate" else None,
+        "candidate_upscale_factor": (candidate.get("qa") or {}).get("upscale_factor"),
         "print_ready": False, "rights_status": "unverified",
         "last_error": job.last_error_code,
     }

@@ -1557,6 +1557,115 @@ def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, mon
     assert client.get("/api/v1/etsy-spy/image-agents/assets/" + claim["task"]["id"]).status_code == 404
 
 
+def test_needs_ai_candidate_is_private_review_only_and_keeps_original_receipt(
+    scenario, monkeypatch, tmp_path,
+):
+    import base64
+    import binascii
+    import hashlib
+    import struct
+    import zlib
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    client, db, principal = scenario
+    scout, scout_auth = pair(client, db)
+    payload = batch("review-candidate-pilot")
+    payload["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg")
+    assert sync(client, scout, scout_auth, payload).status_code == 200
+    listing_path = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(listing_path + "/pick", json={"picked": True}).status_code == 200
+    first = client.post("/api/v1/etsy-spy/image-agents",
+                        json={"name": "Recovery Candidate Pilot"}).json()
+    other = client.post("/api/v1/etsy-spy/image-agents",
+                        json={"name": "Unrelated Paired Device"}).json()
+    base = "/api/v1/etsy-spy/image-agents/"
+    worker = base + first["agent_id"]
+    auth = {"Authorization": "Bearer " + first["token"]}
+    other_auth = {"Authorization": "Bearer " + other["token"]}
+    task = client.post(worker + "/claim", headers=auth).json()
+    job_id = task["task"]["id"]
+    original = client.post(worker + "/result", headers=auth, json={
+        "job_id": job_id, "lease_token": task["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+        "source_sha256": "a" * 64,
+        "reason": "textured_or_nonuniform_background",
+    })
+    assert original.status_code == 200
+    original_receipt = original.json()["receipt_id"]
+    assert db.get(ProcessingJobModel, job_id).status == "completed"
+
+    def chunk(kind, data):
+        data_to_sign = kind + data
+        return (struct.pack(">I", len(data)) + data_to_sign
+                + struct.pack(">I", binascii.crc32(data_to_sign) & 0xFFFFFFFF))
+
+    header = struct.pack(">IIBBBBB", 4500, 5400, 8, 6, 0, 0, 0)
+    scanline = bytes(1 + 4500 * 4)
+    png = (bytes([137, 80, 78, 71, 13, 10, 26, 10])
+           + chunk(b"IHDR", header)
+           + chunk(b"IDAT", zlib.compress(scanline * 5400, 6))
+           + chunk(b"IEND", b""))
+    digest = hashlib.sha256(png).hexdigest()
+    request = {
+        "job_id": job_id,
+        "method": "colour_layer_preview_not_ai",
+        "source_sha256": "a" * 64,
+        "output_sha256": digest,
+        "png_base64": base64.b64encode(png).decode(),
+        "qa": {
+            "source_width": 2500, "source_height": 2389,
+            "native_artwork_width": 941, "native_artwork_height": 1133,
+            "upscale_factor": 3.81, "foreground_pixels": 356791,
+            "manual_visual_review_required": True,
+            "not_an_ai_model": True, "ocr_verified": False,
+            "print_ready": False, "rights_verified": False,
+        },
+    }
+    endpoint = worker + "/review-candidate"
+    assert client.post(endpoint, json=request, headers=other_auth).status_code in (401, 403, 409)
+    assert client.post(endpoint, json={**request,
+        "source_sha256": "b" * 64}, headers=auth).status_code == 422
+    invalid = {**request, "qa": {**request["qa"], "rights_verified": True}}
+    assert client.post(endpoint, json=invalid, headers=auth).status_code == 422
+    good = client.post(endpoint, json=request, headers=auth)
+    assert good.status_code == 200, good.text
+    assert good.json()["candidate_ready"] is True
+    assert good.json()["original_result_status"] == "needs_ai"
+    assert good.json()["print_ready"] is False
+    assert client.post(endpoint, json=request, headers=auth).status_code == 200
+    assert client.post(endpoint, json={**request,
+        "output_sha256": "f" * 64}, headers=auth).status_code == 409
+    row = db.get(ProcessingJobModel, job_id)
+    db.refresh(row)
+    assert row.status == "completed"
+    assert row.payload_json["result"]["status"] == "needs_ai"
+    assert row.payload_json["result"]["receipt_id"] == original_receipt
+    assert row.payload_json["review_candidate"]["output_sha256"] == digest
+    assert row.payload_json["review_candidate"]["qa"]["not_an_ai_model"] is True
+    status = client.get(listing_path + "/extraction").json()
+    assert status["status"] == "needs_ai"
+    assert status["candidate_ready"] is True
+    assert status["candidate_upscale_factor"] == 3.81
+    picked = client.get("/api/v1/etsy-spy/listings",
+                        params={"pick_state": "picked"}).json()["items"][0]
+    assert picked["extraction"]["candidate_ready"] is True
+    assert picked["extraction"]["status"] == "needs_ai"
+    assert client.get(base + "assets/" + job_id).status_code == 404
+    candidate = client.get(base + "candidates/" + job_id)
+    assert candidate.status_code == 200 and candidate.content == png
+    assert candidate.headers["cache-control"] == "private, no-store"
+    # Candidate upload is not a fresh claim and does not consume another daily slot.
+    assert client.post(worker + "/claim", headers=auth).json()["pause_reason"] == "daily_cap_reached"
+    principal.active_tenant_id = "foreign"
+    assert client.get(base + "candidates/" + job_id).status_code == 404
+    principal.active_tenant_id = "boostgame"
+    assert client.put(listing_path + "/pick", json={"picked": False}).status_code == 200
+    assert client.get(base + "candidates/" + job_id).status_code == 404
+
+
 def test_image_agent_valid_png_asset_and_unpick_revocation(scenario, monkeypatch, tmp_path):
     import zlib
     import struct

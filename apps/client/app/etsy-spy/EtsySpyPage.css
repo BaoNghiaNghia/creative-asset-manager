@@ -1539,6 +1539,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   text-decoration:underline;
   text-underline-offset:2px;
 }
+.etsy-spy-page .etsy-extraction-candidate { color:#8a5a21; }
 .etsy-spy-page .etsy-extraction-open:focus-visible {
   outline:2px solid #135e96;
   outline-offset:2px;

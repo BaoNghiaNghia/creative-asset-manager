@@ -24,7 +24,8 @@ let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number
 let pickedKeys = new Set<string>();
 let smsProjection: { status: string; code?: string; sentAt?: string } | null = null;
 let extractionProjection: { job_id: string; status: string; review_flags?: string[];
-  upscale_factor?: number | null; rights_status: string; print_ready: boolean } | null = null;
+  upscale_factor?: number | null; rights_status: string; print_ready: boolean;
+  candidate_ready?: boolean; candidate_method?: string | null } | null = null;
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
 let extractionPilotOn = false;
@@ -1236,6 +1237,21 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-extraction-status")?.textContent).toContain("Needs AI");
     expect(container?.querySelector(".etsy-extraction-qa")).toBeNull();
     expect(container?.querySelector(".etsy-extraction-open")).toBeNull();
+    extractionProjection = {
+      ...extractionProjection, candidate_ready: true,
+      candidate_method: "colour_layer_preview_not_ai",
+    };
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    expect(container?.querySelector(".etsy-extraction-status")?.textContent).toContain("Needs AI");
+    expect(container?.querySelector(".etsy-extraction-qa")?.textContent).toContain("PNG nháp");
+    const review = container?.querySelector<HTMLAnchorElement>(".etsy-extraction-candidate");
+    expect(review?.getAttribute("href")).toBe(
+      "/api/v1/etsy-spy/image-agents/candidates/" + extractionProjection.job_id);
+    expect(review?.textContent).toContain("Review draft PNG");
+    expect(review?.getAttribute("title")).toContain("not print-ready");
   });
 
   it("shows SMS confirmation only when the Picked listing has a receipt", async () => {

@@ -349,6 +349,19 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
               title="Open transparent PNG for manual artwork and rights review">
               View PNG
             </a>}
+          {item.picked && item.extraction?.status === "needs_ai" &&
+            item.extraction?.candidate_ready && item.extraction.job_id && <>
+              <small className="etsy-extraction-qa"
+                title="Bản nháp tách lớp màu cục bộ; chưa phải AI. Cần đối chiếu hình, chữ, độ nét và quyền sử dụng.">
+                ⚠ PNG nháp · cần QA
+              </small>
+              <a className="etsy-extraction-open etsy-extraction-candidate"
+                href={"/api/v1/etsy-spy/image-agents/candidates/" + encodeURIComponent(item.extraction.job_id)}
+                target="_blank" rel="noopener noreferrer"
+                title="Review transparent candidate only. Original needs_ai job is unchanged; not print-ready.">
+                Review draft PNG
+              </a>
+            </>}
           {item.later && <small className="etsy-later-match-reason"
             title={item.laterReason || "Grouped by Later keyword theme"}>
             {item.laterManual ? "Later mẫu" : "Tự gom"} · {item.laterReason || "Chủ đề thiết kế liên quan"}

@@ -61,7 +61,8 @@ export type Listing = {
   extraction?: { job_id?: string | null; status: string; engine?: string;
     manual_qa_required?: boolean; reason?: string | null;
     review_flags?: string[]; upscale_factor?: number | null;
-    print_ready?: boolean; rights_status?: string };
+    print_ready?: boolean; rights_status?: string;
+    candidate_ready?: boolean; candidate_method?: string | null; };
   later?: boolean; laterManual?: boolean; laterReason?: string | null;
   laterScore?: number | null; laterSeedKey?: string | null;
   pageTitle: string; url: string | null; badge: string | null;
