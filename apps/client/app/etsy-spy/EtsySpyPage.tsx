@@ -904,6 +904,14 @@ export function EtsySpyPage() {
       dir: "desc", page: 1, ...filters,
     });
   };
+  const pickedCardTooltip = [
+    extraction ? (extraction.enabled
+      ? `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Queue ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
+      : "Image Agent off") : "Image Agent status unavailable",
+    summary?.picked_images
+      ? `URL ảnh: ${summary.picked_images.missing.toLocaleString("vi-VN")} thiếu · ${summary.picked_images.complete.toLocaleString("vi-VN")} đủ`
+      : null,
+  ].filter(Boolean).join(" · ");
   const overviewCards: {
     title: string; value: number | string | null | undefined; hint: string;
     tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
@@ -915,7 +923,7 @@ export function EtsySpyPage() {
     { title: "Picked", value: summary?.picked ?? 0,
       hint: extraction ? (extraction.enabled
         ? extraction.storage?.ready === false ? "Selected · Extraction storage paused"
-          : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued} · PNG ${extraction.needs_review_today} · AI ${extraction.needs_ai_today}`
+          : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued}`
         : "Selected · Image Agent off")
         : "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked", observedDay: "all" },
@@ -1008,7 +1016,9 @@ export function EtsySpyPage() {
           {overviewCards.map((card, index) => <button type="button"
             className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
             key={card.title} aria-pressed={card.selected}
-            title={`View ${card.title.toLowerCase()} records`}
+            title={card.title === "Picked"
+              ? `View picked records · ${pickedCardTooltip}`
+              : `View ${card.title.toLowerCase()} records`}
             onClick={() => selectTab(card.tab, card.filters)}>
             <span className="etsy-stat-heading">
               <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
@@ -1016,10 +1026,6 @@ export function EtsySpyPage() {
             </span>
             <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
             <small>{card.hint}</small>
-            {card.title === "Picked" && summary?.picked_images &&
-              <span className="etsy-picked-image-status" aria-label="Picked listing image URL completeness">
-                URL ảnh: {summary.picked_images.missing.toLocaleString("vi-VN")} thiếu · {summary.picked_images.complete.toLocaleString("vi-VN")} đủ
-              </span>}
           </button>)}
         </section>
         {showProductFacets && <>

@@ -27,6 +27,7 @@ let extractionProjection: { job_id: string; status: string; review_flags?: strin
   upscale_factor?: number | null; rights_status: string; print_ready: boolean } | null = null;
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
+let extractionPilotOn = false;
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -86,7 +87,7 @@ function installFetch() {
   registeredImageAgents = [];
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
   smsProjection = null; extractionProjection = null;
-  newSpyListingSynced = false;
+  newSpyListingSynced = false; extractionPilotOn = false;
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -214,10 +215,11 @@ function installFetch() {
     }
     if (url.endsWith("/image-agents")) return json({items: [...registeredImageAgents]});
     if (url.endsWith("/image-agents/overview")) return json({
-      enabled:false, daily_cap:200, claimed_today:0, remaining_today:200,
-      queued:0, processing:0, completed_today:0, needs_review_today:0,
+      enabled:extractionPilotOn, daily_cap:extractionPilotOn ? 1 : 200,
+      claimed_today:0, remaining_today:extractionPilotOn ? 1 : 200,
+      queued:extractionPilotOn ? 246 : 0, processing:0, completed_today:0, needs_review_today:0,
       needs_ai_today:0, failed_today:0, timezone:"Asia/Ho_Chi_Minh",
-      storage:{ready:false,reason:"storage_not_provisioned",
+      storage:{ready:extractionPilotOn,reason:"storage_not_provisioned",
         used_bytes:0, quota_bytes:2147483648, free_bytes:null},
     });
     if (url.includes("/agents")) return json({items: []});
@@ -757,8 +759,19 @@ describe("Etsy Spy native CAM dashboard", () => {
     await start();
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards).toHaveLength(6);
-    expect(cards[1].querySelector(".etsy-picked-image-status")?.textContent)
-      .toContain("URL ảnh: 0 thiếu · 0 đủ");
+    expect(cards[1].querySelector(".etsy-picked-image-status")).toBeNull();
+    expect(cards.every(card => card.querySelectorAll("small").length === 1)).toBe(true);
+    expect(cards[1].getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
+    extractionPilotOn = true;
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 65));
+    });
+    const pickedCard = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
+    expect(pickedCard?.querySelector("small")?.textContent).toBe("Extract 0/1 · Q 246");
+    expect(pickedCard?.querySelectorAll("small")).toHaveLength(1);
+    expect(pickedCard?.getAttribute("title")).toContain("PNG 0 · AI 0");
+    expect(pickedCard?.getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
       "Eligible listings", "Picked", "Later", "Blacklist", "Win Keyword", "Keyword nodes",
     ]);
