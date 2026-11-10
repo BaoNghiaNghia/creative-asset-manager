@@ -55,8 +55,8 @@ test("authenticated Products QA inspects Skill Manager layout read-only", async 
     new URL("../../../docs/operations/production-ui-smoke-plan.json", import.meta.url), "utf8"));
   const products = plan.routes.find(route => route.name === "realistic-review-ugc");
   const state = products?.states.find(item => item.name === "skill-manager-upload-versions");
-  assert.equal(state?.click, 'button.rrugc-global-management-button:has-text("Manage skills")');
-  assert.equal(state?.waitFor, '.rrugc-skill-modal[role="dialog"]');
+  assert.equal(state?.click, '#rrugc-skill-tab-library');
+  assert.equal(state?.waitFor, '.rrugc-skill-modal .rrugc-skill-catalog-toolbar');
   assert.ok(state.assertions.some(item => item.selector === ".rrugc-skill-modal .rrugc-skill-catalog-toolbar" && item.type === "visible"));
   assert.ok(state.assertions.some(item => item.type === "no-viewport-overflow"));
   assert.deepEqual(validateProductionUiPlan(plan), []);
