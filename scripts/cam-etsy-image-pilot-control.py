@@ -56,6 +56,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["status", "arm", "disarm"])
     parser.add_argument("--agent-id", default="")
+    parser.add_argument("--tenant-id", required=True,
+                        choices=("boostgame", "creative-assets-prod"))
     args = parser.parse_args()
     if os.name != "posix" or not ENV.is_file():
         raise SystemExit("production_host_required")
@@ -70,7 +72,7 @@ def main() -> None:
     from app.modules.etsy_spy.extraction import EXTRACTION_JOB_TYPE
     from app.modules.processing.model import ProcessingJobModel
     with SessionLocal() as db:
-        tenant = "boostgame"
+        tenant = args.tenant_id
         pending = int(db.scalar(select(func.count()).select_from(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant,
             ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
@@ -86,6 +88,7 @@ def main() -> None:
             EtsySpyAgent.active.is_(True),
         )).all()
         status = {
+            "tenant_id": tenant,
             "storage_ready": storage_capacity()["ready"],
             "daily_cap": daily_cap(),
             "claimed_today": claimed_today(db, tenant),

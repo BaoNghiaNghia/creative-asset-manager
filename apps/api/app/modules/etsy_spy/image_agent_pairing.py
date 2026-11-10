@@ -23,7 +23,9 @@ def register_hashed_image_agent(
     tenant_id: str = "boostgame",
     label: str = "DESKTOP-3FR0LF0",
 ) -> str:
-    if tenant_id != "boostgame":
+    # Explicit, operator-owned tenant allowlist: an offline device's digest
+    # never grants cross-tenant access, even when the display slug differs.
+    if tenant_id not in {"boostgame", "creative-assets-prod"}:
         raise ValueError("unauthorized_tenant")
     try:
         if str(UUID(agent_id, version=4)) != agent_id:

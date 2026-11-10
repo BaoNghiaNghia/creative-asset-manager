@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--token-sha256", required=True)
     parser.add_argument("--label", default="DESKTOP-3FR0LF0")
+    parser.add_argument("--tenant-id", choices=("boostgame", "creative-assets-prod"),
+                        required=True)
     args = parser.parse_args()
     if os.name != "posix" or not ENV_FILE.is_file():
         raise SystemExit("Production host and protected environment file required")
@@ -32,9 +34,9 @@ def main() -> None:
     with SessionLocal() as db:
         state = register_hashed_image_agent(
             db, agent_id=args.agent_id, token_sha256=args.token_sha256,
-            label=args.label)
+            label=args.label, tenant_id=args.tenant_id)
     print(json.dumps({"status": state, "agent_id": args.agent_id,
-                      "tenant_id": "boostgame", "secret_transferred": False}))
+                      "tenant_id": args.tenant_id, "secret_transferred": False}))
 
 
 if __name__ == "__main__":

@@ -1854,6 +1854,32 @@ def test_offline_hashed_image_agent_pairing_and_read_only_probe(scenario, monkey
     with raises(ValueError, match="duplicate_device_credential"):
         register_hashed_image_agent(db, agent_id=str(uuid4()), token_sha256=digest)
 
+def test_offline_image_agent_production_tenant_isolated_from_legacy_tenant(scenario):
+    from hashlib import sha256
+    from uuid import uuid4
+    from pytest import raises
+    from app.modules.etsy_spy.image_agent_pairing import register_hashed_image_agent
+    client, db, principal = scenario
+    device_id = str(uuid4())
+    token = "Z" * 64
+    digest = sha256(token.encode()).hexdigest()
+    assert register_hashed_image_agent(db, agent_id=device_id,
+        token_sha256=digest, tenant_id="creative-assets-prod") == "paired"
+    # A bearer credential may probe its own tenant, not read arbitrary CAM records.
+    response = client.get("/api/v1/etsy-spy/image-agents/" + device_id + "/probe",
+        headers={"Authorization": "Bearer " + token})
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "creative-assets-prod"
+    assert all(a["id"] != device_id for a in
+               client.get("/api/v1/etsy-spy/image-agents").json()["items"])
+    with raises(ValueError, match="device_id_collision_or_revoked"):
+        register_hashed_image_agent(db, agent_id=device_id,
+            token_sha256=digest, tenant_id="boostgame")
+    with raises(ValueError, match="duplicate_device_credential"):
+        register_hashed_image_agent(db, agent_id=str(uuid4()),
+            token_sha256=digest, tenant_id="boostgame")
+
+
 def test_bulk_pick_later_selected_listings_idempotent_and_guarded(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)
