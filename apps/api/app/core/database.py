@@ -316,6 +316,83 @@ def _verified_trial_evidence_successor(connection, expected_head: str, current_h
     )
 
 
+def _trial_artwork_snapshot_schema_complete(connection) -> bool:
+    """The verified QA copy must NEVER depend on mutable Output History.
+
+    Accept only the exact sealed/reserved ledger shape. No QA verdict table
+    mutation, no copied-PNG data or automatic promotion is authorized by DDL.
+    """
+    schema = inspect(connection)
+    table = "cam_agent_trial_artwork_snapshots"
+    required = {
+        "tenant_id", "snapshot_id", "study_id", "keyword_id",
+        "source_output_version_id", "image_processing_job_id",
+        "brief_processing_job_id", "source_remote_file_id",
+        "snapshot_asset_id", "snapshot_remote_file_id", "artifact_sha256",
+        "size_bytes", "width", "height", "status", "created_by",
+        "created_at", "verified_at",
+    }
+    try:
+        if table not in schema.get_table_names():
+            return False
+        if {col["name"] for col in schema.get_columns(table)} != required:
+            return False
+        if schema.get_pk_constraint(table).get("constrained_columns") != [
+            "tenant_id", "snapshot_id",
+        ]:
+            return False
+        fks = schema.get_foreign_keys(table)
+        if len(fks) != 1 or not (
+            fks[0].get("referred_table") == "cam_agent_trial_exposures"
+            and fks[0].get("constrained_columns") == [
+                "tenant_id", "study_id", "keyword_id",
+            ]
+        ):
+            return False
+        unique = {
+            tuple(row.get("column_names") or ())
+            for row in schema.get_unique_constraints(table)
+        }
+        if not {
+            ("tenant_id", "source_output_version_id"),
+            ("tenant_id", "snapshot_asset_id"),
+        }.issubset(unique):
+            return False
+        checks = {
+            row.get("name"): "".join(str(row.get("sqltext") or "").lower().split())
+            for row in schema.get_check_constraints(table)
+        }
+        # PG rewrites equality expressions, so require all referenced columns
+        # and both legal states, not an exact backend-specific SQL string.
+        seal = checks.get("ck_cam_trial_snapshot_seal", "")
+        if not all(part in seal for part in (
+            "status", "reserved", "verified", "snapshot_remote_file_id",
+            "verified_at", "isnull", "isnotnull",
+        )):
+            return False
+        for name, tokens in {
+            "ck_cam_trial_snapshot_size": ("size_bytes", "16777216"),
+            "ck_cam_trial_snapshot_dims": ("width", "height"),
+        }.items():
+            if not all(token in checks.get(name, "") for token in tokens):
+                return False
+        return True
+    except SQLAlchemyError:
+        return False
+
+
+def _verified_snapshot_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """Reviewed 0206 rollback bridge may start across inert additive 0207."""
+    return (
+        expected_head == "0206_etsy_spy_sms_status"
+        and current_heads == ("0207_cam_agent_trial_artwork_snapshots",)
+        and _agent_harness_schema_complete(connection)
+        and _holdout_study_schema_complete(connection)
+        and _trial_evidence_schema_complete(connection)
+        and _trial_artwork_snapshot_schema_complete(connection)
+    )
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -329,6 +406,7 @@ def validate_alembic_head(
                 _verified_agent_harness_successor(connection, expected_head, tuple(current_heads))
                 or _verified_holdout_successor(connection, expected_head, tuple(current_heads))
                 or _verified_trial_evidence_successor(connection, expected_head, tuple(current_heads))
+                or _verified_snapshot_successor(connection, expected_head, tuple(current_heads))
             ) if tuple(current_heads) != (expected_head,) else False
             exact_agent_schema_valid = (
                 _agent_harness_schema_complete(connection)
@@ -351,6 +429,15 @@ def validate_alembic_head(
                 and tuple(current_heads) == (expected_head,)
                 else True
             )
+            exact_snapshot_valid = (
+                _agent_harness_schema_complete(connection)
+                and _holdout_study_schema_complete(connection)
+                and _trial_evidence_schema_complete(connection)
+                and _trial_artwork_snapshot_schema_complete(connection)
+                if expected_head == "0207_cam_agent_trial_artwork_snapshots"
+                and tuple(current_heads) == (expected_head,)
+                else True
+            )
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
     if not exact_agent_schema_valid:
@@ -359,6 +446,8 @@ def validate_alembic_head(
         raise DatabaseStartupError("Agent Harness holdout schema incomplete at revision 0204")
     if not exact_trial_evidence_valid:
         raise DatabaseStartupError("Agent Harness evidence schema incomplete at revision 0205")
+    if not exact_snapshot_valid:
+        raise DatabaseStartupError("Agent Harness artwork snapshot schema incomplete at revision 0207")
     if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(
