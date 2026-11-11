@@ -9,6 +9,7 @@ This module never publishes listings or declares merchant claims verified.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
@@ -17,7 +18,7 @@ from uuid import uuid4
 
 import httpx
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -50,11 +51,11 @@ Apply the TikTok Shop Listing Optimizer workflow:
 - Output ONLY JSON with title, description, highlights (3-5 separate strings),
   search_terms (0-15 strings).
 - Title 25-200 characters, ideal 40-150; product category first.
-- Description >=30 English words and <=10000 characters. Use short accurate
-  sections when useful: Design Details, Size & Fit, Perfect Gift For, Care,
-  U.S. Printing & Shipping. Omit unsupported sections or use general care
-  label guidance; do not invent a blank, chart, measurement, shrinkage or
-  universal tolerance.
+- Description MUST contain at least 60 natural English words (aim 70-110)
+  while staying <=10000 characters. Use short accurate sections when useful:
+  Design Details, Size & Fit, Perfect Gift For, Care. Omit unsupported sections
+  or use general care-label guidance; do not invent a blank, chart,
+  measurement, shrinkage or universal tolerance. Do not pad with invented facts.
 - Highlights solve buyer questions: design, audience, tangible product,
   occasion and evidence-backed buyer confidence; <=1500 total characters.
 - Search terms <=250 total characters and <=15 relevant phrases, no brands
@@ -139,6 +140,115 @@ def validate_copy(data: object) -> dict:
         "skill_version": PROFILE_VERSION,
         "published": False,
     }
+
+
+class GeneratedListingInvalid(ValueError):
+    """Only model-generated copy errors qualify for bounded automatic retry."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def prepare_generated_copy(raw: object) -> dict:
+    """Repair formatting only; never synthesize garment, rights or shipping facts.
+
+    Gemini structured JSON occasionally contains harmless extra keys, aliases,
+    duplicate keywords, or an overlong optional keyword list. Canonicalizing
+    these is cheaper and safer than paying for a new model attempt. Structural
+    omissions and substantive copy failures still go through a fresh attempt.
+    """
+    if not isinstance(raw, Mapping):
+        raise GeneratedListingInvalid("root_not_object")
+    if not any(key in raw for key in ("title", "product_title")):
+        for wrapper in ("listing", "result", "product_listing"):
+            nested = raw.get(wrapper)
+            if isinstance(nested, Mapping):
+                raw = nested
+                break
+    aliases = {
+        "title": ("title", "product_title"),
+        "description": ("description", "product_description"),
+        "highlights": ("highlights", "product_highlights"),
+        "search_terms": ("search_terms", "searchTerms", "keywords"),
+    }
+    fields = {}
+    for name, keys in aliases.items():
+        fields[name] = next((raw[key] for key in keys if key in raw), None)
+    if not isinstance(fields["title"], str):
+        raise GeneratedListingInvalid("missing_title")
+    if not isinstance(fields["description"], str):
+        raise GeneratedListingInvalid("missing_description")
+    highlights = fields["highlights"]
+    if not isinstance(highlights, list) or not all(isinstance(x, str) for x in highlights):
+        raise GeneratedListingInvalid("invalid_highlights")
+    # Retain the first five real highlights. Never invent missing highlights.
+    highlights = [_normalized(x) for x in highlights if x.strip()][:5]
+    terms = fields["search_terms"]
+    if terms is None:
+        terms = []  # Search terms are optional while YTrends remains unavailable.
+    if isinstance(terms, str):
+        terms = re.split(r"[,;\n]", terms)
+    if not isinstance(terms, list) or not all(isinstance(x, str) for x in terms):
+        raise GeneratedListingInvalid("invalid_search_terms")
+    terms_clean = []
+    seen = set()
+    for term in terms:
+        normalized = _normalized(term)
+        if not normalized or normalized.casefold() in seen:
+            continue
+        if len(terms_clean) >= 15:
+            break
+        candidate = terms_clean + [normalized]
+        if (sum(map(len, candidate)) > SEARCH_TERMS_LIMIT or
+                len(", ".join(candidate)) > SEARCH_TERMS_LIMIT):
+            # Discard this optional phrase, retaining any shorter later ones.
+            continue
+        seen.add(normalized.casefold())
+        terms_clean.append(normalized)
+    return {
+        "title": _normalized(fields["title"]),
+        "description": _normalized(fields["description"]),
+        "highlights": highlights,
+        "search_terms": terms_clean,
+    }
+
+
+def _safe_validation_reason(exc: Exception) -> str:
+    """No model text, prompt, provider secret or raw validation error in logs."""
+    if isinstance(exc, GeneratedListingInvalid):
+        return exc.reason
+    if isinstance(exc, ValidationError):
+        first = exc.errors(include_input=False)[0]
+        field = str((first.get("loc") or ("root",))[0])
+        kind = str(first.get("type") or "invalid")
+        if field in ("title", "description", "highlights", "search_terms"):
+            if kind in ("missing", "list_type", "string_type", "too_short",
+                        "too_long", "string_too_short", "string_too_long"):
+                return f"schema_{field}_{kind}"
+        return "schema_validation_failed"
+    code = str(exc)
+    allowed = {
+        "empty_listing_phrase", "title_character_limit",
+        "description_character_or_word_limit", "combined_listing_field_limit",
+        "duplicate_search_terms", "unverified_us_origin_claim",
+        "listing_external_url",
+    }
+    return code if code in allowed else "schema_validation_failed"
+
+
+def _retry_instruction(attempt: int) -> str:
+    if attempt <= 1:
+        return ""
+    return (
+        "\n\nRETRY: Your earlier response failed strict JSON validation. "
+        "Return precisely four JSON fields (title, description, highlights, "
+        "search_terms), with no extra keys. Title 40-150 characters; "
+        "description 70-110 natural English words based only on visible design; "
+        "3-5 nonempty highlights; <=10 unique short search terms with <=180 "
+        "combined characters. No unverified facts, brand claims, URLs or "
+        "US manufacturing/shipping claims. Output a single JSON object."
+    )
 
 
 def queue_on_pick(db: Session, tenant: str, listing: EtsySpyListing,
@@ -315,6 +425,10 @@ class EtsyTikTokListingHandler:
                     else JobHandlerResult.non_retryable)(
                         "tiktok_listing_provider_unavailable",
                         "TikTok listing draft provider unavailable.")
+        except GeneratedListingInvalid as exc:
+            return JobHandlerResult.retryable(
+                "tiktok_listing_invalid_output",
+                f"AI draft rejected by structured QA ({exc.reason}); retry automatically.")
         except (OSError, httpx.HTTPError):
             return JobHandlerResult.retryable(
                 "tiktok_listing_source_unavailable", "Public Etsy image unavailable.")
@@ -357,7 +471,8 @@ class EtsyTikTokListingHandler:
         provider = context.dependencies.ai_provider_registry.require("gemini")
         response = await provider.analyze_single(AiMetadataAnalysisInput(
             tenant_id=job.tenant_id, asset_id=job.id,
-            prompt=PROMPT + "\n\nUntrusted competitor title: " + payload["source_title"][:700],
+            prompt=(PROMPT + _retry_instruction(job.attempt_count) +
+                    "\n\nUntrusted competitor title: " + payload["source_title"][:700]),
             image_bytes=photo, image_mime_type=mime,
             metadata_profile="etsy_tiktok_listing_draft",
             metadata_profile_version=PROFILE_VERSION,
@@ -367,7 +482,10 @@ class EtsyTikTokListingHandler:
             preferred_credential_provider=slot.credential_provider,
             is_cancelled=lambda: context.is_cancelled,
         ))
-        validated = validate_copy(response.metadata)
+        try:
+            validated = validate_copy(prepare_generated_copy(response.metadata))
+        except (ValueError, TypeError) as exc:
+            raise GeneratedListingInvalid(_safe_validation_reason(exc)) from exc
         with context.dependencies.session_factory() as db:
             current = db.scalar(select(ProcessingJobModel).where(
                 ProcessingJobModel.id == job.id,

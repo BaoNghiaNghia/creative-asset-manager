@@ -80,6 +80,124 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
             tiktok_skill.validate_copy({**copy(), **mutation})
 
 
+
+def test_generated_copy_repairs_only_formatting_not_product_facts():
+    raw = {
+        "product_title": copy()["title"],
+        "product_description": copy()["description"],
+        "product_highlights": copy()["highlights"] + ["Extra fact-free highlight.", "Drop this."],
+        "searchTerms": ["mountain sweatshirt", "mountain sweatshirt",
+                        "retro sunset pullover", "x" * 260, "outdoor gift"],
+        "debug_reasoning": "Unexpected provider key is not a listing claim",
+    }
+    normalized = tiktok_skill.prepare_generated_copy(raw)
+    assert set(normalized) == {"title", "description", "highlights", "search_terms"}
+    assert normalized["highlights"] == (copy()["highlights"] +
+                                        ["Extra fact-free highlight."])
+    assert normalized["search_terms"] == [
+        "mountain sweatshirt", "retro sunset pullover", "outdoor gift"]
+    assert tiktok_skill.validate_copy(normalized)["published"] is False
+    wrapped = tiktok_skill.prepare_generated_copy({"listing": {
+        "title": copy()["title"], "description": copy()["description"],
+        "highlights": copy()["highlights"],
+    }})
+    assert wrapped["search_terms"] == []
+    assert tiktok_skill.validate_copy(wrapped)["metrics"]["search_terms_count"] == 0
+    with pytest.raises(ValueError, match="unverified_us_origin_claim"):
+        tiktok_skill.validate_copy(tiktok_skill.prepare_generated_copy({
+            **copy(), "description": copy()["description"] + " Made in USA."
+        }))
+    with pytest.raises(tiktok_skill.GeneratedListingInvalid, match="missing_description"):
+        tiktok_skill.prepare_generated_copy({"title": copy()["title"]})
+    assert "RETRY" in tiktok_skill._retry_instruction(2)
+    assert tiktok_skill._retry_instruction(1) == ""
+
+
+def test_invalid_generated_copy_is_retryable_then_valid_draft_completes(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    job = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert job is not None
+    job.status = "processing"
+    job.claimed_by = "worker-cam"
+    job.attempt_count = 1
+    job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    job.payload_json = {
+        **job.payload_json,
+        "_ai_model_start_slot": {
+            "provider": "gemini", "credential_provider": "gemini",
+            "model": "gemini-test-model", "worker_id": "worker-cam", "attempt_count": 1,
+        },
+    }
+    db.commit()
+    prompts = []
+
+    class Provider:
+        async def analyze_single(self, input):
+            prompts.append(input.prompt)
+            if len(prompts) == 1:
+                return SimpleNamespace(metadata={**copy(), "description": "Too short."})
+            return SimpleNamespace(metadata={**copy(), "search_terms": [
+                "mountain sweatshirt", "mountain sweatshirt", "outdoor gift"]})
+
+    deps = WorkerDependencies(session_factory=lambda: Session(db.get_bind()),
+                              ai_provider_registry=SimpleNamespace(
+                                  require=lambda key: Provider()))
+
+    def context(attempt):
+        return JobHandlerContext(
+            job=ClaimedJob(
+                id=job.id, tenant_id=job.tenant_id, job_type=job.job_type,
+                entity_type=job.entity_type, entity_id=job.entity_id,
+                payload=job.payload_json, attempt_count=attempt,
+                lease_owner="worker-cam", provider_key="gemini"),
+            dependencies=deps, shutdown_requested=Event(), cancellation_requested=Event(),
+            logger=logging.LoggerAdapter(logging.getLogger("test_tiktok_skill"), {}),
+        )
+
+    async def image(_url):
+        return b"test-image-bytes", "image/jpeg"
+
+    handler = tiktok_skill.EtsyTikTokListingHandler(fetch_image=image)
+    first = handler(context(1))
+    assert first.outcome == JobOutcome.RETRYABLE_FAILURE
+    assert first.error_code == "tiktok_listing_invalid_output"
+    assert "RETRY" not in prompts[0]
+    db.expire_all()
+    assert "result" not in db.get(ProcessingJobModel, job.id).payload_json
+
+    job = db.get(ProcessingJobModel, job.id)
+    job.attempt_count = 2
+    job.payload_json = {
+        **job.payload_json,
+        "_ai_model_start_slot": {
+            **job.payload_json["_ai_model_start_slot"],
+            "attempt_count": 2,
+        },
+    }
+    db.commit()
+    second = handler(context(2))
+    assert second.outcome == JobOutcome.COMPLETED
+    assert "RETRY" in prompts[1]
+    db.expire_all()
+    result = db.get(ProcessingJobModel, job.id).payload_json["result"]
+    assert result["published"] is False
+    assert result["search_terms"] == ["mountain sweatshirt", "outdoor gift"]
+
+
+def test_source_validation_error_remains_nonretryable():
+    async def invalid_source(_context):
+        raise ValueError("untrusted_image_url")
+
+    handler = tiktok_skill.EtsyTikTokListingHandler()
+    handler._run = invalid_source
+    assert handler(object()).outcome == JobOutcome.NON_RETRYABLE_FAILURE
+
+
 def test_queue_is_feature_gated_idempotent_and_does_not_share_tenant(db, monkeypatch):
     row = product()
     picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
