@@ -6,7 +6,9 @@ and no Experience candidate can be promoted by these endpoints.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
@@ -33,6 +35,7 @@ from .executor_readiness import (
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .job_lease_preview import observe_processing_lease
 from .external_capacity import preview_image_agent_capacity
+from .idle_attestation import idle_attestation_enabled, verify_idle_attestation
 from .external_heartbeat import (
     EVIDENCE_FIELD, external_heartbeat_enabled,
     external_heartbeat_signing_key, observe_external_heartbeat,
@@ -789,6 +792,47 @@ def read_external_job_heartbeat(
     }
 
 
+class IdleAttestationVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    receipt: dict[str, Any] = Field(min_length=11, max_length=11)
+
+
+@router.post("/{tenant_id}/external-executors/etsy-image/idle-attestation/verify")
+def verify_reported_idle_attestation(
+    tenant_id: str,
+    body: IdleAttestationVerifyRequest,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Operator verifies a client-held HMAC; no server-side dispatch or writes."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    if not idle_attestation_enabled():
+        raise HTTPException(404, "Not found")
+    receipt = body.receipt
+    agent_id = receipt.get("agent_id")
+    agent = db.get(EtsySpyAgent, agent_id) if isinstance(agent_id, str) else None
+    authorized_role = bool(
+        agent is not None and agent.active and agent.tenant_id == tenant_id
+        and agent.name.startswith(IMAGE_AGENT_NAME_PREFIX)
+    )
+    unresolved = True
+    if authorized_role:
+        unresolved = db.scalar(select(ProcessingJobModel.id).where(
+            ProcessingJobModel.tenant_id == tenant_id,
+            ProcessingJobModel.job_type == "etsy_design_extract",
+            ProcessingJobModel.claimed_by == "etsy-image:" + agent_id,
+            ProcessingJobModel.status == "processing",
+        ).limit(1)) is not None
+    verified = verify_idle_attestation(
+        receipt,
+        signing_key=external_heartbeat_signing_key(),
+        tenant_id=tenant_id, agent_id=agent_id if authorized_role else "",
+        agent_active=authorized_role, unresolved_claims=unresolved,
+    )
+    return {"tenant_id": tenant_id, **verified}
+
+
 @router.get("/{tenant_id}/external-executors/etsy-image/capacity-preview")
 def read_etsy_image_capacity_preview(
     tenant_id: str,
@@ -804,6 +848,14 @@ def read_etsy_image_capacity_preview(
         heartbeat_enabled=enabled,
         signing_key=external_heartbeat_signing_key() if enabled else None,
     )
+    snapshot["idle_attestation"] = {
+        "feature_enabled": idle_attestation_enabled(),
+        "receipt_location": "paired_device_client_held",
+        "independent_browser_idle_verified": False,
+        "verified_free_slots": 0,
+        "reservation_created": False,
+        "dispatch_allowed": False,
+    }
     if get_settings().AI_EMERGENCY_STOP_ENABLED:
         snapshot["capacity_state"] = "emergency_stop"
     return snapshot

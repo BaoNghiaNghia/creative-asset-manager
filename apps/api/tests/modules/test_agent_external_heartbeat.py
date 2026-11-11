@@ -487,6 +487,202 @@ def test_admin_rbac_tenant_flag_and_emergency_stop(setup):
     assert s.client.get(s.admin.replace(s.job.id, "invalid")).status_code == 422
 
 
+def _idle_body(**updates):
+    body = {
+        "protocol": "cam-image-idle-report-v1",
+        "session_id": str(uuid4()),
+        "sequence": 1,
+        "journal_empty": True,
+        "device_mode": "orchestrator_v1",
+    }
+    body.update(updates)
+    return body
+
+
+def _idle_canary_ready(s, monkeypatch):
+    from app.modules.etsy_spy import image_agent as module
+    monkeypatch.setenv("CAM_AGENT_HARNESS_IDLE_ATTESTATION_ENABLED", "1")
+    monkeypatch.setattr(module, "transport_enabled", lambda: True)
+    monkeypatch.setattr(module, "orchestrator_enabled", lambda: True)
+    return (
+        s.device.replace("/harness-heartbeat", "/harness-idle-attestation"),
+        "/api/v1/admin/agent-harness/boostgame/external-executors/"
+        "etsy-image/idle-attestation/verify",
+    )
+
+
+def test_idle_report_disabled_without_new_server_flag(setup, monkeypatch):
+    s = setup
+    from app.modules.etsy_spy import image_agent as module
+    monkeypatch.setattr(module, "transport_enabled", lambda: True)
+    monkeypatch.setattr(module, "orchestrator_enabled", lambda: True)
+    route = s.device.replace("/harness-heartbeat", "/harness-idle-attestation")
+    reply = s.client.post(route, json=_idle_body(),
+        headers={"Authorization": "Bearer " + s.secret})
+    assert reply.status_code == 404
+    probe = s.client.get(route.replace("harness-idle-attestation", "probe"),
+        headers={"Authorization": "Bearer " + s.secret}).json()
+    assert probe["harness_idle_attestation_supported"] is True
+    assert probe["harness_idle_attestation_ready"] is False
+    assert s.job.payload_json == {}
+
+
+def test_idle_attestation_rejects_processing_claim_and_never_claims_job(
+    setup, monkeypatch,
+):
+    s = setup
+    device, admin = _idle_canary_ready(s, monkeypatch)
+    headers = {"Authorization": "Bearer " + s.secret}
+    assert s.client.get(device.replace("harness-idle-attestation", "probe"),
+                        headers=headers).json()["harness_idle_attestation_ready"] is True
+    result = s.client.post(device, json=_idle_body(), headers=headers)
+    assert result.status_code == 409
+    assert "lease" not in result.text
+    assert s.job.status == "processing"
+    assert s.job.payload_json == {}
+    assert s.db.query(ProcessingJobModel).count() == 1
+    response = s.client.post(admin, json={"receipt": {}})
+    assert response.status_code == 422
+
+
+def test_idle_attestation_is_signed_ttl_bound_and_never_free_capacity(
+    setup, monkeypatch,
+):
+    from app.modules.agent_harness.idle_attestation import verify_idle_attestation
+    s = setup
+    s.job.status = "completed"
+    s.job.completed_at = datetime.now(timezone.utc)
+    s.job.lease_expires_at = None
+    s.db.commit()
+    device, admin = _idle_canary_ready(s, monkeypatch)
+    headers = {"Authorization": "Bearer " + s.secret}
+    initial_job_count = s.db.query(ProcessingJobModel).count()
+    first_seen = s.agent.last_seen_at
+    response = s.client.post(device, json=_idle_body(), headers=headers)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "server_attested_device_idle_report"
+    assert payload["dispatch_allowed"] is False
+    assert payload["verified_free_slots"] == 0
+    assert payload["reservation_created"] is False
+    assert payload["independent_browser_idle_verified"] is False
+    receipt = payload["receipt"]
+    assert receipt["agent_id"] == s.agent.id
+    assert receipt["tenant_id"] == "boostgame"
+    assert receipt["reported_journal_empty"] is True
+    assert receipt["expires_epoch"] - receipt["issued_epoch"] == 30
+    assert receipt["sequence"] == 1
+    assert "lease_token" not in response.text
+    assert s.secret not in response.text
+    assert s.db.query(ProcessingJobModel).count() == initial_job_count
+    assert s.agent.last_seen_at == first_seen
+    paired_verifier = device.replace(
+        "/harness-idle-attestation", "/harness-idle-verify"
+    )
+    direct = s.client.post(
+        paired_verifier, json={"receipt": receipt}, headers=headers,
+    )
+    assert direct.status_code == 200, direct.text
+    assert direct.json()["paired_idle_report_authenticated"] is True
+    assert direct.json()["verified_free_slots"] == 0
+    assert direct.json()["dispatch_allowed"] is False
+    assert "signature" not in direct.text
+    unauthorized = s.client.post(
+        paired_verifier, json={"receipt": receipt},
+        headers={"Authorization": "Bearer " + s.spy_token},
+    )
+    assert unauthorized.status_code == 401
+    admin_reply = s.client.post(admin, json={"receipt": receipt})
+    assert admin_reply.status_code == 200, admin_reply.text
+    check = admin_reply.json()
+    assert check["paired_idle_report_authenticated"] is True
+    assert check["state"] == "authenticated_device_reported_idle"
+    assert check["independent_browser_idle_verified"] is False
+    assert check["verified_free_slots"] == 0
+    assert check["dispatch_allowed"] is False
+    assert s.agent.id not in admin_reply.text
+    assert "signature" not in admin_reply.text
+
+    old = verify_idle_attestation(
+        receipt, signing_key=bytes.fromhex(_SECRET), tenant_id="boostgame",
+        agent_id=s.agent.id, agent_active=True, unresolved_claims=False,
+        now=datetime.now(timezone.utc) + timedelta(seconds=35),
+    )
+    assert old["paired_idle_report_authenticated"] is False
+    assert old["state"] == "receipt_expired"
+
+    tampered = {**receipt, "sequence": 999}
+    assert s.client.post(admin, json={"receipt": tampered}).json()["state"] == (
+        "signature_invalid"
+    )
+    s.job.status = "processing"
+    s.job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=40)
+    s.db.commit()
+    assert s.client.post(admin, json={"receipt": receipt}).json()["state"] == (
+        "unresolved_processing_claim"
+    )
+    s.job.status = "completed"
+    s.job.lease_expires_at = None
+    s.agent.active = False
+    s.db.commit()
+    assert s.client.post(admin, json={"receipt": receipt}).json()["state"] == (
+        "device_revoked"
+    )
+    assert s.client.post(device, json=_idle_body(), headers=headers).status_code == 401
+
+
+@pytest.mark.parametrize("bad,expected", [
+    ({"journal_empty": False}, 422),
+    ({"sequence": True}, 422),
+    ({"sequence": 0}, 422),
+    ({"sequence": "1"}, 422),
+    ({"device_mode": "fast_cpu"}, 422),
+    ({"session_id": "invalid"}, 422),
+    ({"protocol": "cam-image-idle-report-v2"}, 422),
+    ({"extra": "ignored"}, 422),
+])
+def test_idle_attestation_invalid_payloads(setup, monkeypatch, bad, expected):
+    s = setup
+    s.job.status = "completed"
+    s.db.commit()
+    device, _ = _idle_canary_ready(s, monkeypatch)
+    response = s.client.post(device, json=_idle_body(**bad),
+        headers={"Authorization": "Bearer " + s.secret})
+    assert response.status_code == expected, response.text
+    assert EVIDENCE_FIELD not in (s.job.payload_json or {})
+
+
+def test_idle_attestation_role_tenant_rbac_and_emergency_stop(setup, monkeypatch):
+    s = setup
+    s.job.status = "completed"
+    s.db.commit()
+    device, admin = _idle_canary_ready(s, monkeypatch)
+    wrong_role = device.replace(s.agent.id, s.spy.id)
+    result = s.client.post(wrong_role, json=_idle_body(),
+        headers={"Authorization": "Bearer " + s.spy_token})
+    assert result.status_code == 403
+    good = s.client.post(device, json=_idle_body(),
+        headers={"Authorization": "Bearer " + s.secret})
+    assert good.status_code == 200
+    receipt = good.json()["receipt"]
+    s.principal.effective_permissions = frozenset({"ai_operations.read"})
+    assert s.client.post(admin, json={"receipt": receipt}).status_code == 403
+    s.principal.effective_permissions = frozenset({"ai_operations.read", "ai_provider.configure"})
+    s.principal.active_tenant_id = "other"
+    assert s.client.post(admin, json={"receipt": receipt}).status_code == 403
+    s.principal.active_tenant_id = "boostgame"
+    s.flags.AGENT_HARNESS_READ_API_ENABLED = False
+    assert s.client.post(admin, json={"receipt": receipt}).status_code == 404
+    s.flags.AGENT_HARNESS_READ_API_ENABLED = True
+    wrong_tenant_receipt = {**receipt, "tenant_id": "other"}
+    assert s.client.post(admin, json={"receipt": wrong_tenant_receipt}).json()[
+        "paired_idle_report_authenticated"
+    ] is False
+    s.flags.AI_EMERGENCY_STOP_ENABLED = True
+    assert s.client.post(device, json=_idle_body(),
+        headers={"Authorization": "Bearer " + s.secret}).status_code == 503
+
+
 def test_paired_probe_exposes_readiness_boolean_without_signing_material(
     setup, monkeypatch,
 ):
