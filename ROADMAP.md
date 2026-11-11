@@ -1,11 +1,21 @@
 # Implementation Roadmap
 
-## 2026-11-11 — CAM Agent Harness V2 Phase 4A: verified route preflight (in progress)
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.1: lease-bound advisory admission
+
+- [x] Add tenant-only, read-only `ProcessingJob` lease observation; reject non-processing/expired/cancelled/misclaimed jobs, missing time/attempt evidence and stale lease-row activity without touching the queue.
+- [x] Require pinned `job.read` tool grant and explicit request before advisory routing; map only verified Stage 1/2 RRUGC job types. Stage 4 remains unavailable pending independent handler mapping.
+- [x] Keep no trusted Browser heartbeat, no executor slot lease, no generated job, and `dispatch_allowed=false`; an active DB lease observation does not prove worker heartbeat/authenticated provider output.
+- [x] Add negative RBAC/tenant/stage/clock/cancellation/lease-boundary tests, architecture and rollback documentation.
+- [ ] Verify dedicated tests and full GitHub CI, merge, then backend-only production deploy with `--no-migrate --keep-releases 2`, confirm 9 managed services, Alembic head and distinct rollback.
+- [ ] Next Phase 4B.2: scoped authenticated remote heartbeat and signed short-lived job/attempt/worker receipts for CAM Image Extension and other executors, followed by guarded actual admission.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4B1_JOB_LEASE_ADMISSION.md`.
+
+## 2026-11-11 — CAM Agent Harness V2 Phase 4A: verified route preflight (deployed)
 
 - [x] Refuse advisory routing from unverified executor status, positive-but-inconsistent capacity or a fabricated browser heartbeat; require exact verified capacity and coherent slot accounting.
 - [x] Skip Codex account/CLI probes for unsupported stage/capability requests and browser-only agent definitions, while preserving tenant/RBAC checks and immutable agent versions.
 - [x] Add explicit preferred/fallback advisory priority, maintaining `dispatch_allowed=false`; do not route real production jobs or enable AI policy promotion.
-- [ ] Confirm the new targeted route-preflight tests plus full GitHub CI, then merge to `main` and deploy using the reviewed backend-only `--no-migrate` release process.
+- [x] PR #103 CI 16/16 PASS, merged at `223e9c9f1`; backend-only `--no-migrate` production deployment exit 0, 9/9 services active, 0207 migration unchanged, rollback `1aa09620e` retained.
 - [ ] Next: trusted worker heartbeat and ProcessingJob lease-bound executor admission, independently reviewed snapshot-bound QA and provider usage/cost receipts; only then consider measured routing optimization.
 - Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4A_ROUTE_PREFLIGHT.md`.
 
