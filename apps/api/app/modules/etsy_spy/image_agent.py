@@ -19,12 +19,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import get_settings
+from app.modules.agent_harness.external_heartbeat import (
+    EVIDENCE_FIELD, ExternalHeartbeatRejected, external_heartbeat_enabled,
+    external_heartbeat_signing_key, issue_external_heartbeat,
+)
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.processing.model import ProcessingJobModel
 from .extraction import EXTRACTION_JOB_TYPE, EXTRACTION_ENGINE, extraction_enabled
@@ -172,6 +179,15 @@ def _authenticate(db: Session, agent_id: str, authorization: str | None):
 def _lease_token(agent: EtsySpyAgent, job: ProcessingJobModel) -> str:
     message = f"{agent.id}:{job.id}:{job.attempt_count}".encode("ascii")
     return hmac.new(bytes.fromhex(agent.token_hash), message, "sha256").hexdigest()
+
+
+class ExternalJobHeartbeatRequest(BaseModel):
+    """Exact, no extra fields, no client-side trust of timestamps or slot counts."""
+    model_config = ConfigDict(extra="forbid")
+    protocol: str = Field(pattern=r"^cam-agent-external-hb-v1$")
+    job_id: UUID
+    lease_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    attempt_count: int = Field(strict=True, ge=1, le=1000)
 
 
 def _task(job: ProcessingJobModel, agent: EtsySpyAgent) -> dict:
@@ -510,6 +526,80 @@ def claim_image_job(
     agent.last_seen_at = job.claimed_at
     db.commit()
     return _task(job, agent)
+
+
+@image_router.post("/{agent_id}/harness-heartbeat")
+async def attest_image_job_heartbeat(
+    agent_id: str, request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Opt-in, short-lived authenticated heartbeat; never renews a lease.
+
+    Kept separate from the historical check-job recovery contract. A device
+    must still use check-job/result under their existing lease fences.
+    """
+    if not external_heartbeat_enabled():
+        raise HTTPException(404, "Not found")
+    agent = _authenticate(db, agent_id, authorization)
+    if get_settings().AI_EMERGENCY_STOP_ENABLED:
+        raise HTTPException(503, "Emergency stop enabled")
+    key = external_heartbeat_signing_key()
+    if key is None:
+        raise HTTPException(503, "Heartbeat signing key unavailable")
+    payload = await _bounded_json(request, 4096)
+    try:
+        body = ExternalJobHeartbeatRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(422, "Invalid external heartbeat payload") from exc
+
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == str(body.job_id),
+        ProcessingJobModel.tenant_id == agent.tenant_id,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+    ).with_for_update())
+    if job is None:
+        raise HTTPException(404, "Image job not found")
+    if not hmac.compare_digest(body.lease_token, _lease_token(agent, job)):
+        raise HTTPException(409, "Stale image job lease")
+    if db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None:
+        raise HTTPException(409, "Image job is no longer picked")
+
+    clock = utcnow()
+    try:
+        record = issue_external_heartbeat(
+            job, agent_id=agent.id, expected_attempt=body.attempt_count,
+            signing_key=key, now=clock,
+        )
+    except ExternalHeartbeatRejected as exc:
+        raise HTTPException(409, str(exc)) from None
+
+    # The DB row is locked so a concurrent claim, cancellation or final result
+    # cannot invalidate the attempt between validation and attestation.
+    # Single bounded evidence replaces itself; no unbounded heartbeat log.
+    job.payload_json = {
+        **(job.payload_json if isinstance(job.payload_json, dict) else {}),
+        EVIDENCE_FIELD: record,
+    }
+    job.updated_at = clock
+    agent.last_seen_at = clock
+    db.commit()
+    return {
+        "status": "authenticated_heartbeat_observed",
+        "job_id": job.id,
+        "attempt_count": record["attempt_count"],
+        "heartbeat_id": record["signature"][:32],
+        "issued_at": datetime.fromtimestamp(
+            record["issued_epoch"], timezone.utc,
+        ).isoformat(),
+        "expires_at": datetime.fromtimestamp(
+            record["expires_epoch"], timezone.utc,
+        ).isoformat(),
+        "lease_renewed": False,
+        "executor_slot_reserved": False,
+        "dispatch_allowed": False,
+        "execution_enabled": False,
+    }
 
 
 @image_router.post("/{agent_id}/check-job")

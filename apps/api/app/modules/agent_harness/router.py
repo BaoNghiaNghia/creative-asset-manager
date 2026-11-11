@@ -18,6 +18,8 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.auth_persistence.model import AuthAuditEventModel
 from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
+from app.modules.etsy_spy.model import EtsySpyAgent
+from app.modules.etsy_spy.service import IMAGE_AGENT_NAME_PREFIX
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_all_permissions, require_permission, require_tenant_scope,
 )
@@ -30,6 +32,10 @@ from .executor_readiness import (
 )
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .job_lease_preview import observe_processing_lease
+from .external_heartbeat import (
+    EVIDENCE_FIELD, external_heartbeat_enabled,
+    external_heartbeat_signing_key, observe_external_heartbeat,
+)
 from .registry import AgentRegistryError
 from .repository import AgentHarnessRepository, _event_key
 from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
@@ -730,3 +736,44 @@ def preview_job_bound_agent_route(
         else "lease_observed_no_verified_executor"
     )
     return result
+
+
+@router.get("/{tenant_id}/jobs/{job_id}/external-heartbeat")
+def read_external_job_heartbeat(
+    tenant_id: str,
+    job_id: UUID,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Tenant-only read projection; never trusts client-submitted slot counts."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == str(job_id),
+        ProcessingJobModel.tenant_id == tenant_id,
+        ProcessingJobModel.job_type == "etsy_design_extract",
+    ))
+    if job is None:
+        raise HTTPException(404, detail="Job not found")
+
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    record = payload.get(EVIDENCE_FIELD)
+    agent_id = record.get("agent_id") if isinstance(record, dict) else None
+    agent = db.get(EtsySpyAgent, agent_id) if isinstance(agent_id, str) else None
+    agent_active = bool(
+        agent is not None and agent.active and agent.tenant_id == tenant_id
+        and agent.name.startswith(IMAGE_AGENT_NAME_PREFIX)
+    )
+    enabled = external_heartbeat_enabled()
+    observed = observe_external_heartbeat(
+        job,
+        agent_active=agent_active,
+        signing_key=external_heartbeat_signing_key() if enabled else None,
+    )
+    return {
+        "tenant_id": tenant_id,
+        "job_id": str(job_id),
+        "executor_kind": "etsy_image_agent",
+        "heartbeat_feature_enabled": enabled,
+        **observed,
+    }
