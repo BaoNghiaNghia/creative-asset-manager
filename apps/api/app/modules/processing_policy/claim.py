@@ -45,6 +45,7 @@ AI_JOB_TYPES = (
     "rrugc_cap_stack_analyze",
     "rrugc_research_vision",
     "rrugc_supervisor_qa",
+    "etsy_tiktok_listing_generate",
 )
 SOURCE_JOB_TYPES = ("source_sync", "source_asset_download", "creative_pipeline_scan")
 STORAGE_JOB_TYPES = ("asset_store", "metadata_sidecar_export", "rrugc_candidate_import")
@@ -156,6 +157,7 @@ STAGE_POLICY = {
     "rrugc_cap_stack_analyze": "ai_analysis_enabled",
     "rrugc_research_vision": "ai_analysis_enabled",
     "rrugc_supervisor_qa": "ai_analysis_enabled",
+    "etsy_tiktok_listing_generate": "ai_analysis_enabled",
     "rrugc_delivery_maintenance": "pipeline_enabled",
 }
 

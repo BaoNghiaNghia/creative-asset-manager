@@ -61,10 +61,26 @@ export type DesignAsset = {
   print_ready: false; rights_status: "unverified";
   manual_qa_required: true; created_at?: string | null;
 };
+export type TikTokListingDraft = {
+  title: string; description: string; highlights: string[]; search_terms: string[];
+  qa_status: "needs_fact_check"; keyword_source: string; ytrends_status: "unavailable";
+  warnings: string[]; published: false;
+  metrics: { title_characters: number; description_characters: number;
+    description_words: number; highlights_count: number;
+    highlights_characters_total: number; search_terms_count: number;
+    search_terms_characters_total: number; search_terms_joined_characters: number; };
+};
+export type TikTokListingView = {
+  listingKey?: string; enabled?: boolean; status: string;
+  job_id?: string | null; draft_only: true;
+  title_preview?: string | null; ytrends_status?: string; qa_status?: string | null;
+  result?: TikTokListingDraft;
+};
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
   designs?: DesignAsset[];
+  tiktokListing?: TikTokListingView;
   smsPush?: { status: string; code?: string | null; sentAt?: string | null;
     updatedAt?: string | null } | null;
   extraction?: { job_id?: string | null; status: string; engine?: string;

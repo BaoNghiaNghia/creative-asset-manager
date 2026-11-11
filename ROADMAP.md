@@ -1,5 +1,17 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Etsy Spy Picked → TikTok Shop US Listing Optimizer (code candidate)
+
+- [x] Analyze user-provided TikTok Shop Listing Optimizer skill: photo + competitor title → Product Title, Description, 3–5 Highlights, Search Terms. Preserve 25–200/10000/1500/250 field limits and default manual QA.
+- [x] Implement tenant-bound idempotent ProcessingJob execution using the existing Gemini worker, without touching Image Extension or creating another queue/table. Unpick fences and cancels existing jobs; retries must not duplicate.
+- [x] Project per-Picked-row status into the existing Etsy Spy table; open the full four-field draft in a copyable modal, with bounded backfill and single-row queue endpoints.
+- [x] Clearly label YTrends MCP absent and all search terms unverified; do not substitute SMS or invent U.S. shipping/production claims.
+- [x] Add default-OFF `ETSY_TIKTOK_LISTING_ENABLED` flag, tests, documentation; no migration or new provider credential.
+- [ ] Run full CI/frontend build, merge and review production release with flag OFF; then opt in one controlled pilot if Gemini quota and YTrends/QA limitations are accepted.
+- [ ] Integrate authenticated YTrends MCP separately before marking any output as keyword-researched. Publish to TikTok Shop remains out of scope.
+- Architecture: `docs/architecture/CAM_ETSY_PICKED_TIKTOK_LISTING_OPTIMIZER.md`.
+
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4C.2A: stateless paired idle attestation
 
 - [x] Add a default-OFF `harness-idle-attestation` endpoint on the existing paired Image Agent transport, with a **separate explicit idle feature flag** and a distinct HMAC domain from job heartbeat. The signed self-report expires after 30 seconds, has a device session UUID/sequence/nonce, and requires no unresolved CAM processing claim for the paired credential.

@@ -24,6 +24,7 @@ IMAGE_AI_JOB_TYPES = (
     "rrugc_cap_stack_analyze",
     "rrugc_research_vision",
     "rrugc_supervisor_qa",
+    "etsy_tiktok_listing_generate",
 )
 IMAGE_WORKER_JOB_TYPES = tuple(
     job_type for job_type in JOB_TYPES if job_type not in VIDEO_WORKER_JOB_TYPES + VISUAL_WORKER_JOB_TYPES

@@ -11,6 +11,7 @@ import {
 import "./EtsySpyPage.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
+import { TikTokListingCell } from "./TikTokListingCell";
 
 const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
@@ -39,6 +40,10 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
     { id: "source", text: "Source" }, { id: "phase", text: "Phase" },
     { id: "keyword", text: "Keyword" },
   ],
+};
+type TikTokListingOverview = {
+  enabled: boolean; auto_on_pick: boolean; draft_only: true;
+  keyword_source: string; counts: Record<string, number>;
 };
 type Options = {
   tab: SpyTab; page: number; pageSize: number; q: string;
@@ -223,10 +228,11 @@ function ProductThumbnail({ item }: { item: Listing }) {
   </a>;
 }
 
-function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected, onSelect }: {
+function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected, onSelect, onListingQueued }: {
   item: Listing; canPick: boolean; busy: boolean;
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
   selectable: boolean; selected: boolean; onSelect: (listingKey: string, checked: boolean) => void;
+  onListingQueued: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imagePreview, setImagePreview] = useState<{
@@ -371,6 +377,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
       </div>
     </td>
     {item.picked && <td className="etsy-design-cell"><DesignCell item={item} /></td>}
+    {item.picked && <TikTokListingCell item={item} canManage={canPick} onQueued={onListingQueued} />}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -522,6 +529,9 @@ export function EtsySpyPage() {
   const [bulkError, setBulkError] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [extraction, setExtraction] = useState<ExtractionOverview | null>(null);
+  const [tiktokOverview, setTiktokOverview] = useState<TikTokListingOverview | null>(null);
+  const [tiktokBackfillBusy, setTiktokBackfillBusy] = useState(false);
+  const [tiktokBackfillMessage, setTiktokBackfillMessage] = useState("");
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDaysSummary | null>(null);
   const [dayGroups, setDayGroups] = useState<DayGroupsSummary | null>(null);
@@ -599,14 +609,16 @@ export function EtsySpyPage() {
     Promise.all([
       spyFetch<Summary>("/summary"),
       spyFetch<ExtractionOverview>("/image-agents/overview").catch(() => null),
+      spyFetch<TikTokListingOverview>("/tiktok-listings/overview").catch(() => null),
       spyFetch<{ items: ImageAgentStatus[] }>("/image-agents").catch(() => ({ items: [] })),
       spyFetch<{ items: AgentStatus[] }>("/agents"),
       spyFetch<{ phrases: string[] }>("/blacklist"),
       spyFetch<{ keywords: string[] }>("/win-keywords"),
       fetchAccessIdentity(),
-    ]).then(([overview, extractionOverview, currentImageAgents, currentAgents, rules, winList, identity]) => {
+    ]).then(([overview, extractionOverview, tiktokStatus, currentImageAgents, currentAgents, rules, winList, identity]) => {
       if (!alive) return;
-      setSummary(overview); setExtraction(extractionOverview); setAgents(currentAgents.items);
+      setSummary(overview); setExtraction(extractionOverview); setTiktokOverview(tiktokStatus);
+      setAgents(currentAgents.items);
       setImageAgents(currentImageAgents.items);
       setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
       setWinKeywords(Array.isArray(winList.keywords) ? winList.keywords : []);
@@ -818,6 +830,23 @@ export function EtsySpyPage() {
       setExtractionBackfillBusy(false);
     }
   };
+  const backfillTikTokListings = async () => {
+    if (!canManage || tiktokBackfillBusy || !tiktokOverview?.enabled) return;
+    setTiktokBackfillBusy(true); setTiktokBackfillMessage("");
+    try {
+      const out = await spyFetch<{created: number; ready: number; missing_image: number}>(
+        "/tiktok-listings/backfill", {
+          method: "POST", body: JSON.stringify({limit: 100, dry_run: false}),
+        });
+      setTiktokBackfillMessage("Đã tạo " + out.created + " job TikTok Listing · " +
+        out.missing_image + " sản phẩm thiếu ảnh nguồn. Nội dung cần QA trước khi dùng.");
+      setRefresh(old => old + 1);
+    } catch (e) {
+      setTiktokBackfillMessage(e instanceof Error ? e.message : "Cannot queue TikTok listings");
+    } finally {
+      setTiktokBackfillBusy(false);
+    }
+  };
   const togglePicked = async (item: Listing) => {
     if (!canManage || pickBusyKey !== null || bulkBusy) return;
     setPickBusyKey(item.listingKey);
@@ -879,7 +908,8 @@ export function EtsySpyPage() {
   };
   const columns = useMemo(() => {
     if (options.tab === "products") return options.pickState === "picked"
-      ? [SORTS.products[0], { id: "design", text: "Design" }, ...SORTS.products.slice(1)]
+      ? [SORTS.products[0], { id: "design", text: "Design" },
+         { id: "tiktokListing", text: "TikTok SEO" }, ...SORTS.products.slice(1)]
       : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     if (options.tab === "trademarks") return SORTS.trademarks;
@@ -1201,6 +1231,25 @@ export function EtsySpyPage() {
         </button>
         {extractionBackfillMessage && <span role="status">{extractionBackfillMessage}</span>}
       </section>}
+    {activeTab === "products" && options.pickState === "picked" &&
+      !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
+        aria-label="Picked TikTok listing skill queue">
+        <div>
+          <strong>Picked → TikTok Shop US</strong>
+          <small>Title · Description · Highlights · Search Terms · YTrends chưa kết nối.
+            Nội dung là bản nháp, chưa tự đăng sản phẩm.</small>
+        </div>
+        <button type="button" disabled={!canManage || !tiktokOverview?.enabled || tiktokBackfillBusy}
+          onClick={backfillTikTokListings}>
+          {tiktokBackfillBusy ? "Đang tạo job…" : "Backfill TikTok listings"}
+        </button>
+        {tiktokOverview && <span className="etsy-tiktok-status-summary">
+          {tiktokOverview.enabled ? "Auto on Pick · ON" : "Worker · OFF"}
+          {" · " + (tiktokOverview.counts?.completed || 0) + " completed · " +
+            (tiktokOverview.counts?.pending || 0) + " queued"}
+        </span>}
+        {tiktokBackfillMessage && <span role="status">{tiktokBackfillMessage}</span>}
+      </section>}
     {pickError && <div role="alert" className="etsy-error">Cannot update Pick: {pickError}</div>}
     {laterError && <div role="alert" className="etsy-error">Cannot update Later: {laterError}</div>}
     {bulkError && <div role="alert" className="etsy-error">Không thể cập nhật sản phẩm đã chọn: {bulkError}</div>}
@@ -1268,7 +1317,7 @@ export function EtsySpyPage() {
             </th>}
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              {col.id === "keywordSms" || col.id === "design" ? <span className="etsy-static-header"
+              {col.id === "keywordSms" || col.id === "design" || col.id === "tiktokListing" ? <span className="etsy-static-header"
                 title={col.id === "design" ? "Design PNG theo vị trí · nhiều ảnh/sản phẩm · cần QA" : "Search Match Suggestions"}>
                 {col.text}
               </span> : <button type="button" onClick={() => sortColumn(col.id)}
@@ -1285,7 +1334,8 @@ export function EtsySpyPage() {
                 busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy}
                 selectable={selectable} selected={selectedListings.has(item.listingKey)}
                 onSelect={updateSelection}
-                onPick={togglePicked} onLater={toggleLater} />)
+                onPick={togglePicked} onLater={toggleLater}
+                onListingQueued={() => setRefresh(value => value + 1)} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}

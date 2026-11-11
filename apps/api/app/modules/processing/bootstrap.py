@@ -75,6 +75,7 @@ from app.modules.realistic_review_ugc.stage3 import RrugcStage3AnalyzeJobHandler
 from app.modules.realistic_review_ugc.cap_stack_analysis import RrugcCapStackAnalyzeHandler
 from app.modules.realistic_review_ugc.research_vision import ResearchVisionJobHandler
 from app.modules.realistic_review_ugc.supervisor_handler import RrugcSupervisorQaJobHandler
+from app.modules.etsy_spy.tiktok_skill import EtsyTikTokListingHandler
 from app.modules.realistic_review_ugc.delivery_automation import (
     RrugcDeliveryMaintenanceJobHandler,
     RrugcDeliveryMaintenanceScheduler,
@@ -165,6 +166,7 @@ _JOB_GLOBAL_FLAGS: dict[str, tuple[str, ...]] = {
         "AI_SINGLE_ANALYSIS_ENABLED",
         "MANAGED_ASSET_STORAGE_ENABLED",
     ),
+    "etsy_tiktok_listing_generate": ("PROCESSING_JOBS_ENABLED", "ETSY_TIKTOK_LISTING_ENABLED"),
     "rrugc_supervisor_qa": (
         "PROCESSING_JOBS_ENABLED",
         "DYNAMIC_AI_METADATA_ENABLED",
@@ -441,6 +443,7 @@ def build_worker_runtime(
                 ("rrugc_cap_stack_analyze", RrugcCapStackAnalyzeHandler()),
                 ("rrugc_research_vision", ResearchVisionJobHandler()),
                 ("rrugc_supervisor_qa", RrugcSupervisorQaJobHandler(settings)),
+                ("etsy_tiktok_listing_generate", EtsyTikTokListingHandler()),
                 (
                     "rrugc_delivery_maintenance",
                     RrugcDeliveryMaintenanceJobHandler(settings),

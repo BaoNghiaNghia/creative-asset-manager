@@ -2477,3 +2477,79 @@ def test_orchestrator_claim_opt_in_and_legacy_receipt_isolation(scenario, monkey
     assert stored["rights_status"] == "unverified"
     assert stored["print_ready"] is False
     assert stored["manual_qa_required"] is True
+
+def test_tiktok_skill_auto_on_pick_idempotent_status_and_unpick(scenario, monkeypatch):
+    """A picked listing queues one draft; no provider executes in the HTTP request."""
+    from sqlalchemy import select
+    from app.modules.etsy_spy import tiktok_skill
+    import importlib
+    spy_router = importlib.import_module("app.modules.etsy_spy.router")
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing = db.scalar(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key == "1234567890"))
+    listing.metadata_json = {"fullImageUrl": "https://i.etsystatic.com/12345/il_fullxfull.abc.jpg"}
+    db.commit()
+    picked = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(picked, json={"picked": True}).status_code == 200
+    jobs = db.scalars(select(ProcessingJobModel).where(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE)).all()
+    assert len(jobs) == 1 and jobs[0].status == "pending"
+    status = client.get("/api/v1/etsy-spy/listings?pick_state=picked")
+    assert status.status_code == 200
+    assert status.json()["items"][0]["tiktokListing"]["status"] == "pending"
+    detail = client.get("/api/v1/etsy-spy/listings/1234567890/tiktok-listing")
+    assert detail.status_code == 200 and detail.json()["draft_only"] is True
+    assert detail.json()["enabled"] is True
+    assert client.post("/api/v1/etsy-spy/listings/1234567890/tiktok-listing/queue").status_code == 200
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 1
+    overview = client.get("/api/v1/etsy-spy/tiktok-listings/overview").json()
+    assert overview["counts"]["pending"] == 1
+    assert overview["keyword_source"] == "ytrends_unavailable"
+    assert client.put(picked, json={"picked": False}).status_code == 200
+    db.refresh(jobs[0])
+    assert jobs[0].cancellation_requested is True
+    assert client.get("/api/v1/etsy-spy/listings/1234567890/tiktok-listing").status_code == 404
+
+
+def test_tiktok_skill_backfill_dry_run_and_feature_off(scenario, monkeypatch):
+    from sqlalchemy import select
+    from app.modules.etsy_spy import tiktok_skill
+    import importlib
+    spy_router = importlib.import_module("app.modules.etsy_spy.router")
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing = db.scalar(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key == "1234567890"))
+    listing.metadata_json = {"thumbnailUrl": "https://i.etsystatic.com/12345/il_340x270.abc.jpg"}
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: False)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: False)
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    assert client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
+                       json={"limit": 10, "dry_run": False}).status_code == 503
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 0
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    preview = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
+                          json={"limit": 20, "dry_run": True})
+    assert preview.status_code == 200 and preview.json()["ready"] == 1
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 0
+    backfill = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
+                          json={"limit": 20, "dry_run": False})
+    assert backfill.status_code == 200 and backfill.json()["created"] == 1
+    again = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
+                        json={"limit": 20, "dry_run": False})
+    assert again.status_code == 200 and again.json()["created"] == 0
+    principal.active_tenant_id = "other-tenant"
+    assert client.get("/api/v1/etsy-spy/listings/1234567890/tiktok-listing").status_code == 404
