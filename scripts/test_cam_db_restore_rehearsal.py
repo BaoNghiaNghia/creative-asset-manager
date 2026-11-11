@@ -188,6 +188,70 @@ class RestoreRehearsalTest(unittest.TestCase):
         self.assertIn('FROM public."cam_agent_trial_exposures"', fake.calls[4][-1])
         self.assertIn('FROM public."cam_agent_trial_qa_reviews"', fake.calls[5][-1])
 
+    def test_expected_counts_match_exact_required_tables(self):
+        fake = self.runner()
+        request = tool.Request(
+            self.dump, self.sha, self.md5, self.target, "cam_rehearsal_user",
+            required_tables=("cam_agent_trial_exposures", "cam_agent_trial_qa_reviews"),
+            expected_table_counts=(("cam_agent_trial_exposures", 3),
+                                   ("cam_agent_trial_qa_reviews", 3)),
+        )
+        report = tool.rehearse(request, runner=fake)
+        self.assertTrue(report["EXPECTED_TABLE_COUNTS_MATCHED"])
+        self.assertEqual(report["EXPECTED_COUNTS_PROVENANCE"], "OPERATOR_SUPPLIED_UNVERIFIED")
+        self.assertEqual(len(fake.calls), 6)
+        self.assertNotIn("cam_agent_trial_exposures", str(report))
+        self.assertNotIn("cam_agent_trial_qa_reviews", str(report))
+
+    def test_expected_count_mismatch_fails_without_success_evidence(self):
+        fake = self.runner()
+        evidence = self.root / "mismatch.json"
+        request = tool.Request(
+            self.dump, self.sha, self.md5, self.target, "cam_rehearsal_user",
+            evidence=evidence, required_tables=("cam_agent_trial_exposures",),
+            expected_table_counts=(("cam_agent_trial_exposures", 4),),
+        )
+        with self.assertRaisesRegex(tool.RestoreGateError, "differs from independent expected"):
+            tool.rehearse(request, runner=fake)
+        self.assertFalse(evidence.exists())
+        self.assertEqual(len(fake.calls), 5)
+
+    def test_expected_table_coverage_duplicates_and_invalid_types_fail_before_db(self):
+        fake = self.runner()
+        for expected in (
+            (("not_required", 3),),
+            (("cam_agent_trial_exposures", 3), ("cam_agent_trial_exposures", 3)),
+            (("cam_agent_trial_exposures", -1),),
+            (("cam_agent_trial_exposures", True),),
+            (("cam_agent_trial_exposures", "3"),),
+            (("cam_agent_trial_exposures", 9223372036854775808),),
+            (("bad;drop", 3),),
+        ):
+            request = tool.Request(
+                self.dump, self.sha, self.md5, self.target, "cam_rehearsal_user",
+                required_tables=("cam_agent_trial_exposures",),
+                expected_table_counts=expected,
+            )
+            with self.subTest(expected=expected), self.assertRaises(tool.RestoreGateError):
+                tool.rehearse(request, runner=fake)
+        self.assertEqual(fake.calls, [])
+
+    def test_expected_table_cli_parser_rejects_injection_and_noninteger(self):
+        for value in (
+            "cam_agent_trial_exposures=-1", "cam_agent_trial_exposures=1.5",
+            "cam_agent_trial_exposures=1;DROP", "WrongCase=1",
+            "cam_agent_trial_exposures", "cam_agent_trial_exposures=",
+            "cam_agent_trial_exposures=9223372036854775808",
+        ):
+            with self.subTest(value=value), self.assertRaises(tool.RestoreGateError):
+                tool._parse_expected_table_counts([value])
+        self.assertEqual(
+            tool._parse_expected_table_counts(
+                ["cam_agent_trial_exposures=0", "cam_agent_trial_qa_reviews=123"]
+            ),
+            (("cam_agent_trial_exposures", 0), ("cam_agent_trial_qa_reviews", 123)),
+        )
+
     def test_required_table_identifiers_fail_closed_before_database_commands(self):
         fake = self.runner()
         for names in (("foo;DROP TABLE x",), ("UpperCase",),

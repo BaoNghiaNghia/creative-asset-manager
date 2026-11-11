@@ -1,3 +1,9 @@
+## 2026-11-11 — Phase 3C 0207 snapshot-time restore count parity (candidate)
+
+- Extended the **existing** off-host restore rehearsal with repeated `--expect-table-count table_name=N` paired exactly with each `--require-table`. Positive counts, zero counts, duplicate/invalid identities and unsupported types are checked before any PostgreSQL operation. A mismatched count aborts without writing the PASS evidence file.
+- Only isolated-restore count equality is established; source-count provenance remains explicitly `OPERATOR_SUPPLIED_UNVERIFIED`, not an attested same-snapshot source record. The 0207 gate still requires independent Drive re-download/checksum, proven same-snapshot source counts, complete off-host PostgreSQL restore, separate rollback check and capacity. No production backup, database, agent, feature flag, or migration is changed.
+- Focused off-host restore unit tests: **20/20 PASS** (16 existing + 4 new). CLI parser rejects invalid/unsafe table counts. Python syntax and Git diff validation run as release checks.
+
 ## 2026-11-11 — Phase 3C 0207 off-host restore evidence hardening
 
 - Extended the existing `scripts/cam_db_restore_rehearsal.py` with opt-in repeated `--require-table` checks on the isolated restore. Exact lowercase table identifiers only; maximum 20, no duplicates or SQL punctuation. A missing required table blocks PASS and no evidence file is emitted. Only count-level evidence, not row contents, is returned.
