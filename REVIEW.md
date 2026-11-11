@@ -1,4 +1,12 @@
-## 2026-11-11 — CAM Agent Harness V2 Phase 4A route-preflight hardening (candidate)
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.1 lease-bound advisory admission (candidate)
+
+- Introduced `job_lease_preview.py` and a tenant/RBAC-restricted `/agents/{agent_id}/{version}/jobs/{job_id}/lease-preview` POST requiring pinned `job.read` in both agent immutable tool grants and strict request. The API examines an existing `ProcessingJob` lease; no queue claim/renew/release or second scheduling system is created.
+- Stage 1/2 exact job-type verification, active owned processing lease, expiry, cancellation, attempts, timestamp coherence and recent DB-row activity are mandatory before even a CLI capacity probe. Stage 4 remains unsupported until reviewed. Returned worker heartbeat authentication and slot reservation are explicitly false.
+- Prevent cross-tenant job lookup leakage (foreign and nonexistent jobs both 404), refuse revoked tool scopes and global emergency stop, and return a nested *advisory* route only after all lease prerequisites. No job payload, worker identifier, provider tokens, prompt or account data are returned; actual dispatch/promotion remain hard-off.
+- Added tests covering happy-path immutability, 10 denied lease states, expiration/stale lease, Stage 4 denial, tenant/RBAC/UUID gates, tool permissions, emergency stop and timestamp/attempt anomalies. Local Python compile and Git diff checks performed; CI/merge/release separately required.
+- No migration, new flag/secret/dependency, model calls, extra workers, real agent execution or production data mutation. Documentation in `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4B1_JOB_LEASE_ADMISSION.md`. Rollback: previous backend commit only, never downgrade 0207.
+
+## 2026-11-11 — CAM Agent Harness V2 Phase 4A route-preflight hardening (deployed)
 
 - Tightened read-only routing: an executor is advisory-eligible only with exact `observed_capacity` status, coherent nonnegative integer configured/busy/free counts, free capacity, required capabilities and explicit pinned preferred/fallback membership. A forged/unverified Browser Extension heartbeat or stale/malformed positive slot count cannot create an executor recommendation. Actual dispatch remains hard-off.
 - Moved stage/capability validation and pinned-executor eligibility ahead of the potentially slow Codex CLI account probes. Unsupported Stage 2/4 tool combinations and browser-only agents now skip Codex probes; emergency stop, tenant and RBAC boundaries remain in place.

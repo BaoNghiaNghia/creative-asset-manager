@@ -7,6 +7,7 @@ and no Experience candidate can be promoted by these endpoints.
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import func, select
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.modules.auth_persistence.model import AuthAuditEventModel
-from app.modules.processing.model import OutboxEventModel
+from app.modules.processing.model import OutboxEventModel, ProcessingJobModel
 from app.modules.authorization.principal import (
     CurrentPrincipal, require_all_permissions, require_permission, require_tenant_scope,
 )
@@ -28,6 +29,7 @@ from .executor_readiness import (
     stage_supports,
 )
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
+from .job_lease_preview import observe_processing_lease
 from .registry import AgentRegistryError
 from .repository import AgentHarnessRepository, _event_key
 from .schema import AgentCatalogRegistration, AgentRoutePreviewRequest, Stage1FeedbackSyncRequest
@@ -656,3 +658,75 @@ def preview_agent_route(
         codex=codex, browser=browser_snapshot(),
         global_emergency_stop=settings.AI_EMERGENCY_STOP_ENABLED,
     )
+
+
+@router.post("/{tenant_id}/agents/{agent_id}/{version}/jobs/{job_id}/lease-preview")
+def preview_job_bound_agent_route(
+    tenant_id: str,
+    agent_id: str,
+    version: str,
+    job_id: UUID,
+    body: AgentRoutePreviewRequest,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cross-check an *existing* CAM job lease before advisory route probing.
+
+    No external heartbeat is trusted, no job lease is claimed/renewed and no
+    executor is actually dispatched. This is explicitly NOT admission approval.
+    """
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    agent = AgentHarnessRepository(db).get_definition(tenant_id, agent_id, version)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent version not registered")
+
+    # Check immutable agent tool scope before even looking up a job. RBAC
+    # alone must not leak status/lease metadata across agent roles.
+    if ("job.read" not in body.required_tools
+            or "job.read" not in (agent.allowed_tools_json or [])):
+        raise HTTPException(status_code=403, detail="Agent job read tool not permitted")
+
+    # Never reveal another tenant's job existence, lease owner or payload.
+    job = db.get(ProcessingJobModel, str(job_id))
+    if job is None or job.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    settings = get_settings()
+    lease = observe_processing_lease(
+        job, stage=body.stage,
+        heartbeat_seconds=settings.WORKER_HEARTBEAT_SECONDS,
+    )
+    result = {
+        "tenant_id": tenant_id,
+        "agent_id": agent_id,
+        "version": version,
+        "job_id": str(job_id),
+        "stage": body.stage,
+        "lease": lease,
+        "route_preview": None,
+        "dispatch_allowed": False,
+        "execution_enabled": False,
+        "reason": lease["state"],
+    }
+
+    if settings.AI_EMERGENCY_STOP_ENABLED:
+        result["reason"] = "emergency_stop"
+        return result
+    if not lease["active_lease_observed"]:
+        return result
+
+    # The original route preview is still advisory and deliberately hard-off.
+    # Running it only AFTER lease/tool/stage/tenant gates avoids unnecessary
+    # Codex login probes for stale, cancelled or unrelated jobs.
+    route = preview_agent_route(
+        tenant_id=tenant_id, agent_id=agent_id, version=version,
+        body=body, principal=principal, db=db,
+    )
+    result["route_preview"] = route
+    result["reason"] = (
+        "lease_observed_advisory_only"
+        if route["candidate_executor"] is not None
+        else "lease_observed_no_verified_executor"
+    )
+    return result
