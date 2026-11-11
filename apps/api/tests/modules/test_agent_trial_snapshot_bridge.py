@@ -26,6 +26,9 @@ def bridge_0206_template(tmp_path_factory):
     url = "sqlite:///" + str(path)
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", url)
+    # Alembic env.py prioritizes DATABASE_URL in CI unless the config
+    # explicitly pins this disposable SQLite test database.
+    config.attributes["database_url"] = url
     config.attributes["configure_logger"] = False
     engine = create_engine(url)
     command.upgrade(config, "0206_etsy_spy_sms_status")
