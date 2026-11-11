@@ -191,7 +191,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
   });
 
   for (const spec of bundles) {
-    it(`${spec.title}: enables Run once the installed worker and Skill are ready`, async () => {
+    it(`${spec.title}: enables Render Scene once the installed worker and Skill are ready`, async () => {
       const host = document.createElement("div");
       document.body.append(host);
       const root = createRoot(host);
@@ -203,7 +203,7 @@ describe("Product Stage 2 Skills 5 and 6 setup/details", () => {
         readiness={ready} configuredSkillNames={{ [spec.key]: spec.name }}
       />));
       const button = host.querySelector<HTMLButtonElement>(
-        `[data-skill="${spec.key}"] button[aria-label="Run ${spec.title}"]`
+        `[data-skill="${spec.key}"] button[aria-label="Render Scene ${spec.title}"]`
       );
       expect(button?.disabled).toBe(false);
       await act(async () => root.unmount());

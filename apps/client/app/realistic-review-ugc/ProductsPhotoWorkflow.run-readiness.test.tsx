@@ -90,10 +90,10 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
     expect(runButton(1).disabled).toBe(false);
     expect(runButton(1).className).toContain("is-ready");
     const slot = host.querySelector<HTMLElement>('[data-skill="prod_s2_ec1"]')!;
-    expect(slot.textContent).toContain("ThreadTransfer V1 · Raster placement");
+    expect(slot.textContent).toContain("ThreadTransfer V2 · Blueprint-locked yarn");
     expect(slot.textContent).not.toContain("Needs skill");
     await act(async () => slot.querySelector<HTMLButtonElement>(".rrugc-products-photo-detail-toggle")!.click());
-    expect(slot.textContent).toContain("ThreadTransfer V1: save a photographic Embroidery Reference once");
+    expect(slot.textContent).toContain("Embroidery Reference");
     expect(Array.from(slot.querySelectorAll("button")).some(button => button.textContent?.includes("Manage skill"))).toBe(false);
     await act(async () => runButton(1).click());
     expect(run).toHaveBeenCalledWith("plan-1", "prod_s2_ec1", "natural-charcoal");
@@ -139,7 +139,7 @@ describe("Ecommerce Run unlock after Fine Thread upgrade", () => {
       '[data-skill="prod_s2_ec2"] .rrugc-products-photo-detail-toggle')!.click());
     const detail = host.querySelector('[data-skill="prod_s2_ec2"] .rrugc-products-photo-inputs')!;
     expect(detail.textContent).toContain("Official 3/4 stock");
-    expect(detail.textContent).toContain("edit target");
+    expect(detail.textContent).toContain("Original transparent PNG");
     expect(detail.querySelector('img[src="/stock-three-quarter.jpg"]')).not.toBeNull();
     expect(detail.textContent).not.toContain("Official right-side geometry");
   });

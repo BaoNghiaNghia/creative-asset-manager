@@ -63,8 +63,23 @@ describe("Stage 2 lazy row requests", () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(vi.mocked(api.getEcommerceInputReadiness)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(api.getEcommerceRunAllStatus)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(api.startUgcScout)).toHaveBeenCalledTimes(2);
+    // Visibility alone must not start UGC Scout: it is intentionally lazy
+    // until the UGC details panel opens, reducing network and agent load.
+    expect(vi.mocked(api.startUgcScout)).not.toHaveBeenCalled();
+    expect(vi.mocked(api.getUgcScoutGallery)).not.toHaveBeenCalled();
     expect(vi.mocked(api.getEcommerceInputReadiness).mock.calls.map(args => args[0]).sort()).toEqual(["plan-0", "plan-1"]);
+    await act(async () => {
+      for (const index of [0, 1]) {
+        const row = host.querySelector<HTMLElement>(
+          `[aria-label="Seven-slot photo workflow for Design ${index}"]`,
+        )!;
+        row.querySelector<HTMLButtonElement>('[aria-label="UGC details"]')!.click();
+      }
+      await Promise.resolve();
+    });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(vi.mocked(api.startUgcScout)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.startUgcScout).mock.calls.map(args => args[0]).sort()).toEqual(["plan-0", "plan-1"]);
     await act(async () => root.unmount());
   });
 });
