@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2B: Windows heartbeat compatibility
+
+- [x] Existing Etsy Image Agent `/claim` task and successful `/check-job` processing response now return authoritative `attempt_count` to support an optional, attempt-fenced Windows heartbeat, without changing legacy lease/recovery/result behavior.
+- [x] Paired `/probe` includes `harness_heartbeat_supported` and `harness_heartbeat_ready` (both flag and independent signing key present) as a read-only handshake; no signing material or device credential is returned.
+- [x] Windows workspace `D:\CAM Image Extension` adds default-OFF, single-flight 15-second client heartbeat with bounded backoff, validated non-dispatch ACK, tenant/attempt checks, legacy journal hydration, redacted read-only diagnostics and local Node regressions.
+- [ ] Verify full CAM CI and Windows Node tests; merge backend PR and deploy only merged `main` with `--no-migrate --keep-releases 2`. Preserve all 9 service health gates and schema 0207.
+- [ ] Separate operator-controlled live canary and server-only secret provisioning before enabling the client or backend flag. Never restart an active relay mid-job or treat local ACK as authoritative HMAC proof.
+- [ ] Next: use authenticated lease-bound heartbeat to gate actual capacity/admission behind a separate default-OFF feature flag, after provider result lineage and rollback evidence are independently verified.
+- Windows documentation: `docs/CAM_HARNESS_V2_PHASE4B2B_HEARTBEAT.md` in the separate Image Extension workspace.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2A: authenticated external heartbeat
 
 - [x] Reuse paired Windows Image Agent bearer and existing `ProcessingJob` per-attempt HMAC lease token; add a separate feature-gated `harness-heartbeat` endpoint without changing the legacy offline `check-job` recovery.

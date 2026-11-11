@@ -1,4 +1,12 @@
-## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2A signed Image Agent heartbeat (candidate)
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2B Windows relay compatibility (candidate)
+
+- Add `attempt_count` to existing `etsy_design_extract` claim task and successful processing `check-job` status. This lets a paired Windows client attest to exactly the current job attempt, including resumed legacy journals after an authenticated check, with no change to owner/lease writes or retry semantics.
+- Add paired read-only `probe` fields `harness_heartbeat_supported=true` and `harness_heartbeat_ready` only when both the default-OFF server flag and independently provisioned 256-bit HMAC key are present. Neither key nor secret material is returned.
+- Windows Image Extension `D:\CAM Image Extension`: add a strictly opt-in 15-second heartbeat that reads its existing single-job journal, validates no-dispatch acknowledgments, suppresses overlapping network attempts, uses bounded backoff, persists only redacted local status, and never claims/renews/releases a job. No Fast CPU change; ChatGPT-only execution remains the default. Old journal `attempt_count` is hydrated only after a successful `check-job` response; a conflicting attempt fails closed.
+- Tests: backend claim and re-claim fencing assertions; Windows Node heartbeat, replay, ACK, offline, retry/backoff and old journal compatibility tests. Run full GitHub CI and Windows local Node suite before merge/deploy, with feature flag OFF and no live restart or signing-key activation.
+- No migration or new queue/worker; existing source paths and credentials stay on D:. Do not assert browser/provider job completion, executor slot reservation, actual multi-agent dispatch, or backup restore proof from the heartbeat alone.
+
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2A signed Image Agent heartbeat (deployed at d1925e2f5)
 
 - Adds a default-off dedicated paired Image Agent `harness-heartbeat` endpoint on existing Etsy Spy transport; credential role, tenant, picked listing, attempt-bound HMAC token, locked authoritative ProcessingJob lease owner, cancellation and expiry must all match. Explicit legacy `check-job` recovery and `result` validation remain unchanged.
 - Signs a short-lived (maximum 45s) server acknowledgment with a **separate 256-bit server-only key** configured outside source control. Replaces exactly one bounded evidence field in the job payload; updates agent.last_seen_at and job.updated_at only on successful attestation, never extends/claims/releases the job lease or reserves slots. Default flag OFF and missing key fail closed.
