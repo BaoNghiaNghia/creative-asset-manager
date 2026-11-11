@@ -886,6 +886,11 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
     assert match_title("Talarico Hinojosa Victory Shirt", "Talarico Hinojosa Texas Tee")
     assert match_title("Comfort Colors Gildan Funny Shirt", "Graphic Tee Gift") is None
     assert match_title("Christmas Family Gift Shirt", "Christmas Funny Teacher Tee") is None
+    assert match_title("Halloween Ghost Shirt", "Christmas Ghost Shirt") is None
+    assert match_title("Halloween Ghost Shirt", "Ghost Graphic Shirt") is None
+    assert match_title("Halloween Moonlit Ghost Shirt",
+                       "Halloween Moonlit Ghost Hoodie") is not None
+    assert match_title("Spooky Ghost Sweatshirt", "Ghost Graphic Tee") is None
     assert match_title("Plant Shirt", "Goose Shirt") is None
     # Cat/dog are broad animal categories, not proof of the same artwork.
     assert match_title("Embroidered Ghost Cat Sweatshirt, Halloween",
@@ -901,22 +906,76 @@ def test_later_topic_matching_ignores_shirt_brand_marketing_noise():
 
 @pytest.mark.parametrize("title,keyword,expected", [
     ("Halloween Shirt", "holiday tee", "Halloween"),
-    ("Witchy Graphic Shirt", "fall outfits", "Halloween"),
-    ("Cozy Pumpkin Sweatshirt", "autumn", "Halloween"),
-    ("Spooky Ghost Tee", "trick-or-treat", "Halloween"),
-    ("Haunted House Hoodie", "hocus pocus", "Halloween"),
-    ("Harvest Shirt", "GOBBLE GOBBLE turkey day", "Thanksgiving"),
+    ("Witchy Graphic Shirt", "fall outfits", None),
+    ("Cozy Pumpkin Sweatshirt", "autumn", None),
+    ("Spooky Ghost Tee", "trick-or-treat", None),
+    ("Haunted House Hoodie", "hocus pocus", None),
+    ("Harvest Shirt", "GOBBLE GOBBLE turkey day", None),
     ("Friendsgiving Comfort Tee", "family", "Thanksgiving"),
     ("Thanksgiving Graphic Tee", "gifts", "Thanksgiving"),
     ("Halloweentown Tee", "pumpkinhead", None),
     ("Illustrated Plant Tee", "pumpkinhead holiday", None),
-    ("Holiday Pumpkin Tee", "summer", "Halloween"),
+    ("Holiday Pumpkin Tee", "summer", None),
+    ("Ghost Christmas Shirt", "halloween gift", None),
+    ("Christmas Halloween Mix Sweatshirt", "halloween", None),
+    ("Christmas Ghost Shirt", "ghost", None),
+    ("Halloween Ghost Tee", "christmas shirt", "Halloween"),
+    ("Trick-or-Treat Sweatshirt", "christmas", "Halloween"),
+    ("Turkey Day Fall Shirt", "christmas", "Thanksgiving"),
 ])
 def test_auto_later_matches_exact_topic_badge_vocabulary(title, keyword, expected):
     from app.modules.etsy_spy.auto_later_keywords import match_auto_later
     assert match_auto_later("boostgame", title, keyword) == expected
     assert match_auto_later("creative-assets-prod", title, keyword) == expected
     assert match_auto_later("other-tenant", title, keyword) is None
+
+
+def test_auto_later_uses_listing_title_not_source_keyword_or_broad_motif(scenario):
+    """Search/Shop aliases and occasion SEO must not hide unrelated products."""
+    from app.modules.etsy_spy.auto_later_keywords import batch_auto_later_labels
+    assert batch_auto_later_labels("boostgame", [
+        ("x", "Halloween Ghost Hoodie", "halloween shirt"),
+        ("x", "Christmas Ghost Hoodie", "halloween shirt"),
+        ("y", "Happy Thanksgiving Tee", "fall gift"),
+        ("y", "Cute Graphic Tee", "friendsgiving"),
+        ("z", "Pumpkin Botanical Shirt", "halloween"),
+    ]) == {"y": "Thanksgiving"}
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    payload = batch("occasion-scope-contrast")
+    payload["records"]["listings"] = [
+        {**product(title="Christmas Ghost Tee", keyword="halloween spooky shirt"),
+         "listingKey": "1234501401"},
+        {**product(title="Cute Ghost Sweatshirt", keyword="halloween"),
+         "listingKey": "1234501402"},
+        {**product(title="Halloween Trick or Treat Hoodie", keyword="holiday"),
+         "listingKey": "1234501403"},
+        {**product(title="Halloween Ghost Shirt", keyword="halloween"),
+         "listingKey": "1234501404"},
+        {**product(title="Christmas Ghost Shirt", keyword="winter"),
+         "listingKey": "1234501404",
+         "sourceKind": "shop"},
+        {**product(title="Happy Thanksgiving Shirt", keyword="fall"),
+         "listingKey": "1234501405"},
+        {**product(title="Pumpkin Botanical Shirt", keyword="Halloween"),
+         "listingKey": "1234501406"},
+    ]
+    for item in payload["records"]["listings"]:
+        item["url"] = "https://www.etsy.com/listing/" + item["listingKey"]
+    assert sync(client, agent, headers, payload).status_code == 200
+    base = "/api/v1/etsy-spy/listings"
+    eligible = client.get(base, params={"pick_state": "eligible"})
+    later = client.get(base, params={"pick_state": "later"})
+    assert eligible.status_code == 200 and later.status_code == 200
+    assert {row["listingKey"] for row in eligible.json()["items"]} == {
+        "1234501401", "1234501402", "1234501404", "1234501406",
+    }
+    assert {row["listingKey"] for row in later.json()["items"]} == {
+        "1234501403", "1234501405",
+    }
+    assert {row["laterAutoKeyword"] for row in later.json()["items"]} == {
+        "Halloween", "Thanksgiving",
+    }
 
 
 def test_auto_later_badge_groups_leave_eligible_and_follow_day_after_sync(scenario):
@@ -943,19 +1002,18 @@ def test_auto_later_badge_groups_leave_eligible_and_follow_day_after_sync(scenar
     base = "/api/v1/etsy-spy/listings"
     day_params = {"day": day.isoformat()}
     eligible = client.get(base + "/observed-day-groups", params=day_params).json()
-    assert eligible["total"] == 1
-    assert not {item["key"] for item in eligible["items"]} & {
-        "thanksgiving", "halloween",
+    assert eligible["total"] == 3
+    assert {item["key"]: item["count"] for item in eligible["items"]} == {
+        "halloween": 2, "other": 1,
     }
     later = client.get(base + "/observed-day-groups", params={
         **day_params, "pick_state": "later",
     }).json()
-    assert later["total"] == 3
+    assert later["total"] == 1
     assert {item["key"]: item["count"] for item in later["items"]} == {
-        "halloween": 2, "thanksgiving": 1,
+        "thanksgiving": 1,
     }
-    for group, expected in [("thanksgiving", {"1234500901"}),
-                            ("halloween", {"1234500902", "1234500903"})]:
+    for group, expected in [("thanksgiving", {"1234500901"})]:
         results = client.get(base, params={
             "pick_state": "later", "observed_day": day.isoformat(), "group": group,
         })
@@ -988,33 +1046,29 @@ def test_automatic_season_keyword_later_routes_existing_and_future_without_unpic
     assert sync(client, agent, headers, payload).status_code == 200
     url = "/api/v1/etsy-spy/listings"
     summary = client.get("/api/v1/etsy-spy/summary").json()
-    assert summary["later"] == 4 and summary["listings"] == 1
+    assert summary["later"] == 1 and summary["listings"] == 4
     later = client.get(url, params={"pick_state": "later"}).json()
-    assert later["total"] == 4
-    assert {row["listingKey"] for row in later["items"]} == {
-        "1234500201", "1234500202", "1234500203", "1234500204",
-    }
+    assert later["total"] == 1
+    assert {row["listingKey"] for row in later["items"]} == {"1234500203"}
     assert all(row["later"] and not row["picked"] for row in later["items"])
-    assert {row["laterAutoKeyword"] for row in later["items"]} == {
-        "Halloween", "Thanksgiving",
-    }
-    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 1
+    assert {row["laterAutoKeyword"] for row in later["items"]} == {"Thanksgiving"}
+    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 5
 
     # Existing manual Pick is recoverable but has effective Later visibility;
     # no direct deletion of Picked or extraction/related production records.
-    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234500201"))
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234500203"))
     db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234500205"))
     db.commit()
-    assert db.get(EtsySpyPicked, ("boostgame", "1234500201")) is not None
+    assert db.get(EtsySpyPicked, ("boostgame", "1234500203")) is not None
     assert client.get(url, params={"pick_state": "picked"}).json()["total"] == 1
-    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 4
+    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 1
     feed = client.get(f"/api/v1/etsy-spy/agents/{agent.id}/picked-listings",
                       headers=headers)
     assert feed.status_code == 200
     assert {row["listingId"] for row in feed.json()["items"]} == {"1234500205"}
-    assert client.put(url + "/1234500202/pick", json={"picked": True}).status_code == 409
-    assert client.put(url + "/1234500201/later", json={"later": False}).status_code == 409
-    assert client.put(url + "/1234500201/later", json={"later": True}).json()["auto"]
+    assert client.put(url + "/1234500203/pick", json={"picked": True}).status_code == 409
+    assert client.put(url + "/1234500203/later", json={"later": False}).status_code == 409
+    assert client.put(url + "/1234500203/later", json={"later": True}).json()["auto"]
 
     # A later Windows sync automatically brings a new qualified topic into Later.
     future = batch("season-future")
@@ -1029,8 +1083,8 @@ def test_automatic_season_keyword_later_routes_existing_and_future_without_unpic
     for row in future["records"]["listings"]:
         row["url"] = "https://www.etsy.com/listing/" + row["listingKey"]
     assert sync(client, agent, headers, future).status_code == 200
-    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 5
-    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 1
+    assert client.get(url, params={"pick_state": "later"}).json()["total"] == 1
+    assert client.get(url, params={"pick_state": "eligible"}).json()["total"] == 7
     assert client.get(url, params={"pick_state": "picked"}).json()["total"] == 1
 
     # No cross-tenant leakage: even the same words stay Eligible elsewhere.
