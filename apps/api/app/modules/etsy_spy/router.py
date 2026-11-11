@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, asc, desc, func, or_, select, not_, literal
+from sqlalchemy import and_, asc, case, desc, func, or_, select, not_, literal
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
@@ -34,9 +34,10 @@ from .model import (
     utcnow,
 )
 from .later_queue import refresh_later_matches, seed_analysis
-from .auto_later_keywords import keywords_for_tenant, batch_auto_later_labels
+from .auto_later_keywords import (keywords_for_tenant, batch_auto_later_labels,
+                                  title_occasion_sql, other_occasion_sql)
 from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY,
-                     category_rank_expression, category_phrase_condition)
+                     category_rank_expression)
 from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
 from .service import (
@@ -175,22 +176,30 @@ def _later_condition(tenant: str):
 
 
 def _auto_later_ids(tenant: str):
-    """All active Etsy listing IDs with an exact operator-designated topic.
+    """IDs with a single, unambiguous title-owned target occasion.
 
-    The lookup spans every source keyword and title for a listing ID, so one
-    Search/Shop alias cannot leave the same product in both Later and Eligible.
+    A source keyword does not identify the artwork's occasion. Across
+    Search/Shop aliases of ONE listing ID, any conflicting explicit
+    occasion vetoes auto-Later for the entire listing. SQL and the
+    response-label helper use the same title-only phrase vocabulary.
     """
     source = aliased(Listing)
-    words = keywords_for_tenant(tenant)
-    terms = [
-        category_phrase_condition(source, word.lower())
-        for word in words
-    ]
+    configured = {value.lower() for value in keywords_for_tenant(tenant)}
+    if not configured:
+        return select(source.listing_key).where(literal(False))
+    flags = {
+        code: func.max(case((title_occasion_sql(source, code), 1), else_=0))
+        for code in ("thanksgiving", "halloween")
+    }
+    other = func.max(case((other_occasion_sql(source), 1), else_=0))
     return select(source.listing_key).where(
         source.tenant_id == tenant,
         source.is_current.is_(True),
-        or_(*terms) if terms else literal(False),
-    ).distinct()
+    ).group_by(source.listing_key).having(
+        or_(*(flags[code] == 1 for code in configured)),
+        other == 0,
+        not_(and_(flags["thanksgiving"] == 1, flags["halloween"] == 1)),
+    )
 
 
 def _auto_later_condition(tenant: str):

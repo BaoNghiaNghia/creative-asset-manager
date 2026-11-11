@@ -10,6 +10,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from .auto_later_keywords import title_occasion_scope
+
 STOPWORDS = frozenset("""
 a an the and or of for with from on in at to by my your our their his her
 you yours i im me we us they it is its this that these those are was be have has
@@ -69,7 +71,7 @@ ALIASES = {word: theme for theme, words in THEMES.items() for word in words}
 # Broad animal categories are not designs by themselves. A cat/dog listing
 # needs additional shared design evidence; never route it to Later solely
 # because an operator previously selected an unrelated cat/dog illustration.
-BROAD_THEMES_REQUIRING_DETAIL = frozenset({"cat", "dog"})
+BROAD_THEMES_REQUIRING_DETAIL = frozenset({"cat", "dog", "ghost", "witch"})
 
 SINGLE_THEME_ALLOWED = frozenset({
     "plant", "goose", "frog", "duck", "cat", "dog", "cow", "owl", "tiger",
@@ -114,6 +116,13 @@ def match_title(seed_title: str, candidate_title: str) -> Match | None:
     A single high-level occasion, product name, material, brand, apparel or
     merchant keyword is insufficient. No fuzzy edit distance / false closeness.
     """
+    # A manual Later seed for one occasion must not auto-pull a design
+    # from a different (or unspecified) occasion just for sharing a motif.
+    # This is deliberately conservative for holiday-themed apparel.
+    seed_occasion = title_occasion_scope(seed_title)
+    candidate_occasion = title_occasion_scope(candidate_title)
+    if (seed_occasion or candidate_occasion) and seed_occasion != candidate_occasion:
+        return None
     seed = analyze_title(seed_title)
     candidate = analyze_title(candidate_title)
     if not seed.terms or not candidate.terms:
