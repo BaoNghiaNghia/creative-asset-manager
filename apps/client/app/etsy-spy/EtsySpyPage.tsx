@@ -11,7 +11,7 @@ import {
 import "./EtsySpyPage.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
-import { TikTokListingCell } from "./TikTokListingCell";
+import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
 const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
@@ -228,11 +228,13 @@ function ProductThumbnail({ item }: { item: Listing }) {
   </a>;
 }
 
-function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected, onSelect, onListingQueued }: {
+function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
+  onSelect, onListingQueued, optimizerEnabled }: {
   item: Listing; canPick: boolean; busy: boolean;
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
-  selectable: boolean; selected: boolean; onSelect: (listingKey: string, checked: boolean) => void;
-  onListingQueued: () => void;
+  selectable: boolean; selectDisabled: boolean; selected: boolean;
+  onSelect: (listingKey: string, checked: boolean) => void;
+  onListingQueued: () => void; optimizerEnabled: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imagePreview, setImagePreview] = useState<{
@@ -302,7 +304,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
     {selectable && <td className="etsy-select-cell">
       <input type="checkbox" className="etsy-row-checkbox"
         aria-label={"Chọn sản phẩm " + item.pageTitle}
-        checked={selected} disabled={!canPick || busy}
+        checked={selected} disabled={!canPick || busy || selectDisabled}
+        title={selectDisabled ? "Sản phẩm đã chạy, đang xử lý hoặc worker chưa bật" : undefined}
         onChange={event => onSelect(item.listingKey, event.target.checked)} />
     </td>}
     <td className="etsy-title">
@@ -377,7 +380,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selected
       </div>
     </td>
     {item.picked && <td className="etsy-design-cell"><DesignCell item={item} /></td>}
-    {item.picked && <TikTokListingCell item={item} canManage={canPick} onQueued={onListingQueued} />}
+    {item.picked && <TikTokListingCell item={item} canManage={canPick}
+      optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -532,6 +536,8 @@ export function EtsySpyPage() {
   const [tiktokOverview, setTiktokOverview] = useState<TikTokListingOverview | null>(null);
   const [tiktokBackfillBusy, setTiktokBackfillBusy] = useState(false);
   const [tiktokBackfillMessage, setTiktokBackfillMessage] = useState("");
+  const [tiktokSelectedBusy, setTiktokSelectedBusy] = useState(false);
+  const [tiktokSelectedProgress, setTiktokSelectedProgress] = useState("");
   const [clockDay, setClockDay] = useState(vietnamCalendarDay);
   const [observedDays, setObservedDays] = useState<ObservedDaysSummary | null>(null);
   const [dayGroups, setDayGroups] = useState<DayGroupsSummary | null>(null);
@@ -564,19 +570,31 @@ export function EtsySpyPage() {
   // Never render a page for one tab/filter using rows from another request.
   // useEffect runs after render, so merely setting loading=true in the effect
   // cannot prevent an intermediate render with the previous tab's row shape.
-  const requestKey = options.tab + (options.blacklistView ? ":blacklist"
+  const selectionScope = options.tab + (options.blacklistView ? ":blacklist"
     : options.winKeywordsView ? ":win-keywords" : ":records") +
-    "?" + apiQuery(options).toString() + "#" + refresh;
+    "?" + apiQuery(options).toString();
+  const requestKey = selectionScope + "#" + refresh;
   const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
   const loading = fetching || tableResult?.requestKey !== requestKey;
-  const selectable = options.tab === "products" && options.pickState === "eligible" &&
+  const isPickedSelection = options.tab === "products" && options.pickState === "picked" &&
+    !options.blacklistView && !options.winKeywordsView;
+  const selectable = options.tab === "products" &&
+    (options.pickState === "eligible" || isPickedSelection) &&
     !options.blacklistView && !options.winKeywordsView;
   const pageListingKeys = selectable && rows ? Array.from(new Set(
-    (rows.items as Listing[]).map(item => item.listingKey))) : [];
+    (rows.items as Listing[]).filter(item => !isPickedSelection ||
+      (item.picked && canQueueTikTokDraft(item.tiktokListing?.status)))
+      .map(item => item.listingKey))) : [];
   const selectedOnPage = pageListingKeys.filter(key => selectedListings.has(key));
-  const allSelectedOnPage = pageListingKeys.length > 0 &&
-    selectedOnPage.length === pageListingKeys.length;
+  const selectionLimit = isPickedSelection ? Math.min(5, pageListingKeys.length) : pageListingKeys.length;
+  const allSelectedOnPage = selectionLimit > 0 &&
+    pageListingKeys.slice(0, selectionLimit).every(key => selectedListings.has(key));
   const updateSelection = (listingKey: string, checked: boolean) => {
+    if (checked && isPickedSelection && selectedOnPage.length >= 5 &&
+      !selectedListings.has(listingKey)) {
+      setBulkError("Tối đa 5 sản phẩm Picked mỗi lần. Hãy bỏ chọn bớt sản phẩm.");
+      return;
+    }
     setSelectedListings(current => {
       const next = new Set(current);
       if (checked) next.add(listingKey); else next.delete(listingKey);
@@ -585,13 +603,14 @@ export function EtsySpyPage() {
     setBulkError(""); setBulkMessage("");
   };
   const updatePageSelection = (checked: boolean) => {
-    setSelectedListings(checked ? new Set(pageListingKeys) : new Set());
+    setSelectedListings(checked ? new Set(pageListingKeys.slice(0, selectionLimit)) : new Set());
     setBulkError(""); setBulkMessage("");
   };
   useEffect(() => {
-    // Selection is deliberately page-scoped. Never apply an old tab/filter selection.
+    // Selection follows the visible filter/page, but must survive 15-second
+    // worker polling while the user chooses exact Picked products.
     setSelectedListings(new Set());
-  }, [requestKey]);
+  }, [selectionScope]);
   const update = useCallback((changes: Partial<Options>) => {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
@@ -896,7 +915,8 @@ export function EtsySpyPage() {
   };
   const applyBulk = async (action: "pick" | "later") => {
     const ids = pageListingKeys.filter(key => selectedListings.has(key));
-    if (!selectable || !canManage || bulkBusy || pickBusyKey || laterBusyKey || !ids.length) return;
+    if (!selectable || options.pickState !== "eligible" || !canManage || bulkBusy ||
+      pickBusyKey || laterBusyKey || !ids.length) return;
     setBulkBusy(true); setBulkError(""); setBulkMessage("");
     try {
       const result = await spyFetch<{
@@ -915,6 +935,42 @@ export function EtsySpyPage() {
       setBulkError(error instanceof Error ? error.message : "Cannot update selected listings");
     } finally {
       setBulkBusy(false);
+    }
+  };
+  const queueSelectedTikTok = async () => {
+    if (!isPickedSelection || !canManage || !tiktokOverview?.enabled || tiktokSelectedBusy ||
+      !rows || selectedOnPage.length === 0 || selectedOnPage.length > 5) return;
+    const currentRows = rows.items as Listing[];
+    const candidates = selectedOnPage.map(key => currentRows.find(item =>
+      item.listingKey === key && item.picked && canQueueTikTokDraft(item.tiktokListing?.status)))
+      .filter((item): item is Listing => Boolean(item));
+    if (!candidates.length) return;
+    setTiktokSelectedBusy(true); setBulkMessage(""); setBulkError("");
+    let created = 0;
+    const failures: string[] = [];
+    try {
+      // Shared Gemini quota and retry limits remain enforced server-side.
+      // Sequential requests avoid spikes and preserve an auditable result per row.
+      for (const [index, item] of candidates.entries()) {
+        setTiktokSelectedProgress("Đang tạo job " + (index + 1) + "/" + candidates.length);
+        try {
+          await spyFetch("/listings/" + encodeURIComponent(item.listingKey) +
+            (item.tiktokListing?.status === "failed"
+              ? "/tiktok-listing/retry" : "/tiktok-listing/queue"), {method: "POST"});
+          created++;
+        } catch (error) {
+          failures.push("#" + item.listingKey + ": " +
+            (error instanceof Error ? error.message : "Không thể tạo job"));
+        }
+      }
+      setBulkMessage("TikTok SEO: đã gửi " + created + "/" + candidates.length +
+        " sản phẩm vào hàng đợi. Bản nháp cần QA trước khi sử dụng.");
+      if (failures.length) setBulkError("Không xử lý được: " + failures.slice(0, 2).join(" · ") +
+        (failures.length > 2 ? " và " + (failures.length - 2) + " sản phẩm khác." : ""));
+      setSelectedListings(new Set());
+      setRefresh(value => value + 1);
+    } finally {
+      setTiktokSelectedProgress(""); setTiktokSelectedBusy(false);
     }
   };
   const columns = useMemo(() => {
@@ -1246,19 +1302,22 @@ export function EtsySpyPage() {
       !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
         aria-label="Picked TikTok listing skill queue">
         <div>
-          <strong>Picked → TikTok Shop US</strong>
-          <small>Title · Description · Highlights · Search Terms · YTrends chưa kết nối.
-            Nội dung là bản nháp, chưa tự đăng sản phẩm.</small>
+          <strong>TikTok Shop Listing Optimizer</strong>
+          <small>Chọn tối đa 5 dòng bên dưới để tạo đúng sản phẩm, hoặc backfill 5 Picked
+            chưa có job. Nội dung AI là bản nháp cần duyệt, không tự đăng.
+            YTrends chưa kết nối.</small>
         </div>
         <button type="button" disabled={!canManage || !tiktokOverview?.enabled || tiktokBackfillBusy}
           onClick={backfillTikTokListings}>
-          {tiktokBackfillBusy ? "Đang tạo job…" : "Backfill 5 Picked"}
+          {tiktokBackfillBusy ? "Đang tạo job…" : "Backfill 5 chưa chạy"}
         </button>
         {tiktokOverview && <span className="etsy-tiktok-status-summary">
           {!tiktokOverview.enabled ? "Worker · OFF" : tiktokOverview.auto_on_pick
             ? "Auto on Pick · ON" : "Pilot mode · Manual only"}
-          {" · " + (tiktokOverview.counts?.completed || 0) + " completed · " +
-            (tiktokOverview.counts?.pending || 0) + " queued"}
+          {" · " + (tiktokOverview.counts?.completed || 0) + " đã tạo" +
+            " · " + (tiktokOverview.counts?.pending || 0) + " đang chờ" +
+            " · " + (tiktokOverview.counts?.processing || 0) + " đang chạy" +
+            " · " + (tiktokOverview.counts?.failed || 0) + " lỗi"}
         </span>}
         {tiktokBackfillMessage && <span role="status">{tiktokBackfillMessage}</span>}
       </section>}
@@ -1268,30 +1327,44 @@ export function EtsySpyPage() {
     {bulkMessage && <div role="status" className="etsy-bulk-feedback">{bulkMessage}</div>}
     {selectable && !loading && pageListingKeys.length > 0 && <section
       className={"etsy-bulk-bar" + (selectedOnPage.length ? " has-selection" : "")}
-      aria-label="Thao tác hàng loạt cho sản phẩm Etsy">
+      aria-label={isPickedSelection ? "Tạo TikTok SEO cho Picked đã chọn" :
+        "Thao tác hàng loạt cho sản phẩm Etsy"}>
       <label className="etsy-bulk-select-all">
-        <input type="checkbox" aria-label="Chọn tất cả sản phẩm trong trang"
-          checked={allSelectedOnPage} disabled={!canManage || bulkBusy}
+        <input type="checkbox" aria-label={isPickedSelection
+          ? "Chọn tối đa 5 Picked chưa tạo TikTok SEO" : "Chọn tất cả sản phẩm trong trang"}
+          checked={allSelectedOnPage} disabled={!canManage || bulkBusy ||
+            tiktokSelectedBusy || (isPickedSelection && !tiktokOverview?.enabled)}
           ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
           onChange={event => updatePageSelection(event.target.checked)} />
-        Chọn trang này
+        {isPickedSelection ? "Chọn tối đa 5" : "Chọn trang này"}
       </label>
       <div className="etsy-bulk-indicator" aria-live="polite">
         <strong>{selectedOnPage.length ? selectedOnPage.length + " đã chọn" : "Chọn sản phẩm"}</strong>
-        <span>trong {pageListingKeys.length} sản phẩm ở trang hiện tại</span>
+        <span>{isPickedSelection ? pageListingKeys.length + " Picked chưa tạo hoặc bị lỗi" :
+          "trong " + pageListingKeys.length + " sản phẩm ở trang hiện tại"}</span>
       </div>
       {selectedOnPage.length > 0 && <div className="etsy-bulk-actions">
-        <button type="button" className="etsy-btn etsy-primary" onClick={() => applyBulk("pick")}
-          disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
-          <span aria-hidden="true">✓</span> Pick ({selectedOnPage.length})
-        </button>
-        <button type="button" className="etsy-btn etsy-bulk-later" onClick={() => applyBulk("later")}
-          disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
-          <span aria-hidden="true">◷</span> Later ({selectedOnPage.length})
-        </button>
-        <button type="button" className="etsy-bulk-clear" disabled={bulkBusy}
+        {isPickedSelection ? <button type="button" className="etsy-btn etsy-primary"
+          onClick={() => void queueSelectedTikTok()}
+          disabled={!canManage || !tiktokOverview?.enabled || tiktokSelectedBusy || bulkBusy}>
+          {tiktokSelectedBusy ? "Đang gửi…" :
+            "Tạo TikTok SEO (" + selectedOnPage.length + "/5)"}
+        </button> : <>
+          <button type="button" className="etsy-btn etsy-primary" onClick={() => applyBulk("pick")}
+            disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
+            <span aria-hidden="true">✓</span> Pick ({selectedOnPage.length})
+          </button>
+          <button type="button" className="etsy-btn etsy-bulk-later" onClick={() => applyBulk("later")}
+            disabled={!canManage || bulkBusy || pickBusyKey !== null || laterBusyKey !== null}>
+            <span aria-hidden="true">◷</span> Later ({selectedOnPage.length})
+          </button>
+        </>}
+        <button type="button" className="etsy-bulk-clear"
+          disabled={bulkBusy || tiktokSelectedBusy}
           onClick={() => updatePageSelection(false)}>Bỏ chọn</button>
       </div>}
+      {isPickedSelection && tiktokSelectedProgress &&
+        <span role="status" className="etsy-tiktok-batch-progress">{tiktokSelectedProgress}</span>}
     </section>}
     {activeTab === "products" && options.pickState === "later" && !isBlacklistView && !isWinKeywordsView &&
       <p className="etsy-later-help">Later groups similar design themes from your saved examples.
@@ -1320,17 +1393,24 @@ export function EtsySpyPage() {
                 ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</>}
         </div>
         : <div className="etsy-table-wrap">
-          <table className={"etsy-data-table is-" + activeTab + (selectable ? " is-selectable" : "")}><thead><tr>
+          <table className={"etsy-data-table is-" + activeTab +
+            (selectable ? " is-selectable" : "") +
+            (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
             {selectable && <th className="etsy-select-header">
-              <input type="checkbox" aria-label="Chọn tất cả sản phẩm trên trang hiện tại"
-                checked={allSelectedOnPage} disabled={!canManage || bulkBusy}
+              <input type="checkbox" aria-label={isPickedSelection
+                  ? "Chọn tối đa 5 Picked để tạo TikTok SEO" :
+                    "Chọn tất cả sản phẩm trên trang hiện tại"}
+                checked={allSelectedOnPage} disabled={!canManage || bulkBusy ||
+                  tiktokSelectedBusy || (isPickedSelection && !tiktokOverview?.enabled)}
                 ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
                 onChange={event => updatePageSelection(event.target.checked)} />
             </th>}
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               {col.id === "keywordSms" || col.id === "design" || col.id === "tiktokListing" ? <span className="etsy-static-header"
-                title={col.id === "design" ? "Design PNG theo vị trí · nhiều ảnh/sản phẩm · cần QA" : "Search Match Suggestions"}>
+                title={col.id === "design" ? "Design PNG theo vị trí · nhiều ảnh/sản phẩm · cần QA"
+                  : col.id === "tiktokListing" ? "TikTok Shop Listing Optimizer · bản nháp cần duyệt"
+                  : "Search Match Suggestions"}>
                 {col.text}
               </span> : <button type="button" onClick={() => sortColumn(col.id)}
                 aria-label={"Sort by " + col.text}>
@@ -1343,10 +1423,14 @@ export function EtsySpyPage() {
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
                 item={item} canPick={canManage}
-                busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy}
-                selectable={selectable} selected={selectedListings.has(item.listingKey)}
+                busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy || tiktokSelectedBusy}
+                selectable={selectable}
+                selectDisabled={isPickedSelection && (!tiktokOverview?.enabled ||
+                  !canQueueTikTokDraft(item.tiktokListing?.status))}
+                selected={selectedListings.has(item.listingKey)}
                 onSelect={updateSelection}
                 onPick={togglePicked} onLater={toggleLater}
+                optimizerEnabled={Boolean(tiktokOverview?.enabled)}
                 onListingQueued={() => setRefresh(value => value + 1)} />)
               : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
                 <TrademarkRow key={item.checkId} item={item} />)

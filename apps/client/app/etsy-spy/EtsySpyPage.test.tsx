@@ -31,6 +31,9 @@ let extractionProjection: { job_id: string; status: string; review_flags?: strin
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
 let extractionPilotOn = false;
+let tiktokFeatureOn = false;
+let tiktokStatuses: Record<string, string> = {};
+let tiktokJobs: string[] = [];
 const summary = {
   keywords: 208, listings: 50, sessions: 5, search: 34, shop: 16,
   trademarks: 2, tm_pending: 1, errors: 1, warnings: 3,
@@ -91,6 +94,7 @@ function installFetch() {
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
   smsProjection = null; extractionProjection = null; designProjection = [];
   newSpyListingSynced = false; extractionPilotOn = false;
+  tiktokFeatureOn = false; tiktokStatuses = {}; tiktokJobs = [];
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,6 +259,12 @@ function installFetch() {
       page: 1, page_size: 50, total: 3, pages: 1, source_status: "offline",
       });
     }
+    if (url.endsWith("/tiktok-listings/overview")) return json({enabled:tiktokFeatureOn,auto_on_pick:false,counts:{completed:0,pending:0,processing:0,failed:0}});
+    if (url.includes("/tiktok-listing/") && init?.method === "POST") {
+      const id = url.split("/listings/")[1]?.split("/")[0] || "";
+      tiktokJobs.push(id); tiktokStatuses[id] = "pending";
+      return json({status:"pending",draft_only:true});
+    }
     if (url.includes("/listings?")) {
       const pickState = new URL(url, "http://localhost").searchParams.get("pick_state") || "eligible";
       const newlySynced = {
@@ -271,6 +281,7 @@ function installFetch() {
              smsPush: pickedKeys.has(x.listingKey) ? smsProjection : null,
              extraction: pickedKeys.has(x.listingKey) ? extractionProjection : null,
              designs: pickedKeys.has(x.listingKey) ? designProjection : [],
+             tiktokListing: pickedKeys.has(x.listingKey) ? {status:tiktokStatuses[x.listingKey] || "not_queued",draft_only:true} : undefined,
              later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
              laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
       return json({items: visible, page: 1, page_size: 50,
@@ -283,7 +294,7 @@ function installFetch() {
 }
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-async function start() {
+async function start({tiktokEnabled = false}: {tiktokEnabled?: boolean} = {}) {
   // jsdom does not ship ResizeObserver, while the real browser provides it.
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -291,6 +302,7 @@ async function start() {
     disconnect() {}
   });
   installFetch();
+  tiktokFeatureOn = tiktokEnabled;
   window.history.replaceState(null, "", "/etsy-spy");
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -1217,6 +1229,39 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
     // Picked is not an Eligible multi-select surface; no accidental bulk re-Pick.
     expect(container?.querySelector(".etsy-bulk-actions")).toBeNull();
+  });
+
+  it("queues only eligible selected Picked rows and never dispatches completed drafts", async () => {
+    vi.mocked(fetchAccessIdentity).mockResolvedValue({
+      permissions: ["etsy_spy.read", "etsy_spy.manage"],
+    } as never);
+    await start({tiktokEnabled:true});
+    pickedKeys = new Set(["123456789", "111", "222"]);
+    tiktokStatuses = {"123456789":"needs_fact_check", "111":"not_queued", "222":"failed"};
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    const boxes = container?.querySelectorAll<HTMLInputElement>(".etsy-row-checkbox");
+    expect(boxes).toHaveLength(3);
+    expect(boxes?.[0].disabled).toBe(true);
+    expect(boxes?.[1].disabled).toBe(false);
+    expect(boxes?.[2].disabled).toBe(false);
+    await act(async () => {
+      container?.querySelector<HTMLInputElement>(
+        'input[aria-label="Chọn tối đa 5 Picked để tạo TikTok SEO"]')?.click();
+    });
+    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("2 đã chọn");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-bulk-actions .etsy-primary")?.click();
+      await new Promise(resolve => setTimeout(resolve, 120));
+    });
+    expect(tiktokJobs).toEqual(["111", "222"]);
+    expect(container?.querySelector(".etsy-bulk-feedback")?.textContent).toContain("2/2");
+    expect(container?.querySelector(".etsy-bulk-actions")).toBeNull();
+    expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(3);
+    expect(container?.querySelector(".etsy-bulk-actions .etsy-bulk-later")).toBeNull();
   });
 
   it("bulk Later saves selected seeds, clears selection and respects view changes", async () => {
