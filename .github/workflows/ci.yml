@@ -329,6 +329,10 @@ jobs:
       - name: 0206 bridge rejects weakened future 0207 schemas
         working-directory: apps/api
         run: python -m pytest tests/modules/test_agent_trial_snapshot_bridge.py -q
+      - name: Synthetic isolated restore rehearsal and exact row-count guard
+        env:
+          CAM_TEST_POSTGRES_IMAGE: postgres:${{ matrix.postgres_version }}
+        run: bash scripts/cam-ci-restore-rehearsal.sh
       - name: Upload PostgreSQL failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v6
