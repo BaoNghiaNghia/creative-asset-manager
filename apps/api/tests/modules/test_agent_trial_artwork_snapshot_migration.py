@@ -20,6 +20,9 @@ def scratch_0206(tmp_path):
     url = "sqlite:///" + str(tmp_path / "trial-snapshot.sqlite")
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", url)
+    # Explicitly isolate the scratch database from CI DATABASE_URL. The
+    # Alembic env prefers this attribute over the ambient PostgreSQL URL.
+    config.attributes["database_url"] = url
     config.attributes["configure_logger"] = False
     engine = create_engine(url)
     command.upgrade(config, "0206_etsy_spy_sms_status")

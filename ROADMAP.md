@@ -6,9 +6,29 @@
 - [x] Add independent default-OFF `AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED` gate, strict manual dry-run/create contract, safe tenant/RBAC and provenance checks, durable reservation + unique idempotency, verified PNG/Drive copy.
 - [x] Keep 0205 QA review table unwritten and A/B evaluation/promotion blocked. A verified snapshot is not a blinded QA verdict or trusted provider cost.
 - [x] Stage an isolated 0206-compatible schema rollback bridge from current production commit before the new migration; sync strict nullability/FK/CHECK validation and PostgreSQL 12/16 scratch-schema canaries with PR #101.
-- [ ] Two-stage production release, PostgreSQL 12/16 migration test and independent smoke of production services. Do not migrate until prior code release accepts 0207.
+- [x] Verify 0207 migration on both PostgreSQL 12/16 in isolated CI. [ ] Complete two-stage production release and independent service smoke; never migrate before the 0206-compatible bridge is the verified rollback release.
 - [ ] Phase 3C.3B2C2B: separate snapshot-bound blinded review provenance/permissions and image cost receipts, then measured controlled study.
 
+
+## 2026-11-11 — Phase 3C.3B2C2A: standalone 0206 rollback bridge hardening
+
+- [x] Separate PR #101 contains only 0206-compatible code, negative-schema canaries, and CI coverage; **no 0207 migration or feature activation**.
+- [x] Reject missing/extra/nullable snapshot columns, wrong exposure FK/delete policy, missing uniqueness, weak or permissive seal/size/dimension CHECKs, and unknown Alembic revisions.
+- [x] Run 14/14 local bridge canaries and syntax/diff validation.
+- [x] Verify 0206 bridge canaries and full PR #101 CI 16/16 PASS after PR #102; merged into `main` at `81a8d582b`.
+- [ ] Verify live 0206 schema, backup, nine managed services, then deploy bridge as a distinct no-migrate release and retain as rollback.
+- [ ] Only after bridge is retained: deploy additive 0207 with snapshot flag OFF, followed by independent QA and trusted cost receipts.
+
+## 2026-11-11 — Agent Harness V2 release-gate CI baseline (PR #102)
+
+- [x] Separate production-neutral test updates from migration 0206/0207; strengthen navigation module coverage and retain the real-runtime localhost URL prohibition.
+- [x] Align Stage 0 Opportunity and Stage 2 gallery tests with the current 23-item Output Gallery (22 generated images plus the distinct Embroidery Reference).
+- [x] Verify general worker refuses unknown/external-only job types without consuming or failing the pending job.
+- [x] Reuse reviewed Skill Manager Browser QA assertions; run targeted API, frontend and Node checks plus TypeScript typecheck.
+- [x] Align remaining stale AI Operations and Stage 2 tests with pipeline-only loads, Render Scene, ThreadTransfer V2 / stock imagery and on-open UGC Scout; targeted frontend 27/27 PASS.
+- [x] Repair Creative Browser QA fixture/API status and outdated Stage 1/2 assertions, verify real headless Chrome across desktop/tablet/mobile + Research Inbox with zero functional issues.
+- [x] Confirm PR #102 fully green (16/16 jobs), reviewed test-only diff and merge into `main` (`165259cc8`). Keep security and runtime gates intact.
+- [ ] Only then proceed with isolated 0206 bridge deploy and later 0207 migration, flags OFF.
 
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
 

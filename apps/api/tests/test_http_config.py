@@ -88,6 +88,10 @@ class HttpConfigurationTest(unittest.TestCase):
             *client_root.joinpath("features").rglob("*.tsx"),
         ]
         for path in runtime_files:
+            # Unit/fixture files exercise rejection of localhost; they are not
+            # shipped as application runtime and must not trip this guard.
+            if path.name.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")):
+                continue
             source = path.read_bytes()
             with self.subTest(path=path):
                 self.assertNotIn(b"http://localhost", source)
