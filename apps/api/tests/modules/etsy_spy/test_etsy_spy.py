@@ -1563,6 +1563,7 @@ def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, mon
     assert first.status_code == 200, first.text
     claim = first.json()
     assert claim["task"]["tenant_id"] == "boostgame"
+    assert claim["task"]["attempt_count"] == 1
     assert claim["task"]["source"]["type"] == "etsy_cdn"
     assert claim["task"]["rights_status"] == "unverified"
     replay = client.post(path + "/claim", headers=auth).json()
@@ -1578,6 +1579,7 @@ def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, mon
     }, headers=auth)
     assert check.status_code == 200, check.text
     assert check.json()["status"] == "processing"
+    assert check.json()["attempt_count"] == 1
     assert client.post(path + "/check-job", json={
         "job_id": leased.id, "lease_token": "bad",
     }, headers=auth).status_code == 409
@@ -1921,6 +1923,7 @@ def test_expired_image_lease_reclaimed_only_with_new_token(scenario, monkeypatch
     payload = recovered.json()
     assert payload["task"]["id"] == job.id
     assert payload["lease_token"] != initial["lease_token"]
+    assert payload["task"]["attempt_count"] == 2
     db.refresh(job)
     assert job.attempt_count == 2
     assert job.claimed_by == "etsy-image:" + two["agent_id"]

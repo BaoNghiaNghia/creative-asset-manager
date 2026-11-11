@@ -289,3 +289,23 @@ def test_admin_rbac_tenant_flag_and_emergency_stop(setup):
     assert s.client.get(s.admin).status_code == 200
     s.flags.AI_EMERGENCY_STOP_ENABLED = False
     assert s.client.get(s.admin.replace(s.job.id, "invalid")).status_code == 422
+
+
+def test_paired_probe_exposes_readiness_boolean_without_signing_material(
+    setup, monkeypatch,
+):
+    s = setup
+    endpoint = s.device.replace("/harness-heartbeat", "/probe")
+    auth = {"Authorization": "Bearer " + s.secret}
+    ready = s.client.get(endpoint, headers=auth)
+    assert ready.status_code == 200, ready.text
+    payload = ready.json()
+    assert payload["harness_heartbeat_supported"] is True
+    assert payload["harness_heartbeat_ready"] is True
+    assert "a" * 64 not in ready.text
+    assert s.secret not in ready.text
+    monkeypatch.setenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_ENABLED", "0")
+    assert s.client.get(endpoint, headers=auth).json()["harness_heartbeat_ready"] is False
+    monkeypatch.setenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_ENABLED", "1")
+    monkeypatch.delenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_SIGNING_KEY")
+    assert s.client.get(endpoint, headers=auth).json()["harness_heartbeat_ready"] is False

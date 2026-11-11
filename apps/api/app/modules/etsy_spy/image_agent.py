@@ -195,6 +195,7 @@ def _task(job: ProcessingJobModel, agent: EtsySpyAgent) -> dict:
     return {
         "task": {
             "id": job.id, "listing_key": job.entity_id, "tenant_id": agent.tenant_id,
+            "attempt_count": job.attempt_count,
             "engine": "auto", "source": payload.get("source"),
             "rights_status": "unverified",
             "manual_qa_required": True,
@@ -444,6 +445,10 @@ def probe_image_agent(
         "lease_protocol": "v1",
         "orchestrator_enabled": orchestrator_enabled(),
         "orchestrator_contract": "v1",
+        "harness_heartbeat_supported": True,
+        "harness_heartbeat_ready": bool(
+            external_heartbeat_enabled() and external_heartbeat_signing_key()
+        ),
     }
 
 
@@ -645,6 +650,7 @@ async def check_and_renew_image_job(
     agent.last_seen_at = utcnow()
     db.commit()
     return {"status": "processing", "job_id": job.id,
+            "attempt_count": job.attempt_count,
             "lease_expires_at": job.lease_expires_at.isoformat()}
 
 
