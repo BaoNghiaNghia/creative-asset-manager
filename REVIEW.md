@@ -4,7 +4,8 @@
 - General worker unknown-job test now requires no claim/no attempt/no status change, matching the strict job-type allowlist security boundary. UI tests cover both new navbar routes, Stage 0 Opportunity heading, and 23 Gallery positions (1 Embroidery Reference + 22 photos).
 - Local verification: 10/10 targeted API tests, 23/23 worker runtime tests, 7/7 header/keyword modal frontend tests, 8/8 gallery tests, 6/6 Browser QA plan tests, TypeScript typecheck PASS, diff check PASS. No application runtime change, schema migration, new secrets, new model calls, or production deployment.
 - Follow-up Stage 2 / AI Operations frontend contract regression: 27/27 targeted tests PASS after preserving pipeline-only loads, Render Scene for installed UGC/Multi-hat, ThreadTransfer V2 / official 3/4 stock labels, and Scout lazy-start only when UGC Details opens (confirmed positive two-agent start after opening). These change only tests, not application behavior.
-- Remaining broader frontend and Creative Browser QA gates require full CI confirmation and separate functional assessment. Previous CI runs on `main` were red; do not bypass required release gates.
+- Creative Browser QA fix: add the actual Stage 1 Creative Brief V3 nine-output capability fixture instead of returning HTTP 599; update Stage 1 skill label and Stage 2 Products KPI count (2, not obsolete 3). Node plan validation 5/5 PASS. Headless Chrome fixture matrix (2026-11-11, realistic-review-ugc + Research Inbox) PASS on desktop (1440×900), tablet portrait (768×1024), mobile (390×844), 0 recorded issues, functional only; visual baselines remain unapproved and real mobile hardware was not tested. No production changes.
+- Full GitHub CI still needs confirmation on the final commit. Previous CI runs on `main` were red; do not bypass required release gates.
 
 ## 2026-11-09 — Agent Harness Phase 3C.3B2C1 Stage 1 artwork provenance
 

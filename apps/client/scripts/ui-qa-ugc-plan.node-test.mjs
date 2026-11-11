@@ -14,6 +14,28 @@ test("fixture serves Stage 4 completions feed used by GatorHats UI", async () =>
 });
 
 
+test("Stage 1 fixture returns nine-output V3 capability and the plan audits current skill labels", async () => {
+  const fixture = JSON.parse(await fs.readFile(
+    new URL("./fixtures/realistic-review-ugc.json", import.meta.url), "utf8"));
+  const generation = fixture.apiRoutes.find(route =>
+    route.method === "GET"
+      && route.path === "/api/v1/realistic-review-ugc/keyword-creative-briefs/v3/generation-status");
+  assert.ok(generation, "unhandled Stage 1 capability route would return HTTP 599");
+  assert.equal(generation.body.available, true);
+  assert.equal(generation.body.output_count, 9);
+  const plan = JSON.parse(await fs.readFile(
+    new URL("../../../docs/operations/ui-qa-realistic-review-ugc-plan.json", import.meta.url), "utf8"));
+  const step = plan.steps.find(item => item.name === "stage1-actions");
+  assert.ok(step);
+  assert.ok(step.assertions.some(item =>
+    item.type === "text-includes" && item.selector === "#rrugc-panel-stage1 .rrugc-keyword-gen-skill-cell"
+    && item.value === "Creative Brief V3"));
+  const products = plan.steps.find(item => item.name === "stage2-actions");
+  assert.ok(products?.assertions.some(item =>
+    item.type === "count" && item.selector === "#rrugc-panel-stage2 .rrugc-colorway-kpis article"
+    && item.value === 2));
+});
+
 test("RRUGC fixture covers photo readiness and displayed output image without 599", async () => {
   const fixture = JSON.parse(await fs.readFile(
     new URL("./fixtures/realistic-review-ugc.json", import.meta.url), "utf8"));
