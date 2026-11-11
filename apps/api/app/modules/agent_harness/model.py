@@ -223,3 +223,60 @@ class AgentTrialQaReviewModel(Base):
         DateTime(timezone=True), nullable=False, default=utcnow,
         server_default=text("CURRENT_TIMESTAMP"),
     )
+
+
+class AgentTrialArtworkSnapshotModel(Base):
+    """One independently retained, SHA-verified PNG for blinded QA.
+
+    Important: intentionally NO FK to rrugc_image_output_versions. Regenerate
+    can delete Output History without deleting or blocking this copy. The row
+    transitions reserved -> verified once; never records a QA verdict.
+    """
+
+    __tablename__ = "cam_agent_trial_artwork_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "study_id", "keyword_id"],
+            ["cam_agent_trial_exposures.tenant_id",
+             "cam_agent_trial_exposures.study_id",
+             "cam_agent_trial_exposures.keyword_id"],
+            name="fk_cam_trial_snapshot_exposure", ondelete="RESTRICT",
+        ),
+        UniqueConstraint("tenant_id", "source_output_version_id",
+                         name="uq_cam_trial_snapshot_tenant_output"),
+        UniqueConstraint("tenant_id", "snapshot_asset_id",
+                         name="uq_cam_trial_snapshot_tenant_asset"),
+        CheckConstraint("size_bytes > 0 AND size_bytes <= 16777216",
+                        name="ck_cam_trial_snapshot_size"),
+        CheckConstraint("width > 0 AND height > 0",
+                        name="ck_cam_trial_snapshot_dims"),
+        CheckConstraint(
+            "((status = 'reserved' AND snapshot_remote_file_id IS NULL AND verified_at IS NULL)"
+            " OR (status = 'verified' AND snapshot_remote_file_id IS NOT NULL AND verified_at IS NOT NULL))",
+            name="ck_cam_trial_snapshot_seal",
+        ),
+        Index("ix_cam_trial_snapshot_study_status",
+              "tenant_id", "study_id", "status", "created_at"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    study_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    keyword_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_output_version_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    image_processing_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    brief_processing_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_remote_file_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    snapshot_asset_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    snapshot_remote_file_id: Mapped[str | None] = mapped_column(String(255))
+    artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

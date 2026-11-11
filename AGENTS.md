@@ -42,6 +42,36 @@ AI agents are not authorized by repository instructions alone to:
 
 The user's standing deployment approval below covers normal reviewed frontend/backend/worker releases, without a new confirmation on every change. Any additional elevation outside those approved release scripts still requires separately granted authority and minimum necessary permissions. CodeLocal host-policy hard blocks always take precedence.
 
+## Disk-aware development and test-worktree lifecycle (2026-11-11)
+
+The CAM VPS has a shared production root volume. Do not make a new full checkout,
+virtualenv, `node_modules` tree, local PostgreSQL cluster, or browser profile
+for every coding/test iteration.
+
+- Run `git worktree list` and inspect the relevant clean existing checkout
+  before allocating another worktree. Reuse the task's existing worktree and
+  shared dependency environments; prefer targeted local tests and remote CI
+  for isolated PostgreSQL-version/browser matrices.
+- A disposable checkout must have a clear purpose and a cleanup owner. Do not
+  retain multiple copies of the same test project after CI passes. At task
+  completion, inspect Git status and running processes, then use ordinary
+  `git worktree remove` on clean, inactive, redundant task worktrees. Do not
+  force-remove dirty worktrees, delete unknown untracked files, or disrupt
+  another agent's ongoing task.
+- Duplicate ignored `.venv`, `node_modules`, npm/pip caches and archived
+  journals may be cleaned only after confirming they are rebuildable, idle,
+  and outside the live runtime. Preview the reviewed
+  `scripts/cam-safe-disk-cleanup.sh --dry-run` before optional apply.
+- Never prune PostgreSQL, live Elasticsearch Docker volumes, backup
+  receipts/dumps, customer assets, Codex credentials and sessions, AI model
+  weights, browser login profiles, or the independently retained production
+  `current` and `previous` backend releases to make a disk target pass.
+- Production migrations that require restore evidence must use a separately
+  verified **off-host** full restore. Do not create a multi-gigabyte test
+  database on the live VPS volume or weaken the release gate when disk/swap
+  headroom is insufficient. Record `df`, free memory, sanitized backup
+  preflight, and verified health before and after production operations.
+
 ## Security-sensitive changes
 
 Treat authentication, OAuth/session handling, RBAC/tenant scope, database migrations, external URL/file ingestion, encryption/secrets, backup/restore, asset deletion, production deployment, IAM/networking, and global emergency controls as high-risk.

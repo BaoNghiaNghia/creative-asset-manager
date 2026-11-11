@@ -78,6 +78,7 @@ FEATURE_FLAG_NAMES = (
     "AGENT_HARNESS_TRIAL_CONTROL_CAPTURE_ENABLED",
     "AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED",
     "AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED",
+    "AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED",
     "AGENT_HARNESS_FEEDBACK_SYNC_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_CAPTURE_ENABLED",
     "AGENT_HARNESS_FEEDBACK_AUTO_PROCESS_ENABLED",
@@ -145,6 +146,8 @@ class Settings(BaseSettings):
     AGENT_HARNESS_TRIAL_CHALLENGER_ENABLED: bool = False
     # Explicit, authenticated, read-only remote image-byte verification. OFF.
     AGENT_HARNESS_TRIAL_ARTWORK_VERIFY_ENABLED: bool = False
+    # Explicit verified PNG copy for QA, isolated from Output History. OFF.
+    AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED: bool = False
     # Opt-in admin-only candidate evidence sync; never promotes or runs agents.
     AGENT_HARNESS_FEEDBACK_SYNC_ENABLED: bool = False
     # Independent, opt-in Stage 1 vote outbox capture (same DB transaction).

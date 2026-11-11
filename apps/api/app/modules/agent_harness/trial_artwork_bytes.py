@@ -20,8 +20,8 @@ from .trial_artwork_lineage import (
 _PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
 
-async def verify_stored_artwork_bytes(storage: Any, claim: ArtworkLineageClaim) -> dict:
-    """Stream up to 16 MiB, verify SHA, bytes, actual PNG encoding and dimensions."""
+async def read_verified_artwork_png(storage: Any, claim: ArtworkLineageClaim) -> tuple[dict, bytes]:
+    """Return bounded original PNG only after independent bytes + decode verification."""
     stream = await storage.open_asset(OpenStoredAssetInput(
         tenant_id=claim.tenant_id,
         asset_id=(
@@ -60,7 +60,7 @@ async def verify_stored_artwork_bytes(storage: Any, claim: ArtworkLineageClaim) 
     except (OSError, ValueError, SyntaxError, UnidentifiedImageError, Image.DecompressionBombError):
         raise TrialArtworkLineageError("trial_artifact_png_corrupt") from None
 
-    return {
+    status = {
         "output_version_id": claim.output_version_id,
         "lineage_status": "database_and_storage_verified",
         "brief_treatment_receipt_found": True,
@@ -75,3 +75,10 @@ async def verify_stored_artwork_bytes(storage: Any, claim: ArtworkLineageClaim) 
             "trusted_provider_cost_unavailable",
         ],
     }
+    return status, payload
+
+
+async def verify_stored_artwork_bytes(storage: Any, claim: ArtworkLineageClaim) -> dict:
+    """Existing read-only API: never expose raw image bytes in the response."""
+    status, _ = await read_verified_artwork_png(storage, claim)
+    return status

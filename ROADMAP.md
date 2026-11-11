@@ -1,12 +1,36 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Phase 3C production rollout: 0206 bridge released
+
+- [x] Merge PR #102 CI baseline and PR #101 0206 rollback bridge; both full CI 16/16 PASS.
+- [x] Deploy exact bridge commit `81a8d582b` on production with `--no-migrate --keep-releases 2`; deployment schema compatibility check PASS; no 0207 DDL.
+- [x] Verify live API version `81a8d582b`, API live/ready, PostgreSQL/Elasticsearch dependencies and nine active managed services plus worker readiness.
+- [x] Record most recent backup timer success (2026-11-10 22:06 ICT) and capacity baseline (~4.5 GiB free, high swap usage); do not mistake successful backup service for off-host restore proof.
+- [ ] Verify physical `current`/distinct `previous` release markers using an operator-approved scoped channel, plus independently restorable off-host backup and rollback readiness; host-policy filesystem restrictions must not be bypassed.
+- [x] Add optional off-host restore count-parity checking (`--expect-table-count`) against exact required tables; fail closed on mismatch/invalid input and label unverified operator-supplied count provenance. [ ] Obtain independently verified source counts for the same backup snapshot and full off-host restore proof before clearing G1.
+- [x] Wire synthetic real PostgreSQL source/dump/isolated-restore/count-mismatch exercise to existing PostgreSQL 12/16 CI jobs (no new VPS test environment). [ ] Verify green CI integration; [ ] conduct separately authorized full *production backup* restore off-host.
+- [x] Independently re-run bridge deployment to full 100% success (exit 0); verify script-reported distinct protected current/previous, all API/worker probes, then clean its detached deploy-only worktree.
+- [x] Execute the fail-closed, read-only G1 backup/restore preflight: local receipt PASS; off-host restore NOT_VERIFIED and same-volume restore capacity BLOCKED (database ~4.11 GiB; free ~5.42 GiB; 8 GiB reserve). Documented in `docs/operations/CAM_AGENT_HARNESS_V2_0207_RELEASE_GATE_20261111.md`.
+- [x] Confirm latest PR #100 code+documentation CI completed 16/16 PASS (run #42955672526).
+- [ ] Only after an independently verified *off-host* restore and operator-approved physical rollback/capacity proof may PR #100 be merged and 0207 applied with every snapshot/learning flag OFF; verify zero snapshot rows, Stage 1 Regenerate/Output History and Etsy SMS non-regression. Never delete QA evidence for rollback.
+
+## 2026-11-10 — Phase 3C.3B2C2A: independently retained QA artwork snapshots
+
+- [x] Add 0207 append-only `cam_agent_trial_artwork_snapshots` schema without a destructive Output History FK; downgrade refuses non-empty data.
+- [x] Add independent default-OFF `AGENT_HARNESS_TRIAL_ARTWORK_SNAPSHOT_ENABLED` gate, strict manual dry-run/create contract, safe tenant/RBAC and provenance checks, durable reservation + unique idempotency, verified PNG/Drive copy.
+- [x] Keep 0205 QA review table unwritten and A/B evaluation/promotion blocked. A verified snapshot is not a blinded QA verdict or trusted provider cost.
+- [x] Stage an isolated 0206-compatible schema rollback bridge from current production commit before the new migration; sync strict nullability/FK/CHECK validation and PostgreSQL 12/16 scratch-schema canaries with PR #101.
+- [x] Verify 0207 migration on both PostgreSQL 12/16 in isolated CI. [ ] Complete two-stage production release and independent service smoke; never migrate before the 0206-compatible bridge is the verified rollback release.
+- [ ] Phase 3C.3B2C2B: separate snapshot-bound blinded review provenance/permissions and image cost receipts, then measured controlled study.
+
+
 ## 2026-11-11 — Phase 3C.3B2C2A: standalone 0206 rollback bridge hardening
 
 - [x] Separate PR #101 contains only 0206-compatible code, negative-schema canaries, and CI coverage; **no 0207 migration or feature activation**.
 - [x] Reject missing/extra/nullable snapshot columns, wrong exposure FK/delete policy, missing uniqueness, weak or permissive seal/size/dimension CHECKs, and unknown Alembic revisions.
 - [x] Run 14/14 local bridge canaries and syntax/diff validation.
-- [x] Verify PostgreSQL 12/16 0206 bridge canaries on prior PR CI; [ ] confirm full CI again with PR #102 baseline fixes incorporated.
-- [ ] Verify live 0206 schema, backup, nine managed services, then deploy bridge as a distinct no-migrate release and retain as rollback.
+- [x] Verify 0206 bridge canaries and full PR #101 CI 16/16 PASS after PR #102; merged into `main` at `81a8d582b`.
+- [x] Bridge deployed as a distinct no-migrate release; live 0206-compatible schema gate, API commit and all nine services verified. [ ] Independently validate physical rollback target and off-host restore evidence before migration.
 - [ ] Only after bridge is retained: deploy additive 0207 with snapshot flag OFF, followed by independent QA and trusted cost receipts.
 
 ## 2026-11-11 — Agent Harness V2 release-gate CI baseline (PR #102)
@@ -18,7 +42,7 @@
 - [x] Align remaining stale AI Operations and Stage 2 tests with pipeline-only loads, Render Scene, ThreadTransfer V2 / stock imagery and on-open UGC Scout; targeted frontend 27/27 PASS.
 - [x] Repair Creative Browser QA fixture/API status and outdated Stage 1/2 assertions, verify real headless Chrome across desktop/tablet/mobile + Research Inbox with zero functional issues.
 - [x] Confirm PR #102 fully green (16/16 jobs), reviewed test-only diff and merge into `main` (`165259cc8`). Keep security and runtime gates intact.
-- [ ] Only then proceed with isolated 0206 bridge deploy and later 0207 migration, flags OFF.
+- [x] Isolated 0206 bridge deployed with flags unchanged. [ ] Later 0207 migration remains gated on independently verified rollback/restore and capacity, flags OFF.
 
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
 
