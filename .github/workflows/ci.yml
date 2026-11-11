@@ -326,6 +326,9 @@ jobs:
           set -o pipefail
           timeout 10m python -m unittest tests.integration.test_postgresql tests.integration.test_ai_operations_postgresql tests.integration.test_inventory_postgresql -v 2>&1 | tee ../../artifacts/postgres/tests.log
           timeout 10m python -m pytest tests/integration/test_public_review_postgresql.py -q 2>&1 | tee -a ../../artifacts/postgres/tests.log
+      - name: 0206 bridge rejects weakened future 0207 schemas
+        working-directory: apps/api
+        run: python -m pytest tests/modules/test_agent_trial_snapshot_bridge.py -q
       - name: Upload PostgreSQL failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v6
