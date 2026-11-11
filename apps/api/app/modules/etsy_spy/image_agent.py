@@ -152,6 +152,11 @@ def transport_enabled() -> bool:
     return extraction_enabled()
 
 
+def orchestrator_enabled() -> bool:
+    # Only newly leased jobs may opt into v1. Legacy leases stay unchanged.
+    return os.getenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", "0") == "1"
+
+
 def _enabled() -> None:
     if not transport_enabled():
         raise HTTPException(503, "Etsy extraction worker transport is disabled")
@@ -177,6 +182,8 @@ def _task(job: ProcessingJobModel, agent: EtsySpyAgent) -> dict:
             "engine": "auto", "source": payload.get("source"),
             "rights_status": "unverified",
             "manual_qa_required": True,
+            **({"execution_mode": "orchestrator_v1"}
+               if payload.get("execution_mode") == "orchestrator_v1" else {}),
         },
         "lease_token": _lease_token(agent, job),
         "lease_expires_at": job.lease_expires_at.isoformat() if job.lease_expires_at else None,
@@ -308,6 +315,59 @@ def _validated_review_evidence(payload: dict, status: str) -> tuple[str | None, 
     }
 
 
+ORCHESTRATOR_QA_FIELDS = {
+    "schema", "method", "width", "height", "dpi",
+    "alpha_pixel_verified", "transparent_fraction",
+    "border_transparent_fraction", "qa_status", "review_flags",
+    "manual_text_review_required", "manual_artwork_review_required",
+    "print_ready", "ocr_verified", "rights_verified",
+}
+
+
+def _validated_orchestrator_evidence(
+    payload: dict, status: str, engine: str
+) -> tuple[str | None, dict]:
+    """Authenticated, pinned-v1 PNG provenance. This is *not* commercial approval."""
+    reason = payload.get("reason")
+    if reason is not None and (not isinstance(reason, str) or
+                               not re.fullmatch(r"[a-z0-9_]{2,72}", reason)):
+        raise HTTPException(422, "Invalid orchestrator reason")
+    qa = payload.get("qa")
+    if (status != "needs_review" or not isinstance(qa, dict) or
+        set(qa) != ORCHESTRATOR_QA_FIELDS or
+        qa.get("schema") != "cam-image-orchestrator-qa-v1" or
+        qa.get("method") != engine):
+        raise HTTPException(422, "Orchestrator review evidence required")
+    if (any(qa.get(name) is not False for name in
+            ("print_ready", "ocr_verified", "rights_verified")) or
+        qa.get("alpha_pixel_verified") is not True or
+        qa.get("manual_artwork_review_required") is not True or
+        type(qa.get("manual_text_review_required")) is not bool or
+        (engine == "chatgpt_assisted" and
+         qa.get("manual_text_review_required") is not True)):
+        raise HTTPException(422, "Orchestrator cannot approve artwork or rights")
+    if (type(qa.get("width")) is not int or qa["width"] != 4500 or
+        type(qa.get("height")) is not int or qa["height"] != 5400 or
+        type(qa.get("dpi")) is not int or qa["dpi"] != 300 or
+        qa.get("qa_status") != "needs_review"):
+        raise HTTPException(422, "Orchestrator output must be review-only print-size PNG")
+    fractions = {}
+    for key, minimum in (("transparent_fraction", 0.02),
+                         ("border_transparent_fraction", 0.55)):
+        value = qa[key]
+        if (type(value) not in (float, int) or not math.isfinite(value) or
+            not minimum <= value <= 1):
+            raise HTTPException(422, "Unverified transparent background")
+        fractions[key] = float(value)
+    flags = qa["review_flags"]
+    if (not isinstance(flags, list) or len(flags) > 8 or
+        any(not isinstance(x, str) or
+            not re.fullmatch(r"[a-z_]{2,40}", x) for x in flags) or
+        len(set(flags)) != len(flags)):
+        raise HTTPException(422, "Invalid orchestrator review flags")
+    return reason, {**qa, **fractions, "review_flags": sorted(flags)}
+
+
 @image_router.post("", status_code=201)
 async def pair_image_agent(
     request: Request, principal: CurrentPrincipal = Depends(MANAGE),
@@ -339,7 +399,9 @@ def list_image_agents(principal: CurrentPrincipal = Depends(READ),
 def read_image_agent_overview(principal: CurrentPrincipal = Depends(READ),
                               db: Session = Depends(get_db)):
     """Tenant-scoped 200/day extraction pilot metrics; safe when worker is off."""
-    return extraction_overview(db, principal.active_tenant_id)
+    return {**extraction_overview(db, principal.active_tenant_id),
+            "orchestrator_enabled": orchestrator_enabled(),
+            "orchestrator_contract": "v1"}
 
 
 @image_router.get("/{agent_id}/probe")
@@ -364,16 +426,20 @@ def probe_image_agent(
         "daily_cap": daily_cap(),
         "claimed_today": claimed_today(db, agent.tenant_id),
         "lease_protocol": "v1",
+        "orchestrator_enabled": orchestrator_enabled(),
+        "orchestrator_contract": "v1",
     }
 
 
 @image_router.post("/{agent_id}/claim")
 def claim_image_job(
     agent_id: str, authorization: str | None = Header(None),
+    x_cam_image_worker: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     agent = _authenticate(db, agent_id, authorization)
     _enabled()
+    requested_orchestrator = x_cam_image_worker == "orchestrator-v1"
     worker = "etsy-image:" + agent.id
     now = utcnow()
     # If HTTP response was lost, return the same task + lease. Never create a
@@ -387,7 +453,15 @@ def claim_image_job(
         ProcessingJobModel.cancellation_requested.is_(False),
     ).order_by(ProcessingJobModel.claimed_at.desc()).limit(1))
     if active is not None:
+        mode = ((active.payload_json or {}).get("execution_mode")
+                if isinstance(active.payload_json, dict) else None)
+        if (mode == "orchestrator_v1") != requested_orchestrator:
+            return {"task": None, "pause_reason": "existing_mode_task_requires_completion"}
         return _task(active, agent)
+    if requested_orchestrator and not orchestrator_enabled():
+        return {"task": None, "pause_reason": "orchestrator_not_enabled"}
+    if orchestrator_enabled() and not requested_orchestrator:
+        return {"task": None, "pause_reason": "orchestrator_device_upgrade_required"}
     # Conservative per-tenant cap for the requested ~200/day workload.
     # Existing leased work can still renew through /check-job.
     if claimed_today(db, agent.tenant_id) >= daily_cap():
@@ -430,6 +504,9 @@ def claim_image_job(
     job.claimed_at = now
     job.lease_expires_at = now + timedelta(minutes=30)
     job.attempt_count += 1
+    if requested_orchestrator:
+        job.payload_json = {**(job.payload_json or {}),
+                            "execution_mode": "orchestrator_v1"}
     agent.last_seen_at = job.claimed_at
     db.commit()
     return _task(job, agent)
@@ -500,10 +577,16 @@ async def submit_image_result(
     if status not in {"needs_review", "needs_ai", "failed"}:
         raise HTTPException(422, "Invalid extraction status")
     engine = data.get("engine")
-    if engine not in {"fast_cpu", "ai_review"}:
+    orchestrated = (isinstance(job.payload_json, dict) and
+                    job.payload_json.get("execution_mode") == "orchestrator_v1")
+    allowed_engines = ({"fast_cpu", "ai_review", "chatgpt_assisted"}
+                       if orchestrated else {"fast_cpu", "ai_review"})
+    if engine not in allowed_engines:
         raise HTTPException(422, "Invalid extraction engine")
-    if status == "needs_review" and engine != "fast_cpu":
-        raise HTTPException(422, "Only Fast Extraction may submit a review PNG")
+    if status == "needs_review" and engine not in (
+        {"fast_cpu", "chatgpt_assisted"} if orchestrated else {"fast_cpu"}
+    ):
+        raise HTTPException(422, "Review PNG engine not authorized for this lease")
     if status == "needs_ai" and engine != "ai_review":
         raise HTTPException(422, "AI fallback must be routed to manual review")
     lease = str(data.get("lease_token") or "")
@@ -512,7 +595,13 @@ async def submit_image_result(
     source_sha256 = str(data.get("source_sha256") or "")
     if source_sha256 and not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
         raise HTTPException(422, "Invalid source hash")
-    reason, qa = _validated_review_evidence(data, status)
+    reason, qa = (_validated_orchestrator_evidence(data, status, engine)
+                  if orchestrated and status == "needs_review"
+                  else _validated_review_evidence(data, status))
+    if orchestrated and status == "needs_review" and not re.fullmatch(
+        r"[0-9a-f]{64}", source_sha256
+    ):
+        raise HTTPException(422, "Orchestrated source SHA256 required")
     previous = (job.payload_json or {}).get("result")
     if job.status == "completed" and isinstance(previous, dict):
         if (previous.get("status") == status and
