@@ -1,3 +1,9 @@
+## 2026-11-11 — Production release timeout hardening after Phase 4B.1 activation
+
+- Phase 4B.1 PR #104 CI PASS 16/16 and merged as `395d60ee1`. Production script with `--no-migrate` activated the immutable backend and restarted services, but exited 1 after the visual encoder had not become ready within 30 seconds. The isolated OpenVINO/SigLIP2 encoder finished startup after roughly 36 seconds (journal confirms 8091 /ready subsequently reachable); eight worker/encoder /ready endpoints reported 200 and nine services were active on read-only follow-up. Script did NOT reach completion or cleanup, and this is not a claimed clean release.
+- Fix: retain fail-closed /ready health checks while allowing up to 75 one-second attempts for `visual encoder ready` *only*. Other API and worker endpoints retain 30 attempts. The existing cleanup preserves distinct current/previous releases and does not delete recent unknown staging.
+- Deployment contract tests now assert both limits and the specific encoder-only condition. No database migration, credentials, AI provider calls, feature enablement, worker job routing or 0207 rollback. CI/merge/retry release still required.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4B.1 lease-bound advisory admission (candidate)
 
 - Introduced `job_lease_preview.py` and a tenant/RBAC-restricted `/agents/{agent_id}/{version}/jobs/{job_id}/lease-preview` POST requiring pinned `job.read` in both agent immutable tool grants and strict request. The API examines an existing `ProcessingJob` lease; no queue claim/renew/release or second scheduling system is created.
