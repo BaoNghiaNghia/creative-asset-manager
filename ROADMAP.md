@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-11 — CAM Agent Harness V2 Phase 4C.1: historical proof + bounded capacity evidence
+
+- [x] Preserve the distinction between an active signed heartbeat and an **historical** HMAC-signed observation after a legitimate Image Agent result clears the ProcessingJob lease. Verify original tenant/owner/attempt/claim and completion timestamp plus accepted result receipt; never treat it as a fresh free slot.
+- [x] Add tenant/RBAC-gated `external-executors/etsy-image/capacity-preview` with bounded 20-device/160-processing/32-completed sample, per-device signed busy/stale/conflicting-claim states, pending/retry counts, and at most five recently verified completed job IDs.
+- [x] Keep source-of-truth `ProcessingJob` queue unchanged and `verified_free_slots=0`, `dispatch_allowed=false`, `reservation_created=false` for every response. Flag and secret remain behind existing controls; no new migration, worker, browser restart or provider calls.
+- [x] Add negative checks for expired/completed/tampered/reclaimed proof, revoked agent, cross-tenant scope, read RBAC, emergency stop, conflicting leases, caps and retrospective validity after original signature expiry.
+- [ ] Run CI, merge `main` and deploy backend-only with `--no-migrate --keep-releases 2`; check readiness, database 0207 and rollback.
+- [ ] Phase 4C.2: separate idle-device signed handshake and actual atomic slot admission, only after first real authenticated job canary; default OFF until approved.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C1_HISTORIC_CAPACITY.md`.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2B: Windows heartbeat compatibility
 
 - [x] Existing Etsy Image Agent `/claim` task and successful `/check-job` processing response now return authoritative `attempt_count` to support an optional, attempt-fenced Windows heartbeat, without changing legacy lease/recovery/result behavior.

@@ -142,6 +142,202 @@ def test_heartbeat_ack_is_signed_and_does_not_renew_or_dispatch(setup):
     assert s.agent.id not in viewed.text
 
 
+def _complete_after_signed_heartbeat(s):
+    assert send(s).status_code == 200
+    payload_with_proof = dict(s.job.payload_json)
+    payload_with_proof["result"] = {
+        "status": "needs_ai",
+        "receipt_id": "f" * 40,
+    }
+    s.job.payload_json = payload_with_proof
+    s.job.status = "completed"
+    s.job.completed_at = datetime.now(timezone.utc)
+    s.job.lease_expires_at = None
+    s.db.commit()
+
+
+def test_terminal_result_preserves_signed_historical_evidence(setup):
+    s = setup
+    _complete_after_signed_heartbeat(s)
+    response = s.client.get(s.admin)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["worker_heartbeat_authenticated"] is False
+    assert body["state"] == "job_not_processing"
+    audit = body["historical_attestation"]
+    assert audit["historical_heartbeat_verified"] is True
+    assert audit["state"] == "signed_historical_heartbeat_verified"
+    assert audit["worker_heartbeat_authenticated"] is False
+    assert audit["dispatch_allowed"] is False
+    assert audit["executor_slot_reserved"] is False
+    assert audit["historical_receipt_age_seconds"] >= 0
+    assert s.agent.id not in response.text
+    assert "signature" not in response.text
+    assert "nonce" not in response.text
+    assert "lease_token" not in response.text
+
+
+def test_historical_signature_fails_after_attempt_change_or_tampering(setup):
+    s = setup
+    _complete_after_signed_heartbeat(s)
+    payload = dict(s.job.payload_json)
+    proof = dict(payload[EVIDENCE_FIELD])
+    proof["issued_epoch"] -= 20
+    s.job.payload_json = {**payload, EVIDENCE_FIELD: proof}
+    s.db.commit()
+    assert s.client.get(s.admin).json()["historical_attestation"]["state"] == "signature_invalid"
+    s.job.payload_json = payload
+    s.job.attempt_count += 1
+    s.db.commit()
+    altered = s.client.get(s.admin).json()
+    assert altered["historical_attestation"]["state"] == "job_binding_changed"
+    s.job.attempt_count -= 1
+    s.db.commit()
+    s.agent.active = False
+    s.db.commit()
+    # Revocation now must NOT turn historical signing proof into a live slot,
+    # but cannot erase the cryptographic fact that this former device reported.
+    revoked = s.client.get(s.admin).json()
+    assert revoked["worker_heartbeat_authenticated"] is False
+    assert revoked["historical_attestation"]["historical_heartbeat_verified"] is True
+
+
+def test_capacity_preview_is_tenant_scoped_and_never_reserves_slots(setup):
+    s = setup
+    url = "/api/v1/admin/agent-harness/boostgame/external-executors/etsy-image/capacity-preview"
+    before = s.client.get(url)
+    assert before.status_code == 200, before.text
+    original = before.json()
+    assert original["open_job_counts"]["processing"] == 1
+    assert original["device_count"] == 1
+    assert original["active_claim_count"] == 1
+    assert original["authenticated_live_claim_count"] == 0
+    assert original["verified_free_slots"] == 0
+    assert original["dispatch_allowed"] is False
+    assert original["reservation_created"] is False
+    assert original["device_details"][0]["capacity_state"] == "busy_unverified"
+    assert s.agent.id not in before.text
+    assert s.secret not in before.text
+
+    assert send(s).status_code == 200
+    with_live = s.client.get(url).json()
+    assert with_live["capacity_state"] == "read_only_evidence_available"
+    assert with_live["authenticated_live_claim_count"] == 1
+    assert with_live["device_details"][0]["capacity_state"] == "verified_busy"
+    assert with_live["device_details"][0]["verified_free_slots"] == 0
+    assert with_live["dispatch_allowed"] is False
+    assert s.db.query(ProcessingJobModel).count() == 1
+
+    payload_with_proof = dict(s.job.payload_json)
+    payload_with_proof["result"] = {"status": "needs_ai", "receipt_id": "f" * 40}
+    s.job.payload_json = payload_with_proof
+    s.job.status = "completed"
+    s.job.lease_expires_at = None
+    s.job.completed_at = datetime.now(timezone.utc)
+    s.db.commit()
+    after = s.client.get(url).json()
+    assert after["open_job_counts"]["processing"] == 0
+    assert after["device_details"][0]["capacity_state"] == "idle_job_bound_heartbeat_unavailable"
+    assert after["authenticated_live_claim_count"] == 0
+    assert after["historical_evidence"]["verified_signed_completed"] == 1
+    assert after["historical_evidence"]["recent_verified_job_ids"] == [s.job.id]
+    assert after["verified_free_slots"] == 0
+    assert after["dispatch_allowed"] is False
+    assert "signature" not in str(after)
+
+
+def test_historical_proof_survives_expiry_but_not_bad_completion(setup):
+    from app.modules.agent_harness.external_heartbeat import inspect_completed_heartbeat
+
+    s = setup
+    _complete_after_signed_heartbeat(s)
+    three_days_later = datetime.now(timezone.utc) + timedelta(days=3)
+    attested = inspect_completed_heartbeat(
+        s.job, signing_key=bytes.fromhex(_SECRET),
+        agent_registered=True, now=three_days_later,
+    )
+    assert attested["historical_heartbeat_verified"] is True
+    assert attested["worker_heartbeat_authenticated"] is False
+    assert attested["dispatch_allowed"] is False
+    assert attested["historical_receipt_age_seconds"] >= 3 * 86400 - 5
+
+    s.job.completed_at = s.job.claimed_at - timedelta(seconds=1)
+    s.db.commit()
+    assert s.client.get(s.admin).json()["historical_attestation"]["state"] == (
+        "completion_boundary_invalid"
+    )
+    s.job.completed_at = datetime.now(timezone.utc)
+    s.job.payload_json = {
+        **s.job.payload_json,
+        "result": {"status": "needs_ai", "receipt_id": "bad"},
+    }
+    s.db.commit()
+    assert s.client.get(s.admin).json()["historical_attestation"]["state"] == (
+        "completed_result_missing"
+    )
+
+
+def test_capacity_device_limit_fails_closed(setup):
+    s = setup
+    for i in range(20):
+        create_agent(s.db, "boostgame", IMAGE_AGENT_NAME_PREFIX + f"extra-{i:02d}")
+    s.db.commit()
+    response = s.client.get(
+        "/api/v1/admin/agent-harness/boostgame/external-executors/"
+        "etsy-image/capacity-preview"
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["capacity_state"] == "device_limit_exceeded"
+    assert result["device_count"] == 21
+    assert result["device_details"] == []
+    assert result["verified_free_slots"] == 0
+    assert result["dispatch_allowed"] is False
+
+
+def test_capacity_preview_limits_burst_claims_and_hides_other_tenants(setup):
+    s = setup
+    url = "/api/v1/admin/agent-harness/boostgame/external-executors/etsy-image/capacity-preview"
+    another = ProcessingJobModel(
+        id=str(uuid4()), tenant_id="boostgame", job_type="etsy_design_extract",
+        entity_type="etsy_listing", entity_id="1234567890",
+        idempotency_key=str(uuid4()), status="processing", payload_json={},
+        attempt_count=1, max_attempts=5,
+        claimed_by="etsy-image:" + s.agent.id,
+        claimed_at=datetime.now(timezone.utc)-timedelta(seconds=7),
+        lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=80),
+    )
+    foreign = ProcessingJobModel(
+        id=str(uuid4()), tenant_id="other", job_type="etsy_design_extract",
+        entity_type="etsy_listing", entity_id="999",
+        idempotency_key=str(uuid4()), status="processing", payload_json={},
+        attempt_count=1, max_attempts=5, claimed_by="etsy-image:unknown",
+        claimed_at=datetime.now(timezone.utc)-timedelta(seconds=7),
+        lease_expires_at=datetime.now(timezone.utc)+timedelta(seconds=80),
+    )
+    s.db.add_all([another, foreign])
+    s.db.commit()
+    result = s.client.get(url)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["open_job_counts"]["processing"] == 2
+    assert body["device_details"][0]["capacity_state"] == "conflicting_processing_claims"
+    assert body["capacity_state"] == "occupied_with_conflict"
+    assert body["verified_free_slots"] == 0
+    assert foreign.id not in result.text
+    s.principal.effective_permissions = frozenset({"ai_operations.read"})
+    assert s.client.get(url).status_code == 403
+    s.principal.effective_permissions = frozenset({"ai_operations.read", "ai_provider.configure"})
+    s.principal.active_tenant_id = "other"
+    assert s.client.get(url).status_code == 403
+    s.principal.active_tenant_id = "boostgame"
+    s.flags.AGENT_HARNESS_READ_API_ENABLED = False
+    assert s.client.get(url).status_code == 404
+    s.flags.AGENT_HARNESS_READ_API_ENABLED = True
+    s.flags.AI_EMERGENCY_STOP_ENABLED = True
+    assert s.client.get(url).json()["capacity_state"] == "emergency_stop"
+
+
 def test_feature_and_key_fail_closed_without_state_mutation(setup, monkeypatch):
     s = setup
     monkeypatch.setenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_ENABLED", "0")

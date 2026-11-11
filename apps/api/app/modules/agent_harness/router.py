@@ -32,9 +32,11 @@ from .executor_readiness import (
 )
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .job_lease_preview import observe_processing_lease
+from .external_capacity import preview_image_agent_capacity
 from .external_heartbeat import (
     EVIDENCE_FIELD, external_heartbeat_enabled,
     external_heartbeat_signing_key, observe_external_heartbeat,
+    inspect_completed_heartbeat,
 )
 from .registry import AgentRegistryError
 from .repository import AgentHarnessRepository, _event_key
@@ -770,10 +772,38 @@ def read_external_job_heartbeat(
         agent_active=agent_active,
         signing_key=external_heartbeat_signing_key() if enabled else None,
     )
+    historical = inspect_completed_heartbeat(
+        job, signing_key=external_heartbeat_signing_key() if enabled else None,
+        agent_registered=bool(
+            agent is not None and agent.tenant_id == tenant_id
+            and agent.name.startswith(IMAGE_AGENT_NAME_PREFIX)
+        ),
+    )
     return {
         "tenant_id": tenant_id,
         "job_id": str(job_id),
         "executor_kind": "etsy_image_agent",
         "heartbeat_feature_enabled": enabled,
         **observed,
+        "historical_attestation": historical,
     }
+
+
+@router.get("/{tenant_id}/external-executors/etsy-image/capacity-preview")
+def read_etsy_image_capacity_preview(
+    tenant_id: str,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read-only, bounded CAM job/lease/receipt summary; never a slot claim."""
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    enabled = external_heartbeat_enabled()
+    snapshot = preview_image_agent_capacity(
+        db, tenant_id=tenant_id,
+        heartbeat_enabled=enabled,
+        signing_key=external_heartbeat_signing_key() if enabled else None,
+    )
+    if get_settings().AI_EMERGENCY_STOP_ENABLED:
+        snapshot["capacity_state"] = "emergency_stop"
+    return snapshot
