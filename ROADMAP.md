@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Agent Harness V2 release-gate CI baseline (PR #102)
+
+- [x] Separate production-neutral test updates from migration 0206/0207; strengthen navigation module coverage and retain the real-runtime localhost URL prohibition.
+- [x] Align Stage 0 Opportunity and Stage 2 gallery tests with the current 23-item Output Gallery (22 generated images plus the distinct Embroidery Reference).
+- [x] Verify general worker refuses unknown/external-only job types without consuming or failing the pending job.
+- [x] Reuse reviewed Skill Manager Browser QA assertions; run targeted API, frontend and Node checks plus TypeScript typecheck.
+- [x] Align remaining stale AI Operations and Stage 2 tests with pipeline-only loads, Render Scene, ThreadTransfer V2 / stock imagery and on-open UGC Scout; targeted frontend 27/27 PASS.
+- [x] Repair Creative Browser QA fixture/API status and outdated Stage 1/2 assertions, verify real headless Chrome across desktop/tablet/mobile + Research Inbox with zero functional issues.
+- [ ] Confirm complete GitHub CI on final PR #102 revision; never change security or production behavior merely to silence test errors.
+- [ ] Only then proceed with isolated 0206 bridge deploy and later 0207 migration, flags OFF.
+
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
 
 - [x] Build explicit, tenant-scoped read-only lineage: exposure receipt → completed Creative Brief and ProcessingJob → pinned 1/4/4 image generation job → output-version SHA-256 and source fingerprint. Invalidate stale/regenerated/other-tenant/other-study records rather than infer exposure from shadow.

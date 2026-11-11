@@ -104,23 +104,25 @@ describe("Products photo output gallery navigation",()=>{
     expect(retry).toHaveBeenCalledWith(colorJobs[1]);
     await act(async()=>root.unmount());
   });
-  it("View all outputs opens 22 ordered positions even when no image jobs exist",async()=>{
+  it("View all outputs includes the separately retained Embroidery Reference and 22 photos",async()=>{
     const {root,host}=await renderWorkflow();
     const labels=[...host.querySelectorAll<HTMLButtonElement>(".rrugc-products-photo-footer-actions button")].map(button=>button.textContent?.trim());
     expect(labels).toEqual(["View all outputs","Run all"]);
     expect(host.textContent).not.toContain("7 skill slots");
-    expect(host.textContent).not.toContain("22 outputs");
+    expect(host.textContent).not.toContain("23 outputs");
     const trigger=host.querySelector<HTMLButtonElement>('[aria-label="View all outputs"]')!;
     await act(async()=>trigger.click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
     expect(modal.getAttribute("data-gallery-layout")).toBe("all-outputs");
-    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumb")).toHaveLength(22);
-    expect(modal.textContent).toContain("0 of 22 images generated");
-    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[0].textContent).toContain("Front High");
-    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[4].textContent).toContain("Multi-hat 1");
-    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[7].textContent).toContain("UGC 1");
-    expect(modal.querySelectorAll('.rrugc-photo-gallery-thumb')[10].textContent).toContain("Natural Black");
+    const thumbs=modal.querySelectorAll(".rrugc-photo-gallery-thumb");
+    expect(thumbs).toHaveLength(23);
+    expect(modal.textContent).toContain("0 of 23 images generated");
+    expect(thumbs[0].textContent).toContain("Embroidery Reference");
+    expect(thumbs[1].textContent).toContain("Front High");
+    expect(thumbs[5].textContent).toContain("Multi-hat 1");
+    expect(thumbs[8].textContent).toContain("UGC 1");
+    expect(thumbs[11].textContent).toContain("Natural Black");
     await act(async()=>root.unmount());
   });
 
@@ -182,16 +184,16 @@ describe("Products photo output gallery navigation",()=>{
     expect(document.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe(fullEcommerce);
     await act(async()=>root.unmount());
   });
-  it("opens all 22 outputs at the clicked Ecommerce Back High image",async()=>{
+  it("opens all 23 entries at the clicked Ecommerce Back High image",async()=>{
     const {root,host}=await renderWorkflow({ecommerceJobs:ecommerce});
     await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="Open Back High Ecommerce output"]')!.click());
     const modal=document.querySelector<HTMLElement>('[role="dialog"][data-photo-gallery="multi"]')!;
     expect(modal).not.toBeNull();
     expect(modal.textContent).toContain("All outputs · embroidery_design.png");
-    expect(modal.textContent).toContain("04 / 22");
-    expect(modal.textContent).toContain("All 22 outputs");
+    expect(modal.textContent).toContain("05 / 23");
+    expect(modal.textContent).toContain("All 23 outputs");
     expect(modal.querySelector<HTMLImageElement>(".rrugc-photo-gallery-stage img")?.getAttribute("src")).toBe("/photos/back.png");
-    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumbnails button")).toHaveLength(22);
+    expect(modal.querySelectorAll(".rrugc-photo-gallery-thumbnails button")).toHaveLength(23);
     await act(async()=>root.unmount());
   });
 });

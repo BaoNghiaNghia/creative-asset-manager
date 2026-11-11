@@ -52,7 +52,7 @@ describe("Stage 0 platform source attribution", () => {
       onPageChange={noop} onPageSizeChange={noop} onQueryChange={noop}
     />));
     const headers = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th")).map(header => header.textContent);
-    expect(headers.slice(0, 3)).toEqual(["Preview", "Keyword↑", "Trend↕"]);
+    expect(headers.slice(0, 3)).toEqual(["Preview", "Keyword↑", "Opportunity↕"]);
     expect(headers.indexOf("Agent↕")).toBe(headers.indexOf("Platform↕") + 1);
     for (const column of ["Trend", "Platform", "Agent"]) {
       const header = Array.from(host.querySelectorAll(".rrugc-stage0-keyword-table th"))

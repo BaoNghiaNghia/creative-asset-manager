@@ -162,7 +162,7 @@
         {
           "type": "text-includes",
           "selector": "#rrugc-panel-stage1 .rrugc-keyword-gen-skill-cell",
-          "value": "GatorHats"
+          "value": "Creative Brief V3"
         }
       ]
     },
@@ -176,7 +176,7 @@
       "assertions": [
         {"type":"visible","selector":"#rrugc-panel-stage2 .rrugc-colorway-search"},
         {"type":"visible","selector":"#rrugc-panel-stage2 .rrugc-colorway-kpis"},
-        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-kpis article","value":3},
+        {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-kpis article","value":2},
         {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-stage-sort","value":0},
         {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-select","value":0},
         {"type":"count","selector":"#rrugc-panel-stage2 .rrugc-colorway-run","value":0},

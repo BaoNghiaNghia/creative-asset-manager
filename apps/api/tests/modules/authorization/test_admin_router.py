@@ -13,6 +13,7 @@ from app.modules.auth_persistence.tenant_membership import TenantMembershipServi
 from app.modules.authorization import admin_router
 from app.modules.authorization.admin_router import router
 from app.modules.authorization.model import RoleModel
+from app.modules.authorization.navigation_scope import NAVIGATION_MODULES
 from app.modules.authorization.principal import CurrentPrincipal
 from app.modules.authorization.seed import PERMISSION_DEFINITIONS, seed_tenant_rbac
 from app.modules.authorization.service import TenantAuthorizationService
@@ -87,7 +88,9 @@ class TenantAccessAdminRouterTest(unittest.TestCase):
         catalog_by_key = {item["key"]: item for item in catalog.json()["items"]}
         self.assertTrue(catalog_by_key["inventory"]["can_grant"])
         self.assertIn("inventory.finalize", catalog_by_key["inventory"]["permissions"])
-        self.assertEqual(len(catalog_by_key), 10)
+        # Every registered navigation scope is visible to an authorized admin;
+        # an unexpected/missing scope is a security contract failure.
+        self.assertEqual(set(catalog_by_key), set(NAVIGATION_MODULES))
         self.assertTrue(catalog_by_key["tiktokshop"]["can_grant"])
         self.assertEqual(catalog_by_key["tiktokshop"]["label"], "TikTokShop · Scout & UGC")
         changed = self.request(
