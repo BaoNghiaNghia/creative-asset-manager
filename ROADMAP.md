@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-11 — CAM Agent Harness V2 Phase 4C.2A: stateless paired idle attestation
+
+- [x] Add a default-OFF `harness-idle-attestation` endpoint on the existing paired Image Agent transport, with a **separate explicit idle feature flag** and a distinct HMAC domain from job heartbeat. The signed self-report expires after 30 seconds, has a device session UUID/sequence/nonce, and requires no unresolved CAM processing claim for the paired credential.
+- [x] Add `harness-idle-verify` to validate a signed client-held receipt on the server and an RBAC-protected tenant-scoped admin verification endpoint. Both read CAM job ownership and fail closed on revocation, wrong tenant, stale signature or processing claim. Never print signing key, bearer, nonce, worker identity or source payload.
+- [x] Extend paired `probe` with read-only `harness_idle_attestation_supported` and `harness_idle_attestation_ready` without creating work. Preserve existing Image Agent transport and job-bound heartbeat unchanged.
+- [x] Windows client: strictly optional `harness_idle_attestation_enabled`, single-flight idle report every 15 seconds while journal absent, local short-lived client-held receipt, bounded backoff, redacted state and explicit two-step canary CLI. A journal with a job sends ONLY the existing per-attempt heartbeat.
+- [x] Every reply still sets `verified_free_slots=0`, `dispatch_allowed=false`, `reservation_created=false`; device says it is idle but the browser session is NOT independently verified or reserved.
+- [ ] Verify backend CI (including PostgreSQL 12/16), merge `main`, deploy backend with `--no-migrate --keep-releases 2`, then separately opt in the server and idle-only Windows relay, and perform real signed idle canary without claiming jobs.
+- [ ] Phase 4C.2B: independently verified browser capacity plus **transactional** slot admission with rollback bridge, only after proven device evidence and user-controlled canary. No implicit auto dispatch.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C2A_IDLE_ATTESTATION.md`.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4C.1: historical proof + bounded capacity evidence
 
 - [x] Preserve the distinction between an active signed heartbeat and an **historical** HMAC-signed observation after a legitimate Image Agent result clears the ProcessingJob lease. Verify original tenant/owner/attempt/claim and completion timestamp plus accepted result receipt; never treat it as a fresh free slot.

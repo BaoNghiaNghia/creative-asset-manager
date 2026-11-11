@@ -18,6 +18,7 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -31,6 +32,10 @@ from app.core.config import get_settings
 from app.modules.agent_harness.external_heartbeat import (
     EVIDENCE_FIELD, ExternalHeartbeatRejected, external_heartbeat_enabled,
     external_heartbeat_signing_key, issue_external_heartbeat,
+)
+from app.modules.agent_harness.idle_attestation import (
+    IDLE_REPORT_PROTOCOL, idle_attestation_enabled, issue_idle_attestation,
+    verify_idle_attestation,
 )
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.processing.model import ProcessingJobModel
@@ -179,6 +184,20 @@ def _authenticate(db: Session, agent_id: str, authorization: str | None):
 def _lease_token(agent: EtsySpyAgent, job: ProcessingJobModel) -> str:
     message = f"{agent.id}:{job.id}:{job.attempt_count}".encode("ascii")
     return hmac.new(bytes.fromhex(agent.token_hash), message, "sha256").hexdigest()
+
+
+class IdleImageAgentReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    protocol: Literal["cam-image-idle-report-v1"]
+    session_id: UUID
+    sequence: int = Field(strict=True, ge=1, le=2147483647)
+    journal_empty: Literal[True]
+    device_mode: Literal["orchestrator_v1"]
+
+
+class IdleAttestationReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    receipt: dict[str, Any] = Field(min_length=11, max_length=11)
 
 
 class ExternalJobHeartbeatRequest(BaseModel):
@@ -449,6 +468,11 @@ def probe_image_agent(
         "harness_heartbeat_ready": bool(
             external_heartbeat_enabled() and external_heartbeat_signing_key()
         ),
+        "harness_idle_attestation_supported": True,
+        "harness_idle_attestation_ready": bool(
+            idle_attestation_enabled() and external_heartbeat_signing_key()
+            and transport_enabled() and orchestrator_enabled()
+        ),
     }
 
 
@@ -531,6 +555,86 @@ def claim_image_job(
     agent.last_seen_at = job.claimed_at
     db.commit()
     return _task(job, agent)
+
+
+@image_router.post("/{agent_id}/harness-idle-attestation")
+async def report_image_agent_idle(
+    agent_id: str, request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Short-lived signed self-report. Never a browser readiness or slot lease."""
+    if not idle_attestation_enabled():
+        raise HTTPException(404, "Not found")
+    agent = _authenticate(db, agent_id, authorization)
+    if get_settings().AI_EMERGENCY_STOP_ENABLED:
+        raise HTTPException(503, "Emergency stop enabled")
+    if not transport_enabled() or not orchestrator_enabled():
+        raise HTTPException(503, "Image Agent orchestration not ready")
+    key = external_heartbeat_signing_key()
+    if key is None:
+        raise HTTPException(503, "Idle attestation signing key unavailable")
+    data = await _bounded_json(request, 4096)
+    try:
+        payload = IdleImageAgentReportRequest.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(422, "Invalid idle attestation report") from exc
+    unresolved = db.scalar(select(ProcessingJobModel.id).where(
+        ProcessingJobModel.tenant_id == agent.tenant_id,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.claimed_by == "etsy-image:" + agent.id,
+        ProcessingJobModel.status == "processing",
+    ).limit(1))
+    if unresolved is not None:
+        raise HTTPException(409, "Device has unresolved processing claim")
+    receipt = issue_idle_attestation(
+        tenant_id=agent.tenant_id, agent_id=agent.id,
+        session_id=str(payload.session_id), sequence=payload.sequence,
+        signing_key=key,
+    )
+    return {
+        "status": "server_attested_device_idle_report",
+        "protocol": IDLE_REPORT_PROTOCOL,
+        "receipt": receipt,
+        "report_source": "paired_device_self_report",
+        "independent_browser_idle_verified": False,
+        "verified_free_slots": 0,
+        "reservation_created": False,
+        "dispatch_allowed": False,
+        "execution_enabled": False,
+    }
+
+
+@image_router.post("/{agent_id}/harness-idle-verify")
+async def verify_paired_image_idle_report(
+    agent_id: str, request: Request,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """A paired device may verify its own short-lived receipt, not claim a slot."""
+    if not idle_attestation_enabled():
+        raise HTTPException(404, "Not found")
+    agent = _authenticate(db, agent_id, authorization)
+    key = external_heartbeat_signing_key()
+    if key is None:
+        raise HTTPException(503, "Idle attestation signing key unavailable")
+    data = await _bounded_json(request, 4096)
+    try:
+        payload = IdleAttestationReplayRequest.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(422, "Invalid idle attestation receipt") from exc
+    unresolved = db.scalar(select(ProcessingJobModel.id).where(
+        ProcessingJobModel.tenant_id == agent.tenant_id,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.claimed_by == "etsy-image:" + agent.id,
+        ProcessingJobModel.status == "processing",
+    ).limit(1)) is not None
+    observed = verify_idle_attestation(
+        payload.receipt, signing_key=key,
+        tenant_id=agent.tenant_id, agent_id=agent.id,
+        agent_active=bool(agent.active), unresolved_claims=unresolved,
+    )
+    return observed
 
 
 @image_router.post("/{agent_id}/harness-heartbeat")
