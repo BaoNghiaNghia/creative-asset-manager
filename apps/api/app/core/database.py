@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Generator
 from pathlib import Path
 
@@ -316,6 +317,103 @@ def _verified_trial_evidence_successor(connection, expected_head: str, current_h
     )
 
 
+def _trial_artwork_snapshot_schema_complete(connection) -> bool:
+    """The verified QA copy must NEVER depend on mutable Output History.
+
+    Accept only the exact sealed/reserved ledger shape. No QA verdict table
+    mutation, no copied-PNG data or automatic promotion is authorized by DDL.
+    """
+    schema = inspect(connection)
+    table = "cam_agent_trial_artwork_snapshots"
+    required = {
+        "tenant_id", "snapshot_id", "study_id", "keyword_id",
+        "source_output_version_id", "image_processing_job_id",
+        "brief_processing_job_id", "source_remote_file_id",
+        "snapshot_asset_id", "snapshot_remote_file_id", "artifact_sha256",
+        "size_bytes", "width", "height", "status", "created_by",
+        "created_at", "verified_at",
+    }
+    try:
+        if table not in schema.get_table_names():
+            return False
+        columns = schema.get_columns(table)
+        if {col["name"] for col in columns} != required:
+            return False
+        # A nullable identity, hash or status could bypass the ledger's seal.
+        if {col["name"] for col in columns if col["nullable"]} != {
+            "snapshot_remote_file_id", "verified_at",
+        }:
+            return False
+        if schema.get_pk_constraint(table).get("constrained_columns") != [
+            "tenant_id", "snapshot_id",
+        ]:
+            return False
+        fks = schema.get_foreign_keys(table)
+        if len(fks) != 1 or not (
+            fks[0].get("referred_table") == "cam_agent_trial_exposures"
+            and fks[0].get("constrained_columns") == [
+                "tenant_id", "study_id", "keyword_id",
+            ]
+            and fks[0].get("referred_columns") == [
+                "tenant_id", "study_id", "keyword_id",
+            ]
+            and str(fks[0].get("options", {}).get("ondelete", "")).upper() == "RESTRICT"
+        ):
+            return False
+        unique = {
+            tuple(row.get("column_names") or ())
+            for row in schema.get_unique_constraints(table)
+        }
+        if not {
+            ("tenant_id", "source_output_version_id"),
+            ("tenant_id", "snapshot_asset_id"),
+        }.issubset(unique):
+            return False
+
+        def normalize_check(value: object) -> str:
+            # PostgreSQL adds ::text / ::character varying casts to CHECK
+            # expressions. Ignore only those casts, parentheses and spacing;
+            # do NOT accept arbitrary expressions merely mentioning columns.
+            body = str(value or "").lower()
+            body = re.sub(
+                r"::(?:character\s+varying|varchar|text|bpchar)(?:\s*\(\s*\d+\s*\))?",
+                "",
+                body,
+            )
+            return "".join(
+                char for char in body
+                if char not in {"(", ")", '"', "`"} and not char.isspace()
+            )
+
+        checks = {
+            row.get("name"): normalize_check(row.get("sqltext"))
+            for row in schema.get_check_constraints(table)
+        }
+        expected_checks = {
+            "ck_cam_trial_snapshot_size": "size_bytes>0andsize_bytes<=16777216",
+            "ck_cam_trial_snapshot_dims": "width>0andheight>0",
+            "ck_cam_trial_snapshot_seal": (
+                "status='reserved'andsnapshot_remote_file_idisnullandverified_atisnull"
+                "orstatus='verified'andsnapshot_remote_file_idisnotnullandverified_atisnotnull"
+            ),
+        }
+        return checks == expected_checks
+    except SQLAlchemyError:
+        return False
+
+
+def _verified_snapshot_successor(connection, expected_head: str, current_heads: tuple[str, ...]) -> bool:
+    """Reviewed 0206 rollback bridge may start across inert additive 0207."""
+    return (
+        expected_head == "0206_etsy_spy_sms_status"
+        and current_heads == ("0207_cam_agent_trial_artwork_snapshots",)
+        and _agent_harness_schema_complete(connection)
+        and _holdout_study_schema_complete(connection)
+        and _trial_evidence_schema_complete(connection)
+        and _trial_artwork_snapshot_schema_complete(connection)
+    )
+
+
 def validate_alembic_head(
     database_engine: Engine = engine,
     *,
@@ -329,6 +427,7 @@ def validate_alembic_head(
                 _verified_agent_harness_successor(connection, expected_head, tuple(current_heads))
                 or _verified_holdout_successor(connection, expected_head, tuple(current_heads))
                 or _verified_trial_evidence_successor(connection, expected_head, tuple(current_heads))
+                or _verified_snapshot_successor(connection, expected_head, tuple(current_heads))
             ) if tuple(current_heads) != (expected_head,) else False
             exact_agent_schema_valid = (
                 _agent_harness_schema_complete(connection)
@@ -351,6 +450,15 @@ def validate_alembic_head(
                 and tuple(current_heads) == (expected_head,)
                 else True
             )
+            exact_snapshot_valid = (
+                _agent_harness_schema_complete(connection)
+                and _holdout_study_schema_complete(connection)
+                and _trial_evidence_schema_complete(connection)
+                and _trial_artwork_snapshot_schema_complete(connection)
+                if expected_head == "0207_cam_agent_trial_artwork_snapshots"
+                and tuple(current_heads) == (expected_head,)
+                else True
+            )
     except SQLAlchemyError as exc:
         raise DatabaseStartupError("Could not read the Alembic revision") from exc
     if not exact_agent_schema_valid:
@@ -359,6 +467,8 @@ def validate_alembic_head(
         raise DatabaseStartupError("Agent Harness holdout schema incomplete at revision 0204")
     if not exact_trial_evidence_valid:
         raise DatabaseStartupError("Agent Harness evidence schema incomplete at revision 0205")
+    if not exact_snapshot_valid:
+        raise DatabaseStartupError("Agent Harness artwork snapshot schema incomplete at revision 0207")
     if tuple(current_heads) != (expected_head,) and not approved_successor:
         current = ", ".join(current_heads) if current_heads else "unversioned"
         raise DatabaseStartupError(

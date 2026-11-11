@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Phase 3C.3B2C2A: standalone 0206 rollback bridge hardening
+
+- [x] Separate PR #101 contains only 0206-compatible code, negative-schema canaries, and CI coverage; **no 0207 migration or feature activation**.
+- [x] Reject missing/extra/nullable snapshot columns, wrong exposure FK/delete policy, missing uniqueness, weak or permissive seal/size/dimension CHECKs, and unknown Alembic revisions.
+- [x] Run 14/14 local bridge canaries and syntax/diff validation.
+- [x] Verify PostgreSQL 12/16 0206 bridge canaries on prior PR CI; [ ] confirm full CI again with PR #102 baseline fixes incorporated.
+- [ ] Verify live 0206 schema, backup, nine managed services, then deploy bridge as a distinct no-migrate release and retain as rollback.
+- [ ] Only after bridge is retained: deploy additive 0207 with snapshot flag OFF, followed by independent QA and trusted cost receipts.
+
 ## 2026-11-11 — Agent Harness V2 release-gate CI baseline (PR #102)
 
 - [x] Separate production-neutral test updates from migration 0206/0207; strengthen navigation module coverage and retain the real-runtime localhost URL prohibition.
@@ -8,7 +17,7 @@
 - [x] Reuse reviewed Skill Manager Browser QA assertions; run targeted API, frontend and Node checks plus TypeScript typecheck.
 - [x] Align remaining stale AI Operations and Stage 2 tests with pipeline-only loads, Render Scene, ThreadTransfer V2 / stock imagery and on-open UGC Scout; targeted frontend 27/27 PASS.
 - [x] Repair Creative Browser QA fixture/API status and outdated Stage 1/2 assertions, verify real headless Chrome across desktop/tablet/mobile + Research Inbox with zero functional issues.
-- [ ] Confirm complete GitHub CI on final PR #102 revision; never change security or production behavior merely to silence test errors.
+- [x] Confirm PR #102 fully green (16/16 jobs), reviewed test-only diff and merge into `main` (`165259cc8`). Keep security and runtime gates intact.
 - [ ] Only then proceed with isolated 0206 bridge deploy and later 0207 migration, flags OFF.
 
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes

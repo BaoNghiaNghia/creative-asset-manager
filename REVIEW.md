@@ -1,3 +1,10 @@
+## 2026-11-11 — Phase 3C.3B2C2A 0206 bridge hardening (PR #101)
+
+- Scope: `apps/api/app/core/database.py` startup schema validator; dedicated negative tests; CI PostgreSQL job; no migration, new dependency, paid API, secret or runtime feature flag.
+- Security: retain tenant/exposure FK and RESTRICT deletion; require exact sealed/reserved constraints and NOT NULL columns. Former token-only checks could accept semantically weak `OR` expressions; now reject them. Only the reviewed 0207 revision may be accepted by the 0206 binary.
+- Local evidence: 14/14 dedicated bridge tests PASS (2 PostgreSQL-only canaries skipped outside CI); 15/15 prior rollback-bridge and 4/4 evidence migration regressions PASS; Python compileall and `git diff --check` PASS. CI run 42938619309 verified both real PostgreSQL 12/16 canaries (2/2 PASS per version); its SQLite test template initially failed because the CI DATABASE_URL overrode Alembic's local URL, now fixed by an explicit disposable config attribute and retested with a deliberately invalid ambient URL. Full CI on original bridge PR #101 is RED, matching pre-existing `main` failures in API/frontend/browser QA; not claimed production-ready until release gates are met.
+- Production: NOT DEPLOYED. Normal code-only bridge release must preserve DB 0206 and retain previous/current; the later 0207 migration must not be co-deployed with the bridge. Rollback is code-only, never destructive schema downgrade.
+
 ## 2026-11-11 — CI baseline repairs for Agent Harness V2 Phase 3C release gates
 
 - PR #102 is test-only and separate from PR #101/100: enforce exact canonical navbar module coverage; exclude test fixtures (not shipped runtime) from localhost API URL hygiene while retaining the runtime scan.
@@ -5,7 +12,7 @@
 - Local verification: 10/10 targeted API tests, 23/23 worker runtime tests, 7/7 header/keyword modal frontend tests, 8/8 gallery tests, 6/6 Browser QA plan tests, TypeScript typecheck PASS, diff check PASS. No application runtime change, schema migration, new secrets, new model calls, or production deployment.
 - Follow-up Stage 2 / AI Operations frontend contract regression: 27/27 targeted tests PASS after preserving pipeline-only loads, Render Scene for installed UGC/Multi-hat, ThreadTransfer V2 / official 3/4 stock labels, and Scout lazy-start only when UGC Details opens (confirmed positive two-agent start after opening). These change only tests, not application behavior.
 - Creative Browser QA fix: add the actual Stage 1 Creative Brief V3 nine-output capability fixture instead of returning HTTP 599; update Stage 1 skill label and Stage 2 Products KPI count (2, not obsolete 3). Node plan validation 5/5 PASS. Headless Chrome fixture matrix (2026-11-11, realistic-review-ugc + Research Inbox) PASS on desktop (1440×900), tablet portrait (768×1024), mobile (390×844), 0 recorded issues, functional only; visual baselines remain unapproved and real mobile hardware was not tested. No production changes.
-- Full GitHub CI still needs confirmation on the final commit. Previous CI runs on `main` were red; do not bypass required release gates.
+- PR #102 completed **16/16 GitHub CI jobs PASS** after syncing with `main` and was merged as `165259cc8`; its changes are tests/fixtures/docs only. PR #101 still needs independent CI and a separate no-migration release gate.
 
 ## 2026-11-09 — Agent Harness Phase 3C.3B2C1 Stage 1 artwork provenance
 
