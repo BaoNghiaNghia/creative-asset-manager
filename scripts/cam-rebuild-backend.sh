@@ -1264,11 +1264,19 @@ wait_for_endpoint() {
 
   local attempt
   local endpoint_url
+  local max_attempts=30
+
+  # The isolated SigLIP2/OpenVINO encoder may need >30s to warm its model
+  # under normal swap pressure. Keep the actual /ready gate strict and
+  # leave API/other worker timeouts unchanged.
+  if [[ "$label" == "visual encoder ready" ]]; then
+    max_attempts=75
+  fi
 
   endpoint_url="${!#}"
 
 
-  for attempt in {1..30}; do
+  for ((attempt=1; attempt<=max_attempts; attempt++)); do
 
     if curl \
       --fail \
@@ -1279,14 +1287,14 @@ wait_for_endpoint() {
       >/dev/null 2>&1
     then
 
-      info "$label is healthy (attempt $attempt/30)"
+      info "$label is healthy (attempt $attempt/$max_attempts)"
 
       return 0
 
     fi
 
 
-    info "Waiting for $label (attempt $attempt/30)"
+    info "Waiting for $label (attempt $attempt/$max_attempts)"
 
     sleep 1
 
@@ -1295,7 +1303,7 @@ wait_for_endpoint() {
 
   diagnose_endpoint_failure "$label" "$endpoint_url"
 
-  die "$label did not become healthy within 30 seconds."
+  die "$label did not become healthy within $max_attempts seconds."
 }
 
 

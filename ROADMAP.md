@@ -1,5 +1,12 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Production release gate: visual encoder warmup timeout
+
+- [x] Phase 4B.1 PR #104 CI 16/16 PASS, merged at `395d60ee1`. First `--no-migrate` release activated this commit, but the script exited 1 because isolated SigLIP2/OpenVINO encoder needed approximately 36s versus the fixed 30s readiness window; schema compatibility PASS. Post-failure encoder `/ready` and 8 worker/encoder readiness endpoints returned 200 and nine services were active. This is not evidence that the first script finished.
+- [x] Scope the longer 75-attempt warmup timeout to the **visual encoder ready** endpoint only, preserving strict /ready checks and existing 30-attempt API/worker gates. Add deployment-contract assertions.
+- [ ] Full CI, merge and final backend-only release with `--no-migrate`, 9/9 health gates and current/previous retention. Do not bypass the readiness check or downgrade 0207.
+- No new DB migration, feature activation, model/provider call, worker/queue architecture, credential or learning behavior.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4B.1: lease-bound advisory admission
 
 - [x] Add tenant-only, read-only `ProcessingJob` lease observation; reject non-processing/expired/cancelled/misclaimed jobs, missing time/attempt evidence and stale lease-row activity without touching the queue.
