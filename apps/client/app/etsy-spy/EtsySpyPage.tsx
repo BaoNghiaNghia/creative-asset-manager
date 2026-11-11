@@ -626,6 +626,17 @@ export function EtsySpyPage() {
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
   }, [refresh]);
+  // Refresh a Picked page only while TikTok jobs are active, using one
+  // batched listing request (never one network request per row).
+  useEffect(() => {
+    if (options.tab !== "products" || options.pickState !== "picked" || !rows || loading) return;
+    const active = (rows.items as Listing[]).some(item =>
+      ["pending", "retry", "processing"].includes(item.tiktokListing?.status || ""));
+    if (!active) return;
+    const timer = window.setTimeout(() => setRefresh(value => value + 1), 15000);
+    return () => window.clearTimeout(timer);
+  }, [options.tab, options.pickState, rows, loading]);
+
   // Date and theme counts must belong to the currently selected product
   // parent, never to a stale Eligible fetch after switching to Picked/Later.
   const facetScope = options.pickState;
@@ -836,7 +847,7 @@ export function EtsySpyPage() {
     try {
       const out = await spyFetch<{created: number; ready: number; missing_image: number}>(
         "/tiktok-listings/backfill", {
-          method: "POST", body: JSON.stringify({limit: 100, dry_run: false}),
+          method: "POST", body: JSON.stringify({limit: 5, dry_run: false}),
         });
       setTiktokBackfillMessage("Đã tạo " + out.created + " job TikTok Listing · " +
         out.missing_image + " sản phẩm thiếu ảnh nguồn. Nội dung cần QA trước khi dùng.");
@@ -1241,10 +1252,11 @@ export function EtsySpyPage() {
         </div>
         <button type="button" disabled={!canManage || !tiktokOverview?.enabled || tiktokBackfillBusy}
           onClick={backfillTikTokListings}>
-          {tiktokBackfillBusy ? "Đang tạo job…" : "Backfill TikTok listings"}
+          {tiktokBackfillBusy ? "Đang tạo job…" : "Backfill 5 Picked"}
         </button>
         {tiktokOverview && <span className="etsy-tiktok-status-summary">
-          {tiktokOverview.enabled ? "Auto on Pick · ON" : "Worker · OFF"}
+          {!tiktokOverview.enabled ? "Worker · OFF" : tiktokOverview.auto_on_pick
+            ? "Auto on Pick · ON" : "Pilot mode · Manual only"}
           {" · " + (tiktokOverview.counts?.completed || 0) + " completed · " +
             (tiktokOverview.counts?.pending || 0) + " queued"}
         </span>}

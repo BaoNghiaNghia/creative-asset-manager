@@ -23,9 +23,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
+from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult, DeferredJobOutcome
 from app.domain.providers.contracts import AiMetadataAnalysisInput, AiProviderError
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.realistic_review_ugc.gemini_safety import (
+    scheduled_rrugc_gemini_slot, deferred_rrugc_ai_retry,
+)
 from .model import EtsySpyListing, EtsySpyPicked
 from .service import verified_image_url
 
@@ -76,6 +79,12 @@ class ListingCopySchema(BaseModel):
 
 def is_enabled() -> bool:
     return bool(get_settings().ETSY_TIKTOK_LISTING_ENABLED)
+
+
+def auto_on_pick_enabled() -> bool:
+    settings = get_settings()
+    return bool(settings.ETSY_TIKTOK_LISTING_ENABLED and
+                settings.ETSY_TIKTOK_AUTO_ON_PICK_ENABLED)
 
 
 def _normalized(value: str) -> str:
@@ -133,9 +142,9 @@ def validate_copy(data: object) -> dict:
 
 
 def queue_on_pick(db: Session, tenant: str, listing: EtsySpyListing,
-                  picked_at: datetime) -> ProcessingJobModel | None:
+                  picked_at: datetime, *, automatic: bool = False) -> ProcessingJobModel | None:
     """One immutable, idempotent job per user pick and source photo revision."""
-    if not is_enabled():
+    if not is_enabled() or (automatic and not auto_on_pick_enabled()):
         return None
     metadata = listing.metadata_json if isinstance(listing.metadata_json, dict) else {}
     photo = verified_image_url(metadata.get("fullImageUrl")) or verified_image_url(
@@ -175,6 +184,47 @@ def queue_on_pick(db: Session, tenant: str, listing: EtsySpyListing,
             raise
         return prior
     return job
+
+
+def retry_failed_draft(db: Session, tenant: str, listing: EtsySpyListing,
+                       picked_at: datetime) -> ProcessingJobModel | None:
+    """Explicit retry of a terminal draft. Never revive a cancelled generation.
+
+    Keep a short failure history in the payload; reset attempt_count only once
+    the old job is terminal and the concurrency reservation is released.
+    """
+    if not is_enabled():
+        return None
+    job = queue_on_pick(db, tenant, listing, picked_at)
+    if job is None:
+        return None
+    locked = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == job.id,
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == JOB_TYPE,
+    ).with_for_update())
+    if locked is None or locked.cancellation_requested or locked.concurrency_accounted:
+        return job
+    if locked.status != "failed":
+        return job
+    payload = dict(locked.payload_json or {})
+    count = int(payload.get("manual_retry_count") or 0)
+    if count >= 2 or isinstance(payload.get("result"), dict):
+        return job
+    errors = list(payload.get("prior_errors") or [])[-1:]
+    errors.append({"code": locked.last_error_code,
+                   "at": datetime.now(timezone.utc).isoformat()})
+    locked.payload_json = {**payload, "manual_retry_count": count + 1,
+                           "prior_errors": errors}
+    locked.status = "pending"
+    locked.attempt_count = 0
+    locked.claimed_by = None
+    locked.claimed_at = None
+    locked.lease_expires_at = None
+    locked.last_error_code = None
+    locked.last_error_message = None
+    locked.next_attempt_at = datetime.now(timezone.utc)
+    return locked
 
 
 def cancel_for_unpick(db: Session, tenant: str, listing_key: str) -> None:
@@ -253,10 +303,14 @@ class EtsyTikTokListingHandler:
     def __init__(self, *, fetch_image=download_image):
         self.fetch_image = fetch_image
 
-    def __call__(self, context: JobHandlerContext) -> JobHandlerResult:
+    def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         try:
             return asyncio.run(self._run(context))
         except AiProviderError as exc:
+            deferred = deferred_rrugc_ai_retry(
+                exc, message="TikTok listing waiting for Gemini model quota.")
+            if deferred is not None:
+                return deferred
             return (JobHandlerResult.retryable if exc.retryable
                     else JobHandlerResult.non_retryable)(
                         "tiktok_listing_provider_unavailable",
@@ -296,6 +350,10 @@ class EtsyTikTokListingHandler:
         if context.dependencies.ai_provider_registry is None:
             return JobHandlerResult.retryable(
                 "tiktok_listing_ai_unavailable", "AI provider unavailable.")
+        slot = scheduled_rrugc_gemini_slot(job)
+        if slot is None:
+            return JobHandlerResult.non_retryable(
+                "tiktok_listing_model_slot_missing", "Gemini reservation is missing.")
         provider = context.dependencies.ai_provider_registry.require("gemini")
         response = await provider.analyze_single(AiMetadataAnalysisInput(
             tenant_id=job.tenant_id, asset_id=job.id,
@@ -305,6 +363,9 @@ class EtsyTikTokListingHandler:
             metadata_profile_version=PROFILE_VERSION,
             json_schema=ListingCopySchema.model_json_schema(),
             analysis_id=job.id,
+            preferred_model=slot.model,
+            preferred_credential_provider=slot.credential_provider,
+            is_cancelled=lambda: context.is_cancelled,
         ))
         validated = validate_copy(response.metadata)
         with context.dependencies.session_factory() as db:

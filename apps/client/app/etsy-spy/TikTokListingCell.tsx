@@ -60,13 +60,19 @@ export function TikTokListingCell({item, canManage, onQueued}: {
     setQueueing(true); setError("");
     try {
       await spyFetch("/listings/" + encodeURIComponent(item.listingKey) +
-        "/tiktok-listing/queue", {method: "POST"});
+        (detail?.status === "failed" ? "/tiktok-listing/retry" : "/tiktok-listing/queue"),
+        {method: "POST"});
       await loadDetail();
       onQueued();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to enqueue skill");
     } finally {setQueueing(false);}
   };
+  useEffect(() => {
+    if (!open || !detail || !["pending", "retry", "processing"].includes(detail.status)) return;
+    const timer = window.setTimeout(() => void loadDetail(), 12000);
+    return () => window.clearTimeout(timer);
+  }, [open, detail, loadDetail]);
   const result = detail?.result;
   const metrics = result?.metrics;
   return <td className="etsy-tiktok-listing-cell">
@@ -118,13 +124,17 @@ export function TikTokListingCell({item, canManage, onQueued}: {
                   Kiểm tra artwork, trademark, loại áo, size, care và nguồn giao hàng
                   trước khi sử dụng.</p>
               </> : <p>Chưa có bản nháp listing. Khi worker chạy xong, kết quả sẽ hiện ở đây.</p>}
+              {detail?.error_code && <p className="etsy-tiktok-copy-notice">
+                Job error: {detail.error_code}. Có thể thử lại tối đa 2 lần thủ công.
+              </p>}
               {error && <p role="alert" className="etsy-error">{error}</p>}
             </>}
           </div>
           <div className="etsy-tiktok-dialog-actions">
             {!result && canManage && detail?.enabled && <button type="button"
               disabled={queueing || loading || ["pending", "retry", "processing"].includes(detail?.status || "")}
-              onClick={enqueue}>{queueing ? "Queueing…" : "Run listing skill"}</button>}
+              onClick={enqueue}>{queueing ? "Queueing…" : detail?.status === "failed"
+                ? "Retry failed draft" : "Run listing skill"}</button>}
             <button type="button" onClick={() => void loadDetail()} disabled={loading}>Refresh</button>
             <button type="button" onClick={() => setOpen(false)}>Close</button>
           </div>

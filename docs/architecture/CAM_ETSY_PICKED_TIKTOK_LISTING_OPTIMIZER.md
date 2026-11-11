@@ -90,3 +90,27 @@ merge. Production deploy only from merged main with `--no-migrate` and
 The task is not complete merely because code/tests exist: real Gemini
 canary, YTrends connector, factual-claim QA and off-host backup restore remain
 distinct work.
+
+## V2 manual pilot and model reservation (2026-11-11)
+
+The initial release deliberately kept all generation OFF. V2 enables only
+**user-triggered** manual listing jobs by default:
+`ETSY_TIKTOK_LISTING_ENABLED=true`,
+`ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=false` and
+`ETSY_TIKTOK_BACKFILL_MAX_PER_REQUEST=5`. A normal Pick/Unpick changes no
+TikTok copy jobs except cancellation of already-created ones on Unpick.
+
+The job participates in the existing RRUGC Gemini global lane, both pacing
+and claim-time model/credential reservation. The handler refuses to call
+Gemini unless a matching model slot exists for the current lease attempt.
+Gemini pool exhaustion returns a deferred retry without consuming a job
+attempt. Backfill remains bounded and idempotent; one failed job may be
+explicitly retried at most twice, with codes recorded in payload history.
+
+The UI can queue a single draft, queue at most five previously Picked
+listings per click, copy four structured fields, refresh running job status,
+and manually retry a failure. Neither a successful code deploy nor green
+unit tests imply a real Gemini generation has happened. Production live
+output QA (lettering, product facts, title/description limits), operator
+login, and YTrends connector remain separately gated. No automatic
+publishing or SKU creation occurs.

@@ -43,7 +43,7 @@ async function render(status: string, enabled=true) {
         }:undefined,
       });
     }
-    if(uri.endsWith("/tiktok-listing/queue")&&init?.method==="POST")
+    if((uri.endsWith("/tiktok-listing/queue")||uri.endsWith("/tiktok-listing/retry"))&&init?.method==="POST")
       return response({status:"pending",draft_only:true});
     throw Error("Unexpected request: "+uri);
   });
@@ -86,6 +86,19 @@ describe("Picked TikTok Shop listing column",()=>{
       .find(btn=>btn.textContent?.includes("Run listing skill"));
     await act(async()=>{run?.click()});
     expect(fetchMock.mock.calls.filter(call=>call[1]?.method==="POST")).toHaveLength(1);
+    expect(onQueued).toHaveBeenCalledTimes(1);
+  });
+  it("offers retry for a failed job instead of reusing a terminal queue request",async()=>{
+    const {fetchMock,onQueued}=await render("failed");
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const retry=Array.from(document.querySelectorAll<HTMLButtonElement>(".etsy-tiktok-dialog-actions button"))
+      .find(button=>button.textContent?.includes("Retry failed draft"));
+    expect(retry).toBeDefined();
+    await act(async()=>{retry?.click()});
+    expect(fetchMock.mock.calls.some(call=>
+      String(call[0]).endsWith("/tiktok-listing/retry") && call[1]?.method==="POST")).toBe(true);
     expect(onQueued).toHaveBeenCalledTimes(1);
   });
   it("cannot offer a run action when feature flag is OFF",async()=>{
