@@ -1,5 +1,16 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Etsy TikTok Listing Pilot V2: manual-only activation, Gemini lane and retry
+
+- [x] Decouple manual listing generation from Auto on Pick. The listing skill is available for authenticated manual pilots by default, while `ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=false` guarantees no automatic work on new Picks.
+- [x] Limit the normal manual Backfill button to five Picked rows per request, enforce the same server cap, and preserve tenant/RBAC checks and existing job idempotency.
+- [x] Admit `etsy_tiktok_listing_generate` to the shared RRUGC Gemini model and pacing gates; require the worker's claim-time model/credential reservation and defer quota exhaustion without burning attempts.
+- [x] Retry failed jobs explicitly at most twice, retaining bounded error history; prohibit cancelled or concurrency-held job revival.
+- [x] Auto-refresh Picked listing statuses only while jobs remain active; support modal status polling and failure reason/Retry action. No per-row automatic polling in table.
+- [ ] Production canary: queue one Picked product through an authenticated session, verify real output, wording QA, title/description limits, tenant scoped persistence, model quota and UI before `ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=true`.
+- [ ] Only after canary success consider increasing `ETSY_TIKTOK_BACKFILL_MAX_PER_REQUEST`, and connect YTrends MCP before declaring verified TikTok search keyword research.
+
+
 ## 2026-11-11 — Etsy Spy Picked → TikTok Shop US Listing Optimizer (code candidate)
 
 - [x] Analyze user-provided TikTok Shop Listing Optimizer skill: photo + competitor title → Product Title, Description, 3–5 Highlights, Search Terms. Preserve 25–200/10000/1500/250 field limits and default manual QA.

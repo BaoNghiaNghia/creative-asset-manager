@@ -47,6 +47,8 @@ from .tiktok_skill import (
     latest_job as latest_tiktok_skill_job,
     project as project_tiktok_skill,
     is_enabled as tiktok_skill_enabled,
+    auto_on_pick_enabled as tiktok_auto_on_pick_enabled,
+    retry_failed_draft as retry_tiktok_failed_draft,
 )
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
@@ -1008,7 +1010,8 @@ async def set_listing_pick(
                             picked_at=utcnow())
             db.add(target)
         extraction_job = create_extraction_on_pick(db, tenant, eligible, target.picked_at)
-        queue_tiktok_skill_on_pick(db, tenant, eligible, target.picked_at)
+        queue_tiktok_skill_on_pick(db, tenant, eligible, target.picked_at,
+                                   automatic=True)
     else:
         if target is not None:
             db.delete(target)
@@ -1174,7 +1177,7 @@ def tiktok_skill_overview(
         ).group_by(ProcessingJobModel.status))}
     return {"enabled": tiktok_skill_enabled(), "version": "tiktok-us-ytrends-only-20261111-v1",
             "keyword_source": "ytrends_unavailable",
-            "auto_on_pick": tiktok_skill_enabled(),
+            "auto_on_pick": tiktok_auto_on_pick_enabled(),
             "counts": counts, "draft_only": True}
 
 
@@ -1223,6 +1226,36 @@ def queue_listing_tiktok_skill(
     return {"listingKey": listing_key, **project_tiktok_skill(job)}
 
 
+@router.post("/listings/{listing_key}/tiktok-listing/retry")
+def retry_listing_tiktok_skill(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Explicit, bounded manual retry for a failed Picked listing draft."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    if not tiktok_skill_enabled():
+        raise HTTPException(503, "TikTok listing draft worker not enabled")
+    tenant = principal.active_tenant_id
+    picked = db.get(Picked, (tenant, listing_key))
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    listing = db.scalar(select(Listing).where(
+        Listing.tenant_id == tenant, Listing.listing_key == listing_key,
+        Listing.is_current.is_(True)).order_by(
+            desc(Listing.observed_at), desc(Listing.updated_at)).limit(1))
+    if listing is None:
+        raise HTTPException(409, "Listing photo source unavailable")
+    job = retry_tiktok_failed_draft(db, tenant, listing, picked.picked_at)
+    if job is None:
+        raise HTTPException(409, "Verified source image unavailable")
+    if job.status == "failed":
+        raise HTTPException(409, "Manual retry limit reached")
+    db.commit()
+    return {"listingKey": listing_key, **project_tiktok_skill(job)}
+
+
 @router.post("/tiktok-listings/backfill")
 async def backfill_picked_tiktok_skill(
     request: Request,
@@ -1238,9 +1271,11 @@ async def backfill_picked_tiktok_skill(
         raise HTTPException(422, "JSON object required") from None
     if not isinstance(data, dict) or set(data) - {"limit", "dry_run"}:
         raise HTTPException(422, "Only limit and dry_run supported")
-    limit = data.get("limit", 20)
+    from app.core.config import get_settings
+    max_batch = max(1, min(200, get_settings().ETSY_TIKTOK_BACKFILL_MAX_PER_REQUEST))
+    limit = data.get("limit", 5)
     preview = data.get("dry_run", True)
-    if type(limit) is not int or not 1 <= limit <= 200 or type(preview) is not bool:
+    if type(limit) is not int or not 1 <= limit <= max_batch or type(preview) is not bool:
         raise HTTPException(422, "Invalid backfill options")
     tenant = principal.active_tenant_id
     rows = db.execute(select(Picked, Listing).join(
@@ -1277,6 +1312,7 @@ async def backfill_picked_tiktok_skill(
         db.commit()
     return {"ok": True, "dry_run": preview, "ready": ready, "created": created,
             "missing_image": missing_image, "limit": limit,
+            "max_batch": max_batch,
             "keyword_source": "ytrends_unavailable", "draft_only": True}
 
 
@@ -1412,7 +1448,8 @@ async def bulk_listing_decision(
             decision = Picked(tenant_id=tenant, listing_key=listing_id, picked_at=utcnow())
             db.add(decision)
             create_extraction_on_pick(db, tenant, source, decision.picked_at)
-            queue_tiktok_skill_on_pick(db, tenant, source, decision.picked_at)
+            queue_tiktok_skill_on_pick(db, tenant, source, decision.picked_at,
+                                       automatic=True)
         else:
             db.add(LaterSeed(
                 tenant_id=tenant, listing_key=listing_id,

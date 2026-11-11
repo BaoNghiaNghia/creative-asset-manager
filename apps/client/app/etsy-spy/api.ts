@@ -74,6 +74,7 @@ export type TikTokListingView = {
   listingKey?: string; enabled?: boolean; status: string;
   job_id?: string | null; draft_only: true;
   title_preview?: string | null; ytrends_status?: string; qa_status?: string | null;
+  error_code?: string | null;
   result?: TikTokListingDraft;
 };
 export type Listing = {

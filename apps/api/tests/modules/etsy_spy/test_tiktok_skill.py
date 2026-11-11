@@ -90,8 +90,14 @@ def test_queue_is_feature_gated_idempotent_and_does_not_share_tenant(db, monkeyp
     assert tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at) is None
     assert db.query(ProcessingJobModel).count() == 0
     monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(tiktok_skill, "auto_on_pick_enabled", lambda: False)
+    assert tiktok_skill.queue_on_pick(
+        db, "boostgame", row, picked.picked_at, automatic=True) is None
     first = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert first and first.status == "pending" and first.provider_key == "gemini"
+    from app.modules.processing_policy.claim import RRUGC_GEMINI_ANALYZE_JOB_TYPES, MODEL_GATED_AI_JOB_TYPES
+    assert tiktok_skill.JOB_TYPE in RRUGC_GEMINI_ANALYZE_JOB_TYPES
+    assert tiktok_skill.JOB_TYPE in MODEL_GATED_AI_JOB_TYPES
     again = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert again.id == first.id
     assert db.query(ProcessingJobModel).count() == 1
@@ -113,6 +119,14 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     job = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert job is not None
     job.status, job.claimed_by = "processing", "worker-cam"
+    job.payload_json = {
+        **job.payload_json,
+        "_ai_model_start_slot": {
+            "provider": "gemini", "credential_provider": "gemini",
+            "model": "gemini-test-model", "worker_id": "worker-cam",
+            "attempt_count": 1,
+        },
+    }
     job.attempt_count = 1
     job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     db.commit()
@@ -121,6 +135,8 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
         async def analyze_single(self, input):
             provider_calls.append(input.metadata_profile)
             assert input.tenant_id == "boostgame"
+            assert input.preferred_model == "gemini-test-model"
+            assert input.preferred_credential_provider == "gemini"
             assert input.image_bytes == b"test-image-bytes"
             return SimpleNamespace(metadata=copy())
     provider_registry = SimpleNamespace(require=lambda key: Provider())
@@ -153,3 +169,36 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     again = handler(context)
     assert again.outcome == JobOutcome.COMPLETED
     assert len(provider_calls) == 1
+
+def test_manual_retry_is_bounded_and_preserves_failure_audit(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    original = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert original is not None
+    original.status = "failed"
+    original.attempt_count = 3
+    original.last_error_code = "provider_failure"
+    db.commit()
+    once = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert once.id == original.id and once.status == "pending"
+    assert once.attempt_count == 0 and once.last_error_code is None
+    assert once.payload_json["manual_retry_count"] == 1
+    assert once.payload_json["prior_errors"][0]["code"] == "provider_failure"
+    # Concurrent/manual duplicate calls while pending must not create work.
+    again = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert again.id == original.id
+    assert again.payload_json["manual_retry_count"] == 1
+    once.status = "failed"
+    once.last_error_code = "model_unavailable"
+    twice = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert twice.status == "pending" and twice.payload_json["manual_retry_count"] == 2
+    twice.status = "failed"
+    exhausted = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert exhausted.status == "failed"
+    assert db.query(ProcessingJobModel).count() == 1
+    exhausted.cancellation_requested = True
+    assert tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at).status == "failed"

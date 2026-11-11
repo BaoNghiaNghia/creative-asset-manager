@@ -1,3 +1,11 @@
+## 2026-11-11 — Etsy TikTok Listing Pilot V2 (candidate)
+
+- The production draft worker is explicitly manual-only: `ETSY_TIKTOK_LISTING_ENABLED=true` permits a manager to queue, while `ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=false` creates zero automatic Pick jobs and prevents unbounded customer-cost exposure. Backfill max 5 by default.
+- Place TikTok image-analysis jobs inside the existing Gemini RRUGC model/reservation lane; fail closed for an unreserved claim. Honor credential/model selection, cancellation and shared rate limits, deferring pool exhaustion instead of burning retry attempts.
+- Add explicit, bounded retry of terminal failures with retained codes; never revive cancelled generations or an active concurrency-reserved job.
+- UI now refreshes statuses while pending/processing, shows failure reasons and offers manual Retry; no auto-publish/rights clearance/YTrends metric claims.
+- New source/schema migrations: none. Manual production canary still required to verify Gemini output/merchant claims and corresponding table projection.
+
 ## 2026-11-11 — Etsy Picked TikTok listing draft skill (candidate)
 
 - Bundled skill is ChatGPT instruction+validation content, not a CAM-executable agent; this code adapts its requested output fields into a strict model prompt, source-verified photo input and immutable job result.

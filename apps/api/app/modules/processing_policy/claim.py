@@ -57,6 +57,7 @@ RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
     "rrugc_research_vision",
+    "etsy_tiktok_listing_generate",
 )
 MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
 RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"

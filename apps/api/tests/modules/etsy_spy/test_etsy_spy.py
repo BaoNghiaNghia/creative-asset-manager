@@ -2485,7 +2485,9 @@ def test_tiktok_skill_auto_on_pick_idempotent_status_and_unpick(scenario, monkey
     import importlib
     spy_router = importlib.import_module("app.modules.etsy_spy.router")
     monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(tiktok_skill, "auto_on_pick_enabled", lambda: True)
     monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_auto_on_pick_enabled", lambda: True)
     client, db, principal = scenario
     agent, headers = pair(client, db)
     assert sync(client, agent, headers, batch()).status_code == 200
@@ -2541,15 +2543,58 @@ def test_tiktok_skill_backfill_dry_run_and_feature_off(scenario, monkeypatch):
     monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
     monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
     preview = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
-                          json={"limit": 20, "dry_run": True})
+                          json={"limit": 5, "dry_run": True})
     assert preview.status_code == 200 and preview.json()["ready"] == 1
     assert db.query(ProcessingJobModel).filter(
         ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 0
     backfill = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
-                          json={"limit": 20, "dry_run": False})
+                          json={"limit": 5, "dry_run": False})
     assert backfill.status_code == 200 and backfill.json()["created"] == 1
     again = client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
-                        json={"limit": 20, "dry_run": False})
+                        json={"limit": 5, "dry_run": False})
     assert again.status_code == 200 and again.json()["created"] == 0
     principal.active_tenant_id = "other-tenant"
     assert client.get("/api/v1/etsy-spy/listings/1234567890/tiktok-listing").status_code == 404
+
+def test_tiktok_manual_pilot_does_not_auto_enqueue_and_can_retry(scenario, monkeypatch):
+    from sqlalchemy import select
+    from app.modules.etsy_spy import tiktok_skill
+    import importlib
+    spy_router = importlib.import_module("app.modules.etsy_spy.router")
+    client, db, _principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing = db.scalar(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key == "1234567890"))
+    listing.metadata_json = {"fullImageUrl": "https://i.etsystatic.com/12345/il_fullxfull.abc.jpg"}
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(tiktok_skill, "auto_on_pick_enabled", lambda: False)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_auto_on_pick_enabled", lambda: False)
+    picked_url = "/api/v1/etsy-spy/listings/1234567890/pick"
+    assert client.put(picked_url, json={"picked": True}).status_code == 200
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 0
+    overview = client.get("/api/v1/etsy-spy/tiktok-listings/overview").json()
+    assert overview["enabled"] is True and overview["auto_on_pick"] is False
+    queue = "/api/v1/etsy-spy/listings/1234567890/tiktok-listing/queue"
+    assert client.post(queue).status_code == 200
+    assert client.post(queue).status_code == 200
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE))
+    assert job is not None
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 1
+    job.status = "failed"
+    job.attempt_count = job.max_attempts
+    job.last_error_code = "tiktok_listing_invalid_output"
+    db.commit()
+    retry = "/api/v1/etsy-spy/listings/1234567890/tiktok-listing/retry"
+    response = client.post(retry)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "pending"
+    assert db.get(ProcessingJobModel, job.id).payload_json["manual_retry_count"] == 1
+    assert client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
+                       json={"limit": 6, "dry_run": False}).status_code == 422
