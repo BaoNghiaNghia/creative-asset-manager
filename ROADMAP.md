@@ -1,5 +1,21 @@
 # Implementation Roadmap
 
+## 2026-11-11 — CAM Agent Harness V2 Phase 4A: verified route preflight (in progress)
+
+- [x] Refuse advisory routing from unverified executor status, positive-but-inconsistent capacity or a fabricated browser heartbeat; require exact verified capacity and coherent slot accounting.
+- [x] Skip Codex account/CLI probes for unsupported stage/capability requests and browser-only agent definitions, while preserving tenant/RBAC checks and immutable agent versions.
+- [x] Add explicit preferred/fallback advisory priority, maintaining `dispatch_allowed=false`; do not route real production jobs or enable AI policy promotion.
+- [ ] Confirm the new targeted route-preflight tests plus full GitHub CI, then merge to `main` and deploy using the reviewed backend-only `--no-migrate` release process.
+- [ ] Next: trusted worker heartbeat and ProcessingJob lease-bound executor admission, independently reviewed snapshot-bound QA and provider usage/cost receipts; only then consider measured routing optimization.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4A_ROUTE_PREFLIGHT.md`.
+
+## 2026-11-11 — Phase 3C 0207 production completed (release record)
+
+- [x] PR #100 merged to `main` at `1aa09620efad493c5e2889b5dd947de99df0958c`, CI 16/16 PASS.
+- [x] Released with additive 0207 migration via reviewed backend script and distinct 0206 rollback bridge `81a8d582b`; exit 0, nine managed services active and all readiness probes healthy.
+- [x] Production database read-only verification: Alembic head `0207_cam_agent_trial_artwork_snapshots`; snapshot table empty (0 rows). Snapshot writes, autonomous QA verdicts, learning and promotion not enabled by the release.
+- [!] At owner's explicit request, independent off-host restore rehearsal was skipped for this rollout only. Production backup restorability is **UNVERIFIED**; older G1 restore gate documentation remains applicable for future changes that require verified recovery.
+
 ## 2026-11-11 — Phase 3C production rollout: 0206 bridge released
 
 - [x] Merge PR #102 CI baseline and PR #101 0206 rollback bridge; both full CI 16/16 PASS.

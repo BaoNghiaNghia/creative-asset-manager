@@ -127,6 +127,7 @@ def test_preview_advises_existing_codex_capacity_but_never_dispatches(monkeypatc
     data = result.json()
     assert data["reason"] == "agent_inactive"
     assert data["candidate_executor"] == "codex"
+    assert data["candidate_priority"] == "preferred"
     assert data["advisory_agent_slot_limit"] == 2
     assert data["slot_counts_are_advisory"] is True
     assert data["execution_enabled"] is False
@@ -138,9 +139,9 @@ def test_preview_advises_existing_codex_capacity_but_never_dispatches(monkeypatc
 @pytest.mark.parametrize("change,reason,probed", [
     ({"required_tools": ["stage2.reference.read"]}, "tool_not_permitted", False),
     ({"required_capabilities": ["image_edit", "generate_text"], "stage": "stage2"},
-     "stage_capability_unsupported", True),
+     "stage_capability_unsupported", False),
     ({"required_capabilities": ["generate_text"], "stage": "stage4"},
-     "stage_capability_unsupported", True),
+     "stage_capability_unsupported", False),
 ])
 def test_preview_never_escalates_tools_or_stage_capabilities(monkeypatch, fixture, change, reason, probed):
     client, db, principal, flags, module = fixture
@@ -254,3 +255,92 @@ def test_fail_closed_on_probe_exception(monkeypatch, fixture):
     result = probe_codex(db, "boostgame", "stage1", codex_home="/secret", codex_binary="codex")
     assert result.status == "login_not_verified"
     assert result.available_slots == 0
+
+
+@pytest.mark.parametrize("status,configured,busy,available", [
+    ("login_not_verified", 2, 0, 2),
+    ("heartbeat_unavailable", 1, 0, 1),
+    ("capacity_exhausted", 2, 0, 2),
+    ("observed_capacity", 2, 0, 3),  # impossible positive capacity
+    ("observed_capacity", 2, 2, 1),  # stale/inconsistent count
+    ("observed_capacity", 2, -1, 3),
+    ("observed_capacity", True, 0, 1),  # bool is not an int slot count
+])
+def test_route_rejects_unverified_and_incoherent_executor_capacity(
+    fixture, status, configured, busy, available,
+):
+    _, db, _, _, _ = fixture
+    agent = db.get(AgentDefinitionModel, ("boostgame", "gatorhats.typography", "v1"))
+    broken = ExecutorSnapshot(
+        "codex", status, configured, busy, available,
+        frozenset({"image_edit"}),
+    )
+    assert broken.verified_advisory_capacity(frozenset({"image_edit"})) is False
+    result = preview_route(
+        agent, stage="stage1",
+        required_capabilities=frozenset({"image_edit"}),
+        required_tools=frozenset({"design.read"}),
+        codex=broken, browser=browser_snapshot(),
+        global_emergency_stop=False,
+    )
+    assert result["reason"] == "no_verified_executor_capacity"
+    assert result["candidate_executor"] is None
+    assert result["candidate_priority"] is None
+    assert result["advisory_agent_slot_limit"] == 0
+    assert result["dispatch_allowed"] is False
+
+
+def test_fallback_only_after_verified_positive_and_coherent_snapshot(fixture):
+    _, db, _, _, _ = fixture
+    agent = db.get(AgentDefinitionModel, ("boostgame", "gatorhats.typography", "v1"))
+    codex = ExecutorSnapshot(
+        "codex", "capacity_exhausted", 2, 2, 0,
+        frozenset({"image_edit", "generate_text"}),
+    )
+    browser_unverified = ExecutorSnapshot(
+        "browser", "heartbeat_unavailable", 1, 0, 1, frozenset({"image_edit"}),
+    )
+    args = dict(
+        agent=agent, stage="stage1",
+        required_capabilities=frozenset({"image_edit"}),
+        required_tools=frozenset({"design.read"}),
+        codex=codex, global_emergency_stop=False,
+    )
+    blocked = preview_route(**args, browser=browser_unverified)
+    assert blocked["candidate_executor"] is None
+    assert blocked["dispatch_allowed"] is False
+
+    # Simulated trusted probe only. Real browser_snapshot() never advertises
+    # this state until an authenticated, independently verified bridge exists.
+    verified_fallback = ExecutorSnapshot(
+        "browser", "observed_capacity", 1, 0, 1, frozenset({"image_edit"}),
+    )
+    proposed = preview_route(**args, browser=verified_fallback)
+    assert proposed["candidate_executor"] == "browser"
+    assert proposed["candidate_priority"] == "fallback"
+    assert proposed["advisory_agent_slot_limit"] == 1
+    assert proposed["reason"] == "agent_inactive"
+    assert proposed["dispatch_allowed"] is False
+
+
+def test_browser_only_agent_never_runs_unconfigured_codex_probe(monkeypatch, fixture):
+    client, db, _, flags, module = fixture
+    repo = AgentHarnessRepository(db)
+    repo.register_definition("boostgame", AgentDefinition(
+        agent_id="gatorhats.typography", version="v2",
+        capabilities=frozenset({"image_edit"}),
+        allowed_tools=frozenset({"design.read"}),
+        preferred_executor="browser", fallback_executors=(),
+    ), actor_id="operator")
+    db.commit()
+    flags.AGENT_HARNESS_READ_API_ENABLED = True
+    monkeypatch.setattr(module, "probe_codex", lambda *a, **kw: pytest.fail(
+        "browser-only agent must not run Codex probes",
+    ))
+    result = client.post(preview_url(version="v2"), json=preview_json())
+    assert result.status_code == 200
+    payload = result.json()
+    assert payload["reason"] == "no_verified_executor_capacity"
+    assert payload["candidate_executor"] is None
+    assert payload["executor_observations"][0]["status"] == "not_probed"
+    assert payload["dispatch_allowed"] is False
