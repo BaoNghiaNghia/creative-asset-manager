@@ -7,7 +7,10 @@
 - [x] Verify live API version `81a8d582b`, API live/ready, PostgreSQL/Elasticsearch dependencies and nine active managed services plus worker readiness.
 - [x] Record most recent backup timer success (2026-11-10 22:06 ICT) and capacity baseline (~4.5 GiB free, high swap usage); do not mistake successful backup service for off-host restore proof.
 - [ ] Verify physical `current`/distinct `previous` release markers using an operator-approved scoped channel, plus independently restorable off-host backup and rollback readiness; host-policy filesystem restrictions must not be bypassed.
-- [ ] Only then merge/release PR #100 additive migration 0207 with every snapshot/learning flag OFF; verify zero snapshot rows, Stage 1 Regenerate/Output History and Etsy SMS non-regression. Never delete QA evidence for rollback.
+- [x] Independently re-run bridge deployment to full 100% success (exit 0); verify script-reported distinct protected current/previous, all API/worker probes, then clean its detached deploy-only worktree.
+- [x] Execute the fail-closed, read-only G1 backup/restore preflight: local receipt PASS; off-host restore NOT_VERIFIED and same-volume restore capacity BLOCKED (database ~4.11 GiB; free ~5.42 GiB; 8 GiB reserve). Documented in `docs/operations/CAM_AGENT_HARNESS_V2_0207_RELEASE_GATE_20261111.md`.
+- [x] Confirm latest PR #100 code+documentation CI completed 16/16 PASS (run #42955672526).
+- [ ] Only after an independently verified *off-host* restore and operator-approved physical rollback/capacity proof may PR #100 be merged and 0207 applied with every snapshot/learning flag OFF; verify zero snapshot rows, Stage 1 Regenerate/Output History and Etsy SMS non-regression. Never delete QA evidence for rollback.
 
 ## 2026-11-10 — Phase 3C.3B2C2A: independently retained QA artwork snapshots
 
