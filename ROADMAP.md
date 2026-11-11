@@ -1,10 +1,20 @@
 # Implementation Roadmap
 
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2A: authenticated external heartbeat
+
+- [x] Reuse paired Windows Image Agent bearer and existing `ProcessingJob` per-attempt HMAC lease token; add a separate feature-gated `harness-heartbeat` endpoint without changing the legacy offline `check-job` recovery.
+- [x] Require exact tenant/job/attempt/lease owner, picked source, non-cancelled processing state, bounded remaining lease, and server-only 256-bit signing key; persist one capped, short-lived signed proof on the owned ProcessingJob row under a row lock.
+- [x] Add tenant/RBAC-gated read-only admin verification that fails closed on tampering, timeout, revoked device or reclaimed job; no token/worker/payload returned, no lease renew, slot reservation or dispatch.
+- [x] Keep `CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_ENABLED=0` by default and require a separate signing key; no client change or runtime activation until Windows Image Extension has been adapted and verified.
+- [ ] Run local/CI security regressions, merge and deploy backend only with `--no-migrate --keep-releases 2` and feature OFF.
+- [ ] Next Phase 4B.2B: opt-in Windows extension heartbeat loop, verify signed acknowledgments, use stale/missing heartbeat as a hard gate before real executor admission.
+- Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4B2A_EXTERNAL_HEARTBEAT.md`.
+
 ## 2026-11-11 — Production release gate: visual encoder warmup timeout
 
 - [x] Phase 4B.1 PR #104 CI 16/16 PASS, merged at `395d60ee1`. First `--no-migrate` release activated this commit, but the script exited 1 because isolated SigLIP2/OpenVINO encoder needed approximately 36s versus the fixed 30s readiness window; schema compatibility PASS. Post-failure encoder `/ready` and 8 worker/encoder readiness endpoints returned 200 and nine services were active. This is not evidence that the first script finished.
 - [x] Scope the longer 75-attempt warmup timeout to the **visual encoder ready** endpoint only, preserving strict /ready checks and existing 30-attempt API/worker gates. Add deployment-contract assertions.
-- [ ] Full CI, merge and final backend-only release with `--no-migrate`, 9/9 health gates and current/previous retention. Do not bypass the readiness check or downgrade 0207.
+- [x] PR #105 CI 16/16 PASS, merged at `ad462831c`; final `--no-migrate` backend release exit 0 (100%), 9/9 managed services active, 8/8 readiness probes HTTP 200, current `ad462831c`, rollback `395d60ee1`, PostgreSQL head 0207 and snapshot count 0.
 - No new DB migration, feature activation, model/provider call, worker/queue architecture, credential or learning behavior.
 
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4B.1: lease-bound advisory admission
@@ -13,7 +23,7 @@
 - [x] Require pinned `job.read` tool grant and explicit request before advisory routing; map only verified Stage 1/2 RRUGC job types. Stage 4 remains unavailable pending independent handler mapping.
 - [x] Keep no trusted Browser heartbeat, no executor slot lease, no generated job, and `dispatch_allowed=false`; an active DB lease observation does not prove worker heartbeat/authenticated provider output.
 - [x] Add negative RBAC/tenant/stage/clock/cancellation/lease-boundary tests, architecture and rollback documentation.
-- [ ] Verify dedicated tests and full GitHub CI, merge, then backend-only production deploy with `--no-migrate --keep-releases 2`, confirm 9 managed services, Alembic head and distinct rollback.
+- [x] PR #104 CI 16/16 PASS, merged `395d60ee1`; final backend release stabilized by PR #105 as above. All 9 services active, schema 0207 preserved, `395d60ee1` rollback retained.
 - [ ] Next Phase 4B.2: scoped authenticated remote heartbeat and signed short-lived job/attempt/worker receipts for CAM Image Extension and other executors, followed by guarded actual admission.
 - Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4B1_JOB_LEASE_ADMISSION.md`.
 

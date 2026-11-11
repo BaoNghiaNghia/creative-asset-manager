@@ -1,3 +1,16 @@
+## 2026-11-11 — CAM Agent Harness V2 Phase 4B.2A signed Image Agent heartbeat (candidate)
+
+- Adds a default-off dedicated paired Image Agent `harness-heartbeat` endpoint on existing Etsy Spy transport; credential role, tenant, picked listing, attempt-bound HMAC token, locked authoritative ProcessingJob lease owner, cancellation and expiry must all match. Explicit legacy `check-job` recovery and `result` validation remain unchanged.
+- Signs a short-lived (maximum 45s) server acknowledgment with a **separate 256-bit server-only key** configured outside source control. Replaces exactly one bounded evidence field in the job payload; updates agent.last_seen_at and job.updated_at only on successful attestation, never extends/claims/releases the job lease or reserves slots. Default flag OFF and missing key fail closed.
+- Adds tenant/RBAC-scoped read-only admin `external-heartbeat` projection; verifies signature, attempt, active device, claim boundary and expiry. No raw payload, worker ID, secret, nonce, or provider result exposed. Even verified evidence always returns dispatch/execution disabled.
+- Security regression tests cover missing flag/key, bad token/role, cross-tenant job, cancelled/unpicked/expired/near-expired lease, old attempt, future/skewed clock, revocation, signature tampering, stale acknowledgment, admin RBAC and emergency stop.
+- No DB migration, actual Windows extension change, paid AI call or automatic policy promotion. Need full CI before merge and backend-only release. Do not enable externally until the Windows Image Extension has been upgraded and verified. Architecture: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4B2A_EXTERNAL_HEARTBEAT.md`.
+
+## 2026-11-11 — Phase 4B.1 and visual encoder production completion
+
+- PR #104 merged as `395d60ee1`, CI 16/16 PASS; first backend script exited 1 after visual encoder model warmup overran original 30s readiness. PR #105 merged as `ad462831c`, CI 16/16 PASS; encoder-only warmup window increased to 75 attempts without bypassing readiness.
+- Final backend release `ad462831c` exit 0, 100%, all 9 services active, worker/encoder endpoints 8/8 HTTP 200, current/rollback `ad462831c`/`395d60ee1`, Alembic 0207, snapshot count 0. Independent production backup restore still unverified.
+
 ## 2026-11-11 — Production release timeout hardening after Phase 4B.1 activation
 
 - Phase 4B.1 PR #104 CI PASS 16/16 and merged as `395d60ee1`. Production script with `--no-migrate` activated the immutable backend and restarted services, but exited 1 after the visual encoder had not become ready within 30 seconds. The isolated OpenVINO/SigLIP2 encoder finished startup after roughly 36 seconds (journal confirms 8091 /ready subsequently reachable); eight worker/encoder /ready endpoints reported 200 and nine services were active on read-only follow-up. Script did NOT reach completion or cleanup, and this is not a claimed clean release.
