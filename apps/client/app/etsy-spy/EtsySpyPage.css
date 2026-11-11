@@ -2206,3 +2206,56 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(7)::before{content:"Carts"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(8)::before{content:"Observed"}
 }
+
+/* Picked -> TikTok Shop US listing copy. Quiet cell; full fields in a dialog. */
+.etsy-tiktok-listing-cell { min-width: 138px; max-width: 188px; vertical-align: middle; }
+.etsy-tiktok-listing-open { display: flex; flex-direction: column; align-items: flex-start;
+  width: 100%; gap: 3px; padding: 8px 10px; border: 1px solid #d9e3ef;
+  border-radius: 10px; background: #f8fafc; color: #27354b; cursor: pointer;
+  text-align: left; }
+.etsy-tiktok-listing-open strong { font-size: 12px; font-weight: 700; }
+.etsy-tiktok-listing-open small { width: 100%; overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; font-size: 11px; }
+.etsy-tiktok-listing-open span { font-size: 10px; color: #687a90; }
+.etsy-tiktok-listing-open:hover { border-color: #779ab9; background: #f1f6fb; }
+.etsy-tiktok-dialog-backdrop { position: fixed; z-index: 1300; inset: 0;
+  background: rgba(12, 22, 38, .55); display: flex; align-items: center;
+  justify-content: center; padding: 18px; }
+.etsy-tiktok-dialog { display: flex; flex-direction: column; width: min(800px, 100%);
+  max-height: min(90vh, 920px); overflow: hidden; border-radius: 18px;
+  background: #fff; box-shadow: 0 18px 48px rgba(10,20,35,.28); color: #25354a; }
+.etsy-tiktok-dialog-header { display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 12px; padding: 18px 20px;
+  border-bottom: 1px solid #e6edf4; }
+.etsy-tiktok-dialog-header > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.etsy-tiktok-dialog-header strong { font-size: 17px; }
+.etsy-tiktok-dialog-header small { font-size: 12px; color: #70839a; max-width: 650px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.etsy-tiktok-dialog-header > button { border: 0; background: transparent;
+  color: #55677c; font-size: 24px; cursor: pointer; }
+.etsy-tiktok-dialog-body { padding: 18px 20px; overflow: auto; min-height: 180px; }
+.etsy-tiktok-skill-meta { display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 14px; font-size: 11px; color: #4a627c; }
+.etsy-tiktok-skill-meta span { background: #f3f6f9; padding: 6px 9px; border-radius: 7px; }
+.etsy-tiktok-copy-field { margin-top: 14px; border: 1px solid #e5ebf3; border-radius: 10px; overflow: hidden; }
+.etsy-tiktok-copy-title { display: flex; align-items: center; gap: 9px; background: #f8fafc;
+  border-bottom: 1px solid #e5ebf3; padding: 9px 12px; }
+.etsy-tiktok-copy-title strong { font-size: 12px; }
+.etsy-tiktok-copy-title span { margin-left: auto; font-size: 11px; color: #75869c; }
+.etsy-tiktok-copy-title button { border: 1px solid #cbd8e6; background: white;
+  padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.etsy-tiktok-copy-content { padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 13px; line-height: 1.6; max-height: 260px; overflow-y: auto; }
+.etsy-tiktok-copy-notice { font-size: 12px; color: #906a2e; }
+.etsy-tiktok-dialog-actions { display: flex; gap: 8px; justify-content: flex-end;
+  padding: 12px 20px; border-top: 1px solid #e5ebf3; }
+.etsy-tiktok-dialog-actions button { border: 1px solid #cbd8e6;
+  border-radius: 8px; background: #fff; padding: 8px 13px; cursor: pointer; }
+.etsy-tiktok-dialog-actions button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 620px) {
+  .etsy-tiktok-dialog-backdrop { padding: 4px; align-items: flex-end; }
+  .etsy-tiktok-dialog { max-height: 94vh; border-radius: 14px 14px 0 0; }
+  .etsy-tiktok-dialog-body { padding: 12px; }
+  .etsy-tiktok-dialog-header { padding: 12px; }
+  .etsy-tiktok-copy-title { flex-wrap: wrap; }
+}

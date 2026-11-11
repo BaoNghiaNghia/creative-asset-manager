@@ -40,6 +40,14 @@ from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY
                      category_rank_expression)
 from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
+from .tiktok_skill import (
+    JOB_TYPE as TIKTOK_LISTING_JOB_TYPE,
+    queue_on_pick as queue_tiktok_skill_on_pick,
+    cancel_for_unpick as cancel_tiktok_skill_on_unpick,
+    latest_job as latest_tiktok_skill_job,
+    project as project_tiktok_skill,
+    is_enabled as tiktok_skill_enabled,
+)
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -935,12 +943,24 @@ def listings(
                 "candidate_ready": candidate.get("status") == "review_candidate",
                 "candidate_method": candidate.get("method") if candidate.get("status") == "review_candidate" else None,
             }
+    # Single tenant-scoped query across the current Picked page; never N+1.
+    tiktok_by_key: dict[str, dict] = {}
+    if pick_state == "picked" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        for job in db.scalars(select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+            ProcessingJobModel.entity_id.in_(ids),
+        ).order_by(desc(ProcessingJobModel.created_at),
+                   desc(ProcessingJobModel.id))).all():
+            tiktok_by_key.setdefault(job.entity_id, project_tiktok_skill(job))
     return _response([
         {**_listing_item(listing, tmcheck, picked=pick_state == "picked",
                        later_match=later_by_key.get(listing.listing_key),
                        later_manual=listing.listing_key in seed_ids,
                        auto_later_keyword=auto_by_key.get(listing.listing_key)),
-         **({"smsPush": sms_by_key.get(listing.listing_key),
+         **({"tiktokListing": tiktok_by_key.get(listing.listing_key, {"status": "not_queued", "draft_only": True}),
+             "smsPush": sms_by_key.get(listing.listing_key),
              "designs": designs_by_key.get(listing.listing_key, []),
              "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
@@ -988,10 +1008,12 @@ async def set_listing_pick(
                             picked_at=utcnow())
             db.add(target)
         extraction_job = create_extraction_on_pick(db, tenant, eligible, target.picked_at)
+        queue_tiktok_skill_on_pick(db, tenant, eligible, target.picked_at)
     else:
         if target is not None:
             db.delete(target)
         cancel_pending_extractions(db, tenant, listing_key)
+        cancel_tiktok_skill_on_unpick(db, tenant, listing_key)
     db.commit()
     return {"listingKey": listing_key, "picked": payload["picked"]}
 
@@ -1137,6 +1159,127 @@ def listing_extraction_status(
         "last_error": job.last_error_code,
     }
 
+
+@router.get("/tiktok-listings/overview")
+def tiktok_skill_overview(
+    principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    tenant = principal.active_tenant_id
+    counts = {status: int(value) for status, value in db.execute(
+        select(ProcessingJobModel.status, func.count()).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+            ProcessingJobModel.cancellation_requested.is_(False),
+        ).group_by(ProcessingJobModel.status))}
+    return {"enabled": tiktok_skill_enabled(), "version": "tiktok-us-ytrends-only-20261111-v1",
+            "keyword_source": "ytrends_unavailable",
+            "auto_on_pick": tiktok_skill_enabled(),
+            "counts": counts, "draft_only": True}
+
+
+@router.get("/listings/{listing_key}/tiktok-listing")
+def listing_tiktok_skill_detail(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    """Tenant-safe, draft-only four-field TikTok Shop listing preview."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(404, "Picked listing not found")
+    return {"listingKey": listing_key, "enabled": tiktok_skill_enabled(),
+            **project_tiktok_skill(latest_tiktok_skill_job(
+                db, tenant, listing_key), detail=True)}
+
+
+@router.post("/listings/{listing_key}/tiktok-listing/queue")
+def queue_listing_tiktok_skill(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Enqueue exactly one skill version/source; never run AI on request thread."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    if not tiktok_skill_enabled():
+        raise HTTPException(503, "TikTok listing draft worker not enabled")
+    tenant = principal.active_tenant_id
+    picked = db.get(Picked, (tenant, listing_key))
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    listing = db.scalar(select(Listing).where(
+        Listing.tenant_id == tenant, Listing.listing_key == listing_key,
+        Listing.is_current.is_(True)).order_by(
+            desc(Listing.observed_at), desc(Listing.updated_at)).limit(1))
+    if listing is None:
+        raise HTTPException(409, "Listing photo source unavailable")
+    job = queue_tiktok_skill_on_pick(db, tenant, listing, picked.picked_at)
+    if job is None:
+        raise HTTPException(409, "Verified source image unavailable")
+    db.commit()
+    return {"listingKey": listing_key, **project_tiktok_skill(job)}
+
+
+@router.post("/tiktok-listings/backfill")
+async def backfill_picked_tiktok_skill(
+    request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Bounded, idempotent backfill; dry-run by default and no synchronous AI calls."""
+    if not tiktok_skill_enabled():
+        raise HTTPException(503, "TikTok listing draft worker not enabled")
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(data, dict) or set(data) - {"limit", "dry_run"}:
+        raise HTTPException(422, "Only limit and dry_run supported")
+    limit = data.get("limit", 20)
+    preview = data.get("dry_run", True)
+    if type(limit) is not int or not 1 <= limit <= 200 or type(preview) is not bool:
+        raise HTTPException(422, "Invalid backfill options")
+    tenant = principal.active_tenant_id
+    rows = db.execute(select(Picked, Listing).join(
+        Listing, and_(Listing.tenant_id == Picked.tenant_id,
+                      Listing.listing_key == Picked.listing_key)).where(
+        Picked.tenant_id == tenant, Listing.is_current.is_(True),
+        ~Listing.title.ilike("%custom%"),
+        _blacklist_condition(tenant), _qualified_listing_condition(),
+        ~select(ProcessingJobModel.id).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+            ProcessingJobModel.entity_id == Picked.listing_key,
+            ProcessingJobModel.cancellation_requested.is_(False),
+        ).correlate(Picked).exists(),
+    ).order_by(Picked.picked_at.asc(), desc(Listing.updated_at)).limit(2500))
+    seen: set[str] = set()
+    created = ready = missing_image = 0
+    for picked, listing in rows:
+        if picked.listing_key in seen:
+            continue
+        seen.add(picked.listing_key)
+        metadata = listing.metadata_json if isinstance(listing.metadata_json, dict) else {}
+        photo = verified_image_url(metadata.get("fullImageUrl")) or verified_image_url(
+            metadata.get("thumbnailUrl"))
+        if not photo:
+            missing_image += 1
+            continue
+        ready += 1
+        if not preview and queue_tiktok_skill_on_pick(db, tenant, listing, picked.picked_at):
+            created += 1
+        if ready >= limit:
+            break
+    if not preview:
+        db.commit()
+    return {"ok": True, "dry_run": preview, "ready": ready, "created": created,
+            "missing_image": missing_image, "limit": limit,
+            "keyword_source": "ytrends_unavailable", "draft_only": True}
+
+
 @router.put("/listings/{listing_key}/later")
 async def set_listing_later(
     listing_key: str, request: Request,
@@ -1269,6 +1412,7 @@ async def bulk_listing_decision(
             decision = Picked(tenant_id=tenant, listing_key=listing_id, picked_at=utcnow())
             db.add(decision)
             create_extraction_on_pick(db, tenant, source, decision.picked_at)
+            queue_tiktok_skill_on_pick(db, tenant, source, decision.picked_at)
         else:
             db.add(LaterSeed(
                 tenant_id=tenant, listing_key=listing_id,

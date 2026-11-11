@@ -1,3 +1,12 @@
+## 2026-11-11 — Etsy Picked TikTok listing draft skill (candidate)
+
+- Bundled skill is ChatGPT instruction+validation content, not a CAM-executable agent; this code adapts its requested output fields into a strict model prompt, source-verified photo input and immutable job result.
+- New code: `etsy_spy/tiktok_skill.py`, tenant/flag-protected Pick/bulk/backfill/detail/overview endpoints, existing Gemini worker registration, Picked table copy modal. Does not call ChatGPT Skills or claim YTrends research.
+- Skill output is always `draft_only` with `qa_status=needs_fact_check` and `ytrends_status=unavailable`; final merch claims, SEO evidence and usage rights remain for human verification. No storefront publishing.
+- `ETSY_TIKTOK_LISTING_ENABLED` is OFF by default; no migration, new API secret, Image Extension change, production job dispatch, trademark approval or output history deletion.
+- Local narrow tests: validator + worker 3/3, Picked API integration 2/2, combined 5/5 PASS; full CI, frontend typecheck and actual Gemini result still pending. Existing larger Etsy Spy regression run started but was interrupted without a completed result.
+- Rollback: leave flag OFF or disable it, return to previous immutable backend, keep existing ProcessingJobs / PostgreSQL 0207; no destructive database downgrade.
+
 ## 2026-11-11 — CAM Agent Harness V2 Phase 4C.2A signed idle self-report protocol (candidate)
 
 - Current Phase 4C.1 `capacity-preview` honestly has `verified_free_slots=0` when idle because a job-bound heartbeat cannot prove browser capacity. This milestone adds only signed *paired-device reports* without introducing executor reservation or assuming browser readiness.
