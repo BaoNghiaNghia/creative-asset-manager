@@ -2262,3 +2262,161 @@ def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
         "limit": 200, "queue_only": True, "dry_run": False,
     }).json()["created"] == 0
     assert db.query(ProcessingJobModel).count() == 2
+
+def test_orchestrator_v1_opt_in_and_isolated_chatgpt_receipt(scenario, monkeypatch, tmp_path):
+    import base64
+    import binascii
+    import hashlib
+    import struct
+    import zlib
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.delenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", raising=False)
+    client, db, principal = scenario
+    spy, headers = pair(client, db)
+    initial = batch("orchestrator-claim")
+    initial["records"]["listings"][0]["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    assert sync(client, spy, headers, initial).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick", json={"picked": True}).status_code == 200
+    agent = client.post("/api/v1/etsy-spy/image-agents", json={"name": "Orchestrator"}).json()
+    route = "/api/v1/etsy-spy/image-agents/" + agent["agent_id"]
+    auth = {"Authorization": "Bearer " + agent["token"]}
+    orchestrator = {**auth, "X-CAM-Image-Worker": "orchestrator-v1"}
+    assert client.post(route + "/claim", headers=orchestrator).json()["pause_reason"] == "orchestrator_not_enabled"
+    monkeypatch.setenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", "1")
+    assert client.post(route + "/claim", headers=auth).json()["pause_reason"] == "orchestrator_device_upgrade_required"
+    claim = client.post(route + "/claim", headers=orchestrator).json()
+    assert claim["task"]["execution_mode"] == "orchestrator_v1"
+    assert client.post(route + "/claim", headers=orchestrator).json()["lease_token"] == claim["lease_token"]
+    assert client.post(route + "/claim", headers=auth).json()["pause_reason"] == "existing_mode_task_requires_completion"
+
+    def chunk(name, data):
+        blob = name + data
+        return struct.pack(">I", len(data)) + blob + struct.pack(">I", binascii.crc32(blob) & 0xffffffff)
+
+    ihdr = struct.pack(">IIBBBBB", 4500, 5400, 8, 6, 0, 0, 0)
+    png = (bytes.fromhex("89504e470d0a1a0a") + chunk(b"IHDR", ihdr)
+           + chunk(b"IDAT", zlib.compress(bytes(1 + 4500*4) * 5400))
+           + chunk(b"IEND", b""))
+    qa = {"schema": "cam-image-orchestrator-qa-v1", "method": "chatgpt_assisted",
+          "width": 4500, "height": 5400, "dpi": 300,
+          "alpha_pixel_verified": True, "transparent_fraction": 0.5,
+          "border_transparent_fraction": 0.9, "qa_status": "needs_review",
+          "review_flags": [], "manual_text_review_required": True,
+          "manual_artwork_review_required": True, "print_ready": False,
+          "ocr_verified": False, "rights_verified": False}
+    payload = {"job_id": claim["task"]["id"], "lease_token": claim["lease_token"],
+               "status": "needs_review", "engine": "chatgpt_assisted",
+               "png_base64": base64.b64encode(png).decode(),
+               "output_sha256": hashlib.sha256(png).hexdigest(),
+               "source_sha256": "a" * 64, "qa": qa}
+    for changed in (
+        {**payload, "qa": {**qa, "rights_verified": True}},
+        {**payload, "qa": {**qa, "alpha_pixel_verified": False}},
+        {**payload, "qa": {**qa, "method": "fast_cpu"}},
+        {**payload, "qa": {**qa, "border_transparent_fraction": 0.0}},
+        {**payload, "source_sha256": ""},
+    ):
+        assert client.post(route + "/result", json=changed, headers=auth).status_code == 422
+    assert db.get(ProcessingJobModel, payload["job_id"]).status == "processing"
+    accepted = client.post(route + "/result", json=payload, headers=auth)
+    assert accepted.status_code == 200, accepted.text
+    assert client.post(route + "/result", json=payload, headers=auth).json() == accepted.json()
+    stored = db.get(ProcessingJobModel, payload["job_id"]).payload_json["result"]
+    assert stored["engine"] == "chatgpt_assisted"
+    assert stored["manual_qa_required"] is True
+    assert stored["print_ready"] is False
+    assert stored["rights_status"] == "unverified"
+
+def test_orchestrator_claim_opt_in_and_legacy_receipt_isolation(scenario, monkeypatch, tmp_path):
+    """Legacy workers never accidentally claim a v1 job or spoof ImageGen output."""
+    import base64
+    import binascii
+    import hashlib
+    import struct
+    import zlib
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.delenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", raising=False)
+    client, db, principal = scenario
+    agent, spy_headers = pair(client, db)
+    original = batch("orchestrator-worker-contract")
+    original["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg")
+    assert sync(client, agent, spy_headers, original).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Orchestrator Pilot"}).json()
+    base = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+    newer = {**auth, "X-CAM-Image-Worker": "orchestrator-v1"}
+
+    not_enabled = client.post(base + "/claim", headers=newer)
+    assert not_enabled.status_code == 200
+    assert not_enabled.json() == {
+        "task": None, "pause_reason": "orchestrator_not_enabled"}
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.status == "processing").count() == 0
+
+    monkeypatch.setenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", "1")
+    old_client = client.post(base + "/claim", headers=auth)
+    assert old_client.status_code == 200
+    assert old_client.json()["pause_reason"] == "orchestrator_device_upgrade_required"
+    claimed = client.post(base + "/claim", headers=newer).json()
+    assert claimed["task"]["execution_mode"] == "orchestrator_v1"
+    assert claimed["task"]["engine"] == "auto"
+    assert claimed["task"]["rights_status"] == "unverified"
+    assert client.post(base + "/claim", headers=newer).json()["lease_token"] == claimed["lease_token"]
+    assert client.post(base + "/claim", headers=auth).json()["pause_reason"] == "existing_mode_task_requires_completion"
+
+    def chunk(kind, data):
+        block = kind + data
+        return struct.pack(">I", len(data)) + block + struct.pack(">I", binascii.crc32(block) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", 4500, 5400, 8, 6, 0, 0, 0)
+    scanline = bytes(1 + 4500 * 4)
+    png = (bytes([137, 80, 78, 71, 13, 10, 26, 10])
+           + chunk(b"IHDR", header)
+           + chunk(b"IDAT", zlib.compress(scanline * 5400, 6))
+           + chunk(b"IEND", b""))
+    qa = {
+        "schema": "cam-image-orchestrator-qa-v1",
+        "method": "chatgpt_assisted", "width": 4500, "height": 5400,
+        "dpi": 300, "alpha_pixel_verified": True,
+        "transparent_fraction": 0.5,
+        "border_transparent_fraction": 0.9,
+        "qa_status": "needs_review", "review_flags": [],
+        "manual_artwork_review_required": True,
+        "manual_text_review_required": True,
+        "print_ready": False, "ocr_verified": False,
+        "rights_verified": False,
+    }
+    request = {
+        "job_id": claimed["task"]["id"], "lease_token": claimed["lease_token"],
+        "status": "needs_review", "engine": "chatgpt_assisted",
+        "png_base64": base64.b64encode(png).decode(),
+        "output_sha256": hashlib.sha256(png).hexdigest(),
+        "source_sha256": "f" * 64,
+        "qa": qa,
+    }
+    for bad in (
+        {**request, "qa": {**qa, "rights_verified": True}},
+        {**request, "qa": {**qa, "alpha_pixel_verified": False}},
+        {**request, "qa": {**qa, "method": "fast_cpu"}},
+        {**request, "qa": {**qa, "border_transparent_fraction": 0.0}},
+        {**request, "source_sha256": ""},
+    ):
+        assert client.post(base + "/result", json=bad, headers=auth).status_code == 422
+    assert db.get(ProcessingJobModel, request["job_id"]).status == "processing"
+    accepted = client.post(base + "/result", json=request, headers=auth)
+    assert accepted.status_code == 200, accepted.text
+    assert client.post(base + "/result", json=request, headers=auth).json() == accepted.json()
+    stored = db.get(ProcessingJobModel, request["job_id"]).payload_json["result"]
+    assert stored["engine"] == "chatgpt_assisted"
+    assert stored["qa"]["alpha_pixel_verified"] is True
+    assert stored["rights_status"] == "unverified"
+    assert stored["print_ready"] is False
+    assert stored["manual_qa_required"] is True

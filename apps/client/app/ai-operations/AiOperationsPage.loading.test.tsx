@@ -101,7 +101,8 @@ describe("AI Operations live tab requests", () => {
     }
   });
   it.each([
-    ["pipeline", ["pipeline", "media-dashboard", "summary"]],
+    // Pipeline intentionally avoids redundant media-dashboard and summary calls.
+    ["pipeline", ["pipeline"]],
     ["overview", ["summary", "daily", "providers", "failures"]],
     ["processing", ["jobs", "failures", "usage"]],
     ["cost", ["usage", "summary"]],

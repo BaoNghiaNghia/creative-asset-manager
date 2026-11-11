@@ -107,7 +107,10 @@ class WorkerRuntimeTest(unittest.TestCase):
         finally:
             runtime.close()
 
-    def test_unknown_job_type_is_non_retryable(self) -> None:
+    def test_unknown_job_type_is_not_claimed_by_general_worker(self) -> None:
+        # The normal worker must never claim unknown or external-only jobs.
+        # Keeping the pending record intact also permits future authorized
+        # handlers to process it without losing the original evidence.
         with self.sessions.begin() as session:
             model = ProcessingJobModel(
                 tenant_id="tenant-a",
@@ -131,10 +134,12 @@ class WorkerRuntimeTest(unittest.TestCase):
             dependencies=WorkerDependencies(self.sessions),
             registry=build_handler_registry(),
         )
-        self.assertTrue(runtime.run_once())
+        self.assertFalse(runtime.run_once())
         stored = self.job(model.id)
-        self.assertEqual(stored.status, "failed")
-        self.assertEqual(stored.last_error_code, "unsupported_handler")
+        self.assertEqual(stored.status, "pending")
+        self.assertEqual(stored.attempt_count, 0)
+        self.assertIsNone(stored.claimed_by)
+        self.assertIsNone(stored.last_error_code)
 
     def test_success_retryable_and_non_retryable_results(self) -> None:
         cases = (

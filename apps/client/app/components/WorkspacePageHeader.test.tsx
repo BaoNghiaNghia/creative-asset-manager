@@ -15,6 +15,8 @@ describe("WorkspacePageHeader", () => {
       "inventory",
       "operations",
       "realistic-review-ugc",
+      "tiktokshop",
+      "etsy-spy",
       "branding-dna",
       "queue",
       "generation",
