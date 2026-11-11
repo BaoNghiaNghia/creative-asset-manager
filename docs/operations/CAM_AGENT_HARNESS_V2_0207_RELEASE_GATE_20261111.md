@@ -59,7 +59,46 @@ The authorized operator must supply an auditable, sanitized PASS for each gate *
 
 After all gates in section 3 are verified, use the reviewed separate backend release process to deploy the PR #100 commit **with additive 0207 migration**; do **not** mix it into bridge stage 1 or permit snapshot writes. Confirm the exact Alembic head, zero rows in `cam_agent_trial_artwork_snapshots`, 9/9 service health, and no regression to Stage 1 Output History/Regenerate or Etsy Spy SMS status. The next code-only rollback target is the verified 0206 compatibility bridge, preserving the 0207 PostgreSQL schema and any evidence. A destructive `alembic downgrade` is **not** the rollback strategy.
 
-## 5. References
+## 5. Disk cleanup and test-environment hygiene (2026-11-11)
+
+The operator requested cleanup before considering the next production phase
+and explicitly disallowed proliferation of VPS test environments.
+
+- Initial audit: root partition 50 GB, ~5.6 GiB free (89% in use).
+- Reviewed `cam-safe-disk-cleanup.sh --dry-run` proved exact protected
+  `current=81a8d582b` and distinct `previous=06656da01`; the subsequent
+  `--apply --vacuum-journal` removed only rebuildable CAM pip cache (479
+  files) and archived journals (~302 MiB).
+- Deleted **two clean, merged and idle Git worktrees** (CI baseline PR #102,
+  0206 bridge PR #101) using non-force `git worktree remove`. Preserved the
+  clean PR #100 snapshot worktree and unrelated dirty worktrees.
+- Removed only ignored, rebuildable dependencies from an idle historical
+  Etsy/SMS checkout (621 MiB Python venv, 142 MiB frontend packages) and
+  three other idle old frontend `node_modules` directories (134/134/142 MiB).
+  Kept their Git source and any untracked user files. Verified npm cache
+  while idle, then cleared its rebuildable content; production runtimes,
+  model weights, Codex state, Docker data and backups were untouched.
+- Final disk after cleanup: **8.1 GiB free, 83% used**; RAM available
+  ~3.9 GiB but the 2-GiB swap was almost full. No temporary PostgreSQL or
+  new test worktree was created during cleanup.
+- Re-run of read-only `cam_pg_g1_preflight_readonly.py`:
+  `backup_local_recent_receipt=PASS`, live DB 4,414,618,647 bytes,
+  root free 8,656,510,976 bytes, estimated additional same-volume restore
+  7,695,669,795 bytes, reserve 8,589,934,592 bytes;
+  `same_volume_restore_capacity=BLOCKED`,
+  `isolated_restore_rehearsal=NOT_VERIFIED`, and
+  `g1_recovery=BLOCKED`. Thus more free disk does **not** certify 0207.
+- Production bridge remains at `81a8d582b`, with API live/ready, 9/9
+  managed services active, and successful backup timer. 0207 remains Draft
+  and 0207 snapshot capture not deployed. No learning/promotion was activated
+  by cleanup; effective feature flags must still be verified separately
+  before any 0207 migration or canary.
+
+For future work, reuse existing task worktrees/venvs and remote CI instead of
+cloning the whole repository for each testing step. Never turn a dry-run into
+an unbounded cleanup or a production DB restore.
+
+## 6. References
 
 - `docs/operations/DATABASE_BACKUP.md` and `docs/plans/DATABASE_BACKUP_IMPLEMENTATION.md` — off-host restore assurance.
 - `docs/operations/VPS_DEPLOYMENT.md` — reviewed script, current/previous, readiness, retention.
