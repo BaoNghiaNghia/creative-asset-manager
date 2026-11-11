@@ -1,142 +1,261 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
-import {spyFetch, type Listing, type TikTokListingView} from "./api";
+import {spyFetch, type Listing, type TikTokListingDraft, type TikTokListingView} from "./api";
 
 const LABELS: Record<string, string> = {
-  not_queued: "Chưa chạy", pending: "Queued", retry: "Retry",
-  processing: "Generating", needs_fact_check: "Review copy",
-  failed: "Failed", cancelled: "Cancelled",
+  not_queued: "Chưa tạo", pending: "Đang chờ", retry: "Chờ retry",
+  processing: "Đang tạo", needs_fact_check: "Cần duyệt",
+  failed: "Tạo lỗi", cancelled: "Đã hủy",
 };
+const ACTIVE_STATUSES = ["pending", "retry", "processing"];
+
+export function canQueueTikTokDraft(status: string | null | undefined): boolean {
+  return !status || status === "not_queued" || status === "failed";
+}
+
+export function formatTikTokDraft(draft: TikTokListingDraft): string {
+  return [
+    "PRODUCT TITLE", draft.title,
+    "PRODUCT DESCRIPTION", draft.description,
+    "PRODUCT HIGHLIGHTS", ...draft.highlights.map((text, index) => (index + 1) + ". " + text),
+    "SEARCH TERMS", draft.search_terms.join(", "),
+  ].join("\n\n");
+}
 
 function CopyField({label, value, count}: {label: string; value: string; count?: string}) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  useEffect(() => { setCopied(false); setCopyError(false); }, [value]);
   const onCopy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch { setCopied(false); }
+      setCopied(true); setCopyError(false);
+    } catch {
+      setCopied(false); setCopyError(true);
+    }
   };
   return <section className="etsy-tiktok-copy-field">
     <div className="etsy-tiktok-copy-title"><strong>{label}</strong>
-      <span>{count || ""}</span>
-      <button type="button" onClick={onCopy} disabled={!value}>
-        {copied ? "Copied" : "Copy"}
-      </button>
+      {count && <span>{count}</span>}
+      <button type="button" onClick={() => void onCopy()} disabled={!value}
+        aria-label={"Copy " + label}>{copied ? "Đã copy" : "Copy"}</button>
     </div>
     <div className="etsy-tiktok-copy-content">{value || "—"}</div>
+    {copyError && <p role="alert" className="etsy-tiktok-copy-error">
+      Không thể sao chép tự động. Hãy chọn và copy văn bản.
+    </p>}
   </section>;
 }
 
-export function TikTokListingCell({item, canManage, onQueued}: {
-  item: Listing; canManage: boolean; onQueued: () => void;
+export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}: {
+  item: Listing; canManage: boolean; optimizerEnabled: boolean; onQueued: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<TikTokListingView | null>(null);
   const [loading, setLoading] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [error, setError] = useState("");
+  const [copiedAll, setCopiedAll] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const queuedInDialog = useRef(false);
+
   const listing = item.tiktokListing;
   const status = listing?.status || "not_queued";
+  const isActive = ACTIVE_STATUSES.includes(status);
+  const canGenerate = canManage && optimizerEnabled && canQueueTikTokDraft(status);
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const next = await spyFetch<TikTokListingView>(
         "/listings/" + encodeURIComponent(item.listingKey) + "/tiktok-listing");
       setDetail(next);
+      return next;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load draft");
+      setError(err instanceof Error ? err.message : "Không thể tải bản nháp");
+      return null;
     } finally {
       setLoading(false);
     }
   }, [item.listingKey]);
+  const closeDialog = () => {
+    setOpen(false);
+    if (queuedInDialog.current) {
+      queuedInDialog.current = false;
+      onQueued();
+    }
+  };
+
   useEffect(() => {
     if (!open) return;
     void loadDetail();
-    const onKey = (event: KeyboardEvent) => {if (event.key === "Escape") setOpen(false);};
+    const previousOverflow = document.body.style.overflow;
+    const restoreFocus = document.activeElement instanceof HTMLElement &&
+      document.activeElement !== document.body
+      ? document.activeElement : triggerRef.current;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+      } else if (event.key === "Tab") {
+        const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not([disabled])") ?? []);
+        if (!buttons.length) return;
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      restoreFocus?.focus();
+    };
+    // Opening/closing is the focus boundary; callback identities must not
+    // repeatedly steal focus while the worker status refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loadDetail]);
+
   const enqueue = async () => {
+    const currentStatus = (open && detail?.status) || status;
+    if (!canManage || !optimizerEnabled || queueing || !canQueueTikTokDraft(currentStatus)) return;
     setQueueing(true); setError("");
     try {
-      await spyFetch("/listings/" + encodeURIComponent(item.listingKey) +
-        (detail?.status === "failed" ? "/tiktok-listing/retry" : "/tiktok-listing/queue"),
+      await spyFetch(
+        "/listings/" + encodeURIComponent(item.listingKey) +
+        (currentStatus === "failed" ? "/tiktok-listing/retry" : "/tiktok-listing/queue"),
         {method: "POST"});
-      await loadDetail();
-      onQueued();
+      if (open) {
+        // Refresh the parent row only when the dialog closes; otherwise a
+        // table fetch unmounts the dialog before the result/status can be read.
+        queuedInDialog.current = true;
+        await loadDetail();
+      } else {
+        onQueued();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to enqueue skill");
-    } finally {setQueueing(false);}
+      setError(err instanceof Error ? err.message : "Không thể thêm vào hàng đợi");
+      if (!open) setOpen(true);
+    } finally {
+      setQueueing(false);
+    }
   };
+
   useEffect(() => {
-    if (!open || !detail || !["pending", "retry", "processing"].includes(detail.status)) return;
+    if (!open || !detail || !ACTIVE_STATUSES.includes(detail.status)) return;
     const timer = window.setTimeout(() => void loadDetail(), 12000);
     return () => window.clearTimeout(timer);
   }, [open, detail, loadDetail]);
+
   const result = detail?.result;
   const metrics = result?.metrics;
+  const detailStatus = detail?.status || status;
+  const copyAll = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(formatTikTokDraft(result));
+      setCopiedAll(true); setError("");
+    } catch {
+      setError("Không thể sao chép tự động. Hãy copy từng trường.");
+    }
+  };
+
   return <td className="etsy-tiktok-listing-cell">
-    <button type="button" className="etsy-tiktok-listing-open"
-      title="TikTok Shop US listing draft · never auto-published"
-      aria-label={"TikTok listing: " + item.pageTitle}
-      onClick={() => setOpen(true)}>
-      <strong>{LABELS[status] || status}</strong>
-      {listing?.title_preview && <small>{listing.title_preview}</small>}
-      <span>{status === "needs_fact_check" ? "Title · Description · 5 Highlights · Terms"
-        : "TikTok Shop US"}</span>
-    </button>
+    <div className="etsy-tiktok-cell-stack">
+      <button type="button" className="etsy-tiktok-listing-open" ref={triggerRef}
+        title="TikTok Shop US · Bản nháp cần duyệt, không tự đăng"
+        aria-label={"Xem TikTok SEO cho " + item.pageTitle}
+        onClick={() => setOpen(true)}>
+        <span className={"etsy-tiktok-state is-" + status}>
+          {LABELS[status] || status}
+        </span>
+        {listing?.title_preview
+          ? <strong className="etsy-tiktok-title-preview">{listing.title_preview}</strong>
+          : <span className="etsy-tiktok-empty-preview">{isActive ? "Worker đang xử lý" :
+            status === "failed" ? "Xem nguyên nhân lỗi" : "Title · Description · Highlights · Terms"}</span>}
+        <span className="etsy-tiktok-open-hint">
+          {status === "needs_fact_check" ? "Xem & copy bản nháp" : "Xem chi tiết"}
+        </span>
+      </button>
+      {canGenerate && <button type="button" className="etsy-tiktok-queue-action"
+        disabled={queueing} onClick={() => void enqueue()}
+        aria-label={(status === "failed" ? "Retry TikTok SEO cho " : "Tạo TikTok SEO cho ") + item.pageTitle}>
+        {queueing ? "Đang gửi…" : status === "failed" ? "Thử lại" : "Tạo SEO"}
+      </button>}
+      {!optimizerEnabled && <span className="etsy-tiktok-offline">Worker đang tắt</span>}
+    </div>
     {open && typeof document !== "undefined" && createPortal(
-      <div className="etsy-tiktok-dialog-backdrop" onClick={() => setOpen(false)}>
+      <div className="etsy-tiktok-dialog-backdrop" onClick={closeDialog}>
         <section className="etsy-tiktok-dialog" role="dialog" aria-modal="true"
-          aria-label={"TikTok listing for " + item.pageTitle}
+          aria-label={"TikTok listing for " + item.pageTitle} ref={dialogRef}
           onClick={event => event.stopPropagation()}>
           <div className="etsy-tiktok-dialog-header">
             <div>
               <strong>TikTok Shop US · Listing Optimizer</strong>
-              <small>{item.pageTitle}</small>
+              <small title={item.pageTitle}>{item.pageTitle}</small>
             </div>
-            <button type="button" aria-label="Close TikTok listing" onClick={() => setOpen(false)}>×</button>
+            <button type="button" ref={closeRef} aria-label="Close TikTok listing"
+              onClick={closeDialog}>×</button>
           </div>
           <div className="etsy-tiktok-dialog-body">
-            {loading ? <p role="status">Loading listing draft…</p> : <>
-              <div className="etsy-tiktok-skill-meta">
-                <span>Status: {LABELS[detail?.status || status] || status}</span>
-                <span>YTrends MCP: {detail?.ytrends_status === "unavailable" ?
-                  "Không khả dụng · keyword chưa xác minh" : detail?.ytrends_status || "Không khả dụng"}</span>
-                <span>QA: {result?.qa_status === "needs_fact_check" ?
-                  "Cần kiểm tra thông tin sản phẩm / bản quyền" : "Chưa có kết quả"}</span>
-              </div>
-              {result ? <>
-                <CopyField label="Product Title" value={result.title}
-                  count={metrics?.title_characters + " / 200 ký tự"} />
-                <CopyField label="Product Description" value={result.description}
-                  count={metrics?.description_words + " words · " +
-                    metrics?.description_characters + " ký tự"} />
-                <CopyField label="Product Highlights"
-                  value={result.highlights.map((v, i) => (i+1) + ". " + v).join("\n")}
-                  count={metrics?.highlights_count + " items · " +
-                    metrics?.highlights_characters_total + " / 1500"} />
-                <CopyField label="Search Terms"
-                  value={result.search_terms.join(", ")}
-                  count={metrics?.search_terms_count + " phrases · " +
-                    metrics?.search_terms_characters_total + " / 250"} />
-                <p className="etsy-tiktok-copy-notice">Draft only. Không công bố lên TikTok Shop.
-                  Kiểm tra artwork, trademark, loại áo, size, care và nguồn giao hàng
-                  trước khi sử dụng.</p>
-              </> : <p>Chưa có bản nháp listing. Khi worker chạy xong, kết quả sẽ hiện ở đây.</p>}
-              {detail?.error_code && <p className="etsy-tiktok-copy-notice">
-                Job error: {detail.error_code}. Có thể thử lại tối đa 2 lần thủ công.
-              </p>}
-              {error && <p role="alert" className="etsy-error">{error}</p>}
-            </>}
+            <div className="etsy-tiktok-skill-meta">
+              <span className={"etsy-tiktok-state is-" + detailStatus}>
+                {LABELS[detailStatus] || detailStatus}
+              </span>
+              <span>Manual · Draft only</span>
+              <span>YTrends: {detail?.ytrends_status === "unavailable" ||
+                result?.ytrends_status === "unavailable"
+                ? "Chưa kết nối, keyword chưa xác minh" : "Chưa xác minh"}</span>
+            </div>
+            {loading && <p role="status" className="etsy-tiktok-loading">Đang cập nhật trạng thái…</p>}
+            {result ? <>
+              <p className="etsy-tiktok-qa-note">Cần kiểm tra thông tin sản phẩm, thương hiệu
+                và quyền sử dụng trước khi đăng. Chưa xác minh SEO bằng YTrends.</p>
+              <CopyField label="Product Title" value={result.title}
+                count={metrics ? metrics.title_characters + " / 200 ký tự" : undefined} />
+              <CopyField label="Product Description" value={result.description}
+                count={metrics ? metrics.description_words + " words · " +
+                  metrics.description_characters + " ký tự" : undefined} />
+              <CopyField label="Product Highlights"
+                value={result.highlights.map((v, i) => (i + 1) + ". " + v).join("\n")}
+                count={metrics ? metrics.highlights_count + " mục · " +
+                  metrics.highlights_characters_total + " / 1500" : undefined} />
+              <CopyField label="Search Terms" value={result.search_terms.join(", ")}
+                count={metrics ? metrics.search_terms_count + " cụm · " +
+                  metrics.search_terms_joined_characters + " / 250" : undefined} />
+              {result.warnings?.length > 0 && <div className="etsy-tiktok-warnings">
+                <strong>Lưu ý QA</strong>
+                <ul>{result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
+              </div>}
+              <p className="etsy-tiktok-copy-notice">Bản nháp nội bộ; không tự đăng TikTok Shop.
+                Xác minh artwork, trademark, loại áo, size, care và vận chuyển.</p>
+            </> : !loading && <p className="etsy-tiktok-empty-state">
+              {ACTIVE_STATUSES.includes(detailStatus)
+                ? "Đang xử lý bản nháp. Trạng thái sẽ được cập nhật tự động."
+                : "Chưa có bản nháp. Chọn Tạo listing để đưa vào hàng đợi Gemini."}
+            </p>}
+            {detail?.error_code && <p className="etsy-tiktok-copy-notice">
+              Job error: {detail.error_code}. Retry thủ công tối đa 2 lần.
+            </p>}
+            {error && <p role="alert" className="etsy-error">{error}</p>}
           </div>
           <div className="etsy-tiktok-dialog-actions">
-            {!result && canManage && detail?.enabled && <button type="button"
-              disabled={queueing || loading || ["pending", "retry", "processing"].includes(detail?.status || "")}
-              onClick={enqueue}>{queueing ? "Queueing…" : detail?.status === "failed"
-                ? "Retry failed draft" : "Run listing skill"}</button>}
+            {result && <button type="button" className="etsy-tiktok-copy-all"
+              onClick={() => void copyAll()}>{copiedAll ? "Đã copy tất cả" : "Copy tất cả"}</button>}
+            {canManage && detail?.enabled && canQueueTikTokDraft(detailStatus) &&
+              <button type="button" className="etsy-tiktok-dialog-run" disabled={queueing || loading}
+                onClick={() => void enqueue()}>{queueing ? "Đang gửi…" :
+                  detailStatus === "failed" ? "Retry failed draft" : "Run listing skill"}</button>}
             <button type="button" onClick={() => void loadDetail()} disabled={loading}>Refresh</button>
-            <button type="button" onClick={() => setOpen(false)}>Close</button>
+            <button type="button" onClick={closeDialog}>Close</button>
           </div>
         </section>
       </div>, document.body)}

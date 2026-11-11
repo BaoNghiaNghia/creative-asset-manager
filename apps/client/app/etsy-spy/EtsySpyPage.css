@@ -2259,3 +2259,145 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-tiktok-dialog-header { padding: 12px; }
   .etsy-tiktok-copy-title { flex-wrap: wrap; }
 }
+
+/* Picked TikTok Listing Optimizer V3 — explicit row actions, bounded bulk,
+   readable status and copy-ready draft without auto-publication. */
+.etsy-tiktok-listing-cell { min-width: 188px; max-width: 246px; }
+.etsy-tiktok-cell-stack { display: grid; gap: 6px; min-width: 0; }
+.etsy-tiktok-listing-open { min-height: 76px; gap: 5px; }
+.etsy-tiktok-listing-open .etsy-tiktok-state,
+.etsy-tiktok-skill-meta .etsy-tiktok-state {
+  display: inline-flex; align-items: center; width: auto; min-height: 23px;
+  padding: 3px 8px; border: 1px solid #c9d8ec; border-radius: 7px;
+  background: #edf3fb; color: #395779; font-size: 11px; font-weight: 800;
+}
+.etsy-tiktok-state.is-needs_fact_check {
+  background: #ecf8f0; border-color: #b6e2c5; color: #256744;
+}
+.etsy-tiktok-state.is-failed {
+  background: #fff1f0; border-color: #efc3be; color: #a73e38;
+}
+.etsy-tiktok-state.is-pending,
+.etsy-tiktok-state.is-retry,
+.etsy-tiktok-state.is-processing {
+  background: #eef3ff; border-color: #c9d8f8; color: #3b5ca3;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-title-preview {
+  width: 100%; display: -webkit-box; overflow: hidden;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  line-height: 1.35; font-size: 12px; overflow-wrap: anywhere;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-empty-preview {
+  color: #65768d; font-size: 11px; line-height: 1.4;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-open-hint {
+  color: #396bb4; font-size: 11px; font-weight: 760;
+}
+.etsy-tiktok-queue-action {
+  justify-self: stretch; min-height: 36px; padding: 8px 11px;
+  border: 1px solid #aec4df; border-radius: 8px;
+  background: #f1f6fe; color: #245caa;
+  font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+}
+.etsy-tiktok-queue-action:hover { background: #e3efff; border-color: #86aedb; }
+.etsy-tiktok-queue-action:disabled { opacity: .58; cursor: progress; }
+.etsy-tiktok-offline { color: #9a4d45; font-size: 11px; font-weight: 650; }
+.etsy-tiktok-listing-open:focus-visible,
+.etsy-tiktok-queue-action:focus-visible,
+.etsy-tiktok-dialog button:focus-visible {
+  outline: 2px solid #3177d8; outline-offset: 2px;
+}
+.etsy-tiktok-dialog { max-height: min(92dvh, 920px); }
+.etsy-tiktok-dialog-actions { flex-wrap: wrap; }
+.etsy-tiktok-dialog-actions button { min-height: 40px; font-weight: 700; }
+.etsy-tiktok-dialog-actions .etsy-tiktok-dialog-run {
+  background: #285da7; border-color: #285da7; color: #fff;
+}
+.etsy-tiktok-dialog-actions .etsy-tiktok-copy-all {
+  margin-right: auto; background: #eef5ff; color: #285da7;
+}
+.etsy-tiktok-copy-title button { min-height: 36px; font-weight: 760; }
+.etsy-tiktok-copy-title span { line-height: 1.3; }
+.etsy-tiktok-qa-note,
+.etsy-tiktok-warnings,
+.etsy-tiktok-empty-state,
+.etsy-tiktok-loading {
+  border-radius: 9px; padding: 10px 12px; margin: 10px 0;
+  font-size: 12px; line-height: 1.5;
+}
+.etsy-tiktok-qa-note,
+.etsy-tiktok-warnings {
+  background: #fffaf0; color: #855d22; border: 1px solid #f0dfbc;
+}
+.etsy-tiktok-warnings ul { margin: 6px 0 0; padding-left: 19px; }
+.etsy-tiktok-empty-state,
+.etsy-tiktok-loading { background: #f5f8fc; color: #61718a; }
+.etsy-tiktok-copy-error { padding: 6px 12px; color: #ac423c; margin: 0; font-size: 12px; }
+.etsy-tiktok-batch-progress { color: #375e94; font-size: 12px; font-weight: 720; }
+
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings { min-width: 1500px; }
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings th:nth-child(2),
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings td:nth-child(2) {
+  min-width: 270px; width: 22%;
+}
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings th:nth-child(4),
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings td:nth-child(4) {
+  min-width: 205px; width: 14%;
+}
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings th:nth-child(5),
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings td:nth-child(5) { min-width: 190px; }
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings th:nth-child(6),
+.etsy-table-wrap .etsy-data-table.is-products.is-picked-listings td:nth-child(6) { min-width: 128px; }
+
+@media (max-width: 680px) {
+  /* Base mobile cards assume 8 marketplace columns. Picked has 11;
+     map its actual column positions explicitly so SEO never appears as TM. */
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings { min-width: 0; }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(1) {
+    position: absolute; top: 8px; right: 8px; z-index: 1;
+    width: 40px; min-width: 40px; max-width: 40px; padding: 10px;
+  }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(2) {
+    grid-column: 1/-1; padding-right: 44px;
+  }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(3),
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(4),
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(5),
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(6) {
+    grid-column: 1/-1; padding: 0; border: 0; background: transparent!important;
+  }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7),
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(8),
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(9) {
+    grid-column: auto; align-self: auto; justify-self: stretch;
+    padding: 8px; border: 1px solid #edf1f6; border-radius: 8px;
+    background: #f8fafc!important; font-size: 14px; font-weight: 800;
+  }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(10) {
+    grid-column: 1/2; align-self: center; justify-self: start;
+  }
+  .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(11) {
+    grid-column: 2/-1; justify-self: end;
+  }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(2)::before { content: none; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(3)::before { content: "Design"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(4)::before { content: "TikTok Listing Optimizer"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(5)::before { content: "Keyword SMS"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(6)::before { content: "Etsy badge + TM"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7)::before { content: "Bought / 24h"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(8)::before { content: "Views / 24h"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(9)::before { content: "Carts"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(10)::before { content: "Observed"; }
+  .etsy-tiktok-cell-stack { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
+  .etsy-tiktok-listing-open { min-height: 70px; }
+  .etsy-tiktok-queue-action { min-height: 44px; align-self: center; min-width: 90px; }
+  .etsy-tiktok-dialog-backdrop {
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom)); align-items: flex-end;
+  }
+  .etsy-tiktok-dialog { width: 100%; max-height: calc(100dvh - 12px - env(safe-area-inset-bottom)); }
+  .etsy-tiktok-dialog-header > button { min-width: 44px; min-height: 44px; }
+  .etsy-tiktok-dialog-actions { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); }
+  .etsy-tiktok-dialog-actions button { min-height: 44px; flex: 1 1 42%; }
+  .etsy-tiktok-copy-title button { min-height: 44px; }
+  .etsy-tiktok-dialog-actions .etsy-tiktok-copy-all { margin-right: 0; }
+}
