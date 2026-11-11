@@ -1,3 +1,9 @@
+## 2026-11-11 — Phase 3C 0207 off-host restore evidence hardening
+
+- Extended the existing `scripts/cam_db_restore_rehearsal.py` with opt-in repeated `--require-table` checks on the isolated restore. Exact lowercase table identifiers only; maximum 20, no duplicates or SQL punctuation. A missing required table blocks PASS and no evidence file is emitted. Only count-level evidence, not row contents, is returned.
+- The 0207 release gate now requires actual critical-table checks plus separately compared source/restore counts, independent backup re-download/checksums and a full off-host restore. Empty optional table checks are explicitly insufficient for 0207 recovery readiness.
+- Verification: existing plus new restore guard tests **16/16 PASS**, including injection-like identifiers, missing table failure and no evidence on failure. No production database operation, restore, migration, secret, new environment or agent flag change. 0207 remains BLOCKED pending independent off-host restore proof.
+
 ## 2026-11-11 — Agent Harness Phase 3C production 0206 bridge release (no migration)
 
 - Deployed the isolated, reviewed PR #101 bridge from a clean detached worktree at commit `81a8d582bc82747e5a3a1f7914cac93052dd4100`, via the standard `cam-rebuild-backend.sh --commit ... --no-migrate --keep-releases 2` workflow. The script reported `Database migrations skipped (--no-migrate); schema compatibility verified` and activated/restarted the backend.

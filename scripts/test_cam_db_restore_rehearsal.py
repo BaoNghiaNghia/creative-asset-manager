@@ -32,7 +32,8 @@ class FakeRunner:
         self.calls.append(argv)
         self.environments.append(kwargs.get("env", {}))
         if argv[0] == "psql":
-            result = self.identity if len([c for c in self.calls if c[0] == "psql"]) == 1 else self.table_count
+            psql_calls = len([c for c in self.calls if c[0] == "psql"])
+            result = self.identity if psql_calls == 1 else self.table_count
             return SimpleNamespace(returncode=0, stdout=result.encode("utf-8"))
         if argv[0] == "pg_restore":
             return SimpleNamespace(returncode=int(self.fail_restore and "--list" not in argv), stdout=b"")
@@ -173,6 +174,50 @@ class RestoreRehearsalTest(unittest.TestCase):
             self.assertNotIn("PGOPTIONS", env)
             self.assertEqual(env.get("PGPASSWORD"), "secret-for-rehearsal")
             self.assertEqual(env.get("PGSSLMODE"), "disable")
+
+    def test_required_tables_are_counted_only_on_isolated_restore(self):
+        request = tool.Request(
+            self.dump, self.sha, self.md5, self.target, "cam_rehearsal_user",
+            required_tables=("cam_agent_trial_exposures", "cam_agent_trial_qa_reviews"),
+        )
+        fake = self.runner()
+        report = tool.rehearse(request, runner=fake)
+        self.assertTrue(report["REQUIRED_TABLE_COUNTS_VERIFIED"])
+        self.assertEqual(report["REQUIRED_TABLE_COUNT"], 2)
+        self.assertEqual(len(fake.calls), 6)
+        self.assertIn('FROM public."cam_agent_trial_exposures"', fake.calls[4][-1])
+        self.assertIn('FROM public."cam_agent_trial_qa_reviews"', fake.calls[5][-1])
+
+    def test_required_table_identifiers_fail_closed_before_database_commands(self):
+        fake = self.runner()
+        for names in (("foo;DROP TABLE x",), ("UpperCase",),
+                      ("same_name", "same_name"), ("missing.dot",),
+                      tuple("table_" + str(n) for n in range(21))):
+            request = tool.Request(
+                self.dump, self.sha, self.md5, self.target,
+                "cam_rehearsal_user", required_tables=names,
+            )
+            with self.subTest(names=names), self.assertRaises(tool.RestoreGateError):
+                tool.rehearse(request, runner=fake)
+        self.assertEqual(fake.calls, [])
+
+    def test_required_table_failure_never_marks_restore_evidence_pass(self):
+        class MissingTableRunner(FakeRunner):
+            def __call__(self, argv, **kwargs):
+                if argv[0] == "psql" and 'FROM public."' in argv[-1]:
+                    self.calls.append(argv)
+                    return SimpleNamespace(returncode=1, stdout=b"")
+                return super().__call__(argv, **kwargs)
+
+        fake = MissingTableRunner(identity=f"{self.target}|127.0.0.1|f|0")
+        request = tool.Request(
+            self.dump, self.sha, self.md5, self.target,
+            "cam_rehearsal_user", evidence=self.root / "failed-required.json",
+            required_tables=("cam_agent_trial_exposures",),
+        )
+        with self.assertRaises(tool.RestoreGateError):
+            tool.rehearse(request, runner=fake)
+        self.assertFalse(request.evidence.exists())
 
     def test_no_password_in_subprocess_argv_or_report(self):
         fake = self.runner()
