@@ -177,4 +177,104 @@ def observe_external_heartbeat(
     }
 
 
+def inspect_completed_heartbeat(
+    job: ProcessingJobModel, *, signing_key: bytes | None,
+    agent_registered: bool, now: datetime | None = None,
+) -> dict[str, Any]:
+    """Retrospectively verify *one* signed lease observation on a completed job.
+
+    A completed Image Agent result clears lease_expires_at. Its proof must be
+    checked against the immutable attempt/claim and completion boundary, not
+    mistaken for fresh executor readiness. No historical record can authorize
+    capacity, dispatch or provider output quality.
+    """
+    result: dict[str, Any] = {
+        "state": "historical_unverified",
+        "historical_heartbeat_verified": False,
+        "historical_receipt_age_seconds": None,
+        "worker_heartbeat_authenticated": False,
+        "executor_slot_reserved": False,
+        "dispatch_allowed": False,
+        "execution_enabled": False,
+    }
+    clock = _utc(now) if now is not None else datetime.now(timezone.utc)
+    if clock is None or signing_key is None or len(signing_key) != 32:
+        result["state"] = "signing_key_unavailable"
+        return result
+    if not agent_registered or job.job_type != "etsy_design_extract":
+        result["state"] = "device_unverified"
+        return result
+    if job.status != "completed":
+        result["state"] = "job_not_completed"
+        return result
+    claimed_at, completed_at = _utc(job.claimed_at), _utc(job.completed_at)
+    if (
+        claimed_at is None or completed_at is None
+        or completed_at < claimed_at or completed_at > clock + timedelta(seconds=5)
+    ):
+        result["state"] = "completion_boundary_invalid"
+        return result
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    outcome = payload.get("result")
+    if (
+        not isinstance(outcome, dict)
+        or outcome.get("status") not in {"needs_ai", "needs_review", "failed"}
+        or not isinstance(outcome.get("receipt_id"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", outcome["receipt_id"]) is None
+    ):
+        result["state"] = "completed_result_missing"
+        return result
+    record = payload.get(_EVIDENCE_FIELD)
+    if not isinstance(record, dict) or set(record) != {
+        "protocol", "tenant_id", "agent_id", "job_id", "attempt_count",
+        "claim_epoch", "issued_epoch", "expires_epoch", "nonce", "signature",
+    }:
+        result["state"] = "heartbeat_missing"
+        return result
+    signature = record.get("signature")
+    unsigned = {key: value for key, value in record.items() if key != "signature"}
+    if (
+        not isinstance(signature, str)
+        or _HEX_256.fullmatch(signature) is None
+        or not hmac.compare_digest(signature, _signature(signing_key, unsigned))
+    ):
+        result["state"] = "signature_invalid"
+        return result
+    if (
+        record["protocol"] != _PROTOCOL
+        or record["tenant_id"] != job.tenant_id
+        or record["job_id"] != job.id
+        or not isinstance(record["agent_id"], str)
+        or job.claimed_by != "etsy-image:" + record["agent_id"]
+        or type(record["attempt_count"]) is not int
+        or type(job.attempt_count) is not int
+        or record["attempt_count"] != job.attempt_count
+        or type(record["claim_epoch"]) is not int
+        or record["claim_epoch"] != int(claimed_at.timestamp())
+        or type(record["issued_epoch"]) is not int
+        or type(record["expires_epoch"]) is not int
+        or not isinstance(record["nonce"], str)
+        or re.fullmatch(r"[0-9a-f]{24}", record["nonce"]) is None
+    ):
+        result["state"] = "job_binding_changed"
+        return result
+    issued, expires = record["issued_epoch"], record["expires_epoch"]
+    current = int(clock.timestamp())
+    if (
+        issued < int(claimed_at.timestamp())
+        or issued > int(completed_at.timestamp())
+        or issued > current + 2
+        or expires < issued + _MIN_LEASE_SECONDS
+        or expires - issued > _MAX_TTL_SECONDS
+    ):
+        result["state"] = "historical_window_invalid"
+        return result
+    return {
+        **result,
+        "state": "signed_historical_heartbeat_verified",
+        "historical_heartbeat_verified": True,
+        "historical_receipt_age_seconds": max(0, current - issued),
+    }
+
+
 EVIDENCE_FIELD = _EVIDENCE_FIELD
