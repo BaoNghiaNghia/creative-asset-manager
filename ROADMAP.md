@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-11 — Phase 3C.3B2C2A: standalone 0206 rollback bridge hardening
+
+- [x] Separate PR #101 contains only 0206-compatible code, negative-schema canaries, and CI coverage; **no 0207 migration or feature activation**.
+- [x] Reject missing/extra/nullable snapshot columns, wrong exposure FK/delete policy, missing uniqueness, weak or permissive seal/size/dimension CHECKs, and unknown Alembic revisions.
+- [x] Run 14/14 local bridge canaries and syntax/diff validation.
+- [ ] CI targeted PostgreSQL jobs and full regression triage; unrelated pre-existing failures on `main` do not become automatic approval.
+- [ ] Verify live 0206 schema, backup, nine managed services, then deploy bridge as a distinct no-migrate release and retain as rollback.
+- [ ] Only after bridge is retained: deploy additive 0207 with snapshot flag OFF, followed by independent QA and trusted cost receipts.
+
 ## 2026-11-09 — Phase 3C.3B2C1: actual Stage 1 artwork lineage / remote bytes
 
 - [x] Build explicit, tenant-scoped read-only lineage: exposure receipt → completed Creative Brief and ProcessingJob → pinned 1/4/4 image generation job → output-version SHA-256 and source fingerprint. Invalidate stale/regenerated/other-tenant/other-study records rather than infer exposure from shadow.

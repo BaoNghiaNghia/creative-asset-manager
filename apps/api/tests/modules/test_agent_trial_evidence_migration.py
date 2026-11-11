@@ -1,5 +1,6 @@
 """0205 evidence ledgers: additive-only, no backfill, reversible if empty."""
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from alembic import command
@@ -28,7 +29,9 @@ def test_0205_creates_only_empty_append_only_ledgers(scratch_0204):
         old_trial_count = c.scalar(text("SELECT count(*) FROM cam_agent_trials"))
         old_assignment_count = c.scalar(text("SELECT count(*) FROM cam_agent_trial_assignments"))
     command.upgrade(cfg, "0205_cam_agent_trial_evidence")
-    assert validate_alembic_head(engine, database_url=url) == "0205_cam_agent_trial_evidence"
+    # Exercise the historical 0205 release validator, not today's 0206 head.
+    with patch("app.core.database.expected_alembic_head", return_value="0205_cam_agent_trial_evidence"):
+        assert validate_alembic_head(engine, database_url=url) == "0205_cam_agent_trial_evidence"
     with engine.connect() as c:
         assert _trial_evidence_schema_complete(c)
         assert c.scalar(text("SELECT count(*) FROM cam_agent_trial_exposures")) == 0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Generator
 from pathlib import Path
 
@@ -335,7 +336,13 @@ def _trial_artwork_snapshot_schema_complete(connection) -> bool:
     try:
         if table not in schema.get_table_names():
             return False
-        if {col["name"] for col in schema.get_columns(table)} != required:
+        columns = schema.get_columns(table)
+        if {col["name"] for col in columns} != required:
+            return False
+        # A nullable identity, hash or status could bypass the ledger's seal.
+        if {col["name"] for col in columns if col["nullable"]} != {
+            "snapshot_remote_file_id", "verified_at",
+        }:
             return False
         if schema.get_pk_constraint(table).get("constrained_columns") != [
             "tenant_id", "snapshot_id",
@@ -347,6 +354,10 @@ def _trial_artwork_snapshot_schema_complete(connection) -> bool:
             and fks[0].get("constrained_columns") == [
                 "tenant_id", "study_id", "keyword_id",
             ]
+            and fks[0].get("referred_columns") == [
+                "tenant_id", "study_id", "keyword_id",
+            ]
+            and str(fks[0].get("options", {}).get("ondelete", "")).upper() == "RESTRICT"
         ):
             return False
         unique = {
@@ -358,25 +369,35 @@ def _trial_artwork_snapshot_schema_complete(connection) -> bool:
             ("tenant_id", "snapshot_asset_id"),
         }.issubset(unique):
             return False
+
+        def normalize_check(value: object) -> str:
+            # PostgreSQL adds ::text / ::character varying casts to CHECK
+            # expressions. Ignore only those casts, parentheses and spacing;
+            # do NOT accept arbitrary expressions merely mentioning columns.
+            body = str(value or "").lower()
+            body = re.sub(
+                r"::(?:character\s+varying|varchar|text|bpchar)(?:\s*\(\s*\d+\s*\))?",
+                "",
+                body,
+            )
+            return "".join(
+                char for char in body
+                if char not in {"(", ")", '"', "`"} and not char.isspace()
+            )
+
         checks = {
-            row.get("name"): "".join(str(row.get("sqltext") or "").lower().split())
+            row.get("name"): normalize_check(row.get("sqltext"))
             for row in schema.get_check_constraints(table)
         }
-        # PG rewrites equality expressions, so require all referenced columns
-        # and both legal states, not an exact backend-specific SQL string.
-        seal = checks.get("ck_cam_trial_snapshot_seal", "")
-        if not all(part in seal for part in (
-            "status", "reserved", "verified", "snapshot_remote_file_id",
-            "verified_at", "isnull", "isnotnull",
-        )):
-            return False
-        for name, tokens in {
-            "ck_cam_trial_snapshot_size": ("size_bytes", "16777216"),
-            "ck_cam_trial_snapshot_dims": ("width", "height"),
-        }.items():
-            if not all(token in checks.get(name, "") for token in tokens):
-                return False
-        return True
+        expected_checks = {
+            "ck_cam_trial_snapshot_size": "size_bytes>0andsize_bytes<=16777216",
+            "ck_cam_trial_snapshot_dims": "width>0andheight>0",
+            "ck_cam_trial_snapshot_seal": (
+                "status='reserved'andsnapshot_remote_file_idisnullandverified_atisnull"
+                "orstatus='verified'andsnapshot_remote_file_idisnotnullandverified_atisnotnull"
+            ),
+        }
+        return checks == expected_checks
     except SQLAlchemyError:
         return False
 

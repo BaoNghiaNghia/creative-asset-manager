@@ -1,3 +1,10 @@
+## 2026-11-11 — Phase 3C.3B2C2A 0206 bridge hardening (PR #101)
+
+- Scope: `apps/api/app/core/database.py` startup schema validator; dedicated negative tests; CI PostgreSQL job; no migration, new dependency, paid API, secret or runtime feature flag.
+- Security: retain tenant/exposure FK and RESTRICT deletion; require exact sealed/reserved constraints and NOT NULL columns. Former token-only checks could accept semantically weak `OR` expressions; now reject them. Only the reviewed 0207 revision may be accepted by the 0206 binary.
+- Local evidence: 14/14 dedicated bridge tests PASS (2 PostgreSQL-only canaries skipped outside CI); 15/15 prior rollback-bridge and 4/4 evidence migration regressions PASS; Python compileall and `git diff --check` PASS. New CI matrix tests the actual PostgreSQL 12/16 CHECK introspection in a rolled-back scratch schema. Full CI on original bridge PR #101 is RED, matching pre-existing `main` failures in API/frontend/browser QA; not claimed production-ready until release gates are met.
+- Production: NOT DEPLOYED. Normal code-only bridge release must preserve DB 0206 and retain previous/current; the later 0207 migration must not be co-deployed with the bridge. Rollback is code-only, never destructive schema downgrade.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B2C1 Stage 1 artwork provenance
 
 - Added no-migration read-only provenance chain from actual 0205 control/challenger exposure to exact completed Creative Brief, completed generation jobs and current Stage 1 output version, checking tenant/study/keyword, pinned `creative_v3` source SHA/fingerprint, metadata SHA, PNG type and bounded dimensions. Never infer a real treatment from prospective shadow admission.
