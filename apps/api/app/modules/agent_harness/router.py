@@ -25,6 +25,7 @@ from .evidence_audit import audit_stage1_candidates
 from .holdout import evaluation_readiness_from_audit
 from .executor_readiness import (
     ExecutorSnapshot, browser_snapshot, preview_route, probe_codex,
+    stage_supports,
 )
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .registry import AgentRegistryError
@@ -629,14 +630,19 @@ def preview_agent_route(
     tools = frozenset(body.required_tools)
     settings = get_settings()
 
-    # Do not run even the bounded local CLI login-status probe when the
-    # request violates the tenant's agent capability/tool policy.
-    allowed = (
-        capabilities.issubset(set(agent.capabilities_json))
+    # A Codex login-status probe can be slow across multiple profiles.
+    # Avoid it when policy/stage already forbids the request or the pinned
+    # agent version does not name Codex as preferred/fallback. In particular,
+    # unsupported stages must not cause needless CLI probes.
+    probe_allowed = (
+        bool(capabilities)
+        and capabilities.issubset(set(agent.capabilities_json))
         and tools.issubset(set(agent.allowed_tools_json))
+        and stage_supports(body.stage, capabilities)
+        and "codex" in (agent.preferred_executor, *(agent.fallback_executors_json or []))
         and not settings.AI_EMERGENCY_STOP_ENABLED
     )
-    if allowed:
+    if probe_allowed:
         codex = probe_codex(
             db, tenant_id, body.stage,
             codex_home=settings.CODEX_IMAGE_HOME,

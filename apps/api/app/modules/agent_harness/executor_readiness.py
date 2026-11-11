@@ -50,6 +50,36 @@ class ExecutorSnapshot:
             "available_slots": self.available_slots,
         }
 
+    def verified_advisory_capacity(self, required: frozenset[str]) -> bool:
+        """Require coherent, positively verified capacity; never trust slot count alone.
+
+        A browser heartbeat, missing login, stale/unknown probe or malformed
+        count is not a reservable slot. Even True is NOT dispatch permission:
+        the actual RRUGC worker must still obtain its own authoritative lease.
+        """
+        return bool(
+            self.status == "observed_capacity"
+            and all(
+                type(value) is int and value >= 0
+                for value in (
+                    self.configured_slots, self.busy_slots, self.available_slots,
+                )
+            )
+            and self.configured_slots > 0
+            and self.available_slots > 0
+            and self.busy_slots + self.available_slots == self.configured_slots
+            and required.issubset(self.capabilities)
+        )
+
+
+def stage_supports(stage: str, requirements: frozenset[str]) -> bool:
+    """Pure guard used BEFORE any potentially slow Codex account probe."""
+    return bool(
+        requirements
+        and stage in _STAGE_CAPABILITIES
+        and requirements.issubset(_STAGE_CAPABILITIES[stage])
+    )
+
 
 def probe_codex(
     session: Session, tenant_id: str, stage: str, *,
@@ -143,6 +173,7 @@ def preview_route(
         "dispatch_allowed": False,
         "execution_enabled": False,
         "candidate_executor": None,
+        "candidate_priority": None,
         "advisory_agent_slot_limit": 0,
         "reason": "blocked",
         "executor_observations": [observations[key].document() for key in ("codex", "browser")],
@@ -154,7 +185,7 @@ def preview_route(
     if not required_tools.issubset(set(agent.allowed_tools_json)):
         result["reason"] = "tool_not_permitted"
         return result
-    if stage not in _STAGE_CAPABILITIES or not required_capabilities.issubset(_STAGE_CAPABILITIES[stage]):
+    if not stage_supports(stage, required_capabilities):
         result["reason"] = "stage_capability_unsupported"
         return result
     if global_emergency_stop:
@@ -164,11 +195,13 @@ def preview_route(
         # Immutable definitions are always inserted disabled in Phase 2C.
         result["reason"] = "agent_inactive"
         # Continue to calculate advisory capacity only if permitted.
-    for executor_id in (agent.preferred_executor, *(agent.fallback_executors_json or [])):
+    for priority, executor_id in enumerate(
+        (agent.preferred_executor, *(agent.fallback_executors_json or []))
+    ):
         candidate = observations.get(executor_id)
-        if (candidate is not None and candidate.available_slots > 0
-                and required_capabilities.issubset(candidate.capabilities)):
+        if candidate is not None and candidate.verified_advisory_capacity(required_capabilities):
             result["candidate_executor"] = executor_id
+            result["candidate_priority"] = "preferred" if priority == 0 else "fallback"
             # Only an upper bound; no slot is reserved, no queue lease exists.
             result["advisory_agent_slot_limit"] = min(
                 agent.max_concurrent, candidate.available_slots,

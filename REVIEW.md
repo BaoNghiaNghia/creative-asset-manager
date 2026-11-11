@@ -1,3 +1,16 @@
+## 2026-11-11 — CAM Agent Harness V2 Phase 4A route-preflight hardening (candidate)
+
+- Tightened read-only routing: an executor is advisory-eligible only with exact `observed_capacity` status, coherent nonnegative integer configured/busy/free counts, free capacity, required capabilities and explicit pinned preferred/fallback membership. A forged/unverified Browser Extension heartbeat or stale/malformed positive slot count cannot create an executor recommendation. Actual dispatch remains hard-off.
+- Moved stage/capability validation and pinned-executor eligibility ahead of the potentially slow Codex CLI account probes. Unsupported Stage 2/4 tool combinations and browser-only agents now skip Codex probes; emergency stop, tenant and RBAC boundaries remain in place.
+- Response adds `candidate_priority` (preferred/fallback/null) for diagnostics without exposing accounts, tokens or lock holders. Existing route-preview contract remains backward compatible, no code path launches jobs/models.
+- Added negative regression tests for spoofed positive status, contradictory counts, unauthorized stage, browser-only definitions and synthetic fallback. Python compile and Git diff checks were performed; full CI and production release are separate pending steps.
+- Files: `executor_readiness.py`, `router.py`, `test_agent_executor_readiness.py`, route-preflight architecture doc, ROADMAP, REVIEW. No database migration, dependency, secret, new flag or production job change. Revert the route-preflight commit or use the reviewed previous backend release if any issue occurs; leave 0207 database intact.
+
+## 2026-11-11 — CAM Agent Harness V2 Phase 3C 0207 production completion
+
+- Following explicit owner waiver of independent off-host restore rehearsal, PR #100 CI 16/16 PASS was merged as `1aa09620e` and released by the reviewed backend script (exit 0, 100%). Production PostgreSQL confirmed Alembic head 0207 and 0 artwork snapshots; 9/9 services active, API and worker readiness PASS. Previous immutable rollback release is 0206 bridge `81a8d582b`.
+- The backup was **not** independently restored; production backup recoverability is unverified, and the waiver did not establish QA/reviewer/cost/learning evidence or authorize automatic promotion. Migration is additive and rollback is code-only, never a destructive 0207 database downgrade.
+
 ## 2026-11-11 — Phase 3C 0207 snapshot-time restore count parity (candidate)
 
 - Extended the **existing** off-host restore rehearsal with repeated `--expect-table-count table_name=N` paired exactly with each `--require-table`. Positive counts, zero counts, duplicate/invalid identities and unsupported types are checked before any PostgreSQL operation. A mismatched count aborts without writing the PASS evidence file.
