@@ -1,3 +1,10 @@
+## 2026-11-11 — CI baseline repairs for Agent Harness V2 Phase 3C release gates
+
+- PR #102 is test-only and separate from PR #101/100: enforce exact canonical navbar module coverage; exclude test fixtures (not shipped runtime) from localhost API URL hygiene while retaining the runtime scan.
+- General worker unknown-job test now requires no claim/no attempt/no status change, matching the strict job-type allowlist security boundary. UI tests cover both new navbar routes, Stage 0 Opportunity heading, and 23 Gallery positions (1 Embroidery Reference + 22 photos).
+- Local verification: 10/10 targeted API tests, 23/23 worker runtime tests, 7/7 header/keyword modal frontend tests, 8/8 gallery tests, 6/6 Browser QA plan tests, TypeScript typecheck PASS, diff check PASS. No application runtime change, schema migration, new secrets, new model calls, or production deployment.
+- Remaining unrelated API and Creative Browser QA regressions still block the two-stage production rollout. Previous CI runs on `main` were red; do not bypass required release gates.
+
 ## 2026-11-09 — Agent Harness Phase 3C.3B2C1 Stage 1 artwork provenance
 
 - Added no-migration read-only provenance chain from actual 0205 control/challenger exposure to exact completed Creative Brief, completed generation jobs and current Stage 1 output version, checking tenant/study/keyword, pinned `creative_v3` source SHA/fingerprint, metadata SHA, PNG type and bounded dimensions. Never infer a real treatment from prospective shadow admission.
