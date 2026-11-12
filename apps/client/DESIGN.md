@@ -123,6 +123,12 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - **Scope**: React effects and pure timing helper only. No new backend endpoints, localStorage, auto-navigation, new runtime dependency or changes to queue permissions, status interpretation, or worker processing.
 - **QA**: unit tests cover active and idle cadence, actual timer registration, unchanged dashboard request counts, existing modal/scroll preservation, and typecheck/build; responsive fixtures at phone/tablet/desktop remain mandatory before production.
 
+## Phase 9b — Reviews Stage 3 responsive action rail (2026-11-12)
+
+- The cross-workspace browser gate identified a genuine Stage 3 heading overflow on tablet and phone. Constrain the Pinterest source-plan header and its action rail to the available card width in the existing reviews-scoped evondevKit CSS adapter, letting actions wrap while the Drive root text truncates. The Scan action remains visible and keyboard/touch accessible.
+- This is CSS-only, without altered source paths, status, permissions, image processing, data, or Scout behavior. Keep the Pinterest table's own horizontal scroll.
+- Verify at desktop 1440, tablet portrait 768 and mobile 390 before release. Browser fixture baselines remain governed; never rewrite them to dismiss failures.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

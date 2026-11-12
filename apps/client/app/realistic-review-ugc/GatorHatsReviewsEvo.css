@@ -681,6 +681,39 @@
   .rrugc-shell.rrugc-evo-reviews .rrugc-source-plan-toolbar-server {
     grid-template-columns: minmax(0,1fr);
   }
+  /* Stage 3 header: its action rail must not extend past the page on
+     tablet/phone. Keep Drive root truncated and Scan reachable by touch. */
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plans .rrugc-source-plans-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plans-heading > .rrugc-stage-header-copy,
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plans-heading > .rrugc-stage-header-actions {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plans-heading > .rrugc-stage-header-actions {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+  }
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plan-heading-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .rrugc-shell.rrugc-evo-reviews .rrugc-source-plan-heading-actions .rrugc-source-root {
+    flex: 1 1 180px;
+    min-width: 0;
+    max-width: min(360px, 100%);
+  }
   .rrugc-shell.rrugc-evo-reviews .rrugc-stage4-unified-toolbar {
     align-items: stretch;
   }
