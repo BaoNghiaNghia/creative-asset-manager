@@ -2513,6 +2513,7 @@ def test_tiktok_skill_auto_on_pick_idempotent_status_and_unpick(scenario, monkey
     overview = client.get("/api/v1/etsy-spy/tiktok-listings/overview").json()
     assert overview["counts"]["pending"] == 1
     assert overview["keyword_source"] == "ytrends_etsy_context"
+    assert overview["version"] == tiktok_skill.PROFILE_VERSION
     assert overview["ytrends_enabled"] is True
     assert client.put(picked, json={"picked": False}).status_code == 200
     db.refresh(jobs[0])

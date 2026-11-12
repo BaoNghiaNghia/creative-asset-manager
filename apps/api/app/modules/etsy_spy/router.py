@@ -43,6 +43,7 @@ from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, latest_
 from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
 from .tiktok_skill import (
     JOB_TYPE as TIKTOK_LISTING_JOB_TYPE,
+    PROFILE_VERSION as TIKTOK_LISTING_PROFILE_VERSION,
     queue_on_pick as queue_tiktok_skill_on_pick,
     cancel_for_unpick as cancel_tiktok_skill_on_unpick,
     latest_job as latest_tiktok_skill_job,
@@ -1179,7 +1180,7 @@ def tiktok_skill_overview(
             ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
             ProcessingJobModel.cancellation_requested.is_(False),
         ).group_by(ProcessingJobModel.status))}
-    return {"enabled": tiktok_skill_enabled(), "version": "tiktok-us-ytrends-only-20261111-v1",
+    return {"enabled": tiktok_skill_enabled(), "version": TIKTOK_LISTING_PROFILE_VERSION,
             "keyword_source": "ytrends_etsy_context",
             "ytrends_enabled": get_settings().ETSY_TIKTOK_YTRENDS_ENABLED,
             "auto_on_pick": tiktok_auto_on_pick_enabled(),
