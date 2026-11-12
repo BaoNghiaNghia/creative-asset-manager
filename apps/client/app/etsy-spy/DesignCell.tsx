@@ -10,24 +10,55 @@ export function DesignCell({ item, onPreviewStart }: {
   const [hovered, setHovered] = useState<number | null>(null);
   const [failedOriginalId, setFailedOriginalId] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const galleryRef = useRef<HTMLElement | null>(null);
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const galleryCountRef = useRef(designs.length);
+  galleryCountRef.current = designs.length;
+  const galleryOpen = active !== null && designs.length > 0;
 
   useEffect(() => {
-    if (active === null) return;
+    if (!galleryOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const returnFocus = returnFocusRef.current;
+    document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActive(null);
-      if (event.key === "ArrowRight" && designs.length > 1) {
+      if (event.key === "Escape") {
         event.preventDefault();
-        setActive(index => index === null ? null : (index + 1) % designs.length);
-      }
-      if (event.key === "ArrowLeft" && designs.length > 1) {
+        setActive(null);
+      } else if (event.key === "Tab") {
+        const buttons = Array.from(galleryRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not([disabled])",
+        ) || []);
+        const first = buttons[0];
+        const last = buttons[buttons.length - 1];
+        const focused = document.activeElement;
+        const outside = !galleryRef.current?.contains(focused);
+        if (first && last && ((event.shiftKey && (focused === first || outside)) ||
+          (!event.shiftKey && (focused === last || outside)))) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      } else if (event.key === "ArrowRight" && galleryCountRef.current > 1) {
         event.preventDefault();
-        setActive(index => index === null ? null : (index - 1 + designs.length) % designs.length);
+        setActive(index => index === null ? null : (index + 1) % galleryCountRef.current);
+      } else if (event.key === "ArrowLeft" && galleryCountRef.current > 1) {
+        event.preventDefault();
+        setActive(index => index === null ? null :
+          (index - 1 + galleryCountRef.current) % galleryCountRef.current);
       }
     };
     window.addEventListener("keydown", onKey);
     closeRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKey);
-  }, [active, designs.length]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, [galleryOpen]);
+
+  useEffect(() => {
+    if (designs.length === 0) setActive(null);
+  }, [designs.length]);
 
   // Match the Etsy thumbnail preview: viewport-anchored, bottom-left, with
   // original Design PNG loaded only when hovered/focused. Touch opens gallery.
@@ -70,7 +101,11 @@ export function DesignCell({ item, onPreviewStart }: {
           onPointerCancel={() => setHovered(null)}
           onFocus={() => showHover(index)}
           onBlur={() => setHovered(null)}
-          onClick={() => { setHovered(null); setActive(index); }}
+          onClick={event => {
+            returnFocusRef.current = event.currentTarget;
+            setHovered(null);
+            setActive(index);
+          }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
           <img loading="lazy" decoding="async" src={design.thumbnail_url} alt="" />
         </button>
@@ -101,7 +136,7 @@ export function DesignCell({ item, onPreviewStart }: {
         onMouseDown={event => {
           if (event.currentTarget === event.target) setActive(null);
         }}>
-        <section role="dialog" aria-modal="true"
+        <section ref={galleryRef} role="dialog" aria-modal="true"
           aria-label={`Ảnh thiết kế sản phẩm ${item.listingKey}`}
           className="etsy-design-gallery">
           <button ref={closeRef} className="etsy-design-gallery-close" type="button"

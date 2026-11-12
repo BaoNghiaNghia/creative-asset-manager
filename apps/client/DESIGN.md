@@ -108,6 +108,14 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - Add `node scripts/verify-route-split.mjs` measuring post-build startup JS/CSS gzip budgets (90/115 KB), verifying lazy Explorer chunk and route CSS boundaries. Baseline before split: startup JS 182.3 KB gzip, CSS 122.6 KB gzip. After split: JS 62.2 KB, CSS 105.2 KB gzip. This is a **startup** saving, not a claim that total application downloads or render times decrease by the same ratio.
 - QA requires TypeScript/Vite build, focused regression tests including Etsy modal/scroll, Public Review, Review Board and Explorer, bundle budget, fixture Chrome QA at desktop/tablet/mobile, then immutable frontend-only release from reviewed `main` with current+rollback retained. Authenticated production routes require separately signed-in verification.
 
+## Phase 8 — Etsy Spy background refresh and Design viewer continuity (2026-11-12)
+
+- Continue pinned evondevKit guidance for a quiet operational UI: no added UI framework, API request, network poll or status decoration.
+- **Picked refresh**: the existing 30-second SMS/TikTok poll now reconciles listing projections by stable `listingKey`. Identical rows keep their object identities; an unchanged response (including sync timestamp-only changes) retains the current page object without invoking a table update. Status, Design, SMS and counts remain live when actually changed, and reordered/deleted rows are respected.
+- **Design viewer**: opening the gallery locks document background scroll, moves focus into the dialog, keeps keyboard Tab focus inside it and restores focus to the launching thumbnail on close. Escape and arrow navigation remain available. Updated Design thumbnails do not restart an open gallery. The modal continues showing only images, controls and the thumbnail list.
+- User-selected filters, scroll position, Pick/Later, TikTok SEO dialog state, touch gallery opening and backend RBAC are unchanged. No db migration, worker update, new runtime dependency or production asset mutation.
+- Quality: focused reconciliation/Design keyboard regression, existing Etsy Spy Picked/modal regressions, frontend typecheck and Vite build, responsive QA at 390x844, 768x1024 and 1440x900, followed by read-only production smoke when deployed.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

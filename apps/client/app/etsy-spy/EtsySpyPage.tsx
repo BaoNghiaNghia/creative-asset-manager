@@ -14,6 +14,7 @@ import "./EtsySpyEvo.css";
 import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
+import { reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
 // Keep the service workflows and handlers intact, but hide these four admin panels
@@ -780,8 +781,12 @@ export function EtsySpyPage() {
       polling = true;
       try {
         const latest = await spyFetch<Page<Listing>>("/listings?" + apiQuery(options).toString());
-        if (!disposed) setTableResult(current => current?.requestKey === requestKey
-          ? { ...current, data: latest } : current);
+        if (!disposed) setTableResult(current => {
+          if (current?.requestKey !== requestKey) return current;
+          const previous = current.data as Page<Listing> | null;
+          const next = previous ? reconcilePickedPage(previous, latest) : latest;
+          return next === previous ? current : { ...current, data: next };
+        });
       } catch {
         // Preserve the last confirmed receipt on transient sync/API failures.
       } finally { polling = false; }
