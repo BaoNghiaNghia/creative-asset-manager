@@ -844,7 +844,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 45));
     });
     expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
-    expect(container?.querySelector(".etsy-agents")?.tagName).toBe("DETAILS");
+    expect(container?.querySelector(".etsy-agents")).toBeNull();
   });
 
   it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
@@ -1475,43 +1475,26 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(restoredPick?.querySelector("svg")).toBeTruthy();
   });
 
-  it("pairs Image Agent separately and copies disabled D: configuration", async () => {
+  it("hides the four operational panels while keeping the products table and Picked flow", async () => {
     vi.mocked(fetchAccessIdentity).mockResolvedValue({
       permissions: ["etsy_spy.read", "etsy_spy.manage"],
     } as never);
     await start();
-    const panel = container?.querySelector<HTMLDetailsElement>(
-      'details[aria-label="Windows image extraction agents"]');
-    expect(panel?.textContent).toContain("Extraction disabled");
-    const pair = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
-      .find(item => item.textContent?.trim() === "Pair Image Agent");
-    await act(async () => { pair?.click(); });
-    const create = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
-      .find(item => item.textContent?.trim() === "Create Image Agent");
-    expect(create).toBeTruthy();
+    expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+    expect(container?.querySelectorAll(".etsy-extraction-backfill")).toHaveLength(0);
+    expect(container?.querySelector('details[aria-label="Windows synchronization agents"]')).toBeNull();
+    expect(container?.querySelector('details[aria-label="Windows image extraction agents"]')).toBeNull();
+    const picked = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
     await act(async () => {
-      create?.click();
+      picked?.click();
       await new Promise(resolve => setTimeout(resolve, 70));
     });
-    expect(registeredImageAgents).toHaveLength(1);
-    expect(panel?.textContent).toContain("Token:");
-    const writeText = vi.fn(async (_value: string) => {});
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true, value: { writeText },
-    });
-    const copy = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") || [])
-      .find(item => item.textContent?.trim() === "Copy disabled Windows config");
-    await act(async () => {copy?.click();});
-    const config = JSON.parse(String(writeText.mock.calls[0]?.[0])) as {
-      enabled: boolean; cam_origin: string; agent_id: string;
-      tenant_id: string; token: string;
-    };
-    expect(config.enabled).toBe(false);
-    expect(config.tenant_id).toBe("creative-assets-prod");
-    expect(config.agent_id).toBe(registeredImageAgents[0].id);
-    expect(config.token.length).toBe(70);
-    expect(localStorage.length).toBe(0);
-    expect(panel?.textContent).toContain("storage not provisioned");
+    expect(container?.querySelectorAll(".etsy-extraction-backfill")).toHaveLength(0);
+    expect(container?.textContent).not.toContain("Picked → Transparent PNG");
+    expect(container?.textContent).not.toContain("TikTok Shop Listing Optimizer");
+    expect(container?.textContent).not.toContain("Windows Sync Agent");
+    expect(container?.textContent).not.toContain("Windows Image Agent");
+    expect(container?.querySelector(".etsy-table-card")).toBeTruthy();
   });
 
   it("disables Pick for users without manage permission", async () => {
