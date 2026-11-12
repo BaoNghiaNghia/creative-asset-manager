@@ -83,6 +83,8 @@ export type TikTokListingView = {
   job_id?: string | null; draft_only: true;
   title_preview?: string | null; ytrends_status?: string; qa_status?: string | null;
   error_code?: string | null;
+  regeneration_count?: number; can_regenerate?: boolean;
+  previous_job_id?: string; previous_draft?: TikTokListingDraft;
   result?: TikTokListingDraft;
 };
 export type Listing = {

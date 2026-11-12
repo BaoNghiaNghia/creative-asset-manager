@@ -311,6 +311,66 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     assert again.outcome == JobOutcome.COMPLETED
     assert len(provider_calls) == 1
 
+def test_regeneration_is_new_job_idempotent_and_bounded(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    original = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert original is not None
+    old_draft = tiktok_skill.validate_copy(copy())
+    original.status = "completed"
+    original.payload_json = {**original.payload_json, "result": old_draft}
+    db.commit()
+
+    assert tiktok_skill.regenerate_completed_draft(
+        db, "other", row, picked.picked_at) is None
+    regenerated = tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at)
+    assert regenerated is not None and regenerated.id != original.id
+    assert regenerated.status == "pending" and regenerated.provider_key == "gemini"
+    assert regenerated.payload_json["regenerate_of_job_id"] == original.id
+    assert regenerated.payload_json["regeneration_count"] == 1
+    assert regenerated.payload_json["research_status"] == "ytrends_pending"
+    assert tiktok_skill.project(regenerated)["can_regenerate"] is False
+    db.commit()
+    assert tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at).id == regenerated.id
+    assert db.query(ProcessingJobModel).count() == 2
+    db.refresh(original)
+    assert original.status == "completed"
+    assert original.payload_json["result"] == old_draft
+
+    # A failed regeneration must be retried instead of selecting the
+    # first completed job's original idempotency key.
+    regenerated.status = "failed"
+    regenerated.last_error_code = "tiktok_listing_invalid_output"
+    db.commit()
+    retried = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert retried.id == regenerated.id and retried.status == "pending"
+    db.commit()
+
+    regenerated = db.get(ProcessingJobModel, regenerated.id)
+    regenerated.status = "completed"
+    regenerated.payload_json = {**regenerated.payload_json, "result": old_draft}
+    db.commit()
+    next_job = tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at)
+    assert next_job is not None and next_job.id != regenerated.id
+    assert next_job.payload_json["regeneration_count"] == 2
+    assert next_job.payload_json["regenerate_of_job_id"] == regenerated.id
+    db.commit()
+    next_job.status = "completed"
+    next_job.payload_json = {**next_job.payload_json, "result": old_draft}
+    db.commit()
+    assert tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at) is None
+    assert tiktok_skill.project(next_job)["can_regenerate"] is False
+    assert db.query(ProcessingJobModel).count() == 3
+
+
 def test_manual_retry_is_bounded_and_preserves_failure_audit(db, monkeypatch):
     row = product()
     picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,

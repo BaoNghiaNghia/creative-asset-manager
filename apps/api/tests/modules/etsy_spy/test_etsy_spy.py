@@ -2580,6 +2580,65 @@ def test_tiktok_ytrends_refresh_preserves_existing_draft_without_gemini(scenario
     assert client.post("/api/v1/etsy-spy/listings/9999999999/tiktok-listing/ytrends/refresh").status_code == 404
 
 
+def test_tiktok_regenerate_completed_draft_keeps_old_result_and_researches_again(
+    scenario, monkeypatch,
+):
+    from sqlalchemy import select
+    from app.modules.etsy_spy import tiktok_skill
+    import importlib
+    spy_router = importlib.import_module("app.modules.etsy_spy.router")
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing = db.scalar(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key == "1234567890"))
+    listing.metadata_json = {
+        "fullImageUrl": "https://i.etsystatic.com/12345/il_fullxfull.abc.jpg",
+    }
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_auto_on_pick_enabled", lambda: False)
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    base = "/api/v1/etsy-spy/listings/1234567890/tiktok-listing"
+    assert client.post(base + "/queue").status_code == 200
+    original = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE))
+    draft = {
+        "title": "Original Holy Night Draft", "description": "Existing description",
+        "highlights": ["Design", "Gift", "Occasion"], "search_terms": ["holy night"],
+        "warnings": ["ytrends_mcp_unavailable"],
+        "qa_status": "needs_fact_check", "ytrends_status": "unavailable",
+        "published": False,
+    }
+    original.status = "completed"
+    original.payload_json = {**original.payload_json, "result": draft}
+    db.commit()
+    before = client.get(base).json()
+    assert before["status"] == "needs_fact_check"
+    assert before["can_regenerate"] is True
+    queued = client.post(base + "/regenerate")
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["status"] == "pending"
+    assert queued.json()["job_id"] != original.id
+    repeated = client.post(base + "/regenerate")
+    assert repeated.status_code == 200
+    assert repeated.json()["job_id"] == queued.json()["job_id"]
+    detail = client.get(base).json()
+    assert detail["status"] == "pending"
+    assert detail["previous_job_id"] == original.id
+    assert detail["previous_draft"] == draft
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 2
+    db.refresh(original)
+    assert original.payload_json["result"] == draft
+    assert client.post(
+        "/api/v1/etsy-spy/listings/9999999999/tiktok-listing/regenerate"
+    ).status_code == 404
+
+
 def test_tiktok_skill_backfill_dry_run_and_feature_off(scenario, monkeypatch):
     from sqlalchemy import select
     from app.modules.etsy_spy import tiktok_skill
