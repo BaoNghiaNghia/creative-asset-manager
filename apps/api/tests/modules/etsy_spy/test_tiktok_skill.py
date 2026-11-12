@@ -65,10 +65,10 @@ def copy():
             "- Muted colors give the scene a vintage outdoor character.\n"
             "- The mountain and sun elements form a simple, balanced graphic.\n\n"
             "Size & Fit\n"
-            "Check the size information for the particular sweatshirt you choose "
-            "before ordering. If garment measurements are available, compare "
-            "them to a sweatshirt you already own to help decide on your "
-            "preferred silhouette and roominess without guessing a size.\n\n"
+            "Please review the size information for your selected garment. "
+            "If a size chart is available, compare its chest width and body length "
+            "with a favorite sweatshirt measured flat. Choose a roomier size "
+            "only after checking those measurements.\n\n"
             "Perfect Gift For\n"
             "The mountain scene makes a thoughtful idea for hiking friends, "
             "nature lovers or someone who enjoys nostalgic landscape artwork. "
@@ -79,11 +79,11 @@ def copy():
             "item-specific instructions that accompany the product."
         ),
         "highlights": [
-            "Retro mountain sunset artwork with layered ridges and scenic composition.",
-            "Rounded sun and muted vintage-style colors make the front graphic distinctive.",
-            "Sweatshirt design featuring an outdoorsy mountain illustration.",
-            "An easy theme for casual gatherings, travel memories and nature-inspired outfits.",
-            "A thoughtful gift idea for hikers, mountain travelers and lovers of landscape art.",
+            "Layered mountain ridges beneath a rounded sunset give this front graphic an outdoorsy, vintage-inspired landscape character.",
+            "A thoughtful gift idea for hiking friends, camping companions, mountain travelers, and anyone who appreciates nostalgic nature artwork.",
+            "Know the look: this sweatshirt design features a scenic mountain illustration with muted colors and a balanced retro-style composition.",
+            "Easy to pair with jeans and everyday layers for casual meetups, travel photos, nature outings, and relaxed weekend gatherings.",
+            "The simple rounded sun above the layered peaks adds a peaceful focal point for admirers of scenic landscape illustrations.",
         ],
         "search_terms": [
             "mountain sunset sweatshirt", "retro mountain crewneck",
@@ -125,6 +125,59 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
         with pytest.raises((ValueError, Exception)):
             tiktok_skill.validate_copy({**copy(), **mutation})
 
+
+
+def test_santa_reference_matches_detailed_v4_contract():
+    import json
+    import re
+    from pathlib import Path
+
+    skill_root = Path(__file__).resolve().parents[5]
+    text = (skill_root / "deploy/codex/skills/tiktok-shop-listing-optimizer/"
+            "references/santa-output-pattern.md").read_text(encoding="utf8")
+    block = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
+    assert block is not None
+    reference = json.loads(block.group(1))
+    qa = tiktok_skill.validate_copy(reference)
+    assert qa["metrics"]["highlights_total_words"] >= 78
+    assert qa["metrics"]["highlights_min_words"] >= 13
+    assert "chest width" in qa["description"]
+    assert "body length" in qa["description"]
+    assert "measured flat" in qa["description"]
+    assert not any("shipped" in h.lower() for h in qa["highlights"])
+
+
+def test_v4_rejects_generic_size_and_short_highlights_but_preserves_v3():
+    original = copy()
+    assert tiktok_skill.validate_copy(original)["metrics"]["highlights_total_words"] >= 78
+    assert tiktok_skill.validate_copy(original)["metrics"]["highlights_min_words"] >= 13
+    assert tiktok_skill.validate_copy(original)["skill_version"] == tiktok_skill.PROFILE_VERSION
+
+    vague_size = original["description"].replace(
+        "Please review the size information for your selected garment. "
+        "If a size chart is available, compare its chest width and body length "
+        "with a favorite sweatshirt measured flat. Choose a roomier size "
+        "only after checking those measurements.",
+        "Please check the garment's size guidance before you order. "
+        "If measurements are supplied, compare them with a sweatshirt you "
+        "already own to choose your preferred fit and roominess."
+    )
+    weak = {**original, "description": vague_size,
+            "highlights": [
+                "Mountain sunset retro design", "Gift for hikers",
+                "Graphic sweatshirt", "Casual weekend outfit",
+                "Nature lover favorite",
+            ]}
+    with pytest.raises(ValueError, match="description_size_fit_lacks_measurement_guidance"):
+        tiktok_skill.validate_copy(weak)
+    with pytest.raises(ValueError, match="product_highlights_lack_detail"):
+        tiktok_skill.validate_copy({**original, "highlights": weak["highlights"]})
+    # Previously queued Codex v3 jobs retain their previous QA contract while
+    # new v4 requests get the stricter, detailed copy rules.
+    legacy = tiktok_skill.validate_copy(
+        weak, profile_version="tiktok-us-codex-skill-20261112-v3")
+    assert legacy["skill_version"] == "tiktok-us-codex-skill-20261112-v3"
+    assert legacy["published"] is False
 
 
 def test_screenshot_style_editorial_outline_is_required():
