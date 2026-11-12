@@ -32,18 +32,34 @@ _GARMENT_SUFFIX = re.compile(
 _SAFE_KEYWORD = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 '&/\-]{0,100}$")
 
 
+_SELLER_BRANDS = re.compile(r"\b(?:comfort\s+colors?|gildan)\b", re.IGNORECASE)
+_FIRST_GARMENT = re.compile(
+    r"\b(?:t[ -]?shirts?|shirts?|tees?|sweatshirts?|sweaters?|hoodies?|"
+    r"pullovers?|crewnecks?)\b", re.IGNORECASE
+)
+
+
 def research_query(title: str) -> str:
-    """Search the artwork/occasion phrase, not the seller's long Etsy title."""
-    phrase = re.split(r"[,|;\n\r]", title, maxsplit=1)[0]
-    phrase = re.sub(r"[\x00-\x1f\x7f]", " ", phrase)
+    """Safe, short artwork phrase; never search long Etsy titles or blank brands."""
+    if (not isinstance(title, str) or re.search(r"[\x00-\x1f\x7f]", title)
+            or chr(92) in title):
+        return ""
+    # Seller punctuation and registered-trademark marks are not artwork keywords.
+    phrase = title.replace("\u00ae", " ").replace("\u2122", " ").replace("\u2019", "'")
+    phrase = re.split(r"[,|;:\n\r]", phrase, maxsplit=1)[0]
+    phrase = _SELLER_BRANDS.sub(" ", phrase)
+    phrase = re.sub(r"[^A-Za-z0-9 '&/\-]", " ", phrase)
     phrase = re.sub(r"\s+", " ", phrase).strip(" -")
+    match = _FIRST_GARMENT.search(phrase)
+    if match and len(phrase[:match.start()].strip(" -")) >= 3:
+        phrase = phrase[:match.start()].strip(" -")
     for _ in range(2):
         shortened = _GARMENT_SUFFIX.sub("", phrase).strip(" -")
         if shortened == phrase or len(shortened) < 3:
             break
         phrase = shortened
-    phrase = phrase[:100].strip()
-    # The MCP research scope is US-language Etsy keyword evidence.
+    if len(phrase) > 70:
+        phrase = " ".join(phrase.split()[:8])[:70].strip(" -")
     if not _SAFE_KEYWORD.fullmatch(phrase) or not 3 <= len(phrase) <= 100:
         return ""
     return phrase.casefold()
@@ -193,14 +209,23 @@ def keyword_variants(title: str) -> list[str]:
         variants.append(f"{core} crewneck")
     else:
         variants.append(f"{core} sweatshirt")
-    if "santa" in core or "christmas" in core:
-        variants.extend(["christmas sweatshirt", "vintage santa sweatshirt"] if "santa" in core
-                        else ["vintage christmas sweatshirt", "christmas crewneck"])
-    elif "valentine" in core or "heart" in core:
-        variants.extend(["valentine sweatshirt", "vintage valentine sweatshirt"])
+    lower_title = title.casefold()
+    if "santa" in lower_title:
+        variants.extend([f"santa {garment}", "christmas sweatshirt"])
+    elif "christmas" in lower_title or "xmas" in lower_title or "nutcracker" in lower_title:
+        variants.extend([f"christmas {garment}", "christmas crewneck"])
+    elif "valentine" in lower_title or "heart" in lower_title:
+        variants.extend([f"valentine {garment}", "valentine sweatshirt"])
+    elif "birthday" in lower_title:
+        variants.extend([f"birthday {garment}", "birthday shirt"])
     else:
-        variants.extend([f"vintage {core} {garment}", f"retro {core} {garment}"])
-    return list(dict.fromkeys(q for q in variants if _SAFE_KEYWORD.fullmatch(q)))[:5]
+        # Shorter grounded synonym searches are preferable to invented
+        # marketing prefixes ("vintage ...", "retro ...") on every product.
+        tokens = core.split()
+        core_short = " ".join(tokens[:3]) if len(tokens) > 3 else core
+        variants.extend([f"{core_short} {garment}", f"{core_short} sweatshirt"])
+    return list(dict.fromkeys(q for q in variants
+                              if 3 <= len(q) <= 100 and _SAFE_KEYWORD.fullmatch(q)))[:5]
 
 
 async def research_etsy_keyword_set(title: str, **options: Any) -> dict:

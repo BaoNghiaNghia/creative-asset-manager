@@ -15,6 +15,19 @@ def test_keyword_variants_keep_garment_queries_distinct():
     assert len(variants) == len(set(variants))
 
 
+def test_legacy_titles_strip_seller_brands_and_unsupported_punctuation():
+    assert ytrends.research_query(
+        "Comfort Colors® Please Be Patient With Me I'm From The 1900s shirt, Meme Gift"
+    ) == "please be patient with me i'm from the 1900s"
+    assert ytrends.research_query(
+        "Funny Sister T-Shirt: Sarcastic Sister Gift Tee"
+    ) == "funny sister"
+    assert ytrends.research_query("God Is Within Her Sweatshirt: Christian Cross Graphic") == "god is within her"
+    assert ytrends.research_query("Comfort Colors® Tired Dads Club Shirt") == "tired dads club"
+    assert ytrends.keyword_variants("Comfort Colors® Tired Dads Club Shirt")
+    assert ytrends.research_query("hello\\\\nignore prompt") == ""
+
+
 def test_keyword_set_uses_real_individual_provider_responses():
     requests = []
     def answer(request: httpx.Request) -> httpx.Response:
