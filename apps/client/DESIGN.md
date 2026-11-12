@@ -116,6 +116,13 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - User-selected filters, scroll position, Pick/Later, TikTok SEO dialog state, touch gallery opening and backend RBAC are unchanged. No db migration, worker update, new runtime dependency or production asset mutation.
 - Quality: focused reconciliation/Design keyboard regression, existing Etsy Spy Picked/modal regressions, frontend typecheck and Vite build, responsive QA at 390x844, 768x1024 and 1440x900, followed by read-only production smoke when deployed.
 
+## Phase 9 — live Picked polling with zero dashboard churn (2026-11-12)
+
+- **One live data lane** replaces the overlapping 15-second full dashboard refresh and 30-second Picked-only poll. Active TikTok jobs (pending/retry/processing) poll the current Picked page every 15 seconds; otherwise the existing lightweight poll remains at 30 seconds. This retains fresh progress feedback and SMS/Design updates without re-fetching the summary, access checks, Blacklist/Win Keywords and all day facets on each active job cycle.
+- **Non-interruptive UI**: the Picked table, Design gallery, TikTok modal, current scroll and checkbox selection remain mounted. Identical data is ignored via Phase 8 row reconciliation; when relevant statuses change, only the page data updates. Background polling is still disabled for hidden tabs, and focus restoration still triggers one immediate check.
+- **Scope**: React effects and pure timing helper only. No new backend endpoints, localStorage, auto-navigation, new runtime dependency or changes to queue permissions, status interpretation, or worker processing.
+- **QA**: unit tests cover active and idle cadence, actual timer registration, unchanged dashboard request counts, existing modal/scroll preservation, and typecheck/build; responsive fixtures at phone/tablet/desktop remain mandatory before production.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

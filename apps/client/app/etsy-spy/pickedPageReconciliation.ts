@@ -1,5 +1,13 @@
 import type { Listing, Page } from "./api";
 
+const ACTIVE_TIKTOK_STATUSES = new Set(["pending", "retry", "processing"]);
+
+/** Active jobs need fresher visible statuses; idle Picked pages can poll less. */
+export function pickedPollInterval(items: readonly Listing[]): number {
+  return items.some(item => ACTIVE_TIKTOK_STATUSES.has(item.tiktokListing?.status || ""))
+    ? 15_000 : 30_000;
+}
+
 /**
  * Keep unchanged Picked row objects stable across background Scout/SMS polls.
  * The view only consumes page counts, source status and the row projections;

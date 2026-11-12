@@ -1309,6 +1309,34 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
   });
 
+  it("uses one lightweight active Picked poll without refreshing the whole dashboard", async () => {
+    await start({tiktokEnabled: true});
+    pickedKeys.add(listing.listingKey);
+    tiktokStatuses[listing.listingKey] = "processing";
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const timeoutSpy = vi.spyOn(window, "setTimeout");
+    try {
+      await act(async () => {
+        container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+        await new Promise(resolve => setTimeout(resolve, 85));
+      });
+      const activeTick = intervalSpy.mock.calls.find(([, delay]) => delay === 15_000)?.[0];
+      expect(typeof activeTick).toBe("function");
+      // There must no longer be a broad setRefresh() timer every 15 seconds.
+      expect(timeoutSpy.mock.calls.some(([, delay]) => delay === 15_000)).toBe(false);
+      const summaryRequests = observed.filter(url => url.endsWith("/summary")).length;
+      const listingRequests = observed.filter(url => url.includes("/listings?")).length;
+      if (typeof activeTick === "function") {
+        await act(async () => { await activeTick(); });
+      }
+      expect(observed.filter(url => url.endsWith("/summary"))).toHaveLength(summaryRequests);
+      expect(observed.filter(url => url.includes("/listings?"))).toHaveLength(listingRequests + 1);
+    } finally {
+      intervalSpy.mockRestore();
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("keeps an open TikTok SEO modal and table scroll during a slow refresh or Scout metadata update", async () => {
     await start({tiktokEnabled: true});
     pickedKeys.add(listing.listingKey);

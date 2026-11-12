@@ -14,7 +14,7 @@ import "./EtsySpyEvo.css";
 import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
-import { reconcilePickedPage } from "./pickedPageReconciliation";
+import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
 // Keep the service workflows and handlers intact, but hide these four admin panels
@@ -652,17 +652,11 @@ export function EtsySpyPage() {
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
   }, [refresh]);
-  // Refresh a Picked page only while TikTok jobs are active, using one
-  // batched listing request (never one network request per row).
-  useEffect(() => {
-    if (options.tab !== "products" || options.pickState !== "picked" || !rows ||
-        loading || fetching) return;
-    const active = (rows.items as Listing[]).some(item =>
-      ["pending", "retry", "processing"].includes(item.tiktokListing?.status || ""));
-    if (!active) return;
-    const timer = window.setTimeout(() => setRefresh(value => value + 1), 15000);
-    return () => window.clearTimeout(timer);
-  }, [options.tab, options.pickState, rows, loading, fetching]);
+  // The existing Picked-only background poll adapts to active job status.
+  // Do not trigger a full-page refresh for active jobs: that duplicates data
+  // requests and unnecessarily rerenders the summary, filters and open viewers.
+  const pickedPollDelay = isPickedSelection && rows
+    ? pickedPollInterval(rows.items as Listing[]) : 30_000;
 
   // Date and theme counts must belong to the currently selected product
   // parent, never to a stale Eligible fetch after switching to Picked/Later.
@@ -791,14 +785,14 @@ export function EtsySpyPage() {
         // Preserve the last confirmed receipt on transient sync/API failures.
       } finally { polling = false; }
     };
-    const interval = window.setInterval(poll, 30_000);
+    const interval = window.setInterval(poll, pickedPollDelay);
     window.addEventListener("focus", poll);
     return () => {
       disposed = true;
       window.clearInterval(interval);
       window.removeEventListener("focus", poll);
     };
-  }, [requestKey, selectionScope, options]);
+  }, [requestKey, selectionScope, options, pickedPollDelay]);
   const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManage || blacklistBusy) return;

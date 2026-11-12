@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { reconcilePickedPage } from "./pickedPageReconciliation";
+import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import type { Listing, Page } from "./api";
 
 const row = (listingKey: string, status = "pending") =>
   ({ listingKey, picked: true, pageTitle: "Sample " + listingKey,
-    designs: [], tiktokListing: { status } }) as Listing;
+    designs: [], tiktokListing: { status } }) as unknown as Listing;
 
 const page = (items: Listing[], total = items.length): Page<Listing> => ({
   items, page: 1, page_size: 50, total, pages: 1,
@@ -12,6 +12,15 @@ const page = (items: Listing[], total = items.length): Page<Listing> => ({
 });
 
 describe("Picked background poll reconciliation", () => {
+  it("polls active TikTok jobs in one 15s request, but idle Picked every 30s", () => {
+    expect(pickedPollInterval([row("a", "pending")])).toBe(15_000);
+    expect(pickedPollInterval([row("a", "retry")])).toBe(15_000);
+    expect(pickedPollInterval([row("a", "processing")])).toBe(15_000);
+    expect(pickedPollInterval([row("a", "completed")])).toBe(30_000);
+    expect(pickedPollInterval([row("a", "needs_fact_check")])).toBe(30_000);
+    expect(pickedPollInterval([])).toBe(30_000);
+  });
+
   it("ignores identical polls and timestamp-only updates without resetting row identity", () => {
     const old = page([row("a"), row("b")]);
     const incoming = { ...page([row("a"), row("b")]),
