@@ -1,0 +1,20 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "review-shared",
+      "waitFor": ".review-board-shell .review-board-workspace",
+      "fullPage": true
+    },
+    {
+      "name": "review-rrugc",
+      "click": ".review-board-mode-switch button:nth-child(2)",
+      "waitFor": ".review-board-shell .rrugc-review-workspace",
+      "fullPage": true
+    }
+  ]
+}

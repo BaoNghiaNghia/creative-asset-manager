@@ -1,0 +1,26 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "tiktok-stage3",
+      "waitFor": ".rrugc-tiktokshop-workspace #tiktok-panel-stage3",
+      "fullPage": true
+    },
+    {
+      "name": "tiktok-stage4",
+      "click": "#tiktok-tab-stage4",
+      "waitFor": ".rrugc-tiktokshop-workspace #tiktok-panel-stage4",
+      "fullPage": true
+    },
+    {
+      "name": "tiktok-stage5",
+      "click": "#tiktok-tab-stage5",
+      "waitFor": ".rrugc-tiktokshop-workspace #tiktok-panel-stage5",
+      "fullPage": true
+    }
+  ]
+}

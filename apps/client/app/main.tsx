@@ -24,6 +24,8 @@ import "../styles/rrugc-sidebar-navigation.css";
 // Phase 4: scoped evondevKit roles for Explorer, Queue, Inventory and Access.
 import "../app/styles/cam-evo-tokens.css";
 import "../styles/cam-console-evo.css";
+// Phase 5: route-scoped evondevKit roles, no changes to queues or routes.
+import "../styles/cam-platform-evo.css";
 
 function AppBoot() {
   useEffect(() => {
