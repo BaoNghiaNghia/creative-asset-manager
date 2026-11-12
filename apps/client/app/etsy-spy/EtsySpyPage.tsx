@@ -11,6 +11,7 @@ import {
 import "./EtsySpyPage.css";
 import "../styles/cam-evo-tokens.css";
 import "./EtsySpyEvo.css";
+import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
@@ -1064,7 +1065,8 @@ export function EtsySpyPage() {
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
   ];
   return <main className="etsy-spy-page">
-    <WorkspacePageHeader route="etsy-spy" actions={<>
+    <div className="etsy-header-shell">
+    <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar" actions={<>
       <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
       <button type="button" className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
       <WorkspaceBackToAssets />
@@ -1090,6 +1092,7 @@ export function EtsySpyPage() {
           <span className="etsy-tab-copy"><strong>{item.title}</strong><small>{item.subtitle}</small></span>
         </button>)}
       </nav>
+    </div>
     </div>
     <section id="etsy-spy-tabpanel" role="tabpanel"
       aria-labelledby={"etsy-tab-" + activeTab} className="etsy-stage-canvas" aria-label="Etsy Spy workspace">

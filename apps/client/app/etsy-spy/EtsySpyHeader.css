@@ -1,0 +1,269 @@
+/* Etsy Spy header V2: one coherent shell.
+   This scoped layer resolves legacy Stage 0 vs evondevKit layout conflicts.
+   All events / routes / sync status are preserved in EtsySpyPage.tsx. */
+.etsy-spy-page {
+  padding-top: 14px;
+}
+.etsy-spy-page > .etsy-header-shell {
+  min-width: 0;
+  margin: 0 0 12px;
+  background: var(--cam-evo-surface, #fff);
+  border: 1px solid var(--cam-evo-hairline, #e8edf4);
+  border-radius: 11px;
+}
+.etsy-spy-page .etsy-header-shell > .workspace-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 16px;
+  min-height: 70px;
+  height: auto;
+  margin: 0;
+  padding: 12px 18px 11px;
+  border: 0;
+  background: transparent;
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header-eyebrow {
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.15;
+  letter-spacing: .09em;
+  color: var(--cam-evo-muted, #64748b);
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header-title-row {
+  margin-top: 2px;
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header h1 {
+  margin: 0;
+  font-size: clamp(21px, 1.55vw, 24px);
+  font-weight: 780;
+  letter-spacing: -.035em;
+  line-height: 1.2;
+  color: var(--cam-evo-ink, #17243a);
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header-description {
+  max-width: 790px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--cam-evo-muted, #64748b);
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 7px;
+  min-width: 0;
+}
+.etsy-spy-page .etsy-header-shell .etsy-connection {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.etsy-spy-page .etsy-header-shell .etsy-btn.etsy-refresh,
+.etsy-spy-page .etsy-header-shell .workspace-page-back-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  height: auto;
+  padding: 5px 9px;
+  border: 1px solid var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  background: #fff;
+  color: #3c506c;
+  font-size: 10.5px;
+  font-weight: 690;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.etsy-spy-page .etsy-header-shell .etsy-btn.etsy-refresh:hover,
+.etsy-spy-page .etsy-header-shell .workspace-page-back-link:hover {
+  background: #f3f6fa;
+}
+.etsy-spy-page .etsy-header-shell .etsy-btn.etsy-refresh > span {
+  font-size: 15px;
+}
+.etsy-spy-page .etsy-header-shell .workspace-page-back-link > svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Tabs are inside the same card, rather than an unrelated full-width strip. */
+.etsy-spy-page .etsy-header-shell > .etsy-stage-nav {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-width: 0;
+  margin: 0;
+  padding: 0 15px;
+  min-height: 40px;
+  background: transparent;
+  border-top: 1px solid var(--cam-evo-hairline, #e8edf4);
+  border-bottom: 0;
+  border-radius: 0 0 11px 11px;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex: 0 1 auto;
+  gap: 1px;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  margin: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 104px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 13px;
+  gap: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;
+  white-space: nowrap;
+  transition: background-color .15s ease, color .15s ease;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs button:hover {
+  background: #f7f9fc;
+  color: var(--cam-evo-brand, #265cbd);
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs button.active {
+  background: transparent;
+  color: var(--cam-evo-brand, #265cbd);
+  border-bottom-color: var(--cam-evo-brand, #265cbd);
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs .etsy-tab-number,
+.etsy-spy-page .etsy-header-shell .etsy-tabs .etsy-tab-copy small {
+  display: none;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tab-copy {
+  display: block;
+  min-width: 0;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tab-copy strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 710;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.etsy-spy-page .etsy-header-shell .etsy-tabs button:focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: -3px;
+}
+
+/* Page content keeps the exact same side edges as the header. */
+.etsy-spy-page > .etsy-stage-canvas {
+  padding: 0 0 24px;
+}
+
+@media (max-width: 920px) {
+  .etsy-spy-page .etsy-header-shell > .workspace-page-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 9px;
+    min-height: 0;
+    padding: 12px 14px 10px;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header-copy {
+    flex: 1 1 100%;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header-actions {
+    flex: 0 1 100%;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .etsy-spy-page .etsy-header-shell > .etsy-stage-nav {
+    padding: 0 11px;
+  }
+}
+@media (max-width: 680px) {
+  .etsy-spy-page { padding: 8px 8px 32px; }
+  .etsy-spy-page > .etsy-header-shell {
+    margin-bottom: 9px;
+    border-radius: 9px;
+  }
+  .etsy-spy-page .etsy-header-shell > .workspace-page-header {
+    padding: 10px 11px 9px;
+    gap: 8px;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header-eyebrow {
+    display: none;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header h1 {
+    font-size: 21px;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header-description {
+    display: none;
+  }
+  .etsy-spy-page .etsy-header-shell .workspace-page-header-actions {
+    gap: 6px;
+  }
+  .etsy-spy-page .etsy-header-shell .etsy-connection,
+  .etsy-spy-page .etsy-header-shell .etsy-btn.etsy-refresh,
+  .etsy-spy-page .etsy-header-shell .workspace-page-back-link {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+  .etsy-spy-page .etsy-header-shell > .etsy-stage-nav {
+    padding: 0 5px;
+  }
+  .etsy-spy-page .etsy-header-shell .etsy-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+    max-width: 100%;
+    height: 41px;
+    overflow: visible;
+  }
+  .etsy-spy-page .etsy-header-shell .etsy-tabs button {
+    flex: none;
+    min-width: 0;
+    width: 100%;
+    height: 41px;
+    min-height: 41px;
+    padding: 0 3px;
+    border-radius: 0;
+  }
+  .etsy-spy-page .etsy-header-shell .etsy-tab-copy strong {
+    font-size: 10.5px;
+    white-space: normal;
+    overflow-wrap: normal;
+    text-align: center;
+  }
+  .etsy-spy-page > .etsy-stage-canvas { padding: 0 0 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-header-shell .etsy-tabs button { transition: none; }
+}

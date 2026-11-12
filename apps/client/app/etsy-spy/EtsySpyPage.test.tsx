@@ -985,6 +985,10 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps compact tabs keyboard-navigable with one active tab", async () => {
     await start();
+    const headerShell = container?.querySelector(".etsy-header-shell");
+    expect(headerShell?.querySelector("header")).toBeTruthy();
+    expect(headerShell?.querySelector(".etsy-stage-nav")).toBeTruthy();
+    expect(headerShell?.querySelectorAll('[role="tab"]')).toHaveLength(4);
     const tabs = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-stage-nav [role='tab']") || []);
     expect(tabs).toHaveLength(4);
     expect(tabs[0].tabIndex).toBe(0);
