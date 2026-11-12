@@ -723,10 +723,12 @@ describe("Etsy Spy native CAM dashboard", () => {
       '.etsy-observed-day[data-pick-state="picked"][data-observed-day="' + yesterday + '"]');
     expect(pickedDay?.textContent).toBe("Hôm qua4Picked");
     expect(pickedDay?.querySelector(".etsy-observed-day-pick")).toBeNull();
-    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
-      "data-observed-day")).toBe(today);
-    expect(container?.querySelector(".etsy-day-group[aria-pressed='true']")?.textContent)
-      .toContain("Tất cả");
+    // Picked opens all historical days so previously produced PNGs are
+    // visible; the day badges still permit narrowing to one selected day.
+    expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
+    expect(container?.querySelector(".etsy-day-groups-empty")?.textContent)
+      .toContain("Chọn một ngày");
     expect(new URLSearchParams(window.location.search).get("group")).toBeNull();
     await act(async () => {
       pickedDay?.click();
