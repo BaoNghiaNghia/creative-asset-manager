@@ -47,6 +47,7 @@ async function render(status: string, enabled = true, canManage = true,
   root = createRoot(mount);
   const onQueued = vi.fn();
   const clipboardWrite = vi.fn(async (_text: string) => undefined);
+  let regenerated = false;
   Object.defineProperty(navigator, "clipboard", {
     configurable: true, value: {writeText: clipboardWrite},
   });
@@ -54,14 +55,23 @@ async function render(status: string, enabled = true, canManage = true,
     const uri = String(input);
     if (uri.endsWith("/tiktok-listing") && (!init || init.method !== "POST")) {
       return response({
-        status, enabled, draft_only: true, ytrends_status: "unavailable",
+        status: regenerated ? "pending" : status, enabled, draft_only: true,
+        ytrends_status: "unavailable",
+        can_regenerate: !regenerated && status === "needs_fact_check",
+        regeneration_count: regenerated ? 1 : 0,
+        previous_draft: regenerated ? draft : undefined,
+        previous_job_id: regenerated ? "parent-job-id" : undefined,
         error_code: status === "failed" ? "temporary_model_error" : null,
-        result: status === "needs_fact_check" ? {
+        result: !regenerated && status === "needs_fact_check" ? {
           ...draft,
           ytrends_status: evidence ? "connected" : "unavailable",
           ytrends_evidence: evidence,
         } : undefined,
       });
+    }
+    if (uri.endsWith("/tiktok-listing/regenerate") && init?.method === "POST") {
+      regenerated = true;
+      return response({status: "pending", draft_only: true, regeneration_count: 1});
     }
     if (uri.endsWith("/tiktok-listing/ytrends/refresh") && init?.method === "POST") {
       return response({
@@ -167,6 +177,32 @@ describe("Picked TikTok Shop listing column", () => {
     expect(onQueued).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(c =>
       String(c[0]).endsWith("/tiktok-listing/queue"))).toBe(false);
+  });
+
+  it("re-generates a completed draft with YTrends and preserves the previous copy", async () => {
+    const {fetchMock, onQueued} = await render("needs_fact_check");
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const regeneration = Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button") || [])
+      .find(button => button.textContent?.includes("Tạo lại với YTrends"));
+    expect(regeneration).toBeDefined();
+    expect(fetchMock.mock.calls.filter(c => c[1]?.method === "POST")).toHaveLength(0);
+    await act(async () => {regeneration?.click();});
+    expect(fetchMock.mock.calls.filter(c =>
+      String(c[0]).endsWith("/tiktok-listing/regenerate") &&
+      c[1]?.method === "POST")).toHaveLength(1);
+    expect(dialog?.textContent).toContain("Đang chờ");
+    expect(dialog?.textContent).toContain("Đang xem bản nháp trước");
+    expect(dialog?.textContent).toContain(draft.title);
+    expect(dialog?.textContent).not.toContain("Tạo lại với YTrends");
+    expect(dialog?.textContent).toContain("Phiên bản mới đang chạy YTrends và Gemini");
+    expect(onQueued).not.toHaveBeenCalled();
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-dialog-header button")?.click();
+    });
+    expect(onQueued).toHaveBeenCalledTimes(1);
   });
 
   it("queues from the Picked row on explicit click without opening the dialog", async () => {

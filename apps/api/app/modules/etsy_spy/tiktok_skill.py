@@ -40,6 +40,7 @@ MAX_IMAGE_PIXELS = 40_000_000
 TITLE_RANGE = (25, 200)
 HIGHLIGHTS_LIMIT = 1500
 SEARCH_TERMS_LIMIT = 250
+MAX_REGENERATIONS_PER_PICK = 2
 
 PROMPT = """You write a TikTok Shop US POD apparel product listing DRAFT.
 Read the supplied product photo, then the separately provided Etsy listing
@@ -326,6 +327,80 @@ def queue_on_pick(db: Session, tenant: str, listing: EtsySpyListing,
     return job
 
 
+def regenerate_completed_draft(
+    db: Session, tenant: str, listing: EtsySpyListing, picked_at: datetime,
+) -> ProcessingJobModel | None:
+    """Explicit, bounded re-generation using the latest Gemini + YTrends worker.
+
+    Each request creates a separate immutable job, preserving the previous
+    result. Concurrent clicks serialize on the tenant's Picked record and an
+    idempotency key tied to the predecessor job prevents double billing.
+    Never revive or overwrite a completed job.
+    """
+    if not is_enabled() or not re.fullmatch(r"\d{5,20}", listing.listing_key):
+        return None
+    picked = db.scalar(select(EtsySpyPicked).where(
+        EtsySpyPicked.tenant_id == tenant,
+        EtsySpyPicked.listing_key == listing.listing_key,
+    ).with_for_update())
+    if picked is None:
+        return None
+    previous = latest_job(db, tenant, listing.listing_key)
+    if previous is None or previous.cancellation_requested:
+        return None
+    if previous.status in ("pending", "processing", "retry"):
+        return previous
+    old = previous.payload_json if isinstance(previous.payload_json, dict) else {}
+    if previous.status != "completed" or not isinstance(old.get("result"), dict):
+        return None
+    count = old.get("regeneration_count", 0)
+    if type(count) is not int or count < 0 or count >= MAX_REGENERATIONS_PER_PICK:
+        return None
+    metadata = listing.metadata_json if isinstance(listing.metadata_json, dict) else {}
+    photo = verified_image_url(metadata.get("fullImageUrl")) or verified_image_url(
+        metadata.get("thumbnailUrl"))
+    if not photo:
+        return None
+    pick_time = picked_at if picked_at.tzinfo else picked_at.replace(tzinfo=timezone.utc)
+    version = sha256((str(pick_time.astimezone(timezone.utc).isoformat()) + "|" +
+                      photo + "|" + listing.title).encode("utf8")).hexdigest()[:20]
+    key = f"etsy-tiktok:regenerate:{PROFILE_VERSION}:{listing.listing_key}:{version}:{previous.id}"
+    existing = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant, ProcessingJobModel.idempotency_key == key))
+    if existing is not None:
+        return existing
+    generated = ProcessingJobModel(
+        tenant_id=tenant, job_type=JOB_TYPE, entity_type="etsy_listing",
+        entity_id=listing.listing_key, idempotency_key=key,
+        payload_json={
+            "schema": "cam-etsy-tiktok-listing-job-v1",
+            "listing_key": listing.listing_key,
+            "source_title": listing.title[:700],
+            "image_url": photo,
+            "image_url_sha256": sha256(photo.encode()).hexdigest(),
+            "pick_version": version, "skill_version": PROFILE_VERSION,
+            "regenerate_of_job_id": previous.id,
+            "regeneration_count": count + 1,
+            "research_status": "ytrends_pending", "draft_only": True,
+        },
+        provider_key="gemini", provider_scope="ai", status="pending",
+        priority=14, max_attempts=3,
+        created_at=datetime.now(timezone.utc),
+    )
+    try:
+        with db.begin_nested():
+            db.add(generated)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.tenant_id == tenant,
+            ProcessingJobModel.idempotency_key == key))
+        if existing is None:
+            raise
+        return existing
+    return generated
+
+
 def retry_failed_draft(db: Session, tenant: str, listing: EtsySpyListing,
                        picked_at: datetime) -> ProcessingJobModel | None:
     """Explicit retry of a terminal draft. Never revive a cancelled generation.
@@ -335,7 +410,11 @@ def retry_failed_draft(db: Session, tenant: str, listing: EtsySpyListing,
     """
     if not is_enabled():
         return None
-    job = queue_on_pick(db, tenant, listing, picked_at)
+    # Retry the latest regeneration if it failed; never reset the first
+    # completed draft by accidentally selecting its original idempotency key.
+    job = latest_job(db, tenant, listing.listing_key)
+    if job is None:
+        job = queue_on_pick(db, tenant, listing, picked_at)
     if job is None:
         return None
     locked = db.scalar(select(ProcessingJobModel).where(
@@ -391,6 +470,10 @@ def project(job: ProcessingJobModel | None, *, detail: bool = False) -> dict:
              "needs_fact_check" if result and job.status == "completed" else job.status)
     view = {"status": state, "job_id": job.id, "draft_only": True,
             "skill_version": payload.get("skill_version"),
+            "regeneration_count": payload.get("regeneration_count", 0),
+            "can_regenerate": state == "needs_fact_check" and
+                isinstance(payload.get("regeneration_count", 0), int) and
+                payload.get("regeneration_count", 0) < MAX_REGENERATIONS_PER_PICK,
             "ytrends_status": result.get("ytrends_status") if result else "unavailable",
             "qa_status": result.get("qa_status") if result else None,
             "title_preview": result.get("title", "")[:120] if result else None,

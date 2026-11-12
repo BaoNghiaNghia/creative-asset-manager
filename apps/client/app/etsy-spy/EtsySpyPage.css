@@ -2330,6 +2330,17 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background: #fffaf0; color: #855d22; border: 1px solid #f0dfbc;
 }
 .etsy-tiktok-warnings ul { margin: 6px 0 0; padding-left: 19px; }
+.etsy-tiktok-history-toggle {
+  border: 1px solid #cddded; border-radius: 7px;
+  color: #264f7a; background: #eff5fb; padding: 7px 11px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.etsy-tiktok-history-note {
+  padding: 10px 12px; border-radius: 9px; margin: 10px 0;
+  font-size: 12px; line-height: 1.5;
+  background: #edf4fa; color: #315b81;
+  border: 1px solid #cbdceb;
+}
 .etsy-tiktok-research {
   display: flex; flex-direction: column; gap: 4px;
   padding: 11px 12px; margin: 10px 0;

@@ -54,6 +54,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const [detail, setDetail] = useState<TikTokListingView | null>(null);
   const [loading, setLoading] = useState(false);
   const [queueing, setQueueing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [showPrevious, setShowPrevious] = useState(false);
   const [researching, setResearching] = useState(false);
   const [error, setError] = useState("");
   const [copiedAll, setCopiedAll] = useState(false);
@@ -156,11 +158,32 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
     return () => window.clearTimeout(timer);
   }, [open, detail, loadDetail]);
 
-  const result = detail?.result;
+  const isShowingPrevious = Boolean(detail?.previous_draft &&
+    (showPrevious || !detail?.result));
+  const result = isShowingPrevious ? detail?.previous_draft : detail?.result;
   const metrics = result?.metrics;
   const evidence = result?.ytrends_evidence;
-  const ytrendsStatus = result?.ytrends_status ?? (detail?.status === "processing" ? "pending" : "unavailable");
+  const ytrendsStatus = detail?.result?.ytrends_status ??
+    (detail && ACTIVE_STATUSES.includes(detail.status) ? "pending" :
+      result?.ytrends_status ?? "unavailable");
   const detailStatus = detail?.status || status;
+  const regenerate = async () => {
+    if (!canManage || !optimizerEnabled || !detail?.can_regenerate ||
+        detailStatus !== "needs_fact_check" || regenerating || queueing) return;
+    setRegenerating(true); setError("");
+    try {
+      await spyFetch<TikTokListingView>(
+        "/listings/" + encodeURIComponent(item.listingKey) + "/tiktok-listing/regenerate",
+        {method: "POST"});
+      queuedInDialog.current = true;
+      setShowPrevious(false);
+      await loadDetail();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không thể tạo lại bản nháp");
+    } finally {
+      setRegenerating(false);
+    }
+  };
   const refreshResearch = async () => {
     if (!canManage || !result || detailStatus !== "needs_fact_check" || researching) return;
     setResearching(true); setError("");
@@ -234,6 +257,16 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 ytrendsStatus === "pending" ? "Đang chờ" : "Chưa có dữ liệu"}</span>
             </div>
             {loading && <p role="status" className="etsy-tiktok-loading">Đang cập nhật trạng thái…</p>}
+            {detail?.previous_draft && detail?.result && <button type="button"
+              className="etsy-tiktok-history-toggle"
+              onClick={() => setShowPrevious(value => !value)}>
+              {showPrevious ? "Xem bản mới" : "Xem bản nháp cũ"}
+            </button>}
+            {isShowingPrevious && <p className="etsy-tiktok-history-note">
+              Đang xem bản nháp trước. {ACTIVE_STATUSES.includes(detailStatus)
+                ? "Phiên bản mới đang chạy YTrends và Gemini; dữ liệu cũ được giữ nguyên."
+                : "Bạn có thể đối chiếu với bản nháp mới."}
+            </p>}
             {result ? <>
               <p className="etsy-tiktok-qa-note">Cần kiểm tra thông tin sản phẩm, thương hiệu
                 và quyền sử dụng trước khi đăng. YTrends chỉ cung cấp tham khảo thị trường Etsy;
@@ -289,8 +322,15 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <button type="button" className="etsy-tiktok-dialog-run" disabled={queueing || loading}
                 onClick={() => void enqueue()}>{queueing ? "Đang gửi…" :
                   detailStatus === "failed" ? "Retry failed draft" : "Run listing skill"}</button>}
-            {canManage && detail?.enabled && result && detailStatus === "needs_fact_check" &&
-              <button type="button" disabled={researching || loading}
+            {canManage && detail?.enabled && detail.can_regenerate &&
+              detailStatus === "needs_fact_check" &&
+              <button type="button" className="etsy-tiktok-dialog-run"
+                disabled={regenerating || researching || queueing || loading}
+                onClick={() => void regenerate()}>
+                {regenerating ? "Đang tạo job…" : "Tạo lại với YTrends"}
+              </button>}
+            {canManage && detail?.enabled && detail?.result && detailStatus === "needs_fact_check" &&
+              <button type="button" disabled={researching || regenerating || loading}
                 onClick={() => void refreshResearch()}>
                 {researching ? "Đang lấy YTrends…" : "Cập nhật YTrends"}
               </button>}

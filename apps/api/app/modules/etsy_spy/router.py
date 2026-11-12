@@ -50,6 +50,7 @@ from .tiktok_skill import (
     is_enabled as tiktok_skill_enabled,
     auto_on_pick_enabled as tiktok_auto_on_pick_enabled,
     retry_failed_draft as retry_tiktok_failed_draft,
+    regenerate_completed_draft as regenerate_tiktok_completed_draft,
     attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
 from .ytrends_mcp import research_etsy_keyword
@@ -1197,9 +1198,25 @@ def listing_tiktok_skill_detail(
     tenant = principal.active_tenant_id
     if db.get(Picked, (tenant, listing_key)) is None:
         raise HTTPException(404, "Picked listing not found")
-    return {"listingKey": listing_key, "enabled": tiktok_skill_enabled(),
-            **project_tiktok_skill(latest_tiktok_skill_job(
-                db, tenant, listing_key), detail=True)}
+    current = latest_tiktok_skill_job(db, tenant, listing_key)
+    view = project_tiktok_skill(current, detail=True)
+    if current is not None:
+        payload = current.payload_json if isinstance(current.payload_json, dict) else {}
+        parent_id = payload.get("regenerate_of_job_id")
+        if isinstance(parent_id, str) and len(parent_id) == 36:
+            previous = db.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == parent_id,
+                ProcessingJobModel.tenant_id == tenant,
+                ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+                ProcessingJobModel.entity_id == listing_key,
+                ProcessingJobModel.status == "completed",
+                ProcessingJobModel.cancellation_requested.is_(False),
+            ))
+            old = previous.payload_json if previous is not None else None
+            if isinstance(old, dict) and isinstance(old.get("result"), dict):
+                view["previous_draft"] = old["result"]
+                view["previous_job_id"] = previous.id
+    return {"listingKey": listing_key, "enabled": tiktok_skill_enabled(), **view}
 
 
 @router.post("/listings/{listing_key}/tiktok-listing/queue")
@@ -1258,6 +1275,36 @@ def retry_listing_tiktok_skill(
         raise HTTPException(409, "Manual retry limit reached")
     db.commit()
     return {"listingKey": listing_key, **project_tiktok_skill(job)}
+
+
+@router.post("/listings/{listing_key}/tiktok-listing/regenerate")
+def regenerate_listing_tiktok_skill(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Create a new YTrends-aware Gemini draft without destroying the old draft."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    if not tiktok_skill_enabled():
+        raise HTTPException(503, "TikTok listing worker not enabled")
+    tenant = principal.active_tenant_id
+    picked = db.get(Picked, (tenant, listing_key))
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    listing = db.scalar(select(Listing).where(
+        Listing.tenant_id == tenant,
+        Listing.listing_key == listing_key,
+        Listing.is_current.is_(True),
+    ).order_by(desc(Listing.observed_at), desc(Listing.updated_at)).limit(1))
+    if listing is None:
+        raise HTTPException(409, "Listing photo source unavailable")
+    job = regenerate_tiktok_completed_draft(db, tenant, listing, picked.picked_at)
+    if job is None:
+        raise HTTPException(409, "Completed draft, verified image, or regeneration quota unavailable")
+    db.commit()
+    return {"listingKey": listing_key, "enabled": True,
+            **project_tiktok_skill(job)}
 
 
 @router.post("/listings/{listing_key}/tiktok-listing/ytrends/refresh")
