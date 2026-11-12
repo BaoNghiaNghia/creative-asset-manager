@@ -417,7 +417,9 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertEqual(claimed.id, job_id)
 
     def test_tiktok_codex_draft_claims_without_gemini_model_slot(self):
-        self.policy("tiktok-tenant", total=4, ai=1)
+        # Even with high general AI concurrency, only one listing Codex job
+        # may be processing for a tenant. Avoid CLI lock contention/retries.
+        self.policy("tiktok-tenant", total=4, ai=4)
         first_id = self.job(
             "tiktok-tenant", "tiktok-codex-first",
             kind="etsy_tiktok_listing_generate", provider="codex", scope="ai")

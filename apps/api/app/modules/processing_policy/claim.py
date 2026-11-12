@@ -574,6 +574,24 @@ class TenantAwareJobClaimer:
                 self._release_tenant_reservation(job)
                 return False
 
+        if job.job_type == "etsy_tiktok_listing_generate" and job.provider_key == "codex":
+            # Limit this manual listing workload to one active Codex process
+            # per tenant before it reaches the CLI's host-global file lock.
+            # The tenant policy UPDATE above serializes claims across workers.
+            active_listing = int(self.session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == job.tenant_id,
+                    ProcessingJobModel.id != job.id,
+                    ProcessingJobModel.job_type == "etsy_tiktok_listing_generate",
+                    ProcessingJobModel.provider_key == "codex",
+                    ProcessingJobModel.status == JobStatus.PROCESSING.value,
+                    ProcessingJobModel.concurrency_accounted.is_(True),
+                )
+            ) or 0)
+            if active_listing >= 1:
+                self._release_tenant_reservation(job)
+                return False
+
         if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
             _interval_seconds, rrugc_concurrency_limit, _drain_mode = (
                 self._rrugc_lane_profile(job, now)
