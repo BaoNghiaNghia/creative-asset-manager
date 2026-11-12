@@ -45,7 +45,7 @@ describe("production deploy permissions gate", () => {
     expect(isWorkspaceRouteAuthorized(gator, "realistic_review_ugc.read", "realistic-review-ugc")).toBe(true);
     expect(isWorkspaceRouteAuthorized({ permissions: ["realistic_review_ugc.read"], navigation_modules: null }, "realistic_review_ugc.read", "tiktokshop")).toBe(true);
   });
-  it("shows maintenance on 503 and reloads the original route once identity recovers", async () => {
+  it("shows maintenance on 503 and resumes the original route without a page reload", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))
       .mockResolvedValueOnce(new Response("still updating", { status: 503 }))
@@ -59,6 +59,7 @@ describe("production deploy permissions gate", () => {
     expect(probe.status).toBe("maintenance");
     await act(async () => { await vi.advanceTimersByTimeAsync(ROUTE_IDENTITY_RETRY_MS); });
     expect(recovered).toHaveBeenCalledTimes(1);
+    expect(probe.status).toBe("allowed");
     expect(fetcher).toHaveBeenCalledTimes(4);
     expect(fetcher).toHaveBeenCalledWith("/ready", expect.objectContaining({ cache: "no-store" }));
   });

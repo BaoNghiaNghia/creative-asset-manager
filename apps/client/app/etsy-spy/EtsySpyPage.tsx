@@ -553,7 +553,8 @@ export function EtsySpyPage() {
   } | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
-    requestKey: string; data: Page<Listing | Keyword | Trademark | SpyLog> | null;
+    requestKey: string; selectionScope: string;
+    data: Page<Listing | Keyword | Trademark | SpyLog> | null;
   } | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
@@ -574,8 +575,10 @@ export function EtsySpyPage() {
     : options.winKeywordsView ? ":win-keywords" : ":records") +
     "?" + apiQuery(options).toString();
   const requestKey = selectionScope + "#" + refresh;
-  const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
-  const loading = fetching || tableResult?.requestKey !== requestKey;
+  // Preserve mounted rows and their modals during background refreshes.
+  // Only a real tab/filter/page change invalidates the visible dataset.
+  const rows = tableResult?.selectionScope === selectionScope ? tableResult.data : null;
+  const loading = !rows && (fetching || tableResult?.selectionScope !== selectionScope);
   const isPickedSelection = options.tab === "products" && options.pickState === "picked" &&
     !options.blacklistView && !options.winKeywordsView;
   const selectable = options.tab === "products" &&
@@ -648,13 +651,14 @@ export function EtsySpyPage() {
   // Refresh a Picked page only while TikTok jobs are active, using one
   // batched listing request (never one network request per row).
   useEffect(() => {
-    if (options.tab !== "products" || options.pickState !== "picked" || !rows || loading) return;
+    if (options.tab !== "products" || options.pickState !== "picked" || !rows ||
+        loading || fetching) return;
     const active = (rows.items as Listing[]).some(item =>
       ["pending", "retry", "processing"].includes(item.tiktokListing?.status || ""));
     if (!active) return;
     const timer = window.setTimeout(() => setRefresh(value => value + 1), 15000);
     return () => window.clearTimeout(timer);
-  }, [options.tab, options.pickState, rows, loading]);
+  }, [options.tab, options.pickState, rows, loading, fetching]);
 
   // Date and theme counts must belong to the currently selected product
   // parent, never to a stale Eligible fetch after switching to Picked/Later.
@@ -747,11 +751,15 @@ export function EtsySpyPage() {
       trademarks: "/trademarks", logs: "/logs" }[options.tab];
     spyFetch<Page<Listing | Keyword | Trademark | SpyLog>>(endpoint + "?" + apiQuery(options).toString())
       .then(value => { if (alive) {
-        setTableResult({ requestKey, data: value });
+        setTableResult({ requestKey, selectionScope, data: value });
         setFetching(false);
+        setError("");
       } })
       .catch(e => { if (alive) {
-        setTableResult({ requestKey, data: null });
+        // A transient 503 or timeout must not erase the last good rows.
+        // This keeps Design galleries, Listing Optimizer dialogs and scroll alive.
+        setTableResult(current => current?.selectionScope === selectionScope && current.data
+          ? current : { requestKey, selectionScope, data: null });
         setError(e instanceof Error ? e.message : "Request failed");
         setFetching(false);
       } });
@@ -770,7 +778,7 @@ export function EtsySpyPage() {
       try {
         const latest = await spyFetch<Page<Listing>>("/listings?" + apiQuery(options).toString());
         if (!disposed) setTableResult(current => current?.requestKey === requestKey
-          ? { requestKey, data: latest } : current);
+          ? { ...current, data: latest } : current);
       } catch {
         // Preserve the last confirmed receipt on transient sync/API failures.
       } finally { polling = false; }
@@ -782,7 +790,7 @@ export function EtsySpyPage() {
       window.clearInterval(interval);
       window.removeEventListener("focus", poll);
     };
-  }, [requestKey, options]);
+  }, [requestKey, selectionScope, options]);
   const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManage || blacklistBusy) return;
@@ -1425,7 +1433,7 @@ export function EtsySpyPage() {
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
-              <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
+              <ProductRow key={item.listingKey}
                 item={item} canPick={canManage}
                 busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy || tiktokSelectedBusy}
                 selectable={selectable}

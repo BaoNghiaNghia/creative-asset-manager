@@ -5,7 +5,9 @@ export const BACKEND_READINESS_TIMEOUT_MS = 4_000;
 export const BACKEND_READINESS_INITIAL_DELAY_MS = 2_000;
 export const BACKEND_READINESS_CONFIRM_RETRY_MS = 3_000;
 
-const reloadCurrentRoute = () => window.location.reload();
+// Do not hard-reload a long-lived workspace when backend maintenance ends:
+// active Etsy Spy modals, form edits and scroll position must survive.
+const keepCurrentRoute = () => {};
 
 /** Health watcher for workspaces that have *already* passed access gating.
  * Without this, a long-lived browser tab never observes deploy downtime
@@ -13,7 +15,7 @@ const reloadCurrentRoute = () => window.location.reload();
  */
 export function useDeploymentReadiness(
   enabled: boolean,
-  onRecovered: () => void = reloadCurrentRoute,
+  onRecovered: () => void = keepCurrentRoute,
 ): boolean {
   const [unavailable, setUnavailable] = useState(false);
 
@@ -56,6 +58,8 @@ export function useDeploymentReadiness(
         consecutiveFailures = 0;
         if (confirmationTimer !== undefined) clearTimeout(confirmationTimer);
         if (outage) {
+          outage = false;
+          setUnavailable(false);
           onRecovered();
           return;
         }

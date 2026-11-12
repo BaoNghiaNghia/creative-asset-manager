@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { requiredPermissionForApplicationRoute, routeForPath, usesDesktopWorkspaceSidebar, workspaceRouteForApplicationRoute } from "./AppRoute";
+import { requiredPermissionForApplicationRoute, routeForPath, usesDesktopWorkspaceSidebar, workspaceRouteForApplicationRoute, shouldUnmountForMaintenance } from "./AppRoute";
 
 describe("responsive workspace routing", () => {
+  it("keeps Etsy Spy mounted during backend updates but still gates failed authorization", () => {
+    expect(shouldUnmountForMaintenance("etsy-spy", "allowed", true)).toBe(false);
+    expect(shouldUnmountForMaintenance("etsy-spy", "allowed", false)).toBe(false);
+    expect(shouldUnmountForMaintenance("etsy-spy", "maintenance", true)).toBe(true);
+    expect(shouldUnmountForMaintenance("inventory", "allowed", true)).toBe(true);
+  });
+
   it("maps internal application routes to the shared workspace navigation", () => {
     expect(workspaceRouteForApplicationRoute("explorer")).toBe("assets");
     expect(workspaceRouteForApplicationRoute("ai-operations")).toBe("operations");

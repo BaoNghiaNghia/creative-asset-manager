@@ -1309,6 +1309,107 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
   });
 
+  it("keeps an open TikTok SEO modal and table scroll during a slow refresh or Scout metadata update", async () => {
+    await start({tiktokEnabled: true});
+    pickedKeys.add(listing.listingKey);
+    tiktokStatuses[listing.listingKey] = "pending";
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 90));
+    });
+    const trigger = container?.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open");
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger?.click();
+      await new Promise(resolve => setTimeout(resolve, 35));
+    });
+    const dialog = document.body.querySelector<HTMLElement>(".etsy-tiktok-dialog");
+    const table = container?.querySelector<HTMLElement>(".etsy-table-wrap");
+    expect(dialog).not.toBeNull();
+    expect(table).not.toBeNull();
+    if (table) table.scrollTop = 140;
+
+    const sourceFetch = globalThis.fetch;
+    const oldKeyword = listing.keyword;
+    const oldSession = listing.sessionId;
+    let release: (() => void) | undefined;
+    let delayNextTableFetch = true;
+    let failNextTableFetch = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (failNextTableFetch && String(input).includes("/listings?")) {
+        failNextTableFetch = false;
+        return new Response("backend temporarily unavailable", { status: 503 });
+      }
+      if (delayNextTableFetch && String(input).includes("/listings?")) {
+        delayNextTableFetch = false;
+        await new Promise<void>(resolve => { release = resolve; });
+      }
+      return sourceFetch(input, init);
+    }));
+    try {
+      // Scout may change keyword and session metadata for the SAME listing ID.
+      listing.keyword = "new synced keyword";
+      listing.sessionId = "fresh scout session";
+      await act(async () => {
+        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
+      expect(container?.querySelector(".etsy-skeleton")).toBeNull();
+      expect(container?.querySelector(".etsy-table-wrap")).toBe(table);
+      expect(document.body.querySelector(".etsy-tiktok-dialog")).toBe(dialog);
+      await act(async () => {
+        release?.();
+        await new Promise(resolve => setTimeout(resolve, 75));
+      });
+      expect(document.body.querySelector(".etsy-tiktok-dialog")).toBe(dialog);
+      expect(container?.querySelector(".etsy-table-wrap")).toBe(table);
+      expect(table?.scrollTop).toBe(140);
+
+      // A failed update must not replace the table with Loading or close
+      // the modal; the next refresh will retry without losing local state.
+      failNextTableFetch = true;
+      await act(async () => {
+        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        await new Promise(resolve => setTimeout(resolve, 70));
+      });
+      expect(document.body.querySelector(".etsy-tiktok-dialog")).toBe(dialog);
+      expect(container?.querySelector(".etsy-table-wrap")).toBe(table);
+      expect(container?.querySelector(".etsy-skeleton")).toBeNull();
+    } finally {
+      release?.();
+      listing.keyword = oldKeyword;
+      listing.sessionId = oldSession;
+    }
+  });
+
+  it("preserves the Design gallery across a background Picked table refresh", async () => {
+    await start();
+    pickedKeys.add(listing.listingKey);
+    const job = "00000000-1111-4222-8333-444444444444";
+    designProjection = [{
+      id: "design-a", job_id: job, listing_key: listing.listingKey,
+      position: "front", variant: 1, method: "chatgpt", status: "needs_review",
+      source: "mapped", output_sha256: "b".repeat(64),
+      thumbnail_url: "/api/v1/etsy-spy/image-agents/designs/" + job + "/front/thumbnail",
+      original_url: "/api/v1/etsy-spy/image-agents/designs/" + job + "/front/original",
+      print_ready: false, rights_status: "unverified", manual_qa_required: true,
+    }];
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 75));
+    });
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click();
+    });
+    const gallery = document.body.querySelector(".etsy-design-gallery");
+    expect(gallery).not.toBeNull();
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      await new Promise(resolve => setTimeout(resolve, 80));
+    });
+    expect(document.body.querySelector(".etsy-design-gallery")).toBe(gallery);
+  });
+
   it("shows multiple mapped Design PNGs per Picked product and a position gallery", async () => {
     await start();
     pickedKeys.add(listing.listingKey);

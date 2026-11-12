@@ -34,7 +34,7 @@ afterEach(async () => {
 });
 
 describe("deployment watcher for already-open workspaces", () => {
-  it("switches to maintenance on failed readiness, then reloads the existing URL when restored", async () => {
+  it("marks a confirmed outage and recovers the same mounted route without a hard reload", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn().mockResolvedValueOnce(new Response("updating", { status: 503 }))
       .mockResolvedValueOnce(new Response("still updating", { status: 503 }))
@@ -49,6 +49,7 @@ describe("deployment watcher for already-open workspaces", () => {
     expect(probe.status).toBe("maintenance");
     await act(async () => { await vi.advanceTimersByTimeAsync(BACKEND_READINESS_POLL_MS); });
     expect(recovered).toHaveBeenCalledTimes(1);
+    expect(probe.status).toBe("operational");
     expect(fetcher).toHaveBeenCalledWith("/ready", expect.objectContaining({cache: "no-store"}));
   });
 
