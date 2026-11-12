@@ -94,6 +94,14 @@ def copy():
     }
 
 
+def test_new_pick_defaults_to_auto_codex_queue():
+    from app.core.config import Settings
+    settings = Settings(_env_file=None)
+    assert settings.ETSY_TIKTOK_LISTING_ENABLED is True
+    assert settings.ETSY_TIKTOK_AUTO_ON_PICK_ENABLED is True
+    assert settings.ETSY_TIKTOK_EXECUTION_ENGINE == "codex"
+
+
 def test_tiktok_copy_structural_validator_and_unverified_ytrends():
     result = tiktok_skill.validate_copy(copy())
     assert result["qa_status"] == "needs_fact_check"

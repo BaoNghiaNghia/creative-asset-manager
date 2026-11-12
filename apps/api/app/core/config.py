@@ -259,12 +259,11 @@ class Settings(BaseSettings):
     CODEX_IMAGE_HOME: str = "/var/lib/creative-asset-manager/codex"
     CODEX_IMAGE_SKILL: str = "worker-hat-v1"
     CODEX_IMAGE_MODEL: str = ""
-    # Only manual Picked listing drafts are available by default.
-    # Automatic queueing is separately disabled: no jobs are created unless
-    # an authorized manager explicitly clicks Run / Backfill on Picked.
+    # Queue one draft automatically for each newly Picked Etsy listing.
+    # Existing Picked history is still backfilled in small bounded batches;
+    # never requeue all historical records on startup or auto-publish drafts.
     ETSY_TIKTOK_LISTING_ENABLED: bool = True
-    # Enable manual pilot without automatically queueing every new Picked listing.
-    ETSY_TIKTOK_AUTO_ON_PICK_ENABLED: bool = False
+    ETSY_TIKTOK_AUTO_ON_PICK_ENABLED: bool = True
     ETSY_TIKTOK_BACKFILL_MAX_PER_REQUEST: int = 5
     # Read-only YTuong YTrends MCP gives Etsy market snapshots only.
     # Enabled for manual Picked drafts; no TikTok Shop search metrics implied.
