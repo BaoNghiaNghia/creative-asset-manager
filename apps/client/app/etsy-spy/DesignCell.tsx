@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 
-export function DesignCell({ item }: { item: Listing }) {
+export function DesignCell({ item, onPreviewStart }: {
+  item: Listing; onPreviewStart?: () => void;
+}) {
   const designs = Array.isArray(item.designs) ? item.designs : [];
   const [active, setActive] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const [failedOriginalId, setFailedOriginalId] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -25,6 +29,25 @@ export function DesignCell({ item }: { item: Listing }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [active, designs.length]);
 
+  // Match the Etsy thumbnail preview: viewport-anchored, bottom-left, with
+  // original Design PNG loaded only when hovered/focused. Touch opens gallery.
+  useEffect(() => {
+    if (hovered === null) return;
+    const hide = () => setHovered(null);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [hovered]);
+
+  const showHover = (index: number) => {
+    onPreviewStart?.(); // hide the Etsy-row tooltip underneath the Design tooltip
+    setFailedOriginalId(null);
+    setHovered(index);
+  };
+
   // No job, QA or waiting-state text belongs in the Picked Design cell.
   if (designs.length === 0) {
     return <span className="etsy-design-empty" aria-label="Chưa có ảnh thiết kế" />;
@@ -32,6 +55,7 @@ export function DesignCell({ item }: { item: Listing }) {
 
   const selected = active === null ? 0 : Math.min(active, designs.length - 1);
   const preview = designs[selected];
+  const hoveredDesign = hovered === null ? null : designs[hovered];
 
   return <>
     <div className="etsy-design-thumbnails"
@@ -39,12 +63,38 @@ export function DesignCell({ item }: { item: Listing }) {
       {designs.slice(0, 3).map((design, index) => (
         <button key={design.job_id + ":" + design.id} type="button"
           className="etsy-design-thumb"
-          onClick={() => setActive(index)}
+          onPointerEnter={event => {
+            if (event.pointerType !== "touch") showHover(index);
+          }}
+          onPointerLeave={() => setHovered(null)}
+          onPointerCancel={() => setHovered(null)}
+          onFocus={() => showHover(index)}
+          onBlur={() => setHovered(null)}
+          onClick={() => { setHovered(null); setActive(index); }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
           <img loading="lazy" decoding="async" src={design.thumbnail_url} alt="" />
         </button>
       ))}
     </div>
+
+    {hoveredDesign && active === null && createPortal(
+      <div className="etsy-product-hover-preview etsy-design-hover-preview"
+        role="tooltip" data-listing-key={item.listingKey}
+        data-design-index={hovered}>
+        <span className="etsy-product-preview-label">Ảnh Design {hovered! + 1}/{designs.length}</span>
+        <img src={failedOriginalId === hoveredDesign.id
+          ? hoveredDesign.thumbnail_url : hoveredDesign.original_url}
+          alt={`Thiết kế ${hovered! + 1} của ${item.pageTitle}`}
+          decoding="async"
+          onError={() => {
+            if (failedOriginalId !== hoveredDesign.id) setFailedOriginalId(hoveredDesign.id);
+            else setHovered(null);
+          }} />
+        <span className="etsy-product-preview-title">
+          <span className="etsy-product-preview-title-text">{item.pageTitle}</span>
+        </span>
+      </div>, document.body
+    )}
 
     {active !== null && createPortal(
       <div className="etsy-design-gallery-backdrop"

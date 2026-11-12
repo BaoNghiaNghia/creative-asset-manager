@@ -337,7 +337,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
                 : "Windows Agent chưa đồng bộ trạng thái gửi SMS"}
             aria-label={"SMS: " + (item.smsPush?.status === "sent" ? "Đã có trên SMS"
               : item.smsPush?.status || "Chưa đồng bộ")}>
-            {item.smsPush?.status === "sent" ? "✓ Đã có trên SMS"
+            {item.smsPush?.status === "sent" ? "SMS"
               : ["pending", "backfill_waiting", "retry_wait", "sending"].includes(item.smsPush?.status || "")
                 ? "◷ Chờ SMS"
               : item.smsPush?.status === "blocked_auth" ? "SMS thiếu quyền"
@@ -346,16 +346,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
               : item.smsPush?.status === "needs_source" ? "SMS thiếu nguồn"
               : "SMS chưa đồng bộ"}
           </span>}
-          {item.picked && <small className="etsy-extraction-status"
-            title="Extracted artwork is for internal review until fidelity and usage rights are verified">
-            Extraction · {({
-              pending: "Queued", retry: "Retry", processing: "Extracting",
-              needs_review: "Review PNG", needs_ai: "Needs AI",
-              failed: "Failed", cancelled: "Cancelled",
-              source_missing: "Source image missing", disabled: "Worker inactive",
-            } as Record<string, string>)[item.extraction?.status || "source_missing"] ||
-              item.extraction?.status || "Pending"}
-          </small>}
           {item.picked && item.extraction?.status === "needs_review" && qaNotes.length > 0 &&
             <small className="etsy-extraction-qa" title={[...qaNotes,
               "Chỉ dùng để kiểm tra nội bộ; quyền thương mại chưa xác minh"].join(" · ")}>
@@ -388,7 +378,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         </div>
       </div>
     </td>
-    {item.picked && <td className="etsy-design-cell"><DesignCell item={item} /></td>}
+    {item.picked && <td className="etsy-design-cell"><DesignCell item={item}
+      onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     <td className="etsy-sms-cell">
