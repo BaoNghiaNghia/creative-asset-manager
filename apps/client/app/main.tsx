@@ -21,6 +21,9 @@ import "../styles/responsive-platform.css";
 import "../styles/ui-foundation.css";
 import "../styles/mobile-workspace.css";
 import "../styles/rrugc-sidebar-navigation.css";
+// Phase 4: scoped evondevKit roles for Explorer, Queue, Inventory and Access.
+import "../app/styles/cam-evo-tokens.css";
+import "../styles/cam-console-evo.css";
 
 function AppBoot() {
   useEffect(() => {

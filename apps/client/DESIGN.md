@@ -61,6 +61,18 @@ Continue with the pinned evondevKit `ui-ux` skill as design guidance, **not** as
 - Quality gate: workflow scope test, existing feature regression tests, Vite/TypeScript build, fixture UI QA across Stage 1–5 and five viewports, read-only production smoke. No API/database/agent changes.
 - Audit: manual DESIGN/stack/components/CSS inventory. Vendored upstream `audit.sh` remains blocked by the remote execution policy. Design uses existing controls and CSS tokens.
 
+## Phase 4 — Asset Explorer, Job Queue, Inventory, Access Management (2026-11-12)
+
+Continue the pinned evondevKit `ui-ux` visual roles using a **single route-scoped adapter** `styles/cam-console-evo.css`, imported last by `app/main.tsx` after the existing app styles. Tokens come from `app/styles/cam-evo-tokens.css`. This is a visual styling pass, not a component migration or new runtime library.
+
+- **Asset Explorer**: `.cam-evo-explorer` root class in the existing `App`, no changes to source selection, grid/list mode, hover overlays, file-type previews, drag/drop, upload queue, keyboard shortcuts, asset details, or Drive auth.
+- **Job Queue**: `.job-queue-shell` root; five existing status tabs, search/provider/rows controls, KPI strip, readable internal-scroll table and generation-result dialog. All queue data and refresh actions unchanged.
+- **Inventory**: `.inventory-workspace` root; compact daily summary, three process cards, candidate review, Catinat exception and shift-readiness disclosure panels. Do not imply unverified inventory was reconciled; retain caution/error semantics and action approvals.
+- **Access Management**: `.access-shell` root; Members/Roles/My Access tab rail, filters, tenant access table, compact manage dialog and explicit destructive confirmations. Permission enforcement remains server-authoritative; never conceal access controls.
+- **Modal safety**: existing mounted React modal state, keyboard close, overflow locking and focus behavior must not be overwritten. This phase changes CSS only, plus explorer root class and CSS imports. No forced reload, poll timer, API, DB or worker change.
+- **Responsive**: page-wide overflow prohibited at 320, 390, 768, 1024, 1440px. Long queue/admin tables scroll *inside* their wrappers; phone KPI rows swipe independently; controls remain keyboard-focusable.
+- **Validation**: narrow-scope CSS contract regression tests, existing 4-domain functional tests, production Vite build, read-only Chrome fixture QA and production smoke, current + rollback frontend releases.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

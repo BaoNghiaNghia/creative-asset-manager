@@ -1,0 +1,14 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "inventory-daily",
+      "waitFor": ".inventory-workspace .inventory-workspace-content",
+      "fullPage": true
+    }
+  ]
+}

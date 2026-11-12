@@ -1,0 +1,20 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "access-members",
+      "waitFor": ".access-shell .access-tabs",
+      "fullPage": true
+    },
+    {
+      "name": "access-roles",
+      "click": ".access-tabs #access-tab-roles",
+      "waitFor": ".access-shell #access-panel-roles",
+      "fullPage": false
+    }
+  ]
+}
