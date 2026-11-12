@@ -73,6 +73,18 @@ Continue the pinned evondevKit `ui-ux` visual roles using a **single route-scope
 - **Responsive**: page-wide overflow prohibited at 320, 390, 768, 1024, 1440px. Long queue/admin tables scroll *inside* their wrappers; phone KPI rows swipe independently; controls remain keyboard-focusable.
 - **Validation**: narrow-scope CSS contract regression tests, existing 4-domain functional tests, production Vite build, read-only Chrome fixture QA and production smoke, current + rollback frontend releases.
 
+## Phase 5 — AI Operations, Branding DNA, TikTokShop, Review Board (2026-11-12)
+
+Continue the pinned evondevKit `ui-ux` design guidance, **not** a new React/runtime framework. All four operational screens share a neutral CAM blue/white hierarchy while retaining independent workflows.
+
+- Stylesheet: `styles/cam-platform-evo.css`, imported after the Phase 4 adapter in `app/main.tsx`. Reuse existing `cam-evo-tokens.css`. All selectors are route-scoped to `.cam-evo-ai-operations`, `.branding-dna-page`, `.rrugc-shell.rrugc-tiktokshop-workspace`, and `.review-board-shell`. No global reset or GatorHats/Etsy mutation.
+- **AI Operations**: add one root CSS scope to `AiOperationsShell`; maintain all existing tabs, drag-to-scroll, dashboard filters, refresh cadence, provider status and worker pause/resume controls. Compact tab rail, summary, table and chart cards; no query or metrics changes.
+- **Branding DNA**: compact six-stage tab rail, shop registry and worker panels with transparent readiness indicators. Scanner remains *not connected* and evidence remains *unverified* where the API says so. Do not promote prototypes to live operations.
+- **TikTokShop**: solely Stage 3, 4, 5 isolated by the TikTokShop source root, compact management/actions, readable source and output tables, internal-scroll data, preview/gallery cards and settings. Preserve source-root API isolation, image quality QA and internal draft status. Never depict synthetic drafts as real consumer reviews.
+- **Review Board**: compact stats, filter/search, shared and RRUGC modes, maintain three-pane scroll geometry, comments/annotations and full approve/reject UI. Do not auto-close selected issue or reset inspector on refresh.
+- Preserve existing modal lifecycles, tab selection, data mutation feedback, keyboard focus and asynchronous retry behavior. No API, database, auth, worker or polling changes. Responsive target 320, 390, 768, 1024 and 1440 px, with tables scrolling inside their own wrappers.
+- Quality: production Vite build + focused feature regression, CSS isolation contract test, Chrome fixture QA including mode switch/tab navigation. Release frontend-only from merged `main`, preserve current + previous and run read-only production smoke.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

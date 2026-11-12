@@ -312,7 +312,7 @@ export function AiOperationsShell({
   tab?: AiOpsTab;
   onTab?: (tab: AiOpsTab) => void;
 }) {
-  return <main className="ops-shell">
+  return <main className="ops-shell cam-evo-ai-operations">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>{subtitle}</small></span></div>
       <WorkspaceNavigation active="operations" aiOperationsTab={tab} onAiOperationsTab={onTab} />

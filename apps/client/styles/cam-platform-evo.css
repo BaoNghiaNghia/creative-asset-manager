@@ -1,0 +1,639 @@
+/* CAM evondevKit phase 5 — operations, DNA, TikTokShop, Review Board.
+   Token roles only. Keep route-specific React components, permissions, modal
+   mounts, HTML semantics, worker state, image sizes and polling untouched. */
+
+/* AI Operations: scrollable tabs, honest KPI and status hierarchy. */
+.ops-shell.cam-evo-ai-operations {
+  --platform-ink: var(--cam-evo-ink, #17243a);
+  --platform-muted: var(--cam-evo-muted, #64748b);
+  --platform-border: var(--cam-evo-hairline, #e8edf4);
+  --platform-brand: var(--cam-evo-brand, #265cbd);
+  background: var(--cam-evo-page, #f6f8fb);
+  color: var(--platform-ink);
+}
+.cam-evo-ai-operations .ops-main { min-width: 0; background: var(--cam-evo-page, #f6f8fb); }
+.cam-evo-ai-operations .ops-header {
+  min-height: 74px;
+  gap: 12px;
+  padding: 14px clamp(12px, 2vw, 28px);
+  border-bottom: 1px solid var(--platform-border);
+  background: #fff;
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-header h1 {
+  color: var(--platform-ink);
+  font-size: clamp(21px,2vw,26px);
+  letter-spacing: -.02em;
+}
+.cam-evo-ai-operations .ops-header-actions { gap: 7px; }
+.cam-evo-ai-operations .ops-refresh-control {
+  border-color: var(--platform-border);
+  border-radius: 7px;
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-refresh-status {
+  color: var(--platform-muted);
+  font-size: 10.5px;
+}
+.cam-evo-ai-operations .ops-tabs-carousel {
+  min-width: 0;
+  border-bottom: 1px solid var(--platform-border);
+  background: #fff;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs {
+  min-width: 0;
+  padding: 0 8px;
+  gap: 0;
+  background: #fff;
+  border: 0;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #61728b;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 710;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs button.active {
+  color: var(--platform-brand);
+  border-bottom-color: var(--platform-brand);
+  background: #fdfefe;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs button.active::after { background: transparent; }
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs .ops-tab-icon {
+  width: 19px;
+  height: 19px;
+  flex-basis: 19px;
+  object-fit: contain;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs-arrow {
+  border-color: var(--platform-border);
+  background: #fff;
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-query-bar {
+  gap: 9px;
+  padding: 10px clamp(12px, 2vw, 28px);
+  background: #fff;
+  border-bottom: 1px solid var(--platform-border);
+}
+.cam-evo-ai-operations .ops-filters { gap: 8px; padding: 8px 0; }
+.cam-evo-ai-operations .ops-filters label {
+  color: #566781;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cam-evo-ai-operations .ops-filters :is(input,select) {
+  min-height: 34px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.cam-evo-ai-operations .ops-export-menu summary {
+  border-radius: 7px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-content {
+  min-width: 0;
+  padding: 16px clamp(12px,2vw,28px) 40px;
+}
+.cam-evo-ai-operations .ops-kpis { gap: 8px; }
+.cam-evo-ai-operations .ops-kpis article {
+  min-height: 78px;
+  gap: 5px;
+  padding: 11px 12px;
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-kpis .ops-kpi::before { height: 2px; }
+.cam-evo-ai-operations .ops-kpis article strong {
+  font-size: 21px;
+  color: var(--platform-ink);
+  font-variant-numeric: tabular-nums;
+}
+.cam-evo-ai-operations .ops-kpis article :is(span,small) { color: var(--platform-muted); font-size: 10px; }
+.cam-evo-ai-operations .ops-chart,
+.cam-evo-ai-operations .pipeline-scan-card,
+.cam-evo-ai-operations .pipeline-active-job,
+.cam-evo-ai-operations .pipeline-progress-summary {
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.cam-evo-ai-operations .ops-table-scroll {
+  max-width: 100%;
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.cam-evo-ai-operations .ops-data-table thead th {
+  background: #f7f9fc;
+  color: #52647e;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cam-evo-ai-operations .ops-data-table td { font-size: 11px; border-bottom-color: var(--platform-border); }
+.cam-evo-ai-operations .ops-media-tabs button.active { color: var(--platform-brand); }
+.cam-evo-ai-operations :is(button,input,select,textarea,summary,a):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* Branding DNA: six-stage rail; provenance is surfaced rather than simulated. */
+.branding-dna-page {
+  --platform-ink: var(--cam-evo-ink, #17243a);
+  --platform-border: var(--cam-evo-hairline, #e8edf4);
+  --platform-muted: var(--cam-evo-muted, #64748b);
+  --platform-brand: var(--cam-evo-brand, #265cbd);
+  background: var(--cam-evo-page, #f6f8fb);
+  color: var(--platform-ink);
+}
+.branding-dna-page .bdna-ops-header {
+  padding: 14px clamp(12px,2vw,28px);
+  border-bottom-color: var(--platform-border);
+  box-shadow: none;
+}
+.branding-dna-page .bdna-stage-shell {
+  border-color: var(--platform-border);
+  background: #fff;
+}
+.branding-dna-page .bdna-stage-shell .bdna-stage-tabs {
+  gap: 0;
+  min-width: 0;
+  padding: 0 clamp(8px,2vw,25px);
+  scrollbar-width: thin;
+}
+.branding-dna-page .bdna-stage-shell .bdna-stage-tabs button {
+  flex: 0 0 auto;
+  min-width: 135px;
+  min-height: 48px;
+  padding: 7px 13px;
+  gap: 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #65748a;
+  box-shadow: none;
+}
+.branding-dna-page .bdna-stage-shell .bdna-stage-tabs button.active {
+  background: #fdfefe;
+  color: var(--platform-brand);
+  border-bottom-color: var(--platform-brand);
+}
+.branding-dna-page .bdna-stage-number {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #eef2f7;
+  color: #6b7b92;
+  font-size: 10px;
+}
+.branding-dna-page .bdna-stage-tabs button.active .bdna-stage-number {
+  background: #e9f0fc;
+  color: var(--platform-brand);
+}
+.branding-dna-page .bdna-stage-copy strong { font-size: 11.5px; color: inherit; }
+.branding-dna-page .bdna-stage-copy small { font-size: 9.5px; color: var(--platform-muted); }
+.branding-dna-page .bdna-workspace-heading {
+  gap: 10px;
+  padding: 15px clamp(12px,2vw,28px) 10px;
+}
+.branding-dna-page .bdna-workspace-heading h2 {
+  margin: 3px 0 4px;
+  font-size: 20px;
+  color: var(--platform-ink);
+}
+.branding-dna-page .bdna-workspace-heading p { color: var(--platform-muted); font-size: 11px; }
+.branding-dna-page .bdna-workspace-state {
+  border-radius: 6px;
+  border-color: var(--platform-border);
+  background: #f5f8fc;
+  color: #506b8c;
+  font-size: 10px;
+}
+.branding-dna-page .bdna-workflow-overview { gap: 8px; }
+.branding-dna-page :is(
+  .bdna-live-section,.bdna-worker-section,.bdna-future-panel,
+  .bdna-shop-card,.bdna-live-summary article,.bdna-workflow-overview > div
+) {
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.branding-dna-page .bdna-live-heading { gap: 10px; }
+.branding-dna-page .bdna-shop-card { background: #fff; }
+.branding-dna-page .bdna-shop-cards { gap: 10px; }
+.branding-dna-page .branding-dna-preview-link {
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.branding-dna-page .bdna-header-runtime {
+  border-color: #eadfc2;
+  background: #fcf8ec;
+  color: #7b652e;
+  border-radius: 6px;
+}
+.branding-dna-page :is(button,summary,input,select,textarea,a):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* TikTokShop — only the isolated Stage 3–5 route, never GatorHats Reviews. */
+.rrugc-shell.rrugc-tiktokshop-workspace {
+  --platform-ink: var(--cam-evo-ink, #17243a);
+  --platform-border: var(--cam-evo-hairline, #e8edf4);
+  --platform-muted: var(--cam-evo-muted, #64748b);
+  --platform-brand: var(--cam-evo-brand, #265cbd);
+  color: var(--platform-ink);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-main {
+  min-width: 0;
+  padding: 15px clamp(10px,2vw,27px) 38px;
+  background: var(--cam-evo-page, #f6f8fb);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .workspace-page-header {
+  gap: 12px;
+  border-bottom-color: var(--platform-border);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-global-management-actions { gap: 6px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-global-management-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  background: #fff;
+  color: #3d5574;
+  font-size: 11px;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-workflow-navigation {
+  margin-bottom: 12px;
+  border: 1px solid var(--platform-border);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-workflow-navigation .rrugc-stage-tabs {
+  gap: 0;
+  min-width: 0;
+  padding: 0 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-workflow-navigation .rrugc-stage-tabs button {
+  min-height: 43px;
+  padding: 7px 15px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #66768b;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-workflow-navigation .rrugc-stage-tabs button.active {
+  color: var(--platform-brand);
+  border-bottom-color: var(--platform-brand);
+  background: #fdfefe;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage-tab-number {
+  width: 21px;
+  height: 21px;
+  border-radius: 6px;
+  background: #edf2f8;
+  color: #66768b;
+  font-size: 10px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage-tabs button.active .rrugc-stage-tab-number {
+  background: #e8f0fc;
+  color: var(--platform-brand);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage-tab-copy strong { font-size: 11.5px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage-tab-copy small { font-size: 10px; color: var(--platform-muted); }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-first-body { min-width: 0; }
+.rrugc-shell.rrugc-tiktokshop-workspace :is(
+  .rrugc-source-plans,.rrugc-source-plan-kpis article,
+  .rrugc-stage3-header,.rrugc-stage3-group,.rrugc-stage3-image
+) {
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis { gap: 8px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis article { min-height: 60px; padding: 9px 11px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis article span {
+  font-size: 10px;
+  color: var(--platform-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis article strong {
+  font-size: 20px;
+  color: var(--platform-ink);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-toolbar {
+  gap: 8px;
+  padding: 9px;
+  border-color: var(--platform-border);
+  border-radius: 8px;
+  background: #f9fbfd;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-toolbar :is(input,select,button) {
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-table-wrap {
+  max-width: 100%;
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-table th {
+  background: #f7f9fc;
+  color: #53647d;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-table td {
+  border-bottom-color: var(--platform-border);
+  color: #30465f;
+  font-size: 11px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-header {
+  padding: 13px 15px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-header h2 {
+  color: var(--platform-ink);
+  font-size: 19px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-header p { color: var(--platform-muted); font-size: 11px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-stats span {
+  border-color: var(--platform-border);
+  border-radius: 7px;
+  background: #fff;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-gallery { gap: 9px; padding: 11px; }
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-group-head {
+  padding: 10px 12px;
+  background: #f9fbfd;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-image figcaption {
+  gap: 6px;
+  padding: 9px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-image-title strong {
+  color: #294260;
+  font-size: 11px;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-image.is-clickable:hover {
+  border-color: #aac3e3;
+  box-shadow: 0 0 0 2px rgba(38,92,189,.08);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .tiktokshop-stage-note {
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  background: #f9fbfd;
+  box-shadow: none;
+}
+.rrugc-shell.rrugc-tiktokshop-workspace .tiktokshop-settings-modal {
+  border-radius: var(--cam-evo-radius-dialog, 14px);
+  border-color: var(--platform-border);
+}
+.rrugc-shell.rrugc-tiktokshop-workspace :is(button,a,input,select,textarea,summary):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* Review Board: keep all 3 independent scroll panes + approval/rejection. */
+.review-board-shell {
+  --platform-ink: var(--cam-evo-ink, #17243a);
+  --platform-border: var(--cam-evo-hairline, #e8edf4);
+  --platform-muted: var(--cam-evo-muted, #64748b);
+  --platform-brand: var(--cam-evo-brand, #265cbd);
+  background: var(--cam-evo-page, #f6f8fb);
+  color: var(--platform-ink);
+}
+.review-board-shell .review-board-main {
+  min-width: 0;
+  padding: 15px clamp(10px,2vw,26px) 23px;
+}
+.review-board-shell .review-board-header { gap: 12px; padding-bottom: 10px; }
+.review-board-shell .review-board-header h1 {
+  color: var(--platform-ink);
+  font-size: clamp(22px,1.9vw,27px);
+}
+.review-board-shell .review-board-header p { color: var(--platform-muted); font-size: 11px; }
+.review-board-shell .review-board-secondary-summary { color: var(--platform-muted); font-size: 10.5px; }
+.review-board-shell .review-board-refresh {
+  min-height: 32px;
+  padding: 6px 11px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  background: #fff;
+  color: #345879;
+  box-shadow: none;
+  font-size: 11px;
+}
+.review-board-shell .review-board-mode-switch {
+  gap: 2px;
+  border-bottom: 1px solid var(--platform-border);
+  background: #fff;
+}
+.review-board-shell .review-board-mode-switch button {
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #63758c;
+  box-shadow: none;
+  font-size: 11px;
+}
+.review-board-shell .review-board-mode-switch button.active {
+  background: #fff;
+  border-bottom-color: var(--platform-brand);
+  color: var(--platform-brand);
+}
+.review-board-shell .review-board-stats { gap: 8px; }
+.review-board-shell .review-board-stat {
+  min-height: 56px;
+  padding: 9px 11px;
+  border-color: var(--platform-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+.review-board-shell .review-board-stat::before { width: 2px; }
+.review-board-shell .review-board-stat small { color: var(--platform-muted); font-size: 10px; }
+.review-board-shell .review-board-stat strong {
+  color: var(--platform-ink);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.review-board-shell .review-board-filters {
+  gap: 9px;
+  margin: 10px 0;
+  padding: 9px 11px;
+  border-color: var(--platform-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+.review-board-shell .review-board-filter-main { gap: 8px; }
+.review-board-shell .review-board-filters label { gap: 4px; font-size: 10px; color: #52657f; }
+.review-board-shell .review-board-filters :is(input,select) {
+  min-height: 32px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.review-board-shell .review-board-workspace {
+  min-width: 0;
+  min-height: 0;
+  border-color: var(--platform-border);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: none;
+}
+.review-board-shell .review-board-inbox,
+.review-board-shell .review-board-preview { min-width: 0; border-color: var(--platform-border); }
+.review-board-shell .review-board-inbox > header,
+.review-board-shell .review-board-preview > header {
+  border-bottom-color: var(--platform-border);
+  background: #f9fbfd;
+}
+.review-board-shell .review-board-list { scrollbar-width: thin; }
+.review-board-shell .review-board-asset-group {
+  border-bottom-color: var(--platform-border);
+}
+.review-board-shell .review-board-asset-group-header { padding: 10px 11px; }
+.review-board-shell .review-board-asset-group.selected { background: #f4f8fd; }
+.review-board-shell .review-board-row { padding: 9px 11px; }
+.review-board-shell .review-board-row.selected { background: #f0f5fd; }
+.review-board-shell .review-board-status { border-radius: 6px; }
+.review-board-shell .review-board-detail {
+  border-color: var(--platform-border);
+  background: #fff;
+}
+.review-board-shell .review-board-detail-header { border-bottom-color: var(--platform-border); }
+.review-board-shell .review-board-pagination { border-top-color: var(--platform-border); }
+.review-board-shell .rrugc-review-supervisor,
+.review-board-shell .rrugc-review-decision,
+.review-board-shell .rrugc-review-final-note {
+  border-color: var(--platform-border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.review-board-shell :is(button,a,textarea,select,input,summary):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+@media(max-width:1060px) {
+  .cam-evo-ai-operations .ops-header-actions { flex-wrap: wrap; }
+  .cam-evo-ai-operations .ops-query-bar { flex-wrap: wrap; }
+  .branding-dna-page .bdna-workspace-heading { flex-wrap: wrap; }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-global-management-actions { flex-wrap: wrap; }
+}
+@media(max-width:760px) {
+  .cam-evo-ai-operations .ops-header { padding: 12px 10px; }
+  .cam-evo-ai-operations .ops-content { padding: 12px 10px 32px; }
+  .cam-evo-ai-operations .ops-kpis {
+    display: flex;
+    gap: 8px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+    padding-bottom: 5px;
+  }
+  .cam-evo-ai-operations .ops-kpis article { flex: 0 0 155px; min-width: 135px; }
+  .cam-evo-ai-operations .ops-charts { grid-template-columns: minmax(0,1fr); }
+  .cam-evo-ai-operations .ops-chart:last-child { grid-column: auto; }
+  .branding-dna-page .bdna-stage-shell .bdna-stage-tabs { padding: 0 7px; }
+  .branding-dna-page .bdna-stage-shell .bdna-stage-tabs button {
+    min-width: 115px;
+    padding: 7px 10px;
+  }
+  .branding-dna-page .bdna-stage-copy small { font-size: 9px; }
+  .branding-dna-page .bdna-workspace-heading { padding: 11px 10px; }
+  .branding-dna-page :is(.bdna-live-section,.bdna-worker-section,.bdna-future-panel) {
+    margin-inline: 10px;
+  }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-main { padding: 10px 9px 30px; }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis {
+    display: flex;
+    gap: 8px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+    padding-bottom: 6px;
+  }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-kpis article {
+    flex: 0 0 133px;
+    min-width: 117px;
+  }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-source-plan-toolbar-server {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-header { flex-wrap: wrap; }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-gallery {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .review-board-shell .review-board-main { padding: 10px 9px 17px; }
+  .review-board-shell .review-board-stats {
+    display: flex;
+    gap: 7px;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+  }
+  .review-board-shell .review-board-stats article { flex: 0 0 140px; }
+  .review-board-shell .review-board-filters { flex-wrap: wrap; }
+  .review-board-shell .review-board-filter-main { flex-wrap: wrap; }
+}
+@media(max-width:430px) {
+  .cam-evo-ai-operations .ops-tabs-carousel .ops-tabs button { min-height: 46px; padding: 7px 10px; }
+  .cam-evo-ai-operations .ops-query-bar { padding-inline: 8px; }
+  .cam-evo-ai-operations .ops-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .branding-dna-page .bdna-stage-shell .bdna-stage-tabs button { min-width: 106px; }
+  .branding-dna-page .bdna-stage-copy small { display: none; }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage-tab-copy small { display: none; }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-workflow-navigation .rrugc-stage-tabs button {
+    min-height: 46px;
+    padding-inline: 10px;
+  }
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-stage3-gallery {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .review-board-shell .review-board-filter-main > label { flex: 1 1 135px; min-width: 0; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .cam-evo-ai-operations .ops-tabs button,
+  .branding-dna-page .bdna-stage-tabs button,
+  .rrugc-tiktokshop-workspace .rrugc-stage-tabs button,
+  .review-board-shell .review-board-row { transition: none; }
+}

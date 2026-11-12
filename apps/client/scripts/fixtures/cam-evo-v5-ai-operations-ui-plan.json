@@ -1,0 +1,26 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "ai-overview",
+      "waitFor": ".cam-evo-ai-operations .ops-tabs-carousel",
+      "fullPage": true
+    },
+    {
+      "name": "ai-processing",
+      "click": "#ops-tab-processing",
+      "waitFor": "#ops-panel-processing",
+      "fullPage": true
+    },
+    {
+      "name": "ai-providers",
+      "click": "#ops-tab-providers",
+      "waitFor": "#ops-panel-providers",
+      "fullPage": true
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "dna-overview",
+      "waitFor": ".branding-dna-page .bdna-stage-tabs",
+      "fullPage": true
+    },
+    {
+      "name": "dna-shops",
+      "click": "#bdna-stage-shops",
+      "waitFor": "#bdna-panel-shops",
+      "fullPage": true
+    },
+    {
+      "name": "dna-knowledge",
+      "click": "#bdna-stage-knowledge",
+      "waitFor": "#bdna-panel-knowledge",
+      "fullPage": true
+    }
+  ]
+}
