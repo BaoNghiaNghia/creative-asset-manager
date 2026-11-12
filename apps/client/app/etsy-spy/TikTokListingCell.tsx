@@ -276,6 +276,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 {LABELS[detailStatus] || detailStatus}
               </span>
               <span>Manual · Draft only</span>
+              <span>Engine: {detail?.generation_engine === "codex"
+                ? "Codex CLI · ChatGPT" : "Gemini (bản cũ)"}</span>
               <span>YTrends · Etsy: {ytrendsStatus === "connected" ? "Có dữ liệu" :
                 ytrendsStatus === "no_data" ? "Không thấy dữ liệu phù hợp" :
                 ytrendsStatus === "disabled" ? "Đang tắt" :
@@ -289,7 +291,9 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
             </button>}
             {isShowingPrevious && <p className="etsy-tiktok-history-note">
               Đang xem bản nháp trước. {ACTIVE_STATUSES.includes(detailStatus)
-                ? "Phiên bản mới đang chạy YTrends và Gemini; dữ liệu cũ được giữ nguyên."
+                ? "Phiên bản mới đang xử lý YTrends và " +
+                    (detail?.generation_engine === "codex" ? "Codex CLI" : "Gemini") +
+                    "; dữ liệu cũ được giữ nguyên."
                 : "Bạn có thể đối chiếu với bản nháp mới."}
             </p>}
             {result ? <>
@@ -353,7 +357,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <button type="button" className="etsy-tiktok-dialog-run"
                 disabled={regenerating || researching || queueing || loading}
                 onClick={() => void regenerate()}>
-                {regenerating ? "Đang tạo job…" : "Tạo lại với YTrends"}
+                {regenerating ? "Đang tạo job…" : "Tạo lại với Codex + YTrends"}
               </button>}
             {canManage && detail?.enabled && detail?.result && detailStatus === "needs_fact_check" &&
               <button type="button" disabled={researching || regenerating || loading}

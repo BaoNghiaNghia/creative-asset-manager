@@ -416,6 +416,33 @@ class ProcessingPolicyTest(unittest.TestCase):
         self.assertIsNotNone(claimed)
         self.assertEqual(claimed.id, job_id)
 
+    def test_tiktok_codex_draft_claims_without_gemini_model_slot(self):
+        self.policy("tiktok-tenant", total=4, ai=1)
+        first_id = self.job(
+            "tiktok-tenant", "tiktok-codex-first",
+            kind="etsy_tiktok_listing_generate", provider="codex", scope="ai")
+        second_id = self.job(
+            "tiktok-tenant", "tiktok-codex-second",
+            kind="etsy_tiktok_listing_generate", provider="codex", scope="ai")
+        first = self.claim(
+            "image-a", ("etsy_tiktok_listing_generate",), worker_role="image")
+        self.assertIsNotNone(first)
+        self.assertEqual(first.id, first_id)
+        self.assertEqual(first.provider_key, "codex")
+        self.assertNotIn("_ai_model_start_slot", first.payload_json)
+        self.assertIsNone(self.claim(
+            "image-b", ("etsy_tiktok_listing_generate",), worker_role="image"))
+        with self.sessions() as session:
+            policy = session.get(TenantProcessingPolicyModel, "tiktok-tenant")
+            self.assertEqual(policy.ai_active_jobs, 1)
+            ProcessingJobService(ProcessingRepository(session)).complete(
+                job_id=first_id, worker_id="image-a")
+        second = self.claim(
+            "image-b", ("etsy_tiktok_listing_generate",), worker_role="image")
+        self.assertIsNotNone(second)
+        self.assertEqual(second.id, second_id)
+
+
     def test_stage1_batch_queues_wait_for_a_single_active_codex_generation(self):
         self.policy("tenant", total=5, ai=5)
         jobs = [self.job("tenant", f"stage1-{index}",

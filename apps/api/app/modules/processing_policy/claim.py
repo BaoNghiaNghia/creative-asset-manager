@@ -203,7 +203,9 @@ class TenantAwareJobClaimer:
                 return None
 
             model_slot = None
-            if candidate.job_type in MODEL_GATED_AI_JOB_TYPES:
+            if (candidate.job_type in MODEL_GATED_AI_JOB_TYPES
+                    and not (candidate.job_type == "etsy_tiktok_listing_generate"
+                             and candidate.provider_key == "codex")):
                 model_slot = self._reserve_model_slot(candidate, now)
                 if model_slot is _ANALYSIS_MODEL_GATE_UNRESOLVABLE:
                     if candidate.concurrency_accounted:
@@ -575,7 +577,9 @@ class TenantAwareJobClaimer:
                 self._release_tenant_reservation(job)
                 return False
 
-        if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
+        if (job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES
+                and not (job.job_type == "etsy_tiktok_listing_generate"
+                         and job.provider_key == "codex")):
             _interval_seconds, rrugc_concurrency_limit, _drain_mode = (
                 self._rrugc_lane_profile(job, now)
             )

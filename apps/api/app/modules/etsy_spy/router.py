@@ -49,6 +49,7 @@ from .tiktok_skill import (
     latest_job as latest_tiktok_skill_job,
     project as project_tiktok_skill,
     is_enabled as tiktok_skill_enabled,
+    execution_engine as tiktok_skill_execution_engine,
     auto_on_pick_enabled as tiktok_auto_on_pick_enabled,
     retry_failed_draft as retry_tiktok_failed_draft,
     regenerate_completed_draft as regenerate_tiktok_completed_draft,
@@ -1181,6 +1182,7 @@ def tiktok_skill_overview(
             ProcessingJobModel.cancellation_requested.is_(False),
         ).group_by(ProcessingJobModel.status))}
     return {"enabled": tiktok_skill_enabled(), "version": TIKTOK_LISTING_PROFILE_VERSION,
+            "execution_engine": tiktok_skill_execution_engine(),
             "keyword_source": "ytrends_etsy_context",
             "ytrends_enabled": get_settings().ETSY_TIKTOK_YTRENDS_ENABLED,
             "auto_on_pick": tiktok_auto_on_pick_enabled(),
@@ -1284,7 +1286,7 @@ def regenerate_listing_tiktok_skill(
     principal: CurrentPrincipal = Depends(MANAGE),
     db: Session = Depends(get_db),
 ):
-    """Create a new YTrends-aware Gemini draft without destroying the old draft."""
+    """Create a new YTrends-aware draft with the configured engine; preserve old."""
     if not re.fullmatch(r"[0-9]{5,20}", listing_key):
         raise HTTPException(422, "Invalid Etsy Listing ID")
     if not tiktok_skill_enabled():

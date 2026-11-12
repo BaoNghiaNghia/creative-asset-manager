@@ -271,6 +271,12 @@ class Settings(BaseSettings):
     ETSY_TIKTOK_YTRENDS_ENABLED: bool = True
     ETSY_TIKTOK_YTRENDS_BEARER_TOKEN: SecretStr = SecretStr("")
     ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS: float = 8.0
+    # Manual Picked draft engine. Codex uses the existing ChatGPT CLI login,
+    # not OPENAI_API_KEY, and is serialised across the worker host.
+    ETSY_TIKTOK_EXECUTION_ENGINE: str = "codex"
+    ETSY_TIKTOK_CODEX_HOME: str = "/var/lib/creative-asset-manager/codex"
+    ETSY_TIKTOK_CODEX_TIMEOUT_SECONDS: int = 240
+    ETSY_TIKTOK_CODEX_MODEL: str = ""
     RRUGC_CREATIVE_BRIEF_ENABLED: bool = True
     # Temporarily disable provider/quota retry loops; users may retry a brief manually.
     RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED: bool = False
