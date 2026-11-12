@@ -120,11 +120,17 @@ def is_enabled() -> bool:
     return bool(get_settings().ETSY_TIKTOK_LISTING_ENABLED)
 
 
+def _codex_only_engine(configured: object) -> str:
+    value = str(configured).strip().casefold()
+    if value != "codex":
+        raise ValueError("tiktok_listing_codex_only")
+    return "codex"
+
+
 def execution_engine() -> str:
-    value = str(get_settings().ETSY_TIKTOK_EXECUTION_ENGINE).strip().casefold()
-    if value not in ("codex", "gemini"):
-        raise ValueError("invalid_tiktok_execution_engine")
-    return value
+    # Production is Codex-only. Legacy Gemini drafts stay readable, but even
+    # misconfigured settings cannot silently re-enable paid Gemini calls.
+    return _codex_only_engine(get_settings().ETSY_TIKTOK_EXECUTION_ENGINE)
 
 
 CODEX_JOB_PROMPT = (
@@ -556,6 +562,10 @@ def retry_failed_draft(db: Session, tenant: str, listing: EtsySpyListing,
     job = latest_job(db, tenant, listing.listing_key)
     if job is None:
         job = queue_on_pick(db, tenant, listing, picked_at)
+    # An old failed Gemini job must NOT be revived by a manual retry.
+    # Create (or reuse) an immutable Codex job instead.
+    if job is not None and job.provider_key != "codex" and execution_engine() == "codex":
+        return queue_on_pick(db, tenant, listing, picked_at)
     if job is None:
         return None
     locked = db.scalar(select(ProcessingJobModel).where(
@@ -666,7 +676,7 @@ async def download_image(url: str) -> tuple[bytes, str]:
 
 
 class EtsyTikTokListingHandler:
-    """Tenant-scoped CAM worker: default real Codex skill, legacy Gemini jobs."""
+    """Tenant-scoped CAM worker: Codex-only, historical drafts remain readable."""
     def __init__(self, *, fetch_image=download_image, research_ytrends=None,
                  codex_runner=None):
         self.fetch_image = fetch_image
@@ -725,6 +735,12 @@ class EtsyTikTokListingHandler:
             return JobHandlerResult.retryable("tiktok_listing_disabled", "Draft generation disabled.")
         payload = job.payload
         engine = payload.get("engine") or "gemini"
+        # Never execute legacy Gemini jobs on a Codex-only CAM installation.
+        # Historical completed drafts remain viewable; only new Codex jobs run.
+        if engine != "codex" and execution_engine() == "codex":
+            return JobHandlerResult.non_retryable(
+                "tiktok_listing_gemini_disabled",
+                "Legacy Gemini job disabled. Create or retry a Codex draft.")
         version = payload.get("skill_version")
         if (payload.get("schema") != "cam-etsy-tiktok-listing-job-v1" or
             (engine == "codex" and version != PROFILE_VERSION) or
