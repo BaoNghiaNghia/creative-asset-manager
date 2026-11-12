@@ -108,6 +108,27 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - Add `node scripts/verify-route-split.mjs` measuring post-build startup JS/CSS gzip budgets (90/115 KB), verifying lazy Explorer chunk and route CSS boundaries. Baseline before split: startup JS 182.3 KB gzip, CSS 122.6 KB gzip. After split: JS 62.2 KB, CSS 105.2 KB gzip. This is a **startup** saving, not a claim that total application downloads or render times decrease by the same ratio.
 - QA requires TypeScript/Vite build, focused regression tests including Etsy modal/scroll, Public Review, Review Board and Explorer, bundle budget, fixture Chrome QA at desktop/tablet/mobile, then immutable frontend-only release from reviewed `main` with current+rollback retained. Authenticated production routes require separately signed-in verification.
 
+## Phase 8 — Etsy Spy background refresh and Design viewer continuity (2026-11-12)
+
+- Continue pinned evondevKit guidance for a quiet operational UI: no added UI framework, API request, network poll or status decoration.
+- **Picked refresh**: the existing 30-second SMS/TikTok poll now reconciles listing projections by stable `listingKey`. Identical rows keep their object identities; an unchanged response (including sync timestamp-only changes) retains the current page object without invoking a table update. Status, Design, SMS and counts remain live when actually changed, and reordered/deleted rows are respected.
+- **Design viewer**: opening the gallery locks document background scroll, moves focus into the dialog, keeps keyboard Tab focus inside it and restores focus to the launching thumbnail on close. Escape and arrow navigation remain available. Updated Design thumbnails do not restart an open gallery. The modal continues showing only images, controls and the thumbnail list.
+- User-selected filters, scroll position, Pick/Later, TikTok SEO dialog state, touch gallery opening and backend RBAC are unchanged. No db migration, worker update, new runtime dependency or production asset mutation.
+- Quality: focused reconciliation/Design keyboard regression, existing Etsy Spy Picked/modal regressions, frontend typecheck and Vite build, responsive QA at 390x844, 768x1024 and 1440x900, followed by read-only production smoke when deployed.
+
+## Phase 9 — live Picked polling with zero dashboard churn (2026-11-12)
+
+- **One live data lane** replaces the overlapping 15-second full dashboard refresh and 30-second Picked-only poll. Active TikTok jobs (pending/retry/processing) poll the current Picked page every 15 seconds; otherwise the existing lightweight poll remains at 30 seconds. This retains fresh progress feedback and SMS/Design updates without re-fetching the summary, access checks, Blacklist/Win Keywords and all day facets on each active job cycle.
+- **Non-interruptive UI**: the Picked table, Design gallery, TikTok modal, current scroll and checkbox selection remain mounted. Identical data is ignored via Phase 8 row reconciliation; when relevant statuses change, only the page data updates. Background polling is still disabled for hidden tabs, and focus restoration still triggers one immediate check.
+- **Scope**: React effects and pure timing helper only. No new backend endpoints, localStorage, auto-navigation, new runtime dependency or changes to queue permissions, status interpretation, or worker processing.
+- **QA**: unit tests cover active and idle cadence, actual timer registration, unchanged dashboard request counts, existing modal/scroll preservation, and typecheck/build; responsive fixtures at phone/tablet/desktop remain mandatory before production.
+
+## Phase 9b — Reviews Stage 3 responsive action rail (2026-11-12)
+
+- The cross-workspace browser gate identified a genuine Stage 3 heading overflow on tablet and phone. Constrain the Pinterest source-plan header and its action rail to the available card width in the existing reviews-scoped evondevKit CSS adapter, letting actions wrap while the Drive root text truncates. The Scan action remains visible and keyboard/touch accessible.
+- This is CSS-only, without altered source paths, status, permissions, image processing, data, or Scout behavior. Keep the Pinterest table's own horizontal scroll.
+- Verify at desktop 1440, tablet portrait 768 and mobile 390 before release. Browser fixture baselines remain governed; never rewrite them to dismiss failures.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
