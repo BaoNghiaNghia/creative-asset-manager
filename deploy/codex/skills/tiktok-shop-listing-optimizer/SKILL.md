@@ -18,7 +18,7 @@ Return exactly one JSON object with keys `title`, `description`, `highlights`, `
   2-4 lines beginning `- `, each a **different observable detail** (subject/pose, typography with exact readable lettering, colors/ornaments, composition). Don't state nonvisible features.
 
   `Size & Fit`
-  Two sentences inviting the buyer to consult measurements or the size guidance for their selected garment *if available*. Never assert fabric, blank style, specific fit, measurement, stretch, or shrinkage.
+  Write **three complete, practical sentences, at least 34 words in total**, closely matching the specific depth of the reference: (1) review the selected garment's size information, (2) **if a size chart is available**, compare **chest width and body length** with a favorite similar garment **measured flat**, and (3) choose a **roomier size only after checking those measurements**. For a visibly identifiable sweatshirt, refer to a favorite sweatshirt; use shirt/hoodie when that category is supported, otherwise "similar garment". Never assume a size chart exists or invent a specific fit, dimensions, fabric, stretch, shrinkage, size conversion or material.
 
   `Perfect Gift For`
   1-2 concrete and natural sentences on the occasion and plausible audience. Avoid generic marketing filler.
@@ -26,7 +26,13 @@ Return exactly one JSON object with keys `title`, `description`, `highlights`, `
   `Care Instructions`
   One concise statement: follow the product's actual care label and specific instructions provided with the order.
 
-- `highlights`: exactly 5 distinct concise strings: visible design, exact lettering or motif, apparel category, reasonable occasion/use, audience/gift. No duplicate concepts and <=1500 combined characters.
+- `highlights`: exactly **five substantial, complete, buyer-friendly sentences** rather than tags or terse fragments. Aim for **15–25 words per bullet**, at least **13 words each and 78 words total**; <=1500 combined characters. Match the reference's useful editorial density, with each line adding distinct information, in this order:
+  1. **Artwork:** visible main subject, pose/objects, colors/ornaments and readable design lettering (quote exact text only if legible).
+  2. **Gift appeal:** specific plausible recipients and the occasion, without guarantees or unsupported personalization.
+  3. **Know the look:** garment category and visible color/style of the graphic (e.g., distressed/retro if actually visible), not unverified blank/fabric/print technique.
+  4. **Where to wear/style it:** concrete appropriate events and outfit combinations as suggestions, without assuming comfort, fit, or material.
+  5. **Additional distinctive value:** another genuinely visible composition/lettering/detail or complementary occasion, **not** fabricated seller origin, fulfillment, shipping/customs, or a repeat of the first line.
+  No bare "Graphic sweatshirt" or "Gift idea for friends" fragments. Use complete, natural U.S. English sentences; avoid copying boilerplate across product photos.
 - `search_terms`: 6-10 distinct short phrases, <=250 characters when joined by ", ". Use artwork phrase, garment category, style, occasion, intended audience. Never invent search volumes, TikTok rankings, or viral claims.
 
 ## Evidence rules
@@ -37,6 +43,7 @@ Return exactly one JSON object with keys `title`, `description`, `highlights`, `
 - Do not output a "U.S. Printing & Shipping" section by guessing, even if an example contains one.
 - Do not duplicate a competitor title or include URLs and trademarked brands of others. When the artwork text is blurry, describe it generally rather than guessing letters.
 - Preserve exactly four fields and make the description immediately usable in the CAM preview. Do not prepend "Product Title" or "Description" inside field values.
+- Before returning JSON, internally check: Size & Fit is three practical sentences with "size chart" conditional, "chest width", "body length", "measured flat", and roomier-size advice; all five Highlights are full-length, unique statements (>=13 words each, >=78 words combined). If either is short, revise it before responding rather than submitting generic filler.
 
 ## Reference format
 
