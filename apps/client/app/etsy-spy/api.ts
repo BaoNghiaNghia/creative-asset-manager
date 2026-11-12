@@ -71,6 +71,8 @@ export type TikTokListingDraft = {
     total_listings?: number | null; total_sellers?: number | null;
     competition_level?: string | null; opportunity_score?: number | null;
     dataset_note: string;
+    keywords?: Array<{ keyword: string; status: string; listings: number | null;
+      competition: string | null; as_of_date: string | null }>;
   };
   warnings: string[]; published: false;
   metrics: { title_characters: number; description_characters: number;

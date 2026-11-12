@@ -55,7 +55,7 @@ from .tiktok_skill import (
     regenerate_completed_draft as regenerate_tiktok_completed_draft,
     attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
-from .ytrends_mcp import research_etsy_keyword
+from .ytrends_mcp import research_etsy_keyword_set
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -1337,7 +1337,7 @@ async def refresh_listing_tiktok_ytrends(
     source_title = payload.get("source_title")
     if not isinstance(source_title, str):
         raise HTTPException(409, "Source title unavailable")
-    evidence = await research_etsy_keyword(
+    evidence = await research_etsy_keyword_set(
         source_title, enabled=True,
         bearer_token=settings.ETSY_TIKTOK_YTRENDS_BEARER_TOKEN.get_secret_value(),
         timeout_seconds=settings.ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS,

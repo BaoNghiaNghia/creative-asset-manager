@@ -301,8 +301,24 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 và quyền sử dụng trước khi đăng. YTrends chỉ cung cấp tham khảo thị trường Etsy;
                 không chứng minh search volume hay hiệu quả SEO trên TikTok Shop.</p>
               {evidence && <section className="etsy-tiktok-research" aria-label="Nghiên cứu Etsy từ YTrends">
-                <strong>YTrends · Dữ liệu thị trường Etsy</strong>
-                <span>Keyword: {evidence.query || "—"}</span>
+                <strong>1. YTrends Keyword Research</strong>
+                {evidence.keywords?.length ? <>
+                  <div style={{overflowX: "auto"}}>
+                    <table style={{width: "100%", borderCollapse: "collapse", textAlign: "left"}}>
+                      <thead><tr><th>Keyword</th><th>Listings (Etsy)</th><th>Cạnh tranh</th></tr></thead>
+                      <tbody>{evidence.keywords.map((row, index) =>
+                        <tr key={row.keyword + index}>
+                          <td>{row.keyword}</td>
+                          <td>{row.listings == null ? "Không có dữ liệu" :
+                            row.listings.toLocaleString("vi-VN")}</td>
+                          <td>{row.competition || "Chưa xác định"}</td>
+                        </tr>)}</tbody>
+                    </table>
+                  </div>
+                  <p><strong>Hướng SEO:</strong> Ưu tiên từ khóa sát thiết kế và loại áo.
+                    Đối chiếu các keyword có dữ liệu YTrends trước khi lựa chọn;
+                    số listings thấp không đồng nghĩa với lượt tìm kiếm hoặc doanh số cao.</p>
+                </> : <span>Keyword: {evidence.query || "—"}</span>}
                 <span>Snapshot: {evidence.as_of_date || "Chưa có"}
                   {evidence.median_data_age_days != null
                     ? " · Tuổi dữ liệu trung vị " + evidence.median_data_age_days + " ngày" : ""}</span>
