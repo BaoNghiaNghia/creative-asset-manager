@@ -85,6 +85,19 @@ Continue the pinned evondevKit `ui-ux` design guidance, **not** a new React/runt
 - Preserve existing modal lifecycles, tab selection, data mutation feedback, keyboard focus and asynchronous retry behavior. No API, database, auth, worker or polling changes. Responsive target 320, 390, 768, 1024 and 1440 px, with tables scrolling inside their own wrappers.
 - Quality: production Vite build + focused feature regression, CSS isolation contract test, Chrome fixture QA including mode switch/tab navigation. Release frontend-only from merged `main`, preserve current + previous and run read-only production smoke.
 
+## Phase 6 — Cross-workspace feedback, skeletons, modal rhythm and render efficiency (2026-11-12)
+
+Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptation of the UI design skill (not a new runtime library), with original business rules and user interaction semantics authoritative.
+
+- New reusable components `app/components/WorkspaceFeedbackState.tsx`: semantic *loading / empty / error* states, accessible labels, optional manual retry and bounded, non-interactive list-row skeletons. Avoid full-page loaders when a view has previously loaded data.
+- Adopt in **Job Queue** table and both **Review Board** modes; also normalize existing AI Operations dashboard states, Branding DNA empty/error indicators and TikTokShop errors with phase-6 CSS without replacing the original handlers. Error messages must never be mislabeled as an empty result.
+- `styles/cam-feedback-evo.css` imported last, after phase-5 adapter. Reuse existing `--cam-evo-` tokens. Status styling has text and an optional button, not color alone. Skeletons are disabled when reduced motion is preferred.
+- **Job Queue request safety**: in-flight responses from prior filters/pages and unmounted screens are ignored using a monotonic version number. Keep the current table during manual Refresh, show a small updating status, and preserve the selected result modal. No network polling is added or removed.
+- **Job Queue render performance**: a singleton duration clock is consumed only by running-duration cells, not the page. The clock starts with the first subscribed running cell and stops with the last; all non-processing row cells remain static until data updates. This avoids a full table re-render every second.
+- Keep all existing modal portals/backdrops, Escape-to-close, scroll lock, focus return and forms. The adapter alters surface, typography and focus outlines only. A global toast remains a lightweight action confirmation with existing 5-second duration/3-visible limit.
+- Responsive/reliability gate: no document overflow at 320/390/768/1024/1440px; preserve internal table scrolling, image previews and selection; verify error/empty/loading, stale request suppression, duration timer cleanup, route navigation and production build. Frontend-only rollout from merged `main`, retaining current and rollback releases.
+- The new shared state component is incremental: other pages can opt in in future releases. No broad markup refactor, new dependency, API/DB/worker change or automatic modal closure.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

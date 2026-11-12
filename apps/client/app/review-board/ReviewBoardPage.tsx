@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
 import { CenteredLoadingState } from "../components/CenteredLoadingState";
+import { WorkspaceFeedbackState, WorkspaceSkeletonRows } from "../components/WorkspaceFeedbackState";
 import { BrandIcon } from "../components/Icons";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
@@ -785,7 +786,7 @@ export function ReviewBoardPage() {
           </details>
         </section>
 
-        {error && (
+        {error && Boolean(page?.items.length) && (
           <p className="review-board-error" role="alert">
             {error}
           </p>
@@ -807,24 +808,18 @@ export function ReviewBoardPage() {
 
             <div className="review-board-list">
               {loading && !page ? (
-                <div className="review-board-list-skeleton" aria-label="Loading issues">
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <i key={index} />
-                  ))}
-                </div>
+                <div className="review-board-list-skeleton"><WorkspaceSkeletonRows rows={6} /></div>
               ) : !page?.items.length ? (
                 <div className="review-board-list-empty">
-                  <ReviewBoardIcon name="comment" />
-                  <strong>
-                    {filters.status === "open"
-                      ? "No open review issues"
-                      : "No matching review issues"}
-                  </strong>
-                  <p>
-                    {filters.status === "open"
+                  <WorkspaceFeedbackState kind={error ? "error" : "empty"}
+                    icon={<ReviewBoardIcon name="comment" />}
+                    title={error ? "Unable to load review issues" : filters.status === "open" ? "No open review issues" : "No matching review issues"}
+                    detail={error || (filters.status === "open"
                       ? "New shared-asset feedback will appear here."
-                      : "Adjust the filters to broaden the result set."}
-                  </p>
+                      : "Adjust the filters to broaden the result set.")}
+                    onRetry={error ? () => { void reload(); } : undefined}
+                    compact
+                  />
                 </div>
               ) : (
                 issueGroups.map((group) => {

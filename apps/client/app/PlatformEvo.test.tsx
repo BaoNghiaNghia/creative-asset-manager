@@ -8,8 +8,11 @@ import { describe, expect, it } from "vitest";
 import { AiOperationsShell } from "./ai-operations/AiOperationsPage";
 import { BrandingDnaPage } from "./branding-dna/BrandingDnaPage";
 import { TiktokShopScoutUgcPage } from "./tiktokshop/TiktokShopScoutUgcPage";
-const css = readFileSync(resolve(process.cwd(), "styles/cam-platform-evo.css"), "utf8");
-const main = readFileSync(resolve(process.cwd(), "app/main.tsx"), "utf8");
+// This contract test runs in Node/Vitest; the frontend TypeScript project intentionally
+// does not include Node globals in its production types.
+const testCwd = (globalThis as unknown as { process: { cwd: () => string } }).process.cwd();
+const css = readFileSync(resolve(testCwd, "styles/cam-platform-evo.css"), "utf8");
+const main = readFileSync(resolve(testCwd, "app/main.tsx"), "utf8");
 
 describe("evondevKit phase 5 — four independent operational workspaces", () => {
   it("loads the new adapter after the prior shared token and console layers", () => {

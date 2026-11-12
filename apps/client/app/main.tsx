@@ -26,6 +26,8 @@ import "../app/styles/cam-evo-tokens.css";
 import "../styles/cam-console-evo.css";
 // Phase 5: route-scoped evondevKit roles, no changes to queues or routes.
 import "../styles/cam-platform-evo.css";
+// Phase 6: shared loading, empty/error, retry and modal feedback styling.
+import "../styles/cam-feedback-evo.css";
 
 function AppBoot() {
   useEffect(() => {

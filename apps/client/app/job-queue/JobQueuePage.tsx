@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { fetchAiOperationsJobQueue, type AiOpsJob } from "../../features/ai_operations";
 import { BrandIcon } from "../components/Icons";
+import { WorkspaceFeedbackState, WorkspaceSkeletonRows } from "../components/WorkspaceFeedbackState";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import geminiSparkle from "../../assets/gemini-sparkle.svg";
@@ -41,6 +42,39 @@ export function formatJobDuration(job: Pick<AiOpsJob, "status" | "claimed_at" | 
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
   const seconds = totalSeconds % 60;
   return hours ? `${hours} h ${minutes} min ${seconds} s` : `${minutes} min ${seconds} s`;
+}
+
+// One clock for all running durations. Only live-duration cells subscribe;
+// the full queue/table no longer rerenders every second.
+let clockSnapshot = Date.now();
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+const clockListeners = new Set<() => void>();
+function subscribeDurationClock(listener: () => void) {
+  clockListeners.add(listener);
+  if (clockTimer === null && typeof window !== "undefined") {
+    clockSnapshot = Date.now();
+    clockTimer = window.setInterval(() => {
+      clockSnapshot = Date.now();
+      clockListeners.forEach(notify => notify());
+    }, 1000);
+  }
+  return () => {
+    clockListeners.delete(listener);
+    if (!clockListeners.size && clockTimer !== null) {
+      window.clearInterval(clockTimer);
+      clockTimer = null;
+    }
+  };
+}
+const getDurationSnapshot = () => clockSnapshot;
+function RunningDuration({ job }: { job: AiOpsJob }) {
+  const now = useSyncExternalStore(subscribeDurationClock, getDurationSnapshot, getDurationSnapshot);
+  return <span className="job-duration">{formatJobDuration(job, now)}</span>;
+}
+export function JobDurationCell({ job }: { job: AiOpsJob }) {
+  return job.status === "processing"
+    ? <RunningDuration job={job} />
+    : <span className="job-duration">{formatJobDuration(job)}</span>;
 }
 
 export function jobStatusLabel(job: Pick<AiOpsJob, "status" | "is_deferred"> & { waiting_reason?: string | null }) {
@@ -169,9 +203,10 @@ export function JobQueuePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedResult, setSelectedResult] = useState<AiOpsJob | null>(null);
-  const [clockNow, setClockNow] = useState(() => Date.now());
+  const loadVersion = useRef(0);
 
   const load = useCallback(() => {
+    const requestVersion = ++loadVersion.current;
     setLoading(true);
     setError("");
     fetchAiOperationsJobQueue({
@@ -186,6 +221,7 @@ export function JobQueuePage() {
       pageSize,
     })
       .then(response => {
+        if (requestVersion !== loadVersion.current) return;
         const nextJobs = response.jobs.items;
         setJobs(nextJobs);
         setTotal(response.jobs.total);
@@ -202,18 +238,19 @@ export function JobQueuePage() {
           });
         }
       })
-      .catch(reason => setError(reason instanceof Error ? reason.message : "Job Queue could not be loaded."))
-      .finally(() => setLoading(false));
+      .catch(reason => {
+        if (requestVersion === loadVersion.current) setError(reason instanceof Error ? reason.message : "Job Queue could not be loaded.");
+      })
+      .finally(() => {
+        if (requestVersion === loadVersion.current) setLoading(false);
+      });
   }, [page, pageSize, provider, status]);
 
-  useEffect(() => { load(); }, [load]);
-
   useEffect(() => {
-    if (!jobs.some(job => job.status === "processing")) return;
-    setClockNow(Date.now());
-    const timer = window.setInterval(() => setClockNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [jobs]);
+    load();
+    // Reject responses from a previous filter/page or from an unmounted page.
+    return () => { loadVersion.current++; };
+  }, [load]);
 
   useEffect(() => {
     if (!selectedResult) return;
@@ -312,18 +349,19 @@ export function JobQueuePage() {
           </article>)}
         </section>
 
-        {error && <div className="job-queue-error" role="alert"><span>{error}</span><button type="button" onClick={load}>Try again</button></div>}
+        {error && Boolean(jobs.length) && <div className="job-queue-error" role="alert"><span>{error}</span><button type="button" onClick={load}>Try again</button></div>}
 
-        <section className="job-queue-table-card">
+        <section className="job-queue-table-card" aria-busy={loading}>
           <header>
             <div><h2>Square generation jobs</h2><p>{status ? `Showing ${formatJobType(status).toLowerCase()} generations` : "All recent Generate Square 1:1 jobs"}</p></div>
             <strong>{total.toLocaleString()} total</strong>
+            {loading && jobs.length > 0 && <span className="job-queue-refreshing" role="status" aria-live="polite">Updating data…</span>}
           </header>
           <div className="job-queue-table-scroll">
             <table className="job-queue-table">
               <thead><tr><th>Job</th><th>Source</th><th>Generated</th><th>Provider</th><th>AI model</th><th>Status</th><th>Attempts</th><th>Duration</th><th>Updated</th><th>Action</th></tr></thead>
               <tbody>
-                {loading && !jobs.length ? <tr><td colSpan={10} className="job-queue-empty">Loading jobs...</td></tr> : visibleJobs.map(job => <tr key={job.id}>
+                {loading && !jobs.length ? <tr><td colSpan={10} className="job-queue-empty"><WorkspaceSkeletonRows rows={4} /></td></tr> : visibleJobs.map(job => <tr key={job.id}>
                   <td>
                     <div className="job-queue-job">
                       <svg className="job-queue-file-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>
@@ -336,13 +374,19 @@ export function JobQueuePage() {
                   <td><span className="job-ai-model">{job.ai_model || "Default"}</span></td>
                   <td><span className={`job-status ${job.is_deferred ? "waiting" : job.status}`}><i />{jobStatusLabel(job)}</span>{job.waiting_reason && <small className="job-waiting-reason">{job.waiting_reason === "gemini_image_quota_deferred" ? ("Next attempt " + formatJobTime(job.next_attempt_at)) : formatJobType(job.waiting_reason)}</small>}</td>
                   <td><b>{job.attempt_count}</b><span className="job-attempt-limit"> / {job.max_attempts}</span></td>
-                  <td><span className="job-duration">{formatJobDuration(job, clockNow)}</span></td>
+                  <td><JobDurationCell job={job} /></td>
                   <td><time dateTime={job.updated_at}>{formatJobTime(job.updated_at)}</time></td>
                   <td>{job.status === "completed" && job.source_thumbnail_url && job.generated_image_url
                     ? <button type="button" className="job-view-result" onClick={() => setSelectedResult(job)}>View result</button>
                     : <span className="job-result-unavailable">&mdash;</span>}</td>
                 </tr>)}
-                {!loading && !visibleJobs.length && <tr><td colSpan={10} className="job-queue-empty">No jobs match the selected filters.</td></tr>}
+                {!loading && !visibleJobs.length && <tr><td colSpan={10} className="job-queue-empty"><WorkspaceFeedbackState
+                  kind={error ? "error" : "empty"}
+                  title={error ? "Unable to load jobs" : "No jobs match the filters"}
+                  detail={error || "Try another status, provider or search term."}
+                  onRetry={error ? load : undefined}
+                  compact
+                /></td></tr>}
               </tbody>
             </table>
           </div>
