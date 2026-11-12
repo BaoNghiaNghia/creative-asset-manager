@@ -1,0 +1,232 @@
+{
+  "identity": {
+    "id": "qa-cam-operator",
+    "roles": [
+      "operator"
+    ],
+    "permissions": [
+      "assets.read",
+      "etsy_spy.read",
+      "etsy_spy.manage"
+    ],
+    "is_processing_admin": false,
+    "authorization_source": "tenant_rbac",
+    "application_auth_provider": "google",
+    "display_name": "UI QA Operator",
+    "email": "ui-qa@example.test",
+    "avatar_url": null
+  },
+  "providerSession": {
+    "authenticated": true,
+    "user": {
+      "id": "qa-ui",
+      "name": "UI QA Operator",
+      "email": "ui-qa@example.test"
+    }
+  },
+  "sources": [],
+  "folders": {},
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/summary",
+      "body": {
+        "keywords": 208,
+        "listings": 360,
+        "sessions": 5,
+        "search": 340,
+        "shop": 20,
+        "trademarks": 2,
+        "tm_pending": 1,
+        "errors": 1,
+        "warnings": 3,
+        "online_agents": 1,
+        "agent_count": 1,
+        "source_status": "online",
+        "last_synced_at": "2026-11-12T08:40:00Z",
+        "last_inventory_at": "2026-11-12T08:39:00Z",
+        "last_seen_at": "2026-11-12T08:41:00Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/listings",
+      "body": {
+        "items": [
+          {
+            "sessionId": "qa",
+            "keyword": "Valentine",
+            "sourceKind": "search",
+            "sourceKinds": [
+              "search"
+            ],
+            "listingKey": "121212",
+            "pageTitle": "Retro Occupational Therapy Shirt, OT OTA Gift, Colorful Graphic Tee",
+            "url": "https://www.etsy.com/listing/121212",
+            "thumbnailUrl": null,
+            "fullImageUrl": null,
+            "badge": "Bestseller",
+            "searchBadge": "Bestseller",
+            "keywordSms": [
+              "occupational therapy shirt",
+              "ota gift",
+              "retro therapy tee"
+            ],
+            "keywordSmsQuery": "occupational therapy",
+            "keywordSmsStatus": "ready",
+            "bought24h": null,
+            "views24h": 18,
+            "inCarts": 25,
+            "demandScore": 62,
+            "observedAt": "2026-11-12T08:20:00Z",
+            "tm": "no_match",
+            "tmStatus": "complete",
+            "tmSource": "TMHunt",
+            "tmCheckedAt": "2026-11-12T07:00:00Z",
+            "tmSourceAsOf": "2026-11-12",
+            "tmMatches": [],
+            "pickState": "eligible"
+          },
+          {
+            "sessionId": "qa",
+            "keyword": "Christmas",
+            "sourceKind": "shop",
+            "sourceKinds": [
+              "shop"
+            ],
+            "listingKey": "343434",
+            "pageTitle": "Vintage Santa Claus Christmas Crewneck Sweatshirt Gift for Mom",
+            "url": "https://www.etsy.com/listing/343434",
+            "thumbnailUrl": null,
+            "fullImageUrl": null,
+            "badge": "Popular now",
+            "searchBadge": "Popular now",
+            "keywordSms": [
+              "vintage santa sweatshirt",
+              "christmas crewneck"
+            ],
+            "keywordSmsQuery": "vintage santa sweatshirt",
+            "keywordSmsStatus": "ready",
+            "bought24h": null,
+            "views24h": 21,
+            "inCarts": 32,
+            "demandScore": 71,
+            "observedAt": "2026-11-12T08:10:00Z",
+            "tm": "unknown",
+            "tmStatus": "pending",
+            "tmSource": "TMHunt",
+            "tmCheckedAt": null,
+            "tmSourceAsOf": null,
+            "tmMatches": [],
+            "pickState": "eligible"
+          }
+        ],
+        "total": 2,
+        "page": 1,
+        "pageSize": 50
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/listings/observed-days",
+      "body": {
+        "pick_state": "eligible",
+        "items": [
+          {
+            "day": "2026-11-12",
+            "count": 2,
+            "pickedCount": 0
+          },
+          {
+            "day": "2026-11-11",
+            "count": 3,
+            "pickedCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/listings/observed-day-groups",
+      "body": {
+        "pick_state": "eligible",
+        "day": "2026-11-12",
+        "total": 2,
+        "items": [
+          {
+            "key": "christmas",
+            "label": "Christmas",
+            "count": 1
+          },
+          {
+            "key": "valentine",
+            "label": "Valentine",
+            "count": 1
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/agents",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/image-agents",
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/image-agents/overview",
+      "body": {
+        "enabled": true,
+        "counts": {}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/tiktok-listings/overview",
+      "body": {
+        "enabled": true,
+        "auto_on_pick": true,
+        "draft_only": true,
+        "keyword_source": "ytrends",
+        "counts": {
+          "completed": 5,
+          "pending": 354,
+          "processing": 1,
+          "failed": 0
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/blacklist",
+      "body": {
+        "phrases": []
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etsy-spy/win-keywords",
+      "body": {
+        "keywords": []
+      }
+    },
+    {
+      "method": "GET",
+      "prefix": "/api/v1/etsy-spy/",
+      "body": {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "pageSize": 50
+      }
+    }
+  ]
+}

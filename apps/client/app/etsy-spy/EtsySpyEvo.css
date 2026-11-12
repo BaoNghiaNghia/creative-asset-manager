@@ -1,0 +1,365 @@
+/* evondevKit-inspired CAM Etsy Spy adapter.
+   Source of truth: apps/client/DESIGN.md. React handlers/data are unchanged. */
+
+/* Light, calm workspace with one clear operational surface. */
+body:has(.etsy-spy-page),
+body:has(.etsy-spy-page) #root,
+body:has(.etsy-spy-page) .app-route-content {
+  background: var(--cam-evo-page) !important;
+}
+.etsy-spy-page {
+  --etsy-ink: var(--cam-evo-ink);
+  --etsy-subtle: var(--cam-evo-muted);
+  --etsy-line: var(--cam-evo-hairline);
+  --etsy-blue: var(--cam-evo-brand);
+  --etsy-soft: var(--cam-evo-page);
+  background: var(--cam-evo-page);
+  color: var(--cam-evo-ink);
+  font-family: var(--cam-evo-font);
+  padding: 18px clamp(12px, 2.4vw, 36px) 44px;
+}
+.etsy-spy-page > .workspace-page-header {
+  background: transparent;
+  min-height: 65px;
+  padding: 0 1px 12px;
+  margin-bottom: 10px;
+}
+.etsy-spy-page .workspace-page-header h1 {
+  color: var(--cam-evo-ink);
+  font-size: clamp(23px, 1.9vw, 28px);
+  font-weight: 790;
+}
+.etsy-spy-page .workspace-page-header .workspace-page-header-description {
+  color: var(--cam-evo-muted);
+  font-size: 12px;
+}
+.etsy-spy-page :is(button, input, select, textarea, a):focus-visible,
+body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
+  outline: 2px solid var(--cam-evo-focus);
+  outline-offset: 2px;
+}
+
+/* Tabs: no nested heavy tiles, but a visible selected state. */
+.etsy-spy-page .etsy-stage-nav,
+.etsy-spy-page .etsy-toolbar {
+  border-color: var(--cam-evo-hairline);
+}
+.etsy-spy-page .etsy-stage-nav .etsy-tabs { gap: 2px; }
+.etsy-spy-page .etsy-stage-nav .etsy-tabs button {
+  min-height: 42px;
+  border-radius: 7px 7px 0 0;
+  padding: 7px 12px 9px;
+  background: transparent;
+  transition: background-color .14s ease, color .14s ease;
+}
+.etsy-spy-page .etsy-stage-nav .etsy-tabs button:hover { background: #edf3fb; }
+.etsy-spy-page .etsy-stage-nav .etsy-tabs button.active {
+  background: #fff;
+  border-bottom-color: var(--cam-evo-brand);
+  color: var(--cam-evo-brand);
+}
+.etsy-spy-page .etsy-tab-copy strong { font-size: 11.5px; line-height: 1.25; }
+.etsy-spy-page .etsy-tab-copy small { font-size: 9.5px; color: var(--cam-evo-muted); }
+.etsy-spy-page .etsy-tab-number { color: #7d899a; }
+
+/* Use one card surface for the stage, then hairlines within it. */
+.etsy-spy-page .etsy-stage-card {
+  border: 1px solid var(--cam-evo-hairline);
+  border-radius: var(--cam-evo-radius-card);
+  background: var(--cam-evo-surface);
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-stage-heading h2 {
+  font-size: clamp(17px, 1.4vw, 21px);
+  font-weight: 790;
+  letter-spacing: -.025em;
+  color: var(--cam-evo-ink);
+}
+.etsy-spy-page .etsy-stage-heading p { color: var(--cam-evo-muted); }
+.etsy-spy-page .etsy-freshness {
+  border: 1px solid var(--cam-evo-hairline);
+  background: var(--cam-evo-hover);
+  color: var(--cam-evo-muted);
+}
+
+/* The summary is a navigation filter, not nine colorful promotional cards. */
+.etsy-spy-page .etsy-stats { gap: 7px; margin-bottom: 12px; }
+.etsy-spy-page .etsy-stat {
+  min-width: 0;
+  min-height: 74px;
+  padding: 9px 10px;
+  gap: 4px;
+  border: 1px solid var(--cam-evo-hairline);
+  border-radius: var(--cam-evo-radius-control);
+  background: #fff;
+  box-shadow: none;
+  transform: none;
+}
+.etsy-spy-page .etsy-stat:hover {
+  border-color: #c1cfe0;
+  background: var(--cam-evo-hover);
+  box-shadow: none;
+  transform: none;
+}
+.etsy-spy-page .etsy-stat.active {
+  border-color: var(--cam-evo-brand);
+  background: var(--cam-evo-brand-soft);
+  box-shadow: inset 0 0 0 1px rgba(38, 92, 189, .12);
+}
+.etsy-spy-page .etsy-stat-heading { gap: 5px; }
+.etsy-spy-page .etsy-stat-heading > span:last-child {
+  font-size: 10px;
+  color: var(--cam-evo-muted);
+  font-weight: 680;
+}
+.etsy-spy-page .etsy-stat .etsy-stat-icon {
+  width: 16px; height: 16px; flex-basis: 16px;
+  background: transparent;
+  color: var(--etsy-stat-color);
+}
+.etsy-spy-page .etsy-stat > strong {
+  color: var(--cam-evo-ink);
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 780;
+}
+.etsy-spy-page .etsy-stat > small {
+  color: var(--cam-evo-muted);
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+/* Form controls / compact action vocabulary. */
+.etsy-spy-page .etsy-btn {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  background: #fff;
+  color: #33445e;
+  font-size: 11px;
+  font-weight: 680;
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-btn:hover {
+  background: #f0f3f8;
+  border-color: var(--cam-evo-input-border);
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-btn.etsy-primary {
+  color: white;
+  background: var(--cam-evo-brand);
+  border-color: var(--cam-evo-brand);
+}
+.etsy-spy-page .etsy-btn.etsy-primary:hover {
+  color: white;
+  background: var(--cam-evo-brand-hover);
+  border-color: var(--cam-evo-brand-hover);
+}
+.etsy-spy-page .etsy-search-filters {
+  gap: 8px;
+  padding: 2px 0 0;
+  margin-bottom: 12px;
+}
+.etsy-spy-page .etsy-search-filters :is(input, select),
+.etsy-spy-page .etsy-actions select,
+.etsy-spy-page .etsy-table-count select,
+.etsy-spy-page .etsy-stage-heading-actions :is(input, select) {
+  min-height: 33px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border: 1px solid var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  background: #fff;
+  color: var(--cam-evo-ink);
+  font-size: 11px;
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-search-filters input:focus,
+.etsy-spy-page .etsy-search-filters select:focus {
+  border-color: var(--cam-evo-focus);
+}
+.etsy-spy-page .etsy-search-box input { padding-left: 35px; }
+.etsy-spy-page .etsy-clear-filters { color: var(--cam-evo-brand); }
+.etsy-spy-page .etsy-bulk-bar {
+  background: var(--cam-evo-hover);
+  border-color: var(--cam-evo-hairline);
+  border-radius: var(--cam-evo-radius-control);
+}
+.etsy-spy-page .etsy-bulk-bar.has-selection {
+  background: var(--cam-evo-brand-soft);
+  border-color: #c8d8f1;
+}
+
+/* Dataset rows: readable text, quiet vertical rhythm, strong data separators. */
+.etsy-spy-page .etsy-table-card {
+  background: #fff;
+  border: 1px solid var(--cam-evo-hairline);
+  border-radius: var(--cam-evo-radius-card);
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-table-wrap {
+  max-height: min(72vh, 860px);
+  scrollbar-color: #b8c5d7 transparent;
+  scrollbar-width: thin;
+}
+.etsy-spy-page .etsy-table-wrap th {
+  background: #f7f9fc;
+  color: #53647d;
+  border-bottom: 1px solid var(--cam-evo-input-border);
+  font-size: 10.5px;
+  font-weight: 760;
+}
+.etsy-spy-page .etsy-table-wrap th button {
+  min-height: 39px;
+  padding: 10px 11px;
+  font-size: 10.5px;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-static-header {
+  min-height: 39px;
+  padding: 10px 11px;
+}
+.etsy-spy-page .etsy-table-wrap td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--cam-evo-hairline);
+  color: #34445b;
+  font-size: 11px;
+  line-height: 1.43;
+}
+.etsy-spy-page .etsy-table-wrap tbody tr:hover td { background: #f8fafc; }
+.etsy-spy-page .etsy-table-wrap tbody tr.is-selected td,
+.etsy-spy-page .etsy-table-wrap .is-selected td { background: #edf4fd; }
+.etsy-spy-page .etsy-pill {
+  border-radius: 5px;
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-table-count,
+.etsy-spy-page .etsy-table-section-header h2 span {
+  color: var(--cam-evo-muted);
+}
+.etsy-spy-page .etsy-table-section-header h2 {
+  color: var(--cam-evo-ink);
+  font-size: 13px;
+}
+.etsy-spy-page .etsy-empty,
+.etsy-spy-page .etsy-skeleton {
+  color: var(--cam-evo-muted);
+  background: #fff;
+}
+
+/* Consistent, unobtrusive scrollbars (the app already handles thin Firefox bars). */
+.etsy-spy-page :is(.etsy-table-wrap, .etsy-observed-day-grid, .etsy-day-groups-list)::-webkit-scrollbar,
+body:has(.etsy-spy-page) :is(.etsy-tiktok-dialog-body, .etsy-tiktok-keyword-scroll)::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.etsy-spy-page :is(.etsy-table-wrap, .etsy-observed-day-grid, .etsy-day-groups-list)::-webkit-scrollbar-thumb,
+body:has(.etsy-spy-page) :is(.etsy-tiktok-dialog-body, .etsy-tiktok-keyword-scroll)::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #becadb;
+}
+.etsy-spy-page :is(.etsy-table-wrap, .etsy-observed-day-grid, .etsy-day-groups-list)::-webkit-scrollbar-track,
+body:has(.etsy-spy-page) :is(.etsy-tiktok-dialog-body, .etsy-tiktok-keyword-scroll)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Listing Optimizer portal shares the same design roles as the Picked table. */
+body:has(.etsy-spy-page) .etsy-tiktok-dialog {
+  width: min(880px, 100%);
+  border-radius: var(--cam-evo-radius-dialog);
+  box-shadow: var(--cam-evo-elevation-modal);
+  border: 1px solid var(--cam-evo-hairline);
+}
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-header,
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-actions {
+  border-color: var(--cam-evo-hairline);
+  background: #fff;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-header strong {
+  color: var(--cam-evo-ink);
+  font-size: 16px;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-research {
+  background: #f9fbfd;
+  border-color: var(--cam-evo-hairline);
+  box-shadow: none;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-keyword-table th {
+  background: #eff3f8;
+  color: #53647d;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-keyword-table td { border-color: var(--cam-evo-hairline); }
+body:has(.etsy-spy-page) .etsy-tiktok-copy-field {
+  border-color: var(--cam-evo-hairline);
+  background: #fff;
+  box-shadow: none;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-copy-title { background: #f9fafc; }
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-actions button {
+  min-height: 31px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  box-shadow: none;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-actions .etsy-tiktok-dialog-run {
+  background: var(--cam-evo-brand);
+  border-color: var(--cam-evo-brand);
+  color: #fff;
+}
+body:has(.etsy-spy-page) .etsy-tiktok-dialog-actions .etsy-tiktok-dialog-run:hover {
+  background: var(--cam-evo-brand-hover);
+  border-color: var(--cam-evo-brand-hover);
+}
+body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
+  min-height: 28px;
+  border-radius: 6px;
+}
+
+/* Intermediate widths: keep counters legible without turning the dashboard
+   into a tall stack. */
+@media (min-width: 681px) and (max-width: 1330px) {
+  .etsy-spy-page .etsy-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .etsy-spy-page .etsy-stat { min-height: 68px; }
+}
+@media (max-width: 680px) {
+  .etsy-spy-page { padding: 8px 8px 32px; }
+  .etsy-spy-page .etsy-stage-nav .etsy-tabs button {
+    min-width: 0; min-height: 43px; padding: 7px 4px;
+  }
+  .etsy-spy-page .etsy-stage-canvas { padding: 8px 6px; }
+  .etsy-spy-page .etsy-stage-card { padding: 11px 9px; }
+  .etsy-spy-page .etsy-stats {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(124px, 148px);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 7px;
+    padding-bottom: 8px;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+  .etsy-spy-page .etsy-stat { min-height: 69px; scroll-snap-align: start; }
+  .etsy-spy-page .etsy-stat > strong { font-size: 20px; }
+  .etsy-spy-page .etsy-search-filters { gap: 7px; }
+  .etsy-spy-page .etsy-search-filters :is(input, select),
+  .etsy-spy-page .etsy-stage-heading-actions :is(input, select) {
+    min-height: 40px; font-size: 12px;
+  }
+  .etsy-spy-page .etsy-table-wrap td { font-size: 11px; }
+  .etsy-spy-page .etsy-bulk-bar { gap: 8px; }
+  body:has(.etsy-spy-page) .etsy-tiktok-dialog {
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 32px rgba(18,33,59,.12);
+  }
+  body:has(.etsy-spy-page) .etsy-tiktok-dialog-actions button {
+    min-height: 34px;
+    padding: 6px 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-stat,
+  .etsy-spy-page .etsy-stage-nav .etsy-tabs button { transition: none; transform: none; }
+}

@@ -9,6 +9,8 @@ import {
   type ObservedDaysSummary, type ObservedDayBucket, type DayGroupsSummary,
 } from "./api";
 import "./EtsySpyPage.css";
+import "../styles/cam-evo-tokens.css";
+import "./EtsySpyEvo.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
