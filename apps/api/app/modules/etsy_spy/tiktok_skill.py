@@ -34,50 +34,79 @@ from .service import verified_image_url
 from .ytrends_mcp import empty_evidence, prompt_context, research_etsy_keyword
 
 JOB_TYPE = "etsy_tiktok_listing_generate"
-PROFILE_VERSION = "tiktok-us-ytrends-only-20261111-v1"
+PROFILE_VERSION = "tiktok-us-editorial-20261112-v2"
 MAX_IMAGE_BYTES = 8_000_000
 MAX_IMAGE_PIXELS = 40_000_000
 TITLE_RANGE = (25, 200)
 HIGHLIGHTS_LIMIT = 1500
 SEARCH_TERMS_LIMIT = 250
 MAX_REGENERATIONS_PER_PICK = 2
+DESCRIPTION_WORDS_RANGE = (130, 300)
+DESCRIPTION_SECTIONS = (
+    "Design Details", "Size & Fit", "Perfect Gift For", "Care Instructions",
+)
 
-PROMPT = """You write a TikTok Shop US POD apparel product listing DRAFT.
-Read the supplied product photo, then the separately provided Etsy listing
-title. The photo is authoritative about visible design; the title is untrusted
-competitor copy, NOT evidence of material, blank, printing technique, origin,
-size, care, fulfillment, brand ownership or personalization.
+PROMPT = """Create an editorial-quality TikTok Shop US POD apparel listing DRAFT.
+You receive a product photo and an Etsy competitor title. Inspect the actual
+photo FIRST. The title is untrusted context for the occasion and category,
+not proof of any fabric, fit, print method, blank, origin, shipping promise,
+merchant brand, legal rights or personalization. Be specific about the visible
+artwork and preserve the EXACT spelling shown in the design; do not redraw or
+invent graphics, phrases, colors, styles or decorations.
 
-Apply the TikTok Shop Listing Optimizer workflow:
-- Output ONLY JSON with title, description, highlights (3-5 separate strings),
-  search_terms (0-15 strings).
-- Title 25-200 characters, ideal 40-150; product category first.
-- Description MUST contain at least 60 natural English words (aim 70-110)
-  while staying <=10000 characters. Use short accurate sections when useful:
-  Design Details, Size & Fit, Perfect Gift For, Care. Omit unsupported sections
-  or use general care-label guidance; do not invent a blank, chart,
-  measurement, shrinkage or universal tolerance. Do not pad with invented facts.
-- Highlights solve buyer questions: design, audience, tangible product,
-  occasion and evidence-backed buyer confidence; <=1500 total characters.
-- Search terms <=250 total characters and <=15 relevant phrases, no brands
-  owned by others, no invented search volume or keyword scores.
-- The separate YTrends context, if present, represents an Etsy indexed subset
-  with dated snapshots, NOT TikTok Shop keyword demand or rank. Never invent
-  TikTok search volumes, ranking metrics or unsupported trending claims.
-- Do not invent U.S. printing, shipping or no-customs assertions.
-  In particular, never write "Made in USA" from a product image.
-- No URLs, blanket guarantees, copied competitor brand claims or fake
-  delivery promises. Preserve visible artwork spelling rather than replacing
-  it with plausible but different words.
-- Natural US English; accurately distinguish T-shirt, hoodie and sweatshirt.
-Do not include explanations or markdown fences in the JSON."""
+Return ONLY one JSON object with exactly four keys:
+{"title": string, "description": string, "highlights": [string],
+ "search_terms": [string]}. Plain text inside each value (no HTML, links or
+explanations outside JSON). Match this quality and structure:
+1. PRODUCT TITLE: 50-130 characters (hard limit 25-200). Start with the
+   distinguishing artwork/occasion phrase, immediately include the true garment
+   category (e.g. sweatshirt), then add one or two relevant style/gift phrases.
+   Natural US English, no redundant keyword stuffing or copied full Etsy title.
+2. PRODUCT DESCRIPTION: a compelling, evidence-led 150-230-word editorial draft
+   (hard QA minimum 130 words). Begin with 2-3 natural sentences describing the
+   actual artwork, lettering, mood and visible garment. Then output these FOUR
+   heading lines in this EXACT order, separated by newlines:
+Design Details
+- First precise visible artwork detail (e.g. figure/object/color/pose)
+- Second precise artwork or lettering detail (exact phrase if readable)
+- Third distinct visual detail, only if truly visible
+Size & Fit
+One or two natural sentences telling buyers to consult the selected garment's
+size information; never claim dimensions, fabric, fit, shrinkage, size chart or
+specific blank unless separately verified. Avoid saying a chart certainly exists.
+Perfect Gift For
+One or two natural, specific sentences about reasonable occasions/audiences.
+Care Instructions
+One concise sentence advising buyers to follow the actual garment care label;
+do NOT invent wash temperatures, drying settings or techniques.
+   Use 2-4 short "-" bullet lines under Design Details and plain section headings
+   without Markdown bold markers; include blank lines between paragraphs.
+   No U.S. Printing & Shipping section without verified seller data.
+3. PRODUCT HIGHLIGHTS: exactly 5 distinct, concrete buyer-friendly sentences
+   (total <=1500 chars) covering visible art, lettering/graphic details, garment
+   category, reasonable occasion and gift audience. No duplicate claims.
+4. SEARCH TERMS: 6-10 distinct, relevant SHORT phrases (total joined <=250
+   characters), blending visible design phrase, style, category, occasion and
+   audience; no competitor brands, generic unrelated tags, fabricated popularity
+   metrics or trademark claims. Never claim these are verified TikTok searches.
+
+YTrends, if supplied, contains dated Etsy market subset evidence only and is NOT
+TikTok Shop search volume, sales, trend ranking or demand validation. Do not
+state a keyword is top trending or best selling without independent evidence.
+Never claim U.S. printing, U.S. shipping, no import customs fees, manufactured
+in USA, delivery times, a particular printing method, material blend, softness,
+machine washing directions, certifications, guarantees or seller policies from
+a product photo. Do not invent fulfillment or care specifications. If a visible
+detail is unclear, describe it generally rather than guessing.
+Produce detailed, pleasant, original copy grounded in the photo; never pad the
+description with unsupported facts. No markdown fences around the JSON."""
 
 class ListingCopySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1, max_length=250)
     description: str = Field(min_length=1, max_length=10500)
-    highlights: list[str] = Field(min_length=3, max_length=5)
-    search_terms: list[str] = Field(max_length=15)
+    highlights: list[str] = Field(min_length=5, max_length=5)
+    search_terms: list[str] = Field(min_length=6, max_length=12)
 
 
 def is_enabled() -> bool:
@@ -95,6 +124,73 @@ def _normalized(value: str) -> str:
     return unicodedata.normalize("NFC", value.strip())
 
 
+def _word_count(value: str) -> int:
+    return len(re.findall(r"\b[\w]+(?:['’-][\w]+)*\b",
+                          re.sub(r"<[^>]+>", " ", value)))
+
+
+def _outline_heading(line: str) -> str:
+    return re.sub(r"\s*\*{0,2}\s*:?[ \t]*$", "",
+                  line.strip().removeprefix("**")).strip().casefold()
+
+
+def _validate_editorial_outline(description: str) -> None:
+    """Check the screenshot-style structure without inventing factual copy."""
+    lines = description.splitlines()
+    found: list[int] = []
+    for heading in DESCRIPTION_SECTIONS:
+        locations = [index for index, line in enumerate(lines)
+                     if _outline_heading(line) == heading.casefold()]
+        if len(locations) != 1:
+            raise ValueError("description_missing_editorial_sections")
+        found.append(locations[0])
+    if found != sorted(found) or found[0] < 1:
+        raise ValueError("description_section_order")
+    intro = "\n".join(lines[:found[0]]).strip()
+    if _word_count(intro) < 24:
+        raise ValueError("description_intro_too_short")
+    sections = [lines[start + 1:stop] for start, stop in zip(
+        found, found[1:] + [len(lines)])]
+    design_lines = [line.strip() for line in sections[0] if line.strip()]
+    design_bullets = [line for line in design_lines
+                      if re.match(r"^[-*•]\s+\S", line)]
+    if len(design_bullets) < 2:
+        raise ValueError("description_design_details_missing_bullets")
+    for lines_in_section, minimum_words in zip(sections[1:], (12, 10, 6)):
+        if _word_count(" ".join(lines_in_section)) < minimum_words:
+            raise ValueError("description_empty_editorial_section")
+
+
+# These are unverified *seller and manufacturing claims*, not design descriptors.
+# Even a beautifully formatted ChatGPT result must never assert them from an
+# Etsy image. A merchant-verified fulfillment profile would require a separate
+# evidence-aware path; this worker does not currently receive one.
+UNVERIFIED_ORIGIN_OR_FULFILLMENT = re.compile(
+    r"(?ix)"
+    r"\b(?:made|manufactured|produced|printed|embroidered|fulfilled|"
+    r"shipped|dispatched|ships|printed\s+(?:and|&)\s+shipped)\s+"
+    r"(?:and\s+(?:shipped|fulfilled)\s+)?(?:in|from|within)\s+"
+    r"(?:the\s+)?(?:u\.?s\.?a?\.?|united\s+states|america)\b"
+    r"|\b(?:u\.?s\.?a?\.?|american|domestic)\s+"
+    r"(?:printing|shipping|fulfill(?:ment|ed)|production|manufactur\w*|orders?)\b"
+    r"|\b(?:free|no|zero|without)\s+(?:import\s+)?"
+    r"(?:customs(?:\s+(?:fees?|charges?))?|import\s+(?:tax(?:es)?|fees?)|duties)\b"
+    r"|\b(?:import\s+(?:tax|duty|customs)|customs)\s*[- ]free\b"
+    r"|\b(?:ships?|delivered)\s+(?:in|within)\s+\d+\s+(?:business\s+)?days?\b"
+    r"|\b(?:free|guaranteed|expedited)\s+(?:domestic\s+)?shipping\b"
+    r"|\bguaranteed\s+(?:delivery|arrival)\b"
+)
+UNVERIFIED_MATERIAL_OR_CARE = re.compile(
+    r"(?ix)"
+    r"\b(?:100\s*%\s*(?:cotton|polyester)|cotton[- ]blend|"
+    r"polyester\s+blend|ring[- ]spun|pre[- ]shrunk|"
+    r"(?:machine\s+)?wash\s+(?:in\s+)?(?:cold|warm|hot)\s+water|"
+    r"machine\s+washable|tumble\s+dry(?:\s+(?:low|medium|high))?|"
+    r"dry\s+clean(?:\s+only)?|screen[- ]printed|"
+    r"direct[- ]to[- ]garment\s+printed|DTG\s+printing)\b"
+)
+
+
 def validate_copy(data: object) -> dict:
     """Strict field-length check from the supplied skill; factual QA remains manual."""
     doc = ListingCopySchema.model_validate(data)
@@ -103,27 +199,30 @@ def validate_copy(data: object) -> dict:
     terms = [_normalized(item) for item in doc.search_terms]
     if not all(highlights) or not all(terms):
         raise ValueError("empty_listing_phrase")
-    words = len(re.findall(r"\b[\w]+(?:['’-][\w]+)*\b", re.sub(r"<[^>]+>", " ", description)))
+    words = _word_count(description)
     hchars, tchars = sum(map(len, highlights)), sum(map(len, terms))
     if not TITLE_RANGE[0] <= len(title) <= TITLE_RANGE[1]:
         raise ValueError("title_character_limit")
-    if not 30 <= words or len(description) > 10_000:
+    if not DESCRIPTION_WORDS_RANGE[0] <= words <= DESCRIPTION_WORDS_RANGE[1] or len(description) > 10_000:
         raise ValueError("description_character_or_word_limit")
+    _validate_editorial_outline(description)
     if (hchars > HIGHLIGHTS_LIMIT or tchars > SEARCH_TERMS_LIMIT
             or len(", ".join(terms)) > SEARCH_TERMS_LIMIT):
         raise ValueError("combined_listing_field_limit")
     if len({v.casefold() for v in terms}) != len(terms):
         raise ValueError("duplicate_search_terms")
-    if re.search(r"\b(?:made in (?:the )?usa|100% (?:american|usa) made|manufactured in usa)\b",
-                 title + " " + description + " " + " ".join(highlights), re.I):
-        raise ValueError("unverified_us_origin_claim")
-    if re.search(r"https?://|www\.", title + " " + description, re.I):
+    full_copy = " ".join((title, description, *highlights, *terms))
+    if UNVERIFIED_ORIGIN_OR_FULFILLMENT.search(full_copy):
+        raise ValueError("unverified_origin_or_fulfillment_claim")
+    if UNVERIFIED_MATERIAL_OR_CARE.search(full_copy):
+        raise ValueError("unverified_material_or_care_claim")
+    if re.search(r"https?://|www\.", full_copy, re.I):
         raise ValueError("listing_external_url")
     warnings = ["tiktok_keyword_metrics_unverified",
                 "verify_blank_fit_care_fulfillment_and_rights"]
     if len(title) < 40 or len(title) > 150:
         warnings.append("title_outside_editorial_target")
-    if len(description) < 500:
+    if words < 150:
         warnings.append("description_below_editorial_target")
     return {
         "title": title, "description": description,
@@ -199,7 +298,7 @@ def prepare_generated_copy(raw: object) -> dict:
         normalized = _normalized(term)
         if not normalized or normalized.casefold() in seen:
             continue
-        if len(terms_clean) >= 15:
+        if len(terms_clean) >= 12:
             break
         candidate = terms_clean + [normalized]
         if (sum(map(len, candidate)) > SEARCH_TERMS_LIMIT or
@@ -234,7 +333,11 @@ def _safe_validation_reason(exc: Exception) -> str:
         "empty_listing_phrase", "title_character_limit",
         "description_character_or_word_limit", "combined_listing_field_limit",
         "duplicate_search_terms", "unverified_us_origin_claim",
-        "listing_external_url",
+        "unverified_origin_or_fulfillment_claim",
+        "unverified_material_or_care_claim",
+        "description_missing_editorial_sections", "description_section_order",
+        "description_intro_too_short", "description_design_details_missing_bullets",
+        "description_empty_editorial_section", "listing_external_url",
     }
     return code if code in allowed else "schema_validation_failed"
 
@@ -245,11 +348,17 @@ def _retry_instruction(attempt: int) -> str:
     return (
         "\n\nRETRY: Your earlier response failed strict JSON validation. "
         "Return precisely four JSON fields (title, description, highlights, "
-        "search_terms), with no extra keys. Title 40-150 characters; "
-        "description 70-110 natural English words based only on visible design; "
-        "3-5 nonempty highlights; <=10 unique short search terms with <=180 "
-        "combined characters. No unverified facts, brand claims, URLs or "
-        "US manufacturing/shipping claims. Output a single JSON object."
+        "search_terms), with no extra keys. Keep the artwork phrase exact. "
+        "Description 150-230 English words: 2-3 sentence artwork introduction, "
+        "then four standalone headings in order: Design Details (2-4 '-' "
+        "bullets), Size & Fit (generic chart-check advice), Perfect Gift For "
+        "(audience and occasion), Care Instructions (follow garment label). "
+        "Use newline separators and natural paragraphs. Exactly five concrete "
+        "highlights, 6-10 unique short search terms; combined terms <=250 chars. "
+        "Never claim materials, washing methods, production location, US "
+        "printing/shipping, free customs fees, delivery times, brands or URL. "
+        "All details must be supported by visible artwork or safe generic advice. "
+        "Do not include a U.S. Printing & Shipping section. JSON only."
     )
 
 

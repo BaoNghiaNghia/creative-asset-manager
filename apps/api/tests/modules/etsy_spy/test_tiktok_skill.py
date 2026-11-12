@@ -51,20 +51,43 @@ def copy():
     return {
         "title": "Vintage Sunset Mountain Sweatshirt for Outdoor Adventure Fans",
         "description": (
-            "A retro mountain sunset illustration brings a warm outdoor mood "
-            "to this sweatshirt design. The artwork features layered hills, "
-            "a setting sun, and vintage-inspired colors. Wear the design on "
-            "relaxed days or share it with someone who enjoys mountain trips. "
-            "For fit, please compare the measurements provided for the selected "
-            "garment before ordering. Follow the care label for proper washing."
+            "A vintage mountain sunset illustration creates a peaceful, "
+            "outdoorsy mood on this sweatshirt design. The artwork shows "
+            "layered ridges below a rounded sun with muted retro-style colors. "
+            "It has a scenic composition that feels at home in relaxed outfits "
+            "and appeals to people who enjoy mountains, nature and travel art.\n\n"
+            "Design Details\n"
+            "- Layered mountain ridges create depth across the front artwork.\n"
+            "- A rounded sunset sits above the illustrated landscape.\n"
+            "- Muted colors give the scene a vintage outdoor character.\n"
+            "- The mountain and sun elements form a simple, balanced graphic.\n\n"
+            "Size & Fit\n"
+            "Check the size information for the particular sweatshirt you choose "
+            "before ordering. If garment measurements are available, compare "
+            "them to a sweatshirt you already own to help decide on your "
+            "preferred silhouette and roominess without guessing a size.\n\n"
+            "Perfect Gift For\n"
+            "The mountain scene makes a thoughtful idea for hiking friends, "
+            "nature lovers or someone who enjoys nostalgic landscape artwork. "
+            "Its calm outdoor theme is also appropriate for casual gatherings, "
+            "travel memories and relaxed everyday outfit inspiration.\n\n"
+            "Care Instructions\n"
+            "Follow the selected garment's actual care label and any "
+            "item-specific instructions that accompany the product."
         ),
         "highlights": [
-            "Retro mountain sunset design with layered hills.",
-            "A thoughtful theme for outdoor and hiking enthusiasts.",
-            "Sweatshirt silhouette with vintage-inspired illustration.",
-            "Great for casual outfits and outdoorsy gift occasions.",
+            "Retro mountain sunset artwork with layered ridges and scenic composition.",
+            "Rounded sun and muted vintage-style colors make the front graphic distinctive.",
+            "Sweatshirt design featuring an outdoorsy mountain illustration.",
+            "An easy theme for casual gatherings, travel memories and nature-inspired outfits.",
+            "A thoughtful gift idea for hikers, mountain travelers and lovers of landscape art.",
         ],
-        "search_terms": ["mountain sweatshirt", "retro sunset pullover", "outdoor gift"],
+        "search_terms": [
+            "mountain sunset sweatshirt", "retro mountain crewneck",
+            "vintage landscape pullover", "outdoor hiking gift",
+            "scenic mountain sweatshirt", "sunset landscape art",
+            "nature lover gift", "retro scenic sweatshirt",
+        ],
     }
 
 
@@ -73,7 +96,11 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
     assert result["qa_status"] == "needs_fact_check"
     assert result["ytrends_status"] == "unavailable"
     assert result["published"] is False
-    assert result["metrics"]["search_terms_count"] == 3
+    assert result["metrics"]["search_terms_count"] == 8
+    assert result["metrics"]["description_words"] >= 130
+    assert "Design Details\n-" in result["description"]
+    assert "Care Instructions\n" in result["description"]
+    assert len(result["highlights"]) == 5
     assert result["metrics"]["title_characters"] == len(copy()["title"])
     assert not result["metrics"].get("search_volume")
     for mutation in [
@@ -89,29 +116,80 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
 
 
 
+def test_screenshot_style_editorial_outline_is_required():
+    assert "Design Details" in tiktok_skill.PROMPT
+    assert "Perfect Gift For" in tiktok_skill.PROMPT
+    assert "Care Instructions" in tiktok_skill.PROMPT
+    assert "exactly 5" in tiktok_skill.PROMPT
+    assert "No U.S. Printing & Shipping section" in tiktok_skill.PROMPT
+    valid = copy()
+    assert tiktok_skill.validate_copy(valid)["metrics"]["description_words"] >= 130
+    for bad in [
+        {**valid, "description": valid["description"].replace("Design Details", "Design Notes")},
+        {**valid, "description": valid["description"].replace(
+            "\n- ", "\n  ") },
+        {**valid, "description": valid["description"].replace(
+            "Perfect Gift For", "Gift Suggestions")},
+        {**valid, "highlights": valid["highlights"][:3]},
+        {**valid, "search_terms": valid["search_terms"][:3]},
+    ]:
+        with pytest.raises(ValueError):
+            tiktok_skill.validate_copy(bad)
+
+
+@pytest.mark.parametrize("field,claim,error", [
+    ("description", "Printed and shipped in the USA for domestic orders.",
+     "unverified_origin_or_fulfillment_claim"),
+    ("description", "No import customs fees on U.S. deliveries.",
+     "unverified_origin_or_fulfillment_claim"),
+    ("description", "U.S. Printing & Shipping",
+     "unverified_origin_or_fulfillment_claim"),
+    ("highlights", "Free shipping, no customs duties.",
+     "unverified_origin_or_fulfillment_claim"),
+    ("highlights", "Free shipping on every order.",
+     "unverified_origin_or_fulfillment_claim"),
+    ("description", "Machine wash cold with like colors and tumble dry low.",
+     "unverified_material_or_care_claim"),
+    ("description", "Our 100% cotton fleece blend feels cozy.",
+     "unverified_material_or_care_claim"),
+])
+def test_screenshot_unverified_seller_claims_are_rejected(field, claim, error):
+    sample = copy()
+    if field == "highlights":
+        sample["highlights"] = sample["highlights"][:-1] + [claim]
+    else:
+        sample[field] += "\n" + claim
+    with pytest.raises(ValueError, match=error):
+        tiktok_skill.validate_copy(sample)
+
+
 def test_generated_copy_repairs_only_formatting_not_product_facts():
     raw = {
         "product_title": copy()["title"],
         "product_description": copy()["description"],
         "product_highlights": copy()["highlights"] + ["Extra fact-free highlight.", "Drop this."],
-        "searchTerms": ["mountain sweatshirt", "mountain sweatshirt",
-                        "retro sunset pullover", "x" * 260, "outdoor gift"],
+        "searchTerms": ["mountain sunset sweatshirt", "mountain sunset sweatshirt",
+                        "retro mountain crewneck", "vintage landscape pullover",
+                        "x" * 260, "outdoor hiking gift", "scenic mountain sweatshirt",
+                        "sunset landscape art", "nature lover gift"],
         "debug_reasoning": "Unexpected provider key is not a listing claim",
     }
     normalized = tiktok_skill.prepare_generated_copy(raw)
     assert set(normalized) == {"title", "description", "highlights", "search_terms"}
-    assert normalized["highlights"] == (copy()["highlights"] +
-                                        ["Extra fact-free highlight."])
+    assert normalized["highlights"] == copy()["highlights"]
     assert normalized["search_terms"] == [
-        "mountain sweatshirt", "retro sunset pullover", "outdoor gift"]
+        "mountain sunset sweatshirt", "retro mountain crewneck",
+        "vintage landscape pullover", "outdoor hiking gift",
+        "scenic mountain sweatshirt", "sunset landscape art", "nature lover gift"]
     assert tiktok_skill.validate_copy(normalized)["published"] is False
     wrapped = tiktok_skill.prepare_generated_copy({"listing": {
         "title": copy()["title"], "description": copy()["description"],
         "highlights": copy()["highlights"],
     }})
     assert wrapped["search_terms"] == []
-    assert tiktok_skill.validate_copy(wrapped)["metrics"]["search_terms_count"] == 0
-    with pytest.raises(ValueError, match="unverified_us_origin_claim"):
+    with pytest.raises(ValueError):
+        tiktok_skill.validate_copy(wrapped)
+    with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
         tiktok_skill.validate_copy(tiktok_skill.prepare_generated_copy({
             **copy(), "description": copy()["description"] + " Made in USA."
         }))
@@ -150,7 +228,10 @@ def test_invalid_generated_copy_is_retryable_then_valid_draft_completes(db, monk
             if len(prompts) == 1:
                 return SimpleNamespace(metadata={**copy(), "description": "Too short."})
             return SimpleNamespace(metadata={**copy(), "search_terms": [
-                "mountain sweatshirt", "mountain sweatshirt", "outdoor gift"]})
+                "mountain sunset sweatshirt", "mountain sunset sweatshirt",
+                "retro mountain crewneck", "vintage landscape pullover",
+                "outdoor hiking gift", "scenic mountain sweatshirt",
+                "sunset landscape art", "nature lover gift"]})
 
     deps = WorkerDependencies(session_factory=lambda: Session(db.get_bind()),
                               ai_provider_registry=SimpleNamespace(
@@ -194,7 +275,10 @@ def test_invalid_generated_copy_is_retryable_then_valid_draft_completes(db, monk
     db.expire_all()
     result = db.get(ProcessingJobModel, job.id).payload_json["result"]
     assert result["published"] is False
-    assert result["search_terms"] == ["mountain sweatshirt", "outdoor gift"]
+    assert result["search_terms"] == [
+        "mountain sunset sweatshirt", "retro mountain crewneck",
+        "vintage landscape pullover", "outdoor hiking gift",
+        "scenic mountain sweatshirt", "sunset landscape art", "nature lover gift"]
 
 
 def test_source_validation_error_remains_nonretryable():

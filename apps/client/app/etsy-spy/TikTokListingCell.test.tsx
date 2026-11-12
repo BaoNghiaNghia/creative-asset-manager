@@ -41,7 +41,7 @@ function response(data: unknown) {
   });
 }
 async function render(status: string, enabled = true, canManage = true,
-  evidence?: TikTokListingDraft["ytrends_evidence"]) {
+  evidence?: TikTokListingDraft["ytrends_evidence"], customDraft: TikTokListingDraft = draft) {
   mount = document.createElement("div");
   document.body.appendChild(mount);
   root = createRoot(mount);
@@ -59,11 +59,11 @@ async function render(status: string, enabled = true, canManage = true,
         ytrends_status: "unavailable",
         can_regenerate: !regenerated && status === "needs_fact_check",
         regeneration_count: regenerated ? 1 : 0,
-        previous_draft: regenerated ? draft : undefined,
+        previous_draft: regenerated ? customDraft : undefined,
         previous_job_id: regenerated ? "parent-job-id" : undefined,
         error_code: status === "failed" ? "temporary_model_error" : null,
         result: !regenerated && status === "needs_fact_check" ? {
-          ...draft,
+          ...customDraft,
           ytrends_status: evidence ? "connected" : "unavailable",
           ytrends_evidence: evidence,
         } : undefined,
@@ -137,6 +137,39 @@ describe("Picked TikTok Shop listing column", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(open);
   });
+  it("renders screenshot-style editorial headings and bullets while copying raw text", async () => {
+    const description = [
+      "A vintage Santa illustration makes this sweatshirt design festive and nostalgic.",
+      "",
+      "Design Details",
+      "- Santa holding a red mug beside decorative holiday greenery.",
+      "- Hand-lettered seasonal phrase and small golden stars.",
+      "",
+      "Size & Fit",
+      "Review the selected garment size information before choosing a size.",
+      "",
+      "Perfect Gift For",
+      "A cheerful holiday idea for friends who enjoy vintage Christmas graphics.",
+      "",
+      "Care Instructions",
+      "Follow the actual garment care label for the selected product.",
+    ].join("\n");
+    const custom = {...draft, description};
+    const {clipboardWrite} = await render("needs_fact_check", true, true, undefined, custom);
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const content = document.querySelector(".etsy-tiktok-copy-content.is-editorial");
+    expect(content).not.toBeNull();
+    expect(content?.querySelectorAll(".etsy-tiktok-editorial-heading")).toHaveLength(4);
+    expect(content?.querySelectorAll(".etsy-tiktok-editorial-bullet")).toHaveLength(2);
+    expect(content?.textContent).toContain("Santa holding a red mug");
+    const button = document.querySelectorAll<HTMLButtonElement>(".etsy-tiktok-copy-title button")[1];
+    await act(async () => {button?.click();});
+    expect(clipboardWrite).toHaveBeenCalledWith(description);
+    expect(document.querySelector(".etsy-tiktok-editorial-paragraph")).not.toBeNull();
+  });
+
   it("shows dated Etsy-only YTrends evidence without TikTok volume claims", async () => {
     await render("needs_fact_check", true, true, {
       status: "connected", source: "trends.ytuong.ai", marketplace: "etsy",
