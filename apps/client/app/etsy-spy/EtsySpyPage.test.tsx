@@ -1327,23 +1327,36 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(Array.from(container?.querySelectorAll(".etsy-data-table th") || [])
       .map(x => x.textContent)).toContain("Design");
-    expect(container?.querySelectorAll(".etsy-design-cell .etsy-design-thumb")).toHaveLength(3);
-    expect(container?.querySelector(".etsy-design-more")?.textContent).toContain("+1");
-    expect(container?.querySelector(".etsy-design-open")?.textContent).toContain("4 design");
-    expect(container?.querySelector(".etsy-design-review-label")?.textContent).toContain("cần QA");
+    const cell = container?.querySelector<HTMLElement>(".etsy-design-cell");
+    expect(cell?.querySelectorAll(".etsy-design-thumb")).toHaveLength(3);
+    expect(cell?.querySelectorAll("img")).toHaveLength(3);
+    expect(cell?.textContent?.trim()).toBe("");
+    expect(cell?.querySelector(".etsy-design-open, .etsy-design-more, .etsy-design-review-label"))
+      .toBeNull();
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-design-more")?.click();
+      cell?.querySelectorAll<HTMLButtonElement>(".etsy-design-thumb")[2]?.click();
     });
-    expect(document.body.querySelector('[role="dialog"][aria-label*="Design sản phẩm"]'))
-      .not.toBeNull();
-    expect(document.body.querySelector(".etsy-design-gallery-list")?.querySelectorAll("button"))
+    const gallery = document.body.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label*="Ảnh thiết kế sản phẩm"]');
+    expect(gallery).not.toBeNull();
+    expect(gallery?.querySelector("header, footer, a")).toBeNull();
+    expect(gallery?.textContent?.trim()).toBe("");
+    expect(gallery?.querySelector(".etsy-design-gallery-list")?.querySelectorAll("button"))
       .toHaveLength(4);
-    expect(document.body.querySelector(".etsy-design-gallery-main aside")?.textContent)
-      .toContain("Tay phải");
-    expect(document.body.querySelector(".etsy-design-gallery-main aside")?.textContent)
-      .toContain("Chưa xác minh quyền");
-    expect(document.body.querySelector<HTMLAnchorElement>(".etsy-design-gallery-main aside a")
-      ?.getAttribute("href")).toContain("mock-3/original");
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toContain("mock-2/original");
+    await act(async () => {
+      gallery?.querySelectorAll<HTMLButtonElement>(".etsy-design-gallery-list button")[3]?.click();
+    });
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toContain("mock-3/original");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button[aria-pressed='true']"))
+      .toHaveLength(1);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft"}));
+    });
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toContain("mock-2/original");
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape"}));
     });
@@ -1353,6 +1366,26 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 50));
     });
     expect(container?.querySelector(".etsy-data-table th")?.textContent).not.toContain("Design");
+  });
+
+  it("keeps the Picked Design column blank when ImageGen has not produced a PNG", async () => {
+    await start();
+    pickedKeys.add(listing.listingKey);
+    designProjection = [];
+    extractionProjection = {
+      job_id: "00000000-1111-4222-8333-444444444444",
+      status: "needs_ai",
+      rights_status: "unverified", print_ready: false,
+    };
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 75));
+    });
+    const cell = container?.querySelector<HTMLElement>(".etsy-design-cell");
+    expect(cell).not.toBeNull();
+    expect(cell?.textContent?.trim()).toBe("");
+    expect(cell?.querySelector(".etsy-design-empty")).not.toBeNull();
+    expect(cell?.querySelector("img, button")).toBeNull();
   });
 
   it("shows honest QA evidence for picked Fast CPU PNG without print-ready claims", async () => {
