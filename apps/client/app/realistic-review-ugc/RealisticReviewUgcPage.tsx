@@ -58,6 +58,7 @@ import "./tablet-mobile-density.css";
 import "./stage4-pause.css";
 import "../styles/cam-evo-tokens.css";
 import "./GatorHatsEvo.css";
+import "./GatorHatsReviewsEvo.css";
 
 const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   items: [],
@@ -1014,7 +1015,7 @@ export function RealisticReviewUgcPage() {
   }
 
   return <main className={"rrugc-shell rrugc-source-first-shell" +
-    (workflowGroupForStage(activeStage) === "products" ? " rrugc-evo-products" : "")}>
+    (workflowGroupForStage(activeStage) === "products" ? " rrugc-evo-products" : " rrugc-evo-reviews")}>
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
       <WorkspaceNavigation active="realistic-review-ugc" rrugcStage={activeStage} />
