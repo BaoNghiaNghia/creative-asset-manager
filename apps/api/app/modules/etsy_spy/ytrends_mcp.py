@@ -201,6 +201,19 @@ def keyword_variants(title: str) -> list[str]:
     core = research_query(title)
     if not core:
         return []
+    lower_title = title.casefold()
+    # Professional apparel queries need buyer-intent synonyms, not five
+    # near-duplicates of the seller's first generic noun phrase.
+    if ("occupational therapy" in lower_title or
+            "occupational therapist" in lower_title or
+            re.search(r"\bota\b", lower_title)):
+        return [
+            "ota shirt",
+            "occupational therapy shirt",
+            "occupational therapist shirt",
+            "occupational therapy gift",
+            "occupational therapy sweatshirt",
+        ]
     variants = [core]
     garment = next((g for g in ("sweatshirt", "crewneck", "hoodie", "shirt")
                     if re.search(r"\b" + g + r"\b", title, re.IGNORECASE)), "sweatshirt")
@@ -209,7 +222,6 @@ def keyword_variants(title: str) -> list[str]:
         variants.append(f"{core} crewneck")
     else:
         variants.append(f"{core} sweatshirt")
-    lower_title = title.casefold()
     if "santa" in lower_title:
         variants.extend([f"santa {garment}", "christmas sweatshirt"])
     elif "christmas" in lower_title or "xmas" in lower_title or "nutcracker" in lower_title:
@@ -263,6 +275,12 @@ def prompt_context(evidence: dict) -> str:
         "median_data_age_days": evidence.get("median_data_age_days"),
         "indexed_listings": evidence.get("total_listings"),
         "indexed_sellers": evidence.get("total_sellers"),
+        "keyword_candidates": [
+            {"query": row.get("keyword"), "indexed_listings": row.get("listings"),
+             "competition": row.get("competition")}
+            for row in (evidence.get("keywords") or [])[:5]
+            if isinstance(row, dict)
+        ],
     }
     return (
         "\nYTrends EVIDENCE (read-only Etsy snapshot, NOT TikTok Shop search): "

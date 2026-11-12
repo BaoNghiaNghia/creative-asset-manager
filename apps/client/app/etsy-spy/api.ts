@@ -64,6 +64,7 @@ export type DesignAsset = {
 export type TikTokListingDraft = {
   title: string; description: string; highlights: string[]; search_terms: string[];
   qa_status: "needs_fact_check"; keyword_source: string;
+  skill_version?: string;
   ytrends_status: "connected" | "no_data" | "unavailable" | "disabled";
   ytrends_evidence?: {
     status: string; source: string; marketplace: "etsy"; query: string;

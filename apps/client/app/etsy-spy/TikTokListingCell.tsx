@@ -372,7 +372,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 richDescription
                 count={metrics ? metrics.description_words + " words · " +
                   metrics.description_characters + " ký tự" : undefined} />
-              <CopyField label="Product Highlights"
+              <CopyField label={result.skill_version === "tiktok-us-buyer-pain-points-20261112-v6"
+                ? "Product Highlights · Buyer Pain Points V2" : "Product Highlights"}
                 value={result.highlights.map((v, i) => (i + 1) + ". " + v).join("\n")}
                 count={metrics ? metrics.highlights_count + " mục · " +
                   metrics.highlights_characters_total + " / 1500" : undefined} />

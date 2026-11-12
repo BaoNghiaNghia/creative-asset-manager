@@ -33,7 +33,7 @@ def prevent_external_ytrends_calls(monkeypatch):
     """Never hit a third-party MCP endpoint during CAM API tests."""
     async def no_data(_title, **_kwargs):
         return tiktok_skill.empty_evidence("vintage sunset mountain")
-    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword", no_data)
+    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword_set", no_data)
     # Legacy Gemini tests prove old in-flight jobs still work; new Codex tests
     # explicitly override the engine below.
     monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "gemini")
@@ -93,6 +93,61 @@ def copy():
         ],
     }
 
+def validate_legacy(data, *, profile_version=tiktok_skill.V5_PROFILE_VERSION):
+    """Keep v5 legacy tests pinned when changing new job defaults to v6."""
+    return tiktok_skill.validate_copy(data, profile_version=profile_version)
+
+
+def buyer_copy():
+    """User-reviewed v6 concise reference; never source of other product facts."""
+    import json
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[5]
+    text = (root / "deploy/codex/skills/tiktok-shop-listing-buyer-pain-v2/"
+            "references/occupational-therapy-format.md").read_text(encoding="utf8")
+    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
+    assert match
+    return json.loads(match.group(1))
+
+def test_buyer_pain_v2_reference_matches_chatgpt_concise_contract():
+    draft = buyer_copy()
+    result = tiktok_skill.validate_copy(draft)
+    assert result["skill_version"] == tiktok_skill.PROFILE_VERSION
+    assert 90 <= result["metrics"]["description_words"] <= 190
+    assert result["description"].count("\n\n") == 2
+    assert "Design Details\n" not in result["description"]
+    assert "Size & Fit\n" not in result["description"]
+    assert result["title"].startswith("Occupational Therapy T-Shirt")
+    assert "OT OTA Gift" in result["title"]
+    assert len(result["highlights"]) == 5
+    assert all(tiktok_skill._word_count(item) >= 10 for item in result["highlights"][:4])
+    assert result["highlights"][-1] == tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
+    assert result["draft_shipping_claim_unverified"] is True
+    assert result["published"] is False
+    assert "$tiktok-shop-listing-buyer-pain-v2" in tiktok_skill.CODEX_JOB_PROMPT
+    assert "$tiktok-shop-listing-optimizer" in tiktok_skill.CODEX_JOB_PROMPT_V5
+    assert "THREE concise paragraphs" in tiktok_skill.CODEX_JOB_PROMPT
+    assert "100-160" in tiktok_skill._retry_instruction(2)
+
+
+def test_buyer_pain_v2_rejects_old_long_editorial_output_but_keeps_v5():
+    legacy = copy()
+    assert validate_legacy(legacy)["skill_version"] == tiktok_skill.V5_PROFILE_VERSION
+    with pytest.raises(ValueError, match="description_"):
+        tiktok_skill.validate_copy(legacy)
+    short = buyer_copy()
+    weak = {**short, "highlights": [
+        "OT pride", "Gift for therapists", "Graphic tee", "Weekend outfit",
+        tiktok_skill.DRAFT_USA_SHIPPING_CLAIM,
+    ]}
+    with pytest.raises(ValueError, match="product_highlights_lack_detail"):
+        tiktok_skill.validate_copy(weak)
+    unsafe = {**short, "description": short["description"] + " Manufactured in USA."}
+    with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
+        tiktok_skill.validate_copy(unsafe)
+
 
 def test_new_pick_defaults_to_auto_codex_queue():
     from app.core.config import Settings
@@ -103,7 +158,7 @@ def test_new_pick_defaults_to_auto_codex_queue():
 
 
 def test_tiktok_copy_structural_validator_and_unverified_ytrends():
-    result = tiktok_skill.validate_copy(copy())
+    result = validate_legacy(copy())
     assert result["qa_status"] == "needs_fact_check"
     assert result["ytrends_status"] == "unavailable"
     assert result["published"] is False
@@ -123,7 +178,7 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
         {"description": copy()["description"] + " Made in USA"},
     ]:
         with pytest.raises((ValueError, Exception)):
-            tiktok_skill.validate_copy({**copy(), **mutation})
+            validate_legacy({**copy(), **mutation})
 
 
 
@@ -138,7 +193,7 @@ def test_santa_reference_matches_detailed_v5_draft_contract():
     block = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
     assert block is not None
     reference = json.loads(block.group(1))
-    qa = tiktok_skill.validate_copy(reference)
+    qa = validate_legacy(reference)
     assert qa["metrics"]["highlights_total_words"] >= 78
     assert all(tiktok_skill._word_count(h) >= 13 for h in qa["highlights"][:4])
     assert "chest width" in qa["description"]
@@ -151,10 +206,10 @@ def test_santa_reference_matches_detailed_v5_draft_contract():
 
 def test_v5_rejects_generic_size_and_short_highlights_but_preserves_v3():
     original = copy()
-    assert tiktok_skill.validate_copy(original)["metrics"]["highlights_total_words"] >= 78
+    assert validate_legacy(original)["metrics"]["highlights_total_words"] >= 78
     assert all(tiktok_skill._word_count(h) >= 13
-               for h in tiktok_skill.validate_copy(original)["highlights"][:4])
-    assert tiktok_skill.validate_copy(original)["skill_version"] == tiktok_skill.PROFILE_VERSION
+               for h in validate_legacy(original)["highlights"][:4])
+    assert validate_legacy(original)["skill_version"] == tiktok_skill.V5_PROFILE_VERSION
 
     vague_size = original["description"].replace(
         "Please review the size information for your selected garment. "
@@ -172,12 +227,12 @@ def test_v5_rejects_generic_size_and_short_highlights_but_preserves_v3():
                 "Nature lover favorite",
             ]}
     with pytest.raises(ValueError, match="description_size_fit_lacks_measurement_guidance"):
-        tiktok_skill.validate_copy(weak)
+        validate_legacy(weak)
     with pytest.raises(ValueError, match="product_highlights_lack_detail"):
-        tiktok_skill.validate_copy({**original, "highlights": weak["highlights"]})
+        validate_legacy({**original, "highlights": weak["highlights"]})
     # Previously queued Codex v3/v4 jobs retain their existing QA contracts;
     # the new draft-only line does not change their persisted payload.
-    legacy = tiktok_skill.validate_copy(
+    legacy = validate_legacy(
         weak, profile_version="tiktok-us-codex-skill-20261112-v3")
     assert legacy["skill_version"] == "tiktok-us-codex-skill-20261112-v3"
     assert legacy["published"] is False
@@ -185,7 +240,7 @@ def test_v5_rejects_generic_size_and_short_highlights_but_preserves_v3():
 
 def test_exact_merchant_shipping_claim_is_draft_only_and_unverified():
     original = copy()
-    result = tiktok_skill.validate_copy(original)
+    result = validate_legacy(original)
     claim = "Printed and shipped in the USA – no import customs fees"
     assert tiktok_skill.DRAFT_USA_SHIPPING_CLAIM == claim
     assert result["highlights"][4] == claim
@@ -204,9 +259,9 @@ def test_exact_merchant_shipping_claim_is_draft_only_and_unverified():
     # If Codex itself writes the exact merchant-supplied fifth highlight,
     # accept it, but NEVER accept other unsupported U.S. claims.
     direct = {**original, "highlights": original["highlights"][:4] + [claim]}
-    assert tiktok_skill.validate_copy(direct)["highlights"][4] == claim
+    assert validate_legacy(direct)["highlights"][4] == claim
     with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
-        tiktok_skill.validate_copy(direct, profile_version="tiktok-us-editorial-depth-20261112-v4")
+        validate_legacy(direct, profile_version="tiktok-us-editorial-depth-20261112-v4")
     for bad in [
         {**original, "description": original["description"] + "\n" + claim},
         {**original, "highlights": original["highlights"][:4] +
@@ -214,7 +269,7 @@ def test_exact_merchant_shipping_claim_is_draft_only_and_unverified():
         {**original, "highlights": [claim, *original["highlights"][1:]]},
     ]:
         with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
-            tiktok_skill.validate_copy(bad)
+            validate_legacy(bad)
 
 
 def test_legacy_v4_draft_view_adds_shipping_line_without_mutating_database(db, monkeypatch):
@@ -226,7 +281,7 @@ def test_legacy_v4_draft_view_adds_shipping_line_without_mutating_database(db, m
     monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
     monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
     job = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
-    old = tiktok_skill.validate_copy(
+    old = validate_legacy(
         copy(), profile_version="tiktok-us-editorial-depth-20261112-v4")
     job.status = "completed"
     job.payload_json = {**job.payload_json,
@@ -254,7 +309,7 @@ def test_screenshot_style_editorial_outline_is_required():
     assert "exactly 5" in tiktok_skill.PROMPT
     assert "No U.S. Printing & Shipping section" in tiktok_skill.PROMPT
     valid = copy()
-    assert tiktok_skill.validate_copy(valid)["metrics"]["description_words"] >= 130
+    assert validate_legacy(valid)["metrics"]["description_words"] >= 130
     for bad in [
         {**valid, "description": valid["description"].replace("Design Details", "Design Notes")},
         {**valid, "description": valid["description"].replace(
@@ -265,7 +320,7 @@ def test_screenshot_style_editorial_outline_is_required():
         {**valid, "search_terms": valid["search_terms"][:3]},
     ]:
         with pytest.raises(ValueError):
-            tiktok_skill.validate_copy(bad)
+            validate_legacy(bad)
 
 
 @pytest.mark.parametrize("field,claim,error", [
@@ -291,7 +346,7 @@ def test_screenshot_unverified_seller_claims_are_rejected(field, claim, error):
     else:
         sample[field] += "\n" + claim
     with pytest.raises(ValueError, match=error):
-        tiktok_skill.validate_copy(sample)
+        validate_legacy(sample)
 
 
 def test_generated_copy_repairs_only_formatting_not_product_facts():
@@ -312,16 +367,16 @@ def test_generated_copy_repairs_only_formatting_not_product_facts():
         "mountain sunset sweatshirt", "retro mountain crewneck",
         "vintage landscape pullover", "outdoor hiking gift",
         "scenic mountain sweatshirt", "sunset landscape art", "nature lover gift"]
-    assert tiktok_skill.validate_copy(normalized)["published"] is False
+    assert validate_legacy(normalized)["published"] is False
     wrapped = tiktok_skill.prepare_generated_copy({"listing": {
         "title": copy()["title"], "description": copy()["description"],
         "highlights": copy()["highlights"],
     }})
     assert wrapped["search_terms"] == []
     with pytest.raises(ValueError):
-        tiktok_skill.validate_copy(wrapped)
+        validate_legacy(wrapped)
     with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
-        tiktok_skill.validate_copy(tiktok_skill.prepare_generated_copy({
+        validate_legacy(tiktok_skill.prepare_generated_copy({
             **copy(), "description": copy()["description"] + " Made in USA."
         }))
     with pytest.raises(tiktok_skill.GeneratedListingInvalid, match="missing_description"):
@@ -345,6 +400,7 @@ def test_invalid_generated_copy_is_retryable_then_valid_draft_completes(db, monk
     job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     job.payload_json = {
         **job.payload_json,
+        "skill_version": tiktok_skill.V5_PROFILE_VERSION,
         "_ai_model_start_slot": {
             "provider": "gemini", "credential_provider": "gemini",
             "model": "gemini-test-model", "worker_id": "worker-cam", "attempt_count": 1,
@@ -394,6 +450,7 @@ def test_invalid_generated_copy_is_retryable_then_valid_draft_completes(db, monk
     job.attempt_count = 2
     job.payload_json = {
         **job.payload_json,
+        "skill_version": tiktok_skill.V5_PROFILE_VERSION,
         "_ai_model_start_slot": {
             **job.payload_json["_ai_model_start_slot"],
             "attempt_count": 2,
@@ -527,6 +584,7 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     job.status, job.claimed_by = "processing", "worker-cam"
     job.payload_json = {
         **job.payload_json,
+        "skill_version": tiktok_skill.V5_PROFILE_VERSION,
         "_ai_model_start_slot": {
             "provider": "gemini", "credential_provider": "gemini",
             "model": "gemini-test-model", "worker_id": "worker-cam",
@@ -546,7 +604,7 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
             "competition_level": "medium", "opportunity_score": 54.5,
             "dataset_note": "Indexed Etsy subset; not TikTok Shop search data.",
         }
-    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword", market_research)
+    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword_set", market_research)
     class Provider:
         async def analyze_single(self, input):
             assert "Etsy (not TikTok Shop)" in input.prompt
@@ -600,7 +658,7 @@ def test_regeneration_is_new_job_idempotent_and_bounded(db, monkeypatch):
     monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
     original = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert original is not None
-    old_draft = tiktok_skill.validate_copy(copy())
+    old_draft = validate_legacy(copy())
     original.status = "completed"
     original.payload_json = {**original.payload_json, "result": old_draft}
     db.commit()
@@ -679,12 +737,12 @@ def test_codex_cli_skill_runs_without_gemini_slot_or_provider(db, monkeypatch, t
         requests.append(kwargs)
         assert kwargs["photo"] == b"test-image-bytes"
         assert kwargs["mime"] == "image/jpeg"
-        assert "$tiktok-shop-listing-optimizer" in kwargs["prompt"]
+        assert "$tiktok-shop-listing-buyer-pain-v2" in kwargs["prompt"]
         assert "UNTRUSTED_SOURCE_TITLE_JSON" in kwargs["prompt"]
         assert kwargs["codex_home"] == str(tmp_path)
         assert kwargs["model"] == ""
         assert kwargs["cancelled"]() is False
-        return copy()
+        return buyer_copy()
 
     async def photo(_url):
         return b"test-image-bytes", "image/jpeg"
@@ -713,7 +771,7 @@ def test_codex_cli_skill_runs_without_gemini_slot_or_provider(db, monkeypatch, t
     db.expire_all()
     payload = db.get(ProcessingJobModel, job.id).payload_json
     assert payload["generation_provider"] == "codex_cli"
-    assert payload["result"]["title"] == copy()["title"]
+    assert payload["result"]["title"] == buyer_copy()["title"]
     assert payload["result"]["published"] is False
 
 
@@ -728,7 +786,7 @@ def test_explicit_upgrade_from_exhausted_gemini_to_codex(db, monkeypatch):
     original.status = "completed"
     original.payload_json = {
         **original.payload_json, "skill_version": "tiktok-us-editorial-20261112-v2",
-        "regeneration_count": 2, "result": tiktok_skill.validate_copy(copy()),
+        "regeneration_count": 2, "result": validate_legacy(copy()),
     }
     db.commit()
     assert tiktok_skill.project(original)["can_regenerate"] is True
