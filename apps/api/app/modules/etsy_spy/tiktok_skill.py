@@ -1,9 +1,8 @@
 """CAM Etsy Picked -> draft-only TikTok Shop US listing copy.
 
 Adapts user-supplied TikTok Shop Listing Optimizer (2026-11-11).
-YTrends is the ONLY permitted keyword research source. Since no authenticated
-YTrends adapter is configured here, every draft explicitly marks keyword
-metrics UNVERIFIED; SMS or generic SEO never silently substitutes for it.
+YTrends is the only external Etsy market keyword context. Its snapshots are
+not TikTok Shop keyword evidence; all TikTok search metrics remain unverified.
 This module never publishes listings or declares merchant claims verified.
 """
 from __future__ import annotations
@@ -32,6 +31,7 @@ from app.modules.realistic_review_ugc.gemini_safety import (
 )
 from .model import EtsySpyListing, EtsySpyPicked
 from .service import verified_image_url
+from .ytrends_mcp import empty_evidence, prompt_context, research_etsy_keyword
 
 JOB_TYPE = "etsy_tiktok_listing_generate"
 PROFILE_VERSION = "tiktok-us-ytrends-only-20261111-v1"
@@ -60,8 +60,9 @@ Apply the TikTok Shop Listing Optimizer workflow:
   occasion and evidence-backed buyer confidence; <=1500 total characters.
 - Search terms <=250 total characters and <=15 relevant phrases, no brands
   owned by others, no invented search volume or keyword scores.
-- YTrends MCP is NOT connected to this CAM worker; do not claim any live
-  keyword research, trends or TikTok search metrics.
+- The separate YTrends context, if present, represents an Etsy indexed subset
+  with dated snapshots, NOT TikTok Shop keyword demand or rank. Never invent
+  TikTok search volumes, ranking metrics or unsupported trending claims.
 - Do not invent U.S. printing, shipping or no-customs assertions.
   In particular, never write "Made in USA" from a product image.
 - No URLs, blanket guarantees, copied competitor brand claims or fake
@@ -117,7 +118,7 @@ def validate_copy(data: object) -> dict:
         raise ValueError("unverified_us_origin_claim")
     if re.search(r"https?://|www\.", title + " " + description, re.I):
         raise ValueError("listing_external_url")
-    warnings = ["ytrends_mcp_unavailable", "keyword_metrics_unverified",
+    warnings = ["tiktok_keyword_metrics_unverified",
                 "verify_blank_fit_care_fulfillment_and_rights"]
     if len(title) < 40 or len(title) > 150:
         warnings.append("title_outside_editorial_target")
@@ -249,6 +250,35 @@ def _retry_instruction(attempt: int) -> str:
         "combined characters. No unverified facts, brand claims, URLs or "
         "US manufacturing/shipping claims. Output a single JSON object."
     )
+
+
+def attach_ytrends_evidence(draft: dict, evidence: dict) -> dict:
+    """Preserve source/provenance for UI, never mark TikTok search verified."""
+    status = evidence.get("status")
+    if status not in ("connected", "no_data", "unavailable", "disabled"):
+        evidence = empty_evidence("")
+        status = "unavailable"
+    warnings = [warn for warn in (draft.get("warnings") or [])
+                if isinstance(warn, str) and not warn.startswith("ytrends_")]
+    if status == "connected":
+        warnings.append("ytrends_etsy_snapshot_not_tiktok_search")
+        if (evidence.get("median_data_age_days") is not None
+                and evidence["median_data_age_days"] > 30):
+            warnings.append("ytrends_etsy_snapshot_data_older_than_30_days")
+    elif status == "no_data":
+        warnings.append("ytrends_no_indexed_etsy_results")
+    elif status == "unavailable":
+        warnings.append("ytrends_mcp_unavailable")
+    else:
+        warnings.append("ytrends_mcp_disabled")
+    return {
+        **draft, "ytrends_status": status,
+        "ytrends_evidence": evidence,
+        # The actual generated terms are still from the photo and prompt.
+        "keyword_source": "visual_suggestions_with_etsy_context" if status == "connected"
+                          else "unverified_visual_suggestions",
+        "warnings": warnings,
+    }
 
 
 def queue_on_pick(db: Session, tenant: str, listing: EtsySpyListing,
@@ -410,8 +440,18 @@ async def download_image(url: str) -> tuple[bytes, str]:
 
 class EtsyTikTokListingHandler:
     """Normal CAM worker + existing tenant Gemini credential; no browser/CLI."""
-    def __init__(self, *, fetch_image=download_image):
+    def __init__(self, *, fetch_image=download_image, research_ytrends=None):
         self.fetch_image = fetch_image
+        self.research_ytrends = research_ytrends or self._research_ytrends
+
+    @staticmethod
+    async def _research_ytrends(title: str) -> dict:
+        settings = get_settings()
+        return await research_etsy_keyword(
+            title, enabled=settings.ETSY_TIKTOK_YTRENDS_ENABLED,
+            bearer_token=settings.ETSY_TIKTOK_YTRENDS_BEARER_TOKEN.get_secret_value(),
+            timeout_seconds=settings.ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS,
+        )
 
     def __call__(self, context: JobHandlerContext) -> JobHandlerResult | DeferredJobOutcome:
         try:
@@ -469,9 +509,18 @@ class EtsyTikTokListingHandler:
             return JobHandlerResult.non_retryable(
                 "tiktok_listing_model_slot_missing", "Gemini reservation is missing.")
         provider = context.dependencies.ai_provider_registry.require("gemini")
+        try:
+            evidence = await self.research_ytrends(payload["source_title"])
+        except Exception:
+            # YTrends is optional external research; a failed request must not
+            # turn a valid Gemini draft into a retry or expose remote errors.
+            evidence = empty_evidence("")
+        if context.is_cancelled:
+            return JobHandlerResult.cancelled()
         response = await provider.analyze_single(AiMetadataAnalysisInput(
             tenant_id=job.tenant_id, asset_id=job.id,
             prompt=(PROMPT + _retry_instruction(job.attempt_count) +
+                    prompt_context(evidence) +
                     "\n\nUntrusted competitor title: " + payload["source_title"][:700]),
             image_bytes=photo, image_mime_type=mime,
             metadata_profile="etsy_tiktok_listing_draft",
@@ -483,7 +532,8 @@ class EtsyTikTokListingHandler:
             is_cancelled=lambda: context.is_cancelled,
         ))
         try:
-            validated = validate_copy(prepare_generated_copy(response.metadata))
+            validated = attach_ytrends_evidence(
+                validate_copy(prepare_generated_copy(response.metadata)), evidence)
         except (ValueError, TypeError) as exc:
             raise GeneratedListingInvalid(_safe_validation_reason(exc)) from exc
         with context.dependencies.session_factory() as db:

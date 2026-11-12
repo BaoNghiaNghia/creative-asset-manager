@@ -28,6 +28,14 @@ def db():
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def prevent_external_ytrends_calls(monkeypatch):
+    """Never hit a third-party MCP endpoint during CAM API tests."""
+    async def no_data(_title, **_kwargs):
+        return tiktok_skill.empty_evidence("vintage sunset mountain")
+    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword", no_data)
+
+
 def product():
     return EtsySpyListing(
         tenant_id="boostgame", agent_id="a"*36, source_session_id="s",
@@ -249,8 +257,20 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     db.commit()
     provider_calls = []
+    async def market_research(_title, **_kwargs):
+        return {
+            "status": "connected", "source": "trends.ytuong.ai",
+            "marketplace": "etsy", "query": "vintage sunset mountain",
+            "as_of_date": "2026-11-12", "median_data_age_days": 78,
+            "total_listings": 36, "total_sellers": 31,
+            "competition_level": "medium", "opportunity_score": 54.5,
+            "dataset_note": "Indexed Etsy subset; not TikTok Shop search data.",
+        }
+    monkeypatch.setattr(tiktok_skill, "research_etsy_keyword", market_research)
     class Provider:
         async def analyze_single(self, input):
+            assert "Etsy (not TikTok Shop)" in input.prompt
+            assert "2026-11-12" in input.prompt
             provider_calls.append(input.metadata_profile)
             assert input.tenant_id == "boostgame"
             assert input.preferred_model == "gemini-test-model"
@@ -279,7 +299,10 @@ def test_handler_generates_draft_and_persists_only_owned_active_job(db, monkeypa
     db.expire_all()
     stored = db.get(ProcessingJobModel, job.id)
     assert stored.payload_json["result"]["title"] == copy()["title"]
-    assert stored.payload_json["result"]["ytrends_status"] == "unavailable"
+    assert stored.payload_json["result"]["ytrends_status"] == "connected"
+    assert stored.payload_json["result"]["ytrends_evidence"]["marketplace"] == "etsy"
+    assert stored.payload_json["result"]["ytrends_evidence"]["total_listings"] == 36
+    assert "ytrends_etsy_snapshot_data_older_than_30_days" in stored.payload_json["result"]["warnings"]
     assert stored.payload_json["result"]["published"] is False
     # A cancelled/stale owner cannot overwrite the stored draft.
     db.delete(picked)

@@ -43,6 +43,7 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
 };
 type TikTokListingOverview = {
   enabled: boolean; auto_on_pick: boolean; draft_only: true;
+  ytrends_enabled?: boolean;
   keyword_source: string; counts: Record<string, number>;
 };
 type Options = {
@@ -1304,8 +1305,10 @@ export function EtsySpyPage() {
         <div>
           <strong>TikTok Shop Listing Optimizer</strong>
           <small>Chọn tối đa 5 dòng bên dưới để tạo đúng sản phẩm, hoặc backfill 5 Picked
-            chưa có job. Nội dung AI là bản nháp cần duyệt, không tự đăng.
-            YTrends chưa kết nối.</small>
+            chưa có job. Bản nháp cần duyệt, không tự đăng.
+            {tiktokOverview?.ytrends_enabled
+              ? " YTrends cung cấp dữ liệu nghiên cứu Etsy; không phải số liệu TikTok Shop."
+              : " Nghiên cứu YTrends hiện tắt."}</small>
         </div>
         <button type="button" disabled={!canManage || !tiktokOverview?.enabled || tiktokBackfillBusy}
           onClick={backfillTikTokListings}>

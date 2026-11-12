@@ -2512,11 +2512,72 @@ def test_tiktok_skill_auto_on_pick_idempotent_status_and_unpick(scenario, monkey
         ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 1
     overview = client.get("/api/v1/etsy-spy/tiktok-listings/overview").json()
     assert overview["counts"]["pending"] == 1
-    assert overview["keyword_source"] == "ytrends_unavailable"
+    assert overview["keyword_source"] == "ytrends_etsy_context"
+    assert overview["ytrends_enabled"] is True
     assert client.put(picked, json={"picked": False}).status_code == 200
     db.refresh(jobs[0])
     assert jobs[0].cancellation_requested is True
     assert client.get("/api/v1/etsy-spy/listings/1234567890/tiktok-listing").status_code == 404
+
+
+def test_tiktok_ytrends_refresh_preserves_existing_draft_without_gemini(scenario, monkeypatch):
+    from sqlalchemy import select
+    from app.modules.etsy_spy import tiktok_skill
+    import importlib
+    spy_router = importlib.import_module("app.modules.etsy_spy.router")
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch()).status_code == 200
+    listing = db.scalar(select(EtsySpyListing).where(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key == "1234567890"))
+    listing.metadata_json = {"fullImageUrl": "https://i.etsystatic.com/12345/il_fullxfull.abc.jpg"}
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_skill_enabled", lambda: True)
+    monkeypatch.setattr(spy_router, "tiktok_auto_on_pick_enabled", lambda: False)
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    base = "/api/v1/etsy-spy/listings/1234567890/tiktok-listing"
+    assert client.post(base + "/queue").status_code == 200
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE))
+    assert job is not None
+    job.status = "completed"
+    original = {"title": "Existing draft title", "description": "Existing description",
+                "highlights": ["One", "Two", "Three"], "search_terms": ["original"],
+                "warnings": ["tiktok_keyword_metrics_unverified"],
+                "qa_status": "needs_fact_check", "ytrends_status": "unavailable",
+                "published": False}
+    job.payload_json = {**job.payload_json, "result": original}
+    db.commit()
+    calls = []
+    async def researched(title, **kwargs):
+        calls.append(title)
+        return {"status": "connected", "source": "trends.ytuong.ai",
+                "marketplace": "etsy", "query": "oh holy night",
+                "as_of_date": "2026-11-12", "median_data_age_days": 78,
+                "total_listings": 36, "total_sellers": 31,
+                "competition_level": "medium", "opportunity_score": 54.5,
+                "dataset_note": "Indexed Etsy subset; not TikTok Shop search data."}
+    monkeypatch.setattr(spy_router, "research_etsy_keyword", researched)
+    refreshed = client.post(base + "/ytrends/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    result = refreshed.json()["result"]
+    assert result["title"] == original["title"]
+    assert result["description"] == original["description"]
+    assert result["search_terms"] == original["search_terms"]
+    assert result["ytrends_status"] == "connected"
+    assert result["ytrends_evidence"]["total_listings"] == 36
+    assert result["published"] is False
+    assert len(calls) == 1
+    assert db.query(ProcessingJobModel).filter(
+        ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 1
+    second = client.post(base + "/ytrends/refresh")
+    assert second.status_code == 200
+    assert len([v for v in second.json()["result"]["warnings"]
+                if v == "ytrends_etsy_snapshot_not_tiktok_search"]) == 1
+    assert client.post("/api/v1/etsy-spy/listings/9999999999/tiktok-listing/ytrends/refresh").status_code == 404
 
 
 def test_tiktok_skill_backfill_dry_run_and_feature_off(scenario, monkeypatch):

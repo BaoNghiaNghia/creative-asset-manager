@@ -63,7 +63,15 @@ export type DesignAsset = {
 };
 export type TikTokListingDraft = {
   title: string; description: string; highlights: string[]; search_terms: string[];
-  qa_status: "needs_fact_check"; keyword_source: string; ytrends_status: "unavailable";
+  qa_status: "needs_fact_check"; keyword_source: string;
+  ytrends_status: "connected" | "no_data" | "unavailable" | "disabled";
+  ytrends_evidence?: {
+    status: string; source: string; marketplace: "etsy"; query: string;
+    as_of_date?: string | null; median_data_age_days?: number | null;
+    total_listings?: number | null; total_sellers?: number | null;
+    competition_level?: string | null; opportunity_score?: number | null;
+    dataset_note: string;
+  };
   warnings: string[]; published: false;
   metrics: { title_characters: number; description_characters: number;
     description_words: number; highlights_count: number;

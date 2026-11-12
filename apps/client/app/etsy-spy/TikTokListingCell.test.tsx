@@ -40,7 +40,8 @@ function response(data: unknown) {
     status: 200, headers: {"content-type": "application/json"},
   });
 }
-async function render(status: string, enabled = true, canManage = true) {
+async function render(status: string, enabled = true, canManage = true,
+  evidence?: TikTokListingDraft["ytrends_evidence"]) {
   mount = document.createElement("div");
   document.body.appendChild(mount);
   root = createRoot(mount);
@@ -55,7 +56,25 @@ async function render(status: string, enabled = true, canManage = true) {
       return response({
         status, enabled, draft_only: true, ytrends_status: "unavailable",
         error_code: status === "failed" ? "temporary_model_error" : null,
-        result: status === "needs_fact_check" ? draft : undefined,
+        result: status === "needs_fact_check" ? {
+          ...draft,
+          ytrends_status: evidence ? "connected" : "unavailable",
+          ytrends_evidence: evidence,
+        } : undefined,
+      });
+    }
+    if (uri.endsWith("/tiktok-listing/ytrends/refresh") && init?.method === "POST") {
+      return response({
+        status: "needs_fact_check", enabled: true, draft_only: true,
+        result: {
+          ...draft, ytrends_status: "connected",
+          ytrends_evidence: {
+            status: "connected", source: "trends.ytuong.ai", marketplace: "etsy",
+            query: "oh holy night", as_of_date: "2026-11-12",
+            median_data_age_days: 78, total_listings: 36, total_sellers: 31,
+            dataset_note: "Indexed Etsy subset; not TikTok Shop search data.",
+          },
+        },
       });
     }
     if ((uri.endsWith("/tiktok-listing/queue") || uri.endsWith("/tiktok-listing/retry")) &&
@@ -108,6 +127,48 @@ describe("Picked TikTok Shop listing column", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(open);
   });
+  it("shows dated Etsy-only YTrends evidence without TikTok volume claims", async () => {
+    await render("needs_fact_check", true, true, {
+      status: "connected", source: "trends.ytuong.ai", marketplace: "etsy",
+      query: "oh holy night", as_of_date: "2026-11-12",
+      median_data_age_days: 78, total_listings: 36, total_sellers: 31,
+      competition_level: "medium", opportunity_score: 54.5,
+      dataset_note: "Indexed Etsy subset; not TikTok Shop search data.",
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const research = dialog?.querySelector(".etsy-tiktok-research");
+    expect(research?.textContent).toContain("oh holy night");
+    expect(research?.textContent).toContain("2026-11-12");
+    expect(research?.textContent).toContain("78 ngày");
+    expect(research?.textContent).toContain("36 listings");
+    expect(research?.textContent).toContain("31 sellers");
+    expect(dialog?.textContent).toContain("không phải số liệu TikTok Shop");
+    expect(dialog?.textContent).toContain("Có dữ liệu");
+  });
+
+  it("refreshes YTrends for an existing draft without Gemini or listing queue", async () => {
+    const {fetchMock, onQueued} = await render("needs_fact_check");
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const refresh = Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button") || [])
+      .find(button => button.textContent?.includes("Cập nhật YTrends"));
+    expect(refresh).toBeDefined();
+    expect(fetchMock.mock.calls.filter(c => c[1]?.method === "POST")).toHaveLength(0);
+    await act(async () => {refresh?.click();});
+    expect(fetchMock.mock.calls.filter(c =>
+      String(c[0]).endsWith("/tiktok-listing/ytrends/refresh") &&
+      c[1]?.method === "POST")).toHaveLength(1);
+    expect(dialog?.textContent).toContain("36 listings");
+    expect(onQueued).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(c =>
+      String(c[0]).endsWith("/tiktok-listing/queue"))).toBe(false);
+  });
+
   it("queues from the Picked row on explicit click without opening the dialog", async () => {
     const {fetchMock, onQueued} = await render("not_queued");
     expect(document.querySelector(".etsy-tiktok-queue-action")?.textContent).toBe("Tạo SEO");

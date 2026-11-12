@@ -266,6 +266,11 @@ class Settings(BaseSettings):
     # Enable manual pilot without automatically queueing every new Picked listing.
     ETSY_TIKTOK_AUTO_ON_PICK_ENABLED: bool = False
     ETSY_TIKTOK_BACKFILL_MAX_PER_REQUEST: int = 5
+    # Read-only YTuong YTrends MCP gives Etsy market snapshots only.
+    # Enabled for manual Picked drafts; no TikTok Shop search metrics implied.
+    ETSY_TIKTOK_YTRENDS_ENABLED: bool = True
+    ETSY_TIKTOK_YTRENDS_BEARER_TOKEN: SecretStr = SecretStr("")
+    ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS: float = 8.0
     RRUGC_CREATIVE_BRIEF_ENABLED: bool = True
     # Temporarily disable provider/quota retry loops; users may retry a brief manually.
     RRUGC_CREATIVE_BRIEF_AUTO_RETRY_ENABLED: bool = False
