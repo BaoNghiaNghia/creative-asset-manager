@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {spyFetch, type Listing, type TikTokListingDraft, type TikTokListingView} from "./api";
+import "./TikTokListingModalV4.css";
 
 const LABELS: Record<string, string> = {
   not_queued: "Chưa tạo", pending: "Đang chờ", retry: "Chờ retry",
@@ -81,6 +82,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const [queueing, setQueueing] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [showPrevious, setShowPrevious] = useState(false);
+  const [researchExpanded, setResearchExpanded] = useState(true);
   const [researching, setResearching] = useState(false);
   const [error, setError] = useState("");
   const [copiedAll, setCopiedAll] = useState(false);
@@ -188,6 +190,12 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const result = isShowingPrevious ? detail?.previous_draft : detail?.result;
   const metrics = result?.metrics;
   const evidence = result?.ytrends_evidence;
+  const keywordRows = evidence?.keywords ?? [];
+  const verifiedKeywords = keywordRows.filter(row => row.status === "connected" && row.listings != null).length;
+  const formatCompetition = (value: string | null | undefined) => ({
+    very_high: "Rất cao", high: "Cao", medium: "Trung bình",
+    low: "Thấp", very_low: "Rất thấp",
+  }[value?.toLowerCase().replace(/[ -]/g, "_") ?? ""] || "Chưa xác định");
   const ytrendsStatus = detail?.result?.ytrends_status ??
     (detail && ACTIVE_STATUSES.includes(detail.status) ? "pending" :
       result?.ytrends_status ?? "unavailable");
@@ -264,7 +272,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
           onClick={event => event.stopPropagation()}>
           <div className="etsy-tiktok-dialog-header">
             <div>
-              <strong>TikTok Shop US · Listing Optimizer</strong>
+              <strong>TikTok Shop US <span className="etsy-tiktok-title-divider">/</span> Listing Optimizer</strong>
               <small title={item.pageTitle}>{item.pageTitle}</small>
             </div>
             <button type="button" ref={closeRef} aria-label="Close TikTok listing"
@@ -275,7 +283,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <span className={"etsy-tiktok-state is-" + detailStatus}>
                 {LABELS[detailStatus] || detailStatus}
               </span>
-              <span>Manual · Draft only</span>
+              <span>Bản nháp · Không tự đăng</span>
               <span>Engine: {detail?.generation_engine === "codex"
                 ? "Codex CLI · ChatGPT" : "Gemini (bản cũ)"}</span>
               <span>YTrends · Etsy: {ytrendsStatus === "connected" ? "Có dữ liệu" :
@@ -297,41 +305,67 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 : "Bạn có thể đối chiếu với bản nháp mới."}
             </p>}
             {result ? <>
-              <p className="etsy-tiktok-qa-note">Cần kiểm tra thông tin sản phẩm, thương hiệu
-                và quyền sử dụng trước khi đăng. YTrends chỉ cung cấp tham khảo thị trường Etsy;
-                không chứng minh search volume hay hiệu quả SEO trên TikTok Shop.</p>
+              <details className="etsy-tiktok-qa-details"><summary>Trước khi đăng: Cần kiểm tra thông tin và quyền sử dụng</summary>
+                <p>Đối chiếu sản phẩm, size, thương hiệu và quyền sử dụng thiết kế. YTrends là dữ liệu tham khảo Etsy,
+                  không phải lượt tìm kiếm hay kết quả SEO TikTok Shop.</p>
+              </details>
               {evidence && <section className="etsy-tiktok-research" aria-label="Nghiên cứu Etsy từ YTrends">
-                <strong>1. YTrends Keyword Research</strong>
-                {evidence.keywords?.length ? <>
-                  <div style={{overflowX: "auto"}}>
-                    <table style={{width: "100%", borderCollapse: "collapse", textAlign: "left"}}>
-                      <thead><tr><th>Keyword</th><th>Listings (Etsy)</th><th>Cạnh tranh</th></tr></thead>
-                      <tbody>{evidence.keywords.map((row, index) =>
+                <div className="etsy-tiktok-research-heading">
+                  <div>
+                    <span className="etsy-tiktok-section-eyebrow">DỮ LIỆU THỊ TRƯỜNG · ETSY</span>
+                    <h3>1. YTrends Keyword Research</h3>
+                  </div>
+                  <div className="etsy-tiktok-research-tools">
+                    {keywordRows.length > 0 && <span className="etsy-tiktok-research-count">
+                      {verifiedKeywords}/{keywordRows.length} từ khóa có số liệu
+                    </span>}
+                    <button type="button" className="etsy-tiktok-text-button"
+                      onClick={() => setResearchExpanded(value => !value)}
+                      aria-expanded={researchExpanded}>
+                      {researchExpanded ? "Thu gọn" : "Xem chi tiết"}
+                    </button>
+                  </div>
+                </div>
+                {researchExpanded && <>
+                  {keywordRows.length ? <div className="etsy-tiktok-keyword-scroll">
+                    <table className="etsy-tiktok-keyword-table">
+                      <thead><tr><th scope="col">Từ khóa</th><th scope="col">Sản phẩm Etsy</th><th scope="col">Mức cạnh tranh</th></tr></thead>
+                      <tbody>{keywordRows.map((row, index) =>
                         <tr key={row.keyword + index}>
-                          <td>{row.keyword}</td>
-                          <td>{row.listings == null ? "Không có dữ liệu" :
-                            row.listings.toLocaleString("vi-VN")}</td>
-                          <td>{row.competition || "Chưa xác định"}</td>
+                          <td className="etsy-tiktok-keyword-name">{row.keyword}</td>
+                          <td>{row.listings == null
+                            ? <span className="etsy-tiktok-muted">Chưa có số liệu</span>
+                            : row.listings.toLocaleString("vi-VN")}</td>
+                          <td><span className={row.competition
+                            ? "etsy-tiktok-competition is-" + row.competition.toLowerCase().replace(/[ -]/g, "_")
+                            : "etsy-tiktok-muted"}>
+                            {formatCompetition(row.competition)}</span></td>
                         </tr>)}</tbody>
                     </table>
-                  </div>
-                  <p><strong>Hướng SEO:</strong> Ưu tiên từ khóa sát thiết kế và loại áo.
-                    Đối chiếu các keyword có dữ liệu YTrends trước khi lựa chọn;
-                    số listings thấp không đồng nghĩa với lượt tìm kiếm hoặc doanh số cao.</p>
-                </> : <span>Keyword: {evidence.query || "—"}</span>}
-                <span>Snapshot: {evidence.as_of_date || "Chưa có"}
-                  {evidence.median_data_age_days != null
-                    ? " · Tuổi dữ liệu trung vị " + evidence.median_data_age_days + " ngày" : ""}</span>
-                {evidence.status === "connected" ? <span>
-                  {evidence.total_listings != null ? evidence.total_listings + " listings" : "Listings: không rõ"}
-                  {" · "}
-                  {evidence.total_sellers != null ? evidence.total_sellers + " sellers" : "Sellers: không rõ"}
-                  {evidence.competition_level ? " · Cạnh tranh: " + evidence.competition_level : ""}
-                </span> : <span>{evidence.status === "no_data"
-                  ? "Không có listing phù hợp trong dữ liệu YTrends."
-                  : "Không có dữ liệu xác minh cho lần tạo này."}</span>}
-                <small>Dữ liệu từ tập Etsy được lập chỉ mục, không phải số liệu TikTok Shop.</small>
+                  </div> : <p className="etsy-tiktok-research-empty">
+                    Chưa có bảng từ khóa. Cụm từ đang nghiên cứu: <strong>{evidence.query || "Chưa có"}</strong>.
+                  </p>}
+                  <p className="etsy-tiktok-seo-guide"><strong>Gợi ý sử dụng:</strong> Ưu tiên từ khóa
+                    khớp thiết kế và đúng loại áo. Số sản phẩm ít không đồng nghĩa với nhu cầu tìm kiếm cao.</p>
+                </>}
+                <div className="etsy-tiktok-research-footnote">
+                  <span>Nguồn: YTrends MCP · Etsy</span>
+                  <span>Dữ liệu: {evidence.as_of_date || "Chưa xác định"}
+                    {evidence.median_data_age_days != null
+                      ? " · Tuổi dữ liệu trung vị " + evidence.median_data_age_days + " ngày" : ""}</span>
+                  {keywordRows.length === 0 && evidence.total_listings != null && <span>
+                    {evidence.total_listings.toLocaleString("vi-VN")} listings
+                    {evidence.total_sellers != null ? " · " + evidence.total_sellers.toLocaleString("vi-VN") + " sellers" : ""}
+                    {evidence.competition_level ? " · Cạnh tranh: " + formatCompetition(evidence.competition_level) : ""}
+                  </span>}
+                </div>
+                <small>Đây là tập dữ liệu Etsy được lập chỉ mục, không phải số liệu TikTok Shop.</small>
               </section>}
+              <div className="etsy-tiktok-section-heading" id="etsy-tiktok-copy-heading">
+                <div><span className="etsy-tiktok-section-eyebrow">BẢN NHÁP NIÊM YẾT</span>
+                  <h3>2. Nội dung TikTok Shop</h3></div>
+                <small>Kiểm tra và copy từng trường trước khi đăng</small>
+              </div>
               <CopyField label="Product Title" value={result.title}
                 count={metrics ? metrics.title_characters + " / 200 ký tự" : undefined} />
               <CopyField label="Product Description" value={result.description}
@@ -380,8 +414,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 onClick={() => void refreshResearch()}>
                 {researching ? "Đang lấy YTrends…" : "Cập nhật YTrends"}
               </button>}
-            <button type="button" onClick={() => void loadDetail()} disabled={loading}>Refresh</button>
-            <button type="button" onClick={closeDialog}>Close</button>
+            <button type="button" onClick={() => void loadDetail()} disabled={loading}>Làm mới</button>
+            <button type="button" onClick={closeDialog}>Đóng</button>
           </div>
         </section>
       </div>, document.body)}

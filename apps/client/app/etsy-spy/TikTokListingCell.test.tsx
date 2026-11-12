@@ -193,6 +193,40 @@ describe("Picked TikTok Shop listing column", () => {
     expect(dialog?.textContent).toContain("Có dữ liệu");
   });
 
+  it("shows compact Vietnamese keyword research with verified versus missing data and collapsible detail", async () => {
+    await render("needs_fact_check", true, true, {
+      status: "connected", source: "trends.ytuong.ai", marketplace: "etsy",
+      query: "oh holy night", as_of_date: "2026-11-12",
+      median_data_age_days: 78, total_listings: 11245, total_sellers: 3227,
+      dataset_note: "Indexed Etsy subset; not TikTok Shop search data.",
+      keywords: [
+        {keyword: "oh holy night", status: "no_data", listings: null,
+          competition: null, as_of_date: "2026-11-12"},
+        {keyword: "christmas sweatshirt", status: "connected", listings: 11245,
+          competition: "very_high", as_of_date: "2026-11-12"},
+        {keyword: "christmas crewneck", status: "connected", listings: 3373,
+          competition: "high", as_of_date: "2026-11-12"},
+      ],
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain("2/3 từ khóa có số liệu");
+    expect(dialog?.textContent).toContain("Chưa có số liệu");
+    expect(dialog?.textContent).toContain("Rất cao");
+    expect(dialog?.textContent).toContain("Cao");
+    expect(dialog?.textContent).toContain("2. Nội dung TikTok Shop");
+    expect(dialog?.querySelectorAll(".etsy-tiktok-keyword-table tbody tr")).toHaveLength(3);
+    const toggle = dialog?.querySelector<HTMLButtonElement>(".etsy-tiktok-text-button");
+    await act(async () => {toggle?.click();});
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(dialog?.querySelector(".etsy-tiktok-keyword-table")).toBeNull();
+    await act(async () => {toggle?.click();});
+    expect(dialog?.querySelectorAll(".etsy-tiktok-keyword-table tbody tr")).toHaveLength(3);
+    expect(dialog?.querySelector(".etsy-tiktok-qa-details")).not.toBeNull();
+  });
+
   it("refreshes YTrends for an existing draft without Gemini or listing queue", async () => {
     const {fetchMock, onQueued} = await render("needs_fact_check");
     await act(async () => {
