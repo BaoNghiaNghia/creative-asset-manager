@@ -13,6 +13,10 @@ import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
+// Keep the service workflows and handlers intact, but hide these four admin panels
+// from Etsy Spy. Actions remain available through the rest of CAM and APIs.
+const SHOW_ETSY_OPERATIONS_PANELS = false;
+
 const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
   { id: "keywords", title: "Keyword Tree", subtitle: "Discovery branches" },
@@ -1285,7 +1289,7 @@ export function EtsySpyPage() {
       <small>LIVE is a potential warning. DEAD or no match never proves trademark clearance. Verify at <a
         target="_blank" rel="noopener noreferrer" href="https://tsdr.uspto.gov/">USPTO TSDR</a>.</small>
     </section>}
-    {activeTab === "products" && options.pickState === "picked" &&
+    {SHOW_ETSY_OPERATIONS_PANELS && activeTab === "products" && options.pickState === "picked" &&
       !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
         aria-label="Picked design extraction queue">
         <div>
@@ -1300,7 +1304,7 @@ export function EtsySpyPage() {
         </button>
         {extractionBackfillMessage && <span role="status">{extractionBackfillMessage}</span>}
       </section>}
-    {activeTab === "products" && options.pickState === "picked" &&
+    {SHOW_ETSY_OPERATIONS_PANELS && activeTab === "products" && options.pickState === "picked" &&
       !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
         aria-label="Picked TikTok listing skill queue">
         <div>
@@ -1459,7 +1463,7 @@ export function EtsySpyPage() {
       </div>
     </div>}
         </>}
-    <details className="etsy-agents" aria-label="Windows synchronization agents">
+    {SHOW_ETSY_OPERATIONS_PANELS && <details className="etsy-agents" aria-label="Windows synchronization agents">
       <summary><span>Windows Sync Agent</span><small>{agents.length} registered · Data remains available while the PC is offline</small></summary>
       <div className="etsy-agent-content">
       <div className="etsy-agent-rows">
@@ -1498,8 +1502,8 @@ export function EtsySpyPage() {
         </>}
       </div>}
       </div>
-    </details>
-    <details className="etsy-agents" aria-label="Windows image extraction agents">
+    </details>}
+    {SHOW_ETSY_OPERATIONS_PANELS && <details className="etsy-agents" aria-label="Windows image extraction agents">
       <summary><span>Windows Image Agent</span>
         <small>{imageAgents.filter(agent => agent.active).length} paired · {extraction?.enabled
           ? `Fast Extraction ${extraction.claimed_today}/${extraction.daily_cap} claims today`
@@ -1571,7 +1575,7 @@ export function EtsySpyPage() {
           </>}
         </div>}
       </div>
-    </details>
+    </details>}
       </div>
     </section>
   </main>;
