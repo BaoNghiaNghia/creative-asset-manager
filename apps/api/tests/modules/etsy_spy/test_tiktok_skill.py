@@ -34,6 +34,9 @@ def prevent_external_ytrends_calls(monkeypatch):
     async def no_data(_title, **_kwargs):
         return tiktok_skill.empty_evidence("vintage sunset mountain")
     monkeypatch.setattr(tiktok_skill, "research_etsy_keyword", no_data)
+    # Legacy Gemini tests prove old in-flight jobs still work; new Codex tests
+    # explicitly override the engine below.
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "gemini")
 
 
 def product():
@@ -453,6 +456,99 @@ def test_regeneration_is_new_job_idempotent_and_bounded(db, monkeypatch):
         db, "boostgame", row, picked.picked_at) is None
     assert tiktok_skill.project(next_job)["can_regenerate"] is False
     assert db.query(ProcessingJobModel).count() == 3
+
+
+def test_codex_cli_skill_runs_without_gemini_slot_or_provider(db, monkeypatch, tmp_path):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
+    monkeypatch.setattr(tiktok_skill, "get_settings", lambda: SimpleNamespace(
+        ETSY_TIKTOK_CODEX_HOME=str(tmp_path),
+        ETSY_TIKTOK_CODEX_TIMEOUT_SECONDS=240,
+        ETSY_TIKTOK_CODEX_MODEL="",
+    ))
+    job = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert job.provider_key == "codex"
+    assert job.payload_json["engine"] == "codex"
+    assert tiktok_skill.project(job)["generation_engine"] == "codex"
+    job.status = "processing"
+    job.claimed_by = "worker-cam"
+    job.attempt_count = 1
+    job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=6)
+    db.commit()
+    requests = []
+
+    async def fake_codex_runner(**kwargs):
+        requests.append(kwargs)
+        assert kwargs["photo"] == b"test-image-bytes"
+        assert kwargs["mime"] == "image/jpeg"
+        assert "$tiktok-shop-listing-optimizer" in kwargs["prompt"]
+        assert "UNTRUSTED_SOURCE_TITLE_JSON" in kwargs["prompt"]
+        assert kwargs["codex_home"] == str(tmp_path)
+        assert kwargs["model"] == ""
+        assert kwargs["cancelled"]() is False
+        return copy()
+
+    async def photo(_url):
+        return b"test-image-bytes", "image/jpeg"
+
+    async def research(_title, **_kwargs):
+        return tiktok_skill.empty_evidence("")
+
+    deps = WorkerDependencies(session_factory=lambda: Session(db.get_bind()),
+                              ai_provider_registry=None)
+    claimed = ClaimedJob(
+        id=job.id, tenant_id=job.tenant_id, job_type=job.job_type,
+        entity_type=job.entity_type, entity_id=job.entity_id,
+        payload=job.payload_json, attempt_count=1,
+        lease_owner="worker-cam", provider_key="codex",
+    )
+    context = JobHandlerContext(
+        job=claimed, dependencies=deps,
+        shutdown_requested=Event(), cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("test_tiktok_codex"), {}),
+    )
+    handler = tiktok_skill.EtsyTikTokListingHandler(
+        fetch_image=photo, research_ytrends=research, codex_runner=fake_codex_runner)
+    out = handler(context)
+    assert out.outcome == JobOutcome.COMPLETED
+    assert len(requests) == 1
+    db.expire_all()
+    payload = db.get(ProcessingJobModel, job.id).payload_json
+    assert payload["generation_provider"] == "codex_cli"
+    assert payload["result"]["title"] == copy()["title"]
+    assert payload["result"]["published"] is False
+
+
+def test_explicit_upgrade_from_exhausted_gemini_to_codex(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    original = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    original.status = "completed"
+    original.payload_json = {
+        **original.payload_json, "skill_version": "tiktok-us-editorial-20261112-v2",
+        "regeneration_count": 2, "result": tiktok_skill.validate_copy(copy()),
+    }
+    db.commit()
+    assert tiktok_skill.project(original)["can_regenerate"] is True
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
+    upgraded = tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at)
+    assert upgraded is not None
+    assert upgraded.provider_key == "codex"
+    assert upgraded.payload_json["engine"] == "codex"
+    assert upgraded.payload_json["regeneration_count"] == 1
+    db.commit()
+    assert tiktok_skill.regenerate_completed_draft(
+        db, "boostgame", row, picked.picked_at).id == upgraded.id
 
 
 def test_manual_retry_is_bounded_and_preserves_failure_audit(db, monkeypatch):

@@ -56,6 +56,7 @@ async function render(status: string, enabled = true, canManage = true,
     if (uri.endsWith("/tiktok-listing") && (!init || init.method !== "POST")) {
       return response({
         status: regenerated ? "pending" : status, enabled, draft_only: true,
+        generation_engine: regenerated ? "codex" : "gemini",
         ytrends_status: "unavailable",
         can_regenerate: !regenerated && status === "needs_fact_check",
         regeneration_count: regenerated ? 1 : 0,
@@ -219,7 +220,7 @@ describe("Picked TikTok Shop listing column", () => {
     });
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     const regeneration = Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button") || [])
-      .find(button => button.textContent?.includes("Tạo lại với YTrends"));
+      .find(button => button.textContent?.includes("Tạo lại với Codex + YTrends"));
     expect(regeneration).toBeDefined();
     expect(fetchMock.mock.calls.filter(c => c[1]?.method === "POST")).toHaveLength(0);
     await act(async () => {regeneration?.click();});
@@ -229,8 +230,9 @@ describe("Picked TikTok Shop listing column", () => {
     expect(dialog?.textContent).toContain("Đang chờ");
     expect(dialog?.textContent).toContain("Đang xem bản nháp trước");
     expect(dialog?.textContent).toContain(draft.title);
-    expect(dialog?.textContent).not.toContain("Tạo lại với YTrends");
-    expect(dialog?.textContent).toContain("Phiên bản mới đang chạy YTrends và Gemini");
+    expect(dialog?.textContent).not.toContain("Tạo lại với Codex + YTrends");
+    expect(dialog?.textContent).toContain("Phiên bản mới đang xử lý YTrends và Codex CLI");
+    expect(dialog?.textContent).toContain("Engine: Codex CLI · ChatGPT");
     expect(onQueued).not.toHaveBeenCalled();
     await act(async () => {
       document.querySelector<HTMLButtonElement>(".etsy-tiktok-dialog-header button")?.click();
