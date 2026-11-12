@@ -127,7 +127,7 @@ def test_tiktok_copy_structural_validator_and_unverified_ytrends():
 
 
 
-def test_santa_reference_matches_detailed_v4_contract():
+def test_santa_reference_matches_detailed_v5_draft_contract():
     import json
     import re
     from pathlib import Path
@@ -140,17 +140,20 @@ def test_santa_reference_matches_detailed_v4_contract():
     reference = json.loads(block.group(1))
     qa = tiktok_skill.validate_copy(reference)
     assert qa["metrics"]["highlights_total_words"] >= 78
-    assert qa["metrics"]["highlights_min_words"] >= 13
+    assert all(tiktok_skill._word_count(h) >= 13 for h in qa["highlights"][:4])
     assert "chest width" in qa["description"]
     assert "body length" in qa["description"]
     assert "measured flat" in qa["description"]
-    assert not any("shipped" in h.lower() for h in qa["highlights"])
+    assert qa["highlights"][4] == tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
+    assert qa["draft_shipping_claim_unverified"] is True
+    assert qa["published"] is False
 
 
-def test_v4_rejects_generic_size_and_short_highlights_but_preserves_v3():
+def test_v5_rejects_generic_size_and_short_highlights_but_preserves_v3():
     original = copy()
     assert tiktok_skill.validate_copy(original)["metrics"]["highlights_total_words"] >= 78
-    assert tiktok_skill.validate_copy(original)["metrics"]["highlights_min_words"] >= 13
+    assert all(tiktok_skill._word_count(h) >= 13
+               for h in tiktok_skill.validate_copy(original)["highlights"][:4])
     assert tiktok_skill.validate_copy(original)["skill_version"] == tiktok_skill.PROFILE_VERSION
 
     vague_size = original["description"].replace(
@@ -172,12 +175,76 @@ def test_v4_rejects_generic_size_and_short_highlights_but_preserves_v3():
         tiktok_skill.validate_copy(weak)
     with pytest.raises(ValueError, match="product_highlights_lack_detail"):
         tiktok_skill.validate_copy({**original, "highlights": weak["highlights"]})
-    # Previously queued Codex v3 jobs retain their previous QA contract while
-    # new v4 requests get the stricter, detailed copy rules.
+    # Previously queued Codex v3/v4 jobs retain their existing QA contracts;
+    # the new draft-only line does not change their persisted payload.
     legacy = tiktok_skill.validate_copy(
         weak, profile_version="tiktok-us-codex-skill-20261112-v3")
     assert legacy["skill_version"] == "tiktok-us-codex-skill-20261112-v3"
     assert legacy["published"] is False
+
+
+def test_exact_merchant_shipping_claim_is_draft_only_and_unverified():
+    original = copy()
+    result = tiktok_skill.validate_copy(original)
+    claim = "Printed and shipped in the USA – no import customs fees"
+    assert tiktok_skill.DRAFT_USA_SHIPPING_CLAIM == claim
+    assert result["highlights"][4] == claim
+    assert result["highlights"][:4] == original["highlights"][:4]
+    assert result["draft_shipping_claim_unverified"] is True
+    assert tiktok_skill.DRAFT_USA_SHIPPING_WARNING in result["warnings"]
+    assert result["qa_status"] == "needs_fact_check"
+    assert result["published"] is False
+    assert result["metrics"]["highlights_characters_total"] == sum(
+        len(x) for x in result["highlights"])
+    assert result["metrics"]["highlights_total_words"] == sum(
+        tiktok_skill._word_count(x) for x in result["highlights"])
+    assert tiktok_skill._draft_shipping_prompt(tiktok_skill.PROFILE_VERSION).find(
+        claim) >= 0
+
+    # If Codex itself writes the exact merchant-supplied fifth highlight,
+    # accept it, but NEVER accept other unsupported U.S. claims.
+    direct = {**original, "highlights": original["highlights"][:4] + [claim]}
+    assert tiktok_skill.validate_copy(direct)["highlights"][4] == claim
+    with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
+        tiktok_skill.validate_copy(direct, profile_version="tiktok-us-editorial-depth-20261112-v4")
+    for bad in [
+        {**original, "description": original["description"] + "\n" + claim},
+        {**original, "highlights": original["highlights"][:4] +
+         ["Printed in USA and ships from Florida, no tax needed."]},
+        {**original, "highlights": [claim, *original["highlights"][1:]]},
+    ]:
+        with pytest.raises(ValueError, match="unverified_origin_or_fulfillment_claim"):
+            tiktok_skill.validate_copy(bad)
+
+
+def test_legacy_v4_draft_view_adds_shipping_line_without_mutating_database(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
+    job = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    old = tiktok_skill.validate_copy(
+        copy(), profile_version="tiktok-us-editorial-depth-20261112-v4")
+    job.status = "completed"
+    job.payload_json = {**job.payload_json,
+                        "skill_version": "tiktok-us-editorial-depth-20261112-v4",
+                        "result": old}
+    db.commit()
+
+    old_last = old["highlights"][4]
+    assert old_last != tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
+    view = tiktok_skill.project(job, detail=True)
+    assert view["result"]["highlights"][4] == tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
+    assert view["result"]["draft_shipping_claim_unverified"] is True
+    assert view["result"]["published"] is False
+    assert view["result"]["qa_status"] == "needs_fact_check"
+    db.refresh(job)
+    assert job.payload_json["result"]["highlights"][4] == old_last
+    assert job.payload_json["result"].get("draft_shipping_claim_unverified") is None
+    assert tiktok_skill._with_draft_shipping_claim({**old, "published": True})["highlights"][4] == old_last
 
 
 def test_screenshot_style_editorial_outline_is_required():

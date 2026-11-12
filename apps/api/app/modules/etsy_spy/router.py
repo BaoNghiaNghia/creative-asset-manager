@@ -1217,7 +1217,10 @@ def listing_tiktok_skill_detail(
             ))
             old = previous.payload_json if previous is not None else None
             if isinstance(old, dict) and isinstance(old.get("result"), dict):
-                view["previous_draft"] = old["result"]
+                # Project the explicit merchant-approved *draft-only* placeholder
+                # without mutating immutable historical generation results.
+                view["previous_draft"] = project_tiktok_skill(
+                    previous, detail=True).get("result", old["result"])
                 view["previous_job_id"] = previous.id
     return {"listingKey": listing_key, "enabled": tiktok_skill_enabled(), **view}
 
