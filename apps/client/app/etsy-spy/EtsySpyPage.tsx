@@ -622,9 +622,15 @@ export function EtsySpyPage() {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
   useEffect(() => {
-    const timer = window.setTimeout(() => update({ q: typedSearch }), 360);
+    // A mounted page or tab switch may already have the right query. An
+    // unconditional debounce update resets pagination after 360ms, potentially
+    // interrupting the product/modal the operator was looking at.
+    const timer = window.setTimeout(() => {
+      setOptions(current => current.q === typedSearch
+        ? current : { ...current, q: typedSearch, page: 1 });
+    }, 360);
     return () => window.clearTimeout(timer);
-  }, [typedSearch, update]);
+  }, [typedSearch]);
   useEffect(() => {
     const query = queryFor(options);
     query.set("tab", options.tab);

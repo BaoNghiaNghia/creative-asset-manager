@@ -294,7 +294,8 @@ function installFetch() {
 }
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-async function start({tiktokEnabled = false}: {tiktokEnabled?: boolean} = {}) {
+async function start({tiktokEnabled = false, initialUrl = "/etsy-spy"}:
+  {tiktokEnabled?: boolean; initialUrl?: string} = {}) {
   // jsdom does not ship ResizeObserver, while the real browser provides it.
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -303,7 +304,7 @@ async function start({tiktokEnabled = false}: {tiktokEnabled?: boolean} = {}) {
   });
   installFetch();
   tiktokFeatureOn = tiktokEnabled;
-  window.history.replaceState(null, "", "/etsy-spy");
+  window.history.replaceState(null, "", initialUrl);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -320,6 +321,33 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("preserves deep-linked pagination and avoids an unchanged mount-time search refresh", async () => {
+    await start({ initialUrl: "/etsy-spy?tab=products&page=3&observed_day=all" });
+    const initialQueries = observed.filter(url => url.includes("/listings?")).length;
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("3");
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 435)); });
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("3");
+    expect(observed.filter(url => url.includes("/listings?"))).toHaveLength(initialQueries);
+  });
+
+  it("still resets pagination only after the operator types a different search", async () => {
+    await start({ initialUrl: "/etsy-spy?tab=products&page=3&observed_day=all" });
+    const initialQueries = observed.filter(url => url.includes("/listings?")).length;
+    const search = container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Search Spy records"]');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(search, "Santa");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 410));
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("q")).toBe("Santa");
+    expect(params.get("page")).toBe("1");
+    expect(observed.filter(url => url.includes("/listings?")).length)
+      .toBe(initialQueries + 1);
+  });
+
   it("renders thumbnail CDN URL, full image link and fallback without storing image files", async () => {
     await start();
     const first = container?.querySelector(".etsy-product-row") as HTMLTableRowElement;

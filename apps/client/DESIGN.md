@@ -129,6 +129,14 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - This is CSS-only, without altered source paths, status, permissions, image processing, data, or Scout behavior. Keep the Pinterest table's own horizontal scroll.
 - Verify at desktop 1440, tablet portrait 768 and mobile 390 before release. Browser fixture baselines remain governed; never rewrite them to dismiss failures.
 
+## Phase 10 — Etsy Spy search and deep-link continuity (2026-11-12)
+
+- Retain the pinned evondevKit **Clean, data-first, neutral** direction. URL navigation stability is part of UI quality; no new component library or visual decorations.
+- The existing 360ms search debounce must not mutate filters or reset pagination when the controlled search text already equals the current query (including initial page load, deep links and switching tabs).
+- Only a real typed-search change updates the query and resets to page 1. Keep URL sync, Picked/Design/TikTok dialogs, 15/30-second background polling, RBAC and all API request contracts unchanged.
+- Regression tests check that a deep-linked page number survives mount longer than the debounce interval without a duplicate listing request, while a real search still resets page and fetches fresh results.
+- Validate Etsy Spy tests, TypeScript, bundled frontend, responsive 390/768/1440 fixtures. Deploy frontend-only from reviewed main and preserve current+rollback releases.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
