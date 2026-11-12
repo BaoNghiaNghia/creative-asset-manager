@@ -13,7 +13,7 @@ an unrelated listing.
     "A festive gift idea for moms, sisters, friends, Santa fans, and anyone who enjoys nostalgic holiday illustrations and winter traditions.",
     "Know the look: a cream-colored sweatshirt is shown with a distressed retro-style Santa graphic and seasonal lettering across the front.",
     "Easy to style with jeans and winter layers for Christmas parties, relaxed family gatherings, holiday photos, and everyday seasonal outings.",
-    "The tiny gold stars and evergreen details frame the hand-lettered festive message, adding extra vintage character to this nostalgic Christmas scene."
+    "Printed and shipped in the USA – no import customs fees"
   ],
   "search_terms": [
     "tis the season sweatshirt", "vintage santa crewneck",
@@ -24,7 +24,9 @@ an unrelated listing.
 }
 ```
 
-Do not replicate a sample's object, garment color or visible writing unless
-the actual attached product image supports those facts. Never add U.S. origin,
-printing/shipping, customs, manufacturing, guaranteed delivery or unverified
-care/material claims.
+Do not replicate a sample's objects, garment color, or visible writing unless
+the actual attached product image supports those facts. The fifth highlight is
+**exact merchant-requested internal draft wording**, NOT verified product
+evidence. It must remain marked for fact-checking before publication. No other
+U.S. origin, shipping, customs, manufacturing, delivery, care or material claims
+can be inferred from this example.

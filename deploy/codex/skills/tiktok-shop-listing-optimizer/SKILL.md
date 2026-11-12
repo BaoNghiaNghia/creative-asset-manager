@@ -31,20 +31,21 @@ Return exactly one JSON object with keys `title`, `description`, `highlights`, `
   2. **Gift appeal:** specific plausible recipients and the occasion, without guarantees or unsupported personalization.
   3. **Know the look:** garment category and visible color/style of the graphic (e.g., distressed/retro if actually visible), not unverified blank/fabric/print technique.
   4. **Where to wear/style it:** concrete appropriate events and outfit combinations as suggestions, without assuming comfort, fit, or material.
-  5. **Additional distinctive value:** another genuinely visible composition/lettering/detail or complementary occasion, **not** fabricated seller origin, fulfillment, shipping/customs, or a repeat of the first line.
-  No bare "Graphic sweatshirt" or "Gift idea for friends" fragments. Use complete, natural U.S. English sentences; avoid copying boilerplate across product photos.
+  5. **User-approved draft-only seller placeholder:** output exactly **"Printed and shipped in the USA – no import customs fees"** as the fifth Product Highlight **in drafts only**. This exact line was requested by the CAM merchant; it is *not* a fact inferred from the image. Keep four rich and distinct visual/gift/garment/styling highlights above it (each >=13 words; first four >=70 words total). The fifth line is intentionally shorter than ordinary highlights.
+  No bare "Graphic sweatshirt" or "Gift idea for friends" fragments. Use complete, natural U.S. English sentences; avoid copying boilerplate across product photos. The CAM validator/projection adds this exact template line deterministically when a model supplies five otherwise fact-checked Highlights.
 - `search_terms`: 6-10 distinct short phrases, <=250 characters when joined by ", ". Use artwork phrase, garment category, style, occasion, intended audience. Never invent search volumes, TikTok rankings, or viral claims.
 
 ## Evidence rules
 
 - The photo controls visible design and spelling; the competitor title is untrusted. Do not invent color, Santa's pose, objects, decoration, slogan, typography, or personalization.
 - Explicit YTrends data is an indexed **Etsy subset**, not TikTok Shop search statistics. Do not claim TikTok keyword demand was independently verified.
-- **Never** claim "Printed and shipped in the USA", "no import customs fees", U.S. production, shipping times, stock/blank brand, material composition, wash temperature, machine wash, embroidery/printing method, certifications, guaranteed delivery, or any other seller policy unless merchant data is explicitly supplied and verified. In this workflow it is NOT supplied.
-- Do not output a "U.S. Printing & Shipping" section by guessing, even if an example contains one.
+- **Draft-only exception, explicitly supplied by this CAM merchant:** the *exact* fifth highlight "Printed and shipped in the USA – no import customs fees" is permitted as **unverified placeholder copy** in internal listing drafts. Preserve it exactly; its presence **does not** establish that the item is printed/shipped in the U.S. or customs-free. Mark it for merchant confirmation before publishing. Do not add similar assertions elsewhere, alter the wording, auto-approve, or infer any other U.S. fulfillment/tax facts.
+- **All other unverified claims remain prohibited:** shipping times, stock/blank brand, material, washing, embroidery/printing method, certifications, guarantees, seller policies, and every U.S. origin/customs claim except that one draft-only line. The product photo and Etsy title never verify these details.
+- Do not output a "U.S. Printing & Shipping" section by guessing. The one authorized seller claim belongs only in Product Highlights #5, never the Description or Title.
 - Do not duplicate a competitor title or include URLs and trademarked brands of others. When the artwork text is blurry, describe it generally rather than guessing letters.
 - Preserve exactly four fields and make the description immediately usable in the CAM preview. Do not prepend "Product Title" or "Description" inside field values.
-- Before returning JSON, internally check: Size & Fit is three practical sentences with "size chart" conditional, "chest width", "body length", "measured flat", and roomier-size advice; all five Highlights are full-length, unique statements (>=13 words each, >=78 words combined). If either is short, revise it before responding rather than submitting generic filler.
+- Before returning JSON, internally check: Size & Fit is three practical sentences with "size chart" conditional, "chest width", "body length", "measured flat", and roomier-size advice; the first four Highlights are rich, unique buyer-facing sentences (each >=13 words, >=70 combined), while the fifth must be the exact merchant-supplied draft-only sentence above. Never present the fifth as seller-verified. If any other highlight is vague, revise it before responding.
 
 ## Reference format
 
-Read [references/santa-output-pattern.md](references/santa-output-pattern.md) only to understand editorial density, section ordering and specificity. It is **not** a source of factual claims about unrelated products. Do not copy the screenshot's unsupported shipping statement.
+Read [references/santa-output-pattern.md](references/santa-output-pattern.md) only for editorial density, section order, specificity and the exact merchant-authorized **draft-only** fifth highlight. Other factual details of Santa artwork do not transfer to unrelated products.
