@@ -22,7 +22,31 @@ export function formatTikTokDraft(draft: TikTokListingDraft): string {
   ].join("\n\n");
 }
 
-function CopyField({label, value, count}: {label: string; value: string; count?: string}) {
+const EDITORIAL_HEADINGS = new Set([
+  "Design Details", "Size & Fit", "Perfect Gift For", "Care Instructions",
+]);
+
+function EditorialDescription({value}: {value: string}) {
+  return <div className="etsy-tiktok-editorial-description">
+    {value.split(/\r?\n/).map((rawLine, index) => {
+      const line = rawLine.trim();
+      if (!line) return null;
+      const heading = line.replace(/^\*\*/, "").replace(/\*\*:?$/, "").replace(/:$/, "");
+      if (EDITORIAL_HEADINGS.has(heading)) {
+        return <strong key={index} className="etsy-tiktok-editorial-heading">{heading}</strong>;
+      }
+      const bullet = line.match(/^[-*•]\s+(.+)$/);
+      if (bullet) {
+        return <p key={index} className="etsy-tiktok-editorial-bullet">{bullet[1]}</p>;
+      }
+      return <p key={index} className="etsy-tiktok-editorial-paragraph">{line}</p>;
+    })}
+  </div>;
+}
+
+function CopyField({label, value, count, richDescription = false}: {
+  label: string; value: string; count?: string; richDescription?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   useEffect(() => { setCopied(false); setCopyError(false); }, [value]);
@@ -40,7 +64,8 @@ function CopyField({label, value, count}: {label: string; value: string; count?:
       <button type="button" onClick={() => void onCopy()} disabled={!value}
         aria-label={"Copy " + label}>{copied ? "Đã copy" : "Copy"}</button>
     </div>
-    <div className="etsy-tiktok-copy-content">{value || "—"}</div>
+    <div className={"etsy-tiktok-copy-content" + (richDescription ? " is-editorial" : "")}>{richDescription && value
+      ? <EditorialDescription value={value} /> : value || "—"}</div>
     {copyError && <p role="alert" className="etsy-tiktok-copy-error">
       Không thể sao chép tự động. Hãy chọn và copy văn bản.
     </p>}
@@ -290,6 +315,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <CopyField label="Product Title" value={result.title}
                 count={metrics ? metrics.title_characters + " / 200 ký tự" : undefined} />
               <CopyField label="Product Description" value={result.description}
+                richDescription
                 count={metrics ? metrics.description_words + " words · " +
                   metrics.description_characters + " ký tự" : undefined} />
               <CopyField label="Product Highlights"
