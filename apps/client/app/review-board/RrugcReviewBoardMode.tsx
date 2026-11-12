@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandIcon } from "../components/Icons";
+import { WorkspaceFeedbackState, WorkspaceSkeletonRows } from "../components/WorkspaceFeedbackState";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
@@ -370,7 +371,7 @@ export function RrugcReviewBoardMode({
           </div>
         </section>
 
-        {error && <p className="review-board-error" role="alert">{error}</p>}
+        {error && Boolean(page?.items.length) && <p className="review-board-error" role="alert">{error}</p>}
 
         <section className="review-board-workspace rrugc-review-workspace">
           <section className="review-board-inbox" aria-label="Realistic UGC review tasks">
@@ -382,10 +383,16 @@ export function RrugcReviewBoardMode({
               {loading && <span className="review-board-inline-loading">Updating…</span>}
             </header>
             <div className="review-board-list">
-              {!loading && !page?.items.length ? (
+              {loading && !page ? (
+                <WorkspaceSkeletonRows rows={6} />
+              ) : !loading && !page?.items.length ? (
                 <div className="review-board-list-empty">
-                  <strong>No matching Realistic UGC tasks</strong>
-                  <p>Supervisor PASS and human-review outputs will appear here.</p>
+                  <WorkspaceFeedbackState kind={error ? "error" : "empty"}
+                    title={error ? "Unable to load review tasks" : "No matching Realistic UGC tasks"}
+                    detail={error || "Supervisor PASS and human-review outputs will appear here."}
+                    onRetry={error ? () => { void reload(); } : undefined}
+                    compact
+                  />
                 </div>
               ) : (
                 page?.items.map((task) => (
