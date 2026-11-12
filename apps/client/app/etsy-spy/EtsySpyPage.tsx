@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
@@ -222,20 +222,22 @@ function safeEtsyImageUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
-function ProductThumbnail({ item }: { item: Listing }) {
-  const thumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
-  const full = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl) ?? thumb;
+// Images do not need to rerender when Scout sync updates keyword, carts, or
+// queue status in the same listing. React.memo compares these primitive props.
+const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, title }: {
+  thumb: string | null; full: string | null; url: string | null | undefined; title: string;
+}) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [thumb]);
   if (!thumb || broken) return <span className="etsy-product-glyph" aria-hidden="true">E</span>;
-  return <a className="etsy-product-thumbnail-link" href={full ?? item.url ?? "#"}
+  return <a className="etsy-product-thumbnail-link" href={full ?? thumb ?? url ?? "#"}
     target="_blank" rel="noopener noreferrer"
-    title="View full Etsy product image" aria-label={"View full image of " + item.pageTitle}>
+    title="View full Etsy product image" aria-label={"View full image of " + title}>
     <img className="etsy-product-thumbnail" src={thumb} alt=""
       width="68" height="68" loading="lazy" decoding="async"
       onError={() => setBroken(true)} />
   </a>;
-}
+});
 
 function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
   onSelect, onListingQueued, optimizerEnabled }: {
@@ -319,7 +321,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
     </td>}
     <td className="etsy-title">
       <div className="etsy-product-identity">
-        <ProductThumbnail item={item} />
+        <ProductThumbnail thumb={previewThumb} full={previewFull}
+          url={item.url} title={item.pageTitle} />
         <div className="etsy-product-copy">
           <strong title={item.pageTitle}>{item.pageTitle}</strong>
           <div className="etsy-title-meta">

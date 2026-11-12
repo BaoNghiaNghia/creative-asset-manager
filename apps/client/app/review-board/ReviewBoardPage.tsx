@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+// Review issue annotations reuse the public-review rich-text styles.
+import "../../styles/public-review.css";
+import "../../styles/review-board.css";
 import { fetchAccessIdentity } from "../../features/access_management";
 import { CenteredLoadingState } from "../components/CenteredLoadingState";
 import { WorkspaceFeedbackState, WorkspaceSkeletonRows } from "../components/WorkspaceFeedbackState";

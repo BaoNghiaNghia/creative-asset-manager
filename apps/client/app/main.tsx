@@ -14,8 +14,8 @@ import "../styles/centered-loading.css";
 import "../styles/ai-operations.css";
 import "../styles/access-management.css";
 import "../styles/inventory.css";
-import "../styles/public-review.css";
-import "../styles/review-board.css";
+// Public review and Review Board styles are loaded with their lazy routes.
+// Do not ship either full media stylesheet to every CAM workspace.
 import "../styles/workspace-page-header.css";
 import "../styles/responsive-platform.css";
 import "../styles/ui-foundation.css";

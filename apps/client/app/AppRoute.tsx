@@ -3,7 +3,8 @@ import { useRouteAccessGate } from "./routePermissionGate";
 import { useDeploymentReadiness } from "./deploymentReadiness";
 import { UnderConstructionPage } from "./components/UnderConstructionPage";
 import { WorkspaceConnectionState } from "./components/WorkspaceConnectionState";
-import App from "./App";
+// Asset Explorer is a large media workspace; avoid parsing it on unrelated routes.
+const App = lazy(() => import("./App"));
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";

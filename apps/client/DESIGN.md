@@ -98,6 +98,16 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - Responsive/reliability gate: no document overflow at 320/390/768/1024/1440px; preserve internal table scrolling, image previews and selection; verify error/empty/loading, stale request suppression, duration timer cleanup, route navigation and production build. Frontend-only rollout from merged `main`, retaining current and rollback releases.
 - The new shared state component is incremental: other pages can opt in in future releases. No broad markup refactor, new dependency, API/DB/worker change or automatic modal closure.
 
+## Phase 7 — Route-level loading, asset efficiency and stable refresh (2026-11-12)
+
+- Treat the pinned evondevKit guidance as UX policy: speed, predictable loading and preserving the current task are part of good UI. No new React/UI dependency.
+- The default **Asset Explorer** was imported eagerly by `AppRoute`, adding its media stack to every route. Convert it to `React.lazy(() => import("./App"))`; reuse the same existing Suspense fallback and permission/deployment gate. No route URL, media drag, mouse/keyboard, or upload behavior changes.
+- Load `public-review.css` only with `PublicReviewRoute` (it owns shared-public UI), and load `public-review.css` + `review-board.css` with `ReviewBoardPage` (the latter embeds `RichAnnotation`). Keep share-management dialogs styled by their existing globally available management rules. All other CSS remains unchanged to avoid a global cascade migration.
+- Memoize only the **Etsy Spy product thumbnail** against primitive source/title/URL props. Scout or TikTok SEO status updates can rerender row data while the thumbnail itself stays stable; parent row action/modal state remains fully functional. Continue existing lazy thumbnail/decode and Scout/gallery image windowing rather than introducing unsafe DOM virtualization that could disrupt drag/drop, selection, hover previews or scroll anchors.
+- Preserve existing stale-while-revalidate selected-scope behavior in Etsy Spy, including stable listing keys and mounted Design/TikTok dialogs. A background poll does not clear the table, reset scroll or replace an already-open gallery. No new refresh, debounce, timer or API call is added.
+- Add `node scripts/verify-route-split.mjs` measuring post-build startup JS/CSS gzip budgets (90/115 KB), verifying lazy Explorer chunk and route CSS boundaries. Baseline before split: startup JS 182.3 KB gzip, CSS 122.6 KB gzip. After split: JS 62.2 KB, CSS 105.2 KB gzip. This is a **startup** saving, not a claim that total application downloads or render times decrease by the same ratio.
+- QA requires TypeScript/Vite build, focused regression tests including Etsy modal/scroll, Public Review, Review Board and Explorer, bundle budget, fixture Chrome QA at desktop/tablet/mobile, then immutable frontend-only release from reviewed `main` with current+rollback retained. Authenticated production routes require separately signed-in verification.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
