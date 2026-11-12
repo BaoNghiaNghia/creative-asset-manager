@@ -2330,6 +2330,14 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background: #fffaf0; color: #855d22; border: 1px solid #f0dfbc;
 }
 .etsy-tiktok-warnings ul { margin: 6px 0 0; padding-left: 19px; }
+.etsy-tiktok-research {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 11px 12px; margin: 10px 0;
+  border: 1px solid #dbe5ed; border-radius: 9px;
+  background: #f6f9fc; color: #344861; font-size: 12px; line-height: 1.5;
+}
+.etsy-tiktok-research strong { font-size: 13px; color: #253b57; }
+.etsy-tiktok-research small { color: #64768b; }
 .etsy-tiktok-empty-state,
 .etsy-tiktok-loading { background: #f5f8fc; color: #61718a; }
 .etsy-tiktok-copy-error { padding: 6px 12px; color: #ac423c; margin: 0; font-size: 12px; }

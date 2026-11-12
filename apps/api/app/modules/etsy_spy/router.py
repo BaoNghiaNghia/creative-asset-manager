@@ -20,6 +20,7 @@ from sqlalchemy import and_, asc, case, desc, func, or_, select, not_, literal
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
@@ -49,7 +50,9 @@ from .tiktok_skill import (
     is_enabled as tiktok_skill_enabled,
     auto_on_pick_enabled as tiktok_auto_on_pick_enabled,
     retry_failed_draft as retry_tiktok_failed_draft,
+    attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
+from .ytrends_mcp import research_etsy_keyword
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -1176,7 +1179,8 @@ def tiktok_skill_overview(
             ProcessingJobModel.cancellation_requested.is_(False),
         ).group_by(ProcessingJobModel.status))}
     return {"enabled": tiktok_skill_enabled(), "version": "tiktok-us-ytrends-only-20261111-v1",
-            "keyword_source": "ytrends_unavailable",
+            "keyword_source": "ytrends_etsy_context",
+            "ytrends_enabled": get_settings().ETSY_TIKTOK_YTRENDS_ENABLED,
             "auto_on_pick": tiktok_auto_on_pick_enabled(),
             "counts": counts, "draft_only": True}
 
@@ -1256,6 +1260,58 @@ def retry_listing_tiktok_skill(
     return {"listingKey": listing_key, **project_tiktok_skill(job)}
 
 
+@router.post("/listings/{listing_key}/tiktok-listing/ytrends/refresh")
+async def refresh_listing_tiktok_ytrends(
+    listing_key: str,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Explicit Etsy research refresh for a completed draft, without Gemini spend."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    settings = get_settings()
+    if not tiktok_skill_enabled() or not settings.ETSY_TIKTOK_YTRENDS_ENABLED:
+        raise HTTPException(503, "YTrends research is disabled")
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(404, "Picked listing not found")
+    current = latest_tiktok_skill_job(db, tenant, listing_key)
+    payload = current.payload_json if current is not None else None
+    if (current is None or current.status != "completed" or
+            current.cancellation_requested or not isinstance(payload, dict) or
+            not isinstance(payload.get("result"), dict)):
+        raise HTTPException(409, "Completed Picked listing draft required")
+    source_title = payload.get("source_title")
+    if not isinstance(source_title, str):
+        raise HTTPException(409, "Source title unavailable")
+    evidence = await research_etsy_keyword(
+        source_title, enabled=True,
+        bearer_token=settings.ETSY_TIKTOK_YTRENDS_BEARER_TOKEN.get_secret_value(),
+        timeout_seconds=settings.ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS,
+    )
+    if evidence.get("status") == "unavailable":
+        raise HTTPException(503, "YTrends research temporarily unavailable")
+    # Revalidate tenant, ownership and completed status after the network wait.
+    locked = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == current.id,
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+        ProcessingJobModel.status == "completed",
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ).with_for_update())
+    if locked is None or db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(409, "Draft changed while researching")
+    locked_payload = dict(locked.payload_json or {})
+    if not isinstance(locked_payload.get("result"), dict):
+        raise HTTPException(409, "Draft no longer available")
+    locked_payload["result"] = attach_tiktok_ytrends_evidence(
+        dict(locked_payload["result"]), evidence)
+    locked.payload_json = locked_payload
+    db.commit()
+    return {"listingKey": listing_key, "enabled": True,
+            **project_tiktok_skill(locked, detail=True)}
+
+
 @router.post("/tiktok-listings/backfill")
 async def backfill_picked_tiktok_skill(
     request: Request,
@@ -1313,7 +1369,7 @@ async def backfill_picked_tiktok_skill(
     return {"ok": True, "dry_run": preview, "ready": ready, "created": created,
             "missing_image": missing_image, "limit": limit,
             "max_batch": max_batch,
-            "keyword_source": "ytrends_unavailable", "draft_only": True}
+            "keyword_source": "ytrends_etsy_context", "draft_only": True}
 
 
 @router.put("/listings/{listing_key}/later")

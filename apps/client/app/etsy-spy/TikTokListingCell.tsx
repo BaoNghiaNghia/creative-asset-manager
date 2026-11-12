@@ -54,6 +54,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const [detail, setDetail] = useState<TikTokListingView | null>(null);
   const [loading, setLoading] = useState(false);
   const [queueing, setQueueing] = useState(false);
+  const [researching, setResearching] = useState(false);
   const [error, setError] = useState("");
   const [copiedAll, setCopiedAll] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -157,7 +158,23 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
 
   const result = detail?.result;
   const metrics = result?.metrics;
+  const evidence = result?.ytrends_evidence;
+  const ytrendsStatus = result?.ytrends_status ?? (detail?.status === "processing" ? "pending" : "unavailable");
   const detailStatus = detail?.status || status;
+  const refreshResearch = async () => {
+    if (!canManage || !result || detailStatus !== "needs_fact_check" || researching) return;
+    setResearching(true); setError("");
+    try {
+      const next = await spyFetch<TikTokListingView>(
+        "/listings/" + encodeURIComponent(item.listingKey) + "/tiktok-listing/ytrends/refresh",
+        {method: "POST"});
+      setDetail(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "YTrends chưa sẵn sàng");
+    } finally {
+      setResearching(false);
+    }
+  };
   const copyAll = async () => {
     if (!result) return;
     try {
@@ -211,14 +228,32 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 {LABELS[detailStatus] || detailStatus}
               </span>
               <span>Manual · Draft only</span>
-              <span>YTrends: {detail?.ytrends_status === "unavailable" ||
-                result?.ytrends_status === "unavailable"
-                ? "Chưa kết nối, keyword chưa xác minh" : "Chưa xác minh"}</span>
+              <span>YTrends · Etsy: {ytrendsStatus === "connected" ? "Có dữ liệu" :
+                ytrendsStatus === "no_data" ? "Không thấy dữ liệu phù hợp" :
+                ytrendsStatus === "disabled" ? "Đang tắt" :
+                ytrendsStatus === "pending" ? "Đang chờ" : "Chưa có dữ liệu"}</span>
             </div>
             {loading && <p role="status" className="etsy-tiktok-loading">Đang cập nhật trạng thái…</p>}
             {result ? <>
               <p className="etsy-tiktok-qa-note">Cần kiểm tra thông tin sản phẩm, thương hiệu
-                và quyền sử dụng trước khi đăng. Chưa xác minh SEO bằng YTrends.</p>
+                và quyền sử dụng trước khi đăng. YTrends chỉ cung cấp tham khảo thị trường Etsy;
+                không chứng minh search volume hay hiệu quả SEO trên TikTok Shop.</p>
+              {evidence && <section className="etsy-tiktok-research" aria-label="Nghiên cứu Etsy từ YTrends">
+                <strong>YTrends · Dữ liệu thị trường Etsy</strong>
+                <span>Keyword: {evidence.query || "—"}</span>
+                <span>Snapshot: {evidence.as_of_date || "Chưa có"}
+                  {evidence.median_data_age_days != null
+                    ? " · Tuổi dữ liệu trung vị " + evidence.median_data_age_days + " ngày" : ""}</span>
+                {evidence.status === "connected" ? <span>
+                  {evidence.total_listings != null ? evidence.total_listings + " listings" : "Listings: không rõ"}
+                  {" · "}
+                  {evidence.total_sellers != null ? evidence.total_sellers + " sellers" : "Sellers: không rõ"}
+                  {evidence.competition_level ? " · Cạnh tranh: " + evidence.competition_level : ""}
+                </span> : <span>{evidence.status === "no_data"
+                  ? "Không có listing phù hợp trong dữ liệu YTrends."
+                  : "Không có dữ liệu xác minh cho lần tạo này."}</span>}
+                <small>Dữ liệu từ tập Etsy được lập chỉ mục, không phải số liệu TikTok Shop.</small>
+              </section>}
               <CopyField label="Product Title" value={result.title}
                 count={metrics ? metrics.title_characters + " / 200 ký tự" : undefined} />
               <CopyField label="Product Description" value={result.description}
@@ -254,6 +289,11 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <button type="button" className="etsy-tiktok-dialog-run" disabled={queueing || loading}
                 onClick={() => void enqueue()}>{queueing ? "Đang gửi…" :
                   detailStatus === "failed" ? "Retry failed draft" : "Run listing skill"}</button>}
+            {canManage && detail?.enabled && result && detailStatus === "needs_fact_check" &&
+              <button type="button" disabled={researching || loading}
+                onClick={() => void refreshResearch()}>
+                {researching ? "Đang lấy YTrends…" : "Cập nhật YTrends"}
+              </button>}
             <button type="button" onClick={() => void loadDetail()} disabled={loading}>Refresh</button>
             <button type="button" onClick={closeDialog}>Close</button>
           </div>
