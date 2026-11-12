@@ -115,7 +115,9 @@ describe("Picked TikTok Shop listing column", () => {
     const {fetchMock, clipboardWrite} = await render("needs_fact_check");
     const open = document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open");
     expect(open?.textContent).toContain("Cần duyệt");
-    expect(open?.textContent).toContain("Mountain Sunset Sweatshirt");
+    expect(open?.textContent).toBe("Cần duyệtXem");
+    expect(open?.textContent).not.toContain("Mountain Sunset Sweatshirt");
+    expect(open?.title).toBe("Mountain Sunset Sweatshirt");
     expect(document.querySelector(".etsy-tiktok-queue-action")).toBeNull();
     await act(async () => {open?.click();});
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');

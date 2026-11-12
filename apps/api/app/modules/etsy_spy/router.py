@@ -55,7 +55,7 @@ from .tiktok_skill import (
     regenerate_completed_draft as regenerate_tiktok_completed_draft,
     attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
-from .ytrends_mcp import research_etsy_keyword_set
+from .ytrends_mcp import research_etsy_keyword_set, merge_keyword_evidence
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -1341,9 +1341,8 @@ async def refresh_listing_tiktok_ytrends(
         source_title, enabled=True,
         bearer_token=settings.ETSY_TIKTOK_YTRENDS_BEARER_TOKEN.get_secret_value(),
         timeout_seconds=settings.ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS,
+        force_refresh=True,  # a user click must query the source, not 6h cache
     )
-    if evidence.get("status") == "unavailable":
-        raise HTTPException(503, "YTrends research temporarily unavailable")
     # Revalidate tenant, ownership and completed status after the network wait.
     locked = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.id == current.id,
@@ -1357,8 +1356,12 @@ async def refresh_listing_tiktok_ytrends(
     locked_payload = dict(locked.payload_json or {})
     if not isinstance(locked_payload.get("result"), dict):
         raise HTTPException(409, "Draft no longer available")
+    old_result = dict(locked_payload["result"])
+    merged = merge_keyword_evidence(old_result.get("ytrends_evidence"), evidence)
+    if merged.get("status") == "unavailable" and not merged.get("keywords"):
+        raise HTTPException(503, "YTrends research temporarily unavailable")
     locked_payload["result"] = attach_tiktok_ytrends_evidence(
-        dict(locked_payload["result"]), evidence)
+        old_result, merged)
     locked.payload_json = locked_payload
     db.commit()
     return {"listingKey": listing_key, "enabled": True,

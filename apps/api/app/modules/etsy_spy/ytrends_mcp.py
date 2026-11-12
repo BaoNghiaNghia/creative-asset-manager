@@ -11,7 +11,7 @@ import math
 import re
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 import httpx
@@ -149,7 +149,7 @@ def _mcp_body(response: httpx.Response) -> dict:
 async def research_etsy_keyword(
     title: str, *, enabled: bool = True, bearer_token: str = "",
     timeout_seconds: float = 8.0, transport: httpx.AsyncBaseTransport | None = None,
-    raw_query: bool = False,
+    raw_query: bool = False, force_refresh: bool = False,
 ) -> dict:
     """One bounded MCP call, with short failure caching; failures never block Gemini."""
     query = title.casefold().strip() if raw_query and _SAFE_KEYWORD.fullmatch(title) else research_query(title)
@@ -157,7 +157,7 @@ async def research_etsy_keyword(
         return empty_evidence(query, "disabled" if not enabled else "no_data")
     # Cached data is public, but auth-backed and anonymous views never share keys.
     cache_key = ("authenticated:" if bearer_token else "public:") + query
-    if transport is None:
+    if transport is None and not force_refresh:
         with _CACHE_LOCK:
             entry = _CACHE.get(cache_key)
             if entry and entry[0] > time.monotonic():
@@ -192,7 +192,13 @@ async def research_etsy_keyword(
             if len(_CACHE) >= CACHE_LIMIT:
                 oldest = min(_CACHE, key=lambda key: _CACHE[key][0])
                 _CACHE.pop(oldest, None)
-            _CACHE[cache_key] = (time.monotonic() + ttl, dict(outcome))
+            # Do not let a temporary refresh outage displace cached source-backed
+            # metrics for subsequent regular reads.
+            old = _CACHE.get(cache_key)
+            if not (outcome["status"] == "unavailable" and old
+                    and old[1].get("status") == "connected"
+                    and old[0] > time.monotonic()):
+                _CACHE[cache_key] = (time.monotonic() + ttl, dict(outcome))
     return outcome
 
 
@@ -247,7 +253,20 @@ async def research_etsy_keyword_set(title: str, **options: Any) -> dict:
         return empty_evidence("", "no_data")
     # Sequential and cached: do not saturate the public MCP endpoint.
     results = [await research_etsy_keyword(q, raw_query=True, **options) for q in queries]
-    primary = dict(results[0])
+    # Primary metrics must describe the SAME keyword as primary.query. The old
+    # fallback copied the totals of a later successful keyword but retained
+    # the first (unavailable) query, which made the UI misleading.
+    preferred = next((index for index, row in enumerate(results)
+                      if row["status"] == "connected"
+                      and type(row.get("total_listings")) is int), None)
+    if preferred is None:
+        preferred = next((index for index, row in enumerate(results)
+                          if row["status"] == "connected"), None)
+    if preferred is None:
+        preferred = next((index for index, row in enumerate(results)
+                          if row["status"] == "no_data"), 0)
+    primary = dict(results[preferred])
+    primary["query"] = queries[preferred]
     primary["keywords"] = [
         {"keyword": query, "status": row["status"],
          "listings": row.get("total_listings"),
@@ -255,14 +274,81 @@ async def research_etsy_keyword_set(title: str, **options: Any) -> dict:
          "as_of_date": row.get("as_of_date")}
         for query, row in zip(queries, results)
     ]
-    if primary["status"] != "connected":
-        successful = next((row for row in results if row["status"] == "connected"), None)
-        if successful:
-            primary.update({field: successful.get(field) for field in (
-                "as_of_date", "median_data_age_days", "total_listings",
-                "total_sellers", "competition_level")})
-            primary["status"] = "connected"
+    primary["refreshed_at"] = datetime.now(timezone.utc).isoformat()
     return primary
+
+
+def _verified_keyword(row: Any) -> bool:
+    return (isinstance(row, dict) and row.get("status") == "connected"
+            and type(row.get("listings")) is int
+            and isinstance(row.get("as_of_date"), str)
+            and bool(row["as_of_date"]))
+
+
+def merge_keyword_evidence(previous: dict | None, refreshed: dict) -> dict:
+    """Keep valid source-backed rows when refreshed MCP calls intermittently fail.
+
+    The order and identity of candidates follow the NEW query set. No data is
+    fabricated; a previous metric can survive only for the SAME keyword and
+    retains its original snapshot date.
+    """
+    if not isinstance(previous, dict) or previous.get("source") != SOURCE:
+        return refreshed
+    old_rows = previous.get("keywords")
+    new_rows = refreshed.get("keywords")
+    if not isinstance(new_rows, list) or not new_rows:
+        return {**previous, "last_checked_at": datetime.now(timezone.utc).isoformat(),
+                "last_refresh_status": refreshed.get("status", "unavailable")}
+    lookup = {
+        row.get("keyword"): row for row in old_rows or []
+        if isinstance(row, dict) and isinstance(row.get("keyword"), str)
+    }
+    merged_rows = []
+    for row in new_rows:
+        if not isinstance(row, dict):
+            continue
+        old = lookup.get(row.get("keyword"))
+        if _verified_keyword(old) and (
+            not _verified_keyword(row)
+            or old["as_of_date"] > row["as_of_date"]
+        ):
+            merged_rows.append(dict(old))
+        else:
+            merged_rows.append(dict(row))
+    if not merged_rows:
+        return previous
+    verified = [row for row in merged_rows if _verified_keyword(row)]
+    if not verified and any(_verified_keyword(row) for row in old_rows or []):
+        # Every candidate failed this round, or the query set changed without
+        # yielding evidence. Keep the last verified research until a valid
+        # replacement exists; never downgrade data solely on provider failure.
+        return {**previous, "last_checked_at": datetime.now(timezone.utc).isoformat(),
+                "last_refresh_status": refreshed.get("status", "unavailable")}
+    result = {**refreshed, "keywords": merged_rows}
+    representative = verified[0] if verified else next(
+        (row for row in merged_rows if row.get("status") == "no_data"),
+        merged_rows[0],
+    )
+    if (representative.get("keyword") != refreshed.get("query")
+            or representative.get("listings") != refreshed.get("total_listings")
+            or representative.get("as_of_date") != refreshed.get("as_of_date")):
+        # Aggregate fields must match the representative query and exact
+        # snapshot. Older rows do not carry seller counts, so explicitly
+        # drop seller totals from a different source snapshot.
+        result.update({
+            "query": representative.get("keyword", ""),
+            "total_listings": representative.get("listings"),
+            "total_sellers": None,
+            "competition_level": representative.get("competition"),
+            "as_of_date": representative.get("as_of_date"),
+            "opportunity_score": None,
+        })
+    result["status"] = ("connected" if verified else
+                        "no_data" if any(row.get("status") == "no_data"
+                                         for row in merged_rows) else "unavailable")
+    result["last_checked_at"] = datetime.now(timezone.utc).isoformat()
+    result["last_refresh_status"] = refreshed.get("status", "unavailable")
+    return result
 
 
 def prompt_context(evidence: dict) -> str:

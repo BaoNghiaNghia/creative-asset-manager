@@ -93,7 +93,6 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
 
   const listing = item.tiktokListing;
   const status = listing?.status || "not_queued";
-  const isActive = ACTIVE_STATUSES.includes(status);
   const canGenerate = canManage && optimizerEnabled && canQueueTikTokDraft(status);
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("");
@@ -244,19 +243,13 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   return <td className="etsy-tiktok-listing-cell">
     <div className="etsy-tiktok-cell-stack">
       <button type="button" className="etsy-tiktok-listing-open" ref={triggerRef}
-        title="TikTok Shop US · Bản nháp cần duyệt, không tự đăng"
+        title={listing?.title_preview || "TikTok Shop US · Bản nháp chưa đăng"}
         aria-label={"Xem TikTok SEO cho " + item.pageTitle}
         onClick={() => setOpen(true)}>
         <span className={"etsy-tiktok-state is-" + status}>
           {LABELS[status] || status}
         </span>
-        {listing?.title_preview
-          ? <strong className="etsy-tiktok-title-preview">{listing.title_preview}</strong>
-          : <span className="etsy-tiktok-empty-preview">{isActive ? "Worker đang xử lý" :
-            status === "failed" ? "Xem nguyên nhân lỗi" : "Title · Description · Highlights · Terms"}</span>}
-        <span className="etsy-tiktok-open-hint">
-          {status === "needs_fact_check" ? "Xem & copy bản nháp" : "Xem chi tiết"}
-        </span>
+        <span className="etsy-tiktok-open-hint" aria-hidden="true">Xem</span>
       </button>
       {canGenerate && <button type="button" className="etsy-tiktok-queue-action"
         disabled={queueing} onClick={() => void enqueue()}
@@ -350,6 +343,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                 </>}
                 <div className="etsy-tiktok-research-footnote">
                   <span>Nguồn: YTrends MCP · Etsy</span>
+                  {evidence.last_checked_at && <span>Kiểm tra lại: {new Date(evidence.last_checked_at).toLocaleString("vi-VN")}</span>}
+                  {evidence.last_refresh_status === "unavailable" && <span>YTrends tạm lỗi — đã giữ số liệu xác minh trước đó</span>}
                   <span>Dữ liệu: {evidence.as_of_date || "Chưa xác định"}
                     {evidence.median_data_age_days != null
                       ? " · Tuổi dữ liệu trung vị " + evidence.median_data_age_days + " ngày" : ""}</span>

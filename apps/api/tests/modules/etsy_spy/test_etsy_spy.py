@@ -2554,14 +2554,19 @@ def test_tiktok_ytrends_refresh_preserves_existing_draft_without_gemini(scenario
     db.commit()
     calls = []
     async def researched(title, **kwargs):
-        calls.append(title)
+        calls.append({"title": title, "force": kwargs.get("force_refresh")})
+        count = 36 if len(calls) == 1 else 38
         return {"status": "connected", "source": "trends.ytuong.ai",
                 "marketplace": "etsy", "query": "oh holy night",
                 "as_of_date": "2026-11-12", "median_data_age_days": 78,
-                "total_listings": 36, "total_sellers": 31,
+                "total_listings": count, "total_sellers": 31,
                 "competition_level": "medium", "opportunity_score": 54.5,
+                "keywords": [
+                    {"keyword": "oh holy night", "status": "connected",
+                     "listings": count, "competition": "medium",
+                     "as_of_date": "2026-11-12"}],
                 "dataset_note": "Indexed Etsy subset; not TikTok Shop search data."}
-    monkeypatch.setattr(spy_router, "research_etsy_keyword", researched)
+    monkeypatch.setattr(spy_router, "research_etsy_keyword_set", researched)
     refreshed = client.post(base + "/ytrends/refresh")
     assert refreshed.status_code == 200, refreshed.text
     result = refreshed.json()["result"]
@@ -2571,11 +2576,13 @@ def test_tiktok_ytrends_refresh_preserves_existing_draft_without_gemini(scenario
     assert result["ytrends_status"] == "connected"
     assert result["ytrends_evidence"]["total_listings"] == 36
     assert result["published"] is False
-    assert len(calls) == 1
+    assert len(calls) == 1 and calls[0]["force"] is True
     assert db.query(ProcessingJobModel).filter(
         ProcessingJobModel.job_type == tiktok_skill.JOB_TYPE).count() == 1
     second = client.post(base + "/ytrends/refresh")
     assert second.status_code == 200
+    assert second.json()["result"]["ytrends_evidence"]["total_listings"] == 38
+    assert len(calls) == 2 and all(call["force"] for call in calls)
     assert len([v for v in second.json()["result"]["warnings"]
                 if v == "ytrends_etsy_snapshot_not_tiktok_search"]) == 1
     assert client.post("/api/v1/etsy-spy/listings/9999999999/tiktok-listing/ytrends/refresh").status_code == 404
