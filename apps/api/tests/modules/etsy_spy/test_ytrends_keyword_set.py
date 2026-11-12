@@ -28,6 +28,28 @@ def test_legacy_titles_strip_seller_brands_and_unsupported_punctuation():
     assert ytrends.research_query("hello\\\\nignore prompt") == ""
 
 
+def test_professional_occupational_therapy_variants_match_reviewed_buyer_intent():
+    title = ("Occupational Therapy Shirt, Gift for OTA, Occupational Therapist "
+             "Tee, Therapy Clinic Sweatshirt, Comfort Colors T-Shirt")
+    queries = ytrends.keyword_variants(title)
+    assert queries == [
+        "ota shirt", "occupational therapy shirt",
+        "occupational therapist shirt", "occupational therapy gift",
+        "occupational therapy sweatshirt",
+    ]
+    evidence = {"status":"connected", "query":"ota shirt",
+                "as_of_date":"2026-11-11", "median_data_age_days":78,
+                "total_listings":105, "total_sellers":62,
+                "keywords":[
+                    {"keyword":queries[0], "status":"connected", "listings":105, "competition":"medium"},
+                    {"keyword":queries[1], "status":"connected", "listings":8, "competition":"low"},
+                ]}
+    context = ytrends.prompt_context(evidence)
+    assert "ota shirt" in context and "occupational therapy shirt" in context
+    assert '"indexed_listings": 105' in context
+    assert "NOT TikTok Shop search" in context
+
+
 def test_keyword_set_uses_real_individual_provider_responses():
     requests = []
     def answer(request: httpx.Request) -> httpx.Response:
