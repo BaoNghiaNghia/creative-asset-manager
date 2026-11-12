@@ -522,10 +522,6 @@ def _listing_state_conditions(
         raise HTTPException(422, "Invalid product view")
     condition = [
         Listing.tenant_id == tenant,
-        Listing.is_current.is_(True),
-        ~Listing.title.ilike("%custom%"),
-        _blacklist_condition(tenant),
-        _qualified_listing_condition(),
         (_effective_picked_condition(tenant) if pick_state == "picked"
          else and_(not_(_effective_picked_condition(tenant)),
                    _effective_later_condition(tenant))
@@ -533,6 +529,17 @@ def _listing_state_conditions(
          else and_(not_(_effective_picked_condition(tenant)),
                    not_(_effective_later_condition(tenant)))),
     ]
+    # Picked is a durable, explicit user selection. Blacklist, Scout expiry,
+    # source qualification and Custom filters govern DISCOVERY, not access to
+    # already selected records and their existing private design PNGs.
+    # Keep those discovery guards unchanged for Eligible and Later.
+    if pick_state != "picked":
+        condition.extend((
+            Listing.is_current.is_(True),
+            ~Listing.title.ilike("%custom%"),
+            _blacklist_condition(tenant),
+            _qualified_listing_condition(),
+        ))
     if observed_day is not None:
         since, before = _observed_day_bounds(observed_day)
         condition.append(_state_day_condition(tenant, pick_state, since, before))
@@ -556,11 +563,12 @@ def _listings_query(
         ranks = _day_group_listing_ranks(tenant, observed_day, pick_state=pick_state)
         rank = GROUP_RANKS.get(group_key, len(CATEGORY_GROUPS))
         group_keys = select(ranks.c.listing_key).where(ranks.c.rank == rank)
-        if pick_state != "later":
+        if pick_state not in {"later", "picked"}:
             condition.append(Listing.listing_key.in_(group_keys))
     if q:
         condition.append(or_(Listing.title.ilike("%" + q[:160] + "%"),
-                             Listing.keyword.ilike("%" + q[:160] + "%")))
+                             Listing.keyword.ilike("%" + q[:160] + "%"),
+                             Listing.listing_key == q.strip()[:150]))
     if session_id and session_id != "all":
         condition.append(Listing.source_session_id == session_id[:150])
     if source in {"search", "shop"}:
@@ -581,26 +589,34 @@ def _listings_query(
     status = _tm_expression()
     tm_condition = status == tm if tm in {
         "LIVE", "DEAD", "no_match", "pending", "unverified"} else None
-    if tm_condition is not None and pick_state != "later":
+    if tm_condition is not None and pick_state not in {"later", "picked"}:
         condition.append(tm_condition)
 
-    # Only the Later queue is deduplicated at query level: each Etsy Listing
-    # ID appears once, even if discovered by several keywords/Search+Shop.
+    # Picked and Later have one row per Listing ID, independent of how many
+    # Scout agents/sessions observed it. Prefer a current Picked observation
+    # when one exists; otherwise keep its newest historical snapshot so both
+    # the user decision and existing design artifacts remain visible.
     root = Listing
     rank_filter = None
-    if pick_state == "later":
+    if pick_state in {"later", "picked"}:
+        order = (
+            (Listing.is_current.desc(),) if pick_state == "picked" else ()
+        ) + (
+            Listing.observed_at.desc().nulls_last(),
+            Listing.updated_at.desc().nulls_last(),
+            Listing.agent_id, Listing.source_session_id,
+            Listing.keyword, Listing.source_kind,
+        )
+        rank_label = f"{pick_state}_rank"
         ranked = select(
             Listing,
             func.row_number().over(
                 partition_by=(Listing.tenant_id, Listing.listing_key),
-                order_by=(Listing.observed_at.desc().nulls_last(),
-                          Listing.updated_at.desc().nulls_last(),
-                          Listing.agent_id, Listing.source_session_id,
-                          Listing.keyword, Listing.source_kind),
-            ).label("later_rank"),
-        ).where(*condition).subquery("etsy_later_ranked")
+                order_by=order,
+            ).label(rank_label),
+        ).where(*condition).subquery(f"etsy_{pick_state}_ranked")
         root = aliased(Listing, ranked)
-        rank_filter = ranked.c.later_rank == 1
+        rank_filter = ranked.c[rank_label] == 1
         joined = and_(
             Trademark.tenant_id == root.tenant_id,
             Trademark.agent_id == root.agent_id,
@@ -617,10 +633,10 @@ def _listings_query(
     column = cols.get(sort, root.observed_at)
     query = select(root, Trademark).outerjoin(Trademark, joined)
     total = select(func.count()).select_from(root).outerjoin(Trademark, joined)
-    if pick_state == "later":
+    if pick_state in {"later", "picked"}:
         query = query.where(rank_filter)
         total = total.where(rank_filter)
-        # Keep the expensive topic CASE *outside* the source-row ranking
+        # Keep the expensive topic CASE outside the source-row ranking
         # subquery. SQLite otherwise overflows its SQL parser stack.
         if group_keys is not None:
             query = query.where(root.listing_key.in_(group_keys))
@@ -722,13 +738,15 @@ def summary(
     eligible = [*active, not_(picked_filter), not_(later_filter)]
     later = [*active, not_(picked_filter), later_filter]
     listings_count = int(db.scalar(select(unique).where(*eligible)) or 0)
-    picked_count = int(db.scalar(select(unique).where(*active, picked_filter)) or 0)
-    # Read-only image source completeness for the same qualified Picked
-    # denominator. Missing CDN URLs are distinct from transparent PNG jobs.
+    selected = [Listing.tenant_id == tenant, picked_filter]
+    picked_count = int(db.scalar(select(unique).where(*selected)) or 0)
+    # Read-only Etsy source URL completeness for the SAME durable Picked
+    # denominator as /listings, including archived/blacklisted observations.
+    # Missing Etsy CDN URLs are distinct from reviewed design PNG artifacts.
     picked_sources = {}
     for listing_key, metadata in db.execute(
         select(Listing.listing_key, Listing.metadata_json)
-        .where(*active, picked_filter)
+        .where(*selected)
     ):
         source = metadata if isinstance(metadata, dict) else {}
         thumb = verified_image_url(source.get("thumbnailUrl"))

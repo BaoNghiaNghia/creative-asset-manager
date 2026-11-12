@@ -837,7 +837,7 @@ def test_later_is_topic_seed_with_related_current_and_future_listing_ids(scenari
     # Picking is a higher-priority decision than Later.
     assert client.put(endpoint + "/1234500005/pick", json={"picked": True}).status_code == 200
     assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 2
-    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 2  # two source rows, one Etsy ID
+    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 1  # one row per Etsy ID
     # Future syncing does not erase matching metadata or user Pick decisions.
     assert sync(client, agent, headers, batch("later-other")).status_code == 200
     assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 2
@@ -850,7 +850,7 @@ def test_later_is_topic_seed_with_related_current_and_future_listing_ids(scenari
     assert client.put(endpoint + "/1234500001/later", json={"later": False}).status_code == 200
     assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 0
     assert client.get("/api/v1/etsy-spy/summary").json()["later_seeds"] == 0
-    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 2  # two source rows, one Etsy ID
+    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 1  # one row per Etsy ID
     principal.active_tenant_id = "another-tenant"
     assert client.get("/api/v1/etsy-spy/summary").json()["later"] == 0
     assert client.get(endpoint, params={"pick_state": "later"}).json()["total"] == 0
@@ -1414,11 +1414,13 @@ def test_pick_is_tenant_scoped_across_sources_and_blacklist(scenario):
     assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
     assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 1
     principal.active_tenant_id = "boostgame"
-    # Blacklist still overrides both the Eligible and Picked tables.
+    # Blacklist blocks NEW discovery, but cannot hide an explicit Pick or
+    # its historical PNG from the owner who needs to review/unpick it.
     assert client.post("/api/v1/etsy-spy/blacklist",
                        json={"phrases": ["rudolph"]}).status_code == 200
-    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 0
-    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 0
+    assert client.get("/api/v1/etsy-spy/listings").json()["total"] == 0
+    assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 1
+    assert client.get("/api/v1/etsy-spy/listings?pick_state=picked").json()["total"] == 1
     assert db.get(EtsySpyPicked, ("boostgame", "1234567890")) is not None
     assert client.delete("/api/v1/etsy-spy/blacklist/rudolph").status_code == 200
     assert client.get("/api/v1/etsy-spy/summary").json()["picked"] == 1
@@ -1451,7 +1453,7 @@ def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario,
     assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
     again = client.put(endpoint + "/pick", json={"picked": True})
     assert client.get(endpoint + "/extraction").json()["job_id"] == job.id
-    assert db.query(ProcessingJobModel).count() == 1
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
     assert client.put(endpoint + "/pick", json={"picked": False}).status_code == 200
     db.refresh(job)
     assert job.cancellation_requested is True
@@ -1463,7 +1465,7 @@ def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario,
     db.refresh(job)
     assert job.cancellation_requested is True
     assert db.get(ProcessingJobModel, fresh).cancellation_requested is False
-    assert db.query(ProcessingJobModel).count() == 2
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 2
     principal.active_tenant_id = "other-tenant"
     assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
 
@@ -1481,7 +1483,7 @@ def test_backfill_previously_picked_is_preview_first_and_idempotent(
     endpoint = "/api/v1/etsy-spy/listings/1234567890"
     # Previously picked while the Windows extraction queue was disabled.
     assert client.put(endpoint + "/pick", json={"picked": True}).status_code == 200
-    assert db.query(ProcessingJobModel).count() == 0
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 0
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
@@ -1492,20 +1494,20 @@ def test_backfill_previously_picked_is_preview_first_and_idempotent(
     assert preview.json()["dry_run"] is True
     assert preview.json()["ready"] == 1
     assert preview.json()["created"] == 0
-    assert db.query(ProcessingJobModel).count() == 0
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 0
 
     applied = client.post(backfill, json={"limit": 1, "dry_run": False})
     assert applied.status_code == 200, applied.text
     assert applied.json()["created"] == 1
     assert applied.json()["rights_status"] == "unverified"
-    job = db.query(ProcessingJobModel).one()
+    job = db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").one()
     assert job.job_type == "etsy_design_extract"
     assert job.payload_json["manual_qa_required"] is True
     assert job.payload_json["print_ready"] is False
     again = client.post(backfill, json={"limit": 1, "dry_run": False})
     assert again.json()["created"] == 0
     assert again.json()["blocked"] == "pilot_job_pending"
-    assert db.query(ProcessingJobModel).count() == 1
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
     principal.active_tenant_id = "other-tenant"
     assert client.post(backfill, json={"limit": 1}).json()["ready"] == 0
 
@@ -1842,7 +1844,7 @@ def test_extraction_feature_off_never_creates_backlog(scenario, monkeypatch):
     assert sync(client, agent, headers, image).status_code == 200
     assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
                       json={"picked": True}).status_code == 200
-    assert db.query(ProcessingJobModel).count() == 0
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 0
     assert client.get("/api/v1/etsy-spy/listings/1234567890/extraction").json()["status"] == "disabled"
 
 
@@ -2271,6 +2273,74 @@ def test_multiple_designs_are_mapped_by_position_to_one_picked_listing(
     assert client.put(listing + "/pick", json={"picked": False}).status_code == 200
     assert client.get(designs[0]["original_url"]).status_code == 404
 
+def test_stale_picked_listing_keeps_mapped_png_and_deduplicates_observations(
+    scenario, monkeypatch, tmp_path,
+):
+    """A Scout inactive marker must not hide a Picked design already in CAM."""
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, principal = scenario
+    scout, auth = pair(client, db)
+    incoming = batch("picked-stale-design")
+    incoming["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.design.jpg")
+    assert sync(client, scout, auth, incoming).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings"
+    assert client.put(endpoint + "/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    job = db.query(ProcessingJobModel).filter_by(
+        tenant_id=principal.active_tenant_id,
+        job_type="etsy_design_extract",
+        entity_id="1234567890",
+    ).one()
+    job.status = "completed"
+    job.payload_json = {
+        **job.payload_json,
+        "result": {"status": "needs_ai", "source_sha256": "b" * 64},
+        "design_assets": [{
+            "id": "a" * 24, "position": "unknown", "variant": 1,
+            "method": "imagegen", "output_sha256": "c" * 64,
+            "status": "needs_review",
+        }],
+    }
+    historic = db.query(EtsySpyListing).filter_by(
+        tenant_id=principal.active_tenant_id,
+        listing_key="1234567890",
+    ).one()
+    historic.is_current = False
+    # A keyword blacklisted after Pick must stop new discovery, but must
+    # not erase an already-selected product or its reviewed PNG history.
+    db.add(EtsySpyBlacklist(tenant_id=principal.active_tenant_id,
+                            phrase="rudolph"))
+    db.commit()
+
+    response = client.get(endpoint, params={"pick_state": "picked"})
+    assert response.status_code == 200, response.text
+    rows = response.json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["listingKey"] == "1234567890"
+    assert len(rows[0]["designs"]) == 1
+    assert rows[0]["designs"][0]["method"] == "imagegen"
+    assert rows[0]["extraction"]["status"] == "needs_ai"
+    # The listing ID is also searchable directly from the Picked table.
+    searched = client.get(endpoint, params={"pick_state": "picked", "q": "1234567890"})
+    assert searched.status_code == 200
+    assert [row["listingKey"] for row in searched.json()["items"]] == ["1234567890"]
+    # New observations cannot duplicate the Picked row or its PNG.
+    duplicate = {column.name: getattr(historic, column.name)
+                 for column in EtsySpyListing.__table__.columns}
+    duplicate.update(source_session_id="session-new", keyword="Etsy recent result",
+                     is_current=True)
+    db.add(EtsySpyListing(**duplicate))
+    db.commit()
+    latest = client.get(endpoint, params={"pick_state": "picked"}).json()
+    assert latest["total"] == 1
+    assert latest["items"][0]["listingKey"] == "1234567890"
+    assert len(latest["items"][0]["designs"]) == 1
+    assert client.get(endpoint, params={"pick_state": "eligible"}).json()["total"] == 0
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(endpoint, params={"pick_state": "picked"}).json()["total"] == 0
+
 
 def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
     scenario, monkeypatch, tmp_path,
@@ -2300,7 +2370,7 @@ def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
     assert sync(client, agent, headers, second).status_code == 200
     assert client.put("/api/v1/etsy-spy/listings/1234567888/pick",
                       json={"picked": True}).status_code == 200
-    assert db.query(ProcessingJobModel).count() == 1
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
     backfill = "/api/v1/etsy-spy/extractions/backfill"
     # Existing pilot behavior remains unchanged.
@@ -2314,11 +2384,11 @@ def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
     assert applied.status_code == 200, applied.text
     assert applied.json()["created"] == 1
     assert applied.json()["queue_only"] is True
-    assert db.query(ProcessingJobModel).count() == 2
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 2
     assert client.post(backfill, json={
         "limit": 200, "queue_only": True, "dry_run": False,
     }).json()["created"] == 0
-    assert db.query(ProcessingJobModel).count() == 2
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 2
 
 def test_orchestrator_v1_opt_in_and_isolated_chatgpt_receipt(scenario, monkeypatch, tmp_path):
     import base64
