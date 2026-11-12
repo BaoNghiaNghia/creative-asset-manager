@@ -32,6 +32,20 @@ Defined in `app/styles/cam-evo-tokens.css` with `--cam-evo-` prefix:
 
 Reuse the current `.etsy-btn`, `.etsy-pill`, `.etsy-stat`, `.etsy-table-*`, `.etsy-tiktok-*` rather than implementing competing Button/Badge/Modal React components. This keeps current data handlers and behaviors intact.
 
+## Phase 2 — GatorHats Products Stage 0–2 (2026-11-12)
+
+This phase adapts the same pinned evondevKit `ui-ux` guidance (no upstream change) to GatorHats Products. GatorHats has its own workflow CSS/component library; do **not** replace it or introduce a second table, card, button or modal runtime system.
+
+- Style entrypoint: `app/realistic-review-ugc/GatorHatsEvo.css`, imported **last** by `RealisticReviewUgcPage.tsx` after existing Stage CSS and `cam-evo-tokens.css`.
+- All rules are scoped to `.rrugc-shell.rrugc-evo-products`. Reviews Stage 1–5 keeps its existing styling.
+- Stage 0: more legible table labels, quiet sticky header, transparent source image handling, one-row KPI strip on mobile, retained internal table horizontal scroll. Zero-volume, Used and Suggested remain real filters with their existing handlers.
+- Stage 1: compact creative brief/generation actions, readable keyword/status columns, image strip keeps original dimensions, drag-to-scroll, pick/approve controls and saved output URLs.
+- Stage 2: streamlined 13-color and seven-slot layout hierarchy, status and actions. No changes to Stage 2 slot count, crop/placement, image generation, embroidery method or queue handling.
+- Shared header/tabs are 4-stage Products navigation, retaining Stage 3 video link and ARIA/keyboard behavior. Never hide Stage 3 or remove its navigation to simplify Stage 0–2.
+- Typography floor: 10–11px table and control labels at desktop; 11px+ content, 36px+ primary touch controls on mobile. Status badges remain semantic; active filters use one consistent brand-blue outline.
+- Quality gate: build, focused Stage 0–2 regression tests, Chrome responsive fixture at 390/768/1440 and no page-wide overflow. Avoid browser reload or forced modal closure during any live data refresh.
+- Audit: manual component/CSS inventory completed; upstream `audit.sh` was blocked by remote execution policy. No new UI runtime dependency.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

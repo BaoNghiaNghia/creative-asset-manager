@@ -1,0 +1,35 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "gatorhats-products-stage0",
+      "waitFor": ".rrugc-evo-products .rrugc-stage0-v2",
+      "fullPage": true,
+      "qualityBudgets": {
+        "viewportOverflowPx": 0
+      }
+    },
+    {
+      "name": "gatorhats-products-stage1",
+      "click": "#rrugc-tab-stage1",
+      "waitFor": ".rrugc-evo-products .rrugc-keyword-gen",
+      "fullPage": true,
+      "qualityBudgets": {
+        "viewportOverflowPx": 0
+      }
+    },
+    {
+      "name": "gatorhats-products-stage2",
+      "click": "#rrugc-tab-stage2",
+      "waitFor": ".rrugc-evo-products .rrugc-colorway-stage.is-products-compact",
+      "fullPage": true,
+      "qualityBudgets": {
+        "viewportOverflowPx": 0
+      }
+    }
+  ]
+}
