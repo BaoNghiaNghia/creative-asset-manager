@@ -1,0 +1,573 @@
+/* CAM / evondevKit Phase 4 — Console workspaces.
+   Design guidance from pinned evondevKit; no new React/runtime dependencies.
+   Route-local roles, loaded last after legacy CSS. No behavior or geometry reset. */
+
+/* Asset Explorer — retain cards, file-type previews and drag/drop geometry. */
+.cam-evo-explorer {
+  --ce-ink: var(--cam-evo-ink, #17243a);
+  --ce-muted: var(--cam-evo-muted, #64748b);
+  --ce-border: var(--cam-evo-hairline, #e8edf4);
+  --ce-blue: var(--cam-evo-brand, #265cbd);
+  --ce-surface: var(--cam-evo-surface, #fff);
+  color: var(--ce-ink);
+}
+.cam-evo-explorer .explorer-content { background: var(--cam-evo-page, #f6f8fb); min-width: 0; }
+.cam-evo-explorer .explorer-content > header {
+  gap: 12px;
+  border-bottom-color: var(--ce-border);
+  background: var(--ce-surface);
+  box-shadow: none;
+}
+.cam-evo-explorer .search-tools { gap: 8px; }
+.cam-evo-explorer .search-tools > .search-box {
+  min-height: 37px;
+  border-radius: var(--cam-evo-radius-control, 7px);
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  background: #fff;
+}
+.cam-evo-explorer .search-tools input { color: var(--ce-ink); font-size: 12px; }
+.cam-evo-explorer .search-tools input::placeholder { color: #8b97a8; }
+.cam-evo-explorer .search-duration { color: var(--ce-muted); font-size: 10.5px; }
+.cam-evo-explorer .search-suggestions,
+.cam-evo-explorer .search-history {
+  border-color: var(--ce-border);
+  border-radius: 10px;
+  box-shadow: var(--cam-evo-elevation-modal, 0 24px 70px rgba(18,33,59,.19));
+}
+.cam-evo-explorer .title {
+  padding-top: 14px;
+  padding-bottom: 12px;
+  border-bottom-color: var(--ce-border);
+}
+.cam-evo-explorer .title .search-summary h1 { color: var(--ce-ink); font-size: clamp(17px, 1.7vw, 23px); }
+.cam-evo-explorer .explorer-breadcrumb { color: var(--ce-muted); font-size: 11px; }
+.cam-evo-explorer .title-actions { gap: 7px; }
+.cam-evo-explorer .layout-option-icons {
+  border-color: var(--ce-border);
+  background: #f7f9fc;
+  border-radius: 7px;
+  box-shadow: none;
+}
+.cam-evo-explorer .layout-view-button { border-radius: 6px; color: #718097; }
+.cam-evo-explorer .layout-view-button.active {
+  background: #e8f0fc;
+  color: var(--ce-blue);
+  box-shadow: none;
+}
+.cam-evo-explorer .explorer-folder-pane,
+.cam-evo-explorer #search-results { min-width: 0; }
+.cam-evo-explorer .grid article {
+  border-color: var(--ce-border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.cam-evo-explorer .grid article:hover {
+  border-color: #b8cbe5;
+  box-shadow: 0 0 0 2px rgba(38,92,189,.08);
+}
+.cam-evo-explorer .grid article.selected,
+.cam-evo-explorer .grid article.selected:hover {
+  border-color: var(--ce-blue);
+  box-shadow: inset 0 0 0 1px rgba(38,92,189,.10);
+}
+.cam-evo-explorer .grid article.media-card { aspect-ratio: 1/1; }
+.cam-evo-explorer .grid article .name { color: #253851; font-size: 12px; }
+.cam-evo-explorer .grid article .asset-metadata { color: var(--ce-muted); font-size: 10.5px; }
+.cam-evo-explorer .grid.asset-list-view article {
+  border-radius: 5px;
+  box-shadow: none;
+}
+.cam-evo-explorer .grid.asset-list-view article:hover { background: #f8fafc; }
+.cam-evo-explorer .asset-list-header {
+  border-bottom-color: var(--ce-border);
+  color: #53647d;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cam-evo-explorer :is(.review-share-button, .folder-note-trigger, .search-load-more-button) {
+  border-radius: 7px;
+  box-shadow: none;
+}
+.cam-evo-explorer .asset-operations {
+  border-top-color: var(--ce-border);
+  box-shadow: none;
+}
+.cam-evo-explorer .upload-panel {
+  border-color: var(--ce-border);
+  border-radius: 12px;
+  box-shadow: var(--cam-evo-elevation-modal, 0 24px 70px rgba(18,33,59,.19));
+}
+.cam-evo-explorer :is(button, a, input, select, summary):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* Job Queue — status controls in one slim rail and a readable internal-scroll table. */
+.job-queue-shell .job-queue-main {
+  min-width: 0;
+  background: var(--cam-evo-page, #f6f8fb);
+  color: var(--cam-evo-ink, #17243a);
+}
+.job-queue-shell .job-queue-header {
+  background: #fff;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+}
+.job-queue-shell .job-queue-header h1 { font-size: clamp(22px, 1.9vw, 27px); }
+.job-queue-shell .job-queue-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  min-height: 43px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  background: #fff;
+  border-bottom: 1px solid var(--cam-evo-hairline, #e8edf4);
+}
+.job-queue-shell .job-queue-tabs button {
+  flex: 0 0 auto;
+  min-height: 43px;
+  padding: 7px 15px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #67768c;
+  font-size: 11px;
+  font-weight: 720;
+  box-shadow: none;
+}
+.job-queue-shell .job-queue-tabs button.active {
+  background: #fdfefe;
+  color: var(--cam-evo-brand, #265cbd);
+  border-bottom-color: var(--cam-evo-brand, #265cbd);
+}
+/* Legacy tab style draws a second underline via ::after. Keep one rail. */
+.job-queue-shell .job-queue-tabs button::after { background: transparent; }
+.job-queue-shell .job-queue-content {
+  min-width: 0;
+  padding: 16px clamp(12px, 2.3vw, 30px) 42px;
+}
+.job-queue-shell .job-queue-toolbar {
+  align-items: end;
+  gap: 14px;
+  padding: 12px 14px;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.job-queue-shell .job-queue-toolbar > div > small {
+  margin-bottom: 7px;
+  color: #60738c;
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+.job-queue-shell .job-queue-filter-fields { gap: 8px; flex-wrap: wrap; }
+.job-queue-shell .job-queue-filter-fields label { gap: 5px; color: #52647d; font-size: 11px; }
+.job-queue-shell .job-queue-filter-fields :is(input, select) {
+  height: 34px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.job-queue-shell .job-queue-toolbar > button {
+  min-height: 34px;
+  padding-inline: 12px;
+  border-radius: 7px;
+  border-color: var(--cam-evo-brand, #265cbd);
+  background: var(--cam-evo-brand, #265cbd);
+  font-size: 11px;
+}
+.job-queue-shell .job-queue-kpis {
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.job-queue-shell .job-queue-kpis article {
+  gap: 9px;
+  padding: 10px 12px;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 8px;
+  background: #fff;
+}
+.job-queue-shell .job-queue-kpis article > span { color: var(--cam-evo-muted, #64748b); font-size: 10.5px; }
+.job-queue-shell .job-queue-kpis article strong {
+  font-size: 21px;
+  color: var(--cam-evo-ink, #17243a);
+  font-variant-numeric: tabular-nums;
+}
+.job-queue-shell .job-queue-table-card {
+  min-width: 0;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.job-queue-shell .job-queue-table-card > header { padding: 12px 14px; }
+.job-queue-shell .job-queue-table-card h2 { font-size: 15px; }
+.job-queue-shell .job-queue-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.job-queue-shell .job-queue-table { min-width: 1250px; }
+.job-queue-shell .job-queue-table th {
+  padding: 10px 12px;
+  background: #f7f9fc;
+  color: #53647d;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.job-queue-shell .job-queue-table td {
+  padding: 9px 12px;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+  font-size: 11px;
+}
+.job-queue-shell .job-queue-table tbody tr:hover { background: #f8fafc; }
+.job-queue-shell .job-queue-job b { color: #233c5d; font-size: 11.5px; }
+.job-queue-shell .job-queue-job small { color: var(--cam-evo-muted, #64748b); font-size: 10px; }
+.job-queue-shell .job-status {
+  border-radius: 6px;
+  font-size: 10px;
+}
+.job-queue-shell .job-view-result {
+  min-height: 31px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--cam-evo-brand-soft, #edf3fd);
+  color: var(--cam-evo-brand, #265cbd);
+  border-color: #c2d2e8;
+  box-shadow: none;
+}
+.job-queue-shell .job-queue-pagination { padding-top: 13px; }
+.generation-result-modal {
+  border-radius: var(--cam-evo-radius-dialog, 14px);
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  box-shadow: var(--cam-evo-elevation-modal, 0 24px 70px rgba(18,33,59,.19));
+}
+.generation-result-modal > header {
+  padding: 15px 18px 13px;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+}
+.generation-result-modal .generation-result-heading-icon {
+  border-radius: 8px;
+  background: var(--cam-evo-brand-soft, #edf3fd);
+  color: var(--cam-evo-brand, #265cbd);
+}
+.generation-result-modal h2 { font-size: 20px; color: var(--cam-evo-ink, #17243a); }
+.generation-result-modal .generation-result-metadata {
+  border-color: var(--cam-evo-hairline, #e8edf4);
+}
+.generation-result-modal :is(button,a):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* Inventory — neutral daily operations, clear sequence, no synthetic totals. */
+.inventory-workspace {
+  min-width: 0;
+  color: var(--cam-evo-ink, #17243a);
+  background: var(--cam-evo-page, #f6f8fb);
+}
+.inventory-workspace .inventory-workspace-content {
+  padding: 16px clamp(12px, 2vw, 28px) 40px;
+}
+.inventory-workspace .inventory-workspace-content > * + * { margin-top: 12px; }
+.inventory-workspace :is(
+  .ops-inventory-summary-card,
+  .ops-inventory-card,
+  .inventory-pipeline,
+  .inventory-candidate-panel
+) {
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.inventory-workspace .ops-inventory-summary {
+  gap: 8px;
+}
+.inventory-workspace .ops-inventory-summary-card {
+  padding: 10px 12px;
+  background: #fff;
+}
+.inventory-workspace .ops-inventory-summary-card :is(span,small) {
+  font-size: 10.5px;
+  color: var(--cam-evo-muted, #64748b);
+}
+.inventory-workspace .ops-inventory-summary-card strong {
+  color: var(--cam-evo-ink, #17243a);
+  font-size: 17px;
+}
+.inventory-workspace .ops-inventory-grid { gap: 9px; }
+.inventory-workspace .ops-inventory-card {
+  background: #fff;
+}
+.inventory-workspace .ops-inventory-card h3 { color: var(--cam-evo-ink, #17243a); font-size: 15px; }
+.inventory-workspace .ops-inventory-card-kicker {
+  color: #45639a;
+  font-size: 10px;
+  letter-spacing: .05em;
+}
+.inventory-workspace .ops-inventory-heading-actions { gap: 7px; }
+.inventory-workspace .ops-inventory-refresh-action {
+  min-height: 33px;
+  border: 1px solid var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--cam-evo-brand, #265cbd);
+  box-shadow: none;
+}
+.inventory-workspace .inventory-pipeline > summary {
+  padding: 11px 14px;
+  border: 1px solid var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  background: #fff;
+  font-size: 12px;
+  color: #344962;
+  cursor: pointer;
+}
+.inventory-workspace .inventory-pipeline[open] > summary {
+  border-radius: 9px 9px 0 0;
+  background: #f9fbfd;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+}
+.inventory-workspace .inventory-pipeline > header {
+  padding: 14px 16px;
+  border: 1px solid var(--cam-evo-hairline, #e8edf4);
+  background: #fff;
+  border-radius: 9px;
+}
+.inventory-workspace .inventory-pipeline h2 { font-size: 18px; }
+.inventory-workspace .inventory-pipeline-scroll {
+  max-width: 100%;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.inventory-workspace .inventory-pipeline th {
+  background: #f7f9fc;
+  color: #53647d;
+  font-size: 10px;
+}
+.inventory-workspace .inventory-pipeline td {
+  border-top-color: var(--cam-evo-hairline, #e8edf4);
+  font-size: 11px;
+}
+.inventory-workspace .inventory-pipeline-chip { border-radius: 6px; font-size: 10px; }
+.inventory-workspace .inventory-pipeline-stage small { font-size: 9.5px; }
+.inventory-workspace .inventory-pipeline-details {
+  box-shadow: var(--cam-evo-elevation-modal, 0 24px 70px rgba(18,33,59,.19));
+}
+.inventory-workspace :is(button,select,input,textarea,summary,a):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+.inventory-workspace .ops-inventory-modal {
+  border-radius: var(--cam-evo-radius-dialog, 14px);
+  border-color: var(--cam-evo-hairline, #e8edf4);
+}
+
+/* Access Management — a compact RBAC console with explicit destructive UI. */
+.access-shell {
+  min-width: 0;
+  color: var(--cam-evo-ink, #17243a);
+  background: var(--cam-evo-page, #f6f8fb);
+}
+.access-shell .access-main { min-width: 0; }
+.access-shell .access-header {
+  min-height: 70px;
+  padding: 14px clamp(12px, 2vw, 28px);
+  background: #fff;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+}
+.access-shell .access-header h1 { font-size: clamp(21px,1.9vw,25px); color: var(--cam-evo-ink, #17243a); }
+.access-shell .access-header p { font-size: 11px; color: var(--cam-evo-muted, #64748b); }
+.access-shell .access-tabs {
+  min-height: 42px;
+  gap: 0;
+  padding: 0 clamp(12px, 2vw, 28px);
+  background: #fff;
+  border-bottom: 1px solid var(--cam-evo-hairline, #e8edf4);
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.access-shell .access-tabs button {
+  min-height: 42px;
+  padding: 9px 14px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #67768c;
+  box-shadow: none;
+  font-size: 11px;
+}
+.access-shell .access-tabs button.active {
+  border-bottom-color: var(--cam-evo-brand, #265cbd);
+  background: #fff;
+  color: var(--cam-evo-brand, #265cbd);
+}
+.access-shell .access-content {
+  min-width: 0;
+  padding: 16px clamp(12px,2vw,28px) 42px;
+}
+.access-shell .access-toolbar {
+  gap: 10px;
+  padding: 11px 13px;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.access-shell .access-toolbar :is(input,select) {
+  min-height: 34px;
+  border-color: var(--cam-evo-input-border, #cdd7e4);
+  border-radius: 7px;
+  font-size: 11px;
+}
+.access-shell .access-toolbar-compact > form { gap: 8px; }
+.access-shell .access-members-heading { padding-bottom: 9px; }
+.access-shell .access-members-heading h2 { font-size: 15px; color: var(--cam-evo-ink, #17243a); }
+.access-shell .access-table-wrap {
+  max-width: 100%;
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 9px;
+  box-shadow: none;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.access-shell .access-table th {
+  padding: 10px 12px;
+  background: #f7f9fc;
+  color: #53647d;
+  font-size: 10.5px;
+  font-weight: 750;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.access-shell .access-table td {
+  padding: 10px 12px;
+  border-top-color: var(--cam-evo-hairline, #e8edf4);
+  font-size: 11px;
+}
+.access-shell .access-table tbody tr:hover { background: #f8fafc; }
+.access-shell .access-nav-badge { border-radius: 6px; }
+.access-shell .access-manage-button {
+  min-height: 31px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+.access-shell .access-pagination {
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 11px;
+}
+.access-shell .access-member-dialog {
+  width: min(690px, 100%);
+  border-left: 1px solid var(--cam-evo-hairline, #e8edf4);
+  box-shadow: var(--cam-evo-elevation-modal, 0 24px 70px rgba(18,33,59,.19));
+}
+.access-shell .access-member-dialog-header {
+  padding: 16px 18px;
+  border-bottom-color: var(--cam-evo-hairline, #e8edf4);
+}
+.access-shell .access-member-dialog-body {
+  padding: 16px 18px;
+  scrollbar-width: thin;
+}
+.access-shell .access-member-dialog-footer {
+  padding: 12px 18px;
+  border-top-color: var(--cam-evo-hairline, #e8edf4);
+  background: #f9fbfd;
+}
+.access-shell .access-nav-module {
+  border-color: var(--cam-evo-hairline, #e8edf4);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.access-shell .access-nav-module.selected {
+  border-color: var(--cam-evo-brand, #265cbd);
+  background: var(--cam-evo-brand-soft, #edf3fd);
+  box-shadow: none;
+}
+.access-shell .access-scope-switch {
+  border-radius: 8px;
+  background: #f3f6fa;
+}
+.access-shell .access-scope-switch button.active {
+  border-color: #c7d9f0;
+  color: var(--cam-evo-brand, #265cbd);
+  box-shadow: none;
+}
+.access-shell :is(button,input,select,textarea,summary,a):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+
+/* Narrow viewports: page never gains wide-table overflow; each table scrolls itself. */
+@media (max-width: 1100px) {
+  .job-queue-shell .job-queue-toolbar { flex-wrap: wrap; align-items: stretch; }
+  .job-queue-shell .job-queue-filter-fields label:first-child { flex: 1 1 230px; }
+  .access-shell .access-toolbar-compact > form { flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  .job-queue-shell .job-queue-content { padding: 12px 10px 32px; }
+  .job-queue-shell .job-queue-kpis {
+    display: flex;
+    gap: 8px;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 5px;
+  }
+  .job-queue-shell .job-queue-kpis article { flex: 0 0 140px; }
+  .job-queue-shell .job-queue-filter-fields { width: 100%; }
+  .job-queue-shell .job-queue-filter-fields label { flex: 1 1 130px; min-width: 125px; }
+  .job-queue-shell .job-queue-filter-fields label:first-child { min-width: 185px; }
+  .inventory-workspace .inventory-workspace-content { padding: 11px 10px 30px; }
+  .inventory-workspace .ops-inventory-summary {
+    display: flex;
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+    padding-bottom: 6px;
+  }
+  .inventory-workspace .ops-inventory-summary-card { flex: 0 0 180px; min-width: 0; }
+  .access-shell .access-header { padding: 12px 10px; }
+  .access-shell .access-tabs { padding: 0 8px; }
+  .access-shell .access-content { padding: 12px 10px 30px; }
+  .access-shell .access-toolbar-compact > form label:first-child { min-width: 160px; }
+  .access-shell .access-member-dialog-header { padding: 14px; }
+  .access-shell .access-member-dialog-body { padding: 14px; }
+  .access-shell .access-nav-module-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 430px) {
+  .cam-evo-explorer .search-tools { gap: 6px; }
+  .cam-evo-explorer .title { padding-block: 10px; }
+  .cam-evo-explorer .title-actions { flex-wrap: wrap; }
+  .cam-evo-explorer .layout-option-icons { flex: 0 0 auto; }
+  .job-queue-shell .job-queue-tabs button { min-height: 45px; padding-inline: 11px; }
+  .job-queue-shell .job-queue-toolbar { padding: 10px; }
+  .job-queue-shell .job-queue-filter-fields label { min-width: 0; flex: 1 1 100%; }
+  .job-queue-shell .job-queue-filter-fields label:first-child { min-width: 0; }
+  .job-queue-shell .job-queue-toolbar > button { min-height: 36px; }
+  .job-queue-shell .job-queue-pagination { flex-wrap: wrap; }
+  .inventory-workspace .inventory-workspace-content { padding: 8px 7px 26px; }
+  .access-shell .access-header { flex-wrap: wrap; gap: 8px; }
+  .access-shell .access-nav-module-grid { grid-template-columns: minmax(0,1fr); }
+  .access-shell .access-member-dialog { width: 100%; }
+  .access-shell .access-toolbar-compact > form { width: 100%; }
+  .access-shell .access-toolbar-compact > form label { min-width: 0; width: 100%; }
+}
+/* Respect motion preferences but leave app drag/drop and modal lifecycle intact. */
+@media (prefers-reduced-motion: reduce) {
+  .cam-evo-explorer .grid article,
+  .job-queue-shell .job-queue-tabs button,
+  .access-shell .access-tabs button {
+    transition: none;
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "explorer-main",
+      "waitFor": ".cam-evo-explorer .explorer-folder-pane",
+      "fullPage": true
+    }
+  ]
+}
