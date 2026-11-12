@@ -1337,6 +1337,26 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cell?.textContent?.trim()).toBe("");
     expect(cell?.querySelector(".etsy-design-open, .etsy-design-more, .etsy-design-review-label"))
       .toBeNull();
+    // Same bottom-left body portal as Product / Etsy; mouse hover loads
+    // the original PNG while preserving click-to-open multi-position gallery.
+    const secondThumb = cell?.querySelectorAll<HTMLButtonElement>(".etsy-design-thumb")[1];
+    await act(async () => {
+      secondThumb?.dispatchEvent(new MouseEvent("pointerover", {bubbles: true}));
+    });
+    let hoveredPreview = document.body.querySelector<HTMLElement>(".etsy-design-hover-preview");
+    expect(hoveredPreview?.dataset.listingKey).toBe(listing.listingKey);
+    expect(hoveredPreview?.classList.contains("etsy-product-hover-preview")).toBe(true);
+    expect(hoveredPreview?.querySelector("img")?.getAttribute("src")).toContain("mock-1/original");
+    expect(hoveredPreview?.textContent).toContain("Ảnh Design 2/4");
+    expect(document.body.querySelectorAll(".etsy-product-hover-preview")).toHaveLength(1);
+    await act(async () => {
+      hoveredPreview?.querySelector("img")?.dispatchEvent(new Event("error"));
+    });
+    hoveredPreview = document.body.querySelector<HTMLElement>(".etsy-design-hover-preview");
+    expect(hoveredPreview?.querySelector("img")?.getAttribute("src")).toContain("mock-1/thumbnail");
+    await act(async () => { window.dispatchEvent(new Event("scroll")); });
+    expect(document.body.querySelector(".etsy-design-hover-preview")).toBeNull();
+
     await act(async () => {
       cell?.querySelectorAll<HTMLButtonElement>(".etsy-design-thumb")[2]?.click();
     });
@@ -1419,7 +1439,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
       await new Promise(resolve => setTimeout(resolve, 65));
     });
-    expect(container?.querySelector(".etsy-extraction-status")?.textContent).toContain("Needs AI");
+    expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
     expect(container?.querySelector(".etsy-extraction-qa")).toBeNull();
     expect(container?.querySelector(".etsy-extraction-open")).toBeNull();
     extractionProjection = {
@@ -1430,7 +1450,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
       await new Promise(resolve => setTimeout(resolve, 65));
     });
-    expect(container?.querySelector(".etsy-extraction-status")?.textContent).toContain("Needs AI");
+    expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
     expect(container?.querySelector(".etsy-extraction-qa")?.textContent).toContain("PNG nháp");
     const review = container?.querySelector<HTMLAnchorElement>(".etsy-extraction-candidate");
     expect(review?.getAttribute("href")).toBe(
@@ -1461,7 +1481,8 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 70));
     });
     const badge = container?.querySelector(".etsy-sms-push-status.status-sent");
-    expect(badge?.textContent).toContain("Đã có trên SMS");
+    expect(badge?.textContent?.trim()).toBe("SMS");
+    expect(badge?.getAttribute("aria-label")).toContain("Đã có trên SMS");
     expect(badge?.getAttribute("title")).toContain("307");
   });
 

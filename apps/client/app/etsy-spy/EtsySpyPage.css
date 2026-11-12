@@ -592,6 +592,20 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   max-height:2.8em;overflow:hidden;text-overflow:ellipsis;
   overflow-wrap:anywhere;
 }
+/* Design uses the exact same fixed bottom-left hover card as Etsy's photo.
+   Draw transparency as a checkerboard without cropping artwork. */
+.etsy-design-hover-preview { z-index: 10061; }
+.etsy-design-hover-preview img {
+  object-fit: contain;
+  background-color: #f6f7f9;
+  background-image:
+    linear-gradient(45deg, #e8ebf0 25%, transparent 25%),
+    linear-gradient(-45deg, #e8ebf0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e8ebf0 75%),
+    linear-gradient(-45deg, transparent 75%, #e8ebf0 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
 @media(hover:none),(pointer:coarse){
   .etsy-product-hover-preview{display:none}
 }
@@ -1501,8 +1515,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 
 /* Picked Design is image-only; job status lives outside this column. */
 .etsy-spy-page .etsy-design-cell {
-  min-width: 166px;
-  width: 166px;
+  min-width: 242px;
+  width: 242px;
   vertical-align: middle;
 }
 .etsy-spy-page .etsy-design-thumbnails {
@@ -1514,9 +1528,9 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-spy-page .etsy-design-thumb {
   display: grid;
   place-items: center;
-  flex: 0 0 48px;
-  width: 48px;
-  height: 52px;
+  flex: 0 0 68px;
+  width: 68px;
+  height: 68px;
   padding: 3px;
   border: 1px solid #dce4ef;
   border-radius: 8px;
@@ -1657,7 +1671,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 }
 @media (max-width: 650px) {
   .etsy-spy-page .etsy-design-cell {
-    min-width: 166px;
+    min-width: 0;
+    width: 100%;
   }
   .etsy-design-gallery-backdrop {
     padding: 0;
