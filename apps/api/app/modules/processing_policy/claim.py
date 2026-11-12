@@ -57,7 +57,6 @@ RRUGC_GEMINI_ANALYZE_JOB_TYPES = (
     "rrugc_stage3_analyze",
     "rrugc_cap_stack_analyze",
     "rrugc_research_vision",
-    "etsy_tiktok_listing_generate",
 )
 MODEL_GATED_AI_JOB_TYPES = ("asset_analyze", *RRUGC_GEMINI_ANALYZE_JOB_TYPES)
 RRUGC_GEMINI_LANE_PROVIDER = "gemini_rrugc_lane"
@@ -203,9 +202,7 @@ class TenantAwareJobClaimer:
                 return None
 
             model_slot = None
-            if (candidate.job_type in MODEL_GATED_AI_JOB_TYPES
-                    and not (candidate.job_type == "etsy_tiktok_listing_generate"
-                             and candidate.provider_key == "codex")):
+            if candidate.job_type in MODEL_GATED_AI_JOB_TYPES:
                 model_slot = self._reserve_model_slot(candidate, now)
                 if model_slot is _ANALYSIS_MODEL_GATE_UNRESOLVABLE:
                     if candidate.concurrency_accounted:
@@ -577,9 +574,25 @@ class TenantAwareJobClaimer:
                 self._release_tenant_reservation(job)
                 return False
 
-        if (job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES
-                and not (job.job_type == "etsy_tiktok_listing_generate"
-                         and job.provider_key == "codex")):
+        if job.job_type == "etsy_tiktok_listing_generate" and job.provider_key == "codex":
+            # Limit this manual listing workload to one active Codex process
+            # per tenant before it reaches the CLI's host-global file lock.
+            # The tenant policy UPDATE above serializes claims across workers.
+            active_listing = int(self.session.scalar(
+                select(func.count(ProcessingJobModel.id)).where(
+                    ProcessingJobModel.tenant_id == job.tenant_id,
+                    ProcessingJobModel.id != job.id,
+                    ProcessingJobModel.job_type == "etsy_tiktok_listing_generate",
+                    ProcessingJobModel.provider_key == "codex",
+                    ProcessingJobModel.status == JobStatus.PROCESSING.value,
+                    ProcessingJobModel.concurrency_accounted.is_(True),
+                )
+            ) or 0)
+            if active_listing >= 1:
+                self._release_tenant_reservation(job)
+                return False
+
+        if job.job_type in RRUGC_GEMINI_ANALYZE_JOB_TYPES:
             _interval_seconds, rrugc_concurrency_limit, _drain_mode = (
                 self._rrugc_lane_profile(job, now)
             )

@@ -301,6 +301,71 @@ def test_source_validation_error_remains_nonretryable():
     assert handler(object()).outcome == JobOutcome.NON_RETRYABLE_FAILURE
 
 
+def test_codex_only_config_refuses_gemini_fallback():
+    assert tiktok_skill._codex_only_engine("CODEX") == "codex"
+    for invalid in ("gemini", "", "auto", "openai_api"):
+        with pytest.raises(ValueError, match="tiktok_listing_codex_only"):
+            tiktok_skill._codex_only_engine(invalid)
+
+
+def test_legacy_gemini_job_never_invokes_model_on_codex_installation(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    # Build a legacy queued Gemini job, then simulate today's Codex-only config.
+    old = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert old.provider_key == "gemini"
+    old.status = "processing"
+    old.claimed_by = "worker-cam"
+    old.attempt_count = 1
+    old.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=6)
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
+    async def fail_if_image_fetched(_url):
+        raise AssertionError("Legacy Gemini should be rejected before image fetch")
+    deps = WorkerDependencies(session_factory=lambda: Session(db.get_bind()),
+                              ai_provider_registry=None)
+    claimed = ClaimedJob(
+        id=old.id, tenant_id=old.tenant_id, job_type=old.job_type,
+        entity_type=old.entity_type, entity_id=old.entity_id,
+        payload=old.payload_json, attempt_count=1,
+        lease_owner="worker-cam", provider_key="gemini")
+    context = JobHandlerContext(
+        job=claimed, dependencies=deps,
+        shutdown_requested=Event(), cancellation_requested=Event(),
+        logger=logging.LoggerAdapter(logging.getLogger("test_legacy_disabled"), {}))
+    out = tiktok_skill.EtsyTikTokListingHandler(fetch_image=fail_if_image_fetched)(context)
+    assert out.outcome == JobOutcome.NON_RETRYABLE_FAILURE
+    assert out.error_code == "tiktok_listing_gemini_disabled"
+
+
+def test_retry_of_failed_gemini_creates_separate_codex_job(db, monkeypatch):
+    row = product()
+    picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
+                           picked_at=datetime.now(timezone.utc))
+    db.add_all([row, picked])
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "is_enabled", lambda: True)
+    old = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
+    assert old is not None and old.provider_key == "gemini"
+    old.status = "failed"
+    old.last_error_code = "tiktok_listing_invalid_output"
+    db.commit()
+    monkeypatch.setattr(tiktok_skill, "execution_engine", lambda: "codex")
+    new = tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at)
+    assert new is not None and new.id != old.id
+    assert new.provider_key == "codex" and new.status == "pending"
+    assert new.payload_json["engine"] == "codex"
+    db.commit()
+    db.refresh(old)
+    assert old.provider_key == "gemini" and old.status == "failed"
+    assert tiktok_skill.retry_failed_draft(db, "boostgame", row, picked.picked_at).id == new.id
+    assert db.query(ProcessingJobModel).count() == 2
+
+
 def test_queue_is_feature_gated_idempotent_and_does_not_share_tenant(db, monkeypatch):
     row = product()
     picked = EtsySpyPicked(tenant_id="boostgame", listing_key=row.listing_key,
@@ -317,8 +382,8 @@ def test_queue_is_feature_gated_idempotent_and_does_not_share_tenant(db, monkeyp
     first = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert first and first.status == "pending" and first.provider_key == "gemini"
     from app.modules.processing_policy.claim import RRUGC_GEMINI_ANALYZE_JOB_TYPES, MODEL_GATED_AI_JOB_TYPES
-    assert tiktok_skill.JOB_TYPE in RRUGC_GEMINI_ANALYZE_JOB_TYPES
-    assert tiktok_skill.JOB_TYPE in MODEL_GATED_AI_JOB_TYPES
+    assert tiktok_skill.JOB_TYPE not in RRUGC_GEMINI_ANALYZE_JOB_TYPES
+    assert tiktok_skill.JOB_TYPE not in MODEL_GATED_AI_JOB_TYPES
     again = tiktok_skill.queue_on_pick(db, "boostgame", row, picked.picked_at)
     assert again.id == first.id
     assert db.query(ProcessingJobModel).count() == 1
