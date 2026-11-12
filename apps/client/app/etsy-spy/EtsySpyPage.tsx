@@ -98,7 +98,8 @@ function fromLocation(): Options {
     winKeywordsView: tab === "products" && p.get("panel") === "win-keywords",
     observedDay: p.get("observed_day") === "all" ? "all"
       : /^\d{4}-\d{2}-\d{2}$/.test(p.get("observed_day") || "")
-        ? p.get("observed_day")! : vietnamCalendarDay(),
+        ? p.get("observed_day")!
+        : p.get("pick_state") === "picked" ? "all" : vietnamCalendarDay(),
     group: (p.get("group") || "").slice(0,40),
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
@@ -1040,7 +1041,7 @@ export function EtsySpyPage() {
           : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued}`
         : "Selected · Image Agent off")
         : "Manually selected products",
-      tone: "picked", tab: "products", filters: { pickState: "picked" },
+      tone: "picked", tab: "products", filters: { pickState: "picked", observedDay: "all" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
     { title: "Later", value: summary?.later ?? 0, hint: "Auto-grouped design themes",
@@ -1121,7 +1122,7 @@ export function EtsySpyPage() {
               <input type="search" aria-label="Search Spy records"
                 placeholder={isBlacklistView ? "Search blocked phrases…" :
                   isWinKeywordsView ? "Search saved Win Keywords…" :
-                  activeTab === "logs" ? "Search message or stack…" : "Search keyword or product…"}
+                  activeTab === "logs" ? "Search message or stack…" : "Search keyword, product or Listing ID…"}
                 value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
             </div>
           </div>

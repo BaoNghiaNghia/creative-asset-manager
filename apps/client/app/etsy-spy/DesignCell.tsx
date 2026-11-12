@@ -31,8 +31,12 @@ export function DesignCell({ item }: { item: Listing }) {
   if (designs.length === 0) {
     return <div className="etsy-design-empty" aria-label="Chưa có design PNG">
       <span aria-hidden="true">◇</span>
-      <small>{["pending", "processing", "retry"].includes(item.extraction?.status || "")
-        ? "Đang chờ tách" : "Chưa có PNG"}</small>
+      <small title={item.extraction?.status === "needs_ai"
+        ? "Job extraction đã ghi nhận, nhưng chưa có PNG được đồng bộ về CAM."
+        : undefined}>{["pending", "processing", "retry"].includes(item.extraction?.status || "")
+        ? "Đang chờ tách"
+        : item.extraction?.status === "needs_ai" ? "Đang chờ PNG ImageGen"
+          : "Chưa có PNG"}</small>
     </div>;
   }
   const preview = designs[active === null ? 0 : active] || designs[0];
