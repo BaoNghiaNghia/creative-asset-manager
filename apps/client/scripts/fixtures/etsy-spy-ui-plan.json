@@ -1,0 +1,17 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "etsy-eligible",
+      "fullPage": true,
+      "waitFor": ".etsy-spy-page",
+      "qualityBudgets": {
+        "viewportOverflowPx": 0
+      }
+    }
+  ]
+}
