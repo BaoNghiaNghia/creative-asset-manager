@@ -133,9 +133,10 @@ def _mcp_body(response: httpx.Response) -> dict:
 async def research_etsy_keyword(
     title: str, *, enabled: bool = True, bearer_token: str = "",
     timeout_seconds: float = 8.0, transport: httpx.AsyncBaseTransport | None = None,
+    raw_query: bool = False,
 ) -> dict:
     """One bounded MCP call, with short failure caching; failures never block Gemini."""
-    query = research_query(title)
+    query = title.casefold().strip() if raw_query and _SAFE_KEYWORD.fullmatch(title) else research_query(title)
     if not enabled or not query:
         return empty_evidence(query, "disabled" if not enabled else "no_data")
     # Cached data is public, but auth-backed and anonymous views never share keys.
@@ -177,6 +178,54 @@ async def research_etsy_keyword(
                 _CACHE.pop(oldest, None)
             _CACHE[cache_key] = (time.monotonic() + ttl, dict(outcome))
     return outcome
+
+
+def keyword_variants(title: str) -> list[str]:
+    """Bounded related garment queries; candidate terms are NOT market facts."""
+    core = research_query(title)
+    if not core:
+        return []
+    variants = [core]
+    garment = next((g for g in ("sweatshirt", "crewneck", "hoodie", "shirt")
+                    if re.search(r"\b" + g + r"\b", title, re.IGNORECASE)), "sweatshirt")
+    variants.append(f"{core} {garment}")
+    if garment == "sweatshirt":
+        variants.append(f"{core} crewneck")
+    else:
+        variants.append(f"{core} sweatshirt")
+    if "santa" in core or "christmas" in core:
+        variants.extend(["christmas sweatshirt", "vintage santa sweatshirt"] if "santa" in core
+                        else ["vintage christmas sweatshirt", "christmas crewneck"])
+    elif "valentine" in core or "heart" in core:
+        variants.extend(["valentine sweatshirt", "vintage valentine sweatshirt"])
+    else:
+        variants.extend([f"vintage {core} {garment}", f"retro {core} {garment}"])
+    return list(dict.fromkeys(q for q in variants if _SAFE_KEYWORD.fullmatch(q)))[:5]
+
+
+async def research_etsy_keyword_set(title: str, **options: Any) -> dict:
+    """Query up to five bounded variants; preserve single-result API fields."""
+    queries = keyword_variants(title)
+    if not queries:
+        return empty_evidence("", "no_data")
+    # Sequential and cached: do not saturate the public MCP endpoint.
+    results = [await research_etsy_keyword(q, raw_query=True, **options) for q in queries]
+    primary = dict(results[0])
+    primary["keywords"] = [
+        {"keyword": query, "status": row["status"],
+         "listings": row.get("total_listings"),
+         "competition": row.get("competition_level"),
+         "as_of_date": row.get("as_of_date")}
+        for query, row in zip(queries, results)
+    ]
+    if primary["status"] != "connected":
+        successful = next((row for row in results if row["status"] == "connected"), None)
+        if successful:
+            primary.update({field: successful.get(field) for field in (
+                "as_of_date", "median_data_age_days", "total_listings",
+                "total_sellers", "competition_level")})
+            primary["status"] = "connected"
+    return primary
 
 
 def prompt_context(evidence: dict) -> str:

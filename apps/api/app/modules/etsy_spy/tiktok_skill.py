@@ -32,7 +32,7 @@ from app.modules.realistic_review_ugc.gemini_safety import (
 )
 from .model import EtsySpyListing, EtsySpyPicked
 from .service import verified_image_url
-from .ytrends_mcp import empty_evidence, prompt_context, research_etsy_keyword
+from .ytrends_mcp import empty_evidence, prompt_context, research_etsy_keyword_set
 from .tiktok_codex import (
     CodexListingUnavailable, CodexListingCancelled, generate_codex_listing,
 )
@@ -815,7 +815,7 @@ class EtsyTikTokListingHandler:
     @staticmethod
     async def _research_ytrends(title: str) -> dict:
         settings = get_settings()
-        return await research_etsy_keyword(
+        return await research_etsy_keyword_set(
             title, enabled=settings.ETSY_TIKTOK_YTRENDS_ENABLED,
             bearer_token=settings.ETSY_TIKTOK_YTRENDS_BEARER_TOKEN.get_secret_value(),
             timeout_seconds=settings.ETSY_TIKTOK_YTRENDS_TIMEOUT_SECONDS,
