@@ -327,6 +327,40 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("shows table column navigation only when the desktop table overflows", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
+    const viewport = container?.querySelector<HTMLDivElement>(".etsy-table-wrap");
+    expect(viewport).toBeTruthy();
+    Object.defineProperties(viewport!, {
+      clientWidth: {configurable: true, value: 600},
+      scrollWidth: {configurable: true, value: 1500},
+      scrollLeft: {configurable: true, value: 0, writable: true},
+    });
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    const controls = container?.querySelector(".etsy-table-scroll-nav");
+    expect(controls?.textContent).toContain("Còn cột bên phải");
+    const left = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang trái"]');
+    const right = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang phải"]');
+    expect(left?.disabled).toBe(true);
+    expect(right?.disabled).toBe(false);
+    await act(async () => { right?.click(); });
+    expect(viewport?.scrollLeft).toBeGreaterThan(0);
+    expect(left?.disabled).toBe(false);
+    await act(async () => {
+      viewport!.scrollLeft = 900;
+      viewport?.dispatchEvent(new Event("scroll", {bubbles: true}));
+    });
+    expect(right?.disabled).toBe(true);
+    expect(container?.querySelector(".etsy-table-scroll-nav")?.textContent).toContain("Đã đến cột cuối");
+    await act(async () => {
+      Object.defineProperty(viewport!, "scrollWidth", {configurable: true, value: 600});
+      viewport!.scrollLeft = 0;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(container?.querySelector(".etsy-table-scroll-nav")).toBeNull();
+    expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+  });
+
   it("jumps directly to a valid page without dropping the active day and tab", async () => {
     await start({ initialUrl: "/etsy-spy?tab=products&observed_day=all&page=2", listingPages: 12 });
     const input = container?.querySelector<HTMLInputElement>(".etsy-page-jump input");

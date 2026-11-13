@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
@@ -512,6 +512,63 @@ function LogRow({ item }: { item: SpyLog }) {
       </button>{expanded && <pre className="etsy-evidence">{item.stack}</pre>}</>}
     </td>
   </tr>;
+}
+
+function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: string }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
+  const sync = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const next = {
+      overflow: maxScroll > 2,
+      atStart: el.scrollLeft <= 2,
+      atEnd: el.scrollLeft >= maxScroll - 2,
+    };
+    setEdges(prev => prev.overflow === next.overflow &&
+      prev.atStart === next.atStart && prev.atEnd === next.atEnd ? prev : next);
+  }, []);
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    sync();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    observer?.observe(el);
+    const table = el.querySelector("table");
+    if (table) observer?.observe(table);
+    window.addEventListener("resize", sync);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [scope, sync]);
+  const move = (direction: -1 | 1) => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    el.scrollLeft = Math.max(0, Math.min(maxScroll,
+      el.scrollLeft + direction * Math.max(240, Math.round(el.clientWidth * .7))));
+    sync();
+  };
+  return <>
+    {edges.overflow && <div className="etsy-table-scroll-nav"
+      aria-label="Điều hướng các cột trong bảng">
+      <span>{edges.atStart ? "Còn cột bên phải" :
+        edges.atEnd ? "Đã đến cột cuối" : "Xem các cột khác"}</span>
+      <div className="etsy-table-scroll-buttons">
+        <button type="button" aria-label="Cuộn bảng sang trái"
+          disabled={edges.atStart} onClick={() => move(-1)}>
+          <span aria-hidden="true">←</span>
+        </button>
+        <button type="button" aria-label="Cuộn bảng sang phải"
+          disabled={edges.atEnd} onClick={() => move(1)}>
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>}
+    <div className="etsy-table-wrap" ref={viewportRef} onScroll={sync}>{children}</div>
+  </>;
 }
 
 function EtsyPageJump({ page, totalPages, loading, onJump }: {
@@ -1534,7 +1591,7 @@ export function EtsySpyPage() {
             <p className="etsy-empty-description">Thử điều chỉnh bộ lọc hoặc từ khóa tìm kiếm.</p>
           </>}
         </div>
-        : <div className="etsy-table-wrap">
+        : <EtsyTableViewport scope={selectionScope}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
             (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
@@ -1578,7 +1635,7 @@ export function EtsySpyPage() {
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
           </tbody></table>
-        </div>}
+        </EtsyTableViewport>}
       <div className="etsy-pager" aria-label="Phân trang dữ liệu">
         <span className="etsy-page-range">{rows?.items.length
           ? ((options.page - 1) * options.pageSize + 1).toLocaleString("vi-VN") : 0}–{rows?.items.length

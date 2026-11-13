@@ -249,6 +249,48 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
   border-radius: var(--cam-evo-radius-card);
   box-shadow: none;
 }
+/* Phase 14: context-aware horizontal navigation for wide desktop data tables.
+   No extra toolbar when the columns all fit; mobile remains a vertical card list. */
+.etsy-spy-page .etsy-table-scroll-nav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 39px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--cam-evo-hairline);
+  background: #fff;
+  color: var(--cam-evo-muted);
+  font-size: 11px;
+}
+.etsy-spy-page .etsy-table-scroll-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.etsy-spy-page .etsy-table-scroll-buttons button {
+  min-width: 34px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  background: #fff;
+  color: var(--cam-evo-ink);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.etsy-spy-page .etsy-table-scroll-buttons button:hover:not(:disabled) {
+  background: var(--cam-evo-brand-soft);
+  border-color: var(--cam-evo-brand);
+}
+.etsy-spy-page .etsy-table-scroll-buttons button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+@media (max-width: 680px) {
+  .etsy-spy-page .etsy-table-scroll-nav { display: none; }
+}
 .etsy-spy-page .etsy-table-wrap {
   max-height: min(72vh, 860px);
   scrollbar-color: #b8c5d7 transparent;
