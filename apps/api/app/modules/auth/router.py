@@ -174,17 +174,39 @@ async def connect_imagegen_drive(
 async def imagegen_drive_status(
     principal: CurrentPrincipal = Depends(require_platform_admin),
 ):
-    """Status for ImageGen only; never exposes private OAuth tokens."""
+    """Independent OAuth and actual private upload readiness; no token leakage."""
+    from app.modules.etsy_spy.imagegen_drive import (
+        provider_and_folder, verify_private_drive_destination,
+    )
     folder = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "").strip()
     if not folder:
-        return {"configured": False, "connected": False, "reconnect_required": True}
+        return {"configured": False, "connected": False,
+                "reconnect_required": True, "upload_ready": False,
+                "sharing_status": "not_configured"}
     settings = get_settings().model_copy(update={
         "GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID": folder,
     })
     state = managed_storage_oauth_status(settings)
-    return {"configured": True, "connected": state["connected"],
-            "reconnect_required": state["reconnect_required"],
-            "account_email": state["account_email"]}
+    ready = False
+    sharing = "not_connected"
+    if state["connected"] and not state["reconnect_required"]:
+        try:
+            provider, target = provider_and_folder()
+            await verify_private_drive_destination(provider, target)
+            ready = True
+            sharing = "restricted"
+        except HTTPException as exc:
+            if str(exc.detail) == "Set ImageGen Drive folder sharing to Restricted":
+                sharing = "public"
+            else:
+                sharing = "unverified"
+    return {
+        "configured": True, "connected": state["connected"],
+        "reconnect_required": state["reconnect_required"],
+        "account_email": state["account_email"],
+        "upload_ready": ready, "sharing_status": sharing,
+        "folder_url": f"https://drive.google.com/drive/folders/{folder}",
+    }
 
 
 @router.get("/managed-storage/status")
@@ -364,6 +386,7 @@ async def callback(
         response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
         return response
 
+    imagegen_private = False
     try:
         granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
         if managed_storage_connect or imagegen_storage_connect:
@@ -376,8 +399,9 @@ async def callback(
                 raise ValueError("Managed Storage destination folder is not configured")
             if imagegen_storage_connect:
                 from app.modules.etsy_spy.imagegen_drive import verify_imagegen_oauth_token
-                await verify_imagegen_oauth_token(
-                    flow.credentials.token, root_folder_id, restrict_public_sharing=True,
+                imagegen_private = await verify_imagegen_oauth_token(
+                    flow.credentials.token, root_folder_id,
+                    restrict_public_sharing=True, allow_public_sharing=True,
                 )
             await persist_managed_storage_connection(
                 flow.credentials,
@@ -448,7 +472,10 @@ async def callback(
             return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
 
     if imagegen_storage_connect:
-        response = managed_storage_redirect("imagegen_connected")
+        response = managed_storage_redirect(
+            "imagegen_connected" if imagegen_private
+            else "imagegen_connected_needs_restriction"
+        )
     elif managed_storage_connect:
         response = managed_storage_redirect("connected")
     elif drive_connect:

@@ -146,7 +146,8 @@ def test_imagegen_oauth_can_secure_only_public_folder_grants(monkeypatch):
                 }
             return SimpleNamespace(status_code=200, json=lambda: data)
         async def delete(self, url, **kwargs):
-            self.deleted.append(url)
+            if self.delete_status in {200, 204}:
+                self.deleted.append(url)
             return SimpleNamespace(status_code=self.delete_status)
 
     async def check():
@@ -154,6 +155,9 @@ def test_imagegen_oauth_can_secure_only_public_folder_grants(monkeypatch):
         with patch.object(module.httpx, "AsyncClient", return_value=normal):
             with pytest.raises(HTTPException, match="Restricted"):
                 await module.verify_imagegen_oauth_token("token", FOLDER)
+            assert await module.verify_imagegen_oauth_token(
+                "token", FOLDER, allow_public_sharing=True,
+            ) is False
         assert normal.deleted == []
 
         secured = ResponseClient()
@@ -171,6 +175,12 @@ def test_imagegen_oauth_can_secure_only_public_folder_grants(monkeypatch):
                 await module.verify_imagegen_oauth_token(
                     "token", FOLDER, restrict_public_sharing=True,
                 )
+            # Google permission change may fail but this owner OAuth is valid;
+            # callback may save it, and upload still requires Restricted.
+            assert await module.verify_imagegen_oauth_token(
+                "token", FOLDER, restrict_public_sharing=True,
+                allow_public_sharing=True,
+            ) is False
     asyncio.run(check())
 
 
