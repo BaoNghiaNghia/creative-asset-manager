@@ -732,6 +732,19 @@ export function EtsySpyPage() {
     window.history.replaceState(window.history.state, "", "/etsy-spy?" + query.toString());
   }, [options]);
   useEffect(() => {
+    // Browser Back/Forward can restore a deep link without remounting the SPA.
+    // Restore the matching table, date and search in place; never reload the page.
+    const onPopState = () => {
+      if (window.location.pathname !== "/etsy-spy") return;
+      cancelPendingSearch();
+      const restored = fromLocation();
+      setTypedSearch(restored.q);
+      setOptions(restored);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+  useEffect(() => {
     let alive = true;
     Promise.all([
       spyFetch<Summary>("/summary"),
