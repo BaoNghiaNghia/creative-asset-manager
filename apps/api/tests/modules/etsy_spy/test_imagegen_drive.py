@@ -2,7 +2,7 @@
 import asyncio
 import hashlib
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -12,7 +12,7 @@ from app.modules.etsy_spy import imagegen_drive as module
 TENANT = "creative-assets-prod"
 JOB = "8c6729df-1aa1-4a43-8d69-f076e152b489"
 ASSET = "a" * 24
-FOLDER = "10SHkTJ02Wmztr2yBJoFG2oiNo938djtV"
+FOLDER = "1BnPuw93Wif2gJ5HEzWpz70GhrrJsdKvi"
 
 
 class FakeDrive:
@@ -71,6 +71,7 @@ def test_design_upload_is_drive_only_and_private_readback(tmp_path):
         ) == preview
 
     with patch.object(module,"provider_and_folder",return_value=(provider,FOLDER)), \
+         patch.object(module,"verify_private_drive_destination",new_callable=AsyncMock), \
          patch.object(module,"_thumbnail",return_value=preview):
         asyncio.run(check())
 
@@ -95,3 +96,55 @@ def test_unconnected_drive_is_explicitly_blocked(monkeypatch):
     with pytest.raises(HTTPException) as unavailable:
         module.provider_and_folder()
     assert unavailable.value.status_code == 503
+
+
+def test_expected_owner_rejects_other_managed_oauth_account(monkeypatch):
+    monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", FOLDER)
+    monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
+    with patch.object(module, "get_settings", return_value=object()), \
+         patch.object(module, "managed_storage_oauth_status",
+                      return_value={"connected": True,
+                                    "account_email": "other-google-account@example.com"}):
+        with pytest.raises(HTTPException) as error:
+            module.provider_and_folder()
+    assert error.value.status_code == 503
+    assert "owner account" in str(error.value.detail)
+
+
+def test_publicly_writable_folder_is_rejected_before_any_upload(monkeypatch):
+    monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
+
+    class ResponseClient:
+        def __init__(self, payload):
+            self.payload = payload
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def get(self, *args, **kwargs):
+            return SimpleNamespace(status_code=200, json=lambda: self.payload)
+
+    private_metadata = {
+        "id": FOLDER, "mimeType": "application/vnd.google-apps.folder",
+        "capabilities": {"canAddChildren": True},
+        "owners": [{"emailAddress": "baonghia.kht@gmail.com"}],
+        "permissions": [{"type": "user", "role": "owner"}],
+    }
+    public_metadata = {**private_metadata, "permissions": [
+        *private_metadata["permissions"], {"type": "anyone", "role": "writer"},
+    ]}
+    provider = SimpleNamespace(get_access_token=AsyncMock(return_value="test-token"))
+
+    async def verify():
+        with patch.object(module.httpx, "AsyncClient",
+                          return_value=ResponseClient(public_metadata)):
+            with pytest.raises(HTTPException) as error:
+                await module.verify_private_drive_destination(provider, FOLDER)
+            assert error.value.status_code == 503
+            assert "Restricted" in error.value.detail
+
+        with patch.object(module.httpx, "AsyncClient",
+                          return_value=ResponseClient(private_metadata)):
+            await module.verify_private_drive_destination(provider, FOLDER)
+
+    asyncio.run(verify())
