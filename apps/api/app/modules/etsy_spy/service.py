@@ -291,6 +291,10 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
             "bought24h": integer(row.get("bought24h")),
             "views24h": integer(row.get("views24h")),
             "in_carts": integer(row.get("inCarts")),
+            "cart_lower_bound": (row.get("cartLowerBound") is True or
+                                 type(row.get("cartLowerBound")) is int and
+                                 row.get("cartLowerBound") == 1),
+            "item_reviews": integer(row.get("itemReviews")),
             "bestseller": row.get("bestseller") if isinstance(row.get("bestseller"), bool) else
                           bool(row.get("bestseller")) if row.get("bestseller") in (0, 1) else None,
             "demand_score": floating(row.get("demandScore")),
