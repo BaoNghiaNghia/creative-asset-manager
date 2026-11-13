@@ -332,6 +332,86 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
   background: var(--cam-evo-brand-soft);
 }
 
+/* Phase 13: page navigation remains inside the table card, never a floating bar.
+   The bounded page input is optional; existing first/prev/next/last remain intact. */
+.etsy-spy-page .etsy-pager {
+  padding: 12px 14px;
+  border-top: 1px solid var(--cam-evo-hairline);
+  background: #fff;
+  column-gap: 12px;
+  row-gap: 9px;
+}
+.etsy-spy-page .etsy-page-range {
+  white-space: nowrap;
+  color: var(--cam-evo-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.etsy-spy-page .etsy-page-controls {
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.etsy-spy-page .etsy-page-controls > button,
+.etsy-spy-page .etsy-page-jump > button {
+  min-width: 36px;
+  min-height: 36px;
+  height: 36px;
+  border-color: var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  color: var(--cam-evo-ink);
+}
+.etsy-spy-page .etsy-page-controls button:disabled { cursor: not-allowed; opacity: .48; }
+.etsy-spy-page .etsy-page-jump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  gap: 5px;
+  margin: 0 3px;
+}
+.etsy-spy-page .etsy-page-jump label {
+  color: var(--cam-evo-muted);
+  font-size: 11px;
+  font-weight: 660;
+}
+.etsy-spy-page .etsy-page-jump input {
+  width: 51px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 5px 4px;
+  border: 1px solid var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  background: white;
+  color: var(--cam-evo-ink);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.etsy-spy-page .etsy-page-jump span { white-space: nowrap; color: var(--cam-evo-muted); }
+.etsy-spy-page .etsy-pager select { min-height: 36px; }
+@media (max-width: 680px) {
+  .etsy-spy-page .etsy-pager { padding: 12px 7px; gap: 10px; }
+  .etsy-spy-page .etsy-page-controls {
+    gap: 6px;
+    justify-content: space-around;
+  }
+  .etsy-spy-page .etsy-page-controls > button,
+  .etsy-spy-page .etsy-page-jump > button {
+    min-height: 44px;
+    min-width: 40px;
+    height: 44px;
+  }
+  .etsy-spy-page .etsy-page-jump { gap: 4px; margin: 0; }
+  .etsy-spy-page .etsy-page-jump input {
+    width: 48px;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .etsy-spy-page .etsy-pager select { min-height: 44px; }
+}
+
 /* Consistent, unobtrusive scrollbars (the app already handles thin Firefox bars). */
 .etsy-spy-page :is(.etsy-table-wrap, .etsy-observed-day-grid, .etsy-day-groups-list)::-webkit-scrollbar,
 body:has(.etsy-spy-page) :is(.etsy-tiktok-dialog-body, .etsy-tiktok-keyword-scroll)::-webkit-scrollbar {

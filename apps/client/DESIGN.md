@@ -153,6 +153,15 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - Do not alter how sort, counts, Pick/Later, bulk selection, Design gallery, TikTok SEO, or async job status work. The action is at least 42px high on phones, with visible focus and no page-level overflow. Avoid custom icon decoration.
 - Validate filtered Picked reset, unfiltered Later and Picked navigation, typecheck, Vitest, production bundle, Chrome fixture for mobile/tablet/desktop, and read-only production smoke. Frontend-only, no database/API/worker change; preserve current plus rollback releases.
 
+## Phase 13 — Etsy Spy usable pagination controls (2026-11-13)
+
+- Keep the evondevKit **Clean / Light / Data-first** direction and reuse the existing table card, input/border/typography tokens. Pagination is a data-navigation control, not a floating promotional bar.
+- Above one page, enable direct page entry via a small bounded **Trang [n] / N · Đi** form. A valid integer between 1 and the current backend-reported total pages is required; Enter or the explicit button navigates, while a blank, invalid, out-of-range, or unchanged value causes **no request**. Existing first/prev/next/last navigation and rows-per-page remain.
+- The input is controlled locally, resynchronizes when the actual page or total pages change, and preserves the tab, Eligible/Picked/Later scope, day, filters, and sort in the existing URL state. Keep the last known total-page count visible while a new page is loading, with the controls disabled, to prevent temporary unmount/remount flicker. No direct API calls or job mutations.
+- Row range text must be truthful for stale pages after Scout changes: when there are no returned items it displays **0–0 / total** instead of impossible positions beyond total. Successful pages derive the ending row from the actual item count.
+- On phones, the pager wraps without page-level overflow; jump/input/select and directional buttons meet the 44px touch-height target. Keep focus visible with existing evondevKit tokens. Do not modify table horizontal scrolling or the Design/TikTok dialogs.
+- Test valid page jump, invalid-input no-op, navigation resync, stale-page count, typecheck, production build and mobile/tablet/desktop Chrome QA; gate frontend-only deploy on full CI and keep current plus rollback.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.

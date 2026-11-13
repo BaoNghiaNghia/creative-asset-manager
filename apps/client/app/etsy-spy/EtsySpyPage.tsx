@@ -514,6 +514,30 @@ function LogRow({ item }: { item: SpyLog }) {
   </tr>;
 }
 
+function EtsyPageJump({ page, totalPages, loading, onJump }: {
+  page: number; totalPages: number; loading: boolean; onJump: (nextPage: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(page));
+  // Navigation, filtering, and changes to the page count all have one source of truth.
+  useEffect(() => setDraft(String(page)), [page, totalPages]);
+  const target = Number(draft);
+  const valid = /^\d+$/.test(draft) && Number.isSafeInteger(target) &&
+    target >= 1 && target <= totalPages;
+  if (totalPages <= 1) return <strong>Trang {page} / {totalPages}</strong>;
+  return <form className="etsy-page-jump" onSubmit={event => {
+    event.preventDefault();
+    if (valid && !loading && target !== page) onJump(target);
+  }}>
+    <label htmlFor="etsy-page-number">Trang</label>
+    <input id="etsy-page-number" type="number" inputMode="numeric"
+      aria-label="Nhập số trang muốn đến" min={1} max={totalPages} step={1}
+      value={draft} disabled={loading} onChange={event => setDraft(event.target.value)} />
+    <span>/ {totalPages}</span>
+    <button type="submit" aria-label="Đi đến trang đã nhập"
+      disabled={loading || !valid || target === page}>Đi</button>
+  </form>;
+}
+
 export function EtsySpyPage() {
   const [options, setOptions] = useState<Options>(fromLocation);
   const [typedSearch, setTypedSearch] = useState(options.q);
@@ -1012,7 +1036,10 @@ export function EtsySpyPage() {
   const syncLabel = summary?.source_status === "online" ? "Agent online"
     : summary?.source_status === "sync_delayed" ? "Sync delayed"
     : summary?.source_status === "never_synced" ? "Never synced" : "Agent offline";
-  const totalPages = Math.max(1, rows?.pages || 1);
+  // Keep pagination shape stable while the next page is being fetched. Controls
+  // stay disabled until the current request returns, so stale counts cannot navigate.
+  const totalPages = Math.max(1, rows?.pages ||
+    (loading ? tableResult?.data?.pages : null) || 1);
   const sortColumn = (id: string) => update({
     sort: id, dir: options.sort === id && options.dir === "desc" ? "asc" : "desc",
   });
@@ -1552,16 +1579,20 @@ export function EtsySpyPage() {
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
           </tbody></table>
         </div>}
-      <div className="etsy-pager">
-        <span>{rows && rows.total > 0 ? ((options.page - 1) * options.pageSize + 1).toLocaleString() : 0}–{rows ? Math.min(options.page * options.pageSize, rows.total).toLocaleString() : "—"} of {rows?.total.toLocaleString() ?? "—"}</span>
+      <div className="etsy-pager" aria-label="Phân trang dữ liệu">
+        <span className="etsy-page-range">{rows?.items.length
+          ? ((options.page - 1) * options.pageSize + 1).toLocaleString("vi-VN") : 0}–{rows?.items.length
+          ? Math.min((options.page - 1) * options.pageSize + rows.items.length, rows.total).toLocaleString("vi-VN")
+          : rows ? "0" : "—"} / {rows?.total.toLocaleString("vi-VN") ?? "—"} bản ghi</span>
         <div className="etsy-page-controls">
           <button type="button" aria-label="First page" disabled={loading || options.page <= 1} onClick={() => update({ page: 1 })}>«</button>
           <button type="button" aria-label="Previous page" disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>‹</button>
-          <strong>Page {options.page} / {totalPages}</strong>
+          <EtsyPageJump page={options.page} totalPages={totalPages} loading={loading}
+            onJump={page => update({ page })} />
           <button type="button" aria-label="Next page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>›</button>
           <button type="button" aria-label="Last page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: totalPages })}>»</button>
         </div>
-        <label>Rows
+        <label>Số dòng/trang
           <select aria-label="Rows per page" value={options.pageSize} disabled={loading}
             onChange={event => update({ pageSize: Number(event.target.value) })}>
             {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}
