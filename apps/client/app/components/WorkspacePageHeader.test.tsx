@@ -48,4 +48,18 @@ describe("WorkspacePageHeader", () => {
     expect(markup).toContain("Monitor Generate Square 1:1 jobs");
     expect(markup).toContain("Back to assets");
   });
+
+  it("allows an operational page to override its heading without changing shared actions", () => {
+    const markup = renderToStaticMarkup(<WorkspacePageHeader route="inventory"
+      className="cam-header-v18" eyebrow="Inventory · Operations"
+      title="Tổng quan kiểm kê tự động" description="Theo dõi chu kỳ"
+      titleAddon={<span>Hoạt động bình thường</span>}
+      actions={<WorkspaceBackToAssets />} />);
+    expect(markup).toContain("workspace-page-header cam-header-v18");
+    expect(markup).toContain("Tổng quan kiểm kê tự động");
+    expect(markup).toContain("Inventory · Operations");
+    expect(markup).toContain("Hoạt động bình thường");
+    expect(markup).toContain("Back to assets");
+    expect(markup).not.toContain(">Inventory</h1>");
+  });
 });

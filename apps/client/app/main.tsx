@@ -28,6 +28,8 @@ import "../styles/cam-console-evo.css";
 import "../styles/cam-platform-evo.css";
 // Phase 6: shared loading, empty/error, retry and modal feedback styling.
 import "../styles/cam-feedback-evo.css";
+// Shared typography, header and responsive layout for operational workspaces.
+import "../styles/cam-unified-workspace-v18.css";
 
 function AppBoot() {
   useEffect(() => {

@@ -1,0 +1,584 @@
+/* CAM Unified Workspace UI v18. Shared header and stage contract; route-scoped
+   to avoid changing existing workflows, modal state, or business logic. */
+.cam-unified-workspace-v18,
+.inventory-workspace,
+.ops-content.cam-providers-v18 {
+  --cam-v18-border: #d9e3f5;
+  --cam-v18-text: #132345;
+  --cam-v18-subtle: #607395;
+  --cam-v18-accent: #275df4;
+  min-width: 0;
+}
+main.cam-unified-workspace-v18 { background: #f5f7fe; color: var(--cam-v18-text); }
+main.cam-unified-workspace-v18 .workspace-page-header.cam-header-v18,
+.inventory-workspace .workspace-page-header.cam-header-v18 {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px 26px;
+  min-height: 142px;
+  padding: 25px clamp(20px, 2.65vw, 44px) 23px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid #e2e9f5 !important;
+  background: linear-gradient(105deg, #fff 0%, #f6f8ff 100%) !important;
+  color: var(--cam-v18-text);
+}
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-copy,
+.inventory-workspace .cam-header-v18 .workspace-page-header-copy { min-width: 0; }
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-title-row,
+.inventory-workspace .cam-header-v18 .workspace-page-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px 15px;
+  margin-top: 7px;
+}
+.cam-unified-workspace-v18 .workspace-page-header.cam-header-v18 h1,
+.inventory-workspace .workspace-page-header.cam-header-v18 h1 {
+  margin: 0;
+  font-size: clamp(24px, 2.25vw, 34px);
+  line-height: 1.18;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  color: #0c1835;
+}
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-eyebrow,
+.inventory-workspace .cam-header-v18 .workspace-page-header-eyebrow {
+  color: #506489;
+  font-size: 10px;
+  letter-spacing: .105em;
+  font-weight: 850;
+}
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-description,
+.inventory-workspace .cam-header-v18 .workspace-page-header-description {
+  margin: 9px 0 0;
+  max-width: 920px;
+  color: #5e718f;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-actions,
+.inventory-workspace .cam-header-v18 .workspace-page-header-actions {
+  width: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-back-link,
+.inventory-workspace .cam-header-v18 .workspace-page-back-link,
+.cam-unified-workspace-v18 .cam-header-v18 .rrugc-global-management-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  min-height: 40px;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 8px 14px;
+  border: 1px solid #c9d6f1;
+  border-radius: 9px;
+  background: #fff;
+  color: #244ca3;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px #1c3e7a08;
+}
+.cam-unified-workspace-v18 .cam-header-v18 :is(.workspace-page-back-link, .rrugc-global-management-button):hover,
+.inventory-workspace .cam-header-v18 .workspace-page-back-link:hover {
+  background: #eff4ff;
+  border-color: #9bb3e8;
+}
+.cam-unified-workspace-v18 .cam-header-v18 :is(button, a):focus-visible,
+.inventory-workspace .cam-header-v18 :is(button, a):focus-visible,
+.ops-content.cam-providers-v18 :is(button, a, input):focus-visible {
+  outline: 2px solid #2d65e9;
+  outline-offset: 3px;
+}
+.cam-unified-workspace-v18 .cam-header-v18 .rrugc-page-live-pill {
+  display: inline-flex;
+  min-height: 29px;
+  align-items: center;
+  max-width: 100%;
+  padding: 5px 12px;
+  border: 1px solid #cce8d8;
+  border-radius: 999px;
+  background: #e7f8ed;
+  color: #17683b;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: normal;
+}
+.branding-dna-page.cam-unified-workspace-v18 .bdna-header-runtime {
+  display: inline-flex;
+  padding: 9px 12px;
+  min-height: 38px;
+  box-sizing: border-box;
+  align-items: center;
+  border: 1px solid #f0dcae;
+  border-radius: 9px;
+  background: #fffbf0;
+  color: #885817;
+  font-size: 11px;
+  font-weight: 750;
+}
+.rrugc-tiktokshop-workspace.cam-unified-workspace-v18 .cam-header-v18
+.rrugc-global-management-actions a[href*="drive.google.com"] {
+  border-color: #2c5fee;
+  background: #2c5fee;
+  color: #fff;
+}
+.rrugc-tiktokshop-workspace.cam-unified-workspace-v18 .cam-header-v18
+.rrugc-global-management-actions a[href*="drive.google.com"]:hover { background: #214dc8; }
+
+/* One stage navigation style for Branding DNA, TikTokShop and both Reviews flows. */
+main.cam-unified-workspace-v18 .bdna-stage-shell,
+main.cam-unified-workspace-v18 .rrugc-workflow-navigation {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  padding: 16px clamp(20px, 2.65vw, 44px) 0;
+  border: 0;
+  background: transparent;
+}
+main.cam-unified-workspace-v18 .bdna-stage-tabs,
+main.cam-unified-workspace-v18 .rrugc-stage-tabs {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--cam-v18-border);
+  border-radius: 12px;
+  background: #fff;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+main.cam-unified-workspace-v18 .bdna-stage-tabs button,
+main.cam-unified-workspace-v18 .rrugc-stage-tabs button {
+  min-width: 150px;
+  flex: 1 0 150px;
+  min-height: 62px;
+  padding: 10px 13px;
+  gap: 10px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px;
+  color: #50627f;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+}
+main.cam-unified-workspace-v18 .bdna-stage-tabs button.active,
+main.cam-unified-workspace-v18 .rrugc-stage-tabs button.active {
+  border-bottom-color: #2c60f3;
+  background: #f0f5ff;
+  color: #2452bb;
+}
+main.cam-unified-workspace-v18 .bdna-stage-tabs button:focus-visible,
+main.cam-unified-workspace-v18 .rrugc-stage-tabs button:focus-visible {
+  outline: 2px solid #2c60f3;
+  outline-offset: -2px;
+}
+main.cam-unified-workspace-v18 .bdna-stage-number,
+main.cam-unified-workspace-v18 .rrugc-stage-tab-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 31px;
+  width: 31px;
+  height: 31px;
+  border-radius: 9px;
+  background: #edf2fa;
+  color: #526a91;
+  font-size: 13px;
+  font-weight: 850;
+}
+main.cam-unified-workspace-v18 .bdna-stage-tabs button.active .bdna-stage-number,
+main.cam-unified-workspace-v18 .rrugc-stage-tabs button.active .rrugc-stage-tab-number {
+  background: #dae6ff;
+  color: #2455cc;
+}
+main.cam-unified-workspace-v18 .bdna-stage-copy strong,
+main.cam-unified-workspace-v18 .rrugc-stage-tab-copy strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+main.cam-unified-workspace-v18 .bdna-stage-copy small,
+main.cam-unified-workspace-v18 .rrugc-stage-tab-copy small {
+  display: block;
+  color: #667b9b;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+main.cam-unified-workspace-v18 .rrugc-workflow-navigation .rrugc-stage-tabs-shell {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+main.cam-unified-workspace-v18 .rrugc-page-body { padding-top: 24px; }
+main.branding-dna-page.cam-unified-workspace-v18 .bdna-stage-panel { padding-top: 24px; }
+
+/* Inventory: one operational heading only, with the same shared header contract. */
+.inventory-workspace .inventory-workspace-content { padding: 0 !important; }
+.inventory-workspace .ops-inventory-daily { padding: 0 !important; }
+.inventory-workspace .ops-inventory-daily > :is(.ops-inventory-summary,.ops-inventory-grid,.ops-inventory-automation-note,.ops-inventory-blockers,.ops-inventory-clear,.ops-inventory-human-actions,.ops-inventory-state) {
+  margin-left: clamp(18px, 2.65vw, 44px);
+  margin-right: clamp(18px, 2.65vw, 44px);
+}
+.inventory-workspace .ops-inventory-daily > .ops-inventory-summary { margin-top: 23px; }
+.inventory-workspace .ops-inventory-daily > .ops-inventory-grid { margin-top: 16px; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-heading-actions {
+  display: flex;
+  width: auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-health {
+  text-transform: none;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  font-size: 11px;
+  border: 1px solid #cce7d7;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-summary {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 15px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-summary-card {
+  min-height: 128px;
+  padding: 18px 20px;
+  border-radius: 12px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-summary-card strong {
+  color: #162541;
+  margin-top: 11px;
+  font-size: clamp(19px, 1.5vw, 25px);
+  line-height: 1.3;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-summary-card small { font-size: 11px; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 15px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-card {
+  min-width: 0;
+  padding: 20px;
+  border-radius: 12px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-card h3 { font-size: 17px; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-card>p { font-size: 12px; line-height: 1.55; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-card dl div { gap: 10px; font-size: 12px; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-card dd { overflow-wrap: anywhere; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-card-kicker {
+  color: #2b56b4;
+  font-size: 10px;
+}
+.inventory-workspace .ops-inventory-daily .ops-inventory-card-status { font-size: 10px; padding: 6px 10px; }
+.inventory-workspace .ops-inventory-daily .ops-inventory-automation-note { margin-top: 17px; }
+.inventory-workspace .inventory-workspace-content > :not(.ops-inventory-daily) {
+  margin-left: clamp(18px, 2.65vw, 44px);
+  margin-right: clamp(18px, 2.65vw, 44px);
+}
+
+/* Providers: replace nine unreadable columns with a responsive information hierarchy. */
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] {
+  padding: 0 clamp(18px, 2.5vw, 40px) 40px;
+  background: #f5f7fe;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .cam-providers-heading-v18 {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 calc(-1 * clamp(18px, 2.5vw, 40px)) 18px;
+  padding: 22px clamp(18px, 2.5vw, 40px) 24px;
+  border-bottom: 1px solid #e2e9f5;
+  background: linear-gradient(105deg,#fff,#f6f8ff);
+}
+.ops-content.cam-providers-v18 .cam-providers-heading-copy-v18 { min-width: 0; }
+.ops-content.cam-providers-v18 .cam-providers-heading-title-v18 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 7px 0 9px;
+}
+.ops-content.cam-providers-v18 .cam-providers-heading-v18 .workspace-page-header-eyebrow {
+  font-size: 10px;
+  font-weight: 850;
+  color: #566c92;
+  letter-spacing: .095em;
+  text-transform: uppercase;
+}
+.ops-content.cam-providers-v18 .cam-providers-heading-v18 h2 {
+  margin: 0;
+  font-size: clamp(25px,2.2vw,33px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #0c1835;
+  letter-spacing: -.035em;
+}
+.ops-content.cam-providers-v18 .cam-providers-heading-v18 p { color: #607395; font-size: 13px; line-height: 1.55; }
+.ops-content.cam-providers-v18 .cam-providers-health-v18 {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #e8f7ee;
+  color: #176a43;
+  font-size: 11px;
+  font-weight: 750;
+}
+.ops-content.cam-providers-v18 .cam-providers-refresh-v18 {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 39px;
+  align-items: center;
+  padding: 8px 15px;
+  border: 1px solid #bfd0f0;
+  border-radius: 9px;
+  background: #fff;
+  color: #2453b4;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-grid {
+  display: grid;
+  grid-template-columns: minmax(0,1.13fr) minmax(0,.87fr);
+  align-items: start;
+  gap: 16px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-card {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 19px;
+  border: 1px solid var(--cam-v18-border);
+  border-radius: 13px;
+  box-shadow: 0 5px 18px #203b7308;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-card>header { align-items: center; padding-bottom: 15px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-heading { gap: 11px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-heading h3 { font-size: 19px; line-height: 1.3; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-logo { width: 31px; height: 31px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-heading .ops-connection { font-size: 11px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-card .ops-provider-summary {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  gap: 8px;
+  margin: 15px 0;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary>div {
+  min-width: 0;
+  min-height: 63px;
+  padding: 10px 11px;
+  border: 1px solid #e1e8f5;
+  border-radius: 9px;
+  background: #f9fbff;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-models {
+  order: 0;
+  grid-column: span 2;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-metric { order: 1; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-mode,
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-model { order: 2; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-error {
+  order: 3;
+  grid-column: span 2;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary dt {
+  font-size: 10px !important;
+  line-height: 1.45;
+  color: #627595;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary dd {
+  margin-top: 6px;
+  font-size: 13px !important;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary-error code {
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-model-badge {
+  min-height: 23px;
+  padding: 3px 7px;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls {
+  padding: 12px;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e2e9f4;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls .ops-provider-switches {
+  min-width: 0;
+  gap: 8px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls .ops-provider-switches label {
+  padding: 7px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls>button {
+  min-height: 36px;
+  padding: 8px 11px;
+  font-size: 11px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  align-items: start;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-settings-card-embedded {
+  min-width: 0;
+  padding: 13px 14px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-settings-heading h2 { font-size: 14px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-settings-heading .inventory-muted { font-size: 11px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-kicker { font-size: 9px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-credential-status { font-size: 10px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-credential-grid dt { font-size: 9px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-credential-grid dd { font-size: 11px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials .inventory-actions button {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 10px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-table {
+  max-height: 310px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-head,
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-row,
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-editor {
+  min-width: 340px;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-row strong { font-size: 11px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-row span:not(.inventory-credential-status),
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-row small { font-size: 10px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-actions>button {
+  min-height: 30px !important;
+  padding: 6px 8px !important;
+  font-size: 10px !important;
+}
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-heading .inventory-muted { font-size: 10px; }
+.ops-content.cam-providers-v18[aria-labelledby="providers-title"] .gemini-backup-pool-add {
+  min-height: 34px;
+  font-size: 11px;
+}
+@media(max-width: 1540px) {
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-grid { grid-template-columns: 1fr; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid > :last-child:nth-child(odd) { grid-column: auto; }
+}
+@media(max-width: 1150px) {
+  main.cam-unified-workspace-v18 .workspace-page-header.cam-header-v18,
+  .inventory-workspace .workspace-page-header.cam-header-v18 { grid-template-columns: 1fr; align-items: start; }
+  main.cam-unified-workspace-v18 .cam-header-v18 .workspace-page-header-actions,
+  .inventory-workspace .cam-header-v18 .workspace-page-header-actions { justify-content: flex-start; }
+  .inventory-workspace .ops-inventory-daily .ops-inventory-summary,
+  .inventory-workspace .ops-inventory-daily .ops-inventory-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width: 760px) {
+  main.cam-unified-workspace-v18 .workspace-page-header.cam-header-v18,
+  .inventory-workspace .workspace-page-header.cam-header-v18 { padding: 20px 16px !important; gap: 14px; }
+  main.cam-unified-workspace-v18 .workspace-page-header.cam-header-v18 h1,
+  .inventory-workspace .workspace-page-header.cam-header-v18 h1 { font-size: 24px; }
+  main.cam-unified-workspace-v18 .bdna-stage-shell,
+  main.cam-unified-workspace-v18 .rrugc-workflow-navigation { padding: 12px 12px 0; }
+  main.cam-unified-workspace-v18 .bdna-stage-tabs button,
+  main.cam-unified-workspace-v18 .rrugc-stage-tabs button { min-height: 54px; flex: 0 0 160px; padding: 8px 10px; }
+  .inventory-workspace .ops-inventory-daily .ops-inventory-summary,
+  .inventory-workspace .ops-inventory-daily .ops-inventory-grid { grid-template-columns: 1fr; }
+  .inventory-workspace .ops-inventory-daily > :is(.ops-inventory-summary,.ops-inventory-grid,.ops-inventory-automation-note,.ops-inventory-blockers,.ops-inventory-clear,.ops-inventory-human-actions,.ops-inventory-state) { margin-inline: 14px; }
+  .inventory-workspace .inventory-workspace-content > :not(.ops-inventory-daily) { margin-inline: 14px; }
+  .inventory-workspace .ops-inventory-daily .ops-inventory-heading-actions { justify-content: flex-start; width: 100%; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid { grid-template-columns: 1fr; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-gemini-credentials-grid > :last-child:nth-child(odd) { grid-column: auto; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-card .ops-provider-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-models,
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-error { grid-column: 1 / -1; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls { flex-direction: column; align-items: stretch; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-controls>button { width: 100%; }
+}
+@media(max-width: 440px) {
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .cam-providers-heading-v18 { align-items: flex-start; flex-direction: column; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-card .ops-provider-summary { grid-template-columns: 1fr; }
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-models,
+  .ops-content.cam-providers-v18[aria-labelledby="providers-title"] .ops-provider-summary .ops-provider-summary-error { grid-column: auto; }
+}
+/* Override highly scoped legacy Reviews / TikTokShop stage rules loaded with lazy routes. */
+main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation {
+  box-sizing: border-box;
+  padding: 16px clamp(20px, 2.65vw, 44px) 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation .rrugc-stage-tabs {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #d9e3f5;
+  border-radius: 12px;
+  background: #fff;
+  overflow-x: auto;
+}
+main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation .rrugc-stage-tabs button {
+  min-width: 150px;
+  flex: 1 0 150px;
+  min-height: 62px;
+  padding: 10px 13px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation .rrugc-stage-tabs button.active {
+  border-bottom-color: #2c60f3;
+  background: #f0f5ff;
+  color: #2452bb;
+}
+@media(max-width:760px) {
+  main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation { padding: 12px 12px 0; }
+  main.rrugc-shell.cam-unified-workspace-v18 .rrugc-workflow-navigation .rrugc-stage-tabs button { flex: 0 0 160px; min-height: 54px; padding: 8px 10px; }
+}
+@media(prefers-reduced-motion: reduce) {
+  .cam-unified-workspace-v18 *, .ops-content.cam-providers-v18 * { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
