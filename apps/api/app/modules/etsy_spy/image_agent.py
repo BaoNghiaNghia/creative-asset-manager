@@ -50,6 +50,10 @@ READ = require_permission("etsy_spy.read")
 MANAGE = require_permission("etsy_spy.manage")
 MAX_RECEIPT_BYTES = 31_000_000
 MAX_PNG_BYTES = 22_000_000
+# ImageGen 4500x5400 RGBA8 output often exceeds 22 MB while retaining
+# authentic print texture. Extend limits ONLY for immutable design mappings.
+MAX_DESIGN_PNG_BYTES = 80 * 1024 * 1024
+MAX_DESIGN_RECEIPT_BYTES = 112 * 1024 * 1024
 # Default storage policy holds a small local review buffer, not 200/day forever.
 DEFAULT_STORAGE_QUOTA_BYTES = 2 * (1024 ** 3)
 DEFAULT_STORAGE_FREE_FLOOR_BYTES = 3 * (1024 ** 3)
@@ -259,12 +263,12 @@ def _storage_path(tenant: str, job_id: str) -> Path:
     return root / tenant_safe / (job_id + ".png")
 
 
-def _verify_png(raw: bytes) -> None:
+def _verify_png(raw: bytes, *, max_bytes: int = MAX_PNG_BYTES) -> None:
     """Validate bounded RGBA PNG chunk structure and CRC before storing.
 
     Full pixel decoding and visual fidelity remain a separate manual QA gate.
     """
-    if len(raw) < 57 or len(raw) > MAX_PNG_BYTES:
+    if len(raw) < 57 or len(raw) > max_bytes:
         raise HTTPException(422, "Invalid PNG size")
     if raw[:8] != bytes([137, 80, 78, 71, 13, 10, 26, 10]):
         raise HTTPException(422, "PNG signature invalid")
@@ -273,7 +277,7 @@ def _verify_png(raw: bytes) -> None:
     while position + 12 <= len(raw):
         length = int.from_bytes(raw[position:position + 4], "big")
         end = position + 12 + length
-        if length > MAX_PNG_BYTES or end > len(raw):
+        if length > max_bytes or end > len(raw):
             raise HTTPException(422, "Malformed PNG chunk size")
         kind = raw[position + 4:position + 8]
         data = raw[position + 8:position + 8 + length]
@@ -1082,7 +1086,7 @@ async def upload_design_mapping(
     )
     agent = _authenticate(db, agent_id, authorization)
     _enabled()
-    data = await _bounded_json(request, MAX_RECEIPT_BYTES)
+    data = await _bounded_json(request, MAX_DESIGN_RECEIPT_BYTES)
     job_id = str(data.get("job_id") or "")
     job = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.id == job_id,
@@ -1113,13 +1117,13 @@ async def upload_design_mapping(
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise HTTPException(422, "Invalid design SHA256")
     raw_b64 = data.get("png_base64")
-    if not isinstance(raw_b64, str) or len(raw_b64) > MAX_RECEIPT_BYTES:
+    if not isinstance(raw_b64, str) or len(raw_b64) > 4 * ((MAX_DESIGN_PNG_BYTES + 2) // 3):
         raise HTTPException(422, "Design PNG required")
     try:
         raw = base64.b64decode(raw_b64, validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(422, "Invalid design base64") from None
-    _verify_png(raw)
+    _verify_png(raw, max_bytes=MAX_DESIGN_PNG_BYTES)
     if hashlib.sha256(raw).hexdigest() != digest:
         raise HTTPException(422, "Design PNG hash mismatch")
     assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
