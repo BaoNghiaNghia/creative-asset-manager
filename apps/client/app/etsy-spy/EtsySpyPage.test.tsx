@@ -321,6 +321,43 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("recovers an empty filtered Picked page without losing its scope", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa"});
+    expect(container?.querySelector(".etsy-empty-title")?.textContent)
+      .toBe("Không tìm thấy sản phẩm phù hợp");
+    const reset = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
+    expect(reset?.textContent).toContain("Xóa lọc");
+    expect(reset?.getAttribute("aria-label")).toContain("giữ nguyên danh mục");
+    await act(async () => {
+      reset?.click();
+      await new Promise(resolve => setTimeout(resolve, 430));
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("pick_state")).toBe("picked");
+    expect(params.get("observed_day")).toBe("all");
+    expect(params.get("q")).toBeNull();
+    expect(container?.querySelector(".etsy-empty-title")?.textContent)
+      .toBe("Chưa có sản phẩm Picked");
+    const toEligible = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
+    expect(toEligible?.textContent).toContain("Eligible");
+    await act(async () => { toEligible?.click(); });
+    expect(new URLSearchParams(window.location.search).get("pick_state") || "eligible").toBe("eligible");
+    expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+  });
+
+  it("explains an empty Later list and offers navigation back to Eligible", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&pick_state=later&observed_day=all"});
+    expect(container?.querySelector(".etsy-empty-title")?.textContent)
+      .toBe("Chưa có sản phẩm Later");
+    expect(container?.querySelector(".etsy-empty-description")?.textContent)
+      .toContain("Chuyển sản phẩm sang Later");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-empty-action")?.click();
+    });
+    expect(new URLSearchParams(window.location.search).get("pick_state") || "eligible").toBe("eligible");
+    expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+  });
+
   it("explains applied Picked filters and clears day, group and search without changing the Picked scope", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=3"});
     const context = container?.querySelector<HTMLElement>(".etsy-filter-context");

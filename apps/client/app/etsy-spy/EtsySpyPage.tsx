@@ -1460,11 +1460,52 @@ export function EtsySpyPage() {
         canManage={canManage} onSort={sortColumn} />
       : <div className="etsy-table-card">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
-        : !rows?.items.length ? <div className="etsy-empty">
-          {activeTab === "products" && options.pickState === "later"
-            ? "No Later products yet. Use the Later button beside Open on Etsy to group related design themes."
-            : <>No matching records. {summary?.source_status === "never_synced"
-                ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</>}
+        : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
+          {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
+            <strong className="etsy-empty-title">
+              {summary?.source_status === "never_synced" ? "Chưa có dữ liệu Scout"
+                : rows && rows.total > 0 && options.page > 1 ? "Trang này không còn sản phẩm"
+                : activeProductFilters.length > 0 ? "Không tìm thấy sản phẩm phù hợp"
+                : options.pickState === "picked" ? "Chưa có sản phẩm Picked"
+                : options.pickState === "later" ? "Chưa có sản phẩm Later"
+                : "Chưa có sản phẩm khả dụng"}
+            </strong>
+            <p className="etsy-empty-description">
+              {summary?.source_status === "never_synced"
+                ? "Chưa có bản ghi được đồng bộ từ Windows Scout."
+                : rows && rows.total > 0 && options.page > 1
+                  ? "Danh sách có thể đã thay đổi. Quay về trang đầu để xem các bản ghi còn lại."
+                : activeProductFilters.length > 0
+                  ? "Bộ lọc hiện tại chưa có kết quả trong " +
+                    (options.pickState === "picked" ? "Picked" :
+                      options.pickState === "later" ? "Later" : "Eligible") + "."
+                : options.pickState === "picked"
+                  ? "Chọn sản phẩm bằng Pick tại Eligible để thêm vào danh sách này."
+                : options.pickState === "later"
+                  ? "Chuyển sản phẩm sang Later tại Eligible để lưu chủ đề xem sau."
+                : "Không có sản phẩm phù hợp với điều kiện khả dụng hiện tại."}
+            </p>
+            {summary?.source_status !== "never_synced" &&
+              (rows && rows.total > 0 && options.page > 1
+                ? <button type="button" className="etsy-btn etsy-empty-action"
+                    onClick={() => update({ page: 1 })}>
+                    Về trang đầu
+                  </button>
+                : activeProductFilters.length > 0
+                  ? <button type="button" className="etsy-btn etsy-empty-action"
+                      onClick={clearProductFilters}
+                      aria-label="Xóa bộ lọc và giữ nguyên danh mục sản phẩm đang xem">
+                      Xóa lọc · xem tất cả ngày
+                    </button>
+                  : options.pickState !== "eligible"
+                    ? <button type="button" className="etsy-btn etsy-empty-action"
+                        onClick={() => selectTab("products", { pickState: "eligible" })}>
+                        Xem Eligible listings
+                      </button> : null)}
+          </> : <>
+            <strong className="etsy-empty-title">Không có bản ghi phù hợp</strong>
+            <p className="etsy-empty-description">Thử điều chỉnh bộ lọc hoặc từ khóa tìm kiếm.</p>
+          </>}
         </div>
         : <div className="etsy-table-wrap">
           <table className={"etsy-data-table is-" + activeTab +
