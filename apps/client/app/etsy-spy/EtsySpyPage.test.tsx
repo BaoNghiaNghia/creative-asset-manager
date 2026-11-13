@@ -327,6 +327,57 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("keeps date filters mounted while collapsing the adaptive explorer", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
+    const toggle = container?.querySelector<HTMLButtonElement>(".etsy-facet-toggle");
+    const details = container?.querySelector<HTMLElement>(".etsy-facet-details");
+    expect(toggle?.getAttribute("aria-controls")).toBe("etsy-facet-details");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle?.textContent).toContain("Tất cả ngày");
+    expect(details?.classList.contains("is-open")).toBe(false);
+    const before = observed.filter(url => url.includes("/listings?")).length;
+    await act(async () => { toggle?.click(); });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(details?.classList.contains("is-open")).toBe(true);
+    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(10);
+    await act(async () => { toggle?.click(); });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(10);
+    expect(observed.filter(url => url.includes("/listings?")).length).toBe(before);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    expect(toggle?.textContent).toContain("Tất cả ngày");
+    expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("picked");
+  });
+
+  it("offers sorting and jumping directly to the results on compact screens", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
+    const sort = container?.querySelector<HTMLSelectElement>("#etsy-quick-sort");
+    const direction = container?.querySelector<HTMLButtonElement>(".etsy-adaptive-sort-direction");
+    expect(sort?.value).toBe("observedAt");
+    expect(direction?.getAttribute("aria-label")).toBe("Sắp xếp tăng dần");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+      setter.call(sort, "views24h");
+      sort?.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("sort")).toBe("views24h");
+    expect(params.get("dir")).toBe("desc");
+    await act(async () => { direction?.click(); });
+    expect(new URLSearchParams(window.location.search).get("dir")).toBe("asc");
+    const results = container?.querySelector<HTMLElement>("#etsy-product-results");
+    const scroll = vi.fn();
+    if (results) results.scrollIntoView = scroll;
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-adaptive-jump")?.click();
+    });
+    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+  });
+
   it("shows table column navigation only when the desktop table overflows", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
     const viewport = container?.querySelector<HTMLDivElement>(".etsy-table-wrap");

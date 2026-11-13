@@ -598,6 +598,9 @@ function EtsyPageJump({ page, totalPages, loading, onJump }: {
 export function EtsySpyPage() {
   const [options, setOptions] = useState<Options>(fromLocation);
   const [typedSearch, setTypedSearch] = useState(options.q);
+  // Small screens start in an overview-first mode; the chosen expansion stays
+  // mounted through Scout polls so open filters never disappear on refresh.
+  const [facetsExpanded, setFacetsExpanded] = useState(false);
   const searchDebounceRef = useRef<number | null>(null);
   const [blacklistInput, setBlacklistInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>([]);
@@ -1127,6 +1130,16 @@ export function EtsySpyPage() {
     if (options.source) activeProductFilters.push("Nguồn: " + options.source);
     if (options.sessionId) activeProductFilters.push("Session: " + options.sessionId);
   }
+  const facetDayLabel = options.observedDay === "all" ? "Tất cả ngày"
+    : options.observedDay === clockDay ? "Hôm nay"
+    : options.observedDay === recentObservedDays(clockDay)[1] ? "Hôm qua"
+    : options.observedDay.split("-").reverse().join("/");
+  const facetGroupLabel = options.group
+    ? (dayGroups?.day === options.observedDay &&
+        dayGroups.pick_state === options.pickState
+        ? dayGroups.items.find(item => item.key === options.group)?.label
+        : null) || options.group
+    : "Tất cả nhóm";
   const clearProductFilters = () => {
     cancelPendingSearch();
     setTypedSearch("");
@@ -1285,7 +1298,50 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        {showProductFacets && <>
+        {showProductFacets && <section className="etsy-facet-explorer"
+          aria-label="Bộ lọc ngày và nhóm sản phẩm">
+          <div className="etsy-adaptive-controls">
+            <button type="button" id="etsy-facet-toggle"
+              className="etsy-facet-toggle" aria-controls="etsy-facet-details"
+              aria-expanded={facetsExpanded} onClick={() => setFacetsExpanded(open => !open)}>
+              <span className="etsy-facet-toggle-copy">
+                <strong>Ngày và nhóm sản phẩm</strong>
+                <small title={facetDayLabel + " · " + facetGroupLabel}>
+                  {facetDayLabel} · {facetGroupLabel}
+                </small>
+              </span>
+              <span aria-hidden="true" className="etsy-facet-chevron">{facetsExpanded ? "⌃" : "⌄"}</span>
+            </button>
+            <div className="etsy-adaptive-quick-actions">
+              <label htmlFor="etsy-quick-sort">Sắp xếp</label>
+              <select id="etsy-quick-sort" aria-label="Sắp xếp sản phẩm"
+                value={["observedAt", "pageTitle", "views24h", "bought24h", "inCarts", "badge"].includes(options.sort)
+                  ? options.sort : "observedAt"}
+                onChange={event => update({ sort: event.target.value, dir: "desc" })}>
+                <option value="observedAt">Mới quan sát</option>
+                <option value="views24h">Views / 24h</option>
+                <option value="bought24h">Bought / 24h</option>
+                <option value="inCarts">Carts</option>
+                <option value="badge">Badge Etsy</option>
+                <option value="pageTitle">Tên sản phẩm</option>
+              </select>
+              <button type="button" className="etsy-adaptive-sort-direction"
+                aria-label={options.dir === "desc" ? "Sắp xếp tăng dần" : "Sắp xếp giảm dần"}
+                title={options.dir === "desc" ? "Đổi sang tăng dần" : "Đổi sang giảm dần"}
+                onClick={() => update({ dir: options.dir === "desc" ? "asc" : "desc" })}>
+                <span aria-hidden="true">{options.dir === "desc" ? "↓" : "↑"}</span>
+              </button>
+              <button type="button" className="etsy-adaptive-jump"
+                onClick={() => document.getElementById("etsy-product-results")?.scrollIntoView?.({
+                  behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+                    ? "auto" : "smooth", block: "start",
+                })}>
+                Đến danh sách <span aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </div>
+          <div id="etsy-facet-details"
+            className={"etsy-facet-details" + (facetsExpanded ? " is-open" : "")}>
           <section className="etsy-observed-days"
             aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
             <div className="etsy-observed-day-grid">
@@ -1349,7 +1405,8 @@ export function EtsySpyPage() {
               {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
             </span>}
           </section>
-        </>}
+          </div>
+        </section>}
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
           {isBlacklistView
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
@@ -1542,7 +1599,7 @@ export function EtsySpyPage() {
       <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
         sort={options.sort} direction={options.dir} refresh={refresh}
         canManage={canManage} onSort={sortColumn} />
-      : <div className="etsy-table-card">
+      : <div className="etsy-table-card" id="etsy-product-results">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
           {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
