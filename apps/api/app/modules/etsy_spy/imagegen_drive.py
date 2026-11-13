@@ -65,7 +65,8 @@ async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, fo
 
 async def verify_imagegen_oauth_token(
     token: str, folder: str, *, restrict_public_sharing: bool = False,
-) -> None:
+    allow_public_sharing: bool = False,
+) -> bool:
     """Validate a scoped OAuth grant before it is saved or used for uploads.
 
     The Drive folder's public link permissions are never sufficient proof
@@ -110,8 +111,10 @@ async def verify_imagegen_oauth_token(
     public = [permission for permission in permissions
               if permission.get("type") in {"anyone", "domain"}]
     if not public:
-        return
+        return True
     if not restrict_public_sharing:
+        if allow_public_sharing:
+            return False
         raise HTTPException(503, "Set ImageGen Drive folder sharing to Restricted")
     # The OAuth initiator explicitly chose ImageGen's write-enabled connection.
     # With the verified folder-owner grant, remove ONLY public/domain grants,
@@ -119,6 +122,8 @@ async def verify_imagegen_oauth_token(
     if any(not re.fullmatch(r"[A-Za-z0-9_-]{3,128}",
                             str(permission.get("id") or ""))
            for permission in public):
+        if allow_public_sharing:
+            return False
         raise HTTPException(503, "Cannot identify public Google Drive permissions")
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=5)) as client:
@@ -130,6 +135,10 @@ async def verify_imagegen_oauth_token(
                     params={"supportsAllDrives": "true"},
                 )
                 if result.status_code not in {200, 204}:
+                    # A Google permissions.delete failure must not discard
+                    # otherwise valid owner OAuth, but images stay blocked.
+                    if allow_public_sharing:
+                        return False
                     raise HTTPException(503, "Could not set ImageGen Drive sharing to Restricted")
             checked = await client.get(
                 f"https://www.googleapis.com/drive/v3/files/{folder}",
@@ -138,17 +147,24 @@ async def verify_imagegen_oauth_token(
                         "fields": "id,permissions(id,type,role)"},
             )
         if checked.status_code != 200:
+            if allow_public_sharing:
+                return False
             raise HTTPException(503, "Could not verify restricted Drive sharing")
         updated = checked.json()
     except HTTPException:
         raise
     except (httpx.HTTPError, ValueError, KeyError) as exc:
+        if allow_public_sharing:
+            return False
         raise HTTPException(503, "Could not verify restricted Drive sharing") from exc
     if updated.get("id") != folder or not isinstance(updated.get("permissions"), list) or any(
         permission.get("type") in {"anyone", "domain"}
         for permission in updated["permissions"]
     ):
+        if allow_public_sharing:
+            return False
         raise HTTPException(503, "Drive sharing is still public; reconnect after restricting it")
+    return True
 
 
 async def _body(payload: bytes) -> AsyncIterator[bytes]:
