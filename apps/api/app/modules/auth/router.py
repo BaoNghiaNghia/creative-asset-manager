@@ -376,7 +376,9 @@ async def callback(
                 raise ValueError("Managed Storage destination folder is not configured")
             if imagegen_storage_connect:
                 from app.modules.etsy_spy.imagegen_drive import verify_imagegen_oauth_token
-                await verify_imagegen_oauth_token(flow.credentials.token, root_folder_id)
+                await verify_imagegen_oauth_token(
+                    flow.credentials.token, root_folder_id, restrict_public_sharing=True,
+                )
             await persist_managed_storage_connection(
                 flow.credentials,
                 tenant_id=connection_tenant_id,
@@ -401,6 +403,17 @@ async def callback(
             exc.code,
         )
         return client_redirect(auth_error=exc.code, auth_request=request_id)
+    except HTTPException as exc:
+        # A verified ImageGen restriction should be visible on the return
+        # screen. Never expose the Google OAuth code or access token.
+        if imagegen_storage_connect:
+            logger.warning("ImageGen Drive OAuth validation failed request_id=%s status=%s",
+                           request_id, exc.status_code)
+            return managed_storage_redirect(
+                "imagegen_error", auth_request=request_id,
+                auth_message=str(exc.detail),
+            )
+        raise
     except PermissionError as exc:
         logger.warning("Google Drive scope was not granted request_id=%s", request_id)
         if managed_storage_connect or imagegen_storage_connect:
