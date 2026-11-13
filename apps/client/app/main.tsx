@@ -34,6 +34,8 @@ import "../styles/cam-unified-workspace-v18.css";
 import "../styles/cam-evo-workflow-v19.css";
 // Phase 20: AI Operations loading, refresh and compact mobile controls.
 import "../styles/cam-evo-operations-v20.css";
+// Phase 21: progressive data loading for AI Operations dashboard.
+import "../styles/cam-evo-operations-v21.css";
 
 function AppBoot() {
   useEffect(() => {

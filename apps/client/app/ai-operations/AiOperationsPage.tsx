@@ -93,6 +93,7 @@ export function AiOperationsPage() {
   const [data, setData] = useState<AiOpsDashboardData>(() => emptyDashboard(filters.page));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [detailProgress, setDetailProgress] = useState<{ completed: number; total: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [identityUnauthorized, setIdentityUnauthorized] = useState(false);
   const [scopeUnauthorized, setScopeUnauthorized] = useState(false);
@@ -152,53 +153,75 @@ export function AiOperationsPage() {
       lastCompletedViewKey.current = key;
       setLoading(false);
       setRefreshing(false);
+      setDetailProgress(null);
       return () => { subscribed = false; };
     }
-    // Preserve the current cards, filters and open dialogs during a refresh.
-    // Only a new tab/query replaces its data with an initial loading state.
-    if (!sameView) setData(emptyDashboard(filters.page));
+    // The selected tab retains its last snapshot during refresh; a different
+    // tab/filter starts with clean data so stale metrics never cross scopes.
+    const hasVisibleSnapshot = sameView && lastCompletedViewKey.current === key;
+    const baseData = hasVisibleSnapshot ? data : emptyDashboard(filters.page);
+    if (!hasVisibleSnapshot) setData(baseData);
     setErrors([]);
     setScopeUnauthorized(false);
+    setDetailProgress(plan.secondary.length ? { completed: 0, total: plan.secondary.length } : null);
     if (!plan.primary.length) {
       setLoading(false);
       setRefreshing(false);
+      setDetailProgress(null);
       return () => { subscribed = false; };
     }
-    const hasVisibleSnapshot = sameView && lastCompletedViewKey.current === key;
     setLoading(!hasVisibleSnapshot);
     setRefreshing(hasVisibleSnapshot);
+
+    // The first (KPI/job-list) field is requested first. The remaining fields
+    // start in the same globally bounded pool (max 3), avoiding a second
+    // waterfall. Every completed field is displayed immediately.
+    const fields = [...plan.primary, ...plan.secondary];
+    let detailCompleted = 0;
     requests.current.run(async signal => {
-      const primary = await fetchAiOperationsScope(filters, plan.primary, fetch, undefined, signal);
+      const response = await fetchAiOperationsScope(filters, fields, fetch, undefined, signal, progress => {
+        if (signal.aborted || !subscribed) return;
+        if (progress.partial.unauthorized) {
+          setScopeUnauthorized(true);
+          setLoading(false);
+        }
+        if (Object.keys(progress.partial.data).length) {
+          setData(current => ({ ...current, ...progress.partial.data }));
+        }
+        if (progress.partial.errors.length) {
+          setErrors(current => [...new Set([...current, ...progress.partial.errors])]);
+        }
+        if (plan.primary.includes(progress.field)) {
+          setLoading(false);
+          if (!progress.partial.unauthorized) {
+            lastCompletedViewKey.current = key;
+            setLastUpdated(new Date());
+          }
+        } else {
+          detailCompleted += 1;
+          setDetailProgress({ completed: detailCompleted, total: plan.secondary.length });
+        }
+      });
       if (signal.aborted || !subscribed) return null;
-      const firstData = { ...emptyDashboard(filters.page), ...primary.data };
-      setData(firstData);
-      setErrors(primary.errors);
-      setScopeUnauthorized(primary.unauthorized);
-      if (!primary.unauthorized) lastCompletedViewKey.current = key;
-      setLoading(false);
-      setRefreshing(false);
-      setLastUpdated(new Date());
-      if (primary.unauthorized || !plan.secondary.length) {
-        if (!primary.unauthorized) scopeCache.current.set(key, { reload, data: firstData, errors: primary.errors });
-        return primary;
-      }
-      const secondary = await fetchAiOperationsScope(filters, plan.secondary, fetch, undefined, signal);
-      if (signal.aborted || !subscribed) return null;
-      const combinedData = { ...firstData, ...secondary.data };
-      const combinedErrors = [...new Set([...primary.errors, ...secondary.errors])];
-      setData(combinedData);
-      setErrors(combinedErrors);
-      setScopeUnauthorized(secondary.unauthorized);
-      setLastUpdated(new Date());
-      if (!secondary.unauthorized) scopeCache.current.set(key, { reload, data: combinedData, errors: combinedErrors });
-      return secondary;
+      return response;
     }).then(result => {
       if (!subscribed || !result.current) return;
+      setLoading(false);
+      setRefreshing(false);
+      setDetailProgress(null);
       if ("error" in result) {
-        setErrors(["Dashboard request failed. Try again."]);
-        setLoading(false);
-        setRefreshing(false);
+        setErrors(current => [...new Set([...current, "Dashboard request failed. Try again."])]);
+        return;
       }
+      if (!result.value) return;
+      setScopeUnauthorized(result.value.unauthorized);
+      setErrors(result.value.errors);
+      if (result.value.unauthorized) return;
+      const completeData = { ...baseData, ...result.value.data };
+      setData(completeData);
+      setLastUpdated(new Date());
+      lastCompletedViewKey.current = key;
+      scopeCache.current.set(key, { reload, data: completeData, errors: result.value.errors });
     });
     return () => {
       subscribed = false;
@@ -293,7 +316,7 @@ export function AiOperationsPage() {
   }
   return <AiOperationsShell subtitle={identity?.email || "Operations console"} tab={tab} onTab={changeTab}>
     <AiOperationsContent
-      data={data} loading={loading} refreshing={refreshing} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
+      data={data} loading={loading} refreshing={refreshing} detailProgress={detailProgress} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
       visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
       visualDiagnostics={visualDiagnostics} visualDiagnosticsLoading={visualDiagnosticsLoading}
       visualDiagnosticsError={visualDiagnosticsError} onLoadVisualDiagnostics={() => void loadVisualDiagnostics()}
@@ -344,6 +367,7 @@ type ContentProps = {
   tab: AiOpsTab;
   loading?: boolean;
   refreshing?: boolean;
+  detailProgress?: { completed: number; total: number } | null;
   errors?: string[];
   unauthorized?: boolean;
   onTab: (tab: AiOpsTab) => void;
@@ -369,7 +393,7 @@ type ContentProps = {
 };
 
 export function AiOperationsContent({
-  data, filters, tab, loading = false, refreshing = false, errors = [], unauthorized = false,
+  data, filters, tab, loading = false, refreshing = false, detailProgress = null, errors = [], unauthorized = false,
   onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
   lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.", media = "image", onMedia = () => undefined,
   onOpenAsset = () => undefined, onOpenVideo = () => undefined,
@@ -539,7 +563,11 @@ export function AiOperationsContent({
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}><OpsControlIcon name="retry" />Retry</button>
     </div>}
-    {refreshing && <div className="ops-refresh-inline" role="status" aria-live="polite"><span className="ops-refresh-spinner" aria-hidden="true" />Updating metrics; your current view stays available.</div>}
+    {refreshing && <div className="ops-refresh-inline" role="status" aria-live="polite"><span className="ops-refresh-spinner" aria-hidden="true" />Updating metrics{detailProgress ? ` (${detailProgress.completed}/${detailProgress.total} detail sources)` : ""}; your current view stays available.</div>}
+    {!loading && !refreshing && detailProgress && detailProgress.completed < detailProgress.total && <div className="ops-detail-progress" role="status" aria-live="polite">
+      <span className="ops-refresh-spinner" aria-hidden="true" />
+      <span>Đang tải chi tiết <strong>{detailProgress.completed}/{detailProgress.total}</strong> nguồn dữ liệu. KPI và bảng đã sẵn sàng.</span>
+    </div>}
     {!independentTabs.some(value => value === tab) && <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
       {loading ? <DashboardSkeleton onRetry={onRetry} /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} deferDetails mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
