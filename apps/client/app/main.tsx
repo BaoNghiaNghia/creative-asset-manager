@@ -32,6 +32,8 @@ import "../styles/cam-feedback-evo.css";
 import "../styles/cam-unified-workspace-v18.css";
 // Phase 19: evondevKit workflow navigation and non-destructive refresh feedback.
 import "../styles/cam-evo-workflow-v19.css";
+// Phase 20: AI Operations loading, refresh and compact mobile controls.
+import "../styles/cam-evo-operations-v20.css";
 
 function AppBoot() {
   useEffect(() => {
