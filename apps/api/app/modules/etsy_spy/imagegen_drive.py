@@ -35,11 +35,18 @@ def provider_and_folder():
     expected_email = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "").strip().lower()
     if not expected_email or "@" not in expected_email:
         raise HTTPException(503, "ImageGen Google Drive owner identity is not configured")
-    settings = get_settings()
+    # The managed OAuth repository keys connections by root_folder_id.
+    # Bind this provider ONLY to the ImageGen folder so connecting its
+    # Google account never replaces CAM's unrelated Managed Storage OAuth.
+    settings = get_settings().model_copy(update={
+        "GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID": folder,
+    })
     connection = managed_storage_oauth_status(settings)
+    # OAuth status intentionally masks account_email. Never compare the
+    # masked UI value to an unmasked address; verify the real Drive identity
+    # against Google's /about response using the access token below.
     if (connection.get("connected") is not True or
-        connection.get("reconnect_required") is True or
-        str(connection.get("account_email") or "").lower() != expected_email):
+        connection.get("reconnect_required") is True):
         raise HTTPException(503, "Connect CAM Google Drive using the target folder owner account")
     provider = build_managed_storage_provider(settings)
     if not isinstance(provider, GoogleDriveAssetStorage):
@@ -48,22 +55,40 @@ def provider_and_folder():
 
 
 async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, folder: str) -> None:
-    """Require the intended owner, write permission, and Restricted sharing.
+    """Require the intended owner, write permission, and Restricted sharing."""
+    try:
+        token = await provider.get_access_token()
+    except StorageProviderError as exc:
+        raise HTTPException(503, "ImageGen Drive credentials require reconnection") from exc
+    await verify_imagegen_oauth_token(token, folder)
+
+
+async def verify_imagegen_oauth_token(token: str, folder: str) -> None:
+    """Validate a scoped OAuth grant before it is saved or used for uploads.
 
     The Drive folder's public link permissions are never sufficient proof
     that CAM's OAuth account is the right account for design ownership.
     """
     expected_email = os.environ["CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL"].strip().lower()
     try:
-        token = await provider.get_access_token()
         async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=5)) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            identity_response = await client.get(
+                "https://www.googleapis.com/drive/v3/about",
+                headers=headers, params={"fields": "user(emailAddress)"},
+            )
             response = await client.get(
                 f"https://www.googleapis.com/drive/v3/files/{folder}",
-                headers={"Authorization": f"Bearer {token}"},
+                headers=headers,
                 params={"supportsAllDrives": "true",
                         "fields": ("id,mimeType,owners(emailAddress),"
                                    "permissions(type,role),capabilities(canAddChildren)")},
             )
+        if identity_response.status_code != 200:
+            raise HTTPException(503, "Cannot verify CAM Google Drive OAuth identity")
+        identity = identity_response.json()
+        if str((identity.get("user") or {}).get("emailAddress") or "").lower() != expected_email:
+            raise HTTPException(503, "CAM OAuth is connected to another Google account")
         if response.status_code != 200:
             raise HTTPException(503, "ImageGen Google Drive destination is not accessible")
         data = response.json()
