@@ -1,0 +1,113 @@
+{
+  "viewports": [
+    "tabletLandscape",
+    "tabletPortrait",
+    "mobileLarge",
+    "mobile",
+    "mobileSmall"
+  ],
+  "steps": [
+    {
+      "name": "adaptive-collapsed",
+      "waitFor": ".etsy-facet-toggle",
+      "fullPage": true,
+      "assertions": [
+        {
+          "type": "visible",
+          "selector": ".etsy-facet-toggle"
+        },
+        {
+          "type": "hidden",
+          "selector": ".etsy-facet-details"
+        },
+        {
+          "type": "attribute",
+          "selector": ".etsy-facet-toggle",
+          "name": "aria-expanded",
+          "value": "false"
+        },
+        {
+          "type": "visible",
+          "selector": ".etsy-adaptive-quick-actions select"
+        },
+        {
+          "type": "min-control-size",
+          "selector": ".etsy-facet-toggle",
+          "minPx": 44
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "body"
+        }
+      ]
+    },
+    {
+      "name": "adaptive-expanded",
+      "click": ".etsy-facet-toggle",
+      "fullPage": true,
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".etsy-facet-toggle",
+          "name": "aria-expanded",
+          "value": "true"
+        },
+        {
+          "type": "visible",
+          "selector": ".etsy-facet-details"
+        },
+        {
+          "type": "visible",
+          "selector": ".etsy-observed-day-grid"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "body"
+        }
+      ]
+    },
+    {
+      "name": "picked-preserves-open-facets",
+      "click": ".etsy-stat-picked",
+      "waitFor": ".etsy-facet-toggle",
+      "fullPage": true,
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".etsy-facet-toggle",
+          "name": "aria-expanded",
+          "value": "true"
+        },
+        {
+          "type": "visible",
+          "selector": ".etsy-stat-picked[aria-pressed='true']"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "body"
+        }
+      ]
+    },
+    {
+      "name": "adaptive-recollapsed",
+      "click": ".etsy-facet-toggle",
+      "fullPage": true,
+      "assertions": [
+        {
+          "type": "attribute",
+          "selector": ".etsy-facet-toggle",
+          "name": "aria-expanded",
+          "value": "false"
+        },
+        {
+          "type": "hidden",
+          "selector": ".etsy-facet-details"
+        },
+        {
+          "type": "no-viewport-overflow",
+          "selector": "body"
+        }
+      ]
+    }
+  ]
+}

@@ -756,6 +756,53 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
   .etsy-spy-page .etsy-filter-reset { min-height: 44px; }
   .etsy-spy-page .etsy-stat { min-height: 74px; }
   .etsy-spy-page .etsy-stage-nav .etsy-tabs button { min-height: 48px; }
+  /* Eligible and Picked share the selectable table. Neutralize its desktop
+     1065px minimum and individual column widths in the phone card layout. */
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-selectable {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-selectable tbody,
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-selectable .etsy-product-row {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-selectable
+    .etsy-product-row td:not(:first-child) {
+    min-width: 0;
+    max-width: 100%;
+    width: auto;
+  }
+  /* Product actions are a full-width footer of each mobile card. Legacy
+     desktop Action min-width and nowrap otherwise push the whole page sideways. */
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products
+    .etsy-product-row td:last-child {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-product-row .etsy-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+    gap: 6px;
+    white-space: normal;
+  }
+  .etsy-spy-page .etsy-product-row .etsy-row-actions :is(button, a) {
+    min-height: 40px;
+  }
+  .etsy-spy-page .etsy-product-row .etsy-row-actions .etsy-pick-button,
+  .etsy-spy-page .etsy-product-row .etsy-row-actions .etsy-later-button {
+    flex: 1 1 104px;
+    min-width: 0;
+  }
 }
 @media (hover: none), (pointer: coarse) {
   .etsy-spy-page .etsy-facet-toggle,

@@ -606,7 +606,7 @@ try {
             ? { ...step, goto: undefined } : step;
           if (actionStep.goto || actionStep.resetBefore) explicitNavigationAt = Date.now();
           await performStep(page, actionStep);
-      if (viewportName === "mobile" || viewportName === "mobileSmall") {
+      if (["mobile", "mobileLarge", "mobileSmall"].includes(viewportName)) {
         await assertUiStep(page, plan.mobileAssertions || []);
         await assertUiStep(page, step.mobileAssertions || []);
       }
