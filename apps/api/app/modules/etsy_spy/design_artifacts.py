@@ -72,10 +72,17 @@ def project_design_assets(job: Any) -> list[dict]:
             raw.get("method") not in DESIGN_METHODS or
             not isinstance(raw.get("variant"), int)):
             continue
-        out.append(entry(
+        mapped = entry(
             asset_id, raw["position"], raw["variant"], "mapped",
             digest, raw["method"], "needs_review", raw.get("created_at"),
-        ))
+        )
+        if raw.get("artwork_kind") == "native_master_v2":
+            mapped["artwork_kind"] = "native_master_v2"
+            for key in ("native_width", "native_height"):
+                size = raw.get(key)
+                if type(size) is int and 256 <= size <= 4096:
+                    mapped[key] = size
+        out.append(mapped)
     return out[:MAX_DESIGNS_PER_JOB + 2]
 
 

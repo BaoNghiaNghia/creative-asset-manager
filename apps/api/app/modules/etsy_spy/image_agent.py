@@ -482,6 +482,8 @@ def probe_image_agent(
         "lease_protocol": "v1",
         "orchestrator_enabled": orchestrator_enabled(),
         "orchestrator_contract": "v1",
+        "native_master_supported": True,
+        "native_master_contract": "native_master_v2",
         "harness_heartbeat_supported": True,
         "harness_heartbeat_ready": bool(
             external_heartbeat_enabled() and external_heartbeat_signing_key()
@@ -1137,7 +1139,14 @@ async def upload_design_mapping(
         raw = base64.b64decode(raw_b64, validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(422, "Invalid design base64") from None
-    _verify_png(raw, max_bytes=MAX_DESIGN_PNG_BYTES)
+    artwork_kind = data.get("artwork_kind", "print_png_v1")
+    if artwork_kind not in {"print_png_v1", "native_master_v2"}:
+        raise HTTPException(422, "Unsupported design artwork kind")
+    if artwork_kind == "print_png_v1":
+        _verify_png(raw, max_bytes=MAX_DESIGN_PNG_BYTES)
+    elif (len(raw) > 20 * 1024 * 1024 or len(raw) < 57 or
+          raw[:8] != b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(422, "Invalid native master PNG")
     if hashlib.sha256(raw).hexdigest() != digest:
         raise HTTPException(422, "Design PNG hash mismatch")
     assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
@@ -1158,6 +1167,7 @@ async def upload_design_mapping(
     storage = await store_design_to_drive(
         tenant_id=tenant_id, job_id=task_id,
         asset_id=asset_id, digest=digest, png=raw,
+        native_master=(artwork_kind == "native_master_v2"),
     )
     job = db.scalar(select(ProcessingJobModel).where(
         ProcessingJobModel.id == task_id,

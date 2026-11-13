@@ -72,8 +72,67 @@ def test_design_upload_is_drive_only_and_private_readback(tmp_path):
 
     with patch.object(module,"provider_and_folder",return_value=(provider,FOLDER)), \
          patch.object(module,"verify_private_drive_destination",new_callable=AsyncMock), \
-         patch.object(module,"_thumbnail",return_value=preview):
+         patch.object(module,"_thumbnail",return_value=(preview, (4500, 5400))):
         asyncio.run(check())
+
+
+def test_native_master_is_lossless_and_preview_is_separate(tmp_path):
+    """The saved master must be exactly the original PNG, never upscaled."""
+    import io
+    from PIL import Image
+
+    provider = FakeDrive()
+    image = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    for x in range(150, 350):
+        for y in range(150, 350):
+            image.putpixel((x, y), (120, 40, 10, 255))
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    png = buf.getvalue()
+    digest = hashlib.sha256(png).hexdigest()
+
+    async def check():
+        result = await module.store_design_to_drive(
+            tenant_id=TENANT, job_id=JOB, asset_id=ASSET,
+            digest=digest, png=png, native_master=True,
+        )
+        assert len(provider.uploads) == 2
+        assert result["artwork_kind"] == "native_master_v2"
+        assert result["native_width"] == result["native_height"] == 512
+        assert result["storage_size_bytes"] == len(png)
+        assert provider.data[result["drive_file_id"]] == png
+        assert result["drive_file_id"] != result["drive_thumbnail_id"]
+        assert not list(tmp_path.iterdir())
+        with Image.open(io.BytesIO(provider.data[result["drive_thumbnail_id"]])) as thumb:
+            assert max(thumb.size) == 192
+
+    with patch.object(module, "provider_and_folder", return_value=(provider, FOLDER)), \\
+         patch.object(module, "verify_private_drive_destination", new_callable=AsyncMock):
+        asyncio.run(check())
+
+
+def test_native_master_rejects_opaque_or_oversized_inputs():
+    import io
+    from PIL import Image
+
+    provider = FakeDrive()
+    async def reject(png):
+        with pytest.raises(HTTPException) as error:
+            await module.store_design_to_drive(
+                tenant_id=TENANT, job_id=JOB, asset_id=ASSET,
+                digest=hashlib.sha256(png).hexdigest(),
+                png=png, native_master=True,
+            )
+        assert error.value.status_code == 422
+
+    opaque = io.BytesIO()
+    Image.new("RGBA", (512, 512), (12, 23, 34, 255)).save(opaque, "PNG")
+    huge_dimensions = io.BytesIO()
+    Image.new("RGBA", (4200, 512), (0, 0, 0, 0)).save(huge_dimensions, "PNG")
+    with patch.object(module, "provider_and_folder", return_value=(provider, FOLDER)):
+        asyncio.run(reject(opaque.getvalue()))
+        asyncio.run(reject(huge_dimensions.getvalue()))
+    assert not provider.uploads
 
 
 def test_invalid_sha_never_uploads():

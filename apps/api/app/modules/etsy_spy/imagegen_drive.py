@@ -172,32 +172,59 @@ async def _body(payload: bytes) -> AsyncIterator[bytes]:
         yield payload[offset:offset + 1024 * 1024]
 
 
-def _thumbnail(png: bytes) -> bytes:
+def _thumbnail(png: bytes, *, native_master: bool = False) -> tuple[bytes, tuple[int, int]]:
+    """Validate a master before creating its small, alpha-preserving preview.
+
+    Native master pixels are never resized or re-encoded for storage. Only the
+    separate thumbnail is resampled; the full native PNG stays byte-identical.
+    """
     try:
         with Image.open(io.BytesIO(png)) as image:
-            if image.size != (4500, 5400) or image.mode not in ("RGBA", "RGB", "P"):
+            width, height = image.size
+            if image.format != "PNG":
+                raise ValueError("image must be PNG")
+            if native_master:
+                if (image.mode != "RGBA" or width < 256 or height < 256 or
+                    width > 4096 or height > 4096 or width * height > 12_000_000):
+                    raise ValueError("invalid native master dimensions or mode")
+            elif (image.size != (4500, 5400) or
+                  image.mode not in ("RGBA", "RGB", "P")):
                 raise ValueError("invalid print artwork")
             image.load()
             reduced = image.convert("RGBA")
+            if native_master:
+                extrema = reduced.getchannel("A").getextrema()
+                if extrema is None or extrema[0] != 0 or extrema[1] == 0:
+                    raise ValueError("native master lacks genuine transparency")
             reduced.thumbnail((192, 192), Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             reduced.save(buffer, "PNG", optimize=True)
-            return buffer.getvalue()
+            return buffer.getvalue(), (width, height)
     except (OSError, UnidentifiedImageError, ValueError) as exc:
         raise HTTPException(422, "ImageGen design thumbnail cannot be decoded") from exc
 
 
 async def store_design_to_drive(
     *, tenant_id: str, job_id: str, asset_id: str, digest: str, png: bytes,
+    native_master: bool = False,
 ) -> dict:
-    """Upload original + thumbnail; store only Drive IDs, no local fallback."""
-    if len(png) < 57 or len(png) > _MAX_PNG:
-        raise HTTPException(422, "Invalid print PNG size")
+    """Upload immutable master + small thumbnail; no VPS PNG persistence.
+
+    Existing print PNGs continue through the original path. Native master
+    uploads require an explicit opt-in and preserve original RGBA pixels.
+    """
+    limit = 20 * 1024 * 1024 if native_master else _MAX_PNG
+    if len(png) < 57 or len(png) > limit:
+        raise HTTPException(422, "Invalid design PNG size")
     if hashlib.sha256(png).hexdigest() != digest:
         raise HTTPException(422, "ImageGen PNG SHA256 mismatch")
+    if native_master and (png[:8] != b"\x89PNG\r\n\x1a\n" or
+                          png[24:26] != b"\x08\x06"):
+        raise HTTPException(422, "Native master requires 8-bit RGBA PNG")
+    # Validate before any external write, including for malformed PNGs.
+    preview, (width, height) = _thumbnail(png, native_master=native_master)
     provider, folder = provider_and_folder()
     await verify_private_drive_destination(provider, folder)
-    preview = _thumbnail(png)
     thumb_hash = hashlib.sha256(preview).hexdigest()
     async def put(label: str, payload: bytes, sha: str):
         stored = await provider.store_asset(StoreAssetInput(
@@ -220,6 +247,9 @@ async def store_design_to_drive(
         "storage_provider": "google_drive_managed", "drive_file_id": remote_id,
         "drive_thumbnail_id": preview_id, "storage_size_bytes": len(png),
         "thumbnail_sha256": thumb_hash, "storage_folder_id": folder,
+        "artwork_kind": "native_master_v2" if native_master else "print_png_v1",
+        "native_width": width if native_master else None,
+        "native_height": height if native_master else None,
     }
 
 
