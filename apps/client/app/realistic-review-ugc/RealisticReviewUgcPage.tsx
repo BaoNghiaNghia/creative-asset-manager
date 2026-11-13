@@ -56,6 +56,9 @@ import type { KeywordVolumePage, ReferenceManualLabel, SourcePlan, SourcePlanPag
 import "./ui-overhaul.css";
 import "./tablet-mobile-density.css";
 import "./stage4-pause.css";
+import "../styles/cam-evo-tokens.css";
+import "./GatorHatsEvo.css";
+import "./GatorHatsReviewsEvo.css";
 
 const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   items: [],
@@ -1011,14 +1014,15 @@ export function RealisticReviewUgcPage() {
     setActiveStage(nextStage);
   }
 
-  return <main className="rrugc-shell rrugc-source-first-shell">
+  return <main className={"rrugc-shell rrugc-source-first-shell cam-unified-workspace-v18" +
+    (workflowGroupForStage(activeStage) === "products" ? " rrugc-evo-products" : " rrugc-evo-reviews")}>
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
       <WorkspaceNavigation active="realistic-review-ugc" rrugcStage={activeStage} />
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader
-        className="rrugc-header"
+        className="rrugc-header cam-header-v18"
         route="realistic-review-ugc"
         description="Analyze keyword demand, generate artwork for used quotes, prepare 13 cap colorways, discover Pinterest references, generate UGC images, and publish review-ready outputs."
         titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}

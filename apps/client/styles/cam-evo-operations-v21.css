@@ -1,0 +1,29 @@
+/* Phase 21 — progressive dashboard fields, evondevKit lightweight status.
+   No global override or changes to API/worker controls. */
+.cam-evo-ai-operations .ops-detail-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px clamp(16px, 2.4vw, 32px);
+  border-bottom: 1px solid #dce7f6;
+  background: #f6f9ff;
+  color: #4f6584;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.cam-evo-ai-operations .ops-detail-progress strong {
+  color: #2e579f;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cam-evo-ai-operations .ops-detail-progress .ops-refresh-spinner {
+  flex: 0 0 12px;
+}
+@media (max-width: 720px) {
+  .cam-evo-ai-operations .ops-detail-progress {
+    padding: 10px 16px;
+    align-items: flex-start;
+  }
+}

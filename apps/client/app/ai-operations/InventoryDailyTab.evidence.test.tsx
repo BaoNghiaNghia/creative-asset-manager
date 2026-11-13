@@ -29,6 +29,16 @@ const render = (value: InventoryDailySheetStatus) => renderToStaticMarkup(
 );
 
 describe("Inventory overview evidence states", () => {
+  it("keeps the last inventory snapshot visible during a transient refresh failure", () => {
+    const html = renderToStaticMarkup(<InventoryDailyOverview status={status()} run={null} refreshError="Network timeout" />);
+    expect(html).toContain("Chưa làm mới được Inventory");
+    expect(html).toContain("Đang giữ dữ liệu gần nhất");
+    expect(html).toContain("Network timeout");
+    expect(html).toContain("Reset đầu ngày");
+    expect(html).toContain("Đối soát Gemini buổi tối");
+    expect(html).toContain("Thử lại");
+    expect(html).not.toContain("Không thể tải Inventory");
+  });
   it.each(["morning_reset", "afternoon_snapshot", "evening_reconcile"] as const)(
     "shows the %s failure even without a legacy daily run", stage => {
       const value = status();

@@ -3,11 +3,13 @@ import { useRouteAccessGate } from "./routePermissionGate";
 import { useDeploymentReadiness } from "./deploymentReadiness";
 import { UnderConstructionPage } from "./components/UnderConstructionPage";
 import { WorkspaceConnectionState } from "./components/WorkspaceConnectionState";
-import App from "./App";
+// Asset Explorer is a large media workspace; avoid parsing it on unrelated routes.
+const App = lazy(() => import("./App"));
 import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
 import { WorkspaceNavigation } from "./components/WorkspaceNavigation";
+import "./styles/workspace-backend-status.css";
 
 import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
 
@@ -77,6 +79,13 @@ export function requiredPermissionForApplicationRoute(route: ApplicationRoute): 
   return null;
 }
 
+/** An authorized Etsy Spy workspace retains dialogs during brief API downtime. */
+export function shouldUnmountForMaintenance(
+  route: ApplicationRoute, accessStatus: string, backendUnavailable: boolean,
+): boolean {
+  return accessStatus === "maintenance" || (backendUnavailable && route !== "etsy-spy");
+}
+
 export function AppRoute() {
   const legacyInventoryTab = window.location.pathname === "/ai-operations"
     && new URLSearchParams(window.location.search).get("tab") === "inventory";
@@ -98,9 +107,10 @@ export function AppRoute() {
     && route !== "terms" && route !== "under-construction"
     && (!requiredPermission || access.status === "allowed");
   const backendUnavailable = useDeploymentReadiness(watchBackend);
-  // Keep maintenance outside the application shell so no protected workspace,
-  // navigation, or stale async component renders while the API is down.
-  if (access.status === "maintenance" || backendUnavailable) {
+  // Never unmount an already-authorized Etsy Spy workspace during temporary
+  // backend downtime. Its open galleries, Listing Optimizer and scroll survive.
+  // Routes without this in-place recovery keep the existing maintenance gate.
+  if (shouldUnmountForMaintenance(route, access.status, backendUnavailable)) {
     return <UnderConstructionPage maintenance />;
   }
   if (access.status === "reconnecting" || access.status === "unauthenticated" || access.status === "denied") {
@@ -131,5 +141,8 @@ export function AppRoute() {
     kind="application"
     title="Loading application…"
     detail="Preparing the workspace and interface."
-  />}>{page}</Suspense></div><DesktopUpdateNotice /></>;
+  />}>{page}</Suspense></div><DesktopUpdateNotice />{backendUnavailable && route === "etsy-spy" &&
+    <div role="status" aria-live="polite" className="workspace-backend-connection-banner">
+      CAM đang kết nối lại máy chủ. Dữ liệu hiện tại và cửa sổ đang mở được giữ nguyên.
+    </div>}</>;
 }

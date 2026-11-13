@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 import { SourcePlanTable } from "../realistic-review-ugc/SourcePlanTable";
 import { Stage3ReviewGroups } from "../realistic-review-ugc/Stage3ReviewGroups";
 import { TiktokShopSettingsModal } from "./TiktokShopSettingsModal";
@@ -32,7 +33,11 @@ import "../realistic-review-ugc/tablet-mobile-density.css";
 import "./tiktokshop.css";
 
 export const TIKTOKSHOP_SOURCE_ROOT = "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh";
-type TikTokStage = "stage3" | "stage4" | "stage5";
+export type TikTokStage = "stage3" | "stage4" | "stage5";
+export function tiktokStageFromSearch(search: string): TikTokStage {
+  const value = new URLSearchParams(search).get("stage");
+  return value === "stage4" || value === "stage5" ? value : "stage3";
+}
 const STAGES: readonly { id: TikTokStage; title: string; description: string }[] = [
   { id: "stage3", title: "Stage 3", description: "Pinterest References" },
   { id: "stage4", title: "Stage 4", description: "Image Generation" },
@@ -57,7 +62,35 @@ const EMPTY_REVIEWS: Stage3ReviewGroupList = {
  * Generated images are internal draft concepts, not real buyer testimonials.
  */
 export function TiktokShopScoutUgcPage() {
-  const [stage, setStage] = useState<TikTokStage>("stage3");
+  const [stage, setStage] = useState<TikTokStage>(() => tiktokStageFromSearch(typeof window === "undefined" ? "" : window.location.search));
+  const stageNavRef = useActiveStageVisibility(stage);
+
+  useEffect(() => {
+    const onPopState = () => setStage(tiktokStageFromSearch(window.location.search));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function selectStage(next: TikTokStage) {
+    setStage(next);
+    const url = new URL(window.location.href);
+    if (next === "stage3") url.searchParams.delete("stage");
+    else url.searchParams.set("stage", next);
+    if (url.search !== window.location.search) {
+      window.history.pushState(window.history.state, "", url.pathname + url.search + url.hash);
+    }
+  }
+
+  function onStageKeyDown(event: KeyboardEvent<HTMLElement>) {
+    const index = STAGES.findIndex(item => item.id === stage);
+    const next = event.key === "ArrowRight" ? (index + 1) % STAGES.length
+      : event.key === "ArrowLeft" ? (index - 1 + STAGES.length) % STAGES.length
+      : event.key === "Home" ? 0 : event.key === "End" ? STAGES.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    selectStage(STAGES[next].id);
+    window.requestAnimationFrame(() => document.getElementById("tiktok-tab-" + STAGES[next].id)?.focus());
+  }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const closeSettings = useCallback(() => {
@@ -348,7 +381,7 @@ export function TiktokShopScoutUgcPage() {
     }
   }
 
-  return <main className="rrugc-shell rrugc-source-first-shell rrugc-tiktokshop-workspace">
+  return <main className="rrugc-shell rrugc-source-first-shell rrugc-tiktokshop-workspace cam-unified-workspace-v18">
     <aside className="ops-sidebar">
       <div className="brand">
         <b><BrandIcon /></b>
@@ -358,7 +391,7 @@ export function TiktokShopScoutUgcPage() {
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader
-        route="tiktokshop"
+        route="tiktokshop" className="cam-header-v18"
         titleAddon={<span className="rrugc-page-live-pill">TikTokShop · isolated Scout pilot</span>}
         actions={<div className="rrugc-global-management-actions">
           <button type="button" ref={settingsButtonRef}
@@ -377,14 +410,14 @@ export function TiktokShopScoutUgcPage() {
         </div>}
       />
       <div className="rrugc-workflow-navigation">
-        <nav className="ops-tabs rrugc-stage-tabs" aria-label="Tiktokshop Scout and UGC stages" role="tablist">
+        <nav ref={stageNavRef} className="ops-tabs rrugc-stage-tabs" aria-label="Tiktokshop Scout and UGC stages" role="tablist" onKeyDown={onStageKeyDown}>
           {STAGES.map(item => <button key={item.id} type="button" role="tab"
             id={"tiktok-tab-" + item.id}
             aria-controls={"tiktok-panel-" + item.id}
             aria-selected={stage === item.id}
             tabIndex={stage === item.id ? 0 : -1}
             className={stage === item.id ? "active" : ""}
-            onClick={() => setStage(item.id)}>
+            onClick={() => selectStage(item.id)}>
             <span className="rrugc-stage-tab-number" aria-hidden="true">{item.id.slice(-1)}</span>
             <span className="rrugc-stage-tab-copy">
               <strong>{item.title}</strong><small>{item.description}</small>

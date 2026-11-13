@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { AccessApiError, fetchAccessIdentity } from "../features/access_management";
 
-const reloadAfterMaintenance = () => window.location.reload();
+// Resume the authorized route in place after maintenance, never reload it.
+const resumeAfterMaintenance = () => {};
 
 export const ROUTE_IDENTITY_TIMEOUT_MS = 10_000;
 export const ROUTE_IDENTITY_RETRY_MS = 5_000;
@@ -58,12 +59,12 @@ async function backendConfirmsMaintenance(): Promise<boolean> {
 }
 
 /** Confirmed API downtime is a temporary maintenance screen, not an authorization denial.
- * A successful recovery reloads the exact original URL so stale lazy chunks
- * from a previous frontend release are never used after deployment.
+ * A successful identity check resumes the current route in memory.
+ * Lazy-chunk failures have their own explicit Retry action; no forced reload.
  */
 export function useRouteAccessGate(
   requiredPermission: string | null,
-  onRecovered: () => void = reloadAfterMaintenance,
+  onRecovered: () => void = resumeAfterMaintenance,
   retryKey = 0,
   requiredModule?: string | null,
 ): RouteAccessState {
@@ -102,13 +103,16 @@ export function useRouteAccessGate(
         const identity = await Promise.race([fetchAccessIdentity(scopedFetch), timeout]);
         if (!active) return;
         consecutiveFailures = 0;
-        if (hasEnteredMaintenance) {
-          onRecovered();
-          return;
-        }
-        setState(isWorkspaceRouteAuthorized(identity, requiredPermission!, requiredModule)
+        // Always re-evaluate permissions. A formerly authorized account may
+        // have been revoked while the backend was temporarily unavailable.
+        const authorized = isWorkspaceRouteAuthorized(identity, requiredPermission!, requiredModule);
+        setState(authorized
           ? { status: "allowed", permissions: identity.permissions }
           : { status: "denied" });
+        if (hasEnteredMaintenance) {
+          hasEnteredMaintenance = false;
+          if (authorized) onRecovered();
+        }
       } catch (error) {
         if (!active) return;
         if (!unavailable(error)) {

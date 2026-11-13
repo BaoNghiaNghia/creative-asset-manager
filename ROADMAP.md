@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-13 — Etsy Spy Search Card intent → CAM confirmed selection
+
+- [x] Add authenticated, tenant/agent-scoped Pick/Later/Win Keyword write contract with durable idempotent CAM receipts; align source-owned Shop 20+ carts and listing review qualification.
+- [x] Add nullable Shop evidence and receipt migration `0208_etsy_spy_agent_review_receipts`, rollback guards and negative-path tests.
+- [ ] Pass hosted API CI including new Etsy Spy tests, migrate via reviewed production release from main and verify health/schema.
+- [ ] After zero-lease paused Chrome boundary, activate matching Windows extension/backend and opt in Windows sync `review-sync-enabled.flag`; verify exact real CAM receipts.
+
+
 ## 2026-11-11 — Etsy TikTok Listing Pilot V2: manual-only activation, Gemini lane and retry
 
 - [x] Decouple manual listing generation from Auto on Pick. The listing skill is available for authenticated manual pilots by default, while `ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=false` guarantees no automatic work on new Picks.

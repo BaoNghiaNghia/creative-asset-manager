@@ -21,6 +21,7 @@ import { VisualSearchOperationsTab } from "./VisualSearchOperationsTab";
 import { AssetDetailsPanel } from "../components/AssetDetailsPanel";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
 import type { Asset } from "../types";
 import type { VideoSearchItem } from "../hooks/useVideoSearch";
@@ -91,6 +92,8 @@ export function AiOperationsPage() {
   const [refreshSeconds, setRefreshSeconds] = useState<AutoRefreshSeconds>(() => autoRefreshFromSearch(window.location.search));
   const [data, setData] = useState<AiOpsDashboardData>(() => emptyDashboard(filters.page));
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [detailProgress, setDetailProgress] = useState<{ completed: number; total: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [identityUnauthorized, setIdentityUnauthorized] = useState(false);
   const [scopeUnauthorized, setScopeUnauthorized] = useState(false);
@@ -110,6 +113,8 @@ export function AiOperationsPage() {
   const [detailsVideo, setDetailsVideo] = useState<{ item: Asset; analysis: VideoSearchItem } | null>(null);
   const requests = useRef(new DashboardRequestCoordinator());
   const scopeCache = useRef(new Map<string, { reload: number; data: AiOpsDashboardData; errors: string[] }>());
+  const lastViewKey = useRef<string | null>(null);
+  const lastCompletedViewKey = useRef<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -138,51 +143,85 @@ export function AiOperationsPage() {
     let subscribed = true;
     const plan = dashboardPlan(tab, media);
     const key = JSON.stringify([tab, media, filters]);
+    const sameView = lastViewKey.current === key;
+    lastViewKey.current = key;
     const cached = scopeCache.current.get(key);
     if (cached?.reload === reload) {
       setData(cached.data);
       setErrors(cached.errors);
       setScopeUnauthorized(false);
+      lastCompletedViewKey.current = key;
       setLoading(false);
+      setRefreshing(false);
+      setDetailProgress(null);
       return () => { subscribed = false; };
     }
-    setData(emptyDashboard(filters.page));
+    // The selected tab retains its last snapshot during refresh; a different
+    // tab/filter starts with clean data so stale metrics never cross scopes.
+    const hasVisibleSnapshot = sameView && lastCompletedViewKey.current === key;
+    const baseData = hasVisibleSnapshot ? data : emptyDashboard(filters.page);
+    if (!hasVisibleSnapshot) setData(baseData);
     setErrors([]);
     setScopeUnauthorized(false);
+    setDetailProgress(plan.secondary.length ? { completed: 0, total: plan.secondary.length } : null);
     if (!plan.primary.length) {
       setLoading(false);
+      setRefreshing(false);
+      setDetailProgress(null);
       return () => { subscribed = false; };
     }
-    setLoading(true);
+    setLoading(!hasVisibleSnapshot);
+    setRefreshing(hasVisibleSnapshot);
+
+    // The first (KPI/job-list) field is requested first. The remaining fields
+    // start in the same globally bounded pool (max 3), avoiding a second
+    // waterfall. Every completed field is displayed immediately.
+    const fields = [...plan.primary, ...plan.secondary];
+    let detailCompleted = 0;
     requests.current.run(async signal => {
-      const primary = await fetchAiOperationsScope(filters, plan.primary, fetch, undefined, signal);
+      const response = await fetchAiOperationsScope(filters, fields, fetch, undefined, signal, progress => {
+        if (signal.aborted || !subscribed) return;
+        if (progress.partial.unauthorized) {
+          setScopeUnauthorized(true);
+          setLoading(false);
+        }
+        if (Object.keys(progress.partial.data).length) {
+          setData(current => ({ ...current, ...progress.partial.data }));
+        }
+        if (progress.partial.errors.length) {
+          setErrors(current => [...new Set([...current, ...progress.partial.errors])]);
+        }
+        if (plan.primary.includes(progress.field)) {
+          setLoading(false);
+          if (!progress.partial.unauthorized) {
+            lastCompletedViewKey.current = key;
+            setLastUpdated(new Date());
+          }
+        } else {
+          detailCompleted += 1;
+          setDetailProgress({ completed: detailCompleted, total: plan.secondary.length });
+        }
+      });
       if (signal.aborted || !subscribed) return null;
-      const firstData = { ...emptyDashboard(filters.page), ...primary.data };
-      setData(firstData);
-      setErrors(primary.errors);
-      setScopeUnauthorized(primary.unauthorized);
-      setLoading(false);
-      setLastUpdated(new Date());
-      if (primary.unauthorized || !plan.secondary.length) {
-        if (!primary.unauthorized) scopeCache.current.set(key, { reload, data: firstData, errors: primary.errors });
-        return primary;
-      }
-      const secondary = await fetchAiOperationsScope(filters, plan.secondary, fetch, undefined, signal);
-      if (signal.aborted || !subscribed) return null;
-      const combinedData = { ...firstData, ...secondary.data };
-      const combinedErrors = [...new Set([...primary.errors, ...secondary.errors])];
-      setData(combinedData);
-      setErrors(combinedErrors);
-      setScopeUnauthorized(secondary.unauthorized);
-      setLastUpdated(new Date());
-      if (!secondary.unauthorized) scopeCache.current.set(key, { reload, data: combinedData, errors: combinedErrors });
-      return secondary;
+      return response;
     }).then(result => {
       if (!subscribed || !result.current) return;
+      setLoading(false);
+      setRefreshing(false);
+      setDetailProgress(null);
       if ("error" in result) {
-        setErrors(["Dashboard request failed. Try again."]);
-        setLoading(false);
+        setErrors(current => [...new Set([...current, "Dashboard request failed. Try again."])]);
+        return;
       }
+      if (!result.value) return;
+      setScopeUnauthorized(result.value.unauthorized);
+      setErrors(result.value.errors);
+      if (result.value.unauthorized) return;
+      const completeData = { ...baseData, ...result.value.data };
+      setData(completeData);
+      setLastUpdated(new Date());
+      lastCompletedViewKey.current = key;
+      scopeCache.current.set(key, { reload, data: completeData, errors: result.value.errors });
     });
     return () => {
       subscribed = false;
@@ -277,7 +316,7 @@ export function AiOperationsPage() {
   }
   return <AiOperationsShell subtitle={identity?.email || "Operations console"} tab={tab} onTab={changeTab}>
     <AiOperationsContent
-      data={data} loading={loading} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
+      data={data} loading={loading} refreshing={refreshing} detailProgress={detailProgress} errors={errors} unauthorized={identityUnauthorized || scopeUnauthorized}
       visualCoverage={visualCoverage} visualSources={visualSources} visualLoading={visualLoading} visualError={visualError}
       visualDiagnostics={visualDiagnostics} visualDiagnosticsLoading={visualDiagnosticsLoading}
       visualDiagnosticsError={visualDiagnosticsError} onLoadVisualDiagnostics={() => void loadVisualDiagnostics()}
@@ -312,7 +351,7 @@ export function AiOperationsShell({
   tab?: AiOpsTab;
   onTab?: (tab: AiOpsTab) => void;
 }) {
-  return <main className="ops-shell">
+  return <main className="ops-shell cam-evo-ai-operations">
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>{subtitle}</small></span></div>
       <WorkspaceNavigation active="operations" aiOperationsTab={tab} onAiOperationsTab={onTab} />
@@ -327,6 +366,8 @@ type ContentProps = {
   filters: AiOpsFilters;
   tab: AiOpsTab;
   loading?: boolean;
+  refreshing?: boolean;
+  detailProgress?: { completed: number; total: number } | null;
   errors?: string[];
   unauthorized?: boolean;
   onTab: (tab: AiOpsTab) => void;
@@ -352,7 +393,7 @@ type ContentProps = {
 };
 
 export function AiOperationsContent({
-  data, filters, tab, loading = false, errors = [], unauthorized = false,
+  data, filters, tab, loading = false, refreshing = false, detailProgress = null, errors = [], unauthorized = false,
   onTab, onFilters, onRetry, refreshSeconds = 0, onRefreshSeconds = () => undefined,
   lastUpdated = null, permissions = [], authorizationReason = "Sign in is required.", media = "image", onMedia = () => undefined,
   onOpenAsset = () => undefined, onOpenVideo = () => undefined,
@@ -370,7 +411,7 @@ export function AiOperationsContent({
   ].filter(Boolean))].sort(), [data]);
   const profiles = useMemo(() => [...new Set(data.usage.items.map(item => item.metadata_profile || "").filter(Boolean))].sort(), [data]);
   const hasMediaTabs = tab === "pipeline" || tab === "overview" || tab === "processing";
-  const tabsRef = useRef<HTMLElement | null>(null);
+  const tabsRef = useActiveStageVisibility(tab);
   const tabDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
   const suppressTabClickRef = useRef(false);
   const [tabDragging, setTabDragging] = useState(false);
@@ -452,11 +493,11 @@ export function AiOperationsContent({
   }, []);
 
   useEffect(() => {
-    const activeTab = tabsRef.current?.querySelector<HTMLElement>('[data-ops-tab="' + tab + '"]');
-    activeTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Do not call scrollIntoView: it can move the entire page on mobile.
+    // The shared Stage hook keeps the selection visible inside the horizontal rail.
     window.requestAnimationFrame?.(() => updateTabScrollState());
   }, [tab]);
-  if (unauthorized) return <DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} />;
+  if (unauthorized) return <div className="ops-content ops-access-state"><DashboardState kind="unauthorized" label={authorizationReason} onRetry={onRetry} /></div>;
   return <>
     <WorkspacePageHeader
       className="ops-header"
@@ -467,9 +508,10 @@ export function AiOperationsContent({
         <label className="ops-refresh-control"><span>Auto-refresh</span><select aria-label="Auto-refresh interval" value={refreshSeconds} onChange={event => onRefreshSeconds(Number(event.target.value) as AutoRefreshSeconds)}>
           {AUTO_REFRESH_SECONDS.map(seconds => <option key={seconds} value={seconds}>{seconds ? `${seconds}s` : "Off"}</option>)}
         </select></label>
+        <button type="button" className="ops-manual-refresh" aria-label="Refresh AI Operations data" onClick={onRetry}><OpsControlIcon name="retry" />Làm mới</button>
         <div className="ops-refresh-status" aria-live="polite">
-          <span className="ops-refresh-status-label">{loading ? "Refreshing dashboard" : lastUpdated ? "Last updated" : "Refresh status"}</span>
-          {lastUpdated ? <time dateTime={lastUpdated.toISOString()}>{loading ? "Refreshing..." : lastUpdated.toLocaleTimeString()}</time> : <span className="ops-refresh-status-value">Manual refresh</span>}
+          <span className="ops-refresh-status-label">{loading ? "Loading dashboard" : refreshing ? "Refreshing dashboard" : lastUpdated ? "Last updated" : "Refresh status"}</span>
+          {lastUpdated ? <time dateTime={lastUpdated.toISOString()}>{refreshing ? "Updating…" : lastUpdated.toLocaleTimeString()}</time> : <span className="ops-refresh-status-value">{loading ? "Connecting…" : "Manual refresh"}</span>}
         </div>
         <WorkspaceBackToAssets />
       </>}
@@ -521,8 +563,13 @@ export function AiOperationsContent({
       <div><b>Some dashboard data could not be loaded.</b><span>{errors.join(" · ")}</span></div>
       <button type="button" onClick={onRetry}><OpsControlIcon name="retry" />Retry</button>
     </div>}
+    {refreshing && <div className="ops-refresh-inline" role="status" aria-live="polite"><span className="ops-refresh-spinner" aria-hidden="true" />Updating metrics{detailProgress ? ` (${detailProgress.completed}/${detailProgress.total} detail sources)` : ""}; your current view stays available.</div>}
+    {!loading && !refreshing && detailProgress && detailProgress.completed < detailProgress.total && <div className="ops-detail-progress" role="status" aria-live="polite">
+      <span className="ops-refresh-spinner" aria-hidden="true" />
+      <span>Đang tải chi tiết <strong>{detailProgress.completed}/{detailProgress.total}</strong> nguồn dữ liệu. KPI và bảng đã sẵn sàng.</span>
+    </div>}
     {!independentTabs.some(value => value === tab) && <section id={`ops-panel-${tab}`} role="tabpanel" aria-labelledby={`ops-tab-${tab}`} tabIndex={0}>
-      {loading ? <DashboardSkeleton /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} deferDetails mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
+      {loading ? <DashboardSkeleton onRetry={onRetry} /> : tab === "pipeline" ? <PipelineOverview pipeline={data.pipeline} deferDetails mediaDashboard={data.media} imageTodayDelta={data.today?.completed || 0} media={media} onMedia={onMedia} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} onPage={(page, pageSize) => onFilters({ ...filters, pipelinePage: page, pipelinePageSize: pageSize })} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : tab === "overview" ? <Overview data={data} media={media} onMedia={onMedia} canManage={permissions.includes("search.rebuild")} onRefresh={onRetry} />
         : tab === "processing" ? <Processing data={data} filters={filters} permissions={permissions} onFilters={onFilters} onActionAccepted={onRetry} onOpenAsset={onOpenAsset} onOpenVideo={onOpenVideo} media={media} onVideoPage={(page, pageSize) => onFilters({ ...filters, videoPage: page, videoPageSize: pageSize })} />
         : <CostUsage data={data} filters={filters} onFilters={onFilters} />}
@@ -1732,8 +1779,8 @@ export function StatusText({ status, isDeferred = false, nextAttemptAt = null }:
   return <span className={`ops-status ${status}`} aria-label={`Status: ${label}`}><i aria-hidden="true" />{label}</span>;
 }
 
-export function DashboardSkeleton() {
-  return <div className="ops-skeleton" aria-busy="true" aria-label="Loading AI Operations dashboard"><i /><i /><i /><i /><span>Loading AI Operations…</span></div>;
+export function DashboardSkeleton({ onRetry }: { onRetry?: () => void } = {}) {
+  return <div className="ops-content ops-skeleton ops-initial-loading" role="status" aria-busy="true" aria-label="Loading AI Operations dashboard"><i /><i /><i /><i /><span><strong>Đang tải dữ liệu AI Operations</strong><small>Nếu dữ liệu chậm, bạn vẫn có thể đổi Stage hoặc thử lại mà không cần tải lại trang.</small>{onRetry && <button type="button" onClick={onRetry}>Thử lại</button>}</span></div>;
 }
 
 export function DashboardState({ kind, label, onRetry }: { kind: "empty" | "unauthorized"; label?: string; onRetry?: () => void }) {

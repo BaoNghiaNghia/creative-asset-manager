@@ -14,13 +14,28 @@ import "../styles/centered-loading.css";
 import "../styles/ai-operations.css";
 import "../styles/access-management.css";
 import "../styles/inventory.css";
-import "../styles/public-review.css";
-import "../styles/review-board.css";
+// Public review and Review Board styles are loaded with their lazy routes.
+// Do not ship either full media stylesheet to every CAM workspace.
 import "../styles/workspace-page-header.css";
 import "../styles/responsive-platform.css";
 import "../styles/ui-foundation.css";
 import "../styles/mobile-workspace.css";
 import "../styles/rrugc-sidebar-navigation.css";
+// Phase 4: scoped evondevKit roles for Explorer, Queue, Inventory and Access.
+import "../app/styles/cam-evo-tokens.css";
+import "../styles/cam-console-evo.css";
+// Phase 5: route-scoped evondevKit roles, no changes to queues or routes.
+import "../styles/cam-platform-evo.css";
+// Phase 6: shared loading, empty/error, retry and modal feedback styling.
+import "../styles/cam-feedback-evo.css";
+// Shared typography, header and responsive layout for operational workspaces.
+import "../styles/cam-unified-workspace-v18.css";
+// Phase 19: evondevKit workflow navigation and non-destructive refresh feedback.
+import "../styles/cam-evo-workflow-v19.css";
+// Phase 20: AI Operations loading, refresh and compact mobile controls.
+import "../styles/cam-evo-operations-v20.css";
+// Phase 21: progressive data loading for AI Operations dashboard.
+import "../styles/cam-evo-operations-v21.css";
 
 function AppBoot() {
   useEffect(() => {

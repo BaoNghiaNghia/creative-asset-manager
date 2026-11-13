@@ -1,0 +1,28 @@
+/* Read-only connectivity notice: stays behind open dialogs and never
+   remounts the workspace or changes the current table/scroll position. */
+.workspace-backend-connection-banner {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: 14px;
+  z-index: 1500;
+  max-width: min(390px, calc(100vw - 28px));
+  padding: 9px 13px;
+  border: 1px solid #e7c995;
+  border-radius: 8px;
+  background: #fffaf0;
+  box-shadow: 0 5px 18px rgba(34, 49, 72, .12);
+  color: #79551e;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  pointer-events: none;
+}
+@media (max-width: 680px) {
+  .workspace-backend-connection-banner {
+    top: auto;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import "../../styles/public-review.css";
 import { ActionMessageToast } from "../components/ActionToast";
 import { api, type Annotation, type Asset, type Bootstrap, type Child, type Folder, type PlaybackTicket, type PublicCommentActivity } from "./api";
 import type { SearchSuggestion } from "../types";

@@ -29,6 +29,25 @@
       "click": ".public-media-card .public-card-comment-action",
       "waitFor": ".public-viewer",
       "waitMs": 300
+    },
+    {
+      "name": "public-editor-typing",
+      "waitFor": ".public-tiptap",
+      "fill": {"selector": ".public-tiptap", "value": "TipTap 3 QA comment"},
+      "waitMs": 100,
+      "assertions": [
+        {"type": "text-includes", "selector": ".public-tiptap", "value": "TipTap 3 QA comment"},
+        {"type": "visible", "selector": ".public-editor-submit:not([disabled])"},
+        {"type": "no-viewport-overflow", "selector": "body"}
+      ]
+    },
+    {
+      "name": "public-editor-emoji-picker",
+      "click": ".public-editor-emoji-toggle",
+      "assertions": [
+        {"type": "visible", "selector": ".public-emoji-picker"},
+        {"type": "no-viewport-overflow", "selector": "body"}
+      ]
     }
   ]
 }

@@ -1052,7 +1052,7 @@ export default function App() {
   </>;
 
   return <main
-    className={["shell", "product-shell", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
+    className={["shell", "product-shell", "cam-evo-explorer", window.camDesktop?.isDesktop ? "desktop-shell" : "", sidebar.collapsed ? "sidebar-collapsed" : "", detailsOpen ? "details-open" : ""].filter(Boolean).join(" ")}
     style={{ "--sidebar-width": sidebar.width + "px" } as CSSProperties}
     onDragEnter={handleFileDragEnter}
     onDragOver={event => {

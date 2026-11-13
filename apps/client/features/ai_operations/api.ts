@@ -64,6 +64,7 @@ export function fetchAiOperationsVideoDetail(
 
 async function settleDashboardCalls(
   calls: Array<() => Promise<unknown>>,
+  onSettled?: (index: number, result: PromiseSettledResult<unknown>) => void,
 ): Promise<PromiseSettledResult<unknown>[]> {
   const settled: PromiseSettledResult<unknown>[] = new Array(calls.length);
   let next = 0;
@@ -75,6 +76,9 @@ async function settleDashboardCalls(
       } catch (reason) {
         settled[index] = { status: "rejected", reason };
       }
+      // Progress notifications are advisory; callback errors must not turn a
+      // successful API request into a failed aggregate fetch.
+      try { onSettled?.(index, settled[index]); } catch { /* final data still resolves */ }
     }
   };
   await Promise.all(Array.from(
@@ -117,6 +121,35 @@ export type DashboardScopeResult = {
   unauthorized: boolean;
 };
 
+/** A settled field is published independently so slow charts cannot block fast ones. */
+export type DashboardFieldProgress = {
+  field: DashboardField;
+  partial: DashboardScopeResult;
+  completed: number;
+  total: number;
+};
+
+function mergeDashboardField(
+  result: DashboardScopeResult, field: DashboardField, item: PromiseSettledResult<unknown>,
+) {
+  if (item.status === "rejected") {
+    if (item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status)) {
+      result.unauthorized = true;
+    }
+    // Pipeline is optional during a rolling deploy; keep legacy 404 behavior.
+    if (!(field === "pipeline" && item.reason instanceof AiOperationsApiError && item.reason.status === 404)) {
+      result.errors.push(String(item.reason?.message || "Request failed"));
+    }
+    return;
+  }
+  const value = item.value;
+  if (field === "pipeline") result.data.pipeline = normalizePipelineSnapshot(value as PipelineSnapshot);
+  else if (field === "media") result.data.media = normalizeMediaDashboard(value as AiOpsMediaDashboard);
+  else if (["daily", "providers", "todayProviders", "failures"].includes(field)) {
+    Object.assign(result.data, { [field]: (value as { items: unknown[] }).items });
+  } else Object.assign(result.data, { [field]: value });
+}
+
 // A tab asks only for the aggregates it renders. In particular, independent
 // tabs (Visual Search, Creative Pipeline, Inventory, Configuration) never
 // trigger the expensive AI Operations dashboard fan-out.
@@ -143,6 +176,7 @@ export async function fetchAiOperationsScope(
   fetcher: Fetcher = fetch,
   now = new Date(),
   signal?: AbortSignal,
+  onProgress?: (progress: DashboardFieldProgress) => void,
 ): Promise<DashboardScopeResult> {
   if (!fields.length) return { data: {}, errors: [], unauthorized: false };
   const range = isoRange(filters.range, now);
@@ -178,28 +212,50 @@ export async function fetchAiOperationsScope(
     media: `${base}/media-dashboard?${media}`,
   };
   const selected = [...new Set(fields)];
-  const settled = await settleDashboardCalls(selected.map(field => () =>
-    read<unknown>(urls[field], fetcher, signal)));
-  const result: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
-  selected.forEach((field, index) => {
-    const item = settled[index];
-    if (item.status === "rejected") {
-      if (item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status)) {
-        result.unauthorized = true;
-      }
-      // Pipeline may be absent during a rolling deploy. Keep the older
-      // dashboard behavior without swallowing denials or other failures.
-      if (!(field === "pipeline" && item.reason instanceof AiOperationsApiError && item.reason.status === 404)) {
-        result.errors.push(String(item.reason?.message || "Request failed"));
-      }
-      return;
+  // A large tenant's summary scans historical jobs. The Overview screen asks
+  // for three different summary ranges. Starting all three at once can exhaust
+  // the API/DB pool and leave unrelated permission checks in Pending.
+  // Keep the first requested (KPI) field first, allow lightweight aggregates
+  // to fill other slots, then serialize expensive summary variants.
+  const expensiveSummary = (field: DashboardField) =>
+    field === "summary" || field === "today" || field === "month";
+  const ordered = selected.length <= 1 ? selected : [
+    selected[0],
+    ...selected.slice(1).filter(field => !expensiveSummary(field)),
+    ...selected.slice(1).filter(expensiveSummary),
+  ];
+  let summaryTail = Promise.resolve();
+  let summaryStarted = false;
+  const operations = ordered.map(field => async () => {
+    if (!expensiveSummary(field)) return read<unknown>(urls[field], fetcher, signal);
+    let release!: () => void;
+    const previous = summaryTail;
+    summaryTail = new Promise<void>(resolve => { release = resolve; });
+    // First heavy request starts synchronously with the lightweight calls.
+    // Later summary ranges wait for its completion to avoid DB contention.
+    const waitForPrevious = summaryStarted;
+    summaryStarted = true;
+    if (waitForPrevious) await previous;
+    try {
+      if (signal?.aborted) throw new AiOperationsApiError("Dashboard request was cancelled.", 499);
+      return await read<unknown>(urls[field], fetcher, signal);
+    } finally {
+      release();
     }
-    const value = item.value;
-    if (field === "pipeline") result.data.pipeline = normalizePipelineSnapshot(value as PipelineSnapshot);
-    else if (field === "media") result.data.media = normalizeMediaDashboard(value as AiOpsMediaDashboard);
-    else if (["daily", "providers", "todayProviders", "failures"].includes(field)) {
-      Object.assign(result.data, { [field]: (value as { items: unknown[] }).items });
-    } else Object.assign(result.data, { [field]: value });
+  });
+  let completed = 0;
+  const settled = await settleDashboardCalls(operations, (index, item) => {
+    completed += 1;
+    if (signal?.aborted || !onProgress) return;
+    const partial: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
+    mergeDashboardField(partial, ordered[index], item);
+    onProgress({
+      field: ordered[index], partial, completed, total: ordered.length,
+    });
+  });
+  const result: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
+  ordered.forEach((field, index) => {
+    mergeDashboardField(result, field, settled[index]);
   });
   result.errors = [...new Set(result.errors)];
   return result;

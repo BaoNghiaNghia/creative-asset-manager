@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
@@ -9,8 +9,12 @@ import {
   type ObservedDaysSummary, type ObservedDayBucket, type DayGroupsSummary,
 } from "./api";
 import "./EtsySpyPage.css";
+import "../styles/cam-evo-tokens.css";
+import "./EtsySpyEvo.css";
+import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
+import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
 // Keep the service workflows and handlers intact, but hide these four admin panels
@@ -219,20 +223,22 @@ function safeEtsyImageUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
-function ProductThumbnail({ item }: { item: Listing }) {
-  const thumb = safeEtsyImageUrl(item.thumbnailUrl ?? item.metadata?.thumbnailUrl);
-  const full = safeEtsyImageUrl(item.fullImageUrl ?? item.metadata?.fullImageUrl) ?? thumb;
+// Images do not need to rerender when Scout sync updates keyword, carts, or
+// queue status in the same listing. React.memo compares these primitive props.
+const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, title }: {
+  thumb: string | null; full: string | null; url: string | null | undefined; title: string;
+}) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [thumb]);
   if (!thumb || broken) return <span className="etsy-product-glyph" aria-hidden="true">E</span>;
-  return <a className="etsy-product-thumbnail-link" href={full ?? item.url ?? "#"}
+  return <a className="etsy-product-thumbnail-link" href={full ?? thumb ?? url ?? "#"}
     target="_blank" rel="noopener noreferrer"
-    title="View full Etsy product image" aria-label={"View full image of " + item.pageTitle}>
+    title="View full Etsy product image" aria-label={"View full image of " + title}>
     <img className="etsy-product-thumbnail" src={thumb} alt=""
       width="68" height="68" loading="lazy" decoding="async"
       onError={() => setBroken(true)} />
   </a>;
-}
+});
 
 function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
   onSelect, onListingQueued, optimizerEnabled }: {
@@ -316,7 +322,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
     </td>}
     <td className="etsy-title">
       <div className="etsy-product-identity">
-        <ProductThumbnail item={item} />
+        <ProductThumbnail thumb={previewThumb} full={previewFull}
+          url={item.url} title={item.pageTitle} />
         <div className="etsy-product-copy">
           <strong title={item.pageTitle}>{item.pageTitle}</strong>
           <div className="etsy-title-meta">
@@ -334,7 +341,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
                 : "Windows Agent chưa đồng bộ trạng thái gửi SMS"}
             aria-label={"SMS: " + (item.smsPush?.status === "sent" ? "Đã có trên SMS"
               : item.smsPush?.status || "Chưa đồng bộ")}>
-            {item.smsPush?.status === "sent" ? "✓ Đã có trên SMS"
+            {item.smsPush?.status === "sent" ? "SMS"
               : ["pending", "backfill_waiting", "retry_wait", "sending"].includes(item.smsPush?.status || "")
                 ? "◷ Chờ SMS"
               : item.smsPush?.status === "blocked_auth" ? "SMS thiếu quyền"
@@ -343,16 +350,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
               : item.smsPush?.status === "needs_source" ? "SMS thiếu nguồn"
               : "SMS chưa đồng bộ"}
           </span>}
-          {item.picked && <small className="etsy-extraction-status"
-            title="Extracted artwork is for internal review until fidelity and usage rights are verified">
-            Extraction · {({
-              pending: "Queued", retry: "Retry", processing: "Extracting",
-              needs_review: "Review PNG", needs_ai: "Needs AI",
-              failed: "Failed", cancelled: "Cancelled",
-              source_missing: "Source image missing", disabled: "Worker inactive",
-            } as Record<string, string>)[item.extraction?.status || "source_missing"] ||
-              item.extraction?.status || "Pending"}
-          </small>}
           {item.picked && item.extraction?.status === "needs_review" && qaNotes.length > 0 &&
             <small className="etsy-extraction-qa" title={[...qaNotes,
               "Chỉ dùng để kiểm tra nội bộ; quyền thương mại chưa xác minh"].join(" · ")}>
@@ -385,7 +382,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         </div>
       </div>
     </td>
-    {item.picked && <td className="etsy-design-cell"><DesignCell item={item} /></td>}
+    {item.picked && <td className="etsy-design-cell"><DesignCell item={item}
+      onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     <td className="etsy-sms-cell">
@@ -516,9 +514,94 @@ function LogRow({ item }: { item: SpyLog }) {
   </tr>;
 }
 
+function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: string }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
+  const sync = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const next = {
+      overflow: maxScroll > 2,
+      atStart: el.scrollLeft <= 2,
+      atEnd: el.scrollLeft >= maxScroll - 2,
+    };
+    setEdges(prev => prev.overflow === next.overflow &&
+      prev.atStart === next.atStart && prev.atEnd === next.atEnd ? prev : next);
+  }, []);
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    sync();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    observer?.observe(el);
+    const table = el.querySelector("table");
+    if (table) observer?.observe(table);
+    window.addEventListener("resize", sync);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [scope, sync]);
+  const move = (direction: -1 | 1) => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    el.scrollLeft = Math.max(0, Math.min(maxScroll,
+      el.scrollLeft + direction * Math.max(240, Math.round(el.clientWidth * .7))));
+    sync();
+  };
+  return <>
+    {edges.overflow && <div className="etsy-table-scroll-nav"
+      aria-label="Điều hướng các cột trong bảng">
+      <span>{edges.atStart ? "Còn cột bên phải" :
+        edges.atEnd ? "Đã đến cột cuối" : "Xem các cột khác"}</span>
+      <div className="etsy-table-scroll-buttons">
+        <button type="button" aria-label="Cuộn bảng sang trái"
+          disabled={edges.atStart} onClick={() => move(-1)}>
+          <span aria-hidden="true">←</span>
+        </button>
+        <button type="button" aria-label="Cuộn bảng sang phải"
+          disabled={edges.atEnd} onClick={() => move(1)}>
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>}
+    <div className="etsy-table-wrap" ref={viewportRef} onScroll={sync}>{children}</div>
+  </>;
+}
+
+function EtsyPageJump({ page, totalPages, loading, onJump }: {
+  page: number; totalPages: number; loading: boolean; onJump: (nextPage: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(page));
+  // Navigation, filtering, and changes to the page count all have one source of truth.
+  useEffect(() => setDraft(String(page)), [page, totalPages]);
+  const target = Number(draft);
+  const valid = /^\d+$/.test(draft) && Number.isSafeInteger(target) &&
+    target >= 1 && target <= totalPages;
+  if (totalPages <= 1) return <strong>Trang {page} / {totalPages}</strong>;
+  return <form className="etsy-page-jump" onSubmit={event => {
+    event.preventDefault();
+    if (valid && !loading && target !== page) onJump(target);
+  }}>
+    <label htmlFor="etsy-page-number">Trang</label>
+    <input id="etsy-page-number" type="number" inputMode="numeric"
+      aria-label="Nhập số trang muốn đến" min={1} max={totalPages} step={1}
+      value={draft} disabled={loading} onChange={event => setDraft(event.target.value)} />
+    <span>/ {totalPages}</span>
+    <button type="submit" aria-label="Đi đến trang đã nhập"
+      disabled={loading || !valid || target === page}>Đi</button>
+  </form>;
+}
+
 export function EtsySpyPage() {
   const [options, setOptions] = useState<Options>(fromLocation);
   const [typedSearch, setTypedSearch] = useState(options.q);
+  // Small screens start in an overview-first mode; the chosen expansion stays
+  // mounted through Scout polls so open filters never disappear on refresh.
+  const [facetsExpanded, setFacetsExpanded] = useState(false);
+  const searchDebounceRef = useRef<number | null>(null);
   const [blacklistInput, setBlacklistInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistBusy, setBlacklistBusy] = useState(false);
@@ -559,7 +642,8 @@ export function EtsySpyPage() {
   } | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
-    requestKey: string; data: Page<Listing | Keyword | Trademark | SpyLog> | null;
+    requestKey: string; selectionScope: string;
+    data: Page<Listing | Keyword | Trademark | SpyLog> | null;
   } | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
@@ -580,8 +664,10 @@ export function EtsySpyPage() {
     : options.winKeywordsView ? ":win-keywords" : ":records") +
     "?" + apiQuery(options).toString();
   const requestKey = selectionScope + "#" + refresh;
-  const rows = tableResult?.requestKey === requestKey ? tableResult.data : null;
-  const loading = fetching || tableResult?.requestKey !== requestKey;
+  // Preserve mounted rows and their modals during background refreshes.
+  // Only a real tab/filter/page change invalidates the visible dataset.
+  const rows = tableResult?.selectionScope === selectionScope ? tableResult.data : null;
+  const loading = !rows && (fetching || tableResult?.selectionScope !== selectionScope);
   const isPickedSelection = options.tab === "products" && options.pickState === "picked" &&
     !options.blacklistView && !options.winKeywordsView;
   const selectable = options.tab === "products" &&
@@ -621,9 +707,25 @@ export function EtsySpyPage() {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
   useEffect(() => {
-    const timer = window.setTimeout(() => update({ q: typedSearch }), 360);
-    return () => window.clearTimeout(timer);
-  }, [typedSearch, update]);
+    // Keep a handle so an explicit tab/filter reset can cancel a stale search
+    // immediately, even before React runs the previous effect cleanup.
+    const timer = window.setTimeout(() => {
+      searchDebounceRef.current = null;
+      setOptions(current => current.q === typedSearch
+        ? current : { ...current, q: typedSearch, page: 1 });
+    }, 360);
+    searchDebounceRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (searchDebounceRef.current === timer) searchDebounceRef.current = null;
+    };
+  }, [typedSearch]);
+  const cancelPendingSearch = () => {
+    if (searchDebounceRef.current !== null) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+  };
   useEffect(() => {
     const query = queryFor(options);
     query.set("tab", options.tab);
@@ -651,16 +753,11 @@ export function EtsySpyPage() {
     }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
     return () => { alive = false; };
   }, [refresh]);
-  // Refresh a Picked page only while TikTok jobs are active, using one
-  // batched listing request (never one network request per row).
-  useEffect(() => {
-    if (options.tab !== "products" || options.pickState !== "picked" || !rows || loading) return;
-    const active = (rows.items as Listing[]).some(item =>
-      ["pending", "retry", "processing"].includes(item.tiktokListing?.status || ""));
-    if (!active) return;
-    const timer = window.setTimeout(() => setRefresh(value => value + 1), 15000);
-    return () => window.clearTimeout(timer);
-  }, [options.tab, options.pickState, rows, loading]);
+  // The existing Picked-only background poll adapts to active job status.
+  // Do not trigger a full-page refresh for active jobs: that duplicates data
+  // requests and unnecessarily rerenders the summary, filters and open viewers.
+  const pickedPollDelay = isPickedSelection && rows
+    ? pickedPollInterval(rows.items as Listing[]) : 30_000;
 
   // Date and theme counts must belong to the currently selected product
   // parent, never to a stale Eligible fetch after switching to Picked/Later.
@@ -753,11 +850,15 @@ export function EtsySpyPage() {
       trademarks: "/trademarks", logs: "/logs" }[options.tab];
     spyFetch<Page<Listing | Keyword | Trademark | SpyLog>>(endpoint + "?" + apiQuery(options).toString())
       .then(value => { if (alive) {
-        setTableResult({ requestKey, data: value });
+        setTableResult({ requestKey, selectionScope, data: value });
         setFetching(false);
+        setError("");
       } })
       .catch(e => { if (alive) {
-        setTableResult({ requestKey, data: null });
+        // A transient 503 or timeout must not erase the last good rows.
+        // This keeps Design galleries, Listing Optimizer dialogs and scroll alive.
+        setTableResult(current => current?.selectionScope === selectionScope && current.data
+          ? current : { requestKey, selectionScope, data: null });
         setError(e instanceof Error ? e.message : "Request failed");
         setFetching(false);
       } });
@@ -775,20 +876,24 @@ export function EtsySpyPage() {
       polling = true;
       try {
         const latest = await spyFetch<Page<Listing>>("/listings?" + apiQuery(options).toString());
-        if (!disposed) setTableResult(current => current?.requestKey === requestKey
-          ? { requestKey, data: latest } : current);
+        if (!disposed) setTableResult(current => {
+          if (current?.requestKey !== requestKey) return current;
+          const previous = current.data as Page<Listing> | null;
+          const next = previous ? reconcilePickedPage(previous, latest) : latest;
+          return next === previous ? current : { ...current, data: next };
+        });
       } catch {
         // Preserve the last confirmed receipt on transient sync/API failures.
       } finally { polling = false; }
     };
-    const interval = window.setInterval(poll, 30_000);
+    const interval = window.setInterval(poll, pickedPollDelay);
     window.addEventListener("focus", poll);
     return () => {
       disposed = true;
       window.clearInterval(interval);
       window.removeEventListener("focus", poll);
     };
-  }, [requestKey, options]);
+  }, [requestKey, selectionScope, options, pickedPollDelay]);
   const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManage || blacklistBusy) return;
@@ -991,13 +1096,56 @@ export function EtsySpyPage() {
   const syncLabel = summary?.source_status === "online" ? "Agent online"
     : summary?.source_status === "sync_delayed" ? "Sync delayed"
     : summary?.source_status === "never_synced" ? "Never synced" : "Agent offline";
-  const totalPages = Math.max(1, rows?.pages || 1);
+  // Keep pagination shape stable while the next page is being fetched. Controls
+  // stay disabled until the current request returns, so stale counts cannot navigate.
+  const totalPages = Math.max(1, rows?.pages ||
+    (loading ? tableResult?.data?.pages : null) || 1);
   const sortColumn = (id: string) => update({
     sort: id, dir: options.sort === id && options.dir === "desc" ? "asc" : "desc",
   });
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
   const isWinKeywordsView = activeTab === "products" && options.winKeywordsView;
+  // Show actual server-side product filters, not the sort or current page.
+  // Keep the Picked/Later scope when clearing a narrow search or day selection.
+  const activeProductFilters: string[] = [];
+  if (activeTab === "products" && !isBlacklistView && !isWinKeywordsView) {
+    if (options.observedDay !== "all") {
+      const date = options.observedDay;
+      const dayLabel = date === clockDay ? "Hôm nay"
+        : date === recentObservedDays(clockDay)[1] ? "Hôm qua"
+          : date.split("-").reverse().join("/");
+      activeProductFilters.push("Ngày: " + dayLabel);
+    }
+    if (options.group) {
+      const groupName = dayGroups?.day === options.observedDay &&
+        dayGroups.pick_state === options.pickState
+        ? dayGroups.items.find(item => item.key === options.group)?.label
+        : undefined;
+      activeProductFilters.push("Nhóm: " + (groupName || options.group));
+    }
+    if (options.q.trim()) activeProductFilters.push("Tìm: " + options.q.trim());
+    if (options.badge) activeProductFilters.push("Badge: " + options.badge);
+    if (options.tm) activeProductFilters.push("TM: " + options.tm);
+    if (options.source) activeProductFilters.push("Nguồn: " + options.source);
+    if (options.sessionId) activeProductFilters.push("Session: " + options.sessionId);
+  }
+  const facetDayLabel = options.observedDay === "all" ? "Tất cả ngày"
+    : options.observedDay === clockDay ? "Hôm nay"
+    : options.observedDay === recentObservedDays(clockDay)[1] ? "Hôm qua"
+    : options.observedDay.split("-").reverse().join("/");
+  const facetGroupLabel = options.group
+    ? (dayGroups?.day === options.observedDay &&
+        dayGroups.pick_state === options.pickState
+        ? dayGroups.items.find(item => item.key === options.group)?.label
+        : null) || options.group
+    : "Tất cả nhóm";
+  const clearProductFilters = () => {
+    cancelPendingSearch();
+    setTypedSearch("");
+    update({ q: "", observedDay: "all", group: "", badge: "", tm: "",
+      source: "", sessionId: "" });
+  };
   const dailyCards = recentObservedDays(clockDay).map((day, index) => {
     const bucket = observedDays?.pick_state === facetScope
       ? observedDays.items.find(item => item.day === day) : undefined;
@@ -1011,6 +1159,7 @@ export function EtsySpyPage() {
   const filteredWinKeywords = winKeywords.filter(keyword =>
     keyword.toLocaleLowerCase().includes(typedSearch.trim().toLocaleLowerCase()));
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
+    cancelPendingSearch();
     setTypedSearch("");
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "", group: "",
@@ -1062,7 +1211,8 @@ export function EtsySpyPage() {
       tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
   ];
   return <main className="etsy-spy-page">
-    <WorkspacePageHeader route="etsy-spy" actions={<>
+    <div className="etsy-header-shell">
+    <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar" actions={<>
       <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
       <button type="button" className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
       <WorkspaceBackToAssets />
@@ -1088,6 +1238,7 @@ export function EtsySpyPage() {
           <span className="etsy-tab-copy"><strong>{item.title}</strong><small>{item.subtitle}</small></span>
         </button>)}
       </nav>
+    </div>
     </div>
     <section id="etsy-spy-tabpanel" role="tabpanel"
       aria-labelledby={"etsy-tab-" + activeTab} className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
@@ -1147,7 +1298,50 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        {showProductFacets && <>
+        {showProductFacets && <section className="etsy-facet-explorer"
+          aria-label="Bộ lọc ngày và nhóm sản phẩm">
+          <div className="etsy-adaptive-controls">
+            <button type="button" id="etsy-facet-toggle"
+              className="etsy-facet-toggle" aria-controls="etsy-facet-details"
+              aria-expanded={facetsExpanded} onClick={() => setFacetsExpanded(open => !open)}>
+              <span className="etsy-facet-toggle-copy">
+                <strong>Ngày và nhóm sản phẩm</strong>
+                <small title={facetDayLabel + " · " + facetGroupLabel}>
+                  {facetDayLabel} · {facetGroupLabel}
+                </small>
+              </span>
+              <span aria-hidden="true" className="etsy-facet-chevron">{facetsExpanded ? "⌃" : "⌄"}</span>
+            </button>
+            <div className="etsy-adaptive-quick-actions">
+              <label htmlFor="etsy-quick-sort">Sắp xếp</label>
+              <select id="etsy-quick-sort" aria-label="Sắp xếp sản phẩm"
+                value={["observedAt", "pageTitle", "views24h", "bought24h", "inCarts", "badge"].includes(options.sort)
+                  ? options.sort : "observedAt"}
+                onChange={event => update({ sort: event.target.value, dir: "desc" })}>
+                <option value="observedAt">Mới quan sát</option>
+                <option value="views24h">Views / 24h</option>
+                <option value="bought24h">Bought / 24h</option>
+                <option value="inCarts">Carts</option>
+                <option value="badge">Badge Etsy</option>
+                <option value="pageTitle">Tên sản phẩm</option>
+              </select>
+              <button type="button" className="etsy-adaptive-sort-direction"
+                aria-label={options.dir === "desc" ? "Sắp xếp tăng dần" : "Sắp xếp giảm dần"}
+                title={options.dir === "desc" ? "Đổi sang tăng dần" : "Đổi sang giảm dần"}
+                onClick={() => update({ dir: options.dir === "desc" ? "asc" : "desc" })}>
+                <span aria-hidden="true">{options.dir === "desc" ? "↓" : "↑"}</span>
+              </button>
+              <button type="button" className="etsy-adaptive-jump"
+                onClick={() => document.getElementById("etsy-product-results")?.scrollIntoView?.({
+                  behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+                    ? "auto" : "smooth", block: "start",
+                })}>
+                Đến danh sách <span aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </div>
+          <div id="etsy-facet-details"
+            className={"etsy-facet-details" + (facetsExpanded ? " is-open" : "")}>
           <section className="etsy-observed-days"
             aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
             <div className="etsy-observed-day-grid">
@@ -1211,12 +1405,25 @@ export function EtsySpyPage() {
               {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
             </span>}
           </section>
-        </>}
+          </div>
+        </section>}
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
           {isBlacklistView
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
             : "Win Keyword · danh sách ghi chú keyword, không sử dụng phân nhóm sản phẩm theo ngày."}
         </div>}
+        {activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
+          activeProductFilters.length > 0 && <div className="etsy-filter-context"
+            aria-label="Bộ lọc sản phẩm đang áp dụng">
+            <span className="etsy-filter-context-heading">Đang lọc</span>
+            {activeProductFilters.map(label => <span className="etsy-filter-chip"
+              title={label} key={label}>{label}</span>)}
+            <button type="button" className="etsy-filter-reset"
+              onClick={clearProductFilters}
+              aria-label="Xóa bộ lọc, giữ nguyên tab sản phẩm đang xem">
+              Xóa lọc
+            </button>
+          </div>}
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">
           <div className="etsy-blacklist-panel-header">
@@ -1392,15 +1599,56 @@ export function EtsySpyPage() {
       <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
         sort={options.sort} direction={options.dir} refresh={refresh}
         canManage={canManage} onSort={sortColumn} />
-      : <div className="etsy-table-card">
+      : <div className="etsy-table-card" id="etsy-product-results">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
-        : !rows?.items.length ? <div className="etsy-empty">
-          {activeTab === "products" && options.pickState === "later"
-            ? "No Later products yet. Use the Later button beside Open on Etsy to group related design themes."
-            : <>No matching records. {summary?.source_status === "never_synced"
-                ? "Pair the Windows agent to begin the initial historical sync." : "Try adjusting filters."}</>}
+        : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
+          {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
+            <strong className="etsy-empty-title">
+              {summary?.source_status === "never_synced" ? "Chưa có dữ liệu Scout"
+                : rows && rows.total > 0 && options.page > 1 ? "Trang này không còn sản phẩm"
+                : activeProductFilters.length > 0 ? "Không tìm thấy sản phẩm phù hợp"
+                : options.pickState === "picked" ? "Chưa có sản phẩm Picked"
+                : options.pickState === "later" ? "Chưa có sản phẩm Later"
+                : "Chưa có sản phẩm khả dụng"}
+            </strong>
+            <p className="etsy-empty-description">
+              {summary?.source_status === "never_synced"
+                ? "Chưa có bản ghi được đồng bộ từ Windows Scout."
+                : rows && rows.total > 0 && options.page > 1
+                  ? "Danh sách có thể đã thay đổi. Quay về trang đầu để xem các bản ghi còn lại."
+                : activeProductFilters.length > 0
+                  ? "Bộ lọc hiện tại chưa có kết quả trong " +
+                    (options.pickState === "picked" ? "Picked" :
+                      options.pickState === "later" ? "Later" : "Eligible") + "."
+                : options.pickState === "picked"
+                  ? "Chọn sản phẩm bằng Pick tại Eligible để thêm vào danh sách này."
+                : options.pickState === "later"
+                  ? "Chuyển sản phẩm sang Later tại Eligible để lưu chủ đề xem sau."
+                : "Không có sản phẩm phù hợp với điều kiện khả dụng hiện tại."}
+            </p>
+            {summary?.source_status !== "never_synced" &&
+              (rows && rows.total > 0 && options.page > 1
+                ? <button type="button" className="etsy-btn etsy-empty-action"
+                    onClick={() => update({ page: 1 })}>
+                    Về trang đầu
+                  </button>
+                : activeProductFilters.length > 0
+                  ? <button type="button" className="etsy-btn etsy-empty-action"
+                      onClick={clearProductFilters}
+                      aria-label="Xóa bộ lọc và giữ nguyên danh mục sản phẩm đang xem">
+                      Xóa lọc · xem tất cả ngày
+                    </button>
+                  : options.pickState !== "eligible"
+                    ? <button type="button" className="etsy-btn etsy-empty-action"
+                        onClick={() => selectTab("products", { pickState: "eligible" })}>
+                        Xem Eligible listings
+                      </button> : null)}
+          </> : <>
+            <strong className="etsy-empty-title">Không có bản ghi phù hợp</strong>
+            <p className="etsy-empty-description">Thử điều chỉnh bộ lọc hoặc từ khóa tìm kiếm.</p>
+          </>}
         </div>
-        : <div className="etsy-table-wrap">
+        : <EtsyTableViewport scope={selectionScope}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
             (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
@@ -1429,7 +1677,7 @@ export function EtsySpyPage() {
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
-              <ProductRow key={item.sessionId + "/" + item.keyword + "/" + item.sourceKind + "/" + item.listingKey}
+              <ProductRow key={item.listingKey}
                 item={item} canPick={canManage}
                 busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy || tiktokSelectedBusy}
                 selectable={selectable}
@@ -1444,17 +1692,21 @@ export function EtsySpyPage() {
                 <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
           </tbody></table>
-        </div>}
-      <div className="etsy-pager">
-        <span>{rows && rows.total > 0 ? ((options.page - 1) * options.pageSize + 1).toLocaleString() : 0}–{rows ? Math.min(options.page * options.pageSize, rows.total).toLocaleString() : "—"} of {rows?.total.toLocaleString() ?? "—"}</span>
+        </EtsyTableViewport>}
+      <div className="etsy-pager" aria-label="Phân trang dữ liệu">
+        <span className="etsy-page-range">{rows?.items.length
+          ? ((options.page - 1) * options.pageSize + 1).toLocaleString("vi-VN") : 0}–{rows?.items.length
+          ? Math.min((options.page - 1) * options.pageSize + rows.items.length, rows.total).toLocaleString("vi-VN")
+          : rows ? "0" : "—"} / {rows?.total.toLocaleString("vi-VN") ?? "—"} bản ghi</span>
         <div className="etsy-page-controls">
           <button type="button" aria-label="First page" disabled={loading || options.page <= 1} onClick={() => update({ page: 1 })}>«</button>
           <button type="button" aria-label="Previous page" disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>‹</button>
-          <strong>Page {options.page} / {totalPages}</strong>
+          <EtsyPageJump page={options.page} totalPages={totalPages} loading={loading}
+            onJump={page => update({ page })} />
           <button type="button" aria-label="Next page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>›</button>
           <button type="button" aria-label="Last page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: totalPages })}>»</button>
         </div>
-        <label>Rows
+        <label>Số dòng/trang
           <select aria-label="Rows per page" value={options.pageSize} disabled={loading}
             onChange={event => update({ pageSize: Number(event.target.value) })}>
             {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}

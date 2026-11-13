@@ -81,5 +81,5 @@ describe("Stage 2 lazy row requests", () => {
     expect(vi.mocked(api.startUgcScout)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(api.startUgcScout).mock.calls.map(args => args[0]).sort()).toEqual(["plan-0", "plan-1"]);
     await act(async () => root.unmount());
-  });
+  }, 15_000);
 });

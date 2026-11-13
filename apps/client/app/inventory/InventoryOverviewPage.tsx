@@ -4,7 +4,6 @@ import { InventoryDailyPipeline } from "./InventoryDailyPipeline";
 import { InventoryCandidateReviewPanel } from "./InventoryCandidateReviewPanel";
 import { InventoryCatinatShiftReadiness } from "./InventoryCatinatShiftReadiness";
 import { InventoryCatinatApprovals } from "./InventoryCatinatApprovals";
-import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 
 /** The only Inventory surface: preserve old bookmarks by collapsing to /inventory. */
 export function InventoryOverviewPage() {
@@ -14,7 +13,6 @@ export function InventoryOverviewPage() {
     }
   }, []);
   return <main className="inventory-workspace">
-    <WorkspacePageHeader route="inventory" actions={<WorkspaceBackToAssets />} />
     <section className="inventory-workspace-content" aria-label="Inventory Daily">
       <InventoryDailyTab />
       <InventoryDailyPipeline embedded />

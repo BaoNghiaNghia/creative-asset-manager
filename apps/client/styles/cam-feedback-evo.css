@@ -1,0 +1,301 @@
+/* evondevKit phase 6 — feedback, loading, empty/error and dialog rhythm.
+   Adapts existing CAM components; no CSS resets, UI frameworks, forced reloads
+   or changes to user state/worker timing. */
+
+:root {
+  --cam-state-ink: var(--cam-evo-ink, #17243a);
+  --cam-state-muted: var(--cam-evo-muted, #64748b);
+  --cam-state-hairline: var(--cam-evo-hairline, #e8edf4);
+  --cam-state-control: var(--cam-evo-input-border, #cdd7e4);
+  --cam-state-brand: var(--cam-evo-brand, #265cbd);
+  --cam-state-focus: var(--cam-evo-focus, #3674d4);
+}
+
+/* Same semantic and visual language across queue, review, and AI. */
+.cam-workspace-feedback {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 15px 16px;
+  border: 1px solid var(--cam-state-hairline);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--cam-state-ink);
+  text-align: left;
+}
+.cam-workspace-feedback.is-compact { gap: 9px; padding: 12px 13px; }
+.cam-workspace-feedback-icon {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  flex: 0 0 29px;
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+  background: #eff3f9;
+  color: #58708f;
+  font-size: 15px;
+  font-weight: 800;
+}
+.cam-workspace-feedback--loading .cam-workspace-feedback-icon {
+  background: #eef4fd;
+  color: var(--cam-state-brand);
+}
+.cam-workspace-feedback--error .cam-workspace-feedback-icon {
+  background: #fbefee;
+  color: #a64038;
+}
+.cam-workspace-feedback-copy {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 4px;
+  align-self: center;
+  min-width: 0;
+}
+.cam-workspace-feedback-copy strong {
+  color: var(--cam-state-ink);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+.cam-workspace-feedback-copy p {
+  margin: 0;
+  color: var(--cam-state-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.cam-workspace-feedback-action {
+  align-self: center;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 11px;
+  border: 1px solid var(--cam-state-control);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--cam-state-brand);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.cam-workspace-feedback-action:hover { border-color: #a5bfdc; background: #f5f8fd; }
+.cam-workspace-feedback-action:focus-visible {
+  outline: 2px solid var(--cam-state-focus);
+  outline-offset: 2px;
+}
+.cam-workspace-feedback-spinner {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #bcd1ed;
+  border-top-color: var(--cam-state-brand);
+  border-radius: 50%;
+  animation: cam-state-spin .85s linear infinite;
+}
+@keyframes cam-state-spin { to { transform: rotate(360deg); } }
+
+/* Skeletons deliberately retain row shape instead of replacing the whole table. */
+.cam-workspace-skeleton-rows { display: grid; width: 100%; min-width: 0; }
+.cam-workspace-skeleton-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(64px,28%);
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--cam-state-hairline);
+}
+.cam-workspace-skeleton-row:last-child { border-bottom: 0; }
+.cam-workspace-skeleton-row > i {
+  display: block;
+  height: 11px;
+  border-radius: 5px;
+  background: linear-gradient(100deg,#e9eef5 26%,#f6f8fc 48%,#e9eef5 70%);
+  background-size: 200% 100%;
+  animation: cam-state-shimmer 1.5s ease-in-out infinite;
+}
+.cam-workspace-skeleton-row .cam-workspace-skeleton-avatar { width: 29px; height: 29px; border-radius: 8px; }
+.cam-workspace-skeleton-row .cam-workspace-skeleton-primary { width: 87%; }
+.cam-workspace-skeleton-row .cam-workspace-skeleton-secondary { width: 66%; justify-self: end; }
+.cam-workspace-skeleton-row:nth-child(2n) .cam-workspace-skeleton-primary { width: 62%; }
+.cam-workspace-skeleton-row:nth-child(3n) .cam-workspace-skeleton-secondary { width: 84%; }
+@keyframes cam-state-shimmer { to { background-position: -200% 0; } }
+
+/* Queue: keep existing data and open result modals on manual refresh. */
+.job-queue-shell .job-queue-table-card[aria-busy="true"] {
+  border-color: #c6d8ef;
+}
+.job-queue-shell .job-queue-refreshing {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #506d96;
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.job-queue-shell .job-queue-refreshing::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cam-state-brand);
+  content: "";
+}
+.job-queue-shell .job-queue-empty {
+  height: auto;
+  min-height: 100px;
+  padding: 0 !important;
+  white-space: normal;
+  text-align: left !important;
+}
+.job-queue-shell .job-queue-empty > .cam-workspace-feedback {
+  margin: 8px auto;
+  max-width: min(500px, 100%);
+}
+.job-queue-shell .job-queue-empty > .cam-workspace-skeleton-rows { width: 100%; }
+.job-queue-shell .job-duration { font-variant-numeric: tabular-nums; }
+
+/* Both review modes get one skeleton/empty-state scale and no surprise
+   full-pane spinner when a live refresh has previously loaded records. */
+.review-board-shell .review-board-list-skeleton { min-width: 0; padding: 0; }
+.review-board-shell .review-board-list-empty {
+  box-sizing: border-box;
+  padding: 20px 14px;
+  min-height: 140px;
+}
+.review-board-shell .review-board-list-empty .cam-workspace-feedback {
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: center;
+}
+.review-board-shell .review-board-list-empty .cam-workspace-feedback-copy { justify-items: center; }
+.review-board-shell .review-board-list-empty .cam-workspace-feedback-copy p {
+  max-width: 230px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.review-board-shell .review-board-list-empty .cam-workspace-feedback-icon svg {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.review-board-shell .review-board-list-empty .cam-workspace-feedback-action {
+  margin-top: 5px;
+}
+.review-board-shell .review-board-list .cam-workspace-skeleton-row { min-height: 65px; }
+.review-board-shell .review-board-list-empty .cam-workspace-feedback-copy strong {
+  color: #354d6a; font-size: 12px;
+}
+.review-board-shell .review-board-inline-loading {
+  color: #486999;
+  font-size: 10.5px;
+}
+
+/* Uniform error alerts without suppressing technical messages or retry. */
+:where(
+  .cam-evo-ai-operations .ops-partial-error,
+  .job-queue-shell .job-queue-error,
+  .review-board-shell .review-board-error,
+  .branding-dna-page .bdna-live-error,
+  .branding-dna-page .bdna-rag-error,
+  .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-error
+) {
+  border: 1px solid #e9bcb8;
+  border-left: 3px solid #ba5147;
+  border-radius: 8px;
+  background: #fffafa;
+  color: #8f4039;
+  box-shadow: none;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* Existing AI Operations dashboard retains its ARIA/refresh logic; only
+   progress, empty and retry card styling is normalized. */
+.cam-evo-ai-operations .ops-skeleton { gap: 9px; padding: 16px clamp(12px, 2vw, 28px); }
+.cam-evo-ai-operations .ops-skeleton i { height: 80px; border-radius: 8px; }
+.cam-evo-ai-operations .ops-state {
+  min-height: 240px;
+  padding: 22px 16px;
+  border: 1px solid var(--cam-state-hairline);
+  border-radius: 9px;
+  background: #fff;
+}
+.cam-evo-ai-operations .ops-state strong { color: var(--cam-state-ink); font-size: 15px; }
+.cam-evo-ai-operations .ops-state p { color: var(--cam-state-muted); font-size: 11.5px; }
+
+/* Subtle loading indicator rather than extra ornament for empty cells. */
+.branding-dna-page :is(.bdna-empty,.bdna-rag-empty),
+.rrugc-shell.rrugc-tiktokshop-workspace :is(.rrugc-source-plan-empty,.rrugc-stage3-empty) {
+  border: 1px dashed var(--cam-state-hairline);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--cam-state-muted);
+  font-size: 11px;
+}
+
+/* Modal shells: visual treatment only. Keep each original focus trap,
+   portal, backdrop, Escape and internal scrolling implementation unchanged. */
+:where(
+  .generation-result-modal,
+  .confirm-dialog,
+  .access-shell .access-member-dialog,
+  .inventory-workspace .ops-inventory-modal,
+  .rrugc-shell .tiktokshop-settings-modal,
+  .rrugc-shell .rrugc-stage3-review-modal
+) {
+  border-color: var(--cam-state-hairline);
+  border-radius: var(--cam-evo-radius-dialog, 14px);
+  box-shadow: var(--cam-evo-elevation-modal, 0 22px 65px rgba(18,33,59,.2));
+}
+:where(.generation-result-modal,.confirm-dialog,.access-shell .access-member-dialog,.rrugc-shell .tiktokshop-settings-modal)
+  :where(button,a,select,input,textarea):focus-visible {
+  outline: 2px solid var(--cam-state-focus);
+  outline-offset: 2px;
+}
+
+/* Toast is the one global feedback surface; do not move it over a left
+   dock/navigation pane or exceed the available phone width. */
+.cam-action-toast {
+  border-radius: 9px;
+  border-color: var(--cam-state-hairline);
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(21,38,68,.14);
+}
+.cam-action-toast--error { border-color: #e9bcb8; }
+.cam-action-toast--warning { border-color: #ead4a4; }
+.cam-action-toast--success { border-color: #b7d9c4; }
+.cam-action-toast button:focus-visible {
+  outline: 2px solid var(--cam-state-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width:760px) {
+  .cam-workspace-feedback { flex-wrap: wrap; gap: 9px; padding: 12px; }
+  .cam-workspace-feedback-action { margin-left: 38px; }
+  .review-board-shell .review-board-list-empty .cam-workspace-feedback-action { margin-left: 0; }
+  .cam-workspace-skeleton-row { gap: 7px; grid-template-columns: 26px minmax(0,1fr) minmax(42px, 25%); padding-inline: 9px; }
+  .cam-workspace-skeleton-row .cam-workspace-skeleton-avatar { width: 26px; height: 26px; }
+  .job-queue-shell .job-queue-table-card > header { flex-wrap: wrap; gap: 7px; }
+}
+@media (max-width:430px) {
+  .cam-workspace-feedback { padding: 11px 10px; }
+  .cam-workspace-feedback-copy p { font-size: 11px; }
+  .cam-action-toasts { width: min(320px, calc(100vw - 20px)); }
+}
+@media (prefers-reduced-motion:reduce) {
+  .cam-workspace-skeleton-row > i,
+  .cam-workspace-feedback-spinner { animation: none; }
+}

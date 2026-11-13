@@ -1,0 +1,38 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "reviews-stage1-cap-stack",
+      "waitFor": ".rrugc-evo-reviews .rrugc-cap-stack-stage",
+      "fullPage": true
+    },
+    {
+      "name": "reviews-stage2-embroidery",
+      "click": "#rrugc-tab-reviews-stage2",
+      "waitFor": ".rrugc-evo-reviews #rrugc-panel-reviews-stage2 .rrugc-colorway-stage:not(.is-products-compact)",
+      "fullPage": true
+    },
+    {
+      "name": "reviews-stage3-pinterest-references",
+      "click": "#rrugc-tab-stage3",
+      "waitFor": ".rrugc-evo-reviews #rrugc-source-plans",
+      "fullPage": true
+    },
+    {
+      "name": "reviews-stage4-generation",
+      "click": "#rrugc-tab-stage4",
+      "waitFor": ".rrugc-evo-reviews #rrugc-panel-stage4 .rrugc-stage2",
+      "fullPage": true
+    },
+    {
+      "name": "reviews-stage5-ugc",
+      "click": "#rrugc-tab-stage5",
+      "waitFor": ".rrugc-evo-reviews #rrugc-panel-stage5 .rrugc-stage3",
+      "fullPage": true
+    }
+  ]
+}

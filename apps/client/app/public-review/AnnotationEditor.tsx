@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -41,10 +40,20 @@ export function AnnotationEditor({
   const emojiPanelRef = useRef<HTMLDivElement>(null);
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ codeBlock: false }),
+      // TipTap 3 already bundles Link. Keep the previous JSON schema and
+      // reject unsafe URI schemes both when loading and while auto-linking.
+      StarterKit.configure({
+        codeBlock: false,
+        underline: false,
+        trailingNode: false,
+        link: {
+          openOnClick: false,
+          isAllowedUri: (url, context) => context.defaultValidate(url) && allowedUrl(url),
+          shouldAutoLink: allowedUrl,
+        },
+      }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Link.configure({ openOnClick: false, validate: allowedUrl }),
       Placeholder.configure({ placeholder }),
     ],
     content: initial || { type: "doc", content: [{ type: "paragraph" }] },

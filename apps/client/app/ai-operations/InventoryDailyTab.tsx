@@ -8,6 +8,7 @@ import {
   type InventoryDailySheetStatus,
 } from "../inventory/api";
 import { InventoryApp, type InventoryPage } from "../inventory/InventoryApp";
+import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 
 type InventoryDailyState = {
   status: InventoryDailySheetStatus;
@@ -102,12 +103,19 @@ export function InventoryDailyTab() {
     return () => window.clearInterval(timer);
   }, []);
 
-  if (loading) return <div className="ops-inventory-state" aria-busy="true">Đang tải dữ liệu Inventory hằng ngày…</div>;
-  if (error || !value) return <div className="ops-inventory-state ops-inventory-error" role="alert"><strong>Không thể tải Inventory</strong><p>{error}</p><button type="button" onClick={() => setReload(current => current + 1)}>Thử lại</button></div>;
-  return <InventoryDailyOverview {...value} onRefresh={() => setReload(current => current + 1)} />;
+  if (!value) return <div className="ops-content ops-inventory-daily">
+    <WorkspacePageHeader route="inventory" title="Tổng quan kiểm kê tự động" eyebrow="Inventory · Operations"
+      className="cam-header-v18 cam-inventory-header-v18" description="Theo dõi chu kỳ kiểm kê tự động tại Asia/Ho_Chi_Minh." actions={<WorkspaceBackToAssets />} />
+    <div className={"ops-inventory-state" + (error ? " ops-inventory-error" : "")} role={error ? "alert" : undefined} aria-busy={loading}>
+      {loading ? "Đang tải dữ liệu Inventory hằng ngày…" : <><strong>Không thể tải Inventory</strong><p>{error}</p><button type="button" onClick={() => setReload(current => current + 1)}>Thử lại</button></>}
+    </div>
+  </div>;
+  // Keep the overview and any open human-review dialog mounted on refresh failures.
+  // A transient network outage must never discard the last verified status.
+  return <InventoryDailyOverview {...value} refreshError={error} onRefresh={() => setReload(current => current + 1)} />;
 }
 
-export function InventoryDailyOverview({ status, run, onRefresh = () => undefined }: InventoryDailyState & { onRefresh?: () => void }) {
+export function InventoryDailyOverview({ status, run, refreshError = "", onRefresh = () => undefined }: InventoryDailyState & { onRefresh?: () => void; refreshError?: string }) {
   const [modalPage, setModalPage] = useState<InventoryPage | null>(null);
   const reconciliation = status.last_reconciliation;
   const snapshot = status.last_snapshot;
@@ -157,14 +165,20 @@ export function InventoryDailyOverview({ status, run, onRefresh = () => undefine
   }, [modalPage]);
 
   return <div className="ops-content ops-inventory-daily">
-    <div className="ops-section-heading">
-      <div><h2>Tổng quan kiểm kê tự động</h2><p>Theo dõi chu kỳ kiểm kê tại {status.timezone}; tiến trình chạy nền không cần mở trang này.</p></div>
-      <div className="ops-inventory-heading-actions">
-        <span className={"ops-inventory-health " + (healthy ? "healthy" : status.operational_state)}>{operationalLabel(status.operational_state)}</span>
+    <WorkspacePageHeader route="inventory" title="Tổng quan kiểm kê tự động" eyebrow="Inventory · Operations"
+      className="cam-header-v18 cam-inventory-header-v18"
+      description={<>Theo dõi chu kỳ kiểm kê tại {status.timezone}; tiến trình chạy nền không cần mở trang này.</>}
+      titleAddon={<span className={"ops-inventory-health " + (healthy ? "healthy" : status.operational_state)}>{operationalLabel(status.operational_state)}</span>}
+      actions={<div className="ops-inventory-heading-actions">
         {status.working_spreadsheet_url ? <a className="ops-inventory-source-link" href={status.working_spreadsheet_url} target="_blank" rel="noreferrer"><QuickActionIcon name="sheet" />Mở bảng kiểm kho</a> : null}
         <button className="ops-inventory-refresh-action" type="button" onClick={onRefresh}><QuickActionIcon name="refresh" />Làm mới</button>
-      </div>
-    </div>
+        <WorkspaceBackToAssets />
+      </div>} />
+
+    {refreshError && <div className="ops-inventory-transient-error" role="status">
+      <div><strong>Chưa làm mới được Inventory</strong><p>Đang giữ dữ liệu gần nhất. {refreshError}</p></div>
+      <button type="button" onClick={onRefresh}>Thử lại</button>
+    </div>}
 
     <section className="ops-inventory-summary" aria-label="Tóm tắt Inventory hằng ngày">
       <article className="ops-inventory-summary-card processing-date">

@@ -56,6 +56,7 @@ from .tiktok_skill import (
     attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
 from .ytrends_mcp import research_etsy_keyword_set, merge_keyword_evidence
+from .review_intents import apply_review_intent, get_review_receipt
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -168,9 +169,29 @@ def _valid_source_badge(source: str):
 
 
 def _qualified_listing_condition():
-    """Source badge AND (views in 24h > 5 OR 20+ carts) are required."""
-    return and_(or_(Listing.views24h > 5, Listing.in_carts >= 20),
-                or_(_valid_source_badge("search"), _valid_source_badge("shop")))
+    """Same two mutually independent Eligible paths as Windows SQLite.
+
+    Search/Shop own-badge + observed demand; OR a source-owned first-20 Shop
+    listing with literal 'In 20+ carts' and >3 reviews for THIS listing.
+    No Search or shop-wide aggregate can borrow the Shop exception.
+    """
+    badge_demand = and_(
+        or_(Listing.views24h > 5, Listing.in_carts >= 20),
+        or_(_valid_source_badge("search"), _valid_source_badge("shop")),
+    )
+    shop_reviews = and_(
+        Listing.source_kind == "shop",
+        Listing.has_shop.is_(True),
+        or_(
+            Listing.source_shop_url.like("https://www.etsy.com/shop/%"),
+            Listing.source_shop_url.like("https://etsy.com/shop/%"),
+        ),
+        Listing.shop_position.between(1, 20),
+        Listing.cart_lower_bound.is_(True),
+        Listing.in_carts >= 20,
+        Listing.item_reviews > 3,
+    )
+    return or_(badge_demand, shop_reviews)
 
 
 def _picked_condition(tenant: str):
@@ -1948,6 +1969,51 @@ def agent_picked_listings(
     return {"ok": True, "complete": True, "total": len(items),
             "revision": revision, "items": items}
 
+
+
+@router.post("/agents/{agent_id}/review-intents")
+async def agent_submit_review_intent(
+    agent_id: str, request: Request, response: Response,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """One real CAM Pick/Later/Win mutation, atomically recorded once.
+
+    No user cookie, arbitrary browser token or privilege escalation:
+    the valid Windows Etsy Spy agent can affect only its own tenant/listings
+    that CAM already accepted as Eligible through synchronized evidence.
+    """
+    agent = authenticate_agent(db, agent_id, authorization)
+    if agent.name.startswith(IMAGE_AGENT_NAME_PREFIX):
+        raise HTTPException(403, "Windows Etsy Spy agent required")
+    raw = await request.body()
+    if len(raw) > 2048:
+        raise HTTPException(413, "Review intent request too large")
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        raise HTTPException(415, "JSON request required")
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, "Invalid JSON request") from None
+    response.headers["Cache-Control"] = "no-store"
+    return apply_review_intent(
+        db, agent, data, qualified=_qualified_listing_condition,
+        blacklisted=_blacklist_condition, auto_later=_auto_later_condition,
+    )
+
+
+@router.get("/agents/{agent_id}/review-intents/{request_id}")
+def agent_review_intent_receipt(
+    agent_id: str, request_id: str, response: Response,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Authenticated read-only reconciliation after an uncertain HTTP reply."""
+    agent = authenticate_agent(db, agent_id, authorization)
+    if agent.name.startswith(IMAGE_AGENT_NAME_PREFIX):
+        raise HTTPException(403, "Windows Etsy Spy agent required")
+    response.headers["Cache-Control"] = "no-store"
+    return get_review_receipt(db, agent, request_id)
 
 
 _SMS_STATES = frozenset({

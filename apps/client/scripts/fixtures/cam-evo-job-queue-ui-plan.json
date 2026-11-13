@@ -1,0 +1,20 @@
+{
+  "viewports": [
+    "desktop",
+    "tabletPortrait",
+    "mobile"
+  ],
+  "steps": [
+    {
+      "name": "queue-table",
+      "waitFor": ".job-queue-shell .job-queue-table-card",
+      "fullPage": true
+    },
+    {
+      "name": "queue-status-switch",
+      "click": ".job-queue-tabs button:nth-child(2)",
+      "waitFor": ".job-queue-shell .job-queue-tabs button.active",
+      "fullPage": false
+    }
+  ]
+}

@@ -765,6 +765,9 @@ describe("Realistic Review UGC source-first workspace", () => {
 
   it("renders Stage 0–3 for Products without affecting Reviews tabs", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
+    // evondevKit is a Products-only scoped CSS layer; Reviews markup and
+    // all four Stage 0-3 navigation targets remain functionally untouched.
+    expect(markup).toContain('rrugc-evo-products');
     expect(markup).toContain('role="tablist"');
     expect(markup).toContain('aria-label="GatorHats Products stages"');
     expect(markup).not.toContain('aria-label="GatorHats workflows"');
