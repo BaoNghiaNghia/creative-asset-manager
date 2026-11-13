@@ -33,11 +33,11 @@ jobs:
           cache-dependency-path: apps/client/package-lock.json
       - name: Install locked dependencies
         run: npm ci
-      - name: Dependency security gate (high/critical)
+      - name: Dependency security gate (moderate/high/critical)
         run: |
           set -o pipefail
           node --test scripts/verify-dependency-audit.node-test.mjs
-          npm audit --audit-level=high --json | node scripts/verify-dependency-audit.mjs
+          npm audit --audit-level=moderate --json | node scripts/verify-dependency-audit.mjs --minimum-severity=moderate
       - name: Static validation
         run: npm run typecheck
       - name: Unit and component tests

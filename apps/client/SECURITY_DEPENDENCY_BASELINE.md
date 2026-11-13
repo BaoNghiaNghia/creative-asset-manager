@@ -1,23 +1,27 @@
-# Frontend dependency remediation — 2026-11-13
+# Frontend dependency security — 2026-11-13 (Phase 17)
 
-## Scope and result
+## Current state
 
-- Baseline `npm audit` on Phase 15: 39 findings (2 critical, 5 high, 32 moderate).
-- After lockfile and compatible toolchain updates: 28 moderate, **0 high or critical**.
-- Runtime `npm audit --omit=dev`: the previous high `markdown-it` issue is resolved; 28 TipTap-related moderate advisories remain.
-- Remediated build/test toolchain with Vite 6.4.6, Vitest 5.1.0, plus patched transitive packages including `markdown-it` 14.3.3, `browserslist` 4.29.5, `nanoid` 3.3.20 and `source-map-js` 1.2.2.
-- Vitest 5 requires Node 22.12 or newer. Production browser JS remains static; CI and host build environments already run Node 22.
+- Phase 15 baseline: 39 npm advisories (2 critical, 5 high, 32 moderate).
+- Phase 16 secure toolchain: 28 moderate advisories, none high or critical.
+- **Phase 17 TipTap 3.33.1 migration: `npm audit` reports 0 critical, 0 high, 0 moderate, 0 low.**
+- Vite 6.4.6, Vitest 5.1.0, Node >=22.12, patched markdown-it/browserslist/nanoid/source-map-js remain pinned in package-lock.json.
 
-## Continuous check
+## Editor migration scope and compatibility
 
-The frontend CI now parses the complete `npm audit` JSON and **fails on any high/critical finding or audit error**. Moderate advisories are summarized rather than silently suppressed. The check uses the npm vulnerability database on each run, so newly published advisories can correctly block a future release.
+- Only `app/public-review/AnnotationEditor.tsx` directly integrates TipTap. It is the Public Review annotation composer and edit/reply entry point; other CAM screens do not import the editor directly.
+- Upgrade all five direct TipTap packages in lockstep to 3.33.1. `@tiptap/extension-link` is now bundled by StarterKit and must not be added a second time.
+- Preserve the persisted JSON nodes (`doc`, `paragraph`, `text`, `taskList`, `taskItem`), marks (`bold`, `italic`, `strike`, `code`, `link`), and `checked` task attributes. Disable new StarterKit underline and trailing-node behavior to avoid unplanned changes in round-trip output.
+- Keep links click-disabled in the composer and require HTTP(S) URLs with both the default validator and the application policy. The read-only `RichAnnotation` renderer also validates URLs before creating anchors.
+- Preserve the comment/reply/create/edit flow and the draft if submission fails. No API schema, database migration, worker, Scout or ImageGen code change.
+- Tests verify TipTap 2 JSON hydration and submission, safe/unsafe link handling, checked tasks, emoji insertion, failed-save draft retention, and Public Review notes integration.
 
-## Deferred editor migration
+## Continuous security gate
 
-TipTap 2.x remains in use in document editors; 28 moderate reports transitively originate in its core. The suggested TipTap 3.x upgrade is a major API migration, not a safe lockfile-only patch. Audit editor parsing/sanitization, custom extensions, persistent content roundtrip, mentions/tasks, links, keyboard shortcuts and cross-workspace rendering before upgrading. Do not automatically run `npm audit fix --force`.
+The frontend CI runs `npm audit --audit-level=moderate --json` through `verify-dependency-audit.mjs --minimum-severity=moderate`. A failed audit lookup, any moderate/high/critical advisory, or invalid report blocks merge. Low advisories remain visible in the report but are not currently a merge blocker. The gate has independent positive, negative and failed-audit test cases.
 
-## Guardrails
+## Release gates
 
-- No API, worker, database, Scout, ImageGen or Etsy filtering contracts changed.
-- Use a clean worktree, full frontend tests, production build/route-split and responsive browser QA before merging.
-- Deploy from a reviewed `main` revision with current and one rollback release only.
+- Full frontend unit suite, TypeScript, Vite production bundle, and route-split budgets must succeed.
+- Browser QA for Public Review and responsive Etsy Spy/other workspaces must pass.
+- Merge only after full repository CI is green. Deploy frontend-only from clean `main`, retain current + one rollback, and verify a read-only authenticated production smoke test.
