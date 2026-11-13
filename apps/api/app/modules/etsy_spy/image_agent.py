@@ -23,7 +23,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -103,6 +103,18 @@ def storage_capacity(incoming_bytes: int = 0) -> dict:
             "used_bytes": used, "quota_bytes": quota, "free_bytes": free}
 
 
+def design_storage_capacity() -> dict:
+    """Orchestrator capacity is Google Drive, not the VPS PNG cache."""
+    from .imagegen_drive import provider_and_folder
+    try:
+        provider_and_folder()
+    except (HTTPException, ValueError):
+        return {"ready": False, "reason": "google_drive_not_connected",
+                "storage_backend": "google_drive_managed"}
+    return {"ready": True, "reason": "google_drive_configured",
+            "storage_backend": "google_drive_managed"}
+
+
 def daily_cap() -> int:
     """Bound daily outbound claims to the intended 200/day pilot capacity."""
     raw = os.getenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "200")
@@ -160,7 +172,8 @@ def extraction_overview(db: Session, tenant: str) -> dict:
         "failed_today": result_counts["failed"],
         "cancellation_excluded": True,
         "timezone": "Asia/Ho_Chi_Minh",
-        "storage": storage_capacity(),
+        "storage": design_storage_capacity() if orchestrator_enabled()
+                   else storage_capacity(),
     }
 
 
@@ -462,7 +475,8 @@ def probe_image_agent(
         "agent_id": agent.id,
         "tenant_id": agent.tenant_id,
         "transport_enabled": transport_enabled(),
-        "storage_ready": storage_capacity()["ready"],
+        "storage_ready": (design_storage_capacity() if orchestrator_enabled()
+                          else storage_capacity())["ready"],
         "daily_cap": daily_cap(),
         "claimed_today": claimed_today(db, agent.tenant_id),
         "lease_protocol": "v1",
@@ -517,7 +531,7 @@ def claim_image_job(
         agent.last_seen_at = now
         db.commit()
         return {"task": None, "pause_reason": "daily_cap_reached"}
-    capacity = storage_capacity()
+    capacity = design_storage_capacity() if requested_orchestrator else storage_capacity()
     if not capacity["ready"]:
         agent.last_seen_at = now
         db.commit()
@@ -1136,28 +1150,39 @@ async def upload_design_mapping(
     if len(assets) >= MAX_DESIGNS_PER_JOB:
         raise HTTPException(409, "Maximum design versions reached")
     asset_id = design_asset_id(job.id, position, variant, digest)
-    original = _storage_path(agent.tenant_id, job.id)
-    target = original.with_name(f"{job.id}.design.{asset_id}.png")
-    if target.is_file():
-        if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-            raise HTTPException(409, "Design asset path hash mismatch")
-    else:
-        if not storage_capacity(len(raw))["ready"]:
-            raise HTTPException(507, "Design storage unavailable")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        pending = target.with_suffix(".pending")
-        if pending.is_file():
-            if hashlib.sha256(pending.read_bytes()).hexdigest() == digest:
-                pending.replace(target)
-            else:
-                pending.unlink()
-        if not target.is_file():
-            with pending.open("xb") as file:
-                file.write(raw)
-                file.flush()
-                os.fsync(file.fileno())
-            pending.replace(target)
-    entry = {
+    # Release the database row lock before external Drive I/O. Then lock
+    # again and revalidate Picked status and immutable mapping identity.
+    tenant_id, task_id = agent.tenant_id, job.id
+    db.commit()
+    from .imagegen_drive import store_design_to_drive
+    storage = await store_design_to_drive(
+        tenant_id=tenant_id, job_id=task_id,
+        asset_id=asset_id, digest=digest, png=raw,
+    )
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == task_id,
+    ).with_for_update())
+    if (job is None or job.tenant_id != tenant_id or
+        job.status != "completed" or job.cancellation_requested or
+        job.claimed_by != "etsy-image:" + agent.id or
+        db.get(EtsySpyPicked, (tenant_id, job.entity_id)) is None):
+        raise HTTPException(409, "Picked job changed during Drive upload")
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    if (result.get("status") not in {"needs_ai", "needs_review"} or
+        result.get("source_sha256") != source_sha):
+        raise HTTPException(409, "Original extraction changed during Drive upload")
+    assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
+    for current in assets:
+        if current.get("position") == position and current.get("variant") == variant:
+            if current.get("output_sha256") != digest or current.get("method") != method:
+                raise HTTPException(409, "Drive mapping identity changed")
+            db.commit()
+            return {"ok": True, "job_id": task_id, "design_id": current["id"],
+                    "status": "needs_review", "already_mapped": True}
+    if len(assets) >= MAX_DESIGNS_PER_JOB:
+        raise HTTPException(409, "Drive mapping limit reached")
+    entry = {**storage,
         "id": asset_id, "position": position, "variant": variant,
         "method": method, "output_sha256": digest,
         "source_sha256": source_sha, "position_verified": position != "unknown",
@@ -1172,11 +1197,38 @@ async def upload_design_mapping(
             "print_ready": False, "rights_status": "unverified"}
 
 
+def _private_drive_design(job_id: str, asset_id: str, tenant: str, db: Session):
+    """Require the same Picked job/tenant ACL as legacy local thumbnails."""
+    job = db.get(ProcessingJobModel, job_id)
+    if (job is None or job.tenant_id != tenant or
+        job.job_type != EXTRACTION_JOB_TYPE or job.cancellation_requested or
+        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        raise HTTPException(404, "Design not found")
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    rows = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
+    match = next((item for item in rows if isinstance(item, dict)
+                  and item.get("id") == asset_id and
+                  item.get("storage_provider") == "google_drive_managed"), None)
+    return match
+
+
 @image_router.get("/designs/{job_id}/{asset_id}/original")
-def view_design_original(
+async def view_design_original(
     job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
     db: Session = Depends(get_db),
 ):
+    remote = _private_drive_design(job_id, asset_id, principal.active_tenant_id, db)
+    if remote:
+        from .imagegen_drive import read_design_from_drive
+        png = await read_design_from_drive(
+            tenant_id=principal.active_tenant_id, asset_id=job_id+":"+asset_id+":original",
+            remote_id=str(remote.get("drive_file_id") or ""),
+            sha256=str(remote.get("output_sha256") or ""), max_bytes=80*1024*1024,
+        )
+        return Response(png, media_type="image/png",
+            headers={"Cache-Control":"private, no-store",
+                     "X-Content-Type-Options":"nosniff",
+                     "Content-Disposition": 'inline; filename="design-review.png"'})
     source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
     return FileResponse(str(source), media_type="image/png",
         headers={"Cache-Control": "private, no-store",
@@ -1185,10 +1237,21 @@ def view_design_original(
 
 
 @image_router.get("/designs/{job_id}/{asset_id}/thumbnail")
-def view_design_thumbnail(
+async def view_design_thumbnail(
     job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
     db: Session = Depends(get_db),
 ):
+    remote = _private_drive_design(job_id, asset_id, principal.active_tenant_id, db)
+    if remote:
+        from .imagegen_drive import read_design_from_drive
+        png = await read_design_from_drive(
+            tenant_id=principal.active_tenant_id, asset_id=job_id+":"+asset_id+":thumbnail",
+            remote_id=str(remote.get("drive_thumbnail_id") or ""),
+            sha256=str(remote.get("thumbnail_sha256") or ""), max_bytes=2*1024*1024,
+        )
+        return Response(png, media_type="image/png",
+            headers={"Cache-Control":"private, max-age=300",
+                     "X-Content-Type-Options":"nosniff"})
     import io
     from PIL import Image, UnidentifiedImageError
     source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
