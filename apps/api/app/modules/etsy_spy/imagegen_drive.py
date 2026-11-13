@@ -12,12 +12,15 @@ import os
 import re
 from typing import AsyncIterator
 
+import httpx
+
 from fastapi import HTTPException
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import get_settings
 from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput, StorageProviderError
 from app.modules.storage.provider_factory import build_managed_storage_provider
+from app.modules.storage.managed_oauth import managed_storage_oauth_status
 from app.providers.google.storage import GoogleDriveAssetStorage
 
 _DRIVE_ID = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
@@ -29,10 +32,56 @@ def provider_and_folder():
     folder = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "").strip()
     if not _DRIVE_ID.fullmatch(folder):
         raise HTTPException(503, "ImageGen Google Drive folder is not configured")
-    provider = build_managed_storage_provider(get_settings())
+    expected_email = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "").strip().lower()
+    if not expected_email or "@" not in expected_email:
+        raise HTTPException(503, "ImageGen Google Drive owner identity is not configured")
+    settings = get_settings()
+    connection = managed_storage_oauth_status(settings)
+    if (connection.get("connected") is not True or
+        connection.get("reconnect_required") is True or
+        str(connection.get("account_email") or "").lower() != expected_email):
+        raise HTTPException(503, "Connect CAM Google Drive using the target folder owner account")
+    provider = build_managed_storage_provider(settings)
     if not isinstance(provider, GoogleDriveAssetStorage):
         raise HTTPException(503, "CAM Google Drive managed storage must be connected")
     return provider, folder
+
+
+async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, folder: str) -> None:
+    """Require the intended owner, write permission, and Restricted sharing.
+
+    The Drive folder's public link permissions are never sufficient proof
+    that CAM's OAuth account is the right account for design ownership.
+    """
+    expected_email = os.environ["CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL"].strip().lower()
+    try:
+        token = await provider.get_access_token()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=5)) as client:
+            response = await client.get(
+                f"https://www.googleapis.com/drive/v3/files/{folder}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"supportsAllDrives": "true",
+                        "fields": ("id,mimeType,owners(emailAddress),"
+                                   "permissions(type,role),capabilities(canAddChildren)")},
+            )
+        if response.status_code != 200:
+            raise HTTPException(503, "ImageGen Google Drive destination is not accessible")
+        data = response.json()
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "ImageGen Google Drive destination validation failed") from exc
+    if (data.get("id") != folder or
+        data.get("mimeType") != "application/vnd.google-apps.folder" or
+        data.get("capabilities", {}).get("canAddChildren") is not True or
+        not any(str(item.get("emailAddress") or "").lower() == expected_email
+                for item in data.get("owners", []))):
+        raise HTTPException(503, "ImageGen Drive folder owner or write access differs")
+    permissions = data.get("permissions")
+    if not isinstance(permissions, list) or any(
+        item.get("type") in {"anyone", "domain"} for item in permissions
+    ):
+        raise HTTPException(503, "Set ImageGen Drive folder sharing to Restricted")
 
 
 async def _body(payload: bytes) -> AsyncIterator[bytes]:
@@ -64,6 +113,7 @@ async def store_design_to_drive(
     if hashlib.sha256(png).hexdigest() != digest:
         raise HTTPException(422, "ImageGen PNG SHA256 mismatch")
     provider, folder = provider_and_folder()
+    await verify_private_drive_destination(provider, folder)
     preview = _thumbnail(png)
     thumb_hash = hashlib.sha256(preview).hexdigest()
     async def put(label: str, payload: bytes, sha: str):
