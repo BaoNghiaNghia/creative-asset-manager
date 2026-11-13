@@ -348,7 +348,7 @@ export function TiktokShopScoutUgcPage() {
     }
   }
 
-  return <main className="rrugc-shell rrugc-source-first-shell rrugc-tiktokshop-workspace">
+  return <main className="rrugc-shell rrugc-source-first-shell rrugc-tiktokshop-workspace cam-unified-workspace-v18">
     <aside className="ops-sidebar">
       <div className="brand">
         <b><BrandIcon /></b>
@@ -358,7 +358,7 @@ export function TiktokShopScoutUgcPage() {
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader
-        route="tiktokshop"
+        route="tiktokshop" className="cam-header-v18"
         titleAddon={<span className="rrugc-page-live-pill">TikTokShop · isolated Scout pilot</span>}
         actions={<div className="rrugc-global-management-actions">
           <button type="button" ref={settingsButtonRef}

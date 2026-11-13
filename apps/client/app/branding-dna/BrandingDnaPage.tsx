@@ -36,8 +36,8 @@ export function BrandingDnaPage() {
     { id: "knowledge", title: "Shop Knowledge", note: "RAG Library" },
     { id: "dna", title: "Brand DNA", note: "Input Readiness" },
   ];
-  return <main className="branding-dna-page">
-    <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header"
+  return <main className="branding-dna-page cam-unified-workspace-v18">
+    <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header cam-header-v18"
       actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
     <div className="bdna-stage-shell">
       <nav className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {

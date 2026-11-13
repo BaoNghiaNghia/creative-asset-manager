@@ -233,8 +233,18 @@ export function ProviderCards({ configuration, metrics, onChanged, onReload, inv
     finally { setPending(null); }
   }
 
-  return <section className="ops-content" aria-labelledby="providers-title">
-    <div className="ops-section-heading"><div><h2 id="providers-title">Providers</h2><p>Tenant controls and today’s provider health. Google Gemini credentials are managed here with masked values only.</p></div></div>
+  return <section className="ops-content cam-providers-v18" aria-labelledby="providers-title">
+    <div className="ops-section-heading cam-providers-heading-v18">
+      <div className="cam-providers-heading-copy-v18">
+        <small className="workspace-page-header-eyebrow">AI Operations · Providers</small>
+        <div className="cam-providers-heading-title-v18">
+          <h2 id="providers-title">Providers</h2>
+          <span className="cam-providers-health-v18">{configuration.providers.filter(provider => provider.enabled && provider.processing_enabled && !provider.paused).length} active · {configuration.providers.filter(provider => !provider.enabled || !provider.processing_enabled || provider.paused).length} inactive</span>
+        </div>
+        <p>Tenant controls and today’s provider health. Google Gemini credentials are managed here with masked values only.</p>
+      </div>
+      <button className="cam-providers-refresh-v18" type="button" onClick={onReload} aria-label="Refresh provider status">Refresh</button>
+    </div>
     <ActionMessageToast message={error} tone="error" />
     {audit && <AuditNotice audit={audit} />}
     <div className="ops-provider-grid">{configuration.providers.map(provider => {

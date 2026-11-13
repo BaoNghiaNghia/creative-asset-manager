@@ -72,6 +72,8 @@ export const WORKSPACE_PAGE_HEADERS: Record<WorkspaceRoute, WorkspacePageHeaderD
 
 type WorkspacePageHeaderProps = {
   route: WorkspaceRoute;
+  title?: ReactNode;
+  eyebrow?: ReactNode;
   description?: ReactNode;
   titleAddon?: ReactNode;
   meta?: ReactNode;
@@ -82,6 +84,8 @@ type WorkspacePageHeaderProps = {
 
 export function WorkspacePageHeader({
   route,
+  title,
+  eyebrow,
   description,
   titleAddon,
   meta,
@@ -92,9 +96,9 @@ export function WorkspacePageHeader({
   const definition = WORKSPACE_PAGE_HEADERS[route];
   return <header className={["workspace-page-header", className || ""].filter(Boolean).join(" ")}>
     <div className="workspace-page-header-copy">
-      <small className="workspace-page-header-eyebrow">{definition.eyebrow}</small>
+      <small className="workspace-page-header-eyebrow">{eyebrow ?? definition.eyebrow}</small>
       <div className="workspace-page-header-title-row">
-        <h1>{definition.title}</h1>
+        <h1>{title ?? definition.title}</h1>
         {titleAddon}
       </div>
       {(description ?? definition.description) && <p className="workspace-page-header-description">{description ?? definition.description}</p>}
