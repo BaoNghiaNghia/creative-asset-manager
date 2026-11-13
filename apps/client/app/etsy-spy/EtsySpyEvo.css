@@ -181,6 +181,57 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
 }
 .etsy-spy-page .etsy-search-box input { padding-left: 35px; }
 .etsy-spy-page .etsy-clear-filters { color: var(--cam-evo-brand); }
+/* Applied filter context: visible when a day/keyword really narrows results.
+   Neutral chips communicate state without adding another navigation layer. */
+.etsy-spy-page .etsy-filter-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--cam-evo-hairline);
+  border-radius: var(--cam-evo-radius-control);
+  background: var(--cam-evo-hover);
+}
+.etsy-spy-page .etsy-filter-context-heading {
+  margin-right: 3px;
+  color: var(--cam-evo-muted);
+  font-size: 10.5px;
+  font-weight: 720;
+}
+.etsy-spy-page .etsy-filter-chip {
+  display: inline-block;
+  max-width: min(260px, 100%);
+  overflow: hidden;
+  padding: 5px 8px;
+  border: 1px solid var(--cam-evo-hairline);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--cam-evo-ink);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.etsy-spy-page .etsy-filter-reset {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--cam-evo-input-border);
+  border-radius: var(--cam-evo-radius-control);
+  background: #fff;
+  color: var(--cam-evo-brand);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 720;
+}
+.etsy-spy-page .etsy-filter-reset:hover {
+  background: var(--cam-evo-brand-soft);
+  border-color: var(--cam-evo-focus);
+}
 .etsy-spy-page .etsy-bulk-bar {
   background: var(--cam-evo-hover);
   border-color: var(--cam-evo-hairline);
@@ -344,6 +395,9 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
   .etsy-spy-page .etsy-stat { min-height: 69px; scroll-snap-align: start; }
   .etsy-spy-page .etsy-stat > strong { font-size: 20px; }
   .etsy-spy-page .etsy-search-filters { gap: 7px; }
+  .etsy-spy-page .etsy-filter-context { gap: 6px; padding: 8px; }
+  .etsy-spy-page .etsy-filter-context-heading { flex-basis: 100%; }
+  .etsy-spy-page .etsy-filter-reset { min-height: 40px; padding: 8px 12px; }
   .etsy-spy-page .etsy-search-filters :is(input, select),
   .etsy-spy-page .etsy-stage-heading-actions :is(input, select) {
     min-height: 40px; font-size: 12px;

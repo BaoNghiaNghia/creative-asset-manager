@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
@@ -517,6 +517,7 @@ function LogRow({ item }: { item: SpyLog }) {
 export function EtsySpyPage() {
   const [options, setOptions] = useState<Options>(fromLocation);
   const [typedSearch, setTypedSearch] = useState(options.q);
+  const searchDebounceRef = useRef<number | null>(null);
   const [blacklistInput, setBlacklistInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistBusy, setBlacklistBusy] = useState(false);
@@ -622,15 +623,25 @@ export function EtsySpyPage() {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
   }, []);
   useEffect(() => {
-    // A mounted page or tab switch may already have the right query. An
-    // unconditional debounce update resets pagination after 360ms, potentially
-    // interrupting the product/modal the operator was looking at.
+    // Keep a handle so an explicit tab/filter reset can cancel a stale search
+    // immediately, even before React runs the previous effect cleanup.
     const timer = window.setTimeout(() => {
+      searchDebounceRef.current = null;
       setOptions(current => current.q === typedSearch
         ? current : { ...current, q: typedSearch, page: 1 });
     }, 360);
-    return () => window.clearTimeout(timer);
+    searchDebounceRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (searchDebounceRef.current === timer) searchDebounceRef.current = null;
+    };
   }, [typedSearch]);
+  const cancelPendingSearch = () => {
+    if (searchDebounceRef.current !== null) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+  };
   useEffect(() => {
     const query = queryFor(options);
     query.set("tab", options.tab);
@@ -1008,6 +1019,36 @@ export function EtsySpyPage() {
   const activeTab = options.tab;
   const isBlacklistView = activeTab === "products" && options.blacklistView;
   const isWinKeywordsView = activeTab === "products" && options.winKeywordsView;
+  // Show actual server-side product filters, not the sort or current page.
+  // Keep the Picked/Later scope when clearing a narrow search or day selection.
+  const activeProductFilters: string[] = [];
+  if (activeTab === "products" && !isBlacklistView && !isWinKeywordsView) {
+    if (options.observedDay !== "all") {
+      const date = options.observedDay;
+      const dayLabel = date === clockDay ? "Hôm nay"
+        : date === recentObservedDays(clockDay)[1] ? "Hôm qua"
+          : date.split("-").reverse().join("/");
+      activeProductFilters.push("Ngày: " + dayLabel);
+    }
+    if (options.group) {
+      const groupName = dayGroups?.day === options.observedDay &&
+        dayGroups.pick_state === options.pickState
+        ? dayGroups.items.find(item => item.key === options.group)?.label
+        : undefined;
+      activeProductFilters.push("Nhóm: " + (groupName || options.group));
+    }
+    if (options.q.trim()) activeProductFilters.push("Tìm: " + options.q.trim());
+    if (options.badge) activeProductFilters.push("Badge: " + options.badge);
+    if (options.tm) activeProductFilters.push("TM: " + options.tm);
+    if (options.source) activeProductFilters.push("Nguồn: " + options.source);
+    if (options.sessionId) activeProductFilters.push("Session: " + options.sessionId);
+  }
+  const clearProductFilters = () => {
+    cancelPendingSearch();
+    setTypedSearch("");
+    update({ q: "", observedDay: "all", group: "", badge: "", tm: "",
+      source: "", sessionId: "" });
+  };
   const dailyCards = recentObservedDays(clockDay).map((day, index) => {
     const bucket = observedDays?.pick_state === facetScope
       ? observedDays.items.find(item => item.day === day) : undefined;
@@ -1021,6 +1062,7 @@ export function EtsySpyPage() {
   const filteredWinKeywords = winKeywords.filter(keyword =>
     keyword.toLocaleLowerCase().includes(typedSearch.trim().toLocaleLowerCase()));
   const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
+    cancelPendingSearch();
     setTypedSearch("");
     update({
       tab, q: "", sessionId: "", source: "", badge: "", tm: "", group: "",
@@ -1229,6 +1271,18 @@ export function EtsySpyPage() {
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
             : "Win Keyword · danh sách ghi chú keyword, không sử dụng phân nhóm sản phẩm theo ngày."}
         </div>}
+        {activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
+          activeProductFilters.length > 0 && <div className="etsy-filter-context"
+            aria-label="Bộ lọc sản phẩm đang áp dụng">
+            <span className="etsy-filter-context-heading">Đang lọc</span>
+            {activeProductFilters.map(label => <span className="etsy-filter-chip"
+              title={label} key={label}>{label}</span>)}
+            <button type="button" className="etsy-filter-reset"
+              onClick={clearProductFilters}
+              aria-label="Xóa bộ lọc, giữ nguyên tab sản phẩm đang xem">
+              Xóa lọc
+            </button>
+          </div>}
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">
           <div className="etsy-blacklist-panel-header">
