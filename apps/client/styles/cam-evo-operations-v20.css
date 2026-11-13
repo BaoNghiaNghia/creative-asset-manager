@@ -1,0 +1,162 @@
+/* evondevKit Phase 20: immediate AI Operations readiness, non-destructive
+   refresh and compact mobile controls. Scoped to this workspace only. */
+.cam-evo-ai-operations .ops-initial-loading {
+  box-sizing: border-box;
+  min-height: 205px;
+  margin: 0;
+  padding: clamp(17px, 2.5vw, 30px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 13px;
+}
+.cam-evo-ai-operations .ops-initial-loading > i {
+  min-width: 0;
+  min-height: 92px;
+  border: 1px solid var(--cam-evo-hairline, #e8edf4);
+  border-radius: var(--cam-evo-radius-card, 10px);
+}
+.cam-evo-ai-operations .ops-initial-loading > span {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  grid-column: 1 / -1;
+  padding: 12px 15px;
+  border: 1px solid #dbe4f0;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--cam-evo-muted, #64748b);
+}
+.cam-evo-ai-operations .ops-initial-loading > span strong {
+  flex: 1 1 100%;
+  color: var(--cam-evo-ink, #17243a);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cam-evo-ai-operations .ops-initial-loading > span small {
+  flex: 1 1 270px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.cam-evo-ai-operations .ops-initial-loading > span button,
+.cam-evo-ai-operations .ops-manual-refresh {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid #c9d6e9;
+  border-radius: var(--cam-evo-radius-control, 7px);
+  background: #fff;
+  color: #2d58aa;
+  font-family: var(--cam-evo-font, system-ui);
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 750;
+  cursor: pointer;
+}
+.cam-evo-ai-operations .ops-manual-refresh svg { width: 16px; height: 16px; }
+.cam-evo-ai-operations .ops-initial-loading > span button:hover,
+.cam-evo-ai-operations .ops-manual-refresh:hover {
+  border-color: #8fa9d9;
+  background: var(--cam-evo-brand-soft, #edf3fd);
+}
+.cam-evo-ai-operations :is(.ops-manual-refresh, .ops-initial-loading > span button):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+.cam-evo-ai-operations .ops-refresh-inline {
+  display: flex;
+  min-width: 0;
+  gap: 9px;
+  align-items: center;
+  padding: 11px clamp(16px, 2.4vw, 32px);
+  border-bottom: 1px solid #e2e9f4;
+  background: #fff;
+  color: #536781;
+  font-size: 11px;
+  line-height: 1.55;
+  font-weight: 650;
+}
+.cam-evo-ai-operations .ops-refresh-spinner {
+  display: inline-block;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #c9d6e9;
+  border-top-color: var(--cam-evo-brand, #265cbd);
+  border-radius: 50%;
+  animation: cam-ops-refresh-spin 800ms linear infinite;
+}
+@keyframes cam-ops-refresh-spin { to { transform: rotate(360deg); } }
+.cam-evo-ai-operations .ops-access-state { min-height: 320px; }
+/* Manual refresh sits with the existing automated interval and source status. */
+.cam-evo-ai-operations .ops-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+.cam-evo-ai-operations .ops-header-actions .ops-refresh-control,
+.cam-evo-ai-operations .ops-header-actions .ops-manual-refresh,
+.cam-evo-ai-operations .ops-header-actions .ops-refresh-status {
+  min-width: 0;
+}
+.cam-evo-ai-operations .ops-refresh-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 40px;
+  gap: 4px;
+  padding: 0 9px 0 13px;
+}
+.cam-evo-ai-operations .ops-tabs-carousel .ops-tabs button:focus-visible,
+.cam-evo-ai-operations .ops-query-bar :is(select, input, summary):focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+@media (max-width: 1100px) {
+  .cam-evo-ai-operations .ops-header-actions { justify-content: flex-start; }
+  .cam-evo-ai-operations .ops-refresh-status { border-left: 0; padding-left: 0; }
+}
+@media (max-width: 720px) {
+  .cam-evo-ai-operations .ops-initial-loading {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: 215px;
+    padding: 17px 16px;
+    gap: 10px;
+  }
+  .cam-evo-ai-operations .ops-initial-loading > i { min-height: 70px; }
+  .cam-evo-ai-operations .ops-header-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .cam-evo-ai-operations .ops-header-actions .ops-refresh-control { width: 100%; }
+  .cam-evo-ai-operations .ops-header-actions .ops-manual-refresh { width: auto; }
+  .cam-evo-ai-operations .ops-header-actions .ops-refresh-status {
+    display: flex;
+    grid-column: 1 / -1;
+    padding-top: 6px;
+    border-top: 1px solid #edf1f6;
+    border-left: 0;
+  }
+  .cam-evo-ai-operations .ops-refresh-inline { padding-inline: 16px; }
+  .cam-evo-ai-operations .ops-query-bar .ops-filters { min-width: 0; }
+}
+@media (max-width: 420px) {
+  .cam-evo-ai-operations .ops-initial-loading > span { padding: 12px; }
+  .cam-evo-ai-operations .ops-header-actions { grid-template-columns: minmax(0, 1fr) auto; }
+  .cam-evo-ai-operations .ops-manual-refresh { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam-evo-ai-operations .ops-refresh-spinner,
+  .cam-evo-ai-operations .ops-initial-loading > i { animation: none; }
+}

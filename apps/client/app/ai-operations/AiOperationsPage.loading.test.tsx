@@ -62,6 +62,37 @@ afterEach(async () => {
 });
 
 describe("AI Operations live tab requests", () => {
+  it("shows a real content skeleton and retry without waiting for slow summary API", async () => {
+    await mount("overview", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/summary?")) return new Promise<Response>(() => undefined);
+      return Promise.resolve(normalResponse(url));
+    }) as typeof fetch);
+    expect(container?.querySelector(".ops-content.ops-initial-loading")).not.toBeNull();
+    expect(container?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(container?.textContent).toContain("Đang tải dữ liệu AI Operations");
+    expect(container?.querySelector('[aria-label="Refresh AI Operations data"]')).not.toBeNull();
+    expect(document.getElementById("ops-tab-processing")).not.toBeNull();
+  });
+
+  it("keeps existing processing content mounted while a manual refresh is pending", async () => {
+    let jobsCalls = 0;
+    await mount("processing", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/jobs?") && ++jobsCalls > 1) return new Promise<Response>(() => undefined);
+      return Promise.resolve(normalResponse(url));
+    }) as typeof fetch);
+    const before = document.getElementById("ops-panel-processing")?.textContent;
+    expect(before).toContain("processing jobs");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>('[aria-label="Refresh AI Operations data"]')?.click();
+      await Promise.resolve();
+    });
+    expect(document.getElementById("ops-panel-processing")?.textContent).toContain("processing jobs");
+    expect(container?.querySelector(".ops-refresh-inline")?.textContent).toContain("current view stays available");
+    expect(container?.querySelector(".ops-initial-loading")).toBeNull();
+    expect(jobsCalls).toBe(2);
+  });
 
   it("keeps a pointer click targeted at the tab button until an actual drag starts", async () => {
     const setPointerCapture = vi.fn();
