@@ -62,6 +62,32 @@ afterEach(async () => {
 });
 
 describe("AI Operations live tab requests", () => {
+  it("shows KPI panel and partial chart progress while a slower summary range is still pending", async () => {
+    let resolveMonth!: (response: Response) => void;
+    let summaries = 0;
+    await mount("overview", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/summary?") && ++summaries === 3) {
+        return new Promise<Response>(resolve => { resolveMonth = resolve; });
+      }
+      return Promise.resolve(normalResponse(url));
+    }) as typeof fetch);
+
+    await vi.waitFor(() => {
+      expect(document.getElementById("ops-panel-overview")).not.toBeNull();
+      expect(container?.querySelector(".ops-initial-loading")).toBeNull();
+      expect(container?.querySelector(".ops-detail-progress")?.textContent).toContain("/5");
+    });
+    // A slow monthly aggregate may not block fast daily/failure/provider fields.
+    const partialText = container?.querySelector(".ops-detail-progress")?.textContent || "";
+    expect(["1/5", "2/5", "3/5", "4/5"].some(value => partialText.includes(value))).toBe(true);
+    await act(async () => {
+      resolveMonth(response(null));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(container?.querySelector(".ops-detail-progress")).toBeNull());
+  });
+
   it("shows a real content skeleton and retry without waiting for slow summary API", async () => {
     await mount("overview", vi.fn((input: RequestInfo | URL) => {
       const url = String(input);

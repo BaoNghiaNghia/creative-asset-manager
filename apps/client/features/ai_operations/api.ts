@@ -64,6 +64,7 @@ export function fetchAiOperationsVideoDetail(
 
 async function settleDashboardCalls(
   calls: Array<() => Promise<unknown>>,
+  onSettled?: (index: number, result: PromiseSettledResult<unknown>) => void,
 ): Promise<PromiseSettledResult<unknown>[]> {
   const settled: PromiseSettledResult<unknown>[] = new Array(calls.length);
   let next = 0;
@@ -75,6 +76,9 @@ async function settleDashboardCalls(
       } catch (reason) {
         settled[index] = { status: "rejected", reason };
       }
+      // Progress notifications are advisory; callback errors must not turn a
+      // successful API request into a failed aggregate fetch.
+      try { onSettled?.(index, settled[index]); } catch { /* final data still resolves */ }
     }
   };
   await Promise.all(Array.from(
@@ -117,6 +121,35 @@ export type DashboardScopeResult = {
   unauthorized: boolean;
 };
 
+/** A settled field is published independently so slow charts cannot block fast ones. */
+export type DashboardFieldProgress = {
+  field: DashboardField;
+  partial: DashboardScopeResult;
+  completed: number;
+  total: number;
+};
+
+function mergeDashboardField(
+  result: DashboardScopeResult, field: DashboardField, item: PromiseSettledResult<unknown>,
+) {
+  if (item.status === "rejected") {
+    if (item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status)) {
+      result.unauthorized = true;
+    }
+    // Pipeline is optional during a rolling deploy; keep legacy 404 behavior.
+    if (!(field === "pipeline" && item.reason instanceof AiOperationsApiError && item.reason.status === 404)) {
+      result.errors.push(String(item.reason?.message || "Request failed"));
+    }
+    return;
+  }
+  const value = item.value;
+  if (field === "pipeline") result.data.pipeline = normalizePipelineSnapshot(value as PipelineSnapshot);
+  else if (field === "media") result.data.media = normalizeMediaDashboard(value as AiOpsMediaDashboard);
+  else if (["daily", "providers", "todayProviders", "failures"].includes(field)) {
+    Object.assign(result.data, { [field]: (value as { items: unknown[] }).items });
+  } else Object.assign(result.data, { [field]: value });
+}
+
 // A tab asks only for the aggregates it renders. In particular, independent
 // tabs (Visual Search, Creative Pipeline, Inventory, Configuration) never
 // trigger the expensive AI Operations dashboard fan-out.
@@ -143,6 +176,7 @@ export async function fetchAiOperationsScope(
   fetcher: Fetcher = fetch,
   now = new Date(),
   signal?: AbortSignal,
+  onProgress?: (progress: DashboardFieldProgress) => void,
 ): Promise<DashboardScopeResult> {
   if (!fields.length) return { data: {}, errors: [], unauthorized: false };
   const range = isoRange(filters.range, now);
@@ -178,28 +212,20 @@ export async function fetchAiOperationsScope(
     media: `${base}/media-dashboard?${media}`,
   };
   const selected = [...new Set(fields)];
+  let completed = 0;
   const settled = await settleDashboardCalls(selected.map(field => () =>
-    read<unknown>(urls[field], fetcher, signal)));
+    read<unknown>(urls[field], fetcher, signal)), (index, item) => {
+    completed += 1;
+    if (signal?.aborted || !onProgress) return;
+    const partial: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
+    mergeDashboardField(partial, selected[index], item);
+    onProgress({
+      field: selected[index], partial, completed, total: selected.length,
+    });
+  });
   const result: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
   selected.forEach((field, index) => {
-    const item = settled[index];
-    if (item.status === "rejected") {
-      if (item.reason instanceof AiOperationsApiError && [401, 403].includes(item.reason.status)) {
-        result.unauthorized = true;
-      }
-      // Pipeline may be absent during a rolling deploy. Keep the older
-      // dashboard behavior without swallowing denials or other failures.
-      if (!(field === "pipeline" && item.reason instanceof AiOperationsApiError && item.reason.status === 404)) {
-        result.errors.push(String(item.reason?.message || "Request failed"));
-      }
-      return;
-    }
-    const value = item.value;
-    if (field === "pipeline") result.data.pipeline = normalizePipelineSnapshot(value as PipelineSnapshot);
-    else if (field === "media") result.data.media = normalizeMediaDashboard(value as AiOpsMediaDashboard);
-    else if (["daily", "providers", "todayProviders", "failures"].includes(field)) {
-      Object.assign(result.data, { [field]: (value as { items: unknown[] }).items });
-    } else Object.assign(result.data, { [field]: value });
+    mergeDashboardField(result, field, settled[index]);
   });
   result.errors = [...new Set(result.errors)];
   return result;
