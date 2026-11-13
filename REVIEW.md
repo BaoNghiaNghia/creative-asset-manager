@@ -1,3 +1,10 @@
+## 2026-11-13 — CAM Etsy Spy agent review intents (candidate)
+
+- Server-side agent Bearer and exact tenant + same-agent current Eligible evidence gates; no browser credential/cookie. Two user actions (Pick/Later) and passive Win Keyword are atomic with one PostgreSQL idempotency receipt.
+- New `0208_etsy_spy_agent_review_receipts` stores durable receipts and nullable Shop 20+ carts/item-review source evidence. Additive migration; populated downgrade blocked.
+- Windows sync remains opt-in and independent of Chrome: pending requests cannot become CAM-confirmed without exact receipt. Only the standard reviewed `main` release may activate API/migration.
+- Static Python compilation and Windows review-sync tests passed; hosted API pytest and production migration/canary still required before activation. No new paid API or secrets in source.
+
 ## 2026-11-11 — Etsy TikTok Listing Pilot V2 (candidate)
 
 - The production draft worker is explicitly manual-only: `ETSY_TIKTOK_LISTING_ENABLED=true` permits a manager to queue, while `ETSY_TIKTOK_AUTO_ON_PICK_ENABLED=false` creates zero automatic Pick jobs and prevents unbounded customer-cost exposure. Backfill max 5 by default.

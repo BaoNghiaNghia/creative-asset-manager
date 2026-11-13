@@ -117,6 +117,30 @@ class EtsySpyLaterMatch(Base):
     )
 
 
+class EtsySpyReviewReceipt(Base):
+    """Agent-scoped, tenant-scoped confirmed Pick/Later/Win receipt.
+
+    Inserted in the same PostgreSQL transaction as the actual decision.
+    Retained to make replay after an HTTP timeout provably idempotent.
+    """
+    __tablename__ = "etsy_spy_review_receipts"
+    __table_args__ = (
+        Index("ix_etsy_spy_review_receipts_listing", "tenant_id", "listing_key"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    keyword: Mapped[str] = mapped_column(String(220), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+    )
+
+
 class EtsySpyBatch(Base):
     __tablename__ = "etsy_spy_sync_batches"
     __table_args__ = (UniqueConstraint("tenant_id", "agent_id", "batch_id", name="uq_etsy_spy_batch"),)
@@ -191,6 +215,10 @@ class EtsySpyListing(Base):
     bought24h: Mapped[int | None] = mapped_column(Integer())
     views24h: Mapped[int | None] = mapped_column(Integer())
     in_carts: Mapped[int | None] = mapped_column(Integer())
+    # Strict source-owned Shop fallback requires the literal 'In 20+ carts'
+    # proof and listing-specific reviews, never shop-wide review totals.
+    cart_lower_bound: Mapped[bool | None] = mapped_column(Boolean())
+    item_reviews: Mapped[int | None] = mapped_column(Integer())
     bestseller: Mapped[bool | None] = mapped_column(Boolean())
     demand_score: Mapped[float | None] = mapped_column(Float())
     tm_key: Mapped[str | None] = mapped_column(String(64))

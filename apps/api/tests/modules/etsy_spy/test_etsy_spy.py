@@ -23,6 +23,7 @@ from app.modules.etsy_spy.model import (
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus,
+    EtsySpyReviewReceipt,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -34,7 +35,8 @@ TABLES = (
     EtsySpyAgent, EtsySpySession, EtsySpyKeyword, EtsySpyListing,
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
-    EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus, ProcessingJobModel,
+    EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus, EtsySpyReviewReceipt,
+    ProcessingJobModel,
 )
 
 
@@ -119,6 +121,123 @@ def sync(client, agent, headers, value):
                        headers={**headers, "Content-Type": "application/json"})
 
 
+
+
+
+def test_agent_review_intents_confirm_only_after_real_tenant_scoped_action(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    assert sync(client, agent, headers, batch(
+        title="Mountain Scenic T-Shirt")).status_code == 200
+    root = f"/api/v1/etsy-spy/agents/{agent.id}/review-intents"
+    keyword = "Santa Claus Rudolph boop shirt"
+    command = {
+        "requestId": "review-test-request-001",
+        "listingKey": "1234567890", "action": "pick",
+        "keyword": keyword, "evidenceHash": "a" * 32,
+    }
+    assert client.post(root, json=command).status_code == 401
+    assert client.post(root, json={**command, "action": "delete"},
+                       headers=headers).status_code == 422
+    assert client.post(root, json={**command, "listingKey": "9999999999"},
+                       headers=headers).status_code == 409
+    assert client.post(root, json={**command, "keyword": "arbitrary unrelated"},
+                       headers=headers).status_code == 409
+    result = client.post(root, json=command, headers=headers)
+    assert result.status_code == 200, result.text
+    first = result.json()
+    assert first["requestId"] == command["requestId"]
+    assert first["status"] == "cam_confirmed"
+    assert first["outcome"] == "created"
+    assert db.query(EtsySpyPicked).count() == 1
+    assert db.query(EtsySpyReviewReceipt).count() == 1
+    second = client.post(root, json=command, headers=headers)
+    assert second.status_code == 200 and second.json() == first
+    assert db.query(EtsySpyPicked).count() == 1
+    assert db.query(EtsySpyReviewReceipt).count() == 1
+    assert client.post(root, json={**command, "action": "later"},
+                       headers=headers).status_code == 409
+    assert client.get(root + "/" + command["requestId"],
+                      headers=headers).json() == first
+    assert client.get(root + "/" + command["requestId"]).status_code == 401
+    assert client.post(root, json={
+        **command, "requestId": "review-later-conflict-01", "action": "later",
+    }, headers=headers).status_code == 409
+    other, other_headers = pair(client, db, tenant="different-tenant")
+    other_root = f"/api/v1/etsy-spy/agents/{other.id}/review-intents"
+    assert client.get(other_root + "/" + command["requestId"],
+                      headers=other_headers).status_code == 404
+    assert client.post(other_root, json=command,
+                       headers=other_headers).status_code == 409
+    assert db.query(EtsySpyReviewReceipt).count() == 1
+
+    win = client.post(root, json={**command, "requestId":
+        "review-win-keyword-001", "action": "win_keyword"}, headers=headers)
+    assert win.status_code == 200, win.text
+    assert win.json()["status"] == "cam_confirmed"
+    assert db.query(EtsySpyWinKeyword).count() == 1
+    assert client.post(root, json={**command, "requestId":
+        "review-win-keyword-002", "action": "win_keyword"},
+        headers=headers).json()["outcome"] == "already"
+
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": False}).status_code == 200
+    later = client.post(root, json={**command,
+        "requestId": "review-later-success-01", "action": "later"},
+        headers=headers)
+    assert later.status_code == 200, later.text
+    assert later.json()["status"] == "cam_confirmed"
+    assert db.query(EtsySpyLaterSeed).count() == 1
+    assert client.post(root, json={**command, "requestId":
+        "review-pick-after-later", "action": "pick"},
+        headers=headers).status_code == 409
+
+
+
+def test_agent_review_shop_first20_carts_item_reviews_are_source_owned(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    source = batch(batch_id="shop-cart-proof", title="Puppy Sweatshirt")
+    source["records"]["listings"][0].update({
+        "keyword": "Puppy Sweatshirt", "sourceKind": "shop",
+        "sourceKinds": ["shop"], "badge": None, "searchBadge": None,
+        "views24h": None, "inCarts": 20, "cartLowerBound": True,
+        "itemReviews": 4, "shopPosition": 7,
+        "sourceShopUrl": "https://www.etsy.com/shop/PrintStudio",
+    })
+    result = sync(client, agent, headers, source)
+    assert result.status_code == 200, result.text
+    eligible = client.get("/api/v1/etsy-spy/listings?pick_state=eligible")
+    assert eligible.status_code == 200
+    assert any(row["listingKey"] == "1234567890"
+               for row in eligible.json()["items"])
+    command = {
+        "requestId": "review-shop-source-001",
+        "listingKey": "1234567890", "action": "later",
+        "keyword": "Puppy Sweatshirt", "evidenceHash": "a" * 32,
+    }
+    route = f"/api/v1/etsy-spy/agents/{agent.id}/review-intents"
+    response = client.post(route, headers=headers, json=command)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cam_confirmed"
+    assert db.query(EtsySpyLaterSeed).count() == 1
+    # The same Shop listing with only 3 reviews cannot take this bypass.
+    unverified = batch(batch_id="shop-insufficient-review",
+                       title="Poorly Reviewed Hoodie")
+    unverified["records"]["listings"][0].update({
+        "keyword": "Poorly Reviewed Hoodie", "sourceKind": "shop",
+        "sourceKinds": ["shop"], "listingKey": "2222222222",
+        "badge": None, "searchBadge": None, "views24h": None,
+        "inCarts": 20, "cartLowerBound": True, "itemReviews": 3,
+        "shopPosition": 7, "sourceShopUrl": "https://www.etsy.com/shop/PrintStudio",
+    })
+    assert sync(client, agent, headers, unverified).status_code == 200
+    rejected = client.post(route, headers=headers, json={
+        **command, "requestId": "review-shop-rejected-01",
+        "listingKey": "2222222222", "keyword": "Poorly Reviewed Hoodie",
+    })
+    assert rejected.status_code == 409
+    assert db.query(EtsySpyReviewReceipt).count() == 1
 
 
 def test_sms_receipt_projection_picked_only_and_immutable_sent(scenario):
