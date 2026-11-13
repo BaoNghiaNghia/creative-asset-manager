@@ -30,6 +30,8 @@ import "../styles/cam-platform-evo.css";
 import "../styles/cam-feedback-evo.css";
 // Shared typography, header and responsive layout for operational workspaces.
 import "../styles/cam-unified-workspace-v18.css";
+// Phase 19: evondevKit workflow navigation and non-destructive refresh feedback.
+import "../styles/cam-evo-workflow-v19.css";
 
 function AppBoot() {
   useEffect(() => {

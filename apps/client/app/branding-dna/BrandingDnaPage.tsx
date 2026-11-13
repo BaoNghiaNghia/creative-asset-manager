@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./BrandingDnaPage.css";
 import "./BrandingDnaWorkspace.css";
 import "./BrandingDnaOpsStyle.css";
@@ -11,6 +11,7 @@ import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaKnowledge } from "./BrandingDnaKnowledge";
 import { BrandingDnaReadiness } from "./BrandingDnaReadiness";
 import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
+import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 
 const DEMO_TABS = ["overview", "shops", "scanner", "products", "knowledge", "dna"] as const;
 type DemoTab = typeof DEMO_TABS[number];
@@ -28,6 +29,23 @@ export function brandingDnaTabForPath(path: string): DemoTab {
 export function BrandingDnaPage() {
   const tab = brandingDnaTabForPath(typeof window === "undefined" ? "/branding-dna" : window.location.pathname);
   const [activeTab, setActiveTab] = useState<DemoTab>(tab);
+  const stageNavRef = useActiveStageVisibility(activeTab);
+
+  useEffect(() => {
+    const onPopState = () => setActiveTab(brandingDnaTabForPath(window.location.pathname));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function selectTab(next: DemoTab) {
+    setActiveTab(next);
+    const url = new URL(window.location.href);
+    url.pathname = next === "overview" ? "/branding-dna" : "/branding-dna/" + next;
+    if (url.pathname !== window.location.pathname) {
+      window.history.pushState(window.history.state, "", url.pathname + url.search + url.hash);
+    }
+  }
+
   const tabs: { id: DemoTab; title: string; note: string }[] = [
     { id: "overview", title: "Overview", note: "Tổng quan" },
     { id: "shops", title: "Shop Library", note: "Shop thật" },
@@ -40,15 +58,15 @@ export function BrandingDnaPage() {
     <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header cam-header-v18"
       actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
     <div className="bdna-stage-shell">
-      <nav className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
+      <nav ref={stageNavRef} className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
         const index = tabs.findIndex(item => item.id === activeTab);
         const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
         if (next < 0) return;
         event.preventDefault();
-        setActiveTab(tabs[next].id);
+        selectTab(tabs[next].id);
         window.requestAnimationFrame(() => document.getElementById("bdna-stage-" + tabs[next].id)?.focus());
       }}>
-        {tabs.map((item, index) => <button key={item.id} id={"bdna-stage-" + item.id} type="button" role="tab" aria-selected={activeTab === item.id} aria-controls={"bdna-panel-" + item.id} tabIndex={activeTab === item.id ? 0 : -1} className={activeTab === item.id ? "active" : ""} onClick={() => setActiveTab(item.id)}>
+        {tabs.map((item, index) => <button key={item.id} id={"bdna-stage-" + item.id} type="button" role="tab" aria-selected={activeTab === item.id} aria-controls={"bdna-panel-" + item.id} tabIndex={activeTab === item.id ? 0 : -1} className={activeTab === item.id ? "active" : ""} onClick={() => selectTab(item.id)}>
           <span className="bdna-stage-number" aria-hidden="true">{index}</span>
           <span className="bdna-stage-copy"><strong>{item.title}</strong><small>{item.note}</small></span>
         </button>)}
@@ -66,11 +84,11 @@ export function BrandingDnaPage() {
       <div><span>03</span><strong>Collect product evidence</strong><small>Authorized metadata import · scanner pending</small></div>
       <div><span>04</span><strong>Build Brand DNA</strong><small>Phân tích dựa trên evidence</small></div>
     </div>}
-    {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation compact={activeTab === "overview"} onOpenShops={() => setActiveTab("shops")} />}
-    {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => setActiveTab("scanner")} />}
+    {(activeTab === "overview" || activeTab === "shops") && <BrandingDnaFoundation compact={activeTab === "overview"} onOpenShops={() => selectTab("shops")} />}
+    {(activeTab === "overview" || activeTab === "scanner") && <BrandingDnaWorkers compact={activeTab === "overview"} onOpenScanner={() => selectTab("scanner")} />}
     {activeTab === "products" && <BrandingDnaEvidence />}
     {activeTab === "knowledge" && <BrandingDnaKnowledge />}
-    {activeTab === "dna" && <BrandingDnaReadiness onOpenKnowledge={() => setActiveTab("knowledge")} onOpenShops={() => setActiveTab("shops")} />}
+    {activeTab === "dna" && <BrandingDnaReadiness onOpenKnowledge={() => selectTab("knowledge")} onOpenShops={() => selectTab("shops")} />}
     </section>
     <details className="branding-dna-preview-link" aria-label="Branding DNA design preview"><summary>Giao diện prototype · dữ liệu mô phỏng <span>Chi tiết</span></summary><div><p>Shop Registry, Worker Registry, Product Explorer và Shop Knowledge sử dụng API dữ liệu tenant thực. Product Explorer chỉ hiển thị bản export chưa xác minh; Browser Scanner và phân tích Brand DNA vẫn chưa hoạt động. Prototype riêng chỉ dùng dữ liệu mô phỏng.</p><a href={`/branding-dna-preview/index.html?view=${encodeURIComponent(activeTab)}`} target="_blank" rel="noopener noreferrer">Xem prototype ↗</a></div></details>
   </main>;

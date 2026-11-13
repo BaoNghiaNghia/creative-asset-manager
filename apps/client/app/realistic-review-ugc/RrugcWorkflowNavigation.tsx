@@ -1,6 +1,7 @@
 import { type KeyboardEvent } from "react";
 import { stagesForWorkflowGroup, workflowGroupForStage, type RrugcStageTab } from "./workflowRouting";
 import "./RrugcWorkflowNavigation.css";
+import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 
 export type { RrugcStageTab, RrugcWorkflowGroup } from "./workflowRouting";
 export { RRUGC_STAGE_TABS, RRUGC_WORKFLOW_GROUPS, workflowGroupForStage, stagesForWorkflowGroup } from "./workflowRouting";
@@ -15,6 +16,7 @@ export function RrugcWorkflowNavigation({
 }) {
   const group = workflowGroupForStage(activeStage);
   const stages = stagesForWorkflowGroup(group);
+  const stageNavRef = useActiveStageVisibility(activeStage);
 
   function onStageKeyDown(event: KeyboardEvent<HTMLElement>) {
     const index = stages.findIndex(item => item.id === activeStage);
@@ -30,7 +32,7 @@ export function RrugcWorkflowNavigation({
   }
 
   return <div className="rrugc-workflow-navigation">
-    <nav className="ops-tabs rrugc-stage-tabs" aria-label={(group === "products" ? "GatorHats Products" : "GatorHats Reviews") + " stages"} role="tablist" onKeyDown={onStageKeyDown}>
+    <nav ref={stageNavRef} className="ops-tabs rrugc-stage-tabs" aria-label={(group === "products" ? "GatorHats Products" : "GatorHats Reviews") + " stages"} role="tablist" onKeyDown={onStageKeyDown}>
       {stages.map(item => <button
         key={item.id}
         id={"rrugc-tab-" + item.id}

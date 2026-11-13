@@ -2,9 +2,17 @@ import { describe, expect, it } from "vitest";
 import tiktokNavIcon from "../../assets/navigation/tiktokshop.png";
 import { renderToStaticMarkup } from "react-dom/server";
 import { routeForPath, workspaceRouteForApplicationRoute, requiredPermissionForApplicationRoute } from "../AppRoute";
-import { TiktokShopScoutUgcPage, TIKTOKSHOP_SOURCE_ROOT } from "./TiktokShopScoutUgcPage";
+import { TiktokShopScoutUgcPage, TIKTOKSHOP_SOURCE_ROOT, tiktokStageFromSearch } from "./TiktokShopScoutUgcPage";
 
 describe("Tiktokshop workspace Phase 3 isolation", () => {
+  it("restores Stage 3–5 from shareable links and rejects invalid stage parameters", () => {
+    expect(tiktokStageFromSearch("")).toBe("stage3");
+    expect(tiktokStageFromSearch("?stage=stage3")).toBe("stage3");
+    expect(tiktokStageFromSearch("?folder=a&stage=stage4")).toBe("stage4");
+    expect(tiktokStageFromSearch("?stage=stage5&folder=b")).toBe("stage5");
+    expect(tiktokStageFromSearch("?stage=stage999")).toBe("stage3");
+    expect(tiktokStageFromSearch("?stage=<script>")).toBe("stage3");
+  });
   it("has a distinct permission-gated route separate from GatorHats Reviews", () => {
     expect(routeForPath("/tiktokshop/scout-ugc")).toBe("tiktokshop-scout-ugc");
     expect(workspaceRouteForApplicationRoute("tiktokshop-scout-ugc")).toBe("tiktokshop");

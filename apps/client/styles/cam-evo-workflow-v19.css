@@ -1,0 +1,77 @@
+/* CAM evondevKit Phase 19 — workflow navigation, focus and resilient refresh.
+   Scoped to adopted workspaces; no global reset or changes to business logic. */
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) {
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 12px;
+  scrollbar-color: #c4d2eb transparent;
+  overscroll-behavior-inline: contain;
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button {
+  scroll-snap-align: nearest;
+  position: relative;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button:hover:not(.active) {
+  background: var(--cam-evo-hover, #f8fafd);
+  color: var(--cam-evo-ink, #17243a);
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button:focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: -3px;
+  z-index: 1;
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button.active {
+  font-weight: 750;
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button.active :is(.bdna-stage-copy small, .rrugc-stage-tab-copy small) {
+  color: #385f9f;
+}
+main.cam-unified-workspace-v18 :is(.bdna-stage-panel,.rrugc-stage-panel) { scroll-margin-top: 20px; }
+.inventory-workspace .ops-inventory-transient-error {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  margin: 16px clamp(18px, 2.65vw, 44px) 0;
+  padding: 13px 16px;
+  border: 1px solid #e8cf95;
+  border-left: 3px solid var(--cam-evo-warning, #966923);
+  border-radius: var(--cam-evo-radius-card, 10px);
+  background: #fffaf0;
+  color: #815a21;
+}
+.inventory-workspace .ops-inventory-transient-error strong { font-size: 12px; line-height: 1.5; }
+.inventory-workspace .ops-inventory-transient-error p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.inventory-workspace .ops-inventory-transient-error button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #c99743;
+  border-radius: var(--cam-evo-radius-control, 7px);
+  background: #fff;
+  color: #85591f;
+  font: 750 12px/1.25 var(--cam-evo-font, system-ui);
+  cursor: pointer;
+}
+.inventory-workspace .ops-inventory-transient-error button:hover { background: #fff2d8; }
+.inventory-workspace .ops-inventory-transient-error button:focus-visible {
+  outline: 2px solid var(--cam-evo-focus, #3674d4);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button { min-height: 48px; }
+}
+@media (max-width: 760px) {
+  main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) { scroll-padding-inline: 8px; }
+  .inventory-workspace .ops-inventory-transient-error { margin-inline: 14px; align-items: stretch; flex-direction: column; }
+  .inventory-workspace .ops-inventory-transient-error button { align-self: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  main.cam-unified-workspace-v18 :is(.bdna-stage-tabs, .rrugc-stage-tabs) > button { transition-duration: 0.01ms; }
+}
