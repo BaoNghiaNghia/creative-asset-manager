@@ -9,6 +9,65 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("AI Operations progressive scope loading", () => {
+  it("does not overlap costly summary ranges and lets lightweight fields finish first", async () => {
+    const started: string[] = [];
+    const releases: Array<() => void> = [];
+    let activeSummary = 0;
+    let maximumSummary = 0;
+    const fetcher = vi.fn((url: RequestInfo | URL) => {
+      const pathname = new URL(String(url), "http://localhost").pathname;
+      started.push(pathname);
+      if (pathname.endsWith("/summary")) {
+        activeSummary += 1;
+        maximumSummary = Math.max(maximumSummary, activeSummary);
+        return new Promise<Response>(resolve => {
+          releases.push(() => {
+            activeSummary -= 1;
+            resolve(json(null));
+          });
+        });
+      }
+      return Promise.resolve(json({ items: [] }));
+    }) as unknown as typeof fetch;
+
+    const done = fetchAiOperationsScope(
+      filtersFromSearch(""), ["summary", "today", "month", "daily", "providers", "failures"],
+      fetcher, new Date("2026-11-13T10:00:00Z"),
+    );
+    await vi.waitFor(() => expect(started.filter(path => path.endsWith("/failures"))).toHaveLength(1));
+    expect(started.filter(path => path.endsWith("/summary"))).toHaveLength(1);
+    expect(started.some(path => path.endsWith("/daily"))).toBe(true);
+    expect(started.some(path => path.endsWith("/providers"))).toBe(true);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(started.filter(path => path.endsWith("/summary"))).toHaveLength(2));
+    releases.shift()?.();
+    await vi.waitFor(() => expect(started.filter(path => path.endsWith("/summary"))).toHaveLength(3));
+    releases.shift()?.();
+
+    const result = await done;
+    expect(result.errors).toHaveLength(0);
+    expect(maximumSummary).toBe(1);
+    expect(started).toHaveLength(6);
+  });
+
+  it("does not issue a queued summary request after its tab has been abandoned", async () => {
+    const abort = new AbortController();
+    const releases: Array<() => void> = [];
+    const fetcher = vi.fn((_url: RequestInfo | URL) => new Promise<Response>(resolve => {
+      releases.push(() => resolve(json(null)));
+    })) as unknown as typeof fetch;
+    const done = fetchAiOperationsScope(
+      filtersFromSearch(""), ["summary", "today", "month"],
+      fetcher, new Date("2026-11-13T10:00:00Z"), abort.signal,
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    abort.abort();
+    releases.shift()?.();
+    await done;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("publishes a fast field before a slow field without waiting for the whole group", async () => {
     let resolveSummary!: (value: Response) => void;
     let resolveProviders!: (value: Response) => void;

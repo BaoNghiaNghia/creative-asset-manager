@@ -212,19 +212,49 @@ export async function fetchAiOperationsScope(
     media: `${base}/media-dashboard?${media}`,
   };
   const selected = [...new Set(fields)];
+  // A large tenant's summary scans historical jobs. The Overview screen asks
+  // for three different summary ranges. Starting all three at once can exhaust
+  // the API/DB pool and leave unrelated permission checks in Pending.
+  // Keep the first requested (KPI) field first, allow lightweight aggregates
+  // to fill other slots, then serialize expensive summary variants.
+  const expensiveSummary = (field: DashboardField) =>
+    field === "summary" || field === "today" || field === "month";
+  const ordered = selected.length <= 1 ? selected : [
+    selected[0],
+    ...selected.slice(1).filter(field => !expensiveSummary(field)),
+    ...selected.slice(1).filter(expensiveSummary),
+  ];
+  let summaryTail = Promise.resolve();
+  let summaryStarted = false;
+  const operations = ordered.map(field => async () => {
+    if (!expensiveSummary(field)) return read<unknown>(urls[field], fetcher, signal);
+    let release!: () => void;
+    const previous = summaryTail;
+    summaryTail = new Promise<void>(resolve => { release = resolve; });
+    // First heavy request starts synchronously with the lightweight calls.
+    // Later summary ranges wait for its completion to avoid DB contention.
+    const waitForPrevious = summaryStarted;
+    summaryStarted = true;
+    if (waitForPrevious) await previous;
+    try {
+      if (signal?.aborted) throw new AiOperationsApiError("Dashboard request was cancelled.", 499);
+      return await read<unknown>(urls[field], fetcher, signal);
+    } finally {
+      release();
+    }
+  });
   let completed = 0;
-  const settled = await settleDashboardCalls(selected.map(field => () =>
-    read<unknown>(urls[field], fetcher, signal)), (index, item) => {
+  const settled = await settleDashboardCalls(operations, (index, item) => {
     completed += 1;
     if (signal?.aborted || !onProgress) return;
     const partial: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
-    mergeDashboardField(partial, selected[index], item);
+    mergeDashboardField(partial, ordered[index], item);
     onProgress({
-      field: selected[index], partial, completed, total: selected.length,
+      field: ordered[index], partial, completed, total: ordered.length,
     });
   });
   const result: DashboardScopeResult = { data: {}, errors: [], unauthorized: false };
-  selected.forEach((field, index) => {
+  ordered.forEach((field, index) => {
     mergeDashboardField(result, field, settled[index]);
   });
   result.errors = [...new Set(result.errors)];
