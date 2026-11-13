@@ -1,4 +1,5 @@
 import logging
+import os
 import secrets
 from urllib.parse import urlencode
 from typing import Any
@@ -150,6 +151,64 @@ async def connect_managed_storage(
     )
 
 
+@router.get("/connect-imagegen-drive")
+async def connect_imagegen_drive(
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    """Connect ImageGen's destination Gmail WITHOUT rotating global storage."""
+    from app.modules.etsy_spy.imagegen_drive import _DRIVE_ID
+    folder = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "").strip()
+    owner = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "").strip()
+    if not _DRIVE_ID.fullmatch(folder) or "@" not in owner:
+        raise HTTPException(503, "ImageGen Google Drive destination is not configured.")
+    return _authorization_response(
+        oauth_flow(require_drive_scope=True),
+        redirect_intent=(
+            f"imagegen_storage_connect:{principal.active_tenant_id}:{principal.user_id}"
+        ),
+        prompt="consent select_account",
+    )
+
+
+@router.get("/imagegen-drive/status")
+async def imagegen_drive_status(
+    principal: CurrentPrincipal = Depends(require_platform_admin),
+):
+    """Independent OAuth and actual private upload readiness; no token leakage."""
+    from app.modules.etsy_spy.imagegen_drive import (
+        provider_and_folder, verify_private_drive_destination,
+    )
+    folder = os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "").strip()
+    if not folder:
+        return {"configured": False, "connected": False,
+                "reconnect_required": True, "upload_ready": False,
+                "sharing_status": "not_configured"}
+    settings = get_settings().model_copy(update={
+        "GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID": folder,
+    })
+    state = managed_storage_oauth_status(settings)
+    ready = False
+    sharing = "not_connected"
+    if state["connected"] and not state["reconnect_required"]:
+        try:
+            provider, target = provider_and_folder()
+            await verify_private_drive_destination(provider, target)
+            ready = True
+            sharing = "restricted"
+        except HTTPException as exc:
+            if str(exc.detail) == "Set ImageGen Drive folder sharing to Restricted":
+                sharing = "public"
+            else:
+                sharing = "unverified"
+    return {
+        "configured": True, "connected": state["connected"],
+        "reconnect_required": state["reconnect_required"],
+        "account_email": state["account_email"],
+        "upload_ready": ready, "sharing_status": sharing,
+        "folder_url": f"https://drive.google.com/drive/folders/{folder}",
+    }
+
+
 @router.get("/managed-storage/status")
 async def managed_storage_status(
     principal: CurrentPrincipal = Depends(require_platform_admin),
@@ -258,6 +317,7 @@ async def callback(
     reconnect_source_id = None
     initiating_user_id = None
     managed_storage_connect = redirect_intent.startswith("managed_storage_connect:")
+    imagegen_storage_connect = redirect_intent.startswith("imagegen_storage_connect:")
     if drive_connect:
         parts = redirect_intent.split(":", 3)
         connection_tenant_id = parts[1] if len(parts) > 1 else None
@@ -275,7 +335,7 @@ async def callback(
                 source = db.scalar(select(ExternalSourceModel).where(ExternalSourceModel.id == reconnect_source_id, ExternalSourceModel.tenant_id == connection_tenant_id, ExternalSourceModel.source_type == "google_drive"))
                 if source is None:
                     return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
-    elif managed_storage_connect:
+    elif managed_storage_connect or imagegen_storage_connect:
         parts = redirect_intent.split(":", 2)
         connection_tenant_id = parts[1] if len(parts) > 1 else None
         initiating_user_id = parts[2] if len(parts) > 2 else None
@@ -289,7 +349,7 @@ async def callback(
             if user is None or user.status != "active" or not is_platform_admin:
                 logger.warning("Managed Storage callback authorization failed request_id=%s", request_id)
                 return managed_storage_redirect("error", auth_request=request_id)
-    flow = oauth_flow(state, require_drive_scope=drive_connect or managed_storage_connect or desktop_drive_connect)
+    flow = oauth_flow(state, require_drive_scope=drive_connect or managed_storage_connect or imagegen_storage_connect or desktop_drive_connect)
     if code_verifier:
         flow.code_verifier = code_verifier
 
@@ -326,14 +386,23 @@ async def callback(
         response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
         return response
 
+    imagegen_private = False
     try:
         granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
-        if managed_storage_connect:
+        if managed_storage_connect or imagegen_storage_connect:
             root_folder_id = str(
-                get_settings().GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID or ""
+                (os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "")
+                 if imagegen_storage_connect else
+                 get_settings().GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID) or ""
             ).strip()
             if not root_folder_id:
-                raise ValueError("Managed Storage root folder is not configured")
+                raise ValueError("Managed Storage destination folder is not configured")
+            if imagegen_storage_connect:
+                from app.modules.etsy_spy.imagegen_drive import verify_imagegen_oauth_token
+                imagegen_private = await verify_imagegen_oauth_token(
+                    flow.credentials.token, root_folder_id,
+                    restrict_public_sharing=True, allow_public_sharing=True,
+                )
             await persist_managed_storage_connection(
                 flow.credentials,
                 tenant_id=connection_tenant_id,
@@ -358,9 +427,20 @@ async def callback(
             exc.code,
         )
         return client_redirect(auth_error=exc.code, auth_request=request_id)
+    except HTTPException as exc:
+        # A verified ImageGen restriction should be visible on the return
+        # screen. Never expose the Google OAuth code or access token.
+        if imagegen_storage_connect:
+            logger.warning("ImageGen Drive OAuth validation failed request_id=%s status=%s",
+                           request_id, exc.status_code)
+            return managed_storage_redirect(
+                "imagegen_error", auth_request=request_id,
+                auth_message=str(exc.detail),
+            )
+        raise
     except PermissionError as exc:
         logger.warning("Google Drive scope was not granted request_id=%s", request_id)
-        if managed_storage_connect:
+        if managed_storage_connect or imagegen_storage_connect:
             return managed_storage_redirect(
                 "error", auth_request=request_id,
                 auth_message=str(exc),
@@ -372,7 +452,7 @@ async def callback(
             request_id,
             type(exc).__name__,
         )
-        if managed_storage_connect:
+        if managed_storage_connect or imagegen_storage_connect:
             return managed_storage_redirect("error", auth_request=request_id)
         return client_redirect(auth_error="profile", auth_request=request_id)
 
@@ -391,13 +471,18 @@ async def callback(
             )
             return client_redirect(auth_error="source_connection_failed", auth_request=request_id)
 
-    if managed_storage_connect:
+    if imagegen_storage_connect:
+        response = managed_storage_redirect(
+            "imagegen_connected" if imagegen_private
+            else "imagegen_connected_needs_restriction"
+        )
+    elif managed_storage_connect:
         response = managed_storage_redirect("connected")
     elif drive_connect:
         response = client_redirect(google="source_connected")
     else:
         response = client_redirect(google="signed_in")
-    if not drive_connect and not managed_storage_connect:
+    if not drive_connect and not managed_storage_connect and not imagegen_storage_connect:
         remove_session(request)
         clear_provider_session_cookies(response, SESSION_COOKIE, "/api/auth/google")
         response.set_cookie(SESSION_COOKIE, session_id, **cookie_options())
