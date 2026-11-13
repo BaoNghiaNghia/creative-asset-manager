@@ -297,6 +297,40 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
   color: var(--cam-evo-muted);
   background: #fff;
 }
+/* Phase 12: make an empty dataset actionable without adding a second card or
+   changing the active Eligible / Picked / Later scope. */
+.etsy-spy-page .etsy-empty-guided {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 32px 20px 36px;
+}
+.etsy-spy-page .etsy-empty-title {
+  color: var(--cam-evo-ink);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+.etsy-spy-page .etsy-empty-description {
+  max-width: 480px;
+  margin: 0;
+  color: var(--cam-evo-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.etsy-spy-page .etsy-empty-action {
+  min-height: 36px;
+  margin-top: 5px;
+  padding-inline: 14px;
+  border-color: var(--cam-evo-brand);
+  color: var(--cam-evo-brand);
+}
+.etsy-spy-page .etsy-empty-action:hover {
+  background: var(--cam-evo-brand-soft);
+}
 
 /* Consistent, unobtrusive scrollbars (the app already handles thin Firefox bars). */
 .etsy-spy-page :is(.etsy-table-wrap, .etsy-observed-day-grid, .etsy-day-groups-list)::-webkit-scrollbar,
@@ -395,6 +429,8 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
   .etsy-spy-page .etsy-stat { min-height: 69px; scroll-snap-align: start; }
   .etsy-spy-page .etsy-stat > strong { font-size: 20px; }
   .etsy-spy-page .etsy-search-filters { gap: 7px; }
+  .etsy-spy-page .etsy-empty-guided { min-height: 175px; padding: 28px 14px 32px; }
+  .etsy-spy-page .etsy-empty-action { min-height: 42px; max-width: 100%; }
   .etsy-spy-page .etsy-filter-context { gap: 6px; padding: 8px; }
   .etsy-spy-page .etsy-filter-context-heading { flex-basis: 100%; }
   .etsy-spy-page .etsy-filter-reset { min-height: 40px; padding: 8px 12px; }

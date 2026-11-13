@@ -145,6 +145,14 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - On phone, filter context wraps independently and the reset action stays at least 40px high; the table retains its own internal scroll and existing layout. No new network poll, API endpoint, storage, database, worker, permissions, search ranking or queue semantics.
 - A reset or tab change cancels any pending 360ms search timer immediately; this prevents old query text from returning after clearing a filtered deep link. Tests verify applied-filter labels, deep-link restore, complete reset without leaving Picked, race-free typed-search debounce, tab switching and keyboard-readable reset control. Gate production with frontend tests, TS, Vite, responsive Chrome QA and read-only production smoke.
 
+## Phase 12 — Etsy Spy actionable empty records (2026-11-13)
+
+- Follow the pinned evondevKit **Clean / Light / Data-table-first** style, with existing CAM tokens, current typography, and no additional UI library or generic helper card.
+- Product list empty states distinguish **filtered zero results**, **empty Picked**, **empty Later**, **empty Eligible**, **uninitialized Scout synchronization**, and **a stale page number after list changes**. Keep copy in Vietnamese, one clear heading plus one contextual next step; avoid implying a real job completed or a Scout source is online.
+- The filtered state has a **Xóa lọc · xem tất cả ngày** action using the existing `clearProductFilters` handler. It preserves Eligible/Picked/Later scope and cancels pending search debounce; on an unfiltered empty Picked/Later list, **Xem Eligible listings** reuses `selectTab`. An out-of-range page offers **Về trang đầu** without clearing filters. No new API request except the page transition the user explicitly initiates.
+- Do not alter how sort, counts, Pick/Later, bulk selection, Design gallery, TikTok SEO, or async job status work. The action is at least 42px high on phones, with visible focus and no page-level overflow. Avoid custom icon decoration.
+- Validate filtered Picked reset, unfiltered Later and Picked navigation, typecheck, Vitest, production bundle, Chrome fixture for mobile/tablet/desktop, and read-only production smoke. Frontend-only, no database/API/worker change; preserve current plus rollback releases.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
