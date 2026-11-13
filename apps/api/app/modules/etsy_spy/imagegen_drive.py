@@ -63,7 +63,9 @@ async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, fo
     await verify_imagegen_oauth_token(token, folder)
 
 
-async def verify_imagegen_oauth_token(token: str, folder: str) -> None:
+async def verify_imagegen_oauth_token(
+    token: str, folder: str, *, restrict_public_sharing: bool = False,
+) -> None:
     """Validate a scoped OAuth grant before it is saved or used for uploads.
 
     The Drive folder's public link permissions are never sufficient proof
@@ -82,7 +84,7 @@ async def verify_imagegen_oauth_token(token: str, folder: str) -> None:
                 headers=headers,
                 params={"supportsAllDrives": "true",
                         "fields": ("id,mimeType,owners(emailAddress),"
-                                   "permissions(type,role),capabilities(canAddChildren)")},
+                                   "permissions(id,type,role),capabilities(canAddChildren)")},
             )
         if identity_response.status_code != 200:
             raise HTTPException(503, "Cannot verify CAM Google Drive OAuth identity")
@@ -103,10 +105,50 @@ async def verify_imagegen_oauth_token(token: str, folder: str) -> None:
                 for item in data.get("owners", []))):
         raise HTTPException(503, "ImageGen Drive folder owner or write access differs")
     permissions = data.get("permissions")
-    if not isinstance(permissions, list) or any(
-        item.get("type") in {"anyone", "domain"} for item in permissions
-    ):
+    if not isinstance(permissions, list):
+        raise HTTPException(503, "Cannot inspect ImageGen Drive folder sharing")
+    public = [permission for permission in permissions
+              if permission.get("type") in {"anyone", "domain"}]
+    if not public:
+        return
+    if not restrict_public_sharing:
         raise HTTPException(503, "Set ImageGen Drive folder sharing to Restricted")
+    # The OAuth initiator explicitly chose ImageGen's write-enabled connection.
+    # With the verified folder-owner grant, remove ONLY public/domain grants,
+    # never named collaborators or owner privileges.
+    if any(not re.fullmatch(r"[A-Za-z0-9_-]{3,128}",
+                            str(permission.get("id") or ""))
+           for permission in public):
+        raise HTTPException(503, "Cannot identify public Google Drive permissions")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=5)) as client:
+            for permission in public:
+                result = await client.delete(
+                    f"https://www.googleapis.com/drive/v3/files/{folder}"
+                    f"/permissions/{permission['id']}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"supportsAllDrives": "true"},
+                )
+                if result.status_code not in {200, 204}:
+                    raise HTTPException(503, "Could not set ImageGen Drive sharing to Restricted")
+            checked = await client.get(
+                f"https://www.googleapis.com/drive/v3/files/{folder}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"supportsAllDrives": "true",
+                        "fields": "id,permissions(id,type,role)"},
+            )
+        if checked.status_code != 200:
+            raise HTTPException(503, "Could not verify restricted Drive sharing")
+        updated = checked.json()
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        raise HTTPException(503, "Could not verify restricted Drive sharing") from exc
+    if updated.get("id") != folder or not isinstance(updated.get("permissions"), list) or any(
+        permission.get("type") in {"anyone", "domain"}
+        for permission in updated["permissions"]
+    ):
+        raise HTTPException(503, "Drive sharing is still public; reconnect after restricting it")
 
 
 async def _body(payload: bytes) -> AsyncIterator[bytes]:

@@ -114,6 +114,66 @@ def test_expected_owner_rejects_other_managed_oauth_account(monkeypatch):
     assert "owner account" in str(error.value.detail)
 
 
+
+
+
+def test_imagegen_oauth_can_secure_only_public_folder_grants(monkeypatch):
+    """Owner-authorized connect removes anyone writer; named users remain."""
+    monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
+    private = [
+        {"id": "owner123", "type": "user", "role": "owner"},
+        {"id": "named456", "type": "user", "role": "writer"},
+    ]
+    anyone = {"id": "anyone789", "type": "anyone", "role": "writer"}
+
+    class ResponseClient:
+        def __init__(self, *, delete_status=204):
+            self.deleted = []
+            self.delete_status = delete_status
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def get(self, url, **kwargs):
+            if url.endswith("/about"):
+                data = {"user": {"emailAddress": "baonghia.kht@gmail.com"}}
+            else:
+                data = {
+                    "id": FOLDER, "mimeType": "application/vnd.google-apps.folder",
+                    "owners": [{"emailAddress": "baonghia.kht@gmail.com"}],
+                    "capabilities": {"canAddChildren": True},
+                    "permissions": private if self.deleted else private + [anyone],
+                }
+            return SimpleNamespace(status_code=200, json=lambda: data)
+        async def delete(self, url, **kwargs):
+            self.deleted.append(url)
+            return SimpleNamespace(status_code=self.delete_status)
+
+    async def check():
+        normal = ResponseClient()
+        with patch.object(module.httpx, "AsyncClient", return_value=normal):
+            with pytest.raises(HTTPException, match="Restricted"):
+                await module.verify_imagegen_oauth_token("token", FOLDER)
+        assert normal.deleted == []
+
+        secured = ResponseClient()
+        with patch.object(module.httpx, "AsyncClient", return_value=secured):
+            await module.verify_imagegen_oauth_token(
+                "token", FOLDER, restrict_public_sharing=True,
+            )
+        assert len(secured.deleted) == 1
+        assert secured.deleted[0].endswith("/permissions/anyone789")
+        assert "named456" not in secured.deleted[0]
+
+        blocked = ResponseClient(delete_status=403)
+        with patch.object(module.httpx, "AsyncClient", return_value=blocked):
+            with pytest.raises(HTTPException, match="Could not set"):
+                await module.verify_imagegen_oauth_token(
+                    "token", FOLDER, restrict_public_sharing=True,
+                )
+    asyncio.run(check())
+
+
 def test_publicly_writable_folder_is_rejected_before_any_upload(monkeypatch):
     monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
 
