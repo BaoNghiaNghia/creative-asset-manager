@@ -26,10 +26,13 @@ import {
 } from "./ui-qa-targeting.mjs";
 
 const VIEWPORTS = {
+  desktopWide: { width: 1920, height: 1080 },
   desktop: { width: 1440, height: 900 },
+  laptop: { width: 1366, height: 768 },
   compact: { width: 1280, height: 800 },
   tabletLandscape: { width: 1024, height: 768 },
   tabletPortrait: { width: 768, height: 1024 },
+  mobileLarge: { width: 430, height: 932 },
   mobile: { width: 390, height: 844 },
   mobileSmall: { width: 320, height: 700 },
 };
@@ -603,7 +606,7 @@ try {
             ? { ...step, goto: undefined } : step;
           if (actionStep.goto || actionStep.resetBefore) explicitNavigationAt = Date.now();
           await performStep(page, actionStep);
-      if (viewportName === "mobile" || viewportName === "mobileSmall") {
+      if (["mobile", "mobileLarge", "mobileSmall"].includes(viewportName)) {
         await assertUiStep(page, plan.mobileAssertions || []);
         await assertUiStep(page, step.mobileAssertions || []);
       }
