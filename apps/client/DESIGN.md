@@ -162,6 +162,14 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - On phones, the pager wraps without page-level overflow; jump/input/select and directional buttons meet the 44px touch-height target. Keep focus visible with existing evondevKit tokens. Do not modify table horizontal scrolling or the Design/TikTok dialogs.
 - Test valid page jump, invalid-input no-op, navigation resync, stale-page count, typecheck, production build and mobile/tablet/desktop Chrome QA; gate frontend-only deploy on full CI and keep current plus rollback.
 
+## Phase 14 — Etsy Spy wide-table navigation (2026-11-13)
+
+- Retain evondevKit **Clean / Light / Data-table-first** styling: reuse native CAM table and border/input tokens; no additional library, floating toolbar, or global CSS. Preserve existing sticky headers and natural mobile card layout.
+- When a table **actually overflows horizontally**, show a compact column navigator above the table with short context text and accessible previous/next buttons. At the left/right edge, disable the matching button. When all columns fit, show no navigator at all.
+- Buttons move the **table's own horizontal scroll position**, not the browser page; never change the active Eligible / Picked / Later scope, page, sort, selected products, media previews, modals, or live job state. Keep natural mouse/trackpad horizontal scrolling supported and existing vertical scroll intact.
+- Recalculate available horizontal room after a table/filter/page change, resized viewport or table ResizeObserver notification. No network or timer polling, and no extra state update when the edge state has not changed. Mobile (680px or narrower) continues to use existing vertical cards and hides the navigator.
+- Test conditional visibility, left/right edge disabled states, click movement, natural-scroll synchronization and resize removal. Validate TypeScript, Vitest regression, Vite asset budget, responsive Chrome QA and read-only production smoke. Frontend-only release from reviewed main, retaining current + one rollback.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
