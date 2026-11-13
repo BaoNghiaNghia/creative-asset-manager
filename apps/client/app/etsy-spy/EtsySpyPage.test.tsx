@@ -548,6 +548,21 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(observed.filter(url => url.includes("/listings?"))).toHaveLength(initialQueries);
   });
 
+  it("restores Etsy Spy filters on browser history navigation without remounting", async () => {
+    await start({ initialUrl: "/etsy-spy?tab=products&page=3&observed_day=all" });
+    const initialQueries = observed.filter(url => url.includes("/listings?")).length;
+    await act(async () => {
+      window.history.replaceState(null, "", "/etsy-spy?tab=products&pick_state=picked&observed_day=all&q=Santa&page=2");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await new Promise(resolve => setTimeout(resolve, 410));
+    });
+    expect(container?.querySelector<HTMLInputElement>(
+      'input[aria-label="Search Spy records"]')?.value).toBe("Santa");
+    expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("picked");
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("2");
+    expect(observed.filter(url => url.includes("/listings?")).length).toBe(initialQueries + 1);
+  });
+
   it("still resets pagination only after the operator types a different search", async () => {
     await start({ initialUrl: "/etsy-spy?tab=products&page=3&observed_day=all" });
     const initialQueries = observed.filter(url => url.includes("/listings?")).length;
