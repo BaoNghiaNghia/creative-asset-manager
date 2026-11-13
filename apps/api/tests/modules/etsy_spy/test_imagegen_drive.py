@@ -101,10 +101,13 @@ def test_unconnected_drive_is_explicitly_blocked(monkeypatch):
 def test_expected_owner_rejects_other_managed_oauth_account(monkeypatch):
     monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", FOLDER)
     monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
-    with patch.object(module, "get_settings", return_value=object()), \
+    class Settings:
+        def model_copy(self, *, update):
+            assert update["GOOGLE_MANAGED_STORAGE_ROOT_FOLDER_ID"] == FOLDER
+            return SimpleNamespace(**update)
+    with patch.object(module, "get_settings", return_value=Settings()), \
          patch.object(module, "managed_storage_oauth_status",
-                      return_value={"connected": True,
-                                    "account_email": "other-google-account@example.com"}):
+                      return_value={"connected": False, "reconnect_required": True}):
         with pytest.raises(HTTPException) as error:
             module.provider_and_folder()
     assert error.value.status_code == 503
@@ -115,13 +118,17 @@ def test_publicly_writable_folder_is_rejected_before_any_upload(monkeypatch):
     monkeypatch.setenv("CAM_ETSY_IMAGEGEN_DRIVE_OWNER_EMAIL", "baonghia.kht@gmail.com")
 
     class ResponseClient:
-        def __init__(self, payload):
+        def __init__(self, payload, account="baonghia.kht@gmail.com"):
             self.payload = payload
+            self.account = account
         async def __aenter__(self):
             return self
         async def __aexit__(self, *args):
             return False
-        async def get(self, *args, **kwargs):
+        async def get(self, url, **kwargs):
+            if url.endswith("/about"):
+                return SimpleNamespace(status_code=200,
+                                       json=lambda: {"user": {"emailAddress": self.account}})
             return SimpleNamespace(status_code=200, json=lambda: self.payload)
 
     private_metadata = {
@@ -146,5 +153,13 @@ def test_publicly_writable_folder_is_rejected_before_any_upload(monkeypatch):
         with patch.object(module.httpx, "AsyncClient",
                           return_value=ResponseClient(private_metadata)):
             await module.verify_private_drive_destination(provider, FOLDER)
+
+        with patch.object(module.httpx, "AsyncClient",
+                          return_value=ResponseClient(private_metadata,
+                                                      account="other-google-account@example.com")):
+            with pytest.raises(HTTPException) as wrong:
+                await module.verify_private_drive_destination(provider, FOLDER)
+            assert wrong.value.status_code == 503
+            assert "another Google account" in wrong.value.detail
 
     asyncio.run(verify())
