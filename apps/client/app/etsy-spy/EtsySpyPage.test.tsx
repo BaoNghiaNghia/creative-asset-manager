@@ -30,6 +30,7 @@ let extractionProjection: { job_id: string; status: string; review_flags?: strin
   candidate_ready?: boolean; candidate_method?: string | null } | null = null;
 let laterSeedKeys = new Set<string>();
 let newSpyListingSynced = false;
+let simulatedListingPages = 1;
 let extractionPilotOn = false;
 let tiktokFeatureOn = false;
 let tiktokStatuses: Record<string, string> = {};
@@ -93,7 +94,7 @@ function installFetch() {
   registeredImageAgents = [];
   pickedKeys = new Set<string>(); laterSeedKeys = new Set<string>();
   smsProjection = null; extractionProjection = null; designProjection = [];
-  newSpyListingSynced = false; extractionPilotOn = false;
+  newSpyListingSynced = false; simulatedListingPages = 1; extractionPilotOn = false;
   tiktokFeatureOn = false; tiktokStatuses = {}; tiktokJobs = [];
   parentKeywords = [{keyword: "A Root Seed", keywordKey: "a root seed",
     priority: 50, source: "observed", occurrences: 1}];
@@ -266,7 +267,9 @@ function installFetch() {
       return json({status:"pending",draft_only:true});
     }
     if (url.includes("/listings?")) {
-      const pickState = new URL(url, "http://localhost").searchParams.get("pick_state") || "eligible";
+      const params = new URL(url, "http://localhost").searchParams;
+      const pickState = params.get("pick_state") || "eligible";
+      const pageNumber = Number(params.get("page") || 1);
       const newlySynced = {
         ...listing, listingKey: "333", pageTitle: "Merry Christmas Reindeer Tee",
         url: "https://www.etsy.com/listing/333/christmas-reindeer",
@@ -284,8 +287,10 @@ function installFetch() {
              tiktokListing: pickedKeys.has(x.listingKey) ? {status:tiktokStatuses[x.listingKey] || "not_queued",draft_only:true} : undefined,
              later: laterSeedKeys.has(x.listingKey), laterManual: laterSeedKeys.has(x.listingKey),
              laterReason: laterSeedKeys.has(x.listingKey) ? "Được chọn Later" : null }));
-      return json({items: visible, page: 1, page_size: 50,
-        total: visible.length, pages: 1, last_synced_at: summary.last_synced_at,
+      return json({items: simulatedListingPages > 1 && pageNumber > simulatedListingPages
+          ? [] : visible, page: pageNumber, page_size: Number(params.get("page_size") || 50),
+        total: simulatedListingPages > 1 ? simulatedListingPages * 50 : visible.length,
+        pages: simulatedListingPages, last_synced_at: summary.last_synced_at,
         source_status: "offline"});
     }
     return json({items: [], page:1,page_size:50,total:0,pages:0,
@@ -294,8 +299,8 @@ function installFetch() {
 }
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-async function start({tiktokEnabled = false, initialUrl = "/etsy-spy"}:
-  {tiktokEnabled?: boolean; initialUrl?: string} = {}) {
+async function start({tiktokEnabled = false, initialUrl = "/etsy-spy", listingPages = 1}:
+  {tiktokEnabled?: boolean; initialUrl?: string; listingPages?: number} = {}) {
   // jsdom does not ship ResizeObserver, while the real browser provides it.
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -303,6 +308,7 @@ async function start({tiktokEnabled = false, initialUrl = "/etsy-spy"}:
     disconnect() {}
   });
   installFetch();
+  simulatedListingPages = listingPages;
   tiktokFeatureOn = tiktokEnabled;
   window.history.replaceState(null, "", initialUrl);
   container = document.createElement("div");
@@ -321,6 +327,53 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("jumps directly to a valid page without dropping the active day and tab", async () => {
+    await start({ initialUrl: "/etsy-spy?tab=products&observed_day=all&page=2", listingPages: 12 });
+    const input = container?.querySelector<HTMLInputElement>(".etsy-page-jump input");
+    const go = container?.querySelector<HTMLButtonElement>(".etsy-page-jump button");
+    expect(input?.value).toBe("2");
+    expect(go?.disabled).toBe(true);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "7");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(go?.disabled).toBe(false);
+    await act(async () => {
+      go?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("7");
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
+    expect(input?.value).toBe("7");
+    await act(async () => {
+      setter.call(input, "999");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(go?.disabled).toBe(true);
+    await act(async () => { go?.click(); });
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("7");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>('button[aria-label="Previous page"]')?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("6");
+    expect(input?.value).toBe("6");
+  });
+
+  it("shows an accurate zero range for a page that has moved beyond the last page", async () => {
+    await start({ initialUrl: "/etsy-spy?tab=products&observed_day=all&page=5", listingPages: 3 });
+    expect(container?.querySelector(".etsy-page-range")?.textContent).toContain("0–0 / 150");
+    expect(container?.querySelector(".etsy-empty-title")?.textContent)
+      .toBe("Trang này không còn sản phẩm");
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-empty-action")?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    expect(new URLSearchParams(window.location.search).get("page")).toBe("1");
+    expect(container?.querySelector(".etsy-page-range")?.textContent).toContain("1–3 / 150");
+  });
+
   it("recovers an empty filtered Picked page without losing its scope", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa"});
     expect(container?.querySelector(".etsy-empty-title")?.textContent)
