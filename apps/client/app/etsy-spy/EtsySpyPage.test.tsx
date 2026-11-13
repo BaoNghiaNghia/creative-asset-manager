@@ -321,6 +321,49 @@ afterEach(async () => {
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("explains applied Picked filters and clears day, group and search without changing the Picked scope", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=3"});
+    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
+    expect(context?.textContent).toContain("Đang lọc");
+    expect(context?.textContent).toContain("Ngày:");
+    expect(context?.textContent).toContain("Nhóm:");
+    expect(context?.textContent).toContain("Tìm: Santa");
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+    await act(async () => {
+      context?.querySelector<HTMLButtonElement>(".etsy-filter-reset")?.click();
+      await new Promise(resolve => setTimeout(resolve, 450));
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("pick_state")).toBe("picked");
+    expect(params.get("observed_day")).toBe("all");
+    expect(params.get("page")).toBe("1");
+    expect(params.get("group")).toBeNull();
+    expect(params.get("q")).toBeNull();
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
+    expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+  });
+
+  it("cancels a pending search debounce when switching from Products to another tab", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&q=Santa&observed_day=all"});
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>("#etsy-tab-keywords")?.click();
+      await new Promise(resolve => setTimeout(resolve, 450));
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("tab")).toBe("keywords");
+    expect(params.get("q")).toBeNull();
+    expect(container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]')?.value).toBe("");
+  });
+
+  it("shows the current Eligible day as a filter with a keyboard-accessible clear action", async () => {
+    await start();
+    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
+    expect(context?.textContent).toContain("Ngày: Hôm nay");
+    const clear = context?.querySelector<HTMLButtonElement>(".etsy-filter-reset");
+    expect(clear?.getAttribute("aria-label")).toContain("giữ nguyên tab");
+    expect(clear?.type).toBe("button");
+  });
+
   it("preserves deep-linked pagination and avoids an unchanged mount-time search refresh", async () => {
     await start({ initialUrl: "/etsy-spy?tab=products&page=3&observed_day=all" });
     const initialQueries = observed.filter(url => url.includes("/listings?")).length;

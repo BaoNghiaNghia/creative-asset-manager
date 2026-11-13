@@ -137,6 +137,14 @@ Continue the pinned evondevKit `ui-ux` direction. This remains a local adaptatio
 - Regression tests check that a deep-linked page number survives mount longer than the debounce interval without a duplicate listing request, while a real search still resets page and fetches fresh results.
 - Validate Etsy Spy tests, TypeScript, bundled frontend, responsive 390/768/1440 fixtures. Deploy frontend-only from reviewed main and preserve current+rollback releases.
 
+## Phase 11 — Etsy Spy applied-filter clarity (2026-11-13)
+
+- Preserve the pinned evondevKit Clean / Light / data-table-first direction: reuse CAM tokens, controls and real server-side filters. No new UI component system.
+- In the normal Products records view, show a small neutral **applied filter strip** only when date, group, search, Etsy badge, trademark, source, or Scout session is actually constraining the records. Use the resolved group label when the selected day/group data is available; long values truncate visually but retain the full text in the title.
+- The one **Xóa lọc** action clears only narrowing product filters, resets pagination to page 1 and clears the controlled search input. The current product scope **Eligible / Picked / Later**, sort, modal behavior and product jobs remain unchanged. The same-day default Eligible view explicitly shows the active "Hôm nay" day constraint.
+- On phone, filter context wraps independently and the reset action stays at least 40px high; the table retains its own internal scroll and existing layout. No new network poll, API endpoint, storage, database, worker, permissions, search ranking or queue semantics.
+- A reset or tab change cancels any pending 360ms search timer immediately; this prevents old query text from returning after clearing a filtered deep link. Tests verify applied-filter labels, deep-link restore, complete reset without leaving Picked, race-free typed-search debounce, tab switching and keyboard-readable reset control. Gate production with frontend tests, TS, Vite, responsive Chrome QA and read-only production smoke.
+
 ## QA and deployment
 
 - Verify no overlap or horizontal document overflow at 375, 768, 1024, 1440 and 1920px; tables are allowed their *own* horizontal overflow at desktop.
