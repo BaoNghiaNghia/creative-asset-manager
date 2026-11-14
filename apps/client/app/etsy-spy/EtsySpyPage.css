@@ -1999,26 +1999,15 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background-image: conic-gradient(#dce3eb 25%, #fff 0 50%, #dce3eb 0 75%, #fff 0);
   background-size: 10px 10px;
 }
-.etsy-design-gallery-background-white { background-color: #fff; }
-.etsy-design-gallery-background-cream { background-color: #f9eddb; }
-.etsy-design-gallery-background-gray { background-color: #dce2e9; }
-.etsy-design-gallery-background-black { background-color: #171b23; }
-.etsy-design-gallery-background-navy { background-color: #294362; }
-.etsy-design-gallery-background-sage { background-color: #a5bba5; }
-.etsy-design-gallery-background-pink { background-color: #ebbdc9; }
+/* Named preview colors are generated from the same palette as the stage.
+   Only the checkerboard has a dedicated texture. */
 .etsy-design-gallery-background-note {
   margin: 0;
   color: #8a97a8;
   font-size: 10px;
   line-height: 1.45;
 }
-.etsy-design-gallery[data-preview-background="white"] { --etsy-gallery-bg: #fff; }
-.etsy-design-gallery[data-preview-background="cream"] { --etsy-gallery-bg: #f9eddb; }
-.etsy-design-gallery[data-preview-background="gray"] { --etsy-gallery-bg: #dce2e9; }
-.etsy-design-gallery[data-preview-background="black"] { --etsy-gallery-bg: #171b23; }
-.etsy-design-gallery[data-preview-background="navy"] { --etsy-gallery-bg: #294362; }
-.etsy-design-gallery[data-preview-background="sage"] { --etsy-gallery-bg: #a5bba5; }
-.etsy-design-gallery[data-preview-background="pink"] { --etsy-gallery-bg: #ebbdc9; }
+/* The active custom property comes from the selected named swatch in React. */
 .etsy-design-gallery:not([data-preview-background="transparent"]) .etsy-design-gallery-stage {
   background-color: var(--etsy-gallery-bg);
   background-image: none;
@@ -2032,6 +2021,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-design-gallery-header { min-height: 80px; padding: 11px 16px; }
   .etsy-design-gallery-viewer { padding: 12px; }
   .etsy-design-gallery-main .etsy-design-gallery-side { padding: 15px 12px; gap: 15px; }
+  .etsy-design-gallery-background-picker { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .etsy-design-gallery-background-swatch { width: 25px; height: 25px; min-width: 25px; }
 }
 @media (max-width: 680px) {
