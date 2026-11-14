@@ -41,14 +41,15 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
         return None
     allowed = {color_id for color_id, _ in GARMENT_COLORS}
     colors = match.get("recommended")
-    if (match.get("version") != ALGORITHM or
+    max_recommendations = 10 if match.get("version") == ALGORITHM else 4
+    if (match.get("version") not in (ALGORITHM, "colormatch-pixel-v1") or
             match.get("output_sha256") != digest or
-            not isinstance(colors, list) or not 1 <= len(colors) <= 4 or
+            not isinstance(colors, list) or not 1 <= len(colors) <= max_recommendations or
             any(not isinstance(c, str) or c not in allowed for c in colors) or
             len(set(colors)) != len(colors)):
         return None
     return {
-        "version": ALGORITHM, "output_sha256": digest,
+        "version": match["version"], "output_sha256": digest,
         "recommended": colors, "method": "thumbnail_pixel_contrast",
     }
 

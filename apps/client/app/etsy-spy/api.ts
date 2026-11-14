@@ -61,7 +61,7 @@ export type DesignAsset = {
   print_ready: false; rights_status: "unverified";
   manual_qa_required: true; created_at?: string | null;
   color_match?: {
-    version: "colormatch-pixel-v1"; output_sha256: string;
+    version: "colormatch-pixel-v1" | "colormatch-pixel-v2"; output_sha256: string;
     recommended: string[]; method: "thumbnail_pixel_contrast";
   };
 };

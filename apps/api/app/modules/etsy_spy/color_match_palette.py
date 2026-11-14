@@ -2,7 +2,7 @@
 
 Values mirror DesignCell's preview-only swatches; not calibrated fabric dyes.
 """
-ALGORITHM = "colormatch-pixel-v1"
+ALGORITHM = "colormatch-pixel-v2"
 GARMENT_COLORS = (
     ("black", "#25282A"), ("white", "#FFFFFF"), ("ivory", "#E7CEB5"),
     ("bay", "#94A596"), ("sage", "#3E4827"), ("light-green", "#5C7F71"),
