@@ -150,6 +150,21 @@ def reserve_existing_image_job(
     if other is not None:
         return SlotDecision("unresolved_device_claim")
 
+    # A prior device may still own this job's old claim epoch. Detect its
+    # historical slot before inserting/updating ours: otherwise the ledger's
+    # (tenant_id, job_id) unique constraint would abort the whole transaction.
+    # Cross-device handoff requires a separate, audited reconciliation path;
+    # an expired clock alone never authorizes reassignment of that job.
+    occupied_by_other = session.scalar(
+        select(AgentExecutorSlotModel.agent_id).where(
+            AgentExecutorSlotModel.tenant_id == tenant_id,
+            AgentExecutorSlotModel.job_id == job_id,
+            AgentExecutorSlotModel.agent_id != agent_id,
+        ).with_for_update()
+    )
+    if occupied_by_other is not None:
+        return SlotDecision("job_reserved_elsewhere")
+
     session.execute(
         pg_insert(AgentExecutorSlotModel).values(
             tenant_id=tenant_id, agent_id=agent_id,
@@ -167,6 +182,8 @@ def reserve_existing_image_job(
         old_live = old_expires is not None and old_expires > clock
         if _same_claim(slot, job):
             if old_live:
+                if old_expires > _utc(job.lease_expires_at):
+                    return SlotDecision("slot_outlives_source_lease")
                 return SlotDecision("already_reserved", slot.fencing_token, old_expires)
             return SlotDecision("expired_slot_requires_reconcile")
         if old_live:

@@ -112,8 +112,9 @@ def test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes(ledger):
         ).state == "fence_verified"
         session.rollback()
 
-    # A second claim of the SAME job_id is an entirely new lease epoch.
-    new_clock = clock + timedelta(seconds=35)
+    # Simulate a forced/recovered claim while the old executor slot is still
+    # live. This tests fail-closed admission, not the normal lease-expiry path.
+    new_clock = clock + timedelta(seconds=20)
     with Session(engine) as session:
         source = session.get(ProcessingJobModel, job)
         source.attempt_count = 2
@@ -123,11 +124,12 @@ def test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes(ledger):
 
     with Session(engine) as session:
         assert reserve(
-            session, tenant, agent, job, clock + timedelta(seconds=10),
+            session, tenant, agent, job, new_clock,
         ).state == "slot_busy"
         session.rollback()
+    reclaim_ready = clock + timedelta(seconds=31)
     with Session(engine) as session:
-        second = reserve(session, tenant, agent, job, new_clock)
+        second = reserve(session, tenant, agent, job, reclaim_ready)
         assert second.state == "reserved" and second.fencing_token == 2
         session.commit()
 
@@ -135,17 +137,17 @@ def test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes(ledger):
         assert renew_image_slot(
             session, tenant_id=tenant, agent_id=agent, job_id=job,
             fencing_token=first.fencing_token, enabled=True,
-            emergency_stop=False, now=new_clock,
+            emergency_stop=False, now=reclaim_ready,
         ).state == "stale_fencing_token"
         assert verify_image_output_fence(
             session, tenant_id=tenant, agent_id=agent, job_id=job,
             fencing_token=first.fencing_token, enabled=True,
-            emergency_stop=False, now=new_clock,
+            emergency_stop=False, now=reclaim_ready,
         ).state == "stale_fencing_token"
         assert verify_image_output_fence(
             session, tenant_id=tenant, agent_id=agent, job_id=job,
             fencing_token=second.fencing_token, enabled=True,
-            emergency_stop=False, now=new_clock,
+            emergency_stop=False, now=reclaim_ready,
         ).state == "fence_verified"
         session.rollback()
 
@@ -207,6 +209,110 @@ def test_expired_same_attempt_needs_reconciliation_and_concurrent_job_denied(led
     with Session(engine) as session:
         slot = session.get(AgentExecutorSlotModel, (tenant, agent))
         assert slot.fencing_token == 1
+
+
+def test_another_agent_cannot_take_a_job_with_an_unreconciled_slot(ledger):
+    engine, tenant, agent, job, clock = ledger
+    with Session(engine) as session:
+        initial = reserve(session, tenant, agent, job, clock)
+        assert initial.state == "reserved" and initial.fencing_token == 1
+        session.commit()
+
+    second_agent = str(uuid4())
+    handoff_time = clock + timedelta(seconds=45)  # prior slot expired at +30
+    with Session(engine) as session:
+        session.add(EtsySpyAgent(
+            id=second_agent, tenant_id=tenant,
+            name="CAM Image Agent / Handoff CI", token_hash="b" * 64,
+            active=True,
+        ))
+        source = session.get(ProcessingJobModel, job)
+        source.claimed_by = "etsy-image:" + second_agent
+        source.attempt_count = 2
+        source.claimed_at = handoff_time
+        source.lease_expires_at = handoff_time + timedelta(minutes=2)
+        session.commit()
+
+    with Session(engine) as session:
+        decision = reserve(session, tenant, second_agent, job, handoff_time)
+        assert decision.state == "job_reserved_elsewhere"
+        session.rollback()
+    with Session(engine) as session:
+        assert session.get(AgentExecutorSlotModel, (tenant, second_agent)) is None
+        original = session.get(AgentExecutorSlotModel, (tenant, agent))
+        assert original.job_id == job
+        assert original.fencing_token == 1
+        assert original.claim_attempt_count == 1
+        assert session.get(ProcessingJobModel, job).claimed_by == "etsy-image:" + second_agent
+
+
+def test_reclaim_rejects_missing_monotonic_claim_epoch(ledger):
+    engine, tenant, agent, job, clock = ledger
+    with Session(engine) as session:
+        assert reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+
+    retry_time = clock + timedelta(seconds=41)  # slot TTL ended at +30
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.claimed_at = clock + timedelta(seconds=40)
+        source.lease_expires_at = retry_time + timedelta(minutes=2)
+        session.commit()
+
+    with Session(engine) as session:
+        assert reserve(session, tenant, agent, job, retry_time).state == "claim_epoch_not_monotonic"
+        session.rollback()
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.attempt_count = 2
+        source.claimed_at = clock  # attempt increased, but claim time did not
+        session.commit()
+    with Session(engine) as session:
+        assert reserve(session, tenant, agent, job, retry_time).state == "claim_epoch_not_monotonic"
+        session.rollback()
+    with Session(engine) as session:
+        slot = session.get(AgentExecutorSlotModel, (tenant, agent))
+        assert slot.fencing_token == 1
+        assert slot.claim_attempt_count == 1
+
+
+def test_shortened_source_lease_must_be_refenced_before_output(ledger):
+    engine, tenant, agent, job, clock = ledger
+    with Session(engine) as session:
+        assert reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+
+    shorter_expiry = clock + timedelta(seconds=15)
+    with Session(engine) as session:
+        session.get(ProcessingJobModel, job).lease_expires_at = shorter_expiry
+        session.commit()
+
+    with Session(engine) as session:
+        assert reserve(
+            session, tenant, agent, job, clock + timedelta(seconds=5),
+        ).state == "slot_outlives_source_lease"
+        assert verify_image_output_fence(
+            session, tenant_id=tenant, agent_id=agent, job_id=job,
+            fencing_token=1, enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=5),
+        ).state == "slot_outlives_source_lease"
+        session.rollback()
+    with Session(engine) as session:
+        shortened = renew_image_slot(
+            session, tenant_id=tenant, agent_id=agent, job_id=job,
+            fencing_token=1, enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=6),
+        )
+        assert shortened.state == "renewed"
+        assert shortened.expires_at == shorter_expiry
+        session.commit()
+    with Session(engine) as session:
+        assert verify_image_output_fence(
+            session, tenant_id=tenant, agent_id=agent, job_id=job,
+            fencing_token=1, enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=7),
+        ).state == "fence_verified"
+        session.rollback()
 
 
 def test_cross_tenant_and_emergency_stop_fail_closed(ledger):
