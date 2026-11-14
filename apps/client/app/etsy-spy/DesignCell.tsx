@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Listing } from "./api";
+import { EtsyDeferredImage } from "./EtsyDeferredImage";
 
 export function DesignCell({ item, onPreviewStart }: {
   item: Listing; onPreviewStart?: () => void;
@@ -107,7 +108,7 @@ export function DesignCell({ item, onPreviewStart }: {
             setActive(index);
           }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
-          <img loading="lazy" decoding="async" src={design.thumbnail_url} alt="" />
+          <EtsyDeferredImage src={design.thumbnail_url} alt="" width={60} height={60} />
         </button>
       ))}
     </div>
@@ -147,8 +148,8 @@ export function DesignCell({ item, onPreviewStart }: {
           </button>
           <div className="etsy-design-gallery-main">
             <div className="etsy-design-gallery-stage">
-              <img key={preview.id} src={preview.original_url}
-                alt={`Thiết kế ${selected + 1}`} decoding="async" />
+              <EtsyDeferredImage key={preview.id} eager src={preview.original_url}
+                alt={`Thiết kế ${selected + 1}`} />
             </div>
             <aside aria-label="Danh sách ảnh thiết kế">
               <div className="etsy-design-gallery-list">
@@ -158,8 +159,7 @@ export function DesignCell({ item, onPreviewStart }: {
                     onClick={() => setActive(index)}
                     aria-label={`Xem thiết kế ${index + 1}`}
                     aria-pressed={index === selected}>
-                    <img loading="lazy" decoding="async"
-                      src={design.thumbnail_url} alt="" />
+                    <EtsyDeferredImage src={design.thumbnail_url} alt="" width={60} height={60} />
                   </button>
                 ))}
               </div>
