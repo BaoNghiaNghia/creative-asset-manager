@@ -101,7 +101,7 @@ def test_https_get_uses_public_pinned_ip_sni_bounded_body_and_rejects_redirects(
     assert source._fetch_etsy_source(url) == original
     assert ("connect", ("8.8.8.8", 443), 5.0) in calls
     assert ("tls_sni", "i.etsystatic.com") in calls
-    request = next(value for name, value in calls if name == "request").decode()
+    request = next(record[1] for record in calls if record[0] == "request").decode()
     assert "GET /1789/r/il/photo.jpg HTTP/1.1" in request
     assert "Host: i.etsystatic.com" in request
     assert "Connection: close" in request
