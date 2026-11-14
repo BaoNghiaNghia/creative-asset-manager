@@ -1515,6 +1515,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 
 /* Picked Design is image-only; job status lives outside this column. */
 .etsy-spy-page .etsy-design-cell {
+  /* Always match the Product / Etsy thumbnail height in the same row. */
+  --etsy-design-thumbnail-height: 68px;
   min-width: 242px;
   width: 242px;
   vertical-align: middle;
@@ -1523,15 +1525,26 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Bound the rail so wide artwork does not expand the auto-layout table. */
+  width: 224px; /* 242px Design column minus its 9px inline cell padding */
+  min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #bdcce0 transparent;
+  overscroll-behavior-x: contain;
 }
 .etsy-spy-page .etsy-design-thumb {
-  display: grid;
-  place-items: center;
-  flex: 0 0 68px;
-  width: 68px;
-  height: 68px;
-  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 44px; /* safe touch/focus target even for very narrow sleeve art */
+  height: var(--etsy-design-thumbnail-height);
+  padding: 0;
+  overflow: hidden;
   border: 1px solid #dce4ef;
   border-radius: 8px;
   cursor: pointer;
@@ -1546,9 +1559,24 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 }
 .etsy-spy-page .etsy-design-thumb img {
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  flex: 0 0 auto;
+  height: calc(var(--etsy-design-thumbnail-height) - 2px);
+  width: auto;
+  max-width: none;
+  object-fit: contain; /* preserve true source aspect ratio, no square crop */
+}
+@media (max-width: 680px) {
+  /* The table is rendered as mobile cards; reset its desktop minimum width. */
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products {
+    min-width: 0;
+    width: 100%;
+  }
+  .etsy-spy-page .etsy-design-cell {
+    --etsy-design-thumbnail-height: 76px;
+  }
+  .etsy-spy-page .etsy-design-thumbnails {
+    width: 100%; /* mobile cards have no 9px table-cell padding */
+  }
 }
 .etsy-spy-page .etsy-design-thumb:hover,
 .etsy-spy-page .etsy-design-thumb:focus-visible {

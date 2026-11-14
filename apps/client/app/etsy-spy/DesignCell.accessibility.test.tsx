@@ -73,6 +73,28 @@ describe("Picked Design gallery accessibility and refresh", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("lets each table thumbnail use its native width instead of 60x60 attributes", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(
+      <DesignCell item={listing([
+        design("wide-front"),
+        {...design("tall-sleeve"), position: "left_sleeve"},
+        {...design("square-back"), position: "back"},
+      ])} />,
+    ));
+    const thumbnails = host.querySelectorAll<HTMLButtonElement>(".etsy-design-thumb");
+    expect(thumbnails).toHaveLength(3);
+    for (const thumb of thumbnails) {
+      const img = thumb.querySelector("img");
+      expect(img).not.toBeNull();
+      expect(img?.hasAttribute("width")).toBe(false);
+      expect(img?.hasAttribute("height")).toBe(false);
+    }
+    expect(host.querySelector(".etsy-design-thumbnails")?.textContent?.trim()).toBe("");
+  });
+
   it("groups placements and keeps multiple variants under their printing position", async () => {
     host = document.createElement("div");
     document.body.append(host);

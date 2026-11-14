@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-14 — Etsy Spy Picked Design thumbnail auto-width follow-up
+
+- [x] Match Design thumbnail height to Product/Etsy (68px desktop, 76px mobile); use intrinsic image width without forced square sizing.
+- [x] Keep multi-design overflow inside the Design cell; reset conflicting products-table min width on mobile cards.
+- [x] Verify 53 targeted React tests, full TypeScript and Firefox layout/interaction QA at four responsive viewports.
+- [ ] Merge after green CI, deploy frontend only with one retained rollback, verify live build and public read-only smoke.
+
+
 ## 2026-11-14 — Etsy Spy Picked multi-position Design gallery (UI candidate)
 
 - [x] Group actual PNG artwork by print location and variants in the modal, preserve the original PNG and source thumbnail hover in the table.
