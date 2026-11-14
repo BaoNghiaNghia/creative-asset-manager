@@ -15,6 +15,34 @@ const DESIGN_BACKGROUNDS = [
 ] as const;
 type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
 
+
+const POSITION_LABELS: Record<string, string> = {
+  front: "Mặt trước",
+  back: "Mặt sau",
+  left_sleeve: "Tay trái",
+  right_sleeve: "Tay phải",
+  sleeve: "Ống tay",
+  chest: "Ngực áo",
+  left_chest: "Ngực trái",
+  right_chest: "Ngực phải",
+  pocket: "Túi áo",
+  hood: "Mũ áo",
+};
+const POSITION_ORDER = [
+  "front", "back", "left_chest", "right_chest", "chest",
+  "left_sleeve", "right_sleeve", "sleeve", "pocket", "hood",
+] as const;
+
+function positionKey(value: string) {
+  return String(value || "unknown").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+function positionLabel(key: string) {
+  return POSITION_LABELS[key] ?? key.replace(/_/g, " ").slice(0, 36);
+}
+function variantLabel(value: number, ordinal: number) {
+  return Number.isInteger(value) && value > 0 ? `Mẫu ${value}` : `Mẫu ${ordinal}`;
+}
+
 export function DesignCell({ item, onPreviewStart }: {
   item: Listing; onPreviewStart?: () => void;
 }) {
@@ -101,6 +129,28 @@ export function DesignCell({ item, onPreviewStart }: {
   const selected = active === null ? 0 : Math.min(active, designs.length - 1);
   const preview = designs[selected];
   const hoveredDesign = hovered === null ? null : designs[hovered];
+  const grouped = new Map<string, {
+    key: string; label: string;
+    entries: { design: (typeof designs)[number]; index: number }[];
+  }>();
+  designs.forEach((design, index) => {
+    const key = positionKey(design.position);
+    const existing = grouped.get(key);
+    if (existing) existing.entries.push({design, index});
+    else grouped.set(key, {key, label: positionLabel(key), entries: [{design, index}]});
+  });
+  const positions = Array.from(grouped.values()).sort((a, b) => {
+    const aOrder = POSITION_ORDER.indexOf(a.key as (typeof POSITION_ORDER)[number]);
+    const bOrder = POSITION_ORDER.indexOf(b.key as (typeof POSITION_ORDER)[number]);
+    return (aOrder < 0 ? POSITION_ORDER.length : aOrder) -
+      (bOrder < 0 ? POSITION_ORDER.length : bOrder);
+  });
+  const selectedPosition = grouped.get(positionKey(preview.position)) ?? positions[0];
+  const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
+  const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
+  const goToDesign = (delta: number) => {
+    setActive(index => index === null ? null : (index + delta + designs.length) % designs.length);
+  };
 
   return <>
     <div className="etsy-design-thumbnails"
@@ -154,39 +204,119 @@ export function DesignCell({ item, onPreviewStart }: {
         <section ref={galleryRef} role="dialog" aria-modal="true"
           aria-label={`Ảnh thiết kế sản phẩm ${item.listingKey}`}
           className="etsy-design-gallery" data-preview-background={background}>
-          <button ref={closeRef} className="etsy-design-gallery-close" type="button"
-            onClick={() => setActive(null)} aria-label="Đóng">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 5L19 19M19 5L5 19" />
-            </svg>
-          </button>
-          <div className="etsy-design-gallery-main">
-            <div className="etsy-design-gallery-stage">
-              <EtsyDeferredImage key={preview.id} eager src={preview.original_url}
-                alt={`Thiết kế ${selected + 1}`} />
+          <header className="etsy-design-gallery-header">
+            <div className="etsy-design-gallery-heading">
+              <span className="etsy-design-gallery-eyebrow">DESIGN PREVIEW</span>
+              <h2>Thiết kế theo vị trí in</h2>
+              <p title={item.pageTitle}>{item.pageTitle}</p>
             </div>
-            <aside aria-label="Danh sách ảnh thiết kế">
-              <div className="etsy-design-gallery-list">
-                {designs.map((design, index) => (
-                  <button key={design.job_id + ":" + design.id} type="button"
-                    className={index === selected ? "active" : ""}
-                    onClick={() => setActive(index)}
-                    aria-label={`Xem thiết kế ${index + 1}`}
-                    aria-pressed={index === selected}>
-                    <EtsyDeferredImage src={design.thumbnail_url} alt="" width={60} height={60} />
+            <div className="etsy-design-gallery-header-meta" aria-label="Số lượng ảnh">
+              <strong>{designs.length}</strong> thiết kế
+              <span aria-hidden="true">·</span>
+              <strong>{positions.length}</strong> vị trí
+            </div>
+            <button ref={closeRef} className="etsy-design-gallery-close" type="button"
+              onClick={() => setActive(null)} aria-label="Đóng">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 5L19 19M19 5L5 19" />
+              </svg>
+            </button>
+          </header>
+          <div className="etsy-design-gallery-main">
+            <div className="etsy-design-gallery-viewer">
+              <div className="etsy-design-gallery-stage" aria-label="Ảnh thiết kế xem trước">
+                <span className="etsy-design-gallery-stage-chip">
+                  {selectedPosition.label} <span aria-hidden="true">/</span> {selectedVariant}
+                </span>
+                <EtsyDeferredImage key={preview.id} eager src={preview.original_url}
+                  alt={`Thiết kế ${selectedVariant} - ${selectedPosition.label}`} />
+              </div>
+              <footer className="etsy-design-gallery-viewer-footer">
+                <div className="etsy-design-gallery-current" aria-live="polite">
+                  <strong>{selectedPosition.label} · {selectedVariant}</strong>
+                  <span>{selected + 1} / {designs.length} thiết kế</span>
+                </div>
+                <div className="etsy-design-gallery-navigation" aria-label="Chuyển ảnh">
+                  <button type="button" aria-label="Thiết kế trước" title="Thiết kế trước (←)"
+                    onClick={() => goToDesign(-1)} disabled={designs.length === 1}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M15 5L8 12L15 19" />
+                    </svg>
                   </button>
-                ))}
-              </div>
-              <div className="etsy-design-gallery-background-picker"
-                role="group" aria-label="Màu nền xem thiết kế">
-                {DESIGN_BACKGROUNDS.map(option => (
-                  <button key={option.id} type="button"
-                    className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
-                    title={option.label} aria-label={option.label}
-                    aria-pressed={background === option.id}
-                    onClick={() => setBackground(option.id)} />
-                ))}
-              </div>
+                  <button type="button" aria-label="Thiết kế tiếp theo" title="Thiết kế tiếp theo (→)"
+                    onClick={() => goToDesign(1)} disabled={designs.length === 1}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M9 5L16 12L9 19" />
+                    </svg>
+                  </button>
+                </div>
+              </footer>
+            </div>
+            <aside className="etsy-design-gallery-side" aria-label="Vị trí và ảnh thiết kế">
+              <section className="etsy-design-gallery-side-section">
+                <div className="etsy-design-gallery-section-heading">
+                  <strong>Vị trí in</strong>
+                  <span>{positions.length} vị trí</span>
+                </div>
+                <div className="etsy-design-gallery-position-list" role="group"
+                  aria-label="Chọn vị trí in">
+                  {positions.map(position => (
+                    <button key={position.key} type="button"
+                      className={position.key === selectedPosition.key ? "active" : ""}
+                      onClick={() => setActive(position.entries[0].index)}
+                      aria-pressed={position.key === selectedPosition.key}
+                      aria-label={`${position.label}, ${position.entries.length} thiết kế`}>
+                      <span>{position.label}</span>
+                      <span className="etsy-design-gallery-position-count">
+                        {position.entries.length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="etsy-design-gallery-side-section etsy-design-gallery-variants">
+                <div className="etsy-design-gallery-section-heading">
+                  <strong>Thiết kế · {selectedPosition.label}</strong>
+                  <span>{selectedPosition.entries.length} mẫu</span>
+                </div>
+                <div className="etsy-design-gallery-list" role="group"
+                  aria-label={`Các thiết kế ${selectedPosition.label}`}>
+                  {selectedPosition.entries.map((entry, ordinal) => (
+                    <button key={entry.design.job_id + ":" + entry.design.id} type="button"
+                      className={entry.index === selected ? "active" : ""}
+                      onClick={() => setActive(entry.index)}
+                      aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1)}`}
+                      aria-pressed={entry.index === selected}>
+                      <span className="etsy-design-gallery-variant-artwork">
+                        <EtsyDeferredImage src={entry.design.thumbnail_url} alt=""
+                          width={88} height={88} />
+                      </span>
+                      <span className="etsy-design-gallery-variant-label">
+                        {variantLabel(entry.design.variant, ordinal + 1)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="etsy-design-gallery-side-section etsy-design-gallery-backgrounds">
+                <div className="etsy-design-gallery-section-heading">
+                  <strong>Nền xem thử</strong>
+                  <span>{DESIGN_BACKGROUNDS.find(option => option.id === background)?.label}</span>
+                </div>
+                <div className="etsy-design-gallery-background-picker"
+                  role="group" aria-label="Màu nền xem thiết kế">
+                  {DESIGN_BACKGROUNDS.map(option => (
+                    <button key={option.id} type="button"
+                      className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
+                      title={option.label} aria-label={option.label}
+                      aria-pressed={background === option.id}
+                      onClick={() => setBackground(option.id)} />
+                  ))}
+                </div>
+                <p className="etsy-design-gallery-background-note">
+                  Chỉ đổi màu nền xem trước, không thay đổi file PNG.
+                </p>
+              </section>
             </aside>
           </div>
         </section>

@@ -1738,17 +1738,23 @@ describe("Etsy Spy native CAM dashboard", () => {
     const gallery = document.body.querySelector<HTMLElement>(
       '[role="dialog"][aria-label*="Ảnh thiết kế sản phẩm"]');
     expect(gallery).not.toBeNull();
-    expect(gallery?.querySelector("header, footer, a")).toBeNull();
-    expect(gallery?.textContent?.trim()).toBe("");
-    expect(gallery?.querySelector(".etsy-design-gallery-list")?.querySelectorAll("button"))
+    expect(gallery?.querySelector(".etsy-design-gallery-header h2")?.textContent)
+      .toBe("Thiết kế theo vị trí in");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-position-list button"))
       .toHaveLength(4);
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button"))
+      .toHaveLength(1);
     expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
       ?.getAttribute("src")).toContain("mock-2/original");
     await act(async () => {
-      gallery?.querySelectorAll<HTMLButtonElement>(".etsy-design-gallery-list button")[3]?.click();
+      gallery?.querySelectorAll<HTMLButtonElement>(
+        ".etsy-design-gallery-position-list button",
+      )[3]?.click();
     });
     expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
       ?.getAttribute("src")).toContain("mock-3/original");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-position-list button[aria-pressed='true']"))
+      .toHaveLength(1);
     expect(gallery?.querySelectorAll(".etsy-design-gallery-list button[aria-pressed='true']"))
       .toHaveLength(1);
     await act(async () => {

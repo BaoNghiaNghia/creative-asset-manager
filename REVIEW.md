@@ -1,3 +1,10 @@
+## 2026-11-14 — Etsy Spy Design viewer UX verification
+
+- Replaced flat side thumbnails with source-defined print position grouping and variant navigation; modal remains an on-demand, read-only PNG viewer. No new image processing, API, model or security grant.
+- Browser fixture verified 320/390/768/844-landscape/1440 CSS px with no viewport overflow; background palettes do not mutate artwork. Mobile inspector scroll, accessible focus containment and position/variant navigation remain available.
+- 52 scoped component/integration tests PASS; scoped TypeScript PASS. Full app typecheck blocked by unrelated dependencies/missing Stage 2 asset in sparse checkout; require locked CI before production.
+- Roll back by reverting only `DesignCell.tsx`, `EtsySpyPage.css`, adjacent tests and documentation. Do not touch other pending Etsy UX worktrees.
+
 ## 2026-11-13 — CAM Etsy Spy agent review intents (candidate)
 
 - Server-side agent Bearer and exact tenant + same-agent current Eligible evidence gates; no browser credential/cookie. Two user actions (Pick/Later) and passive Win Keyword are atomic with one PostgreSQL idempotency receipt.
