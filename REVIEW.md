@@ -1,3 +1,9 @@
+## 2026-11-14 — Picked Design image height and intrinsic width
+
+- Source fix: remove forced 60x60 HTML image attributes and fixed square thumbnail box. Use Product/Etsy-aligned height and intrinsic width; landscape and sleeve detail are preserved. The desktop rail is width bounded so table auto layout is not inflated by design intrinsic width; mobile rail fills the card.
+- QA: 53/53 React tests, full TypeScript, Firefox four viewport checks (320/390/768/1440) with mixed-ratio artwork and internal overflow/no page overflow PASS. Existing hover/gallery behavior stays intact; no PNG/API/database changes.
+- Release gate: built and committed frontend bundle with provenance, GitHub CI, HTTP health, frontend rollback retained. Authenticated Picked data still needs separate production verification.
+
 ## 2026-11-14 — Etsy Spy Design viewer UX verification
 
 - Replaced flat side thumbnails with source-defined print position grouping and variant navigation; modal remains an on-demand, read-only PNG viewer. No new image processing, API, model or security grant.

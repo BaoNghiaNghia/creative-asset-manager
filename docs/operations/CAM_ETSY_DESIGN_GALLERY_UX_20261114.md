@@ -18,6 +18,14 @@
 - Real iOS Safari / Android Chrome / iPad Safari: **NOT RUN**. No production data or credentials used by fixture.
 - Dist artifacts must be rebuilt only in an approved clean release; do not commit unrelated `dist` churn or modify the pending Etsy adaptive UX checkout.
 
+## Follow-up — Picked Design thumbnail intrinsic width (2026-11-14)
+
+- The Picked > Design cell uses the same visual image height as Product/Etsy: 68 CSS px on desktop/tablet, 76 px on mobile. Image width is automatic and no square HTML width/height attributes are set, preserving wide, square and sleeve aspect ratios.
+- Buttons use content width with 44 px minimum touch target and no square crop. On desktop the Design rail is bounded within the existing 242 px table column (224 px content width); multiple or wide designs scroll **inside the cell**, not the entire table. On mobile the rail fills the card.
+- Reset the legacy 1010 px products-table minimum width only in the mobile-card breakpoint (<=680 px). No changes to PNG, source URLs, lazy image IO, hover previews, gallery, API or processing.
+- Regression: 53/53 targeted Etsy Spy React tests PASS; full TypeScript typecheck PASS. Firefox fixture PASS at 1440x900, 768x1024, 390x844 and 320x700, with portrait (1:4), square (1:1) and wide (3:1) artwork. Image/button heights align with the Product thumbnail, ratios are preserved, and gallery/Escape and overflow checks pass.
+- Production rollout requires committed dist provenance, CI green, one rollback retained, and read-only public post-deploy smoke. Authenticated Picked coverage is a separate check.
+
 ## Rollback / release
 
 Pure frontend change. No migration/flag/credential/API cost. Revert the scoped component, CSS and test changes if unexpected browser regressions occur. Release from reviewed, green `main` with current + rollback retained; verify modal on a real Picked multi-placement listing and preserve existing table/modal refresh behavior.

@@ -172,7 +172,7 @@ export function DesignCell({ item, onPreviewStart }: {
             setActive(index);
           }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
-          <EtsyDeferredImage src={design.thumbnail_url} alt="" width={60} height={60} />
+          <EtsyDeferredImage src={design.thumbnail_url} alt="" />
         </button>
       ))}
     </div>
