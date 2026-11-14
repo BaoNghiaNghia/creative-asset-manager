@@ -330,3 +330,77 @@ class AgentExecutorSlotModel(Base):
         DateTime(timezone=True), nullable=False, default=utcnow,
         server_default=text("CURRENT_TIMESTAMP"), onupdate=utcnow,
     )
+
+
+class AgentImageOutputReceiptModel(Base):
+    """Inert, tenant-bound durable receipt for an exact fenced PNG claim.
+
+    One job can have at most one prepared/accepted result across *all* claim
+    attempts. A prepared old epoch is never silently replaced or promoted.
+    No live result endpoint imports or writes this model.
+    """
+
+    __tablename__ = "cam_agent_image_output_receipts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id"], ["processing_jobs.id"],
+            name="fk_cam_agent_output_receipt_job", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["agent_id"], ["etsy_spy_agents.id"],
+            name="fk_cam_agent_output_receipt_agent", ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "receipt_id", name="uq_cam_agent_output_receipt_id",
+        ),
+        CheckConstraint(
+            "claim_attempt_count > 0 AND fencing_token > 0",
+            name="ck_cam_agent_output_receipt_epoch",
+        ),
+        CheckConstraint(
+            "output_bytes > 0 AND output_bytes <= 22000000",
+            name="ck_cam_agent_output_receipt_size",
+        ),
+        CheckConstraint(
+            "length(output_sha256) = 64 AND length(source_sha256) = 64",
+            name="ck_cam_agent_output_receipt_digest",
+        ),
+        CheckConstraint(
+            "engine IN ('chatgpt_assisted', 'fast_cpu')",
+            name="ck_cam_agent_output_receipt_engine",
+        ),
+        CheckConstraint(
+            "(status = 'prepared' AND accepted_at IS NULL) OR "
+            "(status = 'accepted' AND accepted_at IS NOT NULL)",
+            name="ck_cam_agent_output_receipt_status",
+        ),
+        Index(
+            "ix_cam_agent_output_receipt_state", "tenant_id", "status",
+            "prepared_at",
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    claim_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    claim_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    receipt_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    output_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="prepared",
+        server_default=text("'prepared'"),
+    )
+    prepared_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )

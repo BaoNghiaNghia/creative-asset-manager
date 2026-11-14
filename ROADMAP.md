@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3D: crash-recoverable fenced PNG receipt (inert)
+
+- [x] Add additive empty 0210 image output receipt ledger linked to exact job, active paired agent, attempt/claimed_at, fencing token, digest, source digest and engine; fail closed on mismatched retries.
+- [x] Implement default-OFF prepare / accept helpers with PostgreSQL locks, fsynced content-addressed immutable PNG, and job + accepted-receipt in the same DB transaction; keep incomplete/orphan artifacts unreleased and recoverable.
+- [x] Add SQLite/default-OFF/schema tests and PostgreSQL 12/16 concurrency, interruption/retry, stale-claim, corrupted-bytes, storage-unavailable and replay cases in existing CI matrix.
+- [ ] Obtain green hosted CI, off-host production backup restoration and exact migration/rollback release evidence before activating 0209/0210. Keep PR Draft.
+- [ ] Separately wire authenticated source/provider browser evidence and a reviewed immutable receipt contract to `/result`, add human reconciliation for stale prepared results, then canary before any dispatch.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3D_FENCED_OUTPUT_RECEIPTS_20261114.md`.
+
+
 ## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3C: CI repair and cross-agent safety
 
 - [x] Fix failing PostgreSQL 12/16 reclaim test by modeling the exact new claim timestamp and slot expiry, without loosening future-skew validation.

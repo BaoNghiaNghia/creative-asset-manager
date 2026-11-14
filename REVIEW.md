@@ -1,3 +1,10 @@
+## 2026-11-14 — Agent Harness 4C.3D output acceptance boundary
+
+- Existing live Image Agent result path writes PNG before SQL COMMIT with only legacy job lease token. Candidate adds a separate inert 0210 ledger and default-OFF two-step result acceptance: prepared immutable claim then fsynced content-addressed bytes and atomic DB receipt + job completion.
+- A crash after fsync/before commit can leave an orphan file but cannot publish a result; retry by the **same live fenced epoch** can verify/reuse the exact bytes. Different source/hash/engine or a reclaimed epoch cannot replace the row, even with the same job ID.
+- Output is still review-only and not independently browser/provider verified. Future importer must execute all provenance checks, preserve lock order, handle reconciliation and source lineage, and be approved before wiring. Old `/result` is untouched.
+- 0210 is empty/additive and refuses destructive downgrade when populated. Neither 0209 nor 0210 is deployed; off-host restore and rollback remain blockers. Green CI on fake PostgreSQL DB is not production restore evidence.
+
 ## 2026-11-14 — Agent Harness 4C.3C CI failure and handoff guard
 
 - CI #3011 failed only in PostgreSQL 12/16 test `test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes`, due to testing at a clock preceding the new claim by 25 seconds (source rejects >5 second future skew by design); no unsafe default behavior was activated. Fixed the test setup without reducing security.
