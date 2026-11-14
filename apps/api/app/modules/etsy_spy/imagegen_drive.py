@@ -22,9 +22,11 @@ from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput
 from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.modules.storage.managed_oauth import managed_storage_oauth_status
 from app.providers.google.storage import GoogleDriveAssetStorage
+from .thumbnail_memory_cache import ThumbnailMemoryCache
 
 _DRIVE_ID = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _MAX_PNG = 80 * 1024 * 1024
+_THUMBNAIL_CACHE = ThumbnailMemoryCache()  # Per-process 16 MiB maximum; never originals.
 
 
 def provider_and_folder():
@@ -260,6 +262,14 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
     if not re.fullmatch(r"[0-9a-f]{64}", str(sha256)):
         raise HTTPException(404, "Design SHA256 invalid")
     provider, _ = provider_and_folder()
+    is_thumbnail = asset_id.endswith(":thumbnail") and max_bytes <= 2 * 1024 * 1024
+    cache_key = (tenant_id, remote_id, sha256)
+    if is_thumbnail:
+        cached = _THUMBNAIL_CACHE.get(cache_key)
+        if cached is not None:
+            if len(cached) > max_bytes:
+                raise HTTPException(413, "Drive Design image too large")
+            return cached
     try:
         streamed = await provider.open_asset(OpenStoredAssetInput(
             tenant_id=tenant_id, asset_id=asset_id,
@@ -278,4 +288,6 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
     image = bytes(data)
     if hashlib.sha256(image).hexdigest() != sha256:
         raise HTTPException(502, "Google Drive Design checksum mismatch")
+    if is_thumbnail:
+        _THUMBNAIL_CACHE.put(cache_key, image)
     return image

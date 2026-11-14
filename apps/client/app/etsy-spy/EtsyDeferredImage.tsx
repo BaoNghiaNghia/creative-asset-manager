@@ -41,6 +41,56 @@ function observeNearViewport(node: Element, reveal: () => void): () => void {
   };
 }
 
+// Prevent a rapid scroll through Picked from flooding the API and Drive with
+// requests. Only thumbnails participate; the explicitly opened gallery image
+// bypasses the gate. Pending requests are cancelled when rows unmount/change.
+const THUMBNAIL_CONCURRENCY = 4;
+const THUMBNAIL_TIMEOUT_MS = 20_000;
+let activeThumbnails = 0;
+const thumbnailWaiters: Array<{ run: () => void; cancelled: boolean }> = [];
+
+function drainThumbnailQueue(): void {
+  while (activeThumbnails < THUMBNAIL_CONCURRENCY && thumbnailWaiters.length) {
+    const waiter = thumbnailWaiters.shift()!;
+    if (!waiter.cancelled) waiter.run();
+  }
+}
+
+function queueThumbnail(
+  begin: (finish: () => void) => void, expire: () => void,
+): () => void {
+  let finishCurrent: (() => void) | null = null;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const entry = {
+    cancelled: false,
+    run: () => {
+      activeThumbnails += 1;
+      let released = false;
+      const finish = () => {
+        if (released) return;
+        released = true;
+        if (timeout !== undefined) clearTimeout(timeout);
+        activeThumbnails = Math.max(0, activeThumbnails - 1);
+        drainThumbnailQueue();
+      };
+      finishCurrent = finish;
+      // Cancel a stalled image request, freeing the slot instead of allowing
+      // a few broken requests to prevent every remaining thumbnail loading.
+      timeout = setTimeout(() => {
+        if (!entry.cancelled) expire();
+        finish();
+      }, THUMBNAIL_TIMEOUT_MS);
+      begin(finish);
+    },
+  };
+  thumbnailWaiters.push(entry);
+  drainThumbnailQueue();
+  return () => {
+    entry.cancelled = true;
+    finishCurrent?.();
+  };
+}
+
 type DeferredImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>,
   "src" | "loading" | "decoding" | "onLoad" | "onError"> & {
   src: string;
@@ -53,11 +103,13 @@ export const EtsyDeferredImage = memo(function EtsyDeferredImage({
   src, className, onFailure, eager = false, ...imageProps
 }: DeferredImageProps) {
   const target = useRef<HTMLImageElement | null>(null);
-  const [requestedUrl, setRequestedUrl] = useState<string | null>(() =>
+  const [nearUrl, setNearUrl] = useState<string | null>(() =>
     eager || typeof IntersectionObserver === "undefined" ? src : null);
+  const [requestedUrl, setRequestedUrl] = useState<string | null>(null);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const reveal = useCallback(() => setRequestedUrl(src), [src]);
+  const finishRef = useRef<(() => void) | null>(null);
+  const reveal = useCallback(() => setNearUrl(src), [src]);
   const requested = eager || requestedUrl === src;
   const loaded = loadedUrl === src;
   const failed = failedUrl === src;
@@ -68,10 +120,22 @@ export const EtsyDeferredImage = memo(function EtsyDeferredImage({
   }, [requested, reveal]);
 
   useEffect(() => {
+    if (eager || nearUrl !== src) return;
+    return queueThumbnail(finish => {
+      finishRef.current = finish;
+      setRequestedUrl(src);
+    }, () => setFailedUrl(src));
+  }, [src, eager, nearUrl]);
+
+  useEffect(() => {
     if (!requested || loaded || failed) return;
     const image = target.current;
     // Browser cache can resolve synchronously before React's effect runs.
-    if (image?.complete && image.naturalWidth > 0) setLoadedUrl(src);
+    if (image?.complete && image.naturalWidth > 0) {
+      finishRef.current?.();
+      finishRef.current = null;
+      setLoadedUrl(src);
+    }
   }, [src, requested, loaded, failed]);
 
   const state = failed ? "error" : loaded ? "ready" : requested ? "loading" : "deferred";
@@ -91,8 +155,14 @@ export const EtsyDeferredImage = memo(function EtsyDeferredImage({
       data-image-state={state}
       onPointerEnter={reveal}
       onFocus={reveal}
-      onLoad={() => setLoadedUrl(src)}
+      onLoad={() => {
+        finishRef.current?.();
+        finishRef.current = null;
+        setLoadedUrl(src);
+      }}
       onError={() => {
+        finishRef.current?.();
+        finishRef.current = null;
         setFailedUrl(src);
         onFailure?.();
       }}
