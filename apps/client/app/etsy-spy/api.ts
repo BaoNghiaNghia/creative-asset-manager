@@ -60,6 +60,10 @@ export type DesignAsset = {
   thumbnail_url: string; original_url: string;
   print_ready: false; rights_status: "unverified";
   manual_qa_required: true; created_at?: string | null;
+  color_match?: {
+    version: "colormatch-pixel-v1"; output_sha256: string;
+    recommended: string[]; method: "thumbnail_pixel_contrast";
+  };
 };
 export type TikTokListingDraft = {
   title: string; description: string; highlights: string[]; search_terms: string[];

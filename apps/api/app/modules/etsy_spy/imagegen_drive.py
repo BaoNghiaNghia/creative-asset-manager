@@ -11,7 +11,7 @@ import hashlib
 import io
 import os
 import re
-from threading import Lock
+from threading import Lock, BoundedSemaphore
 from typing import AsyncIterator
 
 import httpx
@@ -30,6 +30,7 @@ from .request_metrics import ETSY_PERFORMANCE
 _DRIVE_ID = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _MAX_PNG = 80 * 1024 * 1024
 _THUMBNAIL_CACHE = ThumbnailMemoryCache()  # Per-process 16 MiB maximum; never originals.
+_COLORMATCH_SLOTS = BoundedSemaphore(1)  # One tiny 192px analysis at a time.
 _THUMBNAIL_FLIGHTS_LOCK = Lock()
 _THUMBNAIL_FLIGHTS: dict[tuple[asyncio.AbstractEventLoop, str, str, str, int],
                          asyncio.Task[bytes]] = {}
@@ -215,6 +216,19 @@ def _thumbnail(png: bytes, *, native_master: bool = False) -> tuple[bytes, tuple
         raise HTTPException(422, "ImageGen design thumbnail cannot be decoded") from exc
 
 
+def _thumbnail_with_colormatch(png: bytes, *, digest: str, native_master: bool):
+    """Generate the pre-existing small preview and metadata off the API loop."""
+    from .color_match import recommend_garment_colors
+    with _COLORMATCH_SLOTS:
+        preview, dimensions = _thumbnail(png, native_master=native_master)
+        try:
+            colors = recommend_garment_colors(preview, digest)
+        except Exception:
+            # Recommendation failure must never block a genuine artwork.
+            colors = None
+        return preview, dimensions, colors
+
+
 async def store_design_to_drive(
     *, tenant_id: str, job_id: str, asset_id: str, digest: str, png: bytes,
     native_master: bool = False,
@@ -233,7 +247,10 @@ async def store_design_to_drive(
                           png[24:26] != b"\x08\x06"):
         raise HTTPException(422, "Native master requires 8-bit RGBA PNG")
     # Validate before any external write, including for malformed PNGs.
-    preview, (width, height) = _thumbnail(png, native_master=native_master)
+    preview, (width, height), color_match = await asyncio.to_thread(
+        _thumbnail_with_colormatch, png, digest=digest,
+        native_master=native_master,
+    )
     provider, folder = provider_and_folder()
     await verify_private_drive_destination(provider, folder)
     thumb_hash = hashlib.sha256(preview).hexdigest()
@@ -261,6 +278,7 @@ async def store_design_to_drive(
         "artwork_kind": "native_master_v2" if native_master else "print_png_v1",
         "native_width": width if native_master else None,
         "native_height": height if native_master else None,
+        "color_match": color_match,
     }
 
 

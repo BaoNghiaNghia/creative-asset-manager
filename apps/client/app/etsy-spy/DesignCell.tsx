@@ -38,7 +38,37 @@ const DESIGN_BACKGROUNDS = [
   { id: "pink", label: "Hồng nhạt (cũ)", color: "#EBBDC9" },
 ] as const;
 type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
+type PreviewDesign = NonNullable<Listing["designs"]>[number];
+const GARMENT_COLOR_IDS = new Set<DesignBackground>(
+  DESIGN_BACKGROUNDS.slice(1, 23).map(color => color.id),
+);
+const COLOR_MATCH_VERSION = "colormatch-pixel-v1";
+const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
+function recommendedColors(design: PreviewDesign): DesignBackground[] {
+  const match = design.color_match;
+  if (!match || match.version !== COLOR_MATCH_VERSION ||
+      match.output_sha256 !== design.output_sha256 ||
+      !Array.isArray(match.recommended)) return [];
+  const seen = new Set<DesignBackground>();
+  return match.recommended.slice(0, 4).filter((id): id is DesignBackground => {
+    if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
+        seen.has(id as DesignBackground)) return false;
+    seen.add(id as DesignBackground);
+    return true;
+  });
+}
+function designChoiceKey(design: PreviewDesign): string {
+  return `${COLOR_OVERRIDE_KEY}${design.job_id}:${design.id}:${design.output_sha256}`;
+}
+function savedDesignColor(key: string): DesignBackground | null {
+  try {
+    const found = window.sessionStorage.getItem(key) as DesignBackground | null;
+    return found && DESIGN_BACKGROUNDS.some(option => option.id === found) ? found : null;
+  } catch {
+    return null;
+  }
+}
 
 const POSITION_LABELS: Record<string, string> = {
   front: "Mặt trước",
@@ -75,6 +105,8 @@ export function DesignCell({ item, onPreviewStart }: {
   const [hovered, setHovered] = useState<number | null>(null);
   const [failedOriginalId, setFailedOriginalId] = useState<string | null>(null);
   const [background, setBackground] = useState<DesignBackground>("transparent");
+  const [colorOverrides, setColorOverrides] = useState<Record<string, DesignBackground>>({});
+  const [showAllColors, setShowAllColors] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const galleryRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -172,9 +204,44 @@ export function DesignCell({ item, onPreviewStart }: {
   const selectedPosition = grouped.get(positionKey(preview.position)) ?? positions[0];
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
   const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
-  const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === background)
+  const suggestions = recommendedColors(preview);
+  const colorKey = designChoiceKey(preview);
+  const selectedColor = suggestions.length
+    ? (colorOverrides[colorKey] ?? savedDesignColor(colorKey) ?? suggestions[0])
+    : background;
+  const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
     ?? DESIGN_BACKGROUNDS[0];
+  const chooseColor = (id: DesignBackground) => {
+    if (suggestions.length) {
+      setColorOverrides(current => ({...current, [colorKey]: id}));
+      try { window.sessionStorage.setItem(colorKey, id); } catch { /* storage optional */ }
+    } else {
+      setBackground(id);
+    }
+  };
+  const suggestedOptions = suggestions.map(id =>
+    DESIGN_BACKGROUNDS.find(color => color.id === id)!,
+  );
+  const selectedCustom = suggestions.length && selectedColor !== "transparent" &&
+    !suggestions.includes(selectedColor)
+      ? DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
+      : null;
+  const topOptions = suggestions.length
+    ? [DESIGN_BACKGROUNDS[0], ...suggestedOptions, ...(selectedCustom ? [selectedCustom] : [])]
+    : [];
+  const otherOptions = DESIGN_BACKGROUNDS.slice(1).filter(option =>
+    !suggestions.includes(option.id),
+  );
+  const renderSwatch = (option: (typeof DESIGN_BACKGROUNDS)[number]) => (
+    <button key={option.id} type="button"
+      className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
+      title={option.label} aria-label={option.label}
+      style={option.color ? { backgroundColor: option.color } : undefined}
+      aria-pressed={selectedColor === option.id}
+      onClick={() => chooseColor(option.id)} />
+  );
   const goToDesign = (delta: number) => {
+    setShowAllColors(false);
     setActive(index => index === null ? null : (index + delta + designs.length) % designs.length);
   };
 
@@ -195,6 +262,7 @@ export function DesignCell({ item, onPreviewStart }: {
             returnFocusRef.current = event.currentTarget;
             setHovered(null);
             setBackground("transparent");
+            setShowAllColors(false);
             setActive(index);
           }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
@@ -229,7 +297,7 @@ export function DesignCell({ item, onPreviewStart }: {
         }}>
         <section ref={galleryRef} role="dialog" aria-modal="true"
           aria-label={`Ảnh thiết kế sản phẩm ${item.listingKey}`}
-          className="etsy-design-gallery" data-preview-background={background}
+          className="etsy-design-gallery" data-preview-background={selectedColor}
           style={{ "--etsy-gallery-bg": selectedBackground.color ?? "#fff" } as CSSProperties}>
           <header className="etsy-design-gallery-header">
             <div className="etsy-design-gallery-heading">
@@ -290,7 +358,7 @@ export function DesignCell({ item, onPreviewStart }: {
                   {positions.map(position => (
                     <button key={position.key} type="button"
                       className={position.key === selectedPosition.key ? "active" : ""}
-                      onClick={() => setActive(position.entries[0].index)}
+                      onClick={() => { setShowAllColors(false); setActive(position.entries[0].index); }}
                       aria-pressed={position.key === selectedPosition.key}
                       aria-label={`${position.label}, ${position.entries.length} thiết kế`}>
                       <span>{position.label}</span>
@@ -311,7 +379,7 @@ export function DesignCell({ item, onPreviewStart }: {
                   {selectedPosition.entries.map((entry, ordinal) => (
                     <button key={entry.design.job_id + ":" + entry.design.id} type="button"
                       className={entry.index === selected ? "active" : ""}
-                      onClick={() => setActive(entry.index)}
+                      onClick={() => { setShowAllColors(false); setActive(entry.index); }}
                       aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1)}`}
                       aria-pressed={entry.index === selected}>
                       <span className="etsy-design-gallery-variant-artwork">
@@ -330,17 +398,29 @@ export function DesignCell({ item, onPreviewStart }: {
                   <strong>Nền xem thử</strong>
                   <span>{selectedBackground.label}</span>
                 </div>
-                <div className="etsy-design-gallery-background-picker"
+                {suggestions.length > 0 ? <>
+                  <div className="etsy-design-gallery-colormatch-heading">
+                    <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất cho thiết kế này</span>
+                    <small>Tự phân tích · không tải thêm ảnh</small>
+                  </div>
+                  <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
+                    role="group" aria-label="Màu nền đề xuất">
+                    {topOptions.map(renderSwatch)}
+                  </div>
+                  <button className="etsy-design-gallery-all-colors-toggle" type="button"
+                    aria-expanded={showAllColors}
+                    onClick={() => setShowAllColors(previous => !previous)}>
+                    {showAllColors ? "Thu gọn bảng màu" : "Xem tất cả màu áo"}
+                    <span aria-hidden="true">{showAllColors ? "⌃" : "⌄"}</span>
+                  </button>
+                  {showAllColors && <div className="etsy-design-gallery-background-picker"
+                    role="group" aria-label="Tất cả màu nền khác">
+                    {otherOptions.filter(option => option.id !== selectedCustom?.id).map(renderSwatch)}
+                  </div>}
+                </> : <div className="etsy-design-gallery-background-picker"
                   role="group" aria-label="Màu nền xem thiết kế">
-                  {DESIGN_BACKGROUNDS.map(option => (
-                    <button key={option.id} type="button"
-                      className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
-                      title={option.label} aria-label={option.label}
-                      style={option.color ? { backgroundColor: option.color } : undefined}
-                      aria-pressed={background === option.id}
-                      onClick={() => setBackground(option.id)} />
-                  ))}
-                </div>
+                  {DESIGN_BACKGROUNDS.map(renderSwatch)}
+                </div>}
                 <p className="etsy-design-gallery-background-note">
                   Màu áo mang tính tham khảo; không thay đổi file PNG.
                 </p>

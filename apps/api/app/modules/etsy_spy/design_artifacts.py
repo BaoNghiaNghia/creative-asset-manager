@@ -82,6 +82,24 @@ def project_design_assets(job: Any) -> list[dict]:
                 size = raw.get(key)
                 if type(size) is int and 256 <= size <= 4096:
                     mapped[key] = size
+        # Tiny precomputed advisory metadata; no image reads, extra SQL, or
+        # ColorMatch calculation on the hot Picked listing / modal path.
+        color_match = raw.get("color_match")
+        if isinstance(color_match, dict):
+            from .color_match_palette import ALGORITHM, GARMENT_COLORS
+            allowed = {color_id for color_id, _ in GARMENT_COLORS}
+            choices = color_match.get("recommended")
+            if (color_match.get("version") == ALGORITHM and
+                    color_match.get("output_sha256") == digest and
+                    isinstance(choices, list) and 1 <= len(choices) <= 4 and
+                    len(set(str(c) for c in choices)) == len(choices) and
+                    all(isinstance(c, str) and c in allowed for c in choices)):
+                mapped["color_match"] = {
+                    "version": ALGORITHM,
+                    "output_sha256": digest,
+                    "recommended": choices,
+                    "method": "thumbnail_pixel_contrast",
+                }
         out.append(mapped)
     return out[:MAX_DESIGNS_PER_JOB + 2]
 
