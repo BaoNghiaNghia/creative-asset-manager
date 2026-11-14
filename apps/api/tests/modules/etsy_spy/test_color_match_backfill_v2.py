@@ -72,7 +72,7 @@ def test_drive_only_metadata_does_not_require_local_storage(monkeypatch):
 
 def test_fresh_metadata_validation_requires_known_distinct_colors():
     script = _script()
-    row = {**_job().payload_json["design_assets"][1], "color_match": {**_job().payload_json["design_assets"][1]["color_match"], "version": "colormatch-pixel-v3"}}
+    row = {**_job().payload_json["design_assets"][1], "color_match": {**_job().payload_json["design_assets"][1]["color_match"], "version": "colormatch-sms-c1717-v4"}}
     assert script.fresh(row)
     assert not script.fresh({**row, "color_match": {
         **row["color_match"], "recommended": ["black", "black"],
@@ -113,4 +113,4 @@ def test_local_image_checksum_guard(tmp_path):
     preview = script.make_local_thumbnail(path, checksum)
     assert preview and preview.startswith(b"\x89PNG\r\n\x1a\n")
     assert script.make_local_thumbnail(path, "0" * 64) is None
-    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-pixel-v3"
+    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v4"

@@ -1,4 +1,4 @@
-"""Deterministic ColorMatch V1 for garment preview, computed from the upload thumbnail.
+"""Deterministic ColorMatch for C1717 SMS garment previews from the thumbnail.
 
 Runs only during artwork ingestion (never in Picked list/modal requests).
 No AI, network call, new preview files or pixels added to the original.
@@ -41,7 +41,7 @@ def _distance(a: tuple[float, float, float, float],
 
 
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict | None:
-    """Return up to ten varied ranked garment colors, or None on invalid artwork.
+    """Return up to sixteen varied ranked SMS set-up garment colors, or None on invalid artwork.
 
     Samples only a capped 192px PNG that was already created at upload time.
     Small/high-opacity ink regions are not hidden by the dominant color:

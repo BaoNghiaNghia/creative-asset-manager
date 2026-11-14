@@ -35,14 +35,17 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
     Includes candidate/fast sources when they have the same checked SHA,
     without decoding PNGs or introducing any database/network work.
     """
-    from .color_match_palette import ALGORITHM, GARMENT_COLORS
+    from .color_match_palette import ALGORITHM, GARMENT_COLORS, LEGACY_COLOR_IDS
     match = raw.get("color_match")
     if not isinstance(match, dict):
         return None
-    allowed = {color_id for color_id, _ in GARMENT_COLORS}
+    allowed = ({color_id for color_id, _ in GARMENT_COLORS}
+               if match.get("version") == ALGORITHM else LEGACY_COLOR_IDS)
     colors = match.get("recommended")
-    max_recommendations = 16 if match.get("version") == ALGORITHM else (10 if match.get("version") == "colormatch-pixel-v2" else 4)
-    if (match.get("version") not in (ALGORITHM, "colormatch-pixel-v2", "colormatch-pixel-v1") or
+    max_recommendations = (16 if match.get("version") in (ALGORITHM, "colormatch-pixel-v3")
+                           else 10 if match.get("version") == "colormatch-pixel-v2" else 4)
+    if (match.get("version") not in (ALGORITHM, "colormatch-pixel-v3",
+                                         "colormatch-pixel-v2", "colormatch-pixel-v1") or
             match.get("output_sha256") != digest or
             not isinstance(colors, list) or not 1 <= len(colors) <= max_recommendations or
             any(not isinstance(c, str) or c not in allowed for c in colors) or

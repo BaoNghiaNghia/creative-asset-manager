@@ -30,7 +30,7 @@ _JOB = re.compile(r"[a-f0-9-]{36}\Z")
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
-_TARGET_VERSION = "colormatch-pixel-v3"
+_TARGET_VERSION = "colormatch-sms-c1717-v4"
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DesignCell } from "./DesignCell";
+import { C1717_SMS_COLORS } from "./c1717SmsColors";
 import type { Listing, DesignAsset } from "./api";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -159,7 +160,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
       .toHaveLength(2);
   });
 
-  it("offers all 44 garment colors, applies the selected background and preserves the artwork", async () => {
+  it("offers all 72 C1717 garment colors, applies the selected background and preserves the artwork", async () => {
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -170,7 +171,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
     const swatches = Array.from(gallery?.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-background-swatch",
     ) ?? []);
-    expect(swatches).toHaveLength(49); // checkerboard + 22 requested + 4 original extras
+    expect(swatches).toHaveLength(77); // checkerboard + 72 SMS C1717 + 4 legacy preview-only
     const expected = [
       ["Black", "black", "#25282A"],
       ["White", "white", "#FFFFFF"],
@@ -179,7 +180,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
       ["Sage", "sage", "#3E4827"],
       ["Light Green", "light-green", "#5C7F71"],
       ["Blue Jean", "blue-jean", "#647692"],
-      ["Blue Spruce", "blue-spruce", "#3E5D58"],
+      ["Blue Spruce", "blue-spruce", "#004C45"],
       ["Butter", "butter", "#F5E1A4"],
       ["Chalky Mint", "chalky-mint", "#5CB8B2"],
       ["Chambray", "chambray", "#BDD6E6"],
@@ -190,13 +191,15 @@ describe("Picked Design gallery accessibility and refresh", () => {
       ["Orchid", "orchid", "#C7B2DE"],
       ["Pepper", "pepper", "#4E4B48"],
       ["Seafoam", "seafoam", "#487A7B"],
-      ["Terracota", "terracota", "#E3775E"],
+      ["Terracotta", "terracotta", "#E3775E"],
       ["Watermelon", "watermelon", "#F4364C"],
       ["Lagoon", "lagoon", "#05C3DE"],
       ["Mustard", "mustard", "#F2CD00"],
     ] as const;
-    expect(swatches.slice(1, 23).map(option => option.getAttribute("aria-label")))
-      .toEqual(expected.map(([label]) => label));
+    expect(swatches.slice(1, 73).map(option => option.getAttribute("aria-label")))
+      .toEqual(C1717_SMS_COLORS.map(color => color.color
+        ? color.label : `${color.label} · SMS chưa có mã HEX`));
+    expect(swatches.filter(option => option.disabled)).toHaveLength(3);
     const stage = gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img");
     const source = stage?.getAttribute("src");
     for (const [name, id, hex] of expected) {
@@ -236,7 +239,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
     const colors = Array.from(gallery?.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-background-swatch",
     ) ?? []);
-    expect(colors).toHaveLength(49);
+    expect(colors).toHaveLength(77);
     expect(colors[0]?.getAttribute("aria-pressed")).toBe("true");
 
     const navy = gallery?.querySelector<HTMLButtonElement>(
