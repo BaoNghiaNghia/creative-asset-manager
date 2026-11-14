@@ -43,16 +43,16 @@ type PreviewDesign = NonNullable<Listing["designs"]>[number];
 const GARMENT_COLOR_IDS = new Set<DesignBackground>(
   DESIGN_BACKGROUNDS.slice(1, 23).map(color => color.id),
 );
-const COLOR_MATCH_VERSION = "colormatch-pixel-v1";
+const COLOR_MATCH_VERSIONS = new Set(["colormatch-pixel-v1", "colormatch-pixel-v2"]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
 function recommendedColors(design: PreviewDesign): DesignBackground[] {
   const match = design.color_match;
-  if (!match || match.version !== COLOR_MATCH_VERSION ||
+  if (!match || !COLOR_MATCH_VERSIONS.has(match.version) ||
       match.output_sha256 !== design.output_sha256 ||
       !Array.isArray(match.recommended)) return [];
   const seen = new Set<DesignBackground>();
-  return match.recommended.slice(0, 4).filter((id): id is DesignBackground => {
+  return match.recommended.slice(0, 10).filter((id): id is DesignBackground => {
     if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
         seen.has(id as DesignBackground)) return false;
     seen.add(id as DesignBackground);
@@ -234,6 +234,12 @@ export function DesignCell({ item, onPreviewStart }: {
   const otherOptions = DESIGN_BACKGROUNDS.slice(1).filter(option =>
     !suggestions.includes(option.id),
   );
+  const recommendationGroups = [
+    { id: "best", label: "Phù hợp nhất", options: suggestedOptions.slice(0, 3) },
+    { id: "safe", label: "Gợi ý thêm", options: suggestedOptions.slice(3, 7) },
+    { id: "accent", label: "Lựa chọn khác", options: suggestedOptions.slice(7) },
+    ...(selectedCustom ? [{ id: "selected", label: "Đã chọn", options: [selectedCustom] }] : []),
+  ].filter(group => group.options.length > 0);
   const renderSwatch = (option: (typeof DESIGN_BACKGROUNDS)[number]) => (
     <button key={option.id} type="button"
       className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
@@ -407,9 +413,19 @@ export function DesignCell({ item, onPreviewStart }: {
                     <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất cho thiết kế này</span>
                     <small>Tự phân tích · không tải thêm ảnh</small>
                   </div>
-                  <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
-                    role="group" aria-label="Màu nền đề xuất">
-                    {topOptions.map(renderSwatch)}
+                  <div className="etsy-design-gallery-recommendations">
+                    <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
+                      role="group" aria-label="Nền trong suốt">
+                      {renderSwatch(DESIGN_BACKGROUNDS[0])}
+                    </div>
+                    {recommendationGroups.map(group => <div key={group.id}
+                      className="etsy-design-gallery-recommendation-group">
+                      <span className="etsy-design-gallery-recommendation-label">{group.label}</span>
+                      <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
+                        role="group" aria-label={group.label}>
+                        {group.options.map(renderSwatch)}
+                      </div>
+                    </div>)}
                   </div>
                   <button className="etsy-design-gallery-all-colors-toggle" type="button"
                     aria-expanded={showAllColors}

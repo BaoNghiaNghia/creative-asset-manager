@@ -28,7 +28,8 @@ def test_white_artwork_avoids_white_and_black_artwork_avoids_black():
     assert light and dark
     assert light["version"] == ALGORITHM
     assert light["output_sha256"] == sha
-    assert len(light["recommended"]) == 4
+    assert 8 <= len(light["recommended"]) <= 10
+    assert len(dark["recommended"]) >= 8
     assert "white" not in light["recommended"]
     assert "black" not in dark["recommended"]
     allowed = {name for name, _ in GARMENT_COLORS}
@@ -58,6 +59,13 @@ def test_picked_projection_serves_only_fresh_valid_cached_metadata():
     assert output[0]["color_match"]["recommended"] == metadata["recommended"]
     assert output[0]["color_match"]["output_sha256"] == sha
     assert "scores" not in output[0]["color_match"]  # keep Picked API small
+    assert output[0]["color_match"]["version"] == "colormatch-pixel-v2"
+    # Historical V1 metadata remains usable until bounded local backfill.
+    legacy = {**metadata, "version": "colormatch-pixel-v1",
+              "recommended": metadata["recommended"][:4]}
+    job.payload_json["design_assets"][0]["color_match"] = legacy
+    assert project_design_assets(job)[0]["color_match"]["version"] == "colormatch-pixel-v1"
+    job.payload_json["design_assets"][0]["color_match"] = metadata
     job.payload_json["design_assets"][0]["color_match"] = {
         **metadata, "output_sha256": "b" * 64,
     }

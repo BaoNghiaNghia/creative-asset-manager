@@ -41,7 +41,7 @@ def _distance(a: tuple[float, float, float, float],
 
 
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict | None:
-    """Return four ranked garment colors, or None on invalid/empty artwork.
+    """Return up to ten varied ranked garment colors, or None on invalid artwork.
 
     Samples only a capped 192px PNG that was already created at upload time.
     Small/high-opacity ink regions are not hidden by the dominant color:
@@ -104,14 +104,14 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
     weighted.sort(key=lambda item: (-item[1], item[0]))
     best: list[str] = []
     for color_id, rating, lab in weighted:
-        # Avoid giving four almost-identical gray/blue shades.
+        # Keep a wider but visually varied selection; favor legibility.
         if rating < 17 and best:
             break
-        if any(_distance(lab, next(x[2] for x in weighted if x[0] == chosen)) < .095
+        if any(_distance(lab, next(x[2] for x in weighted if x[0] == chosen)) < .065
                for chosen in best):
             continue
         best.append(color_id)
-        if len(best) == 4:
+        if len(best) == 10:
             break
     if not best:
         return None

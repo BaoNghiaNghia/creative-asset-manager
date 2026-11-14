@@ -2132,6 +2132,29 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   grid-template-columns: repeat(6, 28px);
   gap: 9px;
 }
+.etsy-design-gallery-recommendations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+  margin: 5px 0 3px;
+}
+.etsy-design-gallery-recommendation-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.etsy-design-gallery-recommendation-label {
+  font-size: 10px;
+  font-weight: 650;
+  color: #687c95;
+}
+.etsy-design-gallery-recommendations .etsy-design-gallery-recommended {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
 .etsy-design-gallery-all-colors-toggle {
   display: flex;
   width: 100%;

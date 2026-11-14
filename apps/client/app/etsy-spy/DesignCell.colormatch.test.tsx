@@ -107,6 +107,26 @@ describe("per-design ColorMatch background recommendations", () => {
       ?.dataset.previewBackground).toBe("pepper");
   });
 
+  it("renders ten ranked V2 backgrounds in three accessible groups", async () => {
+    const colors = [
+      "black", "sage", "denim", "crimson", "grey",
+      "flo-blue", "watermelon", "terracota", "bay", "chalky-mint",
+    ];
+    const updated = make("a", colors);
+    updated.color_match!.version = "colormatch-pixel-v2";
+    const dialog = await render([updated]);
+    expect(dialog.dataset.previewBackground).toBe("black");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommendation-group")).toHaveLength(3);
+    expect(dialog.querySelector('[aria-label="Phù hợp nhất"]')?.querySelectorAll("button")).toHaveLength(3);
+    expect(dialog.querySelector('[aria-label="Gợi ý thêm"]')?.querySelectorAll("button")).toHaveLength(4);
+    expect(dialog.querySelector('[aria-label="Lựa chọn khác"]')?.querySelectorAll("button")).toHaveLength(3);
+    await act(async () => dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-denim",
+    )?.click());
+    expect(dialog.dataset.previewBackground).toBe("denim");
+  });
+
   it("preserves full garment picker and checkerboard without any second image download", async () => {
     const dialog = await render([make("a", ["ivory", "pepper", "bay", "blue-jean"])]);
     const picture = dialog.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img");
