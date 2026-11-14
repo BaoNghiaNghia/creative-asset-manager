@@ -28,7 +28,7 @@ const GARMENT_COLOR_IDS = new Set<string>(
 );
 const COLOR_MATCH_VERSIONS = new Set([
   "colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3",
-  "colormatch-sms-c1717-v4",
+  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5",
 ]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
@@ -38,7 +38,7 @@ function recommendedColors(design: PreviewDesign): DesignBackground[] {
       match.output_sha256 !== design.output_sha256 ||
       !Array.isArray(match.recommended)) return [];
   const seen = new Set<DesignBackground>();
-  return match.recommended.slice(0, 16).filter((id): id is DesignBackground => {
+  return match.recommended.slice(0, 10).filter((id): id is DesignBackground => {
     if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
         seen.has(id as DesignBackground)) return false;
     seen.add(id as DesignBackground);
@@ -193,6 +193,7 @@ export function DesignCell({ item, onPreviewStart }: {
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
   const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
   const suggestions = recommendedColors(preview);
+  const rankedBySalesSpeed = preview.color_match?.version === "colormatch-sms-c1717-v5";
   const colorKey = designChoiceKey(preview);
   const selectedColor = suggestions.length
     ? (colorOverrides[colorKey] ?? savedDesignColor(colorKey) ?? suggestions[0])
@@ -421,7 +422,9 @@ export function DesignCell({ item, onPreviewStart }: {
                 {suggestions.length > 0 ? <>
                   <div className="etsy-design-gallery-colormatch-heading">
                     <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất cho thiết kế này</span>
-                    <small>Tự phân tích · không tải thêm ảnh</small>
+                    <small>{suggestions.length} màu · {rankedBySalesSpeed
+                      ? "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
+                      : "theo artwork · chờ cập nhật dữ liệu xu hướng bán"}</small>
                   </div>
                   <div className="etsy-design-gallery-recommendations">
                     <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"

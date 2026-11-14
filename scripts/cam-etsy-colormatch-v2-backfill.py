@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill all eligible Picked design ColorMatch V2 metadata.
+"""Backfill all eligible Picked design ColorMatch V5 metadata.
 
 Default is read-only dry-run. --apply updates ONLY the color_match JSON of
 existing, completed and still-Picked jobs. Original PNGs are never rewritten,
@@ -30,7 +30,7 @@ _JOB = re.compile(r"[a-f0-9-]{36}\Z")
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v4"
+_TARGET_VERSION = "colormatch-sms-c1717-v5"
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,8 @@ def fresh(row: dict) -> bool:
         and meta.get("version") == _TARGET_VERSION
         and meta.get("output_sha256") == row.get("output_sha256")
         and isinstance(colors, list)
-        and 1 <= len(colors) <= 16
+        and (7 <= len(colors) <= 10 or
+             (1 <= len(colors) < 7 and meta.get("insufficient_safe_colors") is True))
         and all(isinstance(color, str) and color in allowed for color in colors)
         and len(set(colors)) == len(colors)
     )

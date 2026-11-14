@@ -13,7 +13,7 @@ from app.modules.etsy_spy.design_artifacts import _validated_color_match
 
 
 def test_sms_c1717_catalog_is_complete_and_status_is_not_stock():
-    assert ALGORITHM == "colormatch-sms-c1717-v4"
+    assert ALGORITHM == "colormatch-sms-c1717-v5"
     assert len(SMS_C1717_COLORS) == 72
     assert len({row[0] for row in SMS_C1717_COLORS}) == 72
     assert sum(row[3] for row in SMS_C1717_COLORS) == 56
@@ -32,7 +32,7 @@ def test_sms_c1717_catalog_is_complete_and_status_is_not_stock():
     assert not {"grass", "topaz-blue", "mystic"}.intersection(colors)
 
 
-def test_v4_only_recommends_real_sms_configured_hex_colors():
+def test_v5_only_recommends_real_sms_configured_hex_colors():
     image = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
     ImageDraw.Draw(image).rectangle((20, 20, 169, 159), fill="#F6EFE4")
     preview = BytesIO()
@@ -40,7 +40,7 @@ def test_v4_only_recommends_real_sms_configured_hex_colors():
     sha = "a" * 64
     recommendation = recommend_garment_colors(preview.getvalue(), sha)
     assert recommendation and recommendation["version"] == ALGORITHM
-    assert 1 <= len(recommendation["recommended"]) <= 16
+    assert 7 <= len(recommendation["recommended"]) <= 10
     assert set(recommendation["recommended"]) <= {name for name, _ in GARMENT_COLORS}
     assert _validated_color_match({"color_match": recommendation}, sha)
     assert not _validated_color_match({"color_match": recommendation}, "b" * 64)

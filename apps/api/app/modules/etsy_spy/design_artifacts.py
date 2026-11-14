@@ -39,13 +39,16 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
     match = raw.get("color_match")
     if not isinstance(match, dict):
         return None
+    version = match.get("version")
+    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v4")
     allowed = ({color_id for color_id, _ in GARMENT_COLORS}
-               if match.get("version") == ALGORITHM else LEGACY_COLOR_IDS)
+               if version in sms_versions else LEGACY_COLOR_IDS)
     colors = match.get("recommended")
-    max_recommendations = (16 if match.get("version") in (ALGORITHM, "colormatch-pixel-v3")
-                           else 10 if match.get("version") == "colormatch-pixel-v2" else 4)
-    if (match.get("version") not in (ALGORITHM, "colormatch-pixel-v3",
-                                         "colormatch-pixel-v2", "colormatch-pixel-v1") or
+    max_recommendations = (10 if version == ALGORITHM else
+                           16 if version in ("colormatch-sms-c1717-v4", "colormatch-pixel-v3") else
+                           10 if version == "colormatch-pixel-v2" else 4)
+    if (version not in (ALGORITHM, "colormatch-sms-c1717-v4", "colormatch-pixel-v3",
+                        "colormatch-pixel-v2", "colormatch-pixel-v1") or
             match.get("output_sha256") != digest or
             not isinstance(colors, list) or not 1 <= len(colors) <= max_recommendations or
             any(not isinstance(c, str) or c not in allowed for c in colors) or
@@ -53,7 +56,11 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
         return None
     return {
         "version": match["version"], "output_sha256": digest,
-        "recommended": colors, "method": "thumbnail_pixel_contrast",
+        "recommended": colors, "method": (
+            "thumbnail_pixel_contrast_sales_prior"
+            if match.get("method") == "thumbnail_pixel_contrast_sales_prior"
+            and version == ALGORITHM else "thumbnail_pixel_contrast"
+        ),
     }
 
 

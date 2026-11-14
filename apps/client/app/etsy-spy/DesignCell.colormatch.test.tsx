@@ -157,17 +157,50 @@ describe("per-design ColorMatch background recommendations", () => {
     expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(77);
     expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")).toBeNull();
   });
-  it("offers sixteen ranked V4 SMS C1717 colors and separates supplier-only options", async () => {
+  it("recommends 7-10 V5 colors per design and switches ranks when changing artwork", async () => {
+    const a = make("a", [
+      "pepper", "blue-spruce", "blue-jean", "ivory", "white",
+      "light-green", "grey", "true-navy", "denim", "espresso",
+    ]);
+    const b = make("b", [
+      "ivory", "white", "butter", "blossom", "chambray", "bay", "sandstone",
+    ]);
+    a.color_match!.version = "colormatch-sms-c1717-v5";
+    b.color_match!.version = "colormatch-sms-c1717-v5";
+    const dialog = await render([a, b]);
+    expect(dialog.dataset.previewBackground).toBe("pepper");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
+    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
+      .toContain("10 màu");
+    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
+      .toContain("SMS (60 ngày)");
+
+    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-position-list button",
+    )[1]?.click());
+    expect(dialog.dataset.previewBackground).toBe("ivory");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(8);
+    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
+      .toContain("7 màu");
+
+    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-position-list button",
+    )[0]?.click());
+    expect(dialog.dataset.previewBackground).toBe("pepper");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
+  });
+
+  it("shows ten from legacy V4 and separates supplier-only colorways", async () => {
     const configured = C1717_SMS_COLORS.filter(color => color.setUp && color.color);
     const design = make("a", configured.slice(0, 16).map(color => color.id));
     design.color_match!.version = "colormatch-sms-c1717-v4";
     const dialog = await render([design]);
 
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(17);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
     expect(dialog.querySelectorAll(".etsy-design-gallery-recommendation-group")).toHaveLength(3);
     expect(dialog.querySelector('[aria-label="Phù hợp nhất"]')?.querySelectorAll("button")).toHaveLength(3);
     expect(dialog.querySelector('[aria-label="Gợi ý thêm"]')?.querySelectorAll("button")).toHaveLength(4);
-    expect(dialog.querySelector('[aria-label="Lựa chọn khác"]')?.querySelectorAll("button")).toHaveLength(9);
+    expect(dialog.querySelector('[aria-label="Lựa chọn khác"]')?.querySelectorAll("button")).toHaveLength(3);
 
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-all-colors-toggle",

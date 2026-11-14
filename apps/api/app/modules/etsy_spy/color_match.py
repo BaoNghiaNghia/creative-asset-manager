@@ -10,7 +10,9 @@ from __future__ import annotations
 import io
 import math
 from PIL import Image, UnidentifiedImageError
-from .color_match_palette import ALGORITHM, GARMENT_COLORS
+from .color_match_palette import (
+    ALGORITHM, GARMENT_COLORS, SALES_SPEED_PRIOR, SALES_PRIOR_SNAPSHOT,
+)
 
 _MAX_SAMPLES = 2000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
@@ -41,7 +43,10 @@ def _distance(a: tuple[float, float, float, float],
 
 
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict | None:
-    """Return up to sixteen varied ranked SMS set-up garment colors, or None on invalid artwork.
+    """Rank 7-10 distinct C1717 colors by ink readability, then SMS demand.
+
+    If fewer than seven colors pass the minimum safety guard, return only
+    verified readable options instead of inventing visually unsafe matches.
 
     Samples only a capped 192px PNG that was already created at upload time.
     Small/high-opacity ink regions are not hidden by the dominant color:
@@ -100,25 +105,48 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
             .49 * low + .36 * average + .15 * (1 - hidden_fraction)
             + .035 * neutral_bonus,
         ))
-        weighted.append((color_id, round(rating, 1), bg_lab))
-    weighted.sort(key=lambda item: (-item[1], item[0]))
+        # A sales prior only breaks ties among garments readable for this
+        # design; it must not rescue an unreadable background.
+        popularity = SALES_SPEED_PRIOR.get(color_id, 0.0)
+        combined = .92 * rating + 8.0 * popularity
+        weighted.append((color_id, round(combined, 1), bg_lab, round(rating, 1)))
+    weighted.sort(key=lambda row: (-row[1], -row[3], row[0]))
+    strongest_ink_contrast = max(row[3] for row in weighted)
+    quality_floor = max(21.0, strongest_ink_contrast * .56)
+    readable = [row for row in weighted if row[3] >= quality_floor]
     best: list[str] = []
-    for color_id, rating, lab in weighted:
-        # Keep a wider but visually varied selection; favor legibility.
-        if rating < 17 and best:
+    # Prefer garment colors that are perceptually varied. Relax duplication
+    # only if needed to reach at least seven distinct readable choices.
+    for min_distance in (.090, .060, .035, .0):
+        for color_id, _score, lab, _visual in readable:
+            if color_id in best:
+                continue
+            if any(_distance(lab, next(row[2] for row in weighted if row[0] == chosen))
+                   < min_distance for chosen in best):
+                continue
+            best.append(color_id)
+            if len(best) == 10:
+                break
+        if len(best) >= 7:
             break
-        if any(_distance(lab, next(x[2] for x in weighted if x[0] == chosen)) < .065
-               for chosen in best):
-            continue
-        best.append(color_id)
-        if len(best) == 16:
-            break
+    if len(best) < 7:
+        # Do not force bad contrast to satisfy the count target.
+        secondary_floor = max(16.0, strongest_ink_contrast * .42)
+        for color_id, _score, _unused_lab, visual in weighted:
+            if color_id not in best and visual >= secondary_floor:
+                best.append(color_id)
+                if len(best) >= 7:
+                    break
     if not best:
         return None
+    by_id = {row[0]: row for row in weighted}
     return {
         "version": ALGORITHM,
         "output_sha256": output_sha256,
         "recommended": best,
-        "scores": {item[0]: item[1] for item in weighted if item[0] in best},
-        "method": "thumbnail_pixel_contrast",
+        "scores": {color: by_id[color][1] for color in best},
+        "contrast_scores": {color: by_id[color][3] for color in best},
+        "method": "thumbnail_pixel_contrast_sales_prior",
+        "popularity_source": SALES_PRIOR_SNAPSHOT,
+        "insufficient_safe_colors": len(best) < 7,
     }

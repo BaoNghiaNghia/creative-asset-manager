@@ -1,6 +1,6 @@
 # Snapshot of C1717 Comfort Colors colors from authenticated SMS Product Information, 2026-11-14.
 # UI colors are approximations, never production dye or live stock evidence.
-ALGORITHM = "colormatch-sms-c1717-v4"
+ALGORITHM = "colormatch-sms-c1717-v5"
 SMS_C1717_COLORS = (
     ("true-navy", "True Navy", "#041E42", True),
     ("light-green", "Light Green", "#5C7F71", True),
@@ -77,5 +77,24 @@ SMS_C1717_COLORS = (
 )
 # Only SMS set-up colorways with an actual HEX can be scored; no invented HEX.
 GARMENT_COLORS = tuple((key, color) for key, _name, color, set_up in SMS_C1717_COLORS if set_up and color)
-# Legacy versions are read-only until their SHA-guarded V4 backfill completes.
+# Legacy versions are readable until their SHA-guarded V5 backfill completes.
 LEGACY_COLOR_IDS = frozenset("""black white ivory bay sage light-green blue-jean blue-spruce butter chalky-mint chambray crimson denim flo-blue grey orchid pepper seafoam terracota watermelon lagoon mustard natural sandstone khaki espresso chocolate moss forest olive wine berry dusty-rose blush lavender slate navy-deep steel-blue ice-blue teal rust coral gold light-grey""".split())
+
+# Coarse sales-speed tiers derived from SMS C1717's trailing 60-day
+# per-color weekly unit rate, captured 2026-11-14. These are NOT live
+# stock, not verified market-wide best sellers and not personal order data.
+# The small ranking prior must NEVER override the artwork contrast guard.
+# Refresh tiers only when a newer authenticated SMS snapshot is available.
+SALES_SPEED_PRIOR = {
+    "pepper": 1.00, "blue-spruce": .94, "blue-jean": .87,
+    "ivory": .86, "white": .83, "light-green": .79, "grey": .78,
+    "true-navy": .75, "denim": .72,
+    "espresso": .55, "orchid": .54, "crimson": .54,
+    "terracotta": .52, "seafoam": .48,
+    "chambray": .44, "butter": .44, "black": .42,
+    "flo-blue": .38, "moss": .36, "ice-blue": .36,
+    "chalky-mint": .32, "sage": .30, "violet": .30,
+    "emerald": .30, "watermelon": .26, "bay": .23,
+    "berry": .19, "blossom": .19,
+}
+SALES_PRIOR_SNAPSHOT = "sms-c1717-60d-20261114"
