@@ -6,10 +6,12 @@ is not configured. Existing historical local assets remain readable.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import os
 import re
+from threading import Lock
 from typing import AsyncIterator
 
 import httpx
@@ -23,10 +25,17 @@ from app.modules.storage.provider_factory import build_managed_storage_provider
 from app.modules.storage.managed_oauth import managed_storage_oauth_status
 from app.providers.google.storage import GoogleDriveAssetStorage
 from .thumbnail_memory_cache import ThumbnailMemoryCache
+from .request_metrics import ETSY_PERFORMANCE
 
 _DRIVE_ID = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _MAX_PNG = 80 * 1024 * 1024
 _THUMBNAIL_CACHE = ThumbnailMemoryCache()  # Per-process 16 MiB maximum; never originals.
+_THUMBNAIL_FLIGHTS_LOCK = Lock()
+_THUMBNAIL_FLIGHTS: dict[tuple[asyncio.AbstractEventLoop, str, str, str, int],
+                         asyncio.Task[bytes]] = {}
+# Cap metadata for simultaneous unique Drive requests; do not retain entries
+# after task completion. Untracked overflow still works via ordinary fetching.
+_MAX_TRACKED_FLIGHTS = 128
 
 
 def provider_and_folder():
@@ -261,6 +270,8 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
         raise HTTPException(404, "Design Drive identity invalid")
     if not re.fullmatch(r"[0-9a-f]{64}", str(sha256)):
         raise HTTPException(404, "Design SHA256 invalid")
+    # Preserve fail-closed Drive connection/ownership validation on *every*
+    # request, including memory-cache hits. ACL is checked by the router.
     provider, _ = provider_and_folder()
     is_thumbnail = asset_id.endswith(":thumbnail") and max_bytes <= 2 * 1024 * 1024
     cache_key = (tenant_id, remote_id, sha256)
@@ -269,25 +280,58 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
         if cached is not None:
             if len(cached) > max_bytes:
                 raise HTTPException(413, "Drive Design image too large")
+            ETSY_PERFORMANCE.cache(True)
             return cached
-    try:
-        streamed = await provider.open_asset(OpenStoredAssetInput(
-            tenant_id=tenant_id, asset_id=asset_id,
-            remote_file_id=remote_id, content_type="image/png",
-        ))
-        data = bytearray()
+
+    async def download_and_verify() -> bytes:
+        # A concurrent request may have finished after the caller's miss.
+        if is_thumbnail:
+            cached_now = _THUMBNAIL_CACHE.get(cache_key)
+            if cached_now is not None and len(cached_now) <= max_bytes:
+                return cached_now
         try:
-            async for part in streamed.body:
-                data.extend(part)
-                if len(data) > max_bytes:
-                    raise HTTPException(413, "Drive Design image too large")
-        finally:
-            await streamed.close()
-    except StorageProviderError as exc:
-        raise HTTPException(503, "Design unavailable on Google Drive") from exc
-    image = bytes(data)
-    if hashlib.sha256(image).hexdigest() != sha256:
-        raise HTTPException(502, "Google Drive Design checksum mismatch")
-    if is_thumbnail:
-        _THUMBNAIL_CACHE.put(cache_key, image)
-    return image
+            streamed = await provider.open_asset(OpenStoredAssetInput(
+                tenant_id=tenant_id, asset_id=asset_id,
+                remote_file_id=remote_id, content_type="image/png",
+            ))
+            data = bytearray()
+            try:
+                async for part in streamed.body:
+                    data.extend(part)
+                    if len(data) > max_bytes:
+                        raise HTTPException(413, "Drive Design image too large")
+            finally:
+                await streamed.close()
+        except StorageProviderError as exc:
+            raise HTTPException(503, "Design unavailable on Google Drive") from exc
+        image = bytes(data)
+        if hashlib.sha256(image).hexdigest() != sha256:
+            raise HTTPException(502, "Google Drive Design checksum mismatch")
+        if is_thumbnail:
+            _THUMBNAIL_CACHE.put(cache_key, image)
+        return image
+
+    if not is_thumbnail:
+        # Never cache or share the full Native Master response.
+        return await download_and_verify()
+
+    loop = asyncio.get_running_loop()
+    flight_key = (loop, tenant_id, remote_id, sha256, max_bytes)
+    with _THUMBNAIL_FLIGHTS_LOCK:
+        task = _THUMBNAIL_FLIGHTS.get(flight_key)
+        joined = task is not None and not task.done()
+        if not joined:
+            task = asyncio.create_task(download_and_verify())
+            if len(_THUMBNAIL_FLIGHTS) < _MAX_TRACKED_FLIGHTS:
+                _THUMBNAIL_FLIGHTS[flight_key] = task
+
+                def forget(completed: asyncio.Task[bytes]) -> None:
+                    with _THUMBNAIL_FLIGHTS_LOCK:
+                        if _THUMBNAIL_FLIGHTS.get(flight_key) is completed:
+                            _THUMBNAIL_FLIGHTS.pop(flight_key, None)
+
+                task.add_done_callback(forget)
+    ETSY_PERFORMANCE.cache(False, coalesced=joined)
+    # A browser disconnect should not cancel a verified fetch used by other
+    # Picked thumbnails. No negative/error results are cached.
+    return await asyncio.shield(task)
