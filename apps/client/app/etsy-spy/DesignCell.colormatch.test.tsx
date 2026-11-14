@@ -220,4 +220,58 @@ describe("per-design ColorMatch background recommendations", () => {
       ]);
   });
 
+  it("V6 rejects dark typography backgrounds yet warns on deliberate manual override", async () => {
+    const a = make("a", ["white", "ivory", "butter", "chambray", "ice-blue", "flo-blue", "orchid"]);
+    a.color_match!.version = "colormatch-sms-c1717-v6";
+    a.color_match!.method = "thumbnail_ink_readability_sales_prior";
+    a.color_match!.unsafe_colors = ["black", "true-navy", "pepper"];
+    a.color_match!.readability_check = "foreground_ink_connected_components_proxy_v1";
+    a.color_match!.insufficient_safe_colors = false;
+    const dialog = await render([a]);
+
+    expect(dialog.dataset.previewBackground).toBe("white");
+    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
+      .toContain("lọc chữ chìm trước");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+
+    await act(async () => dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-all-colors-toggle",
+    )?.click());
+    const navy = dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-true-navy",
+    );
+    expect(navy?.dataset.readabilityRisk).toBe("true");
+    expect(navy?.title).toContain("chữ/chi tiết mực có thể bị chìm");
+    await act(async () => navy?.click());
+    expect(dialog.dataset.previewBackground).toBe("true-navy");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
+      .toContain("Chữ có thể bị chìm");
+
+    await act(async () => dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-white",
+    )?.click());
+    expect(dialog.dataset.previewBackground).toBe("white");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+  });
+
+  it("V6 displays no invented recommendations when all safe backgrounds fail", async () => {
+    const a = make("a", []);
+    a.color_match!.version = "colormatch-sms-c1717-v6";
+    a.color_match!.method = "thumbnail_ink_readability_sales_prior";
+    a.color_match!.unsafe_colors = ["black", "true-navy", "pepper"];
+    a.color_match!.readability_check = "foreground_ink_connected_components_proxy_v1";
+    a.color_match!.insufficient_safe_colors = true;
+    const dialog = await render([a]);
+
+    expect(dialog.dataset.previewBackground).toBe("transparent");
+    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")).toBeNull();
+    expect(dialog.textContent).toContain("Không có nền áo đủ an toàn");
+    const navy = dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-true-navy",
+    );
+    await act(async () => navy?.click());
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
+      .toContain("Màu này không đạt kiểm tra tương phản");
+  });
+
 });

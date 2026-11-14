@@ -30,36 +30,57 @@ def design_media_path(job_id: str, asset_id: str, *, thumb: bool = False) -> str
 
 
 def _validated_color_match(raw: dict, digest: str) -> dict | None:
-    """Project bounded advisory color metadata for mapped and legacy images.
+    """Bounded, SHA-checked recommendation projection without any PNG decoding.
 
-    Includes candidate/fast sources when they have the same checked SHA,
-    without decoding PNGs or introducing any database/network work.
+    V6 exports a sanitized set of unsafe C1717 colors to warn users when
+    manually previewing them. Legacy V1-V5 remain available during rollout.
     """
     from .color_match_palette import ALGORITHM, GARMENT_COLORS, LEGACY_COLOR_IDS
     match = raw.get("color_match")
     if not isinstance(match, dict):
         return None
     version = match.get("version")
-    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v4")
+    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v4")
     allowed = ({color_id for color_id, _ in GARMENT_COLORS}
                if version in sms_versions else LEGACY_COLOR_IDS)
     colors = match.get("recommended")
-    max_recommendations = (10 if version == ALGORITHM else
-                           16 if version in ("colormatch-sms-c1717-v4", "colormatch-pixel-v3") else
-                           10 if version == "colormatch-pixel-v2" else 4)
-    if (version not in (ALGORITHM, "colormatch-sms-c1717-v4", "colormatch-pixel-v3",
+    max_recommendations = (10 if version in (ALGORITHM, "colormatch-sms-c1717-v5",
+                                             "colormatch-pixel-v2") else
+                           16 if version in ("colormatch-sms-c1717-v4",
+                                             "colormatch-pixel-v3") else 4)
+    zero_allowed = (version == ALGORITHM and match.get("insufficient_safe_colors") is True)
+    if (version not in (*sms_versions, "colormatch-pixel-v3",
                         "colormatch-pixel-v2", "colormatch-pixel-v1") or
             match.get("output_sha256") != digest or
-            not isinstance(colors, list) or not 1 <= len(colors) <= max_recommendations or
+            not isinstance(colors, list) or
+            not (0 if zero_allowed else 1) <= len(colors) <= max_recommendations or
             any(not isinstance(c, str) or c not in allowed for c in colors) or
             len(set(colors)) != len(colors)):
         return None
+    if version == ALGORITHM:
+        if len(colors) < 7 and match.get("insufficient_safe_colors") is not True:
+            return None
+        unsafe = match.get("unsafe_colors")
+        if (not isinstance(unsafe, list) or len(unsafe) > len(allowed) or
+                any(not isinstance(c, str) or c not in allowed for c in unsafe) or
+                len(set(unsafe)) != len(unsafe) or
+                not set(unsafe).isdisjoint(colors)):
+            return None
+        if match.get("readability_check") != "foreground_ink_connected_components_proxy_v1":
+            return None
+        return {
+            "version": version, "output_sha256": digest,
+            "recommended": colors, "unsafe_colors": unsafe,
+            "insufficient_safe_colors": len(colors) < 7,
+            "readability_check": "foreground_ink_connected_components_proxy_v1",
+            "method": "thumbnail_ink_readability_sales_prior",
+        }
     return {
-        "version": match["version"], "output_sha256": digest,
+        "version": version, "output_sha256": digest,
         "recommended": colors, "method": (
             "thumbnail_pixel_contrast_sales_prior"
             if match.get("method") == "thumbnail_pixel_contrast_sales_prior"
-            and version == ALGORITHM else "thumbnail_pixel_contrast"
+            and version == "colormatch-sms-c1717-v5" else "thumbnail_pixel_contrast"
         ),
     }
 

@@ -72,18 +72,34 @@ def test_drive_only_metadata_does_not_require_local_storage(monkeypatch):
 
 def test_fresh_metadata_validation_requires_known_distinct_colors():
     script = _script()
-    row = {**_job().payload_json["design_assets"][1], "color_match": {**_job().payload_json["design_assets"][1]["color_match"], "version": "colormatch-sms-c1717-v5", "insufficient_safe_colors": True}}
+    row = {**_job().payload_json["design_assets"][1], "color_match": {
+        "version": "colormatch-sms-c1717-v6",
+        "output_sha256": "e" * 64,
+        "recommended": ["black", "sage"],
+        "unsafe_colors": ["true-navy"],
+        "readability_check": "foreground_ink_connected_components_proxy_v1",
+        "insufficient_safe_colors": True,
+    }}
     assert script.fresh(row)
     seven = {**row, "color_match": {**row["color_match"], "recommended":
              ["black", "sage", "pepper", "ivory", "blue-jean", "chambray", "butter"],
              "insufficient_safe_colors": False}}
     assert script.fresh(seven)
+    zero = {**row, "color_match": {**row["color_match"], "recommended": []}}
+    assert script.fresh(zero)
     assert not script.fresh({**row, "color_match": {**row["color_match"], "insufficient_safe_colors": False}})
     assert not script.fresh({**row, "color_match": {
         **row["color_match"], "recommended": ["black", "black"],
     }})
     assert not script.fresh({**row, "color_match": {
         **row["color_match"], "recommended": ["unknown"],
+    }})
+    assert not script.fresh({**row, "color_match": {
+        **row["color_match"], "unsafe_colors": ["black"],
+    }})
+    assert not script.fresh({**row, "color_match": {
+        **row["color_match"], "unsafe_colors": [],
+        "readability_check": "untrusted",
     }})
 
 
@@ -118,4 +134,4 @@ def test_local_image_checksum_guard(tmp_path):
     preview = script.make_local_thumbnail(path, checksum)
     assert preview and preview.startswith(b"\x89PNG\r\n\x1a\n")
     assert script.make_local_thumbnail(path, "0" * 64) is None
-    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v5"
+    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v6"

@@ -28,7 +28,7 @@ const GARMENT_COLOR_IDS = new Set<string>(
 );
 const COLOR_MATCH_VERSIONS = new Set([
   "colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3",
-  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5",
+  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6",
 ]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
@@ -193,13 +193,19 @@ export function DesignCell({ item, onPreviewStart }: {
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
   const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
   const suggestions = recommendedColors(preview);
-  const rankedBySalesSpeed = preview.color_match?.version === "colormatch-sms-c1717-v5";
+  const rankedBySalesSpeed = ["colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6"]
+    .includes(preview.color_match?.version ?? "");
+  const hasReadabilityGuard = preview.color_match?.version === "colormatch-sms-c1717-v6"
+    && preview.color_match.output_sha256 === preview.output_sha256;
+  const unsafeColors = new Set(hasReadabilityGuard && Array.isArray(preview.color_match?.unsafe_colors)
+    ? preview.color_match.unsafe_colors : []);
   const colorKey = designChoiceKey(preview);
   const selectedColor = suggestions.length
     ? (colorOverrides[colorKey] ?? savedDesignColor(colorKey) ?? suggestions[0])
     : background;
   const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
     ?? DESIGN_BACKGROUNDS[0];
+  const selectedHasReadabilityRisk = unsafeColors.has(selectedColor);
   const chooseColor = (id: DesignBackground) => {
     if (suggestions.length) {
       setColorOverrides(current => ({...current, [colorKey]: id}));
@@ -225,7 +231,9 @@ export function DesignCell({ item, onPreviewStart }: {
     { id: "best", label: "Phù hợp nhất", options: suggestedOptions.slice(0, 3) },
     { id: "safe", label: "Gợi ý thêm", options: suggestedOptions.slice(3, 7) },
     { id: "accent", label: "Lựa chọn khác", options: suggestedOptions.slice(7) },
-    ...(selectedCustom ? [{ id: "selected", label: "Đã chọn", options: [selectedCustom] }] : []),
+    ...(selectedCustom ? [{ id: "selected",
+      label: unsafeColors.has(selectedCustom.id) ? "Đã chọn · không khuyến nghị" : "Đã chọn",
+      options: [selectedCustom] }] : []),
   ].filter(group => group.options.length > 0);
   const renderSwatch = (option: (typeof DESIGN_BACKGROUNDS)[number]) => (
     <button key={option.id} type="button"
@@ -234,7 +242,10 @@ export function DesignCell({ item, onPreviewStart }: {
         ? `${option.label} · SMS chưa có HEX`
         : C1717_SUPPLIER_IDS.has(option.id)
           ? `${option.label} · Chỉ có tại supplier (chưa thiết lập trong SMS)`
-          : option.label}
+          : unsafeColors.has(option.id)
+            ? `${option.label} · Cảnh báo: chữ/chi tiết mực có thể bị chìm`
+            : option.label}
+      data-readability-risk={unsafeColors.has(option.id) ? "true" : undefined}
       aria-label={C1717_NO_HEX_IDS.has(option.id)
         ? `${option.label} · SMS chưa có mã HEX` : option.label}
       disabled={C1717_NO_HEX_IDS.has(option.id)}
@@ -423,7 +434,9 @@ export function DesignCell({ item, onPreviewStart }: {
                   <div className="etsy-design-gallery-colormatch-heading">
                     <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất cho thiết kế này</span>
                     <small>{suggestions.length} màu · {rankedBySalesSpeed
-                      ? "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
+                      ? hasReadabilityGuard
+                        ? "lọc chữ chìm trước · xếp hạng theo SMS (60 ngày)"
+                        : "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
                       : "theo artwork · chờ cập nhật dữ liệu xu hướng bán"}</small>
                   </div>
                   <div className="etsy-design-gallery-recommendations">
@@ -450,11 +463,21 @@ export function DesignCell({ item, onPreviewStart }: {
                     {renderOtherColorGroups(otherOptions.filter(option => option.id !== selectedCustom?.id))}
                   </div>}
                 </> : <div role="group" aria-label="Màu nền xem thiết kế">
+                  {hasReadabilityGuard && <p className="etsy-design-gallery-background-note">
+                    Không có nền áo đủ an toàn cho tất cả nhóm mực trong design này.
+                    Chỉ xem thử thủ công, không dùng làm gợi ý in.
+                  </p>}
                   <div className="etsy-design-gallery-background-picker">
                     {renderSwatch(DESIGN_BACKGROUNDS[0])}
                   </div>
                   {renderOtherColorGroups(DESIGN_BACKGROUNDS.slice(1))}
                 </div>}
+                {selectedHasReadabilityRisk && <p className="etsy-design-gallery-contrast-warning"
+                  role="status" aria-live="polite">
+                  <strong>Chữ có thể bị chìm trên {selectedBackground.label}.</strong>
+                  Màu này không đạt kiểm tra tương phản mực. Hãy chọn nền sáng/tối khác
+                  trong nhóm đề xuất, hoặc xem thử với độ phóng lớn trước khi in.
+                </p>}
                 <p className="etsy-design-gallery-background-note">
                   Comfort Colors C1717: 72 màu từ SMS (56 đã thiết lập, 16 chỉ supplier).
                   Màu thiếu HEX không thể xem thử; không thay đổi PNG gốc.

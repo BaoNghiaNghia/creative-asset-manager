@@ -30,7 +30,7 @@ _JOB = re.compile(r"[a-f0-9-]{36}\Z")
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v5"
+_TARGET_VERSION = "colormatch-sms-c1717-v6"
 
 
 @dataclass(frozen=True)
@@ -46,20 +46,20 @@ class Target:
 
 
 def fresh(row: dict) -> bool:
-    from app.modules.etsy_spy.color_match_palette import GARMENT_COLORS
+    """True only for current SHA and a complete, internally safe V6 record."""
+    from app.modules.etsy_spy.design_artifacts import _validated_color_match
     meta = row.get("color_match")
-    colors = meta.get("recommended") if isinstance(meta, dict) else None
-    allowed = frozenset(key for key, _ in GARMENT_COLORS)
-    return (
-        isinstance(meta, dict)
-        and meta.get("version") == _TARGET_VERSION
-        and meta.get("output_sha256") == row.get("output_sha256")
-        and isinstance(colors, list)
-        and (7 <= len(colors) <= 10 or
-             (1 <= len(colors) < 7 and meta.get("insufficient_safe_colors") is True))
-        and all(isinstance(color, str) and color in allowed for color in colors)
-        and len(set(colors)) == len(colors)
-    )
+    if not isinstance(meta, dict) or meta.get("version") != _TARGET_VERSION:
+        return False
+    digest = row.get("output_sha256")
+    if not isinstance(digest, str) or not _SHA.fullmatch(digest):
+        return False
+    projected = _validated_color_match(row, digest)
+    if projected is None:
+        return False
+    colors = projected["recommended"]
+    return (7 <= len(colors) <= 10 or
+            (len(colors) < 7 and meta.get("insufficient_safe_colors") is True))
 
 
 def candidate_records(job) -> list[Target]:

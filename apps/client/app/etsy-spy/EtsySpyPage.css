@@ -2202,6 +2202,26 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   cursor: not-allowed;
   border-style: dashed;
 }
+.etsy-design-gallery-background-swatch[data-readability-risk="true"] {
+  border: 2px solid #bf6e1b;
+  box-shadow: 0 0 0 1px #f3cfaa;
+}
+.etsy-design-gallery-contrast-warning {
+  display: grid;
+  gap: 3px;
+  margin: 7px 0;
+  padding: 9px 10px;
+  border: 1px solid #dfb77a;
+  background: #fff9ef;
+  color: #77531c;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.etsy-design-gallery-contrast-warning strong {
+  color: #7f3f11;
+  font-weight: 750;
+}
 .etsy-design-gallery-background-swatch[aria-pressed="true"],
 .etsy-design-gallery-background-swatch:focus-visible {
   outline: 2px solid #2f70cc;

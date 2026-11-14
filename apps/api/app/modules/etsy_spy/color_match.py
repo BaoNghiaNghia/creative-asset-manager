@@ -13,6 +13,7 @@ from PIL import Image, UnidentifiedImageError
 from .color_match_palette import (
     ALGORITHM, GARMENT_COLORS, SALES_SPEED_PRIOR, SALES_PRIOR_SNAPSHOT,
 )
+from .color_match_readability import candidate_readability, readability_profiles
 
 _MAX_SAMPLES = 2000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
@@ -43,10 +44,11 @@ def _distance(a: tuple[float, float, float, float],
 
 
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict | None:
-    """Rank 7-10 distinct C1717 colors by ink readability, then SMS demand.
+    """Rank up to 10 C1717 colors after a mandatory ink-readability hard gate.
 
-    If fewer than seven colors pass the minimum safety guard, return only
-    verified readable options instead of inventing visually unsafe matches.
+    If fewer than seven colors pass, return only verified readable options.
+    If no colors pass, return metadata with zero recommendations so the UI
+    can warn about manual selections; never force a low-contrast choice.
 
     Samples only a capped 192px PNG that was already created at upload time.
     Small/high-opacity ink regions are not hidden by the dominant color:
@@ -62,6 +64,7 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
             if image.format != "PNG" or image.width > 256 or image.height > 256:
                 return None
             pixels = list(image.convert("RGBA").getdata())
+            width, height = image.size
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
 
@@ -74,10 +77,20 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
     if len(sampled) < 12:
         return None
 
+    profiles = readability_profiles(pixels, width, height)
     weighted = []
+    unsafe_colors: list[str] = []
+    safety_margins: dict[str, float] = {}
     for color_id, hex_rgb in GARMENT_COLORS:
         bg = tuple(int(hex_rgb[i:i+2], 16) for i in (1, 3, 5))
         bg_lab = _lab(bg)
+        # Hard gate precedes all ranking: no sales signal may rescue a
+        # garment on which meaningful text-like ink is unreadable.
+        safe, margin = candidate_readability(profiles, bg)
+        if not safe:
+            unsafe_colors.append(color_id)
+            continue
+        safety_margins[color_id] = margin
         signals: list[float] = []
         hidden = 0.0
         weight_total = 0.0
@@ -111,7 +124,7 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
         combined = .92 * rating + 8.0 * popularity
         weighted.append((color_id, round(combined, 1), bg_lab, round(rating, 1)))
     weighted.sort(key=lambda row: (-row[1], -row[3], row[0]))
-    strongest_ink_contrast = max(row[3] for row in weighted)
+    strongest_ink_contrast = max((row[3] for row in weighted), default=0)
     quality_floor = max(21.0, strongest_ink_contrast * .56)
     readable = [row for row in weighted if row[3] >= quality_floor]
     best: list[str] = []
@@ -137,8 +150,6 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
                 best.append(color_id)
                 if len(best) >= 7:
                     break
-    if not best:
-        return None
     by_id = {row[0]: row for row in weighted}
     return {
         "version": ALGORITHM,
@@ -146,7 +157,10 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
         "recommended": best,
         "scores": {color: by_id[color][1] for color in best},
         "contrast_scores": {color: by_id[color][3] for color in best},
-        "method": "thumbnail_pixel_contrast_sales_prior",
+        "readability_margins": {color: safety_margins[color] for color in best},
+        "unsafe_colors": unsafe_colors,
+        "readability_check": "foreground_ink_connected_components_proxy_v1",
+        "method": "thumbnail_ink_readability_sales_prior",
         "popularity_source": SALES_PRIOR_SNAPSHOT,
         "insufficient_safe_colors": len(best) < 7,
     }
