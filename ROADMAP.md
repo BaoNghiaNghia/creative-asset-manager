@@ -9,6 +9,30 @@
 - [ ] Integrate output-boundary fencing into the image-result handler and Windows relay behind a separate reviewed opt-in, with an idempotent receipt and actual browser/provider evidence; then consider controlled canary.
 - Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3A_FENCED_SLOTS_20261114.md`.
 
+## 2026-11-14 — Etsy Spy: 22 named garment preview backgrounds
+
+- [x] Add 22 requested swatches, preserve checkerboard and four original non-duplicate extras.
+- [x] Centralize color values for picker, stage and thumbnails, with reference-only color disclaimer.
+- [x] Validate the named colors in React tests, TypeScript and four responsive Firefox viewports.
+- [ ] Confirm green hosted CI, merge source + committed frontend dist and release frontend with current + rollback; verify public health and authenticated Picked modal separately.
+
+
+## 2026-11-14 — Etsy Spy Picked Design thumbnail auto-width follow-up
+
+- [x] Match Design thumbnail height to Product/Etsy (68px desktop, 76px mobile); use intrinsic image width without forced square sizing.
+- [x] Keep multi-design overflow inside the Design cell; reset conflicting products-table min width on mobile cards.
+- [x] Verify 53 targeted React tests, full TypeScript and Firefox layout/interaction QA at four responsive viewports.
+- [ ] Merge after green CI, deploy frontend only with one retained rollback, verify live build and public read-only smoke.
+
+
+## 2026-11-14 — Etsy Spy Picked multi-position Design gallery (UI candidate)
+
+- [x] Group actual PNG artwork by print location and variants in the modal, preserve the original PNG and source thumbnail hover in the table.
+- [x] Add viewer metadata, navigation, background-preview labels and accessible desktop/tablet/mobile layouts without API/database changes.
+- [x] Pass 52 targeted Etsy Spy tests and desktop/tablet/phone/landscape synthetic Chrome geometry checks.
+- [ ] Pass locked CI, verify real Picked multi-placement data on production and deploy reviewed frontend with current + rollback retained.
+- Reference: `docs/operations/CAM_ETSY_DESIGN_GALLERY_UX_20261114.md`.
+
 ## 2026-11-13 — Etsy Spy Search Card intent → CAM confirmed selection
 
 - [x] Add authenticated, tenant/agent-scoped Pick/Later/Win Keyword write contract with durable idempotent CAM receipts; align source-owned Shop 20+ carts and listing review qualification.

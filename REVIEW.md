@@ -5,6 +5,25 @@
 - Lock order: source ProcessingJob row, paired Image Agent row, then slot. 0209 remains an empty additive migration until separately released. A populated fencing ledger cannot be downgraded; release of completed/failed jobs permits orderly cleanup.
 - Verification required: PostgreSQL 12/16 CI with row-lock races, incompatible-epoch rejection, malformed-row CHECK constraints and cross-tenant blocks. Off-host restore is still not verified; rollback must preserve durable fencing history.
 
+## 2026-11-14 — Etsy Spy preview garment swatches
+
+- Read-only UI palette: 22 requested names mapped to screen-reference HEX, plus checkerboard default and four unique legacy options. One selected CSS variable colors main preview stage and thumbnail; source PNG, data, output rights/QA and worker paths remain untouched.
+- Accessibility: named swatches, single pressed state, screen-visible selected name, existing focus trap. Tests: 54/54 Etsy React PASS, TypeScript PASS, 4/4 Firefox viewports PASS; mobile inspector scrolls inside viewport.
+- Release: frontend-only build provenance + CI before merge; retain current + rollback. Fabric color varies by dye, display and lighting.
+
+## 2026-11-14 — Picked Design image height and intrinsic width
+
+- Source fix: remove forced 60x60 HTML image attributes and fixed square thumbnail box. Use Product/Etsy-aligned height and intrinsic width; landscape and sleeve detail are preserved. The desktop rail is width bounded so table auto layout is not inflated by design intrinsic width; mobile rail fills the card.
+- QA: 53/53 React tests, full TypeScript, Firefox four viewport checks (320/390/768/1440) with mixed-ratio artwork and internal overflow/no page overflow PASS. Existing hover/gallery behavior stays intact; no PNG/API/database changes.
+- Release gate: built and committed frontend bundle with provenance, GitHub CI, HTTP health, frontend rollback retained. Authenticated Picked data still needs separate production verification.
+
+## 2026-11-14 — Etsy Spy Design viewer UX verification
+
+- Replaced flat side thumbnails with source-defined print position grouping and variant navigation; modal remains an on-demand, read-only PNG viewer. No new image processing, API, model or security grant.
+- Browser fixture verified 320/390/768/844-landscape/1440 CSS px with no viewport overflow; background palettes do not mutate artwork. Mobile inspector scroll, accessible focus containment and position/variant navigation remain available.
+- 52 scoped component/integration tests PASS; scoped TypeScript PASS. Full app typecheck blocked by unrelated dependencies/missing Stage 2 asset in sparse checkout; require locked CI before production.
+- Roll back by reverting only `DesignCell.tsx`, `EtsySpyPage.css`, adjacent tests and documentation. Do not touch other pending Etsy UX worktrees.
+
 ## 2026-11-13 — CAM Etsy Spy agent review intents (candidate)
 
 - Server-side agent Bearer and exact tenant + same-agent current Eligible evidence gates; no browser credential/cookie. Two user actions (Pick/Later) and passive Win Keyword are atomic with one PostgreSQL idempotency receipt.
