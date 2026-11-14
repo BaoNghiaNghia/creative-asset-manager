@@ -206,19 +206,39 @@ def _check_immutable(blob: Path, expected_hash: str, size: int) -> bool:
             os.close(fd)
 
 
+def _sync_directory(path: Path) -> None:
+    """Persist the directory entry itself, not only its child file bytes."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _stage_content_addressed(root: Path, receipt_id: str,
                              raw: bytes, expected_hash: str) -> bool:
     """Never overwrite a different blob; crash-safe orphan is recoverable."""
     if not root.is_absolute() or root.is_symlink() or not root.is_dir():
         return False
-    directory = root / "fenced-v1" / receipt_id[:2]
+    namespace = root / "fenced-v1"
+    directory = namespace / receipt_id[:2]
     try:
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if directory.is_symlink() or (root / "fenced-v1").is_symlink():
+        namespace.mkdir(mode=0o700, exist_ok=True)
+        if namespace.is_symlink():
             return False
+        _sync_directory(root)  # newly created namespace survives power loss
+        directory.mkdir(mode=0o700, exist_ok=True)
+        if directory.is_symlink():
+            return False
+        _sync_directory(namespace)  # newly created shard survives power loss
         target = directory / f"{receipt_id}.png"
         if target.exists() or target.is_symlink():
-            return _check_immutable(target, expected_hash, len(raw))
+            if not _check_immutable(target, expected_hash, len(raw)):
+                return False
+            _sync_directory(directory)
+            return True
         fd, pending = tempfile.mkstemp(prefix=".pending-", suffix=".png", dir=directory)
         try:
             with os.fdopen(fd, "wb") as handle:
@@ -233,11 +253,7 @@ def _stage_content_addressed(root: Path, receipt_id: str,
                 pass
             if not _check_immutable(target, expected_hash, len(raw)):
                 return False
-            directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            _sync_directory(directory)
             return True
         finally:
             Path(pending).unlink(missing_ok=True)

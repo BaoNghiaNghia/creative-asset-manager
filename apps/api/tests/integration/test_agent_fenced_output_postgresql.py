@@ -279,6 +279,49 @@ def test_fail_closed_for_provenance_storage_and_corrupt_bytes(ledger, tmp_path):
         assert session.get(AgentImageOutputReceiptModel, (tenant, job)).status == "prepared"
 
 
+def test_conflicting_preexisting_blob_cannot_be_overwritten(ledger, tmp_path):
+    engine, tenant, agent, job, clock = ledger
+    png = _png()
+    with Session(engine) as session:
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        prepared = _prepare(session, tenant, agent, job, clock, png)
+        assert prepared.state == "prepared"
+        session.commit()
+    destination = tmp_path / prepared.storage_relative_path
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"this name is already occupied by different bytes")
+    with Session(engine) as session:
+        assert _accept(
+            session, tenant, agent, job, clock + timedelta(seconds=1),
+            png, tmp_path,
+        ).state == "storage_not_verified"
+        session.rollback()
+    assert destination.read_bytes() == b"this name is already occupied by different bytes"
+    with Session(engine) as session:
+        assert session.get(ProcessingJobModel, job).status == "processing"
+        assert session.get(AgentImageOutputReceiptModel, (tenant, job)).status == "prepared"
+
+
+def test_symlinked_storage_root_fails_closed(ledger, tmp_path):
+    engine, tenant, agent, job, clock = ledger
+    png = _png()
+    with Session(engine) as session:
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        assert _prepare(session, tenant, agent, job, clock, png).state == "prepared"
+        session.commit()
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(trusted, target_is_directory=True)
+    with Session(engine) as session:
+        assert _accept(
+            session, tenant, agent, job, clock + timedelta(seconds=1),
+            png, alias,
+        ).state == "storage_not_verified"
+        session.rollback()
+    assert list(trusted.iterdir()) == []
+
+
 def test_new_claim_cannot_overwrite_prepared_old_epoch(ledger):
     engine, tenant, agent, job, clock = ledger
     data = _png()

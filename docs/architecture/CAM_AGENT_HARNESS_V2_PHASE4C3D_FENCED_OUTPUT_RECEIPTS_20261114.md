@@ -33,7 +33,9 @@ legacy endpoint or its existing task queue.
    inside a caller-provisioned absolute local storage root. A restricted
    exclusive temp file is `fsync`'d and hard-linked to the final filename
    **without overwrite**; existing names must pass the full hash/size check.
-   The containing directory is also `fsync`'d.
+   The containing directory and any newly created ancestor directory entries
+   are also `fsync`'d. A symlinked storage root or conflicting pre-existing
+   content fails closed.
 4. **Only after** file persistence succeeds, the same Session transaction
    updates both receipt to `accepted` and ProcessingJob to `completed`.
    The result is explicitly `needs_review`, `manual_qa_required=true`,
