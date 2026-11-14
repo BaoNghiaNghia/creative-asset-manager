@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-14 — Etsy Spy Picked multi-position Design gallery (UI candidate)
+
+- [x] Group actual PNG artwork by print location and variants in the modal, preserve the original PNG and source thumbnail hover in the table.
+- [x] Add viewer metadata, navigation, background-preview labels and accessible desktop/tablet/mobile layouts without API/database changes.
+- [x] Pass 52 targeted Etsy Spy tests and desktop/tablet/phone/landscape synthetic Chrome geometry checks.
+- [ ] Pass locked CI, verify real Picked multi-placement data on production and deploy reviewed frontend with current + rollback retained.
+- Reference: `docs/operations/CAM_ETSY_DESIGN_GALLERY_UX_20261114.md`.
+
 ## 2026-11-13 — Etsy Spy Search Card intent → CAM confirmed selection
 
 - [x] Add authenticated, tenant/agent-scoped Pick/Later/Win Keyword write contract with durable idempotent CAM receipts; align source-owned Shop 20+ carts and listing review qualification.

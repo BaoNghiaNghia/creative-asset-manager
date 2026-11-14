@@ -73,6 +73,68 @@ describe("Picked Design gallery accessibility and refresh", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("groups placements and keeps multiple variants under their printing position", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const assets: DesignAsset[] = [
+      design("front-a"),
+      {...design("front-b"), variant: 2},
+      {...design("back-a"), position: "back"},
+      {...design("sleeve-a"), position: "left_sleeve"},
+    ];
+    await act(async () => root?.render(<DesignCell item={listing(assets)} />));
+    await act(async () => host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click());
+
+    const gallery = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
+    const positions = gallery?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-position-list button",
+    );
+    expect(positions).toHaveLength(3);
+    expect(positions?.[0].textContent).toContain("Mặt trước");
+    expect(positions?.[0].textContent).toContain("2");
+    expect(positions?.[1].textContent).toContain("Mặt sau");
+    expect(positions?.[2].textContent).toContain("Tay trái");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button")).toHaveLength(2);
+    expect(gallery?.querySelector(".etsy-design-gallery-variant-label")?.textContent)
+      .toBe("Mẫu 1");
+    await act(async () => gallery?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-list button",
+    )[1]?.click());
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toBe("/original/front-b");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button[aria-pressed='true']"))
+      .toHaveLength(1);
+
+    await act(async () => positions?.[1].click());
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button")).toHaveLength(1);
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toBe("/original/back-a");
+    expect(positions?.[1].getAttribute("aria-pressed")).toBe("true");
+    await act(async () => gallery?.querySelector<HTMLButtonElement>(
+      '[aria-label="Thiết kế trước"]',
+    )?.click());
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toBe("/original/front-b");
+    expect(positions?.[0].getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("disables gallery navigation for a single design but shows its placement", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<DesignCell item={listing([{
+      ...design("only"), position: "right_sleeve",
+    }])} />));
+    await act(async () => host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click());
+    const gallery = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
+    expect(gallery?.querySelector(".etsy-design-gallery-position-list button")?.textContent)
+      .toContain("Tay phải");
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button")).toHaveLength(1);
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-navigation button[disabled]"))
+      .toHaveLength(2);
+  });
+
   it("starts with checkerboard, switches the preview without changing the PNG, and resets on reopening", async () => {
     host = document.createElement("div");
     document.body.append(host);
