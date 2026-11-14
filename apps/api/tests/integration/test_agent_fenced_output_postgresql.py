@@ -167,6 +167,204 @@ def test_read_only_reconciliation_reports_prepared_accepted_and_missing_bytes(
         session.rollback()
 
 
+def test_4c3f_source_capture_issues_only_server_fetched_snapshot(
+    ledger, tmp_path, monkeypatch,
+):
+    from app.modules.agent_harness import fenced_source_capture as capture
+    from app.modules.agent_harness.fenced_source_provenance import (
+        verify_server_source_capture,
+    )
+    from app.modules.agent_harness.fenced_storage import read_fenced_blob_pinned
+
+    engine, tenant, agent, job, clock = ledger
+    url = "https://i.etsystatic.com/1234567/r/il/allowed-source.jpg"
+    source_url_sha256 = hashlib.sha256(url.encode()).hexdigest()
+    image = Image.new("RGB", (4, 5), "blue")
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG")
+    jpeg = buffer.getvalue()
+    calls = []
+    monkeypatch.setattr(capture, "_fetch_etsy_source", lambda u: (
+        calls.append(u) or jpeg
+    ))
+    signing_key = bytes(range(32))
+
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.payload_json = {
+            **source.payload_json, "source": {"type": "etsy_cdn", "url": url},
+            "source_url_sha256": source_url_sha256,
+        }
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+    with Session(engine) as session:
+        args = dict(
+            tenant_id=tenant, agent_id=agent, job_id=job,
+            fencing_token=1, signing_key=signing_key,
+            storage_root=tmp_path, now=clock + timedelta(seconds=1),
+        )
+        assert capture.capture_server_source_for_existing_slot(session, **args).state == "feature_disabled"
+        assert capture.capture_server_source_for_existing_slot(
+            session, **args, enabled=True,
+        ).state == "emergency_stop"
+        assert calls == []
+        session.rollback()
+    with Session(engine) as session:
+        accepted = capture.capture_server_source_for_existing_slot(
+            session, **args, enabled=True, emergency_stop=False,
+        )
+        assert accepted.state == "captured"
+        assert accepted.source_sha256 == hashlib.sha256(jpeg).hexdigest()
+        assert accepted.source_bytes == len(jpeg)
+        assert calls == [url]
+        session.commit()
+
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        verified = verify_server_source_capture(
+            source, agent_id=agent,
+            reported_source_sha256=accepted.source_sha256,
+            signing_key=signing_key, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=2),
+        )
+        assert verified.state == "source_capture_verified"
+        assert not verified.may_accept_output
+        assert not verified.browser_provenance_verified
+        assert not verified.provider_provenance_verified
+        raw = read_fenced_blob_pinned(
+            tmp_path, namespace="fenced-source-v1",
+            key=accepted.source_sha256, expected_sha256=accepted.source_sha256,
+            expected_bytes=len(jpeg),
+        )
+        assert raw == jpeg
+        same = capture.capture_server_source_for_existing_slot(
+            session, **args, enabled=True, emergency_stop=False,
+        )
+        assert same.state == "already_captured"
+        assert calls == [url]
+        session.rollback()
+
+    # An old source proof does not automatically authorize a new fenced epoch.
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.attempt_count = 2
+        source.claimed_at = clock + timedelta(seconds=41)
+        source.lease_expires_at = clock + timedelta(minutes=3)
+        session.commit()
+    with Session(engine) as session:
+        replacement = _reserve(
+            session, tenant, agent, job, clock + timedelta(seconds=42),
+        )
+        assert replacement.state == "reserved"
+        assert replacement.fencing_token == 2
+        session.commit()
+    with Session(engine) as session:
+        wrong_epoch = capture.capture_server_source_for_existing_slot(
+            session, **{
+                **args, "fencing_token": 2,
+                "now": clock + timedelta(seconds=43),
+            }, enabled=True, emergency_stop=False,
+        )
+        assert wrong_epoch.state == "source_capture_requires_reconcile"
+        assert calls == [url]
+        session.rollback()
+
+
+def test_4c3f_source_capture_crash_before_commit_reuses_immutable_blob(
+    ledger, tmp_path, monkeypatch,
+):
+    from app.modules.agent_harness import fenced_source_capture as capture
+    engine, tenant, agent, job, clock = ledger
+    url = "https://img.etsystatic.com/328010/r/il/test.jpg"
+    jpeg = io.BytesIO()
+    Image.new("RGB", (2, 2), "red").save(jpeg, "JPEG")
+    calls = []
+    monkeypatch.setattr(capture, "_fetch_etsy_source", lambda u: (
+        calls.append(u) or jpeg.getvalue()
+    ))
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.payload_json = {
+            **source.payload_json, "source": {"type": "etsy_cdn", "url": url},
+            "source_url_sha256": hashlib.sha256(url.encode()).hexdigest(),
+        }
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+    opts = dict(
+        tenant_id=tenant, agent_id=agent, job_id=job,
+        fencing_token=1, signing_key=b"x" * 32,
+        storage_root=tmp_path, enabled=True, emergency_stop=False,
+        now=clock + timedelta(seconds=1),
+    )
+    with Session(engine) as session:
+        first = capture.capture_server_source_for_existing_slot(session, **opts)
+        assert first.state == "captured"
+        # The content hash is on disk but the JSON manifest is not committed.
+        session.rollback()
+    with Session(engine) as session:
+        job_model = session.get(ProcessingJobModel, job)
+        assert "_cam_fenced_source_capture_v1" not in job_model.payload_json
+        second = capture.capture_server_source_for_existing_slot(session, **opts)
+        assert second.state == "captured"
+        assert second.source_sha256 == first.source_sha256
+        session.commit()
+    assert len(calls) == 2
+
+
+def test_4c3f_review_reader_is_tenant_scoped_and_descriptor_verified(ledger, tmp_path):
+    from app.modules.agent_harness.fenced_viewer import read_accepted_image_for_review
+
+    engine, tenant, agent, job, clock = ledger
+    image = _png()
+    with Session(engine) as session:
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        assert _prepare(session, tenant, agent, job, clock, image).state == "prepared"
+        session.commit()
+    with Session(engine) as session:
+        assert read_accepted_image_for_review(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+        ).state == "not_available"
+        session.rollback()
+    with Session(engine) as session:
+        accepted = _accept(
+            session, tenant, agent, job, clock + timedelta(seconds=1),
+            image, tmp_path,
+        )
+        assert accepted.state == "accepted"
+        session.commit()
+    with Session(engine) as session:
+        assert read_accepted_image_for_review(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+        ).state == "feature_disabled"
+        assert read_accepted_image_for_review(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True,
+        ).state == "emergency_stop"
+        assert read_accepted_image_for_review(
+            session, tenant_id="not-" + tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+        ).state == "not_found"
+        verified = read_accepted_image_for_review(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+        )
+        assert verified.ready
+        assert verified.png == image
+        assert verified.output_sha256 == hashlib.sha256(image).hexdigest()
+        session.rollback()
+    output_path = tmp_path / accepted.storage_relative_path
+    output_path.write_bytes(b"replaced")
+    with Session(engine) as session:
+        assert read_accepted_image_for_review(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+        ).state == "not_verified"
+        assert session.get(ProcessingJobModel, job).status == "completed"
+        session.rollback()
+
+
 def test_png_result_acceptance_is_same_transaction_as_processing_job(ledger, tmp_path):
     engine, tenant, agent, job, clock = ledger
     png = _png()

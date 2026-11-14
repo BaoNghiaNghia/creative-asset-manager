@@ -21,7 +21,7 @@ from typing import Any
 from app.modules.etsy_spy.service import verified_image_url
 from app.modules.processing.model import ProcessingJobModel
 from .executor_slots import _utc
-from .fenced_output import _check_immutable
+from .fenced_storage import read_fenced_blob_pinned
 
 
 _EVIDENCE_KEY = "_cam_fenced_source_capture_v1"
@@ -136,9 +136,12 @@ def verify_server_source_capture(
     if namespace.is_symlink() or shard.is_symlink():
         return SourceCaptureVerdict("source_storage_unsafe")
     target = shard / f"{reported_source_sha256}.bin"
-    if target.is_symlink() or not _check_immutable(
-        target, reported_source_sha256, proof["source_bytes"],
-    ):
+    if target.is_symlink() or read_fenced_blob_pinned(
+        storage_root, namespace="fenced-source-v1",
+        key=reported_source_sha256,
+        expected_sha256=reported_source_sha256,
+        expected_bytes=proof["source_bytes"],
+    ) is None:
         return SourceCaptureVerdict("source_snapshot_missing_or_corrupt")
 
     return SourceCaptureVerdict(

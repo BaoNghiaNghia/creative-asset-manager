@@ -336,7 +336,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pytest tests/integration/test_agent_executor_slots_postgresql.py tests/integration/test_agent_fenced_output_postgresql.py -q
-          python -m pytest tests/modules/test_agent_executor_slots.py tests/modules/test_agent_fenced_output.py tests/modules/test_agent_fenced_reconciliation.py tests/modules/test_agent_fenced_source_provenance.py -q
+          python -m pytest tests/modules/test_agent_executor_slots.py tests/modules/test_agent_fenced_output.py tests/modules/test_agent_fenced_reconciliation.py tests/modules/test_agent_fenced_source_provenance.py tests/modules/test_agent_fenced_storage.py tests/modules/test_agent_fenced_source_capture.py -q
       - name: 0206 bridge rejects weakened future 0207 schemas
         working-directory: apps/api
         run: python -m pytest tests/modules/test_agent_trial_snapshot_bridge.py -q

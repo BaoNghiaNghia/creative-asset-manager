@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3F: source capture + pinned review reader (inert)
+
+- [x] Build a default-OFF server-owned source capture primitive: strict allowlisted HTTPS, public IP DNS validation and pinned TLS/SNI, no redirects/proxies, hard limits on bytes/image size/read duration, content-addressed disk and signed manifest bound to the existing 0209 claim fence.
+- [x] Build descriptor-pinned no-follow immutable source/PNG I/O, then provide a default-OFF tenant-bound read-only `accepted` receipt viewer adapter that returns checked PNG bytes instead of a mutable storage path.
+- [x] Add fake-network SSRF/redirect/TLS-safety tests, symlink/hash/conflict tests and PostgreSQL 12/16 capture/replay/crash/tenant preview tests in the existing CI matrix.
+- [ ] Obtain green CI and separately validate off-host real production backup restore. Keep PR #166 Draft, 0209/0210 unmigrated and current production endpoints untouched.
+- [ ] Refactor network capture outside PostgreSQL row locks before any live use; add independent browser/provider proof, read viewer auth integration and human reconciliation. No automatic multi-agent dispatch or producer calls yet.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3F_SOURCE_CAPTURE_VIEWER_20261114.md`.
+
+
 ## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3E: independent source gate and receipt reconciliation
 
 - [x] Add default-OFF, read-only tenant-scoped inspector of 0209/0210 and content-addressed storage (waiting / recoverable / stale epoch / accepted verified / missing or corrupt), with NO cleanup, dispatch, commit or auto-accept.

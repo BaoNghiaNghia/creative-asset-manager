@@ -1,3 +1,10 @@
+## 2026-11-14 — Agent Harness 4C.3F bounded source capture and pinned viewer
+
+- Implemented bounded *server-side* independent source downloader with exact allowlisted Etsy CDN host, DNS global-IP validation and connection IP pinning with verified TLS hostname/SNI, reject redirects/compression, decode and cap images. It is not invoked by any live route; all tests emulate the network locally.
+- Added descriptor-pinned no-follow immutable file reader/writer with verified bytes, rather than potentially mutable FileResponse paths. Added default-OFF receipt viewer adapter requiring tenant-validated DB read locks; it never approves print rights or touches legacy file paths.
+- Inert issuer can stage source bytes, sign only the resulting server-downloaded digest and bind to the exact 0209 claim. It currently holds a DB row lock during HTTPS and must be redesigned into staged I/O before activation. No browser/provider proof is supplied; successful source-only verification still cannot accept output.
+- Test fixtures cover SSRF, redirects, TLS SNI, symlinks, SHA mismatch, 0209 lease/attempt replay, crash-safe source staging and accepted-only read. No migrations, Windows, API, background job or provider change on production. Off-host real backup restoration remains a hard gate.
+
 ## 2026-11-14 — Agent Harness 4C.3E read-only intake / reconciliation
 
 - Reconciliation inspector does not mutate files, ProcessingJobs, agent slots or receipts. Missing accepted blobs and stale prepared epochs demand operator intervention. A matching prepared file is only a candidate for a future transactionally authorized retry.
