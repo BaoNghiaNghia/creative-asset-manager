@@ -1977,6 +1977,48 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   min-height: 34px;
   padding: 3px;
 }
+.etsy-design-gallery-colormatch-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
+  color: #2b5da4;
+  font-size: 11px;
+  font-weight: 760;
+  padding: 0 3px;
+}
+.etsy-design-gallery-colormatch-heading small {
+  color: #7b899b;
+  font-size: 9px;
+  font-weight: 500;
+}
+.etsy-design-gallery-recommended {
+  margin: 5px 0 2px;
+  grid-template-columns: repeat(6, 28px);
+  gap: 9px;
+}
+.etsy-design-gallery-all-colors-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin: 5px 0 7px;
+  padding: 5px 7px;
+  border: 1px solid #e0e8f2;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #45617f;
+  font-size: 11px;
+  font-weight: 660;
+  cursor: pointer;
+}
+.etsy-design-gallery-all-colors-toggle:hover,
+.etsy-design-gallery-all-colors-toggle:focus-visible {
+  background: #eefaFF;
+  border-color: #98b5d8;
+}
 .etsy-design-gallery-background-swatch {
   display: block;
   width: 27px;
