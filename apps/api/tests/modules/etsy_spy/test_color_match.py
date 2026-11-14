@@ -87,3 +87,60 @@ def test_thumbnail_color_analysis_does_not_change_native_master_png_bytes():
     assert metadata and metadata["output_sha256"] == before
     assert metadata["recommended"]
     assert hashlib.sha256(png).hexdigest() == before
+
+
+def test_legacy_candidate_preview_includes_verified_multiple_recommendations():
+    sha = hashlib.sha256(b"historical-candidate").hexdigest()
+    metadata = recommend_garment_colors(_png("#ffffff"), sha)
+    assert metadata and len(metadata["recommended"]) > 1
+    job = SimpleNamespace(
+        id="job-id", entity_id="listing",
+        payload_json={"review_candidate": {
+            "status": "review_candidate", "output_sha256": sha,
+            "method": "local_layered", "color_match": metadata,
+        }},
+    )
+    entry = project_design_assets(job)[0]
+    assert entry["id"] == "candidate"
+    assert entry["color_match"]["recommended"] == metadata["recommended"]
+    assert "scores" not in entry["color_match"]
+    job.payload_json["review_candidate"]["color_match"] = {
+        **metadata, "output_sha256": "b" * 64,
+    }
+    assert "color_match" not in project_design_assets(job)[0]
+
+
+def test_legacy_fast_preview_can_include_verified_recommendations():
+    sha = hashlib.sha256(b"historical-fast").hexdigest()
+    metadata = recommend_garment_colors(_png("#151515"), sha)
+    job = SimpleNamespace(
+        id="job-id", entity_id="listing",
+        payload_json={"result": {
+            "status": "needs_review", "output_sha256": sha,
+            "color_match": metadata,
+        }},
+    )
+    entry = project_design_assets(job)[0]
+    assert entry["id"] == "fast"
+    assert entry["color_match"]["recommended"] == metadata["recommended"]
+
+
+def test_local_backfill_requires_matching_png_sha_and_preserves_source(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = (Path(__file__).resolve().parents[5]
+            / "scripts" / "cam-etsy-colormatch-local-backfill.py")
+    spec = importlib.util.spec_from_file_location("cam_etsy_colormatch_local_backfill", path)
+    assert spec and spec.loader
+    import types
+    backfill = types.ModuleType(spec.name)
+    spec.loader.exec_module(backfill)
+    file = tmp_path / "historical-design.png"
+    original = _png("#ffffff")
+    file.write_bytes(original)
+    digest = hashlib.sha256(original).hexdigest()
+    preview = backfill.make_thumbnail(file, digest)
+    assert preview and preview[:8] == bytes((137, 80, 78, 71, 13, 10, 26, 10))
+    assert backfill.make_thumbnail(file, "f" * 64) is None
+    assert file.read_bytes() == original

@@ -29,6 +29,30 @@ def design_media_path(job_id: str, asset_id: str, *, thumb: bool = False) -> str
     return f"{DESIGN_BASE}/{job_id}/{asset_id}/{name}"
 
 
+def _validated_color_match(raw: dict, digest: str) -> dict | None:
+    """Project bounded advisory color metadata for mapped and legacy images.
+
+    Includes candidate/fast sources when they have the same checked SHA,
+    without decoding PNGs or introducing any database/network work.
+    """
+    from .color_match_palette import ALGORITHM, GARMENT_COLORS
+    match = raw.get("color_match")
+    if not isinstance(match, dict):
+        return None
+    allowed = {color_id for color_id, _ in GARMENT_COLORS}
+    colors = match.get("recommended")
+    if (match.get("version") != ALGORITHM or
+            match.get("output_sha256") != digest or
+            not isinstance(colors, list) or not 1 <= len(colors) <= 4 or
+            any(not isinstance(c, str) or c not in allowed for c in colors) or
+            len(set(colors)) != len(colors)):
+        return None
+    return {
+        "version": ALGORITHM, "output_sha256": digest,
+        "recommended": colors, "method": "thumbnail_pixel_contrast",
+    }
+
+
 def project_design_assets(job: Any) -> list[dict]:
     """Return only evidence-backed private image URLs, never inferred positions."""
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
@@ -50,16 +74,24 @@ def project_design_assets(job: Any) -> list[dict]:
         }
 
     if result.get("status") == "needs_review" and isinstance(result.get("output_sha256"), str):
-        out.append(entry(
+        fast = entry(
             "fast", "unknown", 1, "fast_result", result["output_sha256"],
             "fast_cpu", "needs_review", result.get("finished_at"),
-        ))
+        )
+        colors = _validated_color_match(result, result["output_sha256"])
+        if colors:
+            fast["color_match"] = colors
+        out.append(fast)
     if candidate.get("status") == "review_candidate" and isinstance(candidate.get("output_sha256"), str):
-        out.append(entry(
+        legacy = entry(
             "candidate", "unknown", 1, "legacy_candidate",
             candidate["output_sha256"], candidate.get("method") or "local_layered",
             "review_candidate", candidate.get("created_at"),
-        ))
+        )
+        colors = _validated_color_match(candidate, candidate["output_sha256"])
+        if colors:
+            legacy["color_match"] = colors
+        out.append(legacy)
 
     for raw in payload.get("design_assets", []) if isinstance(payload.get("design_assets"), list) else []:
         if not isinstance(raw, dict):
@@ -82,24 +114,10 @@ def project_design_assets(job: Any) -> list[dict]:
                 size = raw.get(key)
                 if type(size) is int and 256 <= size <= 4096:
                     mapped[key] = size
-        # Tiny precomputed advisory metadata; no image reads, extra SQL, or
-        # ColorMatch calculation on the hot Picked listing / modal path.
-        color_match = raw.get("color_match")
-        if isinstance(color_match, dict):
-            from .color_match_palette import ALGORITHM, GARMENT_COLORS
-            allowed = {color_id for color_id, _ in GARMENT_COLORS}
-            choices = color_match.get("recommended")
-            if (color_match.get("version") == ALGORITHM and
-                    color_match.get("output_sha256") == digest and
-                    isinstance(choices, list) and 1 <= len(choices) <= 4 and
-                    len(set(str(c) for c in choices)) == len(choices) and
-                    all(isinstance(c, str) and c in allowed for c in choices)):
-                mapped["color_match"] = {
-                    "version": ALGORITHM,
-                    "output_sha256": digest,
-                    "recommended": choices,
-                    "method": "thumbnail_pixel_contrast",
-                }
+        # No image reads, extra SQL, or analysis on the hot Picked listing path.
+        colors = _validated_color_match(raw, digest)
+        if colors:
+            mapped["color_match"] = colors
         out.append(mapped)
     return out[:MAX_DESIGNS_PER_JOB + 2]
 
