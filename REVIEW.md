@@ -1,3 +1,45 @@
+## 2026-11-14 — Agent Harness 4C.3G transaction-boundary correction
+
+- Removed the unsafe single-Session network entrypoint: old helper now always fails closed when enabled. New `fenced_source_staging.py` uses separate, always-closed PostgreSQL Session scopes before and after bounded HTTPS and immutable storage, never fetches with an open SQL transaction.
+- Final signed source manifest requires a freshly revalidated exact job/device/slot fence, source URL/URL SHA256 and unchanged claim epoch. Concurrent claim, cancellation or source mutation leaves only an orphan blob with no accepted manifest.
+- Added PostgreSQL `FOR UPDATE NOWAIT` during injected source fetch to prove absence of the old row lock, plus crash/retry and capacity stops. Network tests stub the Etsy request and do not contact external providers.
+- In-process bounded fetch semaphore is **not a global fleet quota**; source capture remains an inert code-only prototype. Real off-host production restore, browser/provider lineage, authenticated no-dual-writer API cutover and manual reconciliation stay mandatory blockers.
+
+## 2026-11-14 — Agent Harness 4C.3F bounded source capture and pinned viewer
+
+- Implemented bounded *server-side* independent source downloader with exact allowlisted Etsy CDN host, DNS global-IP validation and connection IP pinning with verified TLS hostname/SNI, reject redirects/compression, decode and cap images. It is not invoked by any live route; all tests emulate the network locally.
+- Added descriptor-pinned no-follow immutable file reader/writer with verified bytes, rather than potentially mutable FileResponse paths. Added default-OFF receipt viewer adapter requiring tenant-validated DB read locks; it never approves print rights or touches legacy file paths.
+- Inert issuer can stage source bytes, sign only the resulting server-downloaded digest and bind to the exact 0209 claim. It currently holds a DB row lock during HTTPS and must be redesigned into staged I/O before activation. No browser/provider proof is supplied; successful source-only verification still cannot accept output.
+- Test fixtures cover SSRF, redirects, TLS SNI, symlinks, SHA mismatch, 0209 lease/attempt replay, crash-safe source staging and accepted-only read. No migrations, Windows, API, background job or provider change on production. Off-host real backup restoration remains a hard gate.
+
+## 2026-11-14 — Agent Harness 4C.3E read-only intake / reconciliation
+
+- Reconciliation inspector does not mutate files, ProcessingJobs, agent slots or receipts. Missing accepted blobs and stale prepared epochs demand operator intervention. A matching prepared file is only a candidate for a future transactionally authorized retry.
+- Source capture proof requires independent server HMAC signature and on-disk hash-bound bytes plus an exact source URL and claim match. It has NO producer or live issuer today. A self-reported source hash, device heartbeat and QA payload are never proof of browser/provider execution; even passing this source proof returns `may_accept_output=false`.
+- Read-only SQLite/snapshot and PostgreSQL 12/16 CI coverage added. No live API import, no result-route switch, no 0209/0210 production migration, no worker/Windows change. Off-host restore, browser/provider proof, safe no-follow viewer and controlled canary remain release blockers.
+- Reviewed design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3E_READONLY_CUTOVER_GATE_20261114.md`.
+
+## 2026-11-14 — Agent Harness 4C.3D output acceptance boundary
+
+- Existing live Image Agent result path writes PNG before SQL COMMIT with only legacy job lease token. Candidate adds a separate inert 0210 ledger and default-OFF two-step result acceptance: prepared immutable claim then fsynced content-addressed bytes and atomic DB receipt + job completion.
+- A crash after fsync/before commit can leave an orphan file but cannot publish a result; retry by the **same live fenced epoch** can verify/reuse the exact bytes. Different source/hash/engine or a reclaimed epoch cannot replace the row, even with the same job ID.
+- Output is still review-only and not independently browser/provider verified. Future importer must execute all provenance checks, preserve lock order, handle reconciliation and source lineage, and be approved before wiring. Old `/result` is untouched.
+- 0210 is empty/additive and refuses destructive downgrade when populated. Neither 0209 nor 0210 is deployed; off-host restore and rollback remain blockers. Green CI on fake PostgreSQL DB is not production restore evidence.
+
+## 2026-11-14 — Agent Harness 4C.3C CI failure and handoff guard
+
+- CI #3011 failed only in PostgreSQL 12/16 test `test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes`, due to testing at a clock preceding the new claim by 25 seconds (source rejects >5 second future skew by design); no unsafe default behavior was activated. Fixed the test setup without reducing security.
+- Added read-locked detection of stale slots owned by another agent before an insert could trip the unique job-slot constraint. Cross-device jobs remain blocked until manual, auditable reconciliation; do not treat an expired slot as authorization for a new worker.
+- Prevent an idempotent active slot from being returned after the authoritative source lease has been shortened. Extend PostgreSQL integration coverage. No runtime caller, migration execution, dispatch flag, browser/provider call or queue mutation introduced.
+- Off-host production backup/restore and transactional output-writer proof are still open blockers; 0209 stays outside production until independently verified.
+
+## 2026-11-14 — Harness Phase 4C.3B security review (pre-CI)
+
+- Risk fixed: a `job_id`-only reservation could reuse a fencing token after a new ProcessingJob attempt. New `claim_attempt_count` and `claim_started_at` columns bind the slot and output proof to the exact claim epoch.
+- Preserved: PostgreSQL-authoritative queue and tenant isolation; no new provider calls, automatic dispatch, extension restart, or learning promotion. Emergency stop is ON by default for reserve/renew/output checks.
+- Lock order: source ProcessingJob row, paired Image Agent row, then slot. 0209 remains an empty additive migration until separately released. A populated fencing ledger cannot be downgraded; release of completed/failed jobs permits orderly cleanup.
+- Verification required: PostgreSQL 12/16 CI with row-lock races, incompatible-epoch rejection, malformed-row CHECK constraints and cross-tenant blocks. Off-host restore is still not verified; rollback must preserve durable fencing history.
+
 ## 2026-11-14 — Etsy Spy preview garment swatches
 
 - Read-only UI palette: 22 requested names mapped to screen-reference HEX, plus checkerboard default and four unique legacy options. One selected CSS variable colors main preview stage and thumbnail; source PNG, data, output rights/QA and worker paths remain untouched.
