@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -280,3 +280,48 @@ class AgentTrialArtworkSnapshotModel(Base):
         server_default=text("CURRENT_TIMESTAMP"),
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AgentExecutorSlotModel(Base):
+    """One durable, tenant-scoped Image Agent slot with monotonic fencing.
+
+    No live dispatcher imports this model. The single row per device is locked
+    inside an existing-job transaction; a previous token can never own a later
+    reservation. A NULL job denotes a free row, not proven browser readiness.
+    """
+
+    __tablename__ = "cam_agent_executor_slots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["agent_id"], ["etsy_spy_agents.id"],
+            name="fk_cam_executor_slot_agent", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["job_id"], ["processing_jobs.id"],
+            name="fk_cam_executor_slot_job", ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "job_id", name="uq_cam_executor_slot_tenant_job",
+        ),
+        CheckConstraint(
+            "fencing_token >= 0", name="ck_cam_executor_slot_fence",
+        ),
+        CheckConstraint(
+            "(job_id IS NULL AND lease_expires_at IS NULL) OR "
+            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL)",
+            name="ck_cam_executor_slot_pair",
+        ),
+        Index("ix_cam_executor_slot_expiry", "lease_expires_at"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[str | None] = mapped_column(String(36))
+    fencing_token: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0"),
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"), onupdate=utcnow,
+    )
