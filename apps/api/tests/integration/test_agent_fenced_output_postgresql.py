@@ -104,6 +104,69 @@ def _accept(session, tenant, agent, job, now, data, root, **overrides):
     return accept_fenced_image_receipt(session, **params)
 
 
+def test_read_only_reconciliation_reports_prepared_accepted_and_missing_bytes(
+    ledger, tmp_path,
+):
+    from app.modules.agent_harness.fenced_reconciliation import inspect_fenced_receipt
+
+    engine, tenant, agent, job, clock = ledger
+    png = _png()
+    with Session(engine) as session:
+        assert inspect_fenced_receipt(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+        ).state == "feature_disabled"
+        assert inspect_fenced_receipt(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=True,
+        ).state == "emergency_stop"
+        assert inspect_fenced_receipt(
+            session, tenant_id="not-" + tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+        ).state == "job_not_found"
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+    with Session(engine) as session:
+        assert _prepare(session, tenant, agent, job, clock + timedelta(seconds=1), png).state == "prepared"
+        session.commit()
+    with Session(engine) as session:
+        pending = inspect_fenced_receipt(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=2),
+        )
+        assert pending.state == "prepared_awaiting_blob"
+        assert not pending.manual_reconcile_required
+        session.rollback()
+    with Session(engine) as session:
+        outcome = _accept(
+            session, tenant, agent, job, clock + timedelta(seconds=3), png, tmp_path,
+        )
+        assert outcome.state == "accepted"
+        session.commit()
+    with Session(engine) as session:
+        accepted = inspect_fenced_receipt(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=4),
+        )
+        assert accepted.state == "accepted_verified"
+        assert not accepted.manual_reconcile_required
+        session.rollback()
+    (tmp_path / accepted.storage_ref).unlink()
+    with Session(engine) as session:
+        damaged = inspect_fenced_receipt(
+            session, tenant_id=tenant, job_id=job, storage_root=tmp_path,
+            enabled=True, emergency_stop=False,
+            now=clock + timedelta(seconds=4),
+        )
+        assert damaged.state == "accepted_blob_missing"
+        assert damaged.manual_reconcile_required
+        # The read-only audit must not reset the completed job/receipt.
+        assert session.get(ProcessingJobModel, job).status == "completed"
+        assert session.get(AgentImageOutputReceiptModel, (tenant, job)).status == "accepted"
+        session.rollback()
+
+
 def test_png_result_acceptance_is_same_transaction_as_processing_job(ledger, tmp_path):
     engine, tenant, agent, job, clock = ledger
     png = _png()

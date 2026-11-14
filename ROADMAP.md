@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3E: independent source gate and receipt reconciliation
+
+- [x] Add default-OFF, read-only tenant-scoped inspector of 0209/0210 and content-addressed storage (waiting / recoverable / stale epoch / accepted verified / missing or corrupt), with NO cleanup, dispatch, commit or auto-accept.
+- [x] Add default-OFF server-signed source snapshot verifier bound to exact tenant, job, device, claim, allowlisted Etsy source URL, captured byte hash, immutable local snapshot and bounded timestamp. A valid source-only proof explicitly does NOT verify browser or provider execution and does NOT permit output acceptance.
+- [x] Add deterministic unit tests for state classification, provenance tampering, wrong origin/attempt, revoked source and symlinked/missing bytes; run PostgreSQL 12/16 read-only inspection in existing CI.
+- [ ] Independently capture server-side source bytes and browser/provider execution proof. Only then review an authenticated API cutover to 0210 and no-follow viewer, along with a human recovery queue. Keep default OFF.
+- [ ] Independently verify restore of a real production backup off-host before any 0209/0210 production migration; keep PR #166 Draft and preserve current + rollback.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3E_READONLY_CUTOVER_GATE_20261114.md`.
+
+
 ## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3D: crash-recoverable fenced PNG receipt (inert)
 
 - [x] Add additive empty 0210 image output receipt ledger linked to exact job, active paired agent, attempt/claimed_at, fencing token, digest, source digest and engine; fail closed on mismatched retries.

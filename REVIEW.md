@@ -1,3 +1,10 @@
+## 2026-11-14 — Agent Harness 4C.3E read-only intake / reconciliation
+
+- Reconciliation inspector does not mutate files, ProcessingJobs, agent slots or receipts. Missing accepted blobs and stale prepared epochs demand operator intervention. A matching prepared file is only a candidate for a future transactionally authorized retry.
+- Source capture proof requires independent server HMAC signature and on-disk hash-bound bytes plus an exact source URL and claim match. It has NO producer or live issuer today. A self-reported source hash, device heartbeat and QA payload are never proof of browser/provider execution; even passing this source proof returns `may_accept_output=false`.
+- Read-only SQLite/snapshot and PostgreSQL 12/16 CI coverage added. No live API import, no result-route switch, no 0209/0210 production migration, no worker/Windows change. Off-host restore, browser/provider proof, safe no-follow viewer and controlled canary remain release blockers.
+- Reviewed design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3E_READONLY_CUTOVER_GATE_20261114.md`.
+
 ## 2026-11-14 — Agent Harness 4C.3D output acceptance boundary
 
 - Existing live Image Agent result path writes PNG before SQL COMMIT with only legacy job lease token. Candidate adds a separate inert 0210 ledger and default-OFF two-step result acceptance: prepared immutable claim then fsynced content-addressed bytes and atomic DB receipt + job completion.
