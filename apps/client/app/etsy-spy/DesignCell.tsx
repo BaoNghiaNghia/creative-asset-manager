@@ -3,6 +3,18 @@ import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 
+const DESIGN_BACKGROUNDS = [
+  { id: "transparent", label: "Nền caro (mặc định)" },
+  { id: "white", label: "Trắng" },
+  { id: "cream", label: "Kem" },
+  { id: "gray", label: "Xám nhạt" },
+  { id: "black", label: "Đen" },
+  { id: "navy", label: "Xanh navy" },
+  { id: "sage", label: "Xanh lá nhạt" },
+  { id: "pink", label: "Hồng nhạt" },
+] as const;
+type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
+
 export function DesignCell({ item, onPreviewStart }: {
   item: Listing; onPreviewStart?: () => void;
 }) {
@@ -10,6 +22,7 @@ export function DesignCell({ item, onPreviewStart }: {
   const [active, setActive] = useState<number | null>(null);
   const [hovered, setHovered] = useState<number | null>(null);
   const [failedOriginalId, setFailedOriginalId] = useState<string | null>(null);
+  const [background, setBackground] = useState<DesignBackground>("transparent");
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const galleryRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -105,6 +118,7 @@ export function DesignCell({ item, onPreviewStart }: {
           onClick={event => {
             returnFocusRef.current = event.currentTarget;
             setHovered(null);
+            setBackground("transparent");
             setActive(index);
           }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
@@ -139,7 +153,7 @@ export function DesignCell({ item, onPreviewStart }: {
         }}>
         <section ref={galleryRef} role="dialog" aria-modal="true"
           aria-label={`Ảnh thiết kế sản phẩm ${item.listingKey}`}
-          className="etsy-design-gallery">
+          className="etsy-design-gallery" data-preview-background={background}>
           <button ref={closeRef} className="etsy-design-gallery-close" type="button"
             onClick={() => setActive(null)} aria-label="Đóng">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -161,6 +175,16 @@ export function DesignCell({ item, onPreviewStart }: {
                     aria-pressed={index === selected}>
                     <EtsyDeferredImage src={design.thumbnail_url} alt="" width={60} height={60} />
                   </button>
+                ))}
+              </div>
+              <div className="etsy-design-gallery-background-picker"
+                role="group" aria-label="Màu nền xem thiết kế">
+                {DESIGN_BACKGROUNDS.map(option => (
+                  <button key={option.id} type="button"
+                    className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
+                    title={option.label} aria-label={option.label}
+                    aria-pressed={background === option.id}
+                    onClick={() => setBackground(option.id)} />
                 ))}
               </div>
             </aside>

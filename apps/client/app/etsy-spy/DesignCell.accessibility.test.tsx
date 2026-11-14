@@ -42,7 +42,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
     await act(async () => opener?.click());
     const dialog = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
     const close = dialog?.querySelector<HTMLButtonElement>(".etsy-design-gallery-close");
-    const last = dialog?.querySelectorAll<HTMLButtonElement>(".etsy-design-gallery-list button")[1];
+    const last = dialog?.querySelectorAll<HTMLButtonElement>(".etsy-design-gallery-background-swatch")[7];
     expect(dialog).not.toBeNull();
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.activeElement).toBe(close);
@@ -71,5 +71,59 @@ describe("Picked Design gallery accessibility and refresh", () => {
     expect(document.body.querySelector(".etsy-design-gallery")).toBeNull();
     expect(document.body.style.overflow).toBe("auto");
     expect(document.activeElement).toBe(opener);
+  });
+
+  it("starts with checkerboard, switches the preview without changing the PNG, and resets on reopening", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(
+      <DesignCell item={listing([design("a"), design("b")])} />,
+    ));
+    const opener = host.querySelector<HTMLButtonElement>(".etsy-design-thumb");
+    await act(async () => opener?.click());
+    const gallery = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
+    const stage = gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img");
+    const initialSrc = stage?.getAttribute("src");
+    expect(gallery?.dataset.previewBackground).toBe("transparent");
+    const colors = Array.from(gallery?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-background-swatch",
+    ) ?? []);
+    expect(colors).toHaveLength(8);
+    expect(colors[0]?.getAttribute("aria-pressed")).toBe("true");
+
+    const navy = gallery?.querySelector<HTMLButtonElement>(
+      '.etsy-design-gallery-background-navy',
+    );
+    await act(async () => navy?.click());
+    expect(gallery?.dataset.previewBackground).toBe("navy");
+    expect(navy?.getAttribute("aria-pressed")).toBe("true");
+    expect(colors.filter(button => button.getAttribute("aria-pressed") === "true"))
+      .toHaveLength(1);
+    expect(stage?.getAttribute("src")).toBe(initialSrc);
+    expect(gallery?.querySelectorAll(".etsy-design-gallery-list button")).toHaveLength(2);
+
+    await act(async () => gallery?.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-list button",
+    )[1]?.click());
+    expect(gallery?.dataset.previewBackground).toBe("navy");
+    expect(gallery?.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img")
+      ?.getAttribute("src")).toBe("/original/b");
+
+    await act(async () => root?.render(<DesignCell item={listing([
+      design("a"), design("b"), design("c"),
+    ])} />));
+    expect(document.body.querySelector(".etsy-design-gallery")).toBe(gallery);
+    expect(gallery?.dataset.previewBackground).toBe("navy");
+
+    await act(async () => {
+      gallery?.querySelector<HTMLButtonElement>(".etsy-design-gallery-close")?.click();
+    });
+    await act(async () => opener?.click());
+    expect(document.body.querySelector<HTMLElement>(".etsy-design-gallery")
+      ?.dataset.previewBackground).toBe("transparent");
+    expect(document.body.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-transparent",
+    )?.getAttribute("aria-pressed")).toBe("true");
   });
 });
