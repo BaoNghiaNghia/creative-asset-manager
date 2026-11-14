@@ -134,7 +134,7 @@ describe("per-design ColorMatch background recommendations", () => {
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-all-colors-toggle",
     )?.click());
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(27);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(49);
     const chosen = dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-background-white",
     );
@@ -153,7 +153,7 @@ describe("per-design ColorMatch background recommendations", () => {
     a.color_match!.output_sha256 = "f".repeat(64);
     const dialog = await render([a]);
     expect(dialog.dataset.previewBackground).toBe("transparent");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(27);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(49);
     expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")).toBeNull();
   });
 });

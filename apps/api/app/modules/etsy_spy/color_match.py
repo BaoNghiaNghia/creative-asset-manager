@@ -111,7 +111,7 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
                for chosen in best):
             continue
         best.append(color_id)
-        if len(best) == 10:
+        if len(best) == 16:
             break
     if not best:
         return None

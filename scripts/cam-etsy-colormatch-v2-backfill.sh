@@ -19,7 +19,7 @@ fi
 # Fail closed if the active API still projects V1 metadata. This prevents
 # backfill from silently making color swatches invisible to an older API.
 if ! PYTHONPATH="$RELEASE/apps/api" "$PYTHON" -c \
-  'from app.modules.etsy_spy.color_match_palette import ALGORITHM; assert ALGORITHM == "colormatch-pixel-v2"'; then
+  'from app.modules.etsy_spy.color_match_palette import ALGORITHM; assert ALGORITHM == "colormatch-pixel-v3"'; then
   printf '%s\n' 'ERROR: Backend release is not ColorMatch V2.' >&2
   exit 2
 fi

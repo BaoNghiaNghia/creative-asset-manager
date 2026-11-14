@@ -32,6 +32,28 @@ const DESIGN_BACKGROUNDS = [
   { id: "watermelon", label: "Watermelon", color: "#F4364C" },
   { id: "lagoon", label: "Lagoon", color: "#05C3DE" },
   { id: "mustard", label: "Mustard", color: "#F2CD00" },
+  { id: "natural", label: "Natural", color: "#F2E6CE" },
+  { id: "sandstone", label: "Sandstone", color: "#C9B59A" },
+  { id: "khaki", label: "Khaki", color: "#B8AD8E" },
+  { id: "espresso", label: "Espresso", color: "#49332C" },
+  { id: "chocolate", label: "Chocolate", color: "#584033" },
+  { id: "moss", label: "Moss", color: "#64744E" },
+  { id: "forest", label: "Forest", color: "#254A38" },
+  { id: "olive", label: "Olive", color: "#76764D" },
+  { id: "wine", label: "Wine", color: "#713C50" },
+  { id: "berry", label: "Berry", color: "#99455C" },
+  { id: "dusty-rose", label: "Dusty Rose", color: "#D59AA4" },
+  { id: "blush", label: "Blush", color: "#E8C5CA" },
+  { id: "lavender", label: "Lavender", color: "#A99FC7" },
+  { id: "slate", label: "Slate", color: "#566775" },
+  { id: "navy-deep", label: "Deep Navy", color: "#263852" },
+  { id: "steel-blue", label: "Steel Blue", color: "#829CB2" },
+  { id: "ice-blue", label: "Ice Blue", color: "#D1E2E7" },
+  { id: "teal", label: "Teal", color: "#237981" },
+  { id: "rust", label: "Rust", color: "#AD5B3C" },
+  { id: "coral", label: "Coral", color: "#ED917D" },
+  { id: "gold", label: "Gold", color: "#D1AE5F" },
+  { id: "light-grey", label: "Light Grey", color: "#C5C7C4" },
   // Keep earlier preview-only colors for compatibility with operators.
   { id: "cream", label: "Kem (cũ)", color: "#F9EDDB" },
   { id: "gray", label: "Xám nhạt (cũ)", color: "#DCE2E9" },
@@ -41,9 +63,9 @@ const DESIGN_BACKGROUNDS = [
 type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
 type PreviewDesign = NonNullable<Listing["designs"]>[number];
 const GARMENT_COLOR_IDS = new Set<DesignBackground>(
-  DESIGN_BACKGROUNDS.slice(1, 23).map(color => color.id),
+  DESIGN_BACKGROUNDS.slice(1, 45).map(color => color.id),
 );
-const COLOR_MATCH_VERSIONS = new Set(["colormatch-pixel-v1", "colormatch-pixel-v2"]);
+const COLOR_MATCH_VERSIONS = new Set(["colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3"]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
 function recommendedColors(design: PreviewDesign): DesignBackground[] {
@@ -52,7 +74,7 @@ function recommendedColors(design: PreviewDesign): DesignBackground[] {
       match.output_sha256 !== design.output_sha256 ||
       !Array.isArray(match.recommended)) return [];
   const seen = new Set<DesignBackground>();
-  return match.recommended.slice(0, 10).filter((id): id is DesignBackground => {
+  return match.recommended.slice(0, 16).filter((id): id is DesignBackground => {
     if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
         seen.has(id as DesignBackground)) return false;
     seen.add(id as DesignBackground);

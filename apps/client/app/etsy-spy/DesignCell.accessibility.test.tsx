@@ -159,7 +159,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
       .toHaveLength(2);
   });
 
-  it("offers all 22 garment colors, applies the selected background and preserves the artwork", async () => {
+  it("offers all 44 garment colors, applies the selected background and preserves the artwork", async () => {
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -170,7 +170,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
     const swatches = Array.from(gallery?.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-background-swatch",
     ) ?? []);
-    expect(swatches).toHaveLength(27); // checkerboard + 22 requested + 4 original extras
+    expect(swatches).toHaveLength(49); // checkerboard + 22 requested + 4 original extras
     const expected = [
       ["Black", "black", "#25282A"],
       ["White", "white", "#FFFFFF"],
@@ -236,7 +236,7 @@ describe("Picked Design gallery accessibility and refresh", () => {
     const colors = Array.from(gallery?.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-background-swatch",
     ) ?? []);
-    expect(colors).toHaveLength(27);
+    expect(colors).toHaveLength(49);
     expect(colors[0]?.getAttribute("aria-pressed")).toBe("true");
 
     const navy = gallery?.querySelector<HTMLButtonElement>(
