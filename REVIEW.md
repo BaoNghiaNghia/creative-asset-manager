@@ -1,3 +1,9 @@
+## 2026-11-14 — Etsy Spy preview garment swatches
+
+- Read-only UI palette: 22 requested names mapped to screen-reference HEX, plus checkerboard default and four unique legacy options. One selected CSS variable colors main preview stage and thumbnail; source PNG, data, output rights/QA and worker paths remain untouched.
+- Accessibility: named swatches, single pressed state, screen-visible selected name, existing focus trap. Tests: 54/54 Etsy React PASS, TypeScript PASS, 4/4 Firefox viewports PASS; mobile inspector scrolls inside viewport.
+- Release: frontend-only build provenance + CI before merge; retain current + rollback. Fabric color varies by dye, display and lighting.
+
 ## 2026-11-14 — Picked Design image height and intrinsic width
 
 - Source fix: remove forced 60x60 HTML image attributes and fixed square thumbnail box. Use Product/Etsy-aligned height and intrinsic width; landscape and sleeve detail are preserved. The desktop rail is width bounded so table auto layout is not inflated by design intrinsic width; mobile rail fills the card.

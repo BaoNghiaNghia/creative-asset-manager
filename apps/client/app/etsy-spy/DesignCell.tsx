@@ -1,17 +1,41 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 
+// Screen-color references for garment-dyed tees. These are preview values,
+// never actual print/export colors; physical garments vary by dye lot and light.
+// Source palette: apparel.com/colorcharts/comfort-colors, with Terracotta from
+// frenchpresscustom.com/blog/comfort-colors-color-guide-white-vs-ivory-black-vs-pepper.
 const DESIGN_BACKGROUNDS = [
-  { id: "transparent", label: "Nền caro (mặc định)" },
-  { id: "white", label: "Trắng" },
-  { id: "cream", label: "Kem" },
-  { id: "gray", label: "Xám nhạt" },
-  { id: "black", label: "Đen" },
-  { id: "navy", label: "Xanh navy" },
-  { id: "sage", label: "Xanh lá nhạt" },
-  { id: "pink", label: "Hồng nhạt" },
+  { id: "transparent", label: "Nền caro (mặc định)", color: null },
+  { id: "black", label: "Black", color: "#25282A" },
+  { id: "white", label: "White", color: "#FFFFFF" },
+  { id: "ivory", label: "Ivory", color: "#E7CEB5" },
+  { id: "bay", label: "Bay", color: "#94A596" },
+  { id: "sage", label: "Sage", color: "#3E4827" },
+  { id: "light-green", label: "Light Green", color: "#5C7F71" },
+  { id: "blue-jean", label: "Blue Jean", color: "#647692" },
+  { id: "blue-spruce", label: "Blue Spruce", color: "#3E5D58" },
+  { id: "butter", label: "Butter", color: "#F5E1A4" },
+  { id: "chalky-mint", label: "Chalky Mint", color: "#5CB8B2" },
+  { id: "chambray", label: "Chambray", color: "#BDD6E6" },
+  { id: "crimson", label: "Crimson", color: "#A4123F" },
+  { id: "denim", label: "Denim", color: "#425563" },
+  { id: "flo-blue", label: "Flo Blue", color: "#5576D1" },
+  { id: "grey", label: "Grey", color: "#716E6A" },
+  { id: "orchid", label: "Orchid", color: "#C7B2DE" },
+  { id: "pepper", label: "Pepper", color: "#4E4B48" },
+  { id: "seafoam", label: "Seafoam", color: "#487A7B" },
+  { id: "terracota", label: "Terracota", color: "#E3775E" },
+  { id: "watermelon", label: "Watermelon", color: "#F4364C" },
+  { id: "lagoon", label: "Lagoon", color: "#05C3DE" },
+  { id: "mustard", label: "Mustard", color: "#F2CD00" },
+  // Keep earlier preview-only colors for compatibility with operators.
+  { id: "cream", label: "Kem (cũ)", color: "#F9EDDB" },
+  { id: "gray", label: "Xám nhạt (cũ)", color: "#DCE2E9" },
+  { id: "navy", label: "Xanh navy (cũ)", color: "#294362" },
+  { id: "pink", label: "Hồng nhạt (cũ)", color: "#EBBDC9" },
 ] as const;
 type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
 
@@ -148,6 +172,8 @@ export function DesignCell({ item, onPreviewStart }: {
   const selectedPosition = grouped.get(positionKey(preview.position)) ?? positions[0];
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
   const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
+  const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === background)
+    ?? DESIGN_BACKGROUNDS[0];
   const goToDesign = (delta: number) => {
     setActive(index => index === null ? null : (index + delta + designs.length) % designs.length);
   };
@@ -203,7 +229,8 @@ export function DesignCell({ item, onPreviewStart }: {
         }}>
         <section ref={galleryRef} role="dialog" aria-modal="true"
           aria-label={`Ảnh thiết kế sản phẩm ${item.listingKey}`}
-          className="etsy-design-gallery" data-preview-background={background}>
+          className="etsy-design-gallery" data-preview-background={background}
+          style={{ "--etsy-gallery-bg": selectedBackground.color ?? "#fff" } as CSSProperties}>
           <header className="etsy-design-gallery-header">
             <div className="etsy-design-gallery-heading">
               <span className="etsy-design-gallery-eyebrow">DESIGN PREVIEW</span>
@@ -301,7 +328,7 @@ export function DesignCell({ item, onPreviewStart }: {
               <section className="etsy-design-gallery-side-section etsy-design-gallery-backgrounds">
                 <div className="etsy-design-gallery-section-heading">
                   <strong>Nền xem thử</strong>
-                  <span>{DESIGN_BACKGROUNDS.find(option => option.id === background)?.label}</span>
+                  <span>{selectedBackground.label}</span>
                 </div>
                 <div className="etsy-design-gallery-background-picker"
                   role="group" aria-label="Màu nền xem thiết kế">
@@ -309,12 +336,13 @@ export function DesignCell({ item, onPreviewStart }: {
                     <button key={option.id} type="button"
                       className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
                       title={option.label} aria-label={option.label}
+                      style={option.color ? { backgroundColor: option.color } : undefined}
                       aria-pressed={background === option.id}
                       onClick={() => setBackground(option.id)} />
                   ))}
                 </div>
                 <p className="etsy-design-gallery-background-note">
-                  Chỉ đổi màu nền xem trước, không thay đổi file PNG.
+                  Màu áo mang tính tham khảo; không thay đổi file PNG.
                 </p>
               </section>
             </aside>

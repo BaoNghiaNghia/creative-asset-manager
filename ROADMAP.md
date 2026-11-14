@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-14 — Etsy Spy: 22 named garment preview backgrounds
+
+- [x] Add 22 requested swatches, preserve checkerboard and four original non-duplicate extras.
+- [x] Centralize color values for picker, stage and thumbnails, with reference-only color disclaimer.
+- [x] Validate the named colors in React tests, TypeScript and four responsive Firefox viewports.
+- [ ] Confirm green hosted CI, merge source + committed frontend dist and release frontend with current + rollback; verify public health and authenticated Picked modal separately.
+
+
 ## 2026-11-14 — Etsy Spy Picked Design thumbnail auto-width follow-up
 
 - [x] Match Design thumbnail height to Product/Etsy (68px desktop, 76px mobile); use intrinsic image width without forced square sizing.

@@ -26,6 +26,14 @@
 - Regression: 53/53 targeted Etsy Spy React tests PASS; full TypeScript typecheck PASS. Firefox fixture PASS at 1440x900, 768x1024, 390x844 and 320x700, with portrait (1:4), square (1:1) and wide (3:1) artwork. Image/button heights align with the Product thumbnail, ratios are preserved, and gallery/Escape and overflow checks pass.
 - Production rollout requires committed dist provenance, CI green, one rollback retained, and read-only public post-deploy smoke. Authenticated Picked coverage is a separate check.
 
+## 2026-11-14: named garment preview backgrounds
+
+- The preview palette contains 22 named garment colors in the operator's order: Black, White, Ivory, Bay, Sage, Light Green, Blue Jean, Blue Spruce, Butter, Chalky Mint, Chambray, Crimson, Denim, Flo Blue, Grey, Orchid, Pepper, Seafoam, Terracota, Watermelon, Lagoon, Mustard.
+- Retains checkerboard and four unambiguous prior custom colors (Cream, Light Gray, Navy, Pale Pink) for compatibility. Existing Black/White/Sage slots use garment reference shades, avoiding duplicate names.
+- One selected CSS variable drives both the transparent-PNG stage and variant thumbnails. The swatch names, state and color values share a single typed source; aria-pressed, Escape/focus, reset and PNG bytes are unchanged.
+- References: https://www.apparel.com/colorcharts/comfort-colors and https://www.frenchpresscustom.com/blog/comfort-colors-color-guide-white-vs-ivory-black-vs-pepper for Terracotta (displayed using the operator's spelling Terracota). HEX values are screen-color approximations, not fabric calibration.
+- QA: 54/54 targeted React tests PASS, TypeScript PASS; Firefox at 1440x900, 768x1024, 390x844 and 320x700 passes swatch selection, stage/variant color equality, non-mutation of artwork, modal bounds, Escape and mobile internal scrolling. Authenticated Picked verification remains separate.
+
 ## Rollback / release
 
 Pure frontend change. No migration/flag/credential/API cost. Revert the scoped component, CSS and test changes if unexpected browser regressions occur. Release from reviewed, green `main` with current + rollback retained; verify modal on a real Picked multi-placement listing and preserve existing table/modal refresh behavior.
