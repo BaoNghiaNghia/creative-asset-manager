@@ -1,3 +1,10 @@
+## 2026-11-14 — Harness Phase 4C.3B security review (pre-CI)
+
+- Risk fixed: a `job_id`-only reservation could reuse a fencing token after a new ProcessingJob attempt. New `claim_attempt_count` and `claim_started_at` columns bind the slot and output proof to the exact claim epoch.
+- Preserved: PostgreSQL-authoritative queue and tenant isolation; no new provider calls, automatic dispatch, extension restart, or learning promotion. Emergency stop is ON by default for reserve/renew/output checks.
+- Lock order: source ProcessingJob row, paired Image Agent row, then slot. 0209 remains an empty additive migration until separately released. A populated fencing ledger cannot be downgraded; release of completed/failed jobs permits orderly cleanup.
+- Verification required: PostgreSQL 12/16 CI with row-lock races, incompatible-epoch rejection, malformed-row CHECK constraints and cross-tenant blocks. Off-host restore is still not verified; rollback must preserve durable fencing history.
+
 ## 2026-11-13 — CAM Etsy Spy agent review intents (candidate)
 
 - Server-side agent Bearer and exact tenant + same-agent current Eligible evidence gates; no browser credential/cookie. Two user actions (Pick/Later) and passive Win Keyword are atomic with one PostgreSQL idempotency receipt.

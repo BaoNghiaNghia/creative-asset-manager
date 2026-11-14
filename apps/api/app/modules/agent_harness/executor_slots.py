@@ -81,9 +81,19 @@ def _claimed_job(
         or _utc(job.claimed_at) > now + timedelta(seconds=_FUTURE_SKEW_SECONDS)
         or _utc(job.lease_expires_at) is None
         or _utc(job.lease_expires_at) <= now
+        or _utc(job.lease_expires_at) <= _utc(job.claimed_at)
     ):
         return None
     return job
+
+
+def _same_claim(slot: AgentExecutorSlotModel, job: ProcessingJobModel) -> bool:
+    """Match one claim epoch; the job ID alone can be reused on retry."""
+    return bool(
+        slot.job_id == job.id
+        and slot.claim_attempt_count == job.attempt_count
+        and _utc(slot.claim_started_at) == _utc(job.claimed_at)
+    )
 
 
 def _active_image_agent(session: Session, tenant_id: str, agent_id: str) -> bool:
@@ -116,8 +126,6 @@ def reserve_existing_image_job(
     if emergency_stop is not False:
         return SlotDecision("emergency_stop")
     clock = _utc(now) or datetime.now(timezone.utc)
-    if not _active_image_agent(session, tenant_id, agent_id):
-        return SlotDecision("device_not_verified")
     job = _claimed_job(
         session, tenant_id=tenant_id, agent_id=agent_id,
         job_id=job_id, now=clock,
@@ -125,6 +133,9 @@ def reserve_existing_image_job(
     expiry = _expiry(clock, job, ttl_seconds) if job else None
     if expiry is None:
         return SlotDecision("job_claim_not_verified")
+    # All mutating APIs lock the source job before device then slot.
+    if not _active_image_agent(session, tenant_id, agent_id):
+        return SlotDecision("device_not_verified")
     # Conservatively refuse if another job is still marked processing,
     # regardless of its lease age. Human/queue reconciliation comes first.
     other = session.scalar(
@@ -152,19 +163,37 @@ def reserve_existing_image_job(
     if slot is None:  # defense in depth against unexpected transaction state
         return SlotDecision("slot_not_found")
     if slot.job_id is not None:
-        if slot.job_id == job_id and _utc(slot.lease_expires_at) > clock:
-            return SlotDecision("already_reserved", slot.fencing_token, _utc(slot.lease_expires_at))
-        if slot.job_id == job_id:
+        old_expires = _utc(slot.lease_expires_at)
+        old_live = old_expires is not None and old_expires > clock
+        if _same_claim(slot, job):
+            if old_live:
+                return SlotDecision("already_reserved", slot.fencing_token, old_expires)
             return SlotDecision("expired_slot_requires_reconcile")
-        if _utc(slot.lease_expires_at) > clock:
+        if old_live:
             return SlotDecision("slot_busy")
-        # Never recycle an expired slot while its previous job still appears
-        # processing. An expired clock alone cannot fence old worker effects.
-        previous = session.get(ProcessingJobModel, slot.job_id)
-        if previous is not None and previous.status == "processing":
-            return SlotDecision("expired_slot_requires_reconcile")
+        if slot.job_id == job_id:
+            # The queue legitimately reclaims this same job after expiry.
+            # A new attempt must receive a new fence; the old attempt's
+            # token must never be reusable, even with the same job ID.
+            previous_claim = _utc(slot.claim_started_at)
+            if (
+                previous_claim is None
+                or type(slot.claim_attempt_count) is not int
+                or job.attempt_count <= slot.claim_attempt_count
+                or _utc(job.claimed_at) <= previous_claim
+            ):
+                return SlotDecision("claim_epoch_not_monotonic")
+        else:
+            # A different job cannot take over an unreconciled predecessor.
+            previous = session.get(ProcessingJobModel, slot.job_id)
+            if previous is not None and previous.status == "processing":
+                return SlotDecision("expired_slot_requires_reconcile")
+    if slot.fencing_token >= 9223372036854775807:
+        return SlotDecision("fencing_token_exhausted")
     slot.fencing_token += 1
     slot.job_id = job_id
+    slot.claim_attempt_count = job.attempt_count
+    slot.claim_started_at = _utc(job.claimed_at)
     slot.lease_expires_at = expiry
     slot.updated_at = clock
     session.flush()  # caller commits this with the surrounding job transaction
@@ -184,8 +213,6 @@ def renew_image_slot(
     if emergency_stop is not False:
         return SlotDecision("emergency_stop")
     clock = _utc(now) or datetime.now(timezone.utc)
-    if not _active_image_agent(session, tenant_id, agent_id):
-        return SlotDecision("device_not_verified")
     job = _claimed_job(
         session, tenant_id=tenant_id, agent_id=agent_id,
         job_id=job_id, now=clock,
@@ -193,6 +220,9 @@ def renew_image_slot(
     expiry = _expiry(clock, job, ttl_seconds) if job else None
     if expiry is None:
         return SlotDecision("job_claim_not_verified")
+    # All mutating APIs lock the source job before device then slot.
+    if not _active_image_agent(session, tenant_id, agent_id):
+        return SlotDecision("device_not_verified")
     slot = session.get(
         AgentExecutorSlotModel, (tenant_id, agent_id),
         with_for_update=True, populate_existing=True,
@@ -201,7 +231,7 @@ def renew_image_slot(
         slot is None or type(fencing_token) is not int
         or fencing_token <= 0
         or slot.fencing_token != fencing_token
-        or slot.job_id != job_id
+        or not _same_claim(slot, job)
     ):
         return SlotDecision("stale_fencing_token")
     if _utc(slot.lease_expires_at) is None or _utc(slot.lease_expires_at) <= clock:
@@ -235,11 +265,59 @@ def release_finished_image_slot(
         slot is None or type(fencing_token) is not int
         or fencing_token <= 0
         or slot.fencing_token != fencing_token
-        or slot.job_id != job_id
+        or not _same_claim(slot, job)
     ):
         return SlotDecision("stale_fencing_token")
     slot.job_id = None
+    slot.claim_attempt_count = None
+    slot.claim_started_at = None
     slot.lease_expires_at = None
     slot.updated_at = _utc(now) or datetime.now(timezone.utc)
     session.flush()
     return SlotDecision("released", slot.fencing_token)
+
+
+
+def verify_image_output_fence(
+    session: Session, *, tenant_id: str, agent_id: str, job_id: str,
+    fencing_token: int, enabled: bool = False,
+    emergency_stop: bool = True, now: datetime | None = None,
+) -> SlotDecision:
+    """Check a claim's exact epoch under the job + slot locks, without writes.
+
+    The *future* result importer must call this in its authoritative output
+    transaction, preserve both row locks until commit, and reject any failed
+    decision BEFORE external side effects. No existing result endpoint calls it.
+    This is not an independent browser/provenance attestation.
+    """
+    blocked = _preflight(session, enabled=enabled)
+    if blocked:
+        return SlotDecision(blocked)
+    if emergency_stop is not False:
+        return SlotDecision("emergency_stop")
+    if type(fencing_token) is not int or fencing_token <= 0:
+        return SlotDecision("stale_fencing_token")
+    clock = _utc(now) or datetime.now(timezone.utc)
+    job = _claimed_job(
+        session, tenant_id=tenant_id, agent_id=agent_id,
+        job_id=job_id, now=clock,
+    )
+    if job is None:
+        return SlotDecision("job_claim_not_verified")
+    if not _active_image_agent(session, tenant_id, agent_id):
+        return SlotDecision("device_not_verified")
+    slot = session.get(
+        AgentExecutorSlotModel, (tenant_id, agent_id),
+        with_for_update=True, populate_existing=True,
+    )
+    if (
+        slot is None or slot.fencing_token != fencing_token
+        or not _same_claim(slot, job)
+    ):
+        return SlotDecision("stale_fencing_token")
+    expires_at = _utc(slot.lease_expires_at)
+    if expires_at is None or expires_at <= clock:
+        return SlotDecision("expired_slot_requires_reconcile")
+    if expires_at > _utc(job.lease_expires_at):
+        return SlotDecision("slot_outlives_source_lease")
+    return SlotDecision("fence_verified", fencing_token, expires_at)

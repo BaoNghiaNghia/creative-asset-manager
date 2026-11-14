@@ -14,6 +14,7 @@ from app.modules.agent_harness.executor_slots import (
     release_finished_image_slot,
     renew_image_slot,
     reserve_existing_image_job,
+    verify_image_output_fence,
 )
 from app.modules.agent_harness.model import AgentExecutorSlotModel
 from app.modules.etsy_spy.model import EtsySpyAgent
@@ -43,6 +44,9 @@ def test_fail_closed_without_flag_and_without_postgresql(tmp_path):
             session, enabled=True, fencing_token=1,
             tenant_id="boostgame", agent_id="unused", job_id="unused",
         ).state == "postgresql_required"
+        assert verify_image_output_fence(
+            session, enabled=True, fencing_token=1, **kwargs,
+        ).state == "postgresql_required"
         assert session.scalar(select(AgentExecutorSlotModel)) is None
     engine.dispose()
 
@@ -60,7 +64,7 @@ def test_migration_0209_empty_and_non_destructive_downgrade(tmp_path):
     columns = {c["name"] for c in inspection.get_columns("cam_agent_executor_slots")}
     assert {
         "tenant_id", "agent_id", "job_id", "fencing_token",
-        "lease_expires_at", "updated_at",
+        "claim_attempt_count", "claim_started_at", "lease_expires_at", "updated_at",
     }.issubset(columns)
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT COUNT(*) FROM cam_agent_executor_slots")) == 0
@@ -68,6 +72,22 @@ def test_migration_0209_empty_and_non_destructive_downgrade(tmp_path):
     command.downgrade(config, "0208_etsy_spy_agent_review_receipts")
     assert "cam_agent_executor_slots" not in inspect(engine).get_table_names()
     engine.dispose()
+
+
+def test_epoch_identity_is_strict_even_for_same_job_id():
+    from app.modules.agent_harness.executor_slots import _same_claim
+    clock = datetime(2026, 11, 14, tzinfo=timezone.utc)
+    job = ProcessingJobModel(id="job-1", attempt_count=1, claimed_at=clock)
+    slot = AgentExecutorSlotModel(
+        tenant_id="boostgame", agent_id="agent-1", job_id="job-1",
+        claim_attempt_count=1, claim_started_at=clock,
+    )
+    assert _same_claim(slot, job) is True
+    job.attempt_count = 2
+    assert _same_claim(slot, job) is False
+    job.attempt_count = 1
+    job.claimed_at = clock + timedelta(seconds=1)
+    assert _same_claim(slot, job) is False
 
 
 def test_lease_expiry_never_outlives_job():

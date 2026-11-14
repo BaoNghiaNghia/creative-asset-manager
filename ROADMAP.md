@@ -1,5 +1,14 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3B: claim-epoch fenced slots (code-only)
+
+- [x] Bind each durable executor slot to `processing_jobs` job ID, claimed attempt count, and claim start timestamp; increment PostgreSQL bigint fencing tokens on authorized newer claim epochs.
+- [x] Add default-OFF transactional reserve/renew/release and inert output-fence validation; prohibit stale token reuse and renewal by an expired prior attempt.
+- [x] Extend existing PostgreSQL 12/16 CI matrix with concurrency, replay, recovery and tenant/security guards; no extra VPS test environments or provider calls.
+- [ ] Obtain green hosted PostgreSQL CI, independently verified off-host production restore and release gates; **do not** activate or migrate 0209 on production before these checks.
+- [ ] Integrate output-boundary fencing into the image-result handler and Windows relay behind a separate reviewed opt-in, with an idempotent receipt and actual browser/provider evidence; then consider controlled canary.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3A_FENCED_SLOTS_20261114.md`.
+
 ## 2026-11-13 — Etsy Spy Search Card intent → CAM confirmed selection
 
 - [x] Add authenticated, tenant/agent-scoped Pick/Later/Win Keyword write contract with durable idempotent CAM receipts; align source-owned Shop 20+ carts and listing review qualification.

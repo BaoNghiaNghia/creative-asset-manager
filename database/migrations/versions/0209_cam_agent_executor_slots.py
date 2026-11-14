@@ -21,6 +21,8 @@ def upgrade():
         sa.Column("tenant_id", sa.String(255), nullable=False),
         sa.Column("agent_id", sa.String(36), nullable=False),
         sa.Column("job_id", sa.String(36), nullable=True),
+        sa.Column("claim_attempt_count", sa.Integer(), nullable=True),
+        sa.Column("claim_started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "fencing_token", sa.BigInteger(), nullable=False,
             server_default=sa.text("0"),
@@ -46,8 +48,11 @@ def upgrade():
             "fencing_token >= 0", name="ck_cam_executor_slot_fence",
         ),
         sa.CheckConstraint(
-            "(job_id IS NULL AND lease_expires_at IS NULL) OR "
-            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL)",
+            "(job_id IS NULL AND lease_expires_at IS NULL AND "
+            "claim_attempt_count IS NULL AND claim_started_at IS NULL) OR "
+            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL AND "
+            "claim_attempt_count IS NOT NULL AND claim_attempt_count > 0 AND "
+            "claim_started_at IS NOT NULL)",
             name="ck_cam_executor_slot_pair",
         ),
     )

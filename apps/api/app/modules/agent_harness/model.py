@@ -307,8 +307,11 @@ class AgentExecutorSlotModel(Base):
             "fencing_token >= 0", name="ck_cam_executor_slot_fence",
         ),
         CheckConstraint(
-            "(job_id IS NULL AND lease_expires_at IS NULL) OR "
-            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL)",
+            "(job_id IS NULL AND lease_expires_at IS NULL AND "
+            "claim_attempt_count IS NULL AND claim_started_at IS NULL) OR "
+            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL AND "
+            "claim_attempt_count IS NOT NULL AND claim_attempt_count > 0 AND "
+            "claim_started_at IS NOT NULL)",
             name="ck_cam_executor_slot_pair",
         ),
         Index("ix_cam_executor_slot_expiry", "lease_expires_at"),
@@ -317,6 +320,8 @@ class AgentExecutorSlotModel(Base):
     tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     agent_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     job_id: Mapped[str | None] = mapped_column(String(36))
+    claim_attempt_count: Mapped[int | None] = mapped_column(Integer)
+    claim_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     fencing_token: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default=text("0"),
     )

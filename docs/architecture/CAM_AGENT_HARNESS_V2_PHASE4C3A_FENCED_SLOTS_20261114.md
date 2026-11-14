@@ -12,6 +12,13 @@
 - Re-reserving a live identical job returns its existing token; a stale token cannot renew/release after a later reservation. Expired slots require reconciliation if the old job is still processing; release requires the old job to be no longer processing. All changes must be committed in the same database transaction as the authoritative queue operation.
 - Slot/HMAC/idle receipts **do not** independently establish browser readiness or provider success. Any future external writer must echo/check the current fence atomically at its output commit boundary. Until then, this is merely a candidate low-level primitive, not exactly-once execution.
 
+## Phase 4C.3B: claim-epoch fencing (2026-11-14)
+
+- A job ID is **not** an execution identity: the existing Image Agent claim endpoint increments `attempt_count` and replaces `claimed_at` on retry. The original slot implementation could reuse the old fence after a same-job reclaim. The ledger now persists both `claim_attempt_count` and `claim_started_at`, and all reserve/renew/release/output-validation calls compare the exact current claim epoch.
+- An identical, unexpired claim remains idempotent (same token); an expired slot with the *same* claim cannot self-renew and must be reconciled. A **newer** claim for the same job receives a strictly incremented token only once the previous slot lease has expired and both attempt count and claim timestamp advance. Early replacement fails closed. Other unresolved jobs on that device also block admission.
+- `verify_image_output_fence` provides an **inert**, transaction-scoped row-lock check of current job/attempt, device registration, global stop, token and both leases. No HTTP result route calls it yet. The future output writer must supply the current token, hold job and slot locks through its database commit, and coordinate any filesystem/provider side effect with an idempotent immutable receipt. Merely calling this function does not make external writes atomic or prove provider/browser readiness.
+- The existing GitHub CI PostgreSQL 12.22/16.4 matrix is extended with same-claim concurrency and claim-reclaim/stale-write tests; no VPS PostgreSQL test cluster is introduced. The 0209 schema change is only safe **before** migration is ever deployed; if 0209 had been installed, use a separate additive migration instead of editing history.
+
 ## Gate before any activation
 
 1. CI must run the migration through the actual PostgreSQL 12/16 compatible chain, check correct single Alembic head and verify downgrade denial with populated data.
