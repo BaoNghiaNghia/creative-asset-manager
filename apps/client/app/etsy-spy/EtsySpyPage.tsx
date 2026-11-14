@@ -734,25 +734,31 @@ export function EtsySpyPage() {
   }, [options]);
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      spyFetch<Summary>("/summary"),
-      spyFetch<ExtractionOverview>("/image-agents/overview").catch(() => null),
-      spyFetch<TikTokListingOverview>("/tiktok-listings/overview").catch(() => null),
-      spyFetch<{ items: ImageAgentStatus[] }>("/image-agents").catch(() => ({ items: [] })),
-      spyFetch<{ items: AgentStatus[] }>("/agents"),
-      spyFetch<{ phrases: string[] }>("/blacklist"),
-      spyFetch<{ keywords: string[] }>("/win-keywords"),
-      fetchAccessIdentity(),
-    ]).then(([overview, extractionOverview, tiktokStatus, currentImageAgents, currentAgents, rules, winList, identity]) => {
-      if (!alive) return;
-      setSummary(overview); setExtraction(extractionOverview); setTiktokOverview(tiktokStatus);
-      setAgents(currentAgents.items);
-      setImageAgents(currentImageAgents.items);
-      setBlacklist(Array.isArray(rules.phrases) ? rules.phrases : []);
-      setWinKeywords(Array.isArray(winList.keywords) ? winList.keywords : []);
-      setCanManage(identity.permissions.includes("etsy_spy.manage"));
-    }).catch(e => { if (alive) setError(e instanceof Error ? e.message : "Cannot load overview"); });
-    return () => { alive = false; };
+    const controller = new AbortController();
+    // Keep each header widget independent. A slow Google Drive overview must
+    // not hold the product summary, permissions, or table in a Promise.all
+    // waterfall. Abort obsolete reads when filters refresh/unmount.
+    const load = <T,>(path: string, apply: (data: T) => void, critical = false) => {
+      void spyFetch<T>(path, { signal: controller.signal })
+        .then(data => { if (alive) apply(data); })
+        .catch(error => {
+          if (!alive || controller.signal.aborted || !critical) return;
+          setError(error instanceof Error ? error.message : "Cannot load overview");
+        });
+    };
+    load<Summary>("/summary", setSummary, true);
+    load<ExtractionOverview>("/image-agents/overview", setExtraction);
+    load<TikTokListingOverview>("/tiktok-listings/overview", setTiktokOverview);
+    load<{ items: ImageAgentStatus[] }>("/image-agents", value => setImageAgents(value.items));
+    load<{ items: AgentStatus[] }>("/agents", value => setAgents(value.items));
+    load<{ phrases: string[] }>("/blacklist", value =>
+      setBlacklist(Array.isArray(value.phrases) ? value.phrases : []));
+    load<{ keywords: string[] }>("/win-keywords", value =>
+      setWinKeywords(Array.isArray(value.keywords) ? value.keywords : []));
+    void fetchAccessIdentity()
+      .then(identity => { if (alive) setCanManage(identity.permissions.includes("etsy_spy.manage")); })
+      .catch(() => { if (alive) setCanManage(false); });
+    return () => { alive = false; controller.abort(); };
   }, [refresh]);
   // The existing Picked-only background poll adapts to active job status.
   // Do not trigger a full-page refresh for active jobs: that duplicates data

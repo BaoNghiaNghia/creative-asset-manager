@@ -99,6 +99,28 @@ describe("Etsy deferred thumbnail loading", () => {
     expect(FakeObserver.instances).toHaveLength(0);
   });
 
+  it("caps concurrent thumbnail network starts and drains after each image settles", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<>
+      {Array.from({ length: 7 }, (_, i) =>
+        <EtsyDeferredImage key={i} src={`/thumb/${i}`} alt="" />)}
+    </>));
+    const images = Array.from(host.querySelectorAll<HTMLImageElement>("img"));
+    const observer = FakeObserver.instances.at(-1)!;
+    await act(async () => images.forEach(img => observer.emit(img)));
+    expect(images.filter(img => img.hasAttribute("src"))).toHaveLength(4);
+    expect(images[4].dataset.imageState).toBe("deferred");
+    await act(async () => images[0].dispatchEvent(new Event("load")));
+    expect(images.filter(img => img.hasAttribute("src"))).toHaveLength(5);
+    await act(async () => images[1].dispatchEvent(new Event("error")));
+    expect(images.filter(img => img.hasAttribute("src"))).toHaveLength(5);
+    expect(images[5].getAttribute("src")).toBe("/thumb/5");
+    await act(async () => root?.unmount());
+    root = null;
+  });
+
   it("shares one observer across multiple thumbnails instead of one observer per image", async () => {
     host = document.createElement("div");
     document.body.append(host);

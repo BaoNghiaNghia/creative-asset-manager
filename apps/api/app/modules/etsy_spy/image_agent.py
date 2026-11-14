@@ -6,6 +6,7 @@ Scout data. Jobs are external-only: Codex CLI processors never claim them.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -15,6 +16,8 @@ import math
 import os
 import re
 import shutil
+import tempfile
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
@@ -46,6 +49,7 @@ from .service import (
 )
 
 image_router = APIRouter(prefix="/image-agents", tags=["etsy-image-agent"])
+_LOCAL_THUMB_RENDER_SLOTS = threading.BoundedSemaphore(2)
 READ = require_permission("etsy_spy.read")
 MANAGE = require_permission("etsy_spy.manage")
 MAX_RECEIPT_BYTES = 31_000_000
@@ -1230,6 +1234,9 @@ async def view_design_original(
     remote = _private_drive_design(job_id, asset_id, principal.active_tenant_id, db)
     if remote:
         from .imagegen_drive import read_design_from_drive
+        # ACL is verified above. Do not hold a database connection while
+        # Google Drive I/O is pending (up to 80 MiB for a Native Master).
+        db.rollback()
         png = await read_design_from_drive(
             tenant_id=principal.active_tenant_id, asset_id=job_id+":"+asset_id+":original",
             remote_id=str(remote.get("drive_file_id") or ""),
@@ -1246,42 +1253,77 @@ async def view_design_original(
                  "Content-Disposition": 'inline; filename="design-review.png"'})
 
 
-@image_router.get("/designs/{job_id}/{asset_id}/thumbnail")
-async def view_design_thumbnail(
-    job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
-    db: Session = Depends(get_db),
-):
-    remote = _private_drive_design(job_id, asset_id, principal.active_tenant_id, db)
-    if remote:
-        from .imagegen_drive import read_design_from_drive
-        png = await read_design_from_drive(
-            tenant_id=principal.active_tenant_id, asset_id=job_id+":"+asset_id+":thumbnail",
-            remote_id=str(remote.get("drive_thumbnail_id") or ""),
-            sha256=str(remote.get("thumbnail_sha256") or ""), max_bytes=2*1024*1024,
-        )
-        return Response(png, media_type="image/png",
-            headers={"Cache-Control":"private, max-age=300",
-                     "X-Content-Type-Options":"nosniff"})
-    import io
-    from PIL import Image, UnidentifiedImageError
-    source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
-    thumb = source.with_name(source.name[:-4] + ".thumb.png")
-    if not thumb.is_file():
+def _render_local_design_thumbnail(source: Path, thumb: Path) -> None:
+    """Bound legacy thumbnail decoding off the API event loop.
+
+    Atomic per-request tempfiles prevent concurrent readers from sharing the
+    same .pending file. Local PNGs are historical files, never Drive masters.
+    """
+    from PIL import Image
+    with _LOCAL_THUMB_RENDER_SLOTS:
+        if thumb.is_file():
+            return
+        pending: Path | None = None
         try:
             with Image.open(source) as img:
                 img.load()
                 img = img.convert("RGBA")
                 img.thumbnail((192, 192), Image.Resampling.LANCZOS)
-                pending = thumb.with_suffix(".pending")
-                with pending.open("wb") as file:
-                    img.save(file, "PNG", optimize=True)
-                    file.flush()
-                    os.fsync(file.fileno())
-                pending.replace(thumb)
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", prefix=".cam-thumb-", suffix=".pending",
+                    dir=thumb.parent, delete=False,
+                ) as output:
+                    pending = Path(output.name)
+                    img.save(output, "PNG", optimize=True)
+                    output.flush()
+                    os.fsync(output.fileno())
+            os.replace(pending, thumb)
+        finally:
+            if pending is not None:
+                pending.unlink(missing_ok=True)
+
+
+@image_router.get("/designs/{job_id}/{asset_id}/thumbnail")
+async def view_design_thumbnail(
+    job_id: str, asset_id: str, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db), if_none_match: str | None = Header(default=None),
+):
+    remote = _private_drive_design(job_id, asset_id, principal.active_tenant_id, db)
+    if remote:
+        from .imagegen_drive import read_design_from_drive
+        digest = str(remote.get("thumbnail_sha256") or "")
+        etag = '"' + digest + '"' if re.fullmatch(r"[0-9a-f]{64}", digest) else None
+        headers = {
+            "Cache-Control": "private, max-age=300, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
+            "Vary": "Cookie",
+        }
+        if etag is not None:
+            headers["ETag"] = etag
+        # Authorization always runs first, even on a conditional 304.
+        if etag is not None and isinstance(if_none_match, str) and etag in [
+            tag.strip() for tag in if_none_match.split(",")
+        ]:
+            return Response(status_code=304, headers=headers)
+        # Release the SELECT transaction before a potentially slow Drive call.
+        db.rollback()
+        png = await read_design_from_drive(
+            tenant_id=principal.active_tenant_id, asset_id=job_id+":"+asset_id+":thumbnail",
+            remote_id=str(remote.get("drive_thumbnail_id") or ""),
+            sha256=digest, max_bytes=2*1024*1024,
+        )
+        return Response(png, media_type="image/png", headers=headers)
+    from PIL import UnidentifiedImageError
+    source, _ = _checked_design_media(job_id, asset_id, db, principal.active_tenant_id)
+    thumb = source.with_name(source.name[:-4] + ".thumb.png")
+    if not thumb.is_file():
+        try:
+            await asyncio.to_thread(_render_local_design_thumbnail, source, thumb)
         except (OSError, ValueError, UnidentifiedImageError):
             raise HTTPException(404, "Design preview unavailable") from None
     return FileResponse(str(thumb), media_type="image/png",
-        headers={"Cache-Control": "private, no-store",
+        headers={"Cache-Control": "private, max-age=300, must-revalidate",
+                 "Vary": "Cookie",
                  "X-Content-Type-Options": "nosniff"})
 
 
