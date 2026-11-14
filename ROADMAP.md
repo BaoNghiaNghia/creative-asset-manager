@@ -1,5 +1,12 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3C: CI repair and cross-agent safety
+
+- [x] Fix failing PostgreSQL 12/16 reclaim test by modeling the exact new claim timestamp and slot expiry, without loosening future-skew validation.
+- [x] Block other-agent takeover of an unresolved job-bound slot without unique-key exception, and fail closed when a live slot outlives a shortened source lease.
+- [x] Add PostgreSQL 12/16 negative-path tests for cross-device handoff, non-monotonic attempts, and shortened leases; merge current main into isolated candidate.
+- [ ] Obtain green hosted PostgreSQL CI on candidate and document merge/release readiness. Migration 0209, dispatch, result wiring and Windows activation remain OFF pending independently verified off-host restore and approved canary.
+
 ## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3B: claim-epoch fenced slots (code-only)
 
 - [x] Bind each durable executor slot to `processing_jobs` job ID, claimed attempt count, and claim start timestamp; increment PostgreSQL bigint fencing tokens on authorized newer claim epochs.

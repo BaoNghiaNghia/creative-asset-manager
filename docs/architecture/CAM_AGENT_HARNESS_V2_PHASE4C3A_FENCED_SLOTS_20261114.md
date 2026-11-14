@@ -19,6 +19,14 @@
 - `verify_image_output_fence` provides an **inert**, transaction-scoped row-lock check of current job/attempt, device registration, global stop, token and both leases. No HTTP result route calls it yet. The future output writer must supply the current token, hold job and slot locks through its database commit, and coordinate any filesystem/provider side effect with an idempotent immutable receipt. Merely calling this function does not make external writes atomic or prove provider/browser readiness.
 - The existing GitHub CI PostgreSQL 12.22/16.4 matrix is extended with same-claim concurrency and claim-reclaim/stale-write tests; no VPS PostgreSQL test cluster is introduced. The 0209 schema change is only safe **before** migration is ever deployed; if 0209 had been installed, use a separate additive migration instead of editing history.
 
+## Phase 4C.3C — CI recovery and conservative handoff (2026-11-14)
+
+- Hosted PostgreSQL 12.22/16.4 CI run #3011 exposed a reproducible **test fixture error**: the test reassigned `claimed_at` to +35 seconds, but then asked admission at +10 seconds, more than the hard +5 second future-skew allowance. The correct `job_claim_not_verified` result was incorrectly asserted to be `slot_busy`. The corrected scenario uses a forced new claim at +20 seconds (while the old slot is live) and then waits until the old slot expires at +30 seconds before reserving the newer attempt at +31 seconds. Both old-token rejection and the new fence are rechecked at +31 seconds. This does **not** relax production skew checks.
+- Cross-device handoffs now read-lock any pre-existing slot referencing the job before inserting the new device slot, returning `job_reserved_elsewhere` instead of raising a unique constraint exception. An expired slot still requires independent, audited reconciliation; no automatic migration of a job between device slots.
+- Idempotent same-attempt reserve no longer returns an active token if that slot has outlived a shortened authoritative ProcessingJob lease. A separate renewal may shorten it before the output fence can pass.
+- Added real PostgreSQL negative tests for cross-device re-claim, incorrect epoch monotonicity, and source-lease shortening. The slot code remains unwired/default-OFF and the 0209 table remains undeployed. No external result endpoint, browser, worker, paid model, Windows agent or queue processing is changed.
+- The branch was reconciled with current `main` after PRs #167–169 so review/CI includes the latest frontend without introducing a concurrent frontend change.
+
 ## Gate before any activation
 
 1. CI must run the migration through the actual PostgreSQL 12/16 compatible chain, check correct single Alembic head and verify downgrade denial with populated data.

@@ -1,3 +1,10 @@
+## 2026-11-14 — Agent Harness 4C.3C CI failure and handoff guard
+
+- CI #3011 failed only in PostgreSQL 12/16 test `test_reclaimed_job_same_id_gets_new_fence_and_blocks_old_writes`, due to testing at a clock preceding the new claim by 25 seconds (source rejects >5 second future skew by design); no unsafe default behavior was activated. Fixed the test setup without reducing security.
+- Added read-locked detection of stale slots owned by another agent before an insert could trip the unique job-slot constraint. Cross-device jobs remain blocked until manual, auditable reconciliation; do not treat an expired slot as authorization for a new worker.
+- Prevent an idempotent active slot from being returned after the authoritative source lease has been shortened. Extend PostgreSQL integration coverage. No runtime caller, migration execution, dispatch flag, browser/provider call or queue mutation introduced.
+- Off-host production backup/restore and transactional output-writer proof are still open blockers; 0209 stays outside production until independently verified.
+
 ## 2026-11-14 — Harness Phase 4C.3B security review (pre-CI)
 
 - Risk fixed: a `job_id`-only reservation could reuse a fencing token after a new ProcessingJob attempt. New `claim_attempt_count` and `claim_started_at` columns bind the slot and output proof to the exact claim epoch.
