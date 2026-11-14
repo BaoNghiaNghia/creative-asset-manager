@@ -65,13 +65,27 @@ describe("per-design ColorMatch background recommendations", () => {
     expect(dialog.querySelector<HTMLButtonElement>(".etsy-design-gallery-all-colors-toggle")
       ?.getAttribute("aria-expanded")).toBe("false");
 
-    const originalSrc = dialog.querySelector(".etsy-design-gallery-stage img")?.getAttribute("src");
+    const originalImage = dialog.querySelector<HTMLImageElement>(
+      ".etsy-design-gallery-artwork-original",
+    );
+    const previewImage = dialog.querySelector<HTMLImageElement>(
+      ".etsy-design-gallery-artwork-thumb",
+    );
+    const originalSrc = originalImage?.getAttribute("src");
+    await act(async () => previewImage?.dispatchEvent(new Event("load")));
+    expect(dialog.querySelector<HTMLElement>(".etsy-design-gallery-artwork")
+      ?.dataset.previewQuality).toBe("thumbnail");
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-recommended .etsy-design-gallery-background-pepper",
     )?.click());
     expect(dialog.dataset.previewBackground).toBe("pepper");
-    expect(dialog.querySelector(".etsy-design-gallery-stage img")?.getAttribute("src"))
-      .toBe(originalSrc);
+    expect(dialog.querySelector(".etsy-design-gallery-artwork-original"))
+      .toBe(originalImage);
+    expect(dialog.querySelector(".etsy-design-gallery-artwork-thumb"))
+      .toBe(previewImage);
+    expect(originalImage?.getAttribute("src")).toBe(originalSrc);
+    expect(dialog.querySelector<HTMLElement>(".etsy-design-gallery-artwork")
+      ?.dataset.previewQuality).toBe("thumbnail");
 
     await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button",

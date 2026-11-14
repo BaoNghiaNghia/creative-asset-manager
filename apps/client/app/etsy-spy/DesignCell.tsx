@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
+import { DesignStageImage } from "./DesignStageImage";
 
 // Screen-color references for garment-dyed tees. These are preview values,
 // never actual print/export colors; physical garments vary by dye lot and light.
@@ -81,6 +82,7 @@ const POSITION_LABELS: Record<string, string> = {
   right_chest: "Ngực phải",
   pocket: "Túi áo",
   hood: "Mũ áo",
+  unknown: "Chưa rõ vị trí",
 };
 const POSITION_ORDER = [
   "front", "back", "left_chest", "right_chest", "chest",
@@ -323,7 +325,9 @@ export function DesignCell({ item, onPreviewStart }: {
                 <span className="etsy-design-gallery-stage-chip">
                   {selectedPosition.label} <span aria-hidden="true">/</span> {selectedVariant}
                 </span>
-                <EtsyDeferredImage key={preview.id} eager src={preview.original_url}
+                <DesignStageImage key={preview.job_id + ":" + preview.id + ":" + preview.output_sha256}
+                  originalUrl={preview.original_url}
+                  thumbnailUrl={preview.thumbnail_url}
                   alt={`Thiết kế ${selectedVariant} - ${selectedPosition.label}`} />
               </div>
               <footer className="etsy-design-gallery-viewer-footer">
