@@ -1,5 +1,15 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3G: staged source capture outside SQL locks
+
+- [x] Retire the prior single-session HTTPS capture entrypoint with explicit fail-closed `staged_capture_required`.
+- [x] Introduce a default-OFF, fresh-Session-factory three-stage protocol: short claim/fence planning transaction; bounded HTTPS and content-addressed fsync **without any SQL Session**; short authoritative claim/slot/source recheck and signed manifest commit.
+- [x] Add nonblocking process-local fetch capacity gate (2), strict source format checks even for test stubs, crash-safe orphan semantics, and no signed proof after cancellation/URL mutation/attempt changes.
+- [x] Add PostgreSQL 12/16 `FOR UPDATE NOWAIT` test inside mocked network fetch, midway cancellation/reclaim tests, rollback/retry test and capacity/invalid-image coverage.
+- [ ] Obtain green CI on exact PR head. Leave 0209/0210, API, Windows, dispatch and provider/browser features OFF. Proof of real off-host backup restore and output lineage remain release blockers.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3G_STAGED_SOURCE_CAPTURE_20261114.md`.
+
+
 ## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3F: source capture + pinned review reader (inert)
 
 - [x] Build a default-OFF server-owned source capture primitive: strict allowlisted HTTPS, public IP DNS validation and pinned TLS/SNI, no redirects/proxies, hard limits on bytes/image size/read duration, content-addressed disk and signed manifest bound to the existing 0209 claim fence.

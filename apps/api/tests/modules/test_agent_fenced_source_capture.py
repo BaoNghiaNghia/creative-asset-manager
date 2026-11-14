@@ -122,8 +122,32 @@ def test_https_get_uses_public_pinned_ip_sni_bounded_body_and_rejects_redirects(
 
 
 def test_source_jpeg_decoder_rejects_fake_image_and_wrong_mime():
+    from app.modules.agent_harness.fenced_source_staging import _valid_fetched_image
+
     jpg = _jpeg()
     assert source._verify_source_image(jpg, "image/jpeg")
+    assert _valid_fetched_image(jpg)
     assert not source._verify_source_image(jpg, "image/png")
     assert not source._verify_source_image(b"not-an-image", "image/jpeg")
+    assert not _valid_fetched_image(b"not-an-image")
+    assert not _valid_fetched_image(b"")
+    assert not _valid_fetched_image(b"X" * 22_000_001)
     assert not source._verify_source_image(b"", "image/jpeg")
+
+
+def test_deprecated_single_session_capture_never_fetches_even_when_enabled(monkeypatch):
+    def forbidden_network(url):
+        raise AssertionError("old single-session API must not fetch")
+
+    monkeypatch.setattr(source, "_fetch_etsy_source", forbidden_network)
+    opts = dict(
+        session=None, tenant_id="tenant", agent_id="agent", job_id="job",
+        fencing_token=1, signing_key=b"x" * 32,
+    )
+    assert source.capture_server_source_for_existing_slot(**opts).state == "feature_disabled"
+    assert source.capture_server_source_for_existing_slot(
+        **opts, enabled=True,
+    ).state == "emergency_stop"
+    assert source.capture_server_source_for_existing_slot(
+        **opts, enabled=True, emergency_stop=False,
+    ).state == "staged_capture_required"

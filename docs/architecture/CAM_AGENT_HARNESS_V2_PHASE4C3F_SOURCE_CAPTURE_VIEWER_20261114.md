@@ -2,6 +2,15 @@
 
 **Date:** 2026-11-14. **Status:** source-only candidate, default OFF. No live HTTP route, Windows worker, migration or production job is touched.
 
+## Superseded by Phase 4C.3G
+
+The original single-Session capture prototype held PostgreSQL row locks during
+the HTTPS request. It has been **retired and made fail-closed**. Only the
+default-OFF three-stage Session-factory path in
+`docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3G_STAGED_SOURCE_CAPTURE_20261114.md`
+may be used for further development. The text below records historical
+Phase 4C.3F design and MUST NOT be used as permission to run the former API.
+
 ## Why this phase
 
 Phases 4C.3C–E provide fenced slots, receipt prepare/accept and read-only reconciliation. Two important parts were absent: a server-owned producer for the previously defined signed source snapshot, and an authenticated read path for immutable PNG receipts. Live `/image-agents/{agent_id}/result` and `/image-agents/assets/{job_id}` still use the legacy `<job_id>.png` storage and must not be switched without an independent cutover.

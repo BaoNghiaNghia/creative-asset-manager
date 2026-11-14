@@ -167,66 +167,77 @@ def test_read_only_reconciliation_reports_prepared_accepted_and_missing_bytes(
         session.rollback()
 
 
-def test_4c3f_source_capture_issues_only_server_fetched_snapshot(
-    ledger, tmp_path, monkeypatch,
-):
-    from app.modules.agent_harness import fenced_source_capture as capture
-    from app.modules.agent_harness.fenced_source_provenance import (
-        verify_server_source_capture,
-    )
+
+def _install_4c3g_job_source(engine, tenant, agent, job, clock, url):
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        source.payload_json = {
+            **source.payload_json,
+            "source": {"type": "etsy_cdn", "url": url},
+            "source_url_sha256": hashlib.sha256(url.encode()).hexdigest(),
+        }
+        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
+        session.commit()
+
+
+def _jpg_for_capture():
+    image = Image.new("RGB", (4, 5), "blue")
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG")
+    return buffer.getvalue()
+
+
+def test_4c3g_source_capture_has_no_database_lock_during_HTTPS(ledger, tmp_path, monkeypatch):
+    from app.modules.agent_harness import fenced_source_staging as staging
+    from app.modules.agent_harness.fenced_source_provenance import verify_server_source_capture
     from app.modules.agent_harness.fenced_storage import read_fenced_blob_pinned
 
     engine, tenant, agent, job, clock = ledger
     url = "https://i.etsystatic.com/1234567/r/il/allowed-source.jpg"
-    source_url_sha256 = hashlib.sha256(url.encode()).hexdigest()
-    image = Image.new("RGB", (4, 5), "blue")
-    buffer = io.BytesIO()
-    image.save(buffer, "JPEG")
-    jpeg = buffer.getvalue()
+    jpeg = _jpg_for_capture()
+    _install_4c3g_job_source(engine, tenant, agent, job, clock, url)
     calls = []
-    monkeypatch.setattr(capture, "_fetch_etsy_source", lambda u: (
-        calls.append(u) or jpeg
-    ))
-    signing_key = bytes(range(32))
 
-    with Session(engine) as session:
-        source = session.get(ProcessingJobModel, job)
-        source.payload_json = {
-            **source.payload_json, "source": {"type": "etsy_cdn", "url": url},
-            "source_url_sha256": source_url_sha256,
-        }
-        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
-        session.commit()
-    with Session(engine) as session:
-        args = dict(
-            tenant_id=tenant, agent_id=agent, job_id=job,
-            fencing_token=1, signing_key=signing_key,
-            storage_root=tmp_path, now=clock + timedelta(seconds=1),
-        )
-        assert capture.capture_server_source_for_existing_slot(session, **args).state == "feature_disabled"
-        assert capture.capture_server_source_for_existing_slot(
-            session, **args, enabled=True,
-        ).state == "emergency_stop"
-        assert calls == []
-        session.rollback()
-    with Session(engine) as session:
-        accepted = capture.capture_server_source_for_existing_slot(
-            session, **args, enabled=True, emergency_stop=False,
-        )
-        assert accepted.state == "captured"
-        assert accepted.source_sha256 == hashlib.sha256(jpeg).hexdigest()
-        assert accepted.source_bytes == len(jpeg)
-        assert calls == [url]
-        session.commit()
+    def network_without_pg_lock(source_url):
+        calls.append(source_url)
+        # If the staging orchestrator still holds the job or device lock, a
+        # second connection's NOWAIT row lock MUST fail on real PostgreSQL.
+        with Session(engine) as independent:
+            locked = independent.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == job,
+                ProcessingJobModel.tenant_id == tenant,
+            ).with_for_update(nowait=True))
+            assert locked.id == job
+            independent.rollback()
+        return jpeg
 
+    monkeypatch.setattr(staging, "_fetch_etsy_source", network_without_pg_lock)
+    opts = dict(
+        session_factory=lambda: Session(engine),
+        tenant_id=tenant, agent_id=agent, job_id=job,
+        fencing_token=1, signing_key=bytes(range(32)),
+        storage_root=tmp_path, now=clock + timedelta(seconds=1),
+    )
+    assert staging.capture_server_source_in_stages(**opts).state == "feature_disabled"
+    assert staging.capture_server_source_in_stages(
+        **opts, enabled=True,
+    ).state == "emergency_stop"
+    assert calls == []
+
+    accepted = staging.capture_server_source_in_stages(
+        **opts, enabled=True, emergency_stop=False,
+    )
+    assert accepted.state == "captured"
+    assert accepted.source_sha256 == hashlib.sha256(jpeg).hexdigest()
+    assert accepted.source_bytes == len(jpeg)
+    assert calls == [url]
     with Session(engine) as session:
         source = session.get(ProcessingJobModel, job)
         verified = verify_server_source_capture(
             source, agent_id=agent,
             reported_source_sha256=accepted.source_sha256,
-            signing_key=signing_key, storage_root=tmp_path,
-            enabled=True, emergency_stop=False,
-            now=clock + timedelta(seconds=2),
+            signing_key=opts["signing_key"], storage_root=tmp_path,
+            enabled=True, emergency_stop=False, now=clock + timedelta(seconds=2),
         )
         assert verified.state == "source_capture_verified"
         assert not verified.may_accept_output
@@ -238,14 +249,15 @@ def test_4c3f_source_capture_issues_only_server_fetched_snapshot(
             expected_bytes=len(jpeg),
         )
         assert raw == jpeg
-        same = capture.capture_server_source_for_existing_slot(
-            session, **args, enabled=True, emergency_stop=False,
-        )
-        assert same.state == "already_captured"
-        assert calls == [url]
         session.rollback()
 
-    # An old source proof does not automatically authorize a new fenced epoch.
+    same = staging.capture_server_source_in_stages(
+        **opts, enabled=True, emergency_stop=False,
+    )
+    assert same.state == "already_captured"
+    assert calls == [url]  # no unnecessary second network request
+
+    # An old manifest never silently signs/replaces a new claim epoch.
     with Session(engine) as session:
         source = session.get(ProcessingJobModel, job)
         source.attempt_count = 2
@@ -259,57 +271,202 @@ def test_4c3f_source_capture_issues_only_server_fetched_snapshot(
         assert replacement.state == "reserved"
         assert replacement.fencing_token == 2
         session.commit()
-    with Session(engine) as session:
-        wrong_epoch = capture.capture_server_source_for_existing_slot(
-            session, **{
-                **args, "fencing_token": 2,
-                "now": clock + timedelta(seconds=43),
-            }, enabled=True, emergency_stop=False,
-        )
-        assert wrong_epoch.state == "source_capture_requires_reconcile"
-        assert calls == [url]
-        session.rollback()
+    old_capture = staging.capture_server_source_in_stages(
+        **{**opts, "fencing_token": 2, "now": clock + timedelta(seconds=43)},
+        enabled=True, emergency_stop=False,
+    )
+    assert old_capture.state == "source_capture_requires_reconcile"
+    assert calls == [url]
 
 
-def test_4c3f_source_capture_crash_before_commit_reuses_immutable_blob(
+def test_4c3g_crash_after_fsync_before_manifest_commit_recovers_without_overwrite(
     ledger, tmp_path, monkeypatch,
 ):
-    from app.modules.agent_harness import fenced_source_capture as capture
+    from app.modules.agent_harness import fenced_source_staging as staging
+    from app.modules.agent_harness.fenced_storage import read_fenced_blob_pinned
+
     engine, tenant, agent, job, clock = ledger
     url = "https://img.etsystatic.com/328010/r/il/test.jpg"
-    jpeg = io.BytesIO()
-    Image.new("RGB", (2, 2), "red").save(jpeg, "JPEG")
+    jpeg = _jpg_for_capture()
+    _install_4c3g_job_source(engine, tenant, agent, job, clock, url)
     calls = []
-    monkeypatch.setattr(capture, "_fetch_etsy_source", lambda u: (
-        calls.append(u) or jpeg.getvalue()
+    monkeypatch.setattr(staging, "_fetch_etsy_source", lambda u: (
+        calls.append(u) or jpeg
     ))
-    with Session(engine) as session:
-        source = session.get(ProcessingJobModel, job)
-        source.payload_json = {
-            **source.payload_json, "source": {"type": "etsy_cdn", "url": url},
-            "source_url_sha256": hashlib.sha256(url.encode()).hexdigest(),
-        }
-        assert _reserve(session, tenant, agent, job, clock).state == "reserved"
-        session.commit()
     opts = dict(
+        session_factory=lambda: Session(engine),
         tenant_id=tenant, agent_id=agent, job_id=job,
         fencing_token=1, signing_key=b"x" * 32,
         storage_root=tmp_path, enabled=True, emergency_stop=False,
         now=clock + timedelta(seconds=1),
     )
+    real_finalize = staging._finalize_under_lock
+
+    def interrupt_after_fsync(session, **kwargs):
+        # Both source bytes and namespace entries are already on disk;
+        # simulate process death before SQL can commit the signed manifest.
+        digest = hashlib.sha256(jpeg).hexdigest()
+        assert read_fenced_blob_pinned(
+            tmp_path, namespace="fenced-source-v1",
+            key=digest, expected_sha256=digest,
+            expected_bytes=len(jpeg),
+        ) == jpeg
+        raise RuntimeError("simulated_process_crash_after_fsync")
+
+    monkeypatch.setattr(staging, "_finalize_under_lock", interrupt_after_fsync)
+    with pytest.raises(RuntimeError, match="simulated_process_crash"):
+        staging.capture_server_source_in_stages(**opts)
     with Session(engine) as session:
-        first = capture.capture_server_source_for_existing_slot(session, **opts)
-        assert first.state == "captured"
-        # The content hash is on disk but the JSON manifest is not committed.
+        stored = session.get(ProcessingJobModel, job)
+        assert "_cam_fenced_source_capture_v1" not in stored.payload_json
         session.rollback()
+    monkeypatch.setattr(staging, "_finalize_under_lock", real_finalize)
+    second = staging.capture_server_source_in_stages(**opts)
+    assert second.state == "captured"
+    assert second.source_sha256 == hashlib.sha256(jpeg).hexdigest()
+    assert calls == [url, url]  # fetch again, reuse same immutable content
+
+
+def test_4c3g_cancel_or_change_source_during_fetch_cannot_sign_manifest(
+    ledger, tmp_path, monkeypatch,
+):
+    from app.modules.agent_harness import fenced_source_staging as staging
+
+    engine, tenant, agent, job, clock = ledger
+    url = "https://i.etsystatic.com/1234567/r/il/old-source.jpg"
+    jpeg = _jpg_for_capture()
+    _install_4c3g_job_source(engine, tenant, agent, job, clock, url)
+    opts = dict(
+        session_factory=lambda: Session(engine),
+        tenant_id=tenant, agent_id=agent, job_id=job,
+        fencing_token=1, signing_key=b"x" * 32,
+        storage_root=tmp_path, enabled=True, emergency_stop=False,
+        now=clock + timedelta(seconds=2),
+    )
+
+    def cancel_during_fetch(source_url):
+        # This update must never wait for source HTTP to release a PG lock.
+        with Session(engine) as session:
+            source = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == job,
+            ).with_for_update(nowait=True))
+            source.cancellation_requested = True
+            session.commit()
+        return jpeg
+
+    monkeypatch.setattr(staging, "_fetch_etsy_source", cancel_during_fetch)
+    denied = staging.capture_server_source_in_stages(**opts)
+    assert denied.state == "job_claim_not_verified"
     with Session(engine) as session:
-        job_model = session.get(ProcessingJobModel, job)
-        assert "_cam_fenced_source_capture_v1" not in job_model.payload_json
-        second = capture.capture_server_source_for_existing_slot(session, **opts)
-        assert second.state == "captured"
-        assert second.source_sha256 == first.source_sha256
+        source = session.get(ProcessingJobModel, job)
+        assert "_cam_fenced_source_capture_v1" not in source.payload_json
+        source.cancellation_requested = False
         session.commit()
-    assert len(calls) == 2
+
+    def replace_url_during_fetch(source_url):
+        with Session(engine) as session:
+            source = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == job,
+            ).with_for_update(nowait=True))
+            different = "https://i.etsystatic.com/9999/r/il/revised.jpg"
+            source.payload_json = {
+                **source.payload_json,
+                "source": {"type": "etsy_cdn", "url": different},
+                "source_url_sha256": hashlib.sha256(different.encode()).hexdigest(),
+            }
+            session.commit()
+        return jpeg
+
+    monkeypatch.setattr(staging, "_fetch_etsy_source", replace_url_during_fetch)
+    stale = staging.capture_server_source_in_stages(**opts)
+    assert stale.state == "capture_plan_stale"
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        assert "_cam_fenced_source_capture_v1" not in source.payload_json
+        session.rollback()
+
+
+def test_4c3g_wrong_epoch_during_fetch_never_promotes_old_claim(ledger, tmp_path, monkeypatch):
+    from app.modules.agent_harness import fenced_source_staging as staging
+
+    engine, tenant, agent, job, clock = ledger
+    url = "https://i.etsystatic.com/1234567/r/il/old.jpg"
+    _install_4c3g_job_source(engine, tenant, agent, job, clock, url)
+    jpeg = _jpg_for_capture()
+    opts = dict(
+        session_factory=lambda: Session(engine),
+        tenant_id=tenant, agent_id=agent, job_id=job,
+        fencing_token=1, signing_key=b"x" * 32,
+        storage_root=tmp_path, enabled=True, emergency_stop=False,
+        now=clock + timedelta(seconds=42),
+    )
+    # Simulate reclaim after an earlier 0209 slot has expired.
+    with Session(engine) as session:
+        src = session.get(ProcessingJobModel, job)
+        src.attempt_count = 2
+        src.claimed_at = clock + timedelta(seconds=40)
+        src.lease_expires_at = clock + timedelta(minutes=3)
+        session.commit()
+    with Session(engine) as session:
+        assert _reserve(session, tenant, agent, job, clock + timedelta(seconds=41)).fencing_token == 2
+        session.commit()
+    opts["fencing_token"] = 2
+
+    def job_reclaimed_while_downloaded(source_url):
+        with Session(engine) as session:
+            src = session.scalar(select(ProcessingJobModel).where(
+                ProcessingJobModel.id == job,
+            ).with_for_update(nowait=True))
+            src.attempt_count = 3
+            src.claimed_at = clock + timedelta(seconds=43)
+            src.lease_expires_at = clock + timedelta(minutes=4)
+            session.commit()
+        return jpeg
+
+    monkeypatch.setattr(staging, "_fetch_etsy_source", job_reclaimed_while_downloaded)
+    denied = staging.capture_server_source_in_stages(**opts)
+    assert denied.state in {"stale_fencing_token", "job_claim_not_verified"}
+    with Session(engine) as session:
+        assert "_cam_fenced_source_capture_v1" not in session.get(
+            ProcessingJobModel, job,
+        ).payload_json
+        session.rollback()
+
+
+
+def test_4c3g_capacity_stop_and_bad_source_do_not_write_manifest(
+    ledger, tmp_path, monkeypatch,
+):
+    from app.modules.agent_harness import fenced_source_staging as staging
+
+    engine, tenant, agent, job, clock = ledger
+    url = "https://i.etsystatic.com/1234567/r/il/a.jpg"
+    _install_4c3g_job_source(engine, tenant, agent, job, clock, url)
+    opts = dict(
+        session_factory=lambda: Session(engine),
+        tenant_id=tenant, agent_id=agent, job_id=job,
+        fencing_token=1, signing_key=b"x" * 32, storage_root=tmp_path,
+        enabled=True, emergency_stop=False,
+        now=clock + timedelta(seconds=1),
+    )
+    calls = []
+    monkeypatch.setattr(staging, "_fetch_etsy_source", lambda u: (
+        calls.append(u) or _jpg_for_capture()
+    ))
+    limited = threading.BoundedSemaphore(1)
+    limited.acquire()
+    monkeypatch.setattr(staging, "_CAPTURE_SLOTS", limited)
+    assert staging.capture_server_source_in_stages(**opts).state == "source_capture_capacity_busy"
+    assert calls == []
+    limited.release()
+
+    monkeypatch.setattr(staging, "_fetch_etsy_source", lambda u: b"not-an-image")
+    assert staging.capture_server_source_in_stages(**opts).state == "source_image_invalid"
+    assert list(tmp_path.iterdir()) == []
+    with Session(engine) as session:
+        source = session.get(ProcessingJobModel, job)
+        assert "_cam_fenced_source_capture_v1" not in source.payload_json
+        session.rollback()
 
 
 def test_4c3f_review_reader_is_tenant_scoped_and_descriptor_verified(ledger, tmp_path):

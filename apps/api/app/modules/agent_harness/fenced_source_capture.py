@@ -7,9 +7,9 @@ uses the exact allowlisted Etsy CDN host. Never follow redirects, use
 environment proxies, fetch metadata IPs or trust caller-provided source bytes.
 The server HMAC record attests ONLY fetched bytes, NOT browser/provider output.
 
-This is a bounded prototype: the HTTPS fetch occurs while the caller-owned
-SQL row lock is held, so no live route until async two-stage admission is
-reviewed. No external request is made unless explicitly invoked and enabled.
+The prior single-session implementation was retired: HTTPS never runs
+while an SQL row lock is held. Use fenced_source_staging's three-stage
+session-factory orchestration. Neither module is imported by live routes.
 """
 from __future__ import annotations
 
@@ -153,6 +153,7 @@ def _fetch_etsy_source(source_url: str) -> bytes:
             return result
 
 
+
 def capture_server_source_for_existing_slot(
     session: Session, *, tenant_id: str, agent_id: str, job_id: str,
     fencing_token: int, signing_key: bytes | None,
@@ -160,95 +161,12 @@ def capture_server_source_for_existing_slot(
     enabled: bool = False, emergency_stop: bool = True,
     now: datetime | None = None,
 ) -> CaptureDecision:
-    """Capture an already-owned exact job; caller commits after file fsync.
+    """Deprecated single-session entrypoint: fail closed, NEVER fetch under lock.
 
-    SQL rollback may leave an immutable orphan. Never sign agent-provided
-    bytes, and never infer browser/provider readiness or print rights.
+    The safe replacement is capture_server_source_in_stages(session_factory).
     """
-    blocked = _preflight(session, enabled=enabled)
-    if blocked:
-        return CaptureDecision(blocked)
+    if enabled is not True:
+        return CaptureDecision("feature_disabled")
     if emergency_stop is not False:
         return CaptureDecision("emergency_stop")
-    if not isinstance(signing_key, bytes) or len(signing_key) != 32:
-        return CaptureDecision("signing_key_unavailable")
-    if not isinstance(storage_root, Path) or not storage_root.is_absolute():
-        return CaptureDecision("source_storage_unavailable")
-
-    clock = _utc(now) or datetime.now(timezone.utc)
-    proof = verify_image_output_fence(
-        session, tenant_id=tenant_id, agent_id=agent_id, job_id=job_id,
-        fencing_token=fencing_token, enabled=True, emergency_stop=False,
-        now=clock,
-    )
-    if proof.state != "fence_verified":
-        return CaptureDecision(proof.state)
-    job = session.get(ProcessingJobModel, job_id)
-    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
-    source = payload.get("source")
-    url = (
-        verified_image_url(source.get("url"))
-        if isinstance(source, dict) and source.get("type") == "etsy_cdn"
-        else None
-    )
-    if (
-        payload.get("execution_mode") != "orchestrator_v1"
-        or url is None
-        or payload.get("source_url_sha256") != hashlib.sha256(url.encode()).hexdigest()
-    ):
-        return CaptureDecision("source_job_not_verified")
-
-    existing = payload.get(_EVIDENCE_KEY)
-    if existing is not None:
-        if not isinstance(existing, dict):
-            return CaptureDecision("source_capture_requires_reconcile")
-        digest = existing.get("source_sha256")
-        verdict = verify_server_source_capture(
-            job, agent_id=agent_id, reported_source_sha256=digest,
-            signing_key=signing_key, storage_root=storage_root,
-            enabled=True, emergency_stop=False, now=clock,
-        )
-        if verdict.state == "source_capture_verified":
-            return CaptureDecision(
-                "already_captured", source_sha256=digest,
-                source_bytes=existing["source_bytes"],
-            )
-        return CaptureDecision("source_capture_requires_reconcile")
-
-    try:
-        raw = _fetch_etsy_source(url)
-    except (ValueError, OSError, ssl.SSLError, http.client.HTTPException, TimeoutError):
-        return CaptureDecision("source_fetch_not_verified")
-    digest = hashlib.sha256(raw).hexdigest()
-    # Recheck at end of bounded network IO; job and slot locks remain held.
-    completed_at = _utc(now) if now is not None else datetime.now(timezone.utc)
-    after = verify_image_output_fence(
-        session, tenant_id=tenant_id, agent_id=agent_id, job_id=job_id,
-        fencing_token=fencing_token, enabled=True, emergency_stop=False,
-        now=completed_at,
-    )
-    if after.state != "fence_verified":
-        return CaptureDecision(after.state)
-    if not store_fenced_blob_once(
-        storage_root, namespace="fenced-source-v1",
-        key=digest, expected_sha256=digest, raw=raw,
-    ):
-        return CaptureDecision("source_storage_unavailable")
-    if read_fenced_blob_pinned(
-        storage_root, namespace="fenced-source-v1",
-        key=digest, expected_sha256=digest, expected_bytes=len(raw),
-    ) is None:
-        return CaptureDecision("source_storage_not_verified")
-
-    unsigned = {
-        "protocol": _PROTOCOL, "tenant_id": tenant_id, "agent_id": agent_id,
-        "job_id": job_id, "attempt_count": job.attempt_count,
-        "claim_started_at": _utc(job.claimed_at).isoformat(timespec="microseconds"),
-        "source_url_sha256": hashlib.sha256(url.encode()).hexdigest(),
-        "source_sha256": digest, "source_bytes": len(raw),
-        "captured_epoch": int(completed_at.timestamp()),
-    }
-    signed = {**unsigned, "signature": _signature(signing_key, unsigned)}
-    job.payload_json = {**payload, _EVIDENCE_KEY: signed}
-    session.flush()
-    return CaptureDecision("captured", source_sha256=digest, source_bytes=len(raw))
+    return CaptureDecision("staged_capture_required")

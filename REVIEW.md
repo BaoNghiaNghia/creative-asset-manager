@@ -1,3 +1,10 @@
+## 2026-11-14 — Agent Harness 4C.3G transaction-boundary correction
+
+- Removed the unsafe single-Session network entrypoint: old helper now always fails closed when enabled. New `fenced_source_staging.py` uses separate, always-closed PostgreSQL Session scopes before and after bounded HTTPS and immutable storage, never fetches with an open SQL transaction.
+- Final signed source manifest requires a freshly revalidated exact job/device/slot fence, source URL/URL SHA256 and unchanged claim epoch. Concurrent claim, cancellation or source mutation leaves only an orphan blob with no accepted manifest.
+- Added PostgreSQL `FOR UPDATE NOWAIT` during injected source fetch to prove absence of the old row lock, plus crash/retry and capacity stops. Network tests stub the Etsy request and do not contact external providers.
+- In-process bounded fetch semaphore is **not a global fleet quota**; source capture remains an inert code-only prototype. Real off-host production restore, browser/provider lineage, authenticated no-dual-writer API cutover and manual reconciliation stay mandatory blockers.
+
 ## 2026-11-14 — Agent Harness 4C.3F bounded source capture and pinned viewer
 
 - Implemented bounded *server-side* independent source downloader with exact allowlisted Etsy CDN host, DNS global-IP validation and connection IP pinning with verified TLS hostname/SNI, reject redirects/compression, decode and cap images. It is not invoked by any live route; all tests emulate the network locally.
