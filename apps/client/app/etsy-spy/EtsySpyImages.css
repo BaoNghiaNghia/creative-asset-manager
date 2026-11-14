@@ -1,0 +1,83 @@
+/* Etsy Spy image-only UX: fixed geometry, on-demand IO, and explicit states. */
+/* Keep this scoped to thumbnail columns and the opened Design gallery. */
+.etsy-spy-page :is(.etsy-product-thumbnail-link, .etsy-design-thumb),
+.etsy-design-gallery :is(.etsy-design-gallery-stage, .etsy-design-gallery-list > button) {
+  position: relative;
+  isolation: isolate;
+}
+
+/* A deferred cell is static; shimmer only runs while an image is in flight. */
+.etsy-spy-page .etsy-image-skeleton,
+.etsy-design-gallery .etsy-image-skeleton {
+  position: absolute;
+  inset: 3px;
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 5px;
+  background: linear-gradient(120deg, #edf2f8, #e4ebf5);
+}
+
+.etsy-spy-page .etsy-image-skeleton[data-busy="true"]::after,
+.etsy-design-gallery .etsy-image-skeleton[data-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, #fff9 50%, transparent 100%);
+  animation: etsy-image-loading 1.4s ease-in-out infinite;
+}
+
+@keyframes etsy-image-loading {
+  to { transform: translateX(100%); }
+}
+
+.etsy-spy-page img[data-image-state],
+.etsy-design-gallery img[data-image-state] {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+}
+
+.etsy-spy-page img[data-image-state="ready"],
+.etsy-design-gallery img[data-image-state="ready"] {
+  opacity: 1;
+  transition: opacity .17s ease-out;
+}
+
+.etsy-spy-page .etsy-image-error,
+.etsy-design-gallery .etsy-image-error {
+  position: absolute;
+  inset: 3px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: #97a7bb;
+  background: #f2f5f9;
+  border-radius: 5px;
+}
+
+.etsy-spy-page .etsy-image-error svg,
+.etsy-design-gallery .etsy-image-error svg {
+  width: 23px;
+  height: 23px;
+  max-width: 54%;
+}
+
+.etsy-design-gallery .etsy-design-gallery-stage .etsy-image-skeleton,
+.etsy-design-gallery .etsy-design-gallery-stage .etsy-image-error {
+  inset: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-image-skeleton::after,
+  .etsy-design-gallery .etsy-image-skeleton::after {
+    animation: none !important;
+  }
+  .etsy-spy-page img[data-image-state],
+  .etsy-design-gallery img[data-image-state] {
+    transition: none;
+  }
+}

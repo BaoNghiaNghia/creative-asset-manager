@@ -14,6 +14,8 @@ import "./EtsySpyEvo.css";
 import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
+import { EtsyDeferredImage } from "./EtsyDeferredImage";
+import "./EtsySpyImages.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
@@ -234,9 +236,8 @@ const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, titl
   return <a className="etsy-product-thumbnail-link" href={full ?? thumb ?? url ?? "#"}
     target="_blank" rel="noopener noreferrer"
     title="View full Etsy product image" aria-label={"View full image of " + title}>
-    <img className="etsy-product-thumbnail" src={thumb} alt=""
-      width="68" height="68" loading="lazy" decoding="async"
-      onError={() => setBroken(true)} />
+    <EtsyDeferredImage className="etsy-product-thumbnail" src={thumb} alt=""
+      width={68} height={68} onFailure={() => setBroken(true)} />
   </a>;
 });
 
