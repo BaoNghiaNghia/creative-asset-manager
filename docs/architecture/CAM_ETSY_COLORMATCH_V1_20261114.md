@@ -65,6 +65,13 @@ accessible, with checkerboard default.
   For a small canary: `nice -n 15 python scripts/cam-etsy-colormatch-backfill.py
   --tenant-id creative-assets-prod --limit 10 --scan-limit 500 --apply`.
   NEVER backfill all items synchronously in a listing request.
+- **Legacy local Design PNGs and review candidates:** a separate audited
+  `scripts/cam-etsy-colormatch-local-backfill.py` handles historical private
+  local files. Dry-run default; explicit tenant and `--apply` required.
+  It verifies original PNG SHA-256 and Picked membership before writing only
+  color-match metadata. The same bounded 192px algorithm runs once per file,
+  with a concurrency of one. Candidate and historical fast-result projections
+  also validate and display their cached color metadata; no artwork changes.
 - **One shirt/multiple placements:** each artwork is ranked independently.
   A future product-wide `best on every placement` selection will require
   a separate score aggregation before presenting one garment recommendation.
