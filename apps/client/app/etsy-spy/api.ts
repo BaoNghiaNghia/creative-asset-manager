@@ -140,8 +140,27 @@ export type SpyLog = {
 };
 
 const ROOT = "/api/v1/etsy-spy";
+const RETRYABLE_READ_STATUS = new Set([502, 503, 504]);
+
+async function waitForReadRetry(ms: number, signal?: AbortSignal | null): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Request aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
 export async function spyFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(ROOT + path, {
+  const method = (init?.method || "GET").toUpperCase();
+  const safeRead = method === "GET" && !init?.body;
+  const request: RequestInit = {
     credentials: "include",
     cache: "no-store",
     ...init,
@@ -149,17 +168,30 @@ export async function spyFetch<T>(path: string, init?: RequestInit): Promise<T> 
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
-  });
-  if (!response.ok) {
-    let error = "HTTP " + response.status;
-    try {
-      const payload = await response.json();
-      error = typeof payload?.detail === "string" ? payload.detail
-        : payload?.detail?.message || error;
-    } catch { /* Proxy may return an HTML error. */ }
-    throw new Error(error);
+  };
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(ROOT + path, request);
+    // One bounded retry for transient gateway overload. Never retry writes
+    // (Pick, Later, SMS, Job actions) or authentication/permission failures.
+    if (safeRead && attempt === 0 && RETRYABLE_READ_STATUS.has(response.status)) {
+      const retryAfterSeconds = Number(response.headers.get("Retry-After"));
+      const delay = retryAfterSeconds > 0 && Number.isFinite(retryAfterSeconds)
+        ? Math.min(4000, retryAfterSeconds * 1000)
+        : 1200 + Math.floor(Math.random() * 500);
+      await waitForReadRetry(delay, init?.signal);
+      continue;
+    }
+    if (!response.ok) {
+      let error = "HTTP " + response.status;
+      try {
+        const payload = await response.json();
+        error = typeof payload?.detail === "string" ? payload.detail
+          : payload?.detail?.message || error;
+      } catch { /* Proxy may return an HTML error. */ }
+      throw new Error(error);
+    }
+    return response.json() as Promise<T>;
   }
-  return response.json() as Promise<T>;
 }
 export function csvPath(tab: "products" | "logs", query: URLSearchParams) {
   return ROOT + (tab === "logs" ? "/logs/export.csv" : "/export.csv") +

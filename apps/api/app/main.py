@@ -60,6 +60,7 @@ from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
 from app.modules.etsy_spy.router import router as etsy_spy_router
 from app.modules.etsy_spy.service import prune_system_logs
+from app.modules.etsy_spy.request_metrics import ETSY_PERFORMANCE, route_label
 from app.modules.metadata.router import router as metadata_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.image_generation.router import router as image_generation_router
@@ -233,6 +234,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "operations_endpoint_timing endpoint=%s status=%s duration_ms=%.1f",
                 path, status, (perf_counter() - started) * 1000,
             )
+
+    @api.middleware("http")
+    async def etsy_spy_performance(request: Request, call_next):
+        label = route_label(request.method, request.url.path)
+        if label is None:
+            return await call_next(request)
+        started = perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            # Only a fixed route class, status and duration enter aggregated
+            # logs: never the requested tenant, listing, path or credentials.
+            ETSY_PERFORMANCE.record(
+                label, status_code=status,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+
     if settings.VISUAL_SEARCH_ENABLED:
         api.state.visual_encoder_client = HttpVisualEncoderClient(settings.VISUAL_ENCODER_URL, settings.VISUAL_ENCODER_TIMEOUT_SECONDS, settings.VISUAL_ENCODER_INTERNAL_KEY)
     api.add_middleware(
