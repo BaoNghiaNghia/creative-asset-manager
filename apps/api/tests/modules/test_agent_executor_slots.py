@@ -51,7 +51,10 @@ def test_fail_closed_without_flag_and_without_postgresql(tmp_path):
     engine.dispose()
 
 
-def test_migration_0209_empty_and_non_destructive_downgrade(tmp_path):
+def test_migration_0209_empty_and_non_destructive_downgrade(tmp_path, monkeypatch):
+    # Alembic env.py honors DATABASE_URL over the Config URL. Never let this
+    # isolated SQLite migration test mutate the shared CI PostgreSQL service.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     url = "sqlite:///" + str(tmp_path / "slots.sqlite")
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", url)

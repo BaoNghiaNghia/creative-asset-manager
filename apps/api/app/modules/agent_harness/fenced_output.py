@@ -118,6 +118,7 @@ def prepare_fenced_image_receipt(
     if (
         not _valid_sha(output_sha256) or not _valid_sha(source_sha256)
         or not _valid_size(output_bytes)
+        or not isinstance(engine, str)
         or engine not in {"chatgpt_assisted", "fast_cpu"}
     ):
         return FencedReceiptDecision("invalid_receipt")
@@ -267,6 +268,7 @@ def accept_fenced_image_receipt(
         return FencedReceiptDecision("provenance_not_verified")
     if (
         not _valid_sha(output_sha256) or not _valid_sha(source_sha256)
+        or not isinstance(engine, str)
         or engine not in {"chatgpt_assisted", "fast_cpu"}
         or not isinstance(raw_png, bytes)
         or not _valid_size(len(raw_png))

@@ -177,6 +177,10 @@ def test_prepared_receipt_is_idempotent_but_never_replaced(ledger):
         ).state == "receipt_conflict"
         assert _prepare(
             session, tenant, agent, job, clock + timedelta(seconds=1), png,
+            engine=[],
+        ).state == "invalid_receipt"
+        assert _prepare(
+            session, tenant, agent, job, clock + timedelta(seconds=1), png,
             fencing_token=0,
         ).state == "stale_fencing_token"
         assert _prepare(
@@ -264,6 +268,10 @@ def test_fail_closed_for_provenance_storage_and_corrupt_bytes(ledger, tmp_path):
             session, tenant, agent, job, clock + timedelta(seconds=1), data,
             tmp_path, source_sha256="b" * 64,
         ).state == "receipt_conflict"
+        assert _accept(
+            session, tenant, agent, job, clock + timedelta(seconds=1), data,
+            tmp_path, engine={},
+        ).state == "invalid_receipt"
         session.rollback()
     assert list(tmp_path.iterdir()) == []
     with Session(engine) as session:

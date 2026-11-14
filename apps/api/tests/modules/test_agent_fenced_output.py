@@ -60,7 +60,8 @@ def test_fenced_receipts_are_default_off_and_postgres_only(tmp_path):
     engine.dispose()
 
 
-def test_empty_0210_migration_and_safe_downgrade(tmp_path):
+def test_empty_0210_migration_and_safe_downgrade(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     db_file = tmp_path / "receipts.sqlite"
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
