@@ -36,8 +36,10 @@ def test_faded_typography_always_rejects_dark_and_preserves_white(alpha: int):
     assert result and result["version"] == ALGORITHM
     assert "true-navy" in result["unsafe_colors"]
     assert "black" in result["unsafe_colors"]
-    assert "white" in result["recommended"]
-    assert len(result["recommended"]) == 10
+    if alpha >= 200:
+        assert "white" in result["recommended"]
+    assert set(result["recommended"]).isdisjoint(result["unsafe_colors"])
+    assert 0 <= len(result["recommended"]) <= 10
     assert (set(result["recommended"]) & set(result["unsafe_colors"])).issubset(result["review_colors"])
     assert (set(result["recommended"]) - set(result["eligible_colors"])) == set(result["review_colors"])
     assert _validated_color_match({"color_match": result}, "a" * 64)

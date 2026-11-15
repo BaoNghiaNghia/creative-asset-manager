@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill all eligible Picked design ColorMatch V7 metadata.
+"""Backfill all eligible Picked design ColorMatch V9 metadata.
 
 Default is read-only dry-run. --apply updates ONLY the color_match JSON of
 existing, completed and still-Picked jobs. Original PNGs are never rewritten,
@@ -31,7 +31,7 @@ _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
 _MAX_ANALYSIS_ORIGINAL_BYTES = 8 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v8"
+_TARGET_VERSION = "colormatch-sms-c1717-v9"
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class Target:
 
 
 def fresh(row: dict) -> bool:
-    """True only for SHA-bound, validated V8 ten-color rankings."""
+    """True only for SHA-bound, validated V9 quality-first rankings."""
     from app.modules.etsy_spy.design_artifacts import _validated_color_match
     meta = row.get("color_match")
     if not isinstance(meta, dict) or meta.get("version") != _TARGET_VERSION:
@@ -61,7 +61,7 @@ def fresh(row: dict) -> bool:
     if projected is None:
         return False
     colors = projected["recommended"]
-    return len(colors) == 10
+    return len(colors) <= 10 and set(colors).issubset(projected["eligible_colors"])
 
 
 def candidate_records(job) -> list[Target]:

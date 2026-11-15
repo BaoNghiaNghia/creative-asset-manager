@@ -16,7 +16,7 @@ const make = (position: string, id: string, eligible: string[]): DesignAsset => 
   thumbnail_url: "/thumb/" + id, original_url: "/original/" + id,
   print_ready: false, rights_status: "unverified", manual_qa_required: true,
   color_match: {
-    version: "colormatch-sms-c1717-v8", output_sha256: SHA,
+    version: "colormatch-sms-c1717-v9", output_sha256: SHA,
     recommended: [...new Set([...eligible, ...[
       "butter", "white", "ivory", "pepper", "blue-jean", "sage", "bay",
       "chambray", "orchid", "denim", "watermelon", "mustard", "navy",
@@ -24,8 +24,8 @@ const make = (position: string, id: string, eligible: string[]): DesignAsset => 
     review_colors: [],
     eligible_colors: eligible,
     unsafe_colors: ["true-navy", "black"],
-    method: "design_region_alpha_sales_prior_ten",
-    readability_check: "region_ink_alpha_composite_v2",
+    method: "design_region_alpha_quality_first",
+    readability_check: "region_ink_alpha_composite_v3",
     analysis: {
       resolution: [512, 512], source: "medium", regions: [],
       text_regions: 2, microtext_regions: 1,
@@ -68,16 +68,23 @@ describe("V7 Design ColorMatch production UX", () => {
     return document.body.querySelector<HTMLElement>(".etsy-design-gallery")!;
   }
 
-  it("applies one safe color across front and sleeve, but not across alternate variants", async () => {
+  it("applies one shared color across actual placements without a third swatch grid", async () => {
     const front = make("front", "a".repeat(24), ["white", "ivory", "butter"]);
     const alternate = make("front", "c".repeat(24), ["ivory", "pepper"]);
     const sleeve = make("left_sleeve", "b".repeat(24), ["ivory", "white", "pepper"]);
     const dialog = await mount([front, alternate, sleeve]);
-    expect(dialog.textContent).toContain("Màu chung cho toàn sản phẩm");
-    expect(dialog.querySelectorAll('[aria-label="Màu áo phù hợp cho toàn sản phẩm"] button'))
-      .toHaveLength(2);
+    const toggle = dialog.querySelector<HTMLInputElement>(
+      ".etsy-design-gallery-product-toggle input",
+    )!;
+    expect(toggle.disabled).toBe(false);
+    await act(async () => toggle.click());
+    expect(toggle.checked).toBe(true);
+    expect(dialog.querySelectorAll(
+      '[role="group"][aria-label="Màu phù hợp với thiết kế"] button',
+    )).toHaveLength(2);
     await act(async () => dialog.querySelector<HTMLButtonElement>(
-      '[aria-label="Màu chung White"]')?.click());
+      '.etsy-design-gallery-recommended .etsy-design-gallery-background-white',
+    )?.click());
     expect(dialog.dataset.previewBackground).toBe("white");
     await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button")[1]?.click());
@@ -85,12 +92,13 @@ describe("V7 Design ColorMatch production UX", () => {
     await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button")[0]?.click());
     expect(dialog.dataset.previewBackground).toBe("white");
+    expect(dialog.querySelector(".etsy-colormatch-product-scope")).toBeNull();
   });
 
   it("shows ten automatic suggestions without print-method or feedback UI", async () => {
     const dialog = await mount([make("front", "a".repeat(24), ["white", "ivory"])]);
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
-    expect(dialog.textContent).toContain("Đề xuất 10 màu áo tự động");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(2);
+    expect(dialog.textContent).toContain("Màu phù hợp nhất");
     expect(dialog.querySelector("#etsy-colormatch-print-method")).toBeNull();
     expect(dialog.querySelector(".etsy-colormatch-print-settings")).toBeNull();
     expect(dialog.querySelector(".etsy-colormatch-feedback")).toBeNull();
@@ -109,8 +117,6 @@ describe("V7 Design ColorMatch production UX", () => {
     expect(dialog.querySelector(".etsy-colormatch-print-settings")).toBeNull();
     const originalSrc = dialog.querySelector<HTMLImageElement>(
       ".etsy-design-gallery-artwork-original")?.getAttribute("src");
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-all-colors-toggle")?.click());
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-background-true-navy")?.click());
     expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();

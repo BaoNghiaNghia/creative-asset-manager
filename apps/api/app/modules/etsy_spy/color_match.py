@@ -1,4 +1,4 @@
-"""Deterministic ColorMatch for C1717 SMS garment previews from the thumbnail.
+"""Deterministic ColorMatch for C1717 SMS garment previews from verified PNGs.
 
 Runs only during artwork ingestion (never in Picked list/modal requests).
 No AI, network call, new preview files or pixels added to the original.
@@ -7,15 +7,17 @@ invalidates previous rankings. Errors fail open to the existing palette.
 """
 from __future__ import annotations
 
+import colorsys
 import io
 import math
+from collections import defaultdict
 from PIL import Image, UnidentifiedImageError
 from .color_match_palette import (
     ALGORITHM, GARMENT_COLORS, SALES_SPEED_PRIOR, SALES_PRIOR_SNAPSHOT,
 )
 from .color_match_readability import candidate_readability, analyze_ink_regions
 
-_MAX_SAMPLES = 2000
+_MAX_SAMPLES = 3600
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
 _MAX_ANALYSIS_BYTES = 6 * 1024 * 1024
 _MAX_ANALYSIS_EDGE = 768
@@ -45,19 +47,45 @@ def _distance(a: tuple[float, float, float, float],
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in (1, 2, 3)))
 
 
+def _balanced_ink_samples(pixels: list[tuple[int, int, int, int]]) -> tuple[list, dict[str, int]]:
+    """Sample EACH ink family, so small lettering is not drowned by big art.
+
+    The input is already bounded to <=768px in memory. No original is changed.
+    Each family gets an equal capped budget; tiny groups are considered only
+    if they account for meaningful nontransparent pixels.
+    """
+    buckets: dict[str, list[tuple[int, int, int, int]]] = defaultdict(list)
+    for r, g, b, a in pixels:
+        if a < 32:
+            continue
+        luminance = .21 * r + .72 * g + .07 * b
+        if luminance < 68:
+            family = "dark"
+        elif luminance > 207:
+            family = "light"
+        elif max(r, g, b) - min(r, g, b) < 42:
+            family = "neutral"
+        else:
+            family = f"hue-{int(colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)[0] * 6) % 6}"
+        buckets[family].append((r, g, b, a))
+    if not buckets:
+        return [], {}
+    limit = max(80, _MAX_SAMPLES // len(buckets))
+    sampled = []
+    for family, group in sorted(buckets.items()):
+        step = max(1, math.ceil(len(group) / limit))
+        sampled.extend((_lab((r, g, b)), a / 255, family)
+                       for r, g, b, a in group[::step])
+    return sampled, {family: len(group) for family, group in buckets.items()}
+
+
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
                              analysis_png: bytes | None = None) -> dict | None:
-    """Rank exactly ten C1717 previews with risk labeled by design.
+    """Rank up to ten genuinely legible garment previews per design.
 
-    Verified readable colors are always ranked first. If fewer than ten
-    survive the readability gate, fill remaining slots by highest measured
-    contrast margin, marking these extra colors as needing visual review.
-    Such fallbacks are NOT labeled printable or safe.
-
-    Samples only a capped 192px PNG that was already created at upload time.
-    Small/high-opacity ink regions are not hidden by the dominant color:
-    20th-percentile ink contrast and the fraction of low-contrast samples
-    carry more weight than mean contrast. No full master decoding.
+    No forced fallback colors: if every background risks hiding ink, return an
+    empty shortlist and expose those colors only in the manual palette.
+    Contrast across pigment families outranks both color diversity and sales.
     """
     if (not isinstance(thumbnail_png, bytes) or len(thumbnail_png) > _MAX_THUMB_BYTES
             or not isinstance(output_sha256, str) or len(output_sha256) != 64
@@ -73,20 +101,7 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
 
-    step = max(1, len(pixels) // _MAX_SAMPLES)
-    sampled = []
-    for r, g, b, a in pixels[::step]:
-        if a < 105:
-            continue
-        sampled.append((_lab((r, g, b)), a / 255))
-    if len(sampled) < 12:
-        # Very small chest/sleeve marks can fall between 2,000 sparse
-        # sampling points. Re-examine bounded native thumbnail pixels so
-        # an actual but tiny design still receives automatic candidates.
-        sampled = [(_lab((r, g, b)), a / 255) for r, g, b, a in pixels
-                   if a >= 32][:_MAX_SAMPLES]
-    if not sampled:
-        # A fully transparent PNG has no artwork to score.
+    if not any(a >= 32 for _r, _g, _b, a in pixels):
         return None
 
     analysis_pixels = pixels
@@ -102,6 +117,11 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
                     analysis_pixels = list(medium.get_flattened_data() if hasattr(medium, "get_flattened_data") else medium.getdata())
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             pass
+    sampled, family_sizes = _balanced_ink_samples(analysis_pixels)
+    if not sampled:
+        return None
+    meaningful_families = {name for name, count in family_sizes.items()
+                           if count >= max(12, sum(family_sizes.values()) * .004)}
     profile = analyze_ink_regions(analysis_pixels, analysis_width, analysis_height)
     profiles = profile["profiles"]
     microtext_count = sum(
@@ -146,9 +166,10 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
             unsafe_colors.append(color_id)
         safety_margins[color_id] = margin
         signals: list[float] = []
+        family_signals: dict[str, list[float]] = defaultdict(list)
         hidden = 0.0
         weight_total = 0.0
-        for ink, alpha in sampled:
+        for ink, alpha, family in sampled:
             # Approximate alpha-composited contrast: transparent edges matter.
             l = bg_lab[0] * (1 - alpha) + ink[0] * alpha
             contrast = (max(l, bg_lab[0]) + .05) / (min(l, bg_lab[0]) + .05)
@@ -157,6 +178,7 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
             score = (.58 * min(1, math.log(max(1.0, contrast)) / math.log(15))
                      + .42 * min(1, perceptual / .55))
             signals.append(score)
+            family_signals[family].append(score)
             weight_total += alpha
             if score < .19:
                 hidden += alpha
@@ -164,65 +186,45 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
         low = signals[max(0, int(len(signals) * .20) - 1)]
         average = sum(signals) / len(signals)
         hidden_fraction = hidden / max(weight_total, .001)
-        # Favor neutral/quiet garment backgrounds only as a tiebreaker; the
-        # strongest criterion remains actual foreground legibility.
+        # The weakest meaningful ink family protects minority lettering/icons
+        # that a full-image percentile would overlook.
+        family_lows = []
+        for family in meaningful_families:
+            values = sorted(family_signals.get(family, []))
+            if values:
+                family_lows.append(values[max(0, int(len(values) * .20) - 1)])
+        weakest_family = min(family_lows, default=low)
         chroma = math.hypot(bg_lab[2], bg_lab[3])
         neutral_bonus = max(0, 1 - chroma / .18)
+        colorful_fraction = sum(count for family, count in family_sizes.items()
+                                if family.startswith("hue-")) / max(1, sum(family_sizes.values()))
+        # Subtle visual quietness preference on highly multicolored artwork.
+        distraction = 5.0 * colorful_fraction * min(1, chroma / .18)
         rating = 100 * max(0, min(1,
-            .49 * low + .36 * average + .15 * (1 - hidden_fraction)
-            + .035 * neutral_bonus,
-        ))
-        # A sales prior only breaks ties among garments readable for this
-        # design; it must not rescue an unreadable background.
+            .34 * low + .25 * average + .30 * weakest_family
+            + .11 * (1 - hidden_fraction) + .025 * neutral_bonus,
+        )) - distraction
+        rating = max(0, rating)
+        # Sales speed is <1 point: it must never displace clearly better art contrast.
         popularity = SALES_SPEED_PRIOR.get(color_id, 0.0)
-        combined = .92 * rating + 8.0 * popularity
-        weighted.append((color_id, round(combined, 1), bg_lab, round(rating, 1)))
+        combined = rating + .75 * popularity
+        weighted.append((color_id, round(combined, 2), bg_lab, round(rating, 2)))
     weighted.sort(key=lambda row: (-row[1], -row[3], row[0]))
     unsafe_set = set(unsafe_colors)
-    strongest_ink_contrast = max(
-        (row[3] for row in weighted if row[0] not in unsafe_set), default=0)
-    quality_floor = max(21.0, strongest_ink_contrast * .56)
-    readable = [row for row in weighted
-                if row[0] not in unsafe_set and row[3] >= quality_floor]
-    safe_ranked = [row for row in weighted if row[0] not in unsafe_set]
     by_id = {row[0]: row for row in weighted}
-    best: list[str] = []
-    # Prefer high-readability, diverse colors. Never use a flagged color
-    # before exhausting the verified safe colors.
-    for min_distance in (.090, .060, .035, .0):
-        for color_id, _score, lab, _visual in readable:
-            if color_id in best:
-                continue
-            if any(_distance(lab, by_id[chosen][2]) < min_distance
-                   for chosen in best):
-                continue
-            best.append(color_id)
-            if len(best) == 10:
-                break
-        if len(best) == 10:
-            break
-    for row in safe_ranked:
-        if len(best) == 10:
-            break
-        if row[0] not in best:
-            best.append(row[0])
-    # Only when <10 safe colors exist, add lowest-risk preview candidates.
-    # A hard-gated color stays in unsafe_colors, and the UI marks it clearly.
-    if len(best) < 10:
-        review_ranked = sorted(
-            (row for row in weighted if row[0] in unsafe_set),
-            key=lambda row: (-safety_margins[row[0]], -row[3], -row[1], row[0]),
-        )
-        for row in review_ranked:
-            if len(best) == 10:
-                break
-            if row[0] not in best:
-                best.append(row[0])
-    secondary_floor = max(16.0, strongest_ink_contrast * .42)
-    eligible_colors = [color for color, _combined, _lab_color, visual in weighted
-                       if color not in unsafe_set and visual >= secondary_floor]
-    eligible_set = set(eligible_colors)
-    review_colors = [color for color in best if color not in eligible_set]
+    quality_candidates = [row for row in weighted if row[0] not in unsafe_set
+                          and (not profiles or safety_margins[row[0]] >= 1.12)]
+    strongest_ink_contrast = max((row[3] for row in quality_candidates), default=0)
+    # Not a quota: requiring 78% of the best measured garment's readability
+    # avoids including poor colors just to make ten. Do not diversify away
+    # stronger adjacent neutrals or favor sales over image fidelity.
+    # Art-only (no reliable text ROIs) can have softer luminance but strong
+    # perceptual separation. Text-bearing work must clear a stricter floor.
+    quality_floor = max(23.0 if profiles else 14.0, strongest_ink_contrast * .80)
+    eligible_colors = [color for color, _combined, _lab_color, visual in quality_candidates
+                       if visual >= quality_floor]
+    best = eligible_colors[:10]
+    review_colors: list[str] = []
     return {
         "version": ALGORITHM,
         "output_sha256": output_sha256,
@@ -232,8 +234,8 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
         "readability_margins": {color: safety_margins[color] for color in best},
         "unsafe_colors": unsafe_colors,
         "review_colors": review_colors,
-        "readability_check": "region_ink_alpha_composite_v2",
-        "method": "design_region_alpha_sales_prior_ten",
+        "readability_check": "region_ink_alpha_composite_v3",
+        "method": "design_region_alpha_quality_first",
         "eligible_colors": eligible_colors,
         "analysis": {
             "resolution": [analysis_width, analysis_height],

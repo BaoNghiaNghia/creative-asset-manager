@@ -2111,70 +2111,67 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   min-height: 34px;
   padding: 3px;
 }
+.etsy-design-gallery-palette-section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 9px 0;
+}
+.etsy-design-gallery-remaining {
+  border-top: 1px solid #e5eaf1;
+}
 .etsy-design-gallery-colormatch-heading {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 4px;
-  color: #2b5da4;
-  font-size: 11px;
-  font-weight: 760;
-  padding: 0 3px;
+  gap: 8px;
+  padding: 0 2px;
+  color: #31425a;
+  font-size: 12px;
+  font-weight: 700;
 }
 .etsy-design-gallery-colormatch-heading small {
-  color: #7b899b;
-  font-size: 9px;
-  font-weight: 500;
-}
-.etsy-design-gallery-recommended {
-  margin: 5px 0 2px;
-  grid-template-columns: repeat(6, 28px);
-  gap: 9px;
-}
-.etsy-design-gallery-recommendations {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px 12px;
-  margin: 5px 0 3px;
-}
-.etsy-design-gallery-recommendation-group {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.etsy-design-gallery-recommendation-label {
   font-size: 10px;
-  font-weight: 650;
-  color: #687c95;
+  font-weight: 500;
+  color: #7b899b;
+  white-space: nowrap;
 }
-.etsy-design-gallery-recommendations .etsy-design-gallery-recommended {
+.etsy-design-gallery-clear-background {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-}
-.etsy-design-gallery-all-colors-toggle {
-  display: flex;
-  width: 100%;
   align-items: center;
   justify-content: space-between;
-  min-height: 30px;
-  margin: 5px 0 7px;
-  padding: 5px 7px;
-  border: 1px solid #e0e8f2;
-  border-radius: 7px;
-  background: #f8fafc;
-  color: #45617f;
+  padding: 2px 3px 9px;
+  color: #64748b;
   font-size: 11px;
-  font-weight: 660;
-  cursor: pointer;
 }
-.etsy-design-gallery-all-colors-toggle:hover,
-.etsy-design-gallery-all-colors-toggle:focus-visible {
-  background: #eefaFF;
-  border-color: #98b5d8;
+.etsy-design-gallery-product-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 2px 0;
+  color: #536781;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.etsy-design-gallery-palette-empty {
+  margin: 0;
+  padding: 7px 8px;
+  font-size: 11px;
+  color: #718096;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+.etsy-design-gallery-recommended {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  justify-items: start;
+  row-gap: 10px;
+  padding: 4px 3px;
+}
+.etsy-design-gallery-other-colors {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  justify-items: start;
+  gap: 8px 5px;
+  padding: 4px 3px;
 }
 .etsy-design-gallery-background-swatch {
   display: block;
@@ -2201,10 +2198,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   opacity: .65;
   cursor: not-allowed;
   border-style: dashed;
-}
-.etsy-design-gallery-background-swatch[data-readability-risk="true"] {
-  border: 2px solid #bf6e1b;
-  box-shadow: 0 0 0 1px #f3cfaa;
 }
 .etsy-design-gallery-background-swatch[aria-pressed="true"],
 .etsy-design-gallery-background-swatch:focus-visible {
@@ -2318,7 +2311,19 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-design-gallery-variant-artwork { height: 75px; }
   .etsy-design-gallery-backgrounds { margin-top: 0; padding-top: 12px; }
   .etsy-design-gallery-background-picker { display: flex; flex-wrap: wrap; gap: 11px; }
-  .etsy-design-gallery-background-swatch { width: 28px; height: 28px; }
+  .etsy-design-gallery-recommended {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .etsy-design-gallery-other-colors {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .etsy-design-gallery-backgrounds .etsy-design-gallery-background-swatch {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+  }
 }
 @media (max-height: 580px) and (min-width: 681px) {
   .etsy-design-gallery-header { min-height: 64px; padding-block: 9px; }

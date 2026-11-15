@@ -78,7 +78,7 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
     buf = BytesIO()
     image.save(buf, format="PNG")
     result = recommend_garment_colors(buf.getvalue(), "e" * 64)
-    assert result is not None and result["version"] == "colormatch-sms-c1717-v8"
+    assert result is not None and result["version"] == "colormatch-sms-c1717-v9"
     row = {**_job().payload_json["design_assets"][1], "color_match": result}
     assert script.fresh(row)
     # A many-color artwork can contain >16 total ROIs even though only
@@ -91,7 +91,7 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
         **result["analysis"], "text_regions": 193,
     }}}
     assert not script.fresh(too_many)
-    zero = {**result, "recommended": [], "insufficient_safe_colors": True}
+    zero = {**result, "recommended": [], "insufficient_safe_colors": not result["insufficient_safe_colors"]}
     assert not script.fresh({**row, "color_match": zero})
     assert not script.fresh({**row, "color_match": {
         **result, "recommended": ["black", "black"],
@@ -103,7 +103,7 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
         **result, "unsafe_colors": ["unknown"],
     }})
     assert not script.fresh({**row, "color_match": {
-        **result, "readability_check": "not-v8",
+        **result, "readability_check": "not-v9",
     }})
     assert not script.fresh({**row, "color_match": {
         **result, "analysis": {**result["analysis"], "resolution": [4000, 5000]},
@@ -141,7 +141,7 @@ def test_local_image_checksum_guard(tmp_path):
     preview = script.make_local_thumbnail(path, checksum)
     assert preview and preview.startswith(b"\x89PNG\r\n\x1a\n")
     assert script.make_local_thumbnail(path, "0" * 64) is None
-    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v8"
+    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v9"
 
 def test_medium_analysis_is_in_memory_and_has_bounded_dimensions(tmp_path):
     script = _script()

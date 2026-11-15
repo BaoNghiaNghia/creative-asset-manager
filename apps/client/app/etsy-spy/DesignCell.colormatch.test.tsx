@@ -1,31 +1,42 @@
 // @vitest-environment jsdom
-import {afterEach, describe, expect, it} from "vitest";
-import {act} from "react";
-import {createRoot, type Root} from "react-dom/client";
-import {DesignCell} from "./DesignCell";
-import {C1717_SMS_COLORS} from "./c1717SmsColors";
-import type {DesignAsset, Listing} from "./api";
+import { afterEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { DesignCell } from "./DesignCell";
+import { C1717_SMS_COLORS } from "./c1717SmsColors";
+import type { DesignAsset, Listing } from "./api";
 
-(globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean})
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-const make = (id: string, colors?: string[]): DesignAsset => ({
-  id, job_id: "colormatch-job", listing_key: "listing-1",
+const SHA = "a".repeat(64);
+const OTHER_SHA = "b".repeat(64);
+const TOP_TEN = [
+  "white", "banana", "butter", "chambray", "ivory",
+  "island-reef", "blossom", "hydrangea", "bay", "sandstone",
+];
+
+const make = (id: string, colors: string[], version: "colormatch-sms-c1717-v9" | "colormatch-sms-c1717-v8" | "colormatch-pixel-v1" = "colormatch-sms-c1717-v9"): DesignAsset => ({
+  id, job_id: "color-job", listing_key: "listing-1",
   position: id === "b" ? "left_sleeve" : "front",
   variant: 1, method: "imagegen", status: "needs_review", source: "mapped",
-  output_sha256: id === "a" ? "a".repeat(64) : "b".repeat(64),
+  output_sha256: id === "b" ? OTHER_SHA : SHA,
   thumbnail_url: "/thumb/" + id, original_url: "/original/" + id,
-  print_ready: false, rights_status: "unverified",
-  manual_qa_required: true,
-  ...(colors ? { color_match: {
-    version: "colormatch-pixel-v1" as const,
-    output_sha256: id === "a" ? "a".repeat(64) : "b".repeat(64),
+  print_ready: false, rights_status: "unverified", manual_qa_required: true,
+  color_match: {
+    version, output_sha256: id === "b" ? OTHER_SHA : SHA,
     recommended: colors,
-    method: "thumbnail_pixel_contrast" as const,
-  }} : {}),
+    eligible_colors: colors,
+    review_colors: [],
+    unsafe_colors: ["black", "true-navy", "neon-pink"],
+    method: version === "colormatch-sms-c1717-v9"
+      ? "design_region_alpha_quality_first"
+      : version === "colormatch-sms-c1717-v8"
+        ? "design_region_alpha_sales_prior_ten" : "thumbnail_pixel_contrast",
+  },
 });
 
-describe("per-design ColorMatch background recommendations", () => {
+describe("ColorMatch quality-first two-section palette", () => {
   let host: HTMLDivElement | null = null;
   let root: Root | null = null;
 
@@ -35,12 +46,10 @@ describe("per-design ColorMatch background recommendations", () => {
     root = createRoot(host);
     await act(async () => root?.render(
       <DesignCell item={{
-        listingKey: "listing-1", pageTitle: "Two-placement shirt", designs: assets,
+        listingKey: "listing-1", pageTitle: "Front and sleeve shirt", designs: assets,
       } as Listing} />,
     ));
-    await act(async () =>
-      host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click(),
-    );
+    await act(async () => host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click());
     return document.body.querySelector<HTMLElement>(".etsy-design-gallery")!;
   }
 
@@ -50,228 +59,125 @@ describe("per-design ColorMatch background recommendations", () => {
     root = null;
     host = null;
     document.body.style.overflow = "";
-    try { window.sessionStorage.clear(); } catch { /* jsdom opaque origin */ }
+    try { window.sessionStorage.clear(); } catch { /* optional in tests */ }
   });
 
-  it("uses cached suggestions instantly and keeps manual overrides for each design", async () => {
-    const dialog = await render([
-      make("a", ["ivory", "pepper", "bay", "blue-jean"]),
-      make("b", ["blue-jean", "ivory", "pepper", "mustard"]),
-    ]);
-    expect(dialog.dataset.previewBackground).toBe("ivory");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(5);
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
-      .toContain("Đề xuất");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(5);
-    expect(dialog.querySelector<HTMLButtonElement>(".etsy-design-gallery-all-colors-toggle")
-      ?.getAttribute("aria-expanded")).toBe("false");
+  const buttons = (dialog: HTMLElement, label: string) =>
+    Array.from(dialog.querySelectorAll<HTMLButtonElement>(
+      `[role="group"][aria-label="${label}"] button`,
+    ));
 
-    const originalImage = dialog.querySelector<HTMLImageElement>(
+  it("renders exactly two groups, ten recommended and every remaining color once", async () => {
+    const dialog = await render([make("a", TOP_TEN)]);
+    const top = buttons(dialog, "Màu phù hợp với thiết kế");
+    const rest = buttons(dialog, "Các màu còn lại");
+    const configured = C1717_SMS_COLORS.length + 4; // four legacy previews
+    expect(top).toHaveLength(10);
+    expect(rest).toHaveLength(configured - 10);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch"))
+      .toHaveLength(configured + 1); // checkerboard is separate
+    expect(dialog.textContent).toContain("Màu phù hợp nhất");
+    expect(dialog.textContent).toContain("Các màu còn lại");
+    expect(dialog.querySelector(".etsy-design-gallery-all-colors-toggle")).toBeNull();
+    const ids = [...top, ...rest].map(button => button.className);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(dialog.dataset.previewBackground).toBe("white");
+    expect(buttons(dialog, "Nền trong suốt")).toHaveLength(1);
+  });
+
+  it("never pads a limited quality shortlist with unsafe colors", async () => {
+    const dialog = await render([make("a", TOP_TEN.slice(0, 6))]);
+    expect(buttons(dialog, "Màu phù hợp với thiết kế")).toHaveLength(6);
+    expect(buttons(dialog, "Các màu còn lại")).toHaveLength(C1717_SMS_COLORS.length + 4 - 6);
+    expect(dialog.querySelector(".etsy-design-gallery-recommended .etsy-design-gallery-background-black"))
+      .toBeNull();
+    const black = dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-other-colors .etsy-design-gallery-background-black",
+    );
+    expect(black?.dataset.readabilityRisk).toBe("true");
+    expect(black?.title).toContain("Tương phản thấp");
+    await act(async () => black?.click());
+    expect(dialog.dataset.previewBackground).toBe("black");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+  });
+
+  it("shows all available colors below when no background qualifies", async () => {
+    const dialog = await render([make("a", [])]);
+    expect(buttons(dialog, "Màu phù hợp với thiết kế")).toHaveLength(0);
+    expect(buttons(dialog, "Các màu còn lại")).toHaveLength(C1717_SMS_COLORS.length + 4);
+    expect(dialog.textContent).toContain("Chưa tìm thấy màu đủ tương phản");
+    expect(dialog.dataset.previewBackground).toBe("transparent");
+  });
+
+  it("keeps per-design manual color choice without reloading original artwork", async () => {
+    const dialog = await render([
+      make("a", ["white", "ivory", "chambray"]),
+      make("b", ["pepper", "denim", "graphite"]),
+    ]);
+    const original = dialog.querySelector<HTMLImageElement>(
       ".etsy-design-gallery-artwork-original",
     );
-    const previewImage = dialog.querySelector<HTMLImageElement>(
-      ".etsy-design-gallery-artwork-thumb",
-    );
-    const originalSrc = originalImage?.getAttribute("src");
-    await act(async () => previewImage?.dispatchEvent(new Event("load")));
-    expect(dialog.querySelector<HTMLElement>(".etsy-design-gallery-artwork")
-      ?.dataset.previewQuality).toBe("thumbnail");
+    const originalSrc = original?.getAttribute("src");
     await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-recommended .etsy-design-gallery-background-pepper",
+      ".etsy-design-gallery-other-colors .etsy-design-gallery-background-yam",
     )?.click());
-    expect(dialog.dataset.previewBackground).toBe("pepper");
-    expect(dialog.querySelector(".etsy-design-gallery-artwork-original"))
-      .toBe(originalImage);
-    expect(dialog.querySelector(".etsy-design-gallery-artwork-thumb"))
-      .toBe(previewImage);
-    expect(originalImage?.getAttribute("src")).toBe(originalSrc);
-    expect(dialog.querySelector<HTMLElement>(".etsy-design-gallery-artwork")
-      ?.dataset.previewQuality).toBe("thumbnail");
+    expect(dialog.dataset.previewBackground).toBe("yam");
+    expect(original?.getAttribute("src")).toBe(originalSrc);
+    expect(dialog.querySelector(".etsy-design-gallery-artwork-original")).toBe(original);
 
     await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button",
     )[1]?.click());
-    expect(dialog.dataset.previewBackground).toBe("blue-jean");
-
+    expect(dialog.dataset.previewBackground).toBe("pepper");
     await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button",
     )[0]?.click());
-    expect(dialog.dataset.previewBackground).toBe("pepper");
-
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-close",
-    )?.click());
-    await act(async () =>
-      host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click(),
+    expect(dialog.dataset.previewBackground).toBe("yam");
+    const yam = dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-other-colors .etsy-design-gallery-background-yam",
     );
-    expect(document.body.querySelector<HTMLElement>(".etsy-design-gallery")
-      ?.dataset.previewBackground).toBe("pepper");
+    expect(yam?.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => buttons(dialog, "Nền trong suốt")[0]?.click());
+    expect(dialog.dataset.previewBackground).toBe("transparent");
   });
 
-  it("renders ten ranked V2 backgrounds in three accessible groups", async () => {
-    const colors = [
-      "black", "sage", "denim", "crimson", "grey",
-      "flo-blue", "watermelon", "terracotta", "bay", "chalky-mint",
+  it("legacy V8 only surfaces eligible colors, not forced review candidates", async () => {
+    const asset = make("a", TOP_TEN, "colormatch-sms-c1717-v8");
+    asset.color_match!.recommended = [
+      "white", "ivory", "black", "true-navy", "neon-pink",
+      "mustard", "red", "grey", "pepper", "denim",
     ];
-    const updated = make("a", colors);
-    updated.color_match!.version = "colormatch-pixel-v2";
-    const dialog = await render([updated]);
-    expect(dialog.dataset.previewBackground).toBe("black");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommendation-group")).toHaveLength(3);
-    expect(dialog.querySelector('[aria-label="Phù hợp nhất"]')?.querySelectorAll("button")).toHaveLength(3);
-    expect(dialog.querySelector('[aria-label="Gợi ý thêm"]')?.querySelectorAll("button")).toHaveLength(4);
-    expect(dialog.querySelector('[aria-label="Lựa chọn khác"]')?.querySelectorAll("button")).toHaveLength(3);
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-denim",
-    )?.click());
-    expect(dialog.dataset.previewBackground).toBe("denim");
+    asset.color_match!.eligible_colors = ["white", "ivory", "butter", "bay"];
+    asset.color_match!.review_colors = ["black", "true-navy", "neon-pink", "mustard", "red", "grey", "pepper", "denim"];
+    const dialog = await render([asset]);
+    expect(buttons(dialog, "Màu phù hợp với thiết kế")).toHaveLength(4);
+    expect(dialog.querySelector(".etsy-design-gallery-recommended .etsy-design-gallery-background-black"))
+      .toBeNull();
+    expect(dialog.querySelector(".etsy-design-gallery-recommended .etsy-design-gallery-background-butter"))
+      .not.toBeNull();
   });
 
-  it("preserves full garment picker and checkerboard without any second image download", async () => {
-    const dialog = await render([make("a", ["ivory", "pepper", "bay", "blue-jean"])]);
-    const picture = dialog.querySelector<HTMLImageElement>(".etsy-design-gallery-stage img");
-    const source = picture?.src;
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-all-colors-toggle",
-    )?.click());
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(77);
-    const chosen = dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-white",
-    );
-    await act(async () => chosen?.click());
-    expect(dialog.dataset.previewBackground).toBe("white");
-    expect(picture?.src).toBe(source);
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-transparent",
-    )?.click());
-    expect(dialog.dataset.previewBackground).toBe("transparent");
-    expect(picture?.src).toBe(source);
-  });
-
-  it("falls back to the full legacy palette for absent or stale SHA metadata", async () => {
-    const a = make("a", ["ivory"]);
-    a.color_match!.output_sha256 = "f".repeat(64);
-    const dialog = await render([a]);
-    expect(dialog.dataset.previewBackground).toBe("transparent");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(77);
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")).toBeNull();
-  });
-  it("recommends 7-10 V5 colors per design and switches ranks when changing artwork", async () => {
-    const a = make("a", [
-      "pepper", "blue-spruce", "blue-jean", "ivory", "white",
-      "light-green", "grey", "true-navy", "denim", "espresso",
+  it("keeps all supplier-only colors and three unknown-HEX swatches in remaining", async () => {
+    const dialog = await render([make("a", TOP_TEN)]);
+    const remaining = buttons(dialog, "Các màu còn lại");
+    const disabled = remaining.filter(button => button.disabled);
+    expect(disabled.map(button => button.title).sort()).toEqual([
+      "Grass · SMS chưa có HEX", "Mystic · SMS chưa có HEX",
+      "Topaz Blue · SMS chưa có HEX",
     ]);
-    const b = make("b", [
-      "ivory", "white", "butter", "blossom", "chambray", "bay", "sandstone",
-    ]);
-    a.color_match!.version = "colormatch-sms-c1717-v5";
-    b.color_match!.version = "colormatch-sms-c1717-v5";
-    const dialog = await render([a, b]);
-    expect(dialog.dataset.previewBackground).toBe("pepper");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
-      .toContain("10 màu");
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
-      .toContain("SMS (60 ngày)");
-
-    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
-      ".etsy-design-gallery-position-list button",
-    )[1]?.click());
-    expect(dialog.dataset.previewBackground).toBe("ivory");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(8);
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
-      .toContain("7 màu");
-
-    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
-      ".etsy-design-gallery-position-list button",
-    )[0]?.click());
-    expect(dialog.dataset.previewBackground).toBe("pepper");
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
+    for (const color of C1717_SMS_COLORS.filter(color => !color.setUp)) {
+      expect(remaining.some(button => button.className.includes(
+        `etsy-design-gallery-background-${color.id}`,
+      ))).toBe(true);
+    }
   });
 
-  it("shows ten from legacy V4 and separates supplier-only colorways", async () => {
-    const configured = C1717_SMS_COLORS.filter(color => color.setUp && color.color);
-    const design = make("a", configured.slice(0, 16).map(color => color.id));
-    design.color_match!.version = "colormatch-sms-c1717-v4";
-    const dialog = await render([design]);
-
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
-    expect(dialog.querySelectorAll(".etsy-design-gallery-recommendation-group")).toHaveLength(3);
-    expect(dialog.querySelector('[aria-label="Phù hợp nhất"]')?.querySelectorAll("button")).toHaveLength(3);
-    expect(dialog.querySelector('[aria-label="Gợi ý thêm"]')?.querySelectorAll("button")).toHaveLength(4);
-    expect(dialog.querySelector('[aria-label="Lựa chọn khác"]')?.querySelectorAll("button")).toHaveLength(3);
-
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-all-colors-toggle",
-    )?.click());
-    expect(dialog.querySelectorAll(".etsy-design-gallery-background-swatch")).toHaveLength(77);
-    const supplierGroup = dialog.querySelector(
-      '[role="group"][aria-label="Chỉ có tại supplier · chưa thiết lập SMS"]',
-    );
-    expect(supplierGroup?.querySelectorAll("button")).toHaveLength(16);
-    const unavailable = Array.from(dialog.querySelectorAll<HTMLButtonElement>(
-      ".etsy-design-gallery-background-swatch:disabled",
-    ));
-    expect(unavailable.map(button => button.getAttribute("title")).sort())
-      .toEqual([
-        "Grass · SMS chưa có HEX", "Mystic · SMS chưa có HEX",
-        "Topaz Blue · SMS chưa có HEX",
-      ]);
+  it("does not treat stale SHA recommendations as valid", async () => {
+    const asset = make("a", TOP_TEN);
+    asset.color_match!.output_sha256 = OTHER_SHA;
+    const dialog = await render([asset]);
+    expect(buttons(dialog, "Màu phù hợp với thiết kế")).toHaveLength(0);
+    expect(buttons(dialog, "Các màu còn lại")).toHaveLength(C1717_SMS_COLORS.length + 4);
+    expect(dialog.textContent).toContain("Chưa có dữ liệu gợi ý");
   });
-
-  it("V6 keeps unsafe swatch metadata without rendering a warning banner", async () => {
-    const a = make("a", ["white", "ivory", "butter", "chambray", "ice-blue", "flo-blue", "orchid"]);
-    a.color_match!.version = "colormatch-sms-c1717-v6";
-    a.color_match!.method = "thumbnail_ink_readability_sales_prior";
-    a.color_match!.unsafe_colors = ["black", "true-navy", "pepper"];
-    a.color_match!.readability_check = "foreground_ink_connected_components_proxy_v1";
-    a.color_match!.insufficient_safe_colors = false;
-    const dialog = await render([a]);
-
-    expect(dialog.dataset.previewBackground).toBe("white");
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")?.textContent)
-      .toContain("lọc chữ chìm trước");
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
-
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-all-colors-toggle",
-    )?.click());
-    const navy = dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-true-navy",
-    );
-    expect(navy?.dataset.readabilityRisk).toBe("true");
-    expect(navy?.title).toContain("chữ/chi tiết mực có thể bị chìm");
-    await act(async () => navy?.click());
-    expect(dialog.dataset.previewBackground).toBe("true-navy");
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
-    expect(dialog.textContent).not.toContain("Comfort Colors C1717: 72 màu từ SMS");
-
-    await act(async () => dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-white",
-    )?.click());
-    expect(dialog.dataset.previewBackground).toBe("white");
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
-  });
-
-  it("V6 displays no invented recommendations when all safe backgrounds fail", async () => {
-    const a = make("a", []);
-    a.color_match!.version = "colormatch-sms-c1717-v6";
-    a.color_match!.method = "thumbnail_ink_readability_sales_prior";
-    a.color_match!.unsafe_colors = ["black", "true-navy", "pepper"];
-    a.color_match!.readability_check = "foreground_ink_connected_components_proxy_v1";
-    a.color_match!.insufficient_safe_colors = true;
-    const dialog = await render([a]);
-
-    expect(dialog.dataset.previewBackground).toBe("transparent");
-    expect(dialog.querySelector(".etsy-design-gallery-colormatch-heading")).toBeNull();
-    expect(dialog.textContent).toContain("Không có nền áo đủ an toàn");
-    const navy = dialog.querySelector<HTMLButtonElement>(
-      ".etsy-design-gallery-background-true-navy",
-    );
-    await act(async () => navy?.click());
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
-    expect(dialog.textContent).not.toContain("Comfort Colors C1717: 72 màu từ SMS");
-  });
-
 });

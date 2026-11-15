@@ -1,6 +1,6 @@
 # Snapshot of C1717 Comfort Colors colors from authenticated SMS Product Information, 2026-11-14.
 # UI colors are approximations, never production dye or live stock evidence.
-ALGORITHM = "colormatch-sms-c1717-v8"
+ALGORITHM = "colormatch-sms-c1717-v9"
 SMS_C1717_COLORS = (
     ("true-navy", "True Navy", "#041E42", True),
     ("light-green", "Light Green", "#5C7F71", True),

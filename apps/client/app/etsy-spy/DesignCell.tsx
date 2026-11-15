@@ -21,7 +21,6 @@ const DESIGN_BACKGROUNDS = [
 ] as const;
 type DesignBackground = (typeof DESIGN_BACKGROUNDS)[number]["id"];
 type PreviewDesign = NonNullable<Listing["designs"]>[number];
-const C1717_SETUP_IDS = new Set<string>(C1717_SMS_COLORS.filter(color => color.setUp).map(color => color.id));
 const C1717_SUPPLIER_IDS = new Set<string>(C1717_SMS_COLORS.filter(color => !color.setUp).map(color => color.id));
 const C1717_NO_HEX_IDS = new Set<string>(C1717_SMS_COLORS.filter(color => !color.color).map(color => color.id));
 const GARMENT_COLOR_IDS = new Set<string>(
@@ -29,21 +28,46 @@ const GARMENT_COLOR_IDS = new Set<string>(
 );
 const COLOR_MATCH_VERSIONS = new Set([
   "colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3",
-  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8",
+  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9",
 ]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
+
+// The lower palette is visually ordered (neutrals, then hue) rather than the
+// arbitrary SMS catalog order. It never influences recommendation ranking.
+function paletteVisualOrder(color: string | null): number {
+  if (!color) return 1000; // unknown HEX stays at the end
+  const r = parseInt(color.slice(1, 3), 16) / 255;
+  const g = parseInt(color.slice(3, 5), 16) / 255;
+  const b = parseInt(color.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (!delta || delta / Math.max(max, 0.01) < 0.17) return 1 - max;
+  let hue = max === r ? ((g - b) / delta) % 6
+    : max === g ? (b - r) / delta + 2
+      : (r - g) / delta + 4;
+  hue = ((hue * 60) + 360) % 360;
+  return 10 + hue + (1 - max);
+}
 function recommendedColors(design: PreviewDesign): DesignBackground[] {
   const match = design.color_match;
   if (!match || !COLOR_MATCH_VERSIONS.has(match.version) ||
       match.output_sha256 !== design.output_sha256 ||
       !Array.isArray(match.recommended)) return [];
   const seen = new Set<DesignBackground>();
-  return match.recommended.slice(0, 10).filter((id): id is DesignBackground => {
+  const qualityRank = match.version === "colormatch-sms-c1717-v8" &&
+    Array.isArray(match.eligible_colors) ? match.eligible_colors : match.recommended;
+  const strict = ["colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9"].includes(match.version);
+  const approved = strict ? new Set(match.eligible_colors ?? []) : null;
+  const unsafe = new Set(match.unsafe_colors ?? []);
+  const review = new Set(match.review_colors ?? []);
+  return qualityRank.filter((id): id is DesignBackground => {
     if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
-        seen.has(id as DesignBackground)) return false;
+        seen.has(id as DesignBackground) || unsafe.has(id) || review.has(id) ||
+        (approved && !approved.has(id))) return false;
     seen.add(id as DesignBackground);
     return true;
-  });
+  }).slice(0, 10);
 }
 function designChoiceKey(design: PreviewDesign): string {
   return `${COLOR_OVERRIDE_KEY}${design.job_id}:${design.id}:${design.output_sha256}`;
@@ -94,7 +118,6 @@ export function DesignCell({ item, onPreviewStart }: {
   const [failedOriginalId, setFailedOriginalId] = useState<string | null>(null);
   const [background, setBackground] = useState<DesignBackground>("transparent");
   const [colorOverrides, setColorOverrides] = useState<Record<string, DesignBackground>>({});
-  const [showAllColors, setShowAllColors] = useState(false);
   const [productScope, setProductScope] = useState(false);
   const [productColor, setProductColor] = useState<DesignBackground | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -201,14 +224,12 @@ export function DesignCell({ item, onPreviewStart }: {
     GARMENT_COLOR_IDS.has(id)) ?? [];
   const wholeProductActive = productScope && !!wholeProductColors.length &&
     !productAdvice?.awaitingAnalysis;
-  const rankedBySalesSpeed = ["colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6",
-    "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8"]
-    .includes(preview.color_match?.version ?? "");
-  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8"]
+  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9"]
     .includes(preview.color_match?.version ?? "") &&
     preview.color_match?.output_sha256 === preview.output_sha256;
   const unsafeColors = new Set(hasReadabilityGuard && Array.isArray(preview.color_match?.unsafe_colors)
     ? preview.color_match.unsafe_colors : []);
+  const paletteSuggestions = wholeProductActive ? wholeProductColors.slice(0, 10) : suggestions;
   const selectedColor = wholeProductActive
     ? ((productColor && wholeProductColors.includes(productColor) ? productColor :
         wholeProductColors[0]) as DesignBackground)
@@ -232,35 +253,14 @@ export function DesignCell({ item, onPreviewStart }: {
       setBackground(id);
     }
   };
-  const chooseProductColor = (id: string) => {
-    if (!wholeProductColors.includes(id)) return;
-    setProductScope(true);
-    setProductColor(id as DesignBackground);
-  };
-  const suggestedOptions = suggestions.map(id =>
-    DESIGN_BACKGROUNDS.find(color => color.id === id)!,
-  );
-  const selectedCustom = suggestions.length && selectedColor !== "transparent" &&
-    !suggestions.includes(selectedColor)
-      ? DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
-      : null;
-  const topOptions = suggestions.length
-    ? [DESIGN_BACKGROUNDS[0], ...suggestedOptions, ...(selectedCustom ? [selectedCustom] : [])]
-    : [];
-  const otherOptions = DESIGN_BACKGROUNDS.slice(1).filter(option =>
-    !suggestions.includes(option.id),
-  );
-  const recommendationGroups = preview.color_match?.version === "colormatch-sms-c1717-v8" ? [
-    { id: "safe", label: "Ưu tiên tương phản", options: suggestedOptions.filter(option => !reviewColors.has(option.id)) },
-    { id: "review", label: "Cần xem thử · độ tương phản thấp", options: suggestedOptions.filter(option => reviewColors.has(option.id)) },
-  ].filter(group => group.options.length > 0) : [
-    { id: "best", label: "Phù hợp nhất", options: suggestedOptions.slice(0, 3) },
-    { id: "safe", label: "Gợi ý thêm", options: suggestedOptions.slice(3, 7) },
-    { id: "accent", label: "Lựa chọn khác", options: suggestedOptions.slice(7) },
-    ...(selectedCustom ? [{ id: "selected",
-      label: unsafeColors.has(selectedCustom.id) ? "Đã chọn · không khuyến nghị" : "Đã chọn",
-      options: [selectedCustom] }] : []),
-  ].filter(group => group.options.length > 0);
+  const suggestedOptions = paletteSuggestions.map(id =>
+    DESIGN_BACKGROUNDS.find(color => color.id === id),
+  ).filter((color): color is (typeof DESIGN_BACKGROUNDS)[number] => Boolean(color));
+  // A color is present in exactly one place: suggested OR remaining.
+  const remainingOptions = DESIGN_BACKGROUNDS.slice(1)
+    .filter(option => !paletteSuggestions.includes(option.id))
+    .sort((a, b) => paletteVisualOrder(a.color) - paletteVisualOrder(b.color)
+      || a.label.localeCompare(b.label));
   const renderSwatch = (option: (typeof DESIGN_BACKGROUNDS)[number]) => (
     <button key={option.id} type="button"
       className={`etsy-design-gallery-background-swatch etsy-design-gallery-background-${option.id}`}
@@ -269,9 +269,9 @@ export function DesignCell({ item, onPreviewStart }: {
         : C1717_SUPPLIER_IDS.has(option.id)
           ? `${option.label} · Chỉ có tại supplier (chưa thiết lập trong SMS)`
           : unsafeColors.has(option.id)
-            ? `${option.label} · Cảnh báo: chữ/chi tiết mực có thể bị chìm`
+            ? `${option.label} · Tương phản thấp, chỉ xem thử`
             : reviewColors.has(option.id)
-              ? `${option.label} · Cần xem thử: độ nổi của một số chi tiết chưa tối ưu`
+              ? `${option.label} · Chưa đạt độ tương phản khuyến nghị`
               : option.label}
       data-readability-risk={unsafeColors.has(option.id) || reviewColors.has(option.id) ? "true" : undefined}
       aria-label={C1717_NO_HEX_IDS.has(option.id)
@@ -281,25 +281,7 @@ export function DesignCell({ item, onPreviewStart }: {
       aria-pressed={selectedColor === option.id}
       onClick={() => chooseColor(option.id)} />
   );
-  const renderOtherColorGroups = (options: (typeof DESIGN_BACKGROUNDS)[number][]) => (
-    <div className="etsy-design-gallery-color-groups">
-      {[
-        { label: "Đã thiết lập trên SMS · C1717", options: options.filter(option => C1717_SETUP_IDS.has(option.id)) },
-        { label: "Chỉ có tại supplier · chưa thiết lập SMS", options: options.filter(option => C1717_SUPPLIER_IDS.has(option.id)) },
-        { label: "Nền tùy chỉnh · không thuộc C1717", options: options.filter(option =>
-          option.id !== "transparent" && !C1717_SETUP_IDS.has(option.id) && !C1717_SUPPLIER_IDS.has(option.id)) },
-      ].filter(group => group.options.length > 0).map(group => (
-        <div key={group.label} className="etsy-design-gallery-color-group">
-          <small>{group.label}</small>
-          <div className="etsy-design-gallery-background-picker" role="group" aria-label={group.label}>
-            {group.options.map(renderSwatch)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
   const goToDesign = (delta: number) => {
-    setShowAllColors(false);
     setActive(index => index === null ? null : (index + delta + designs.length) % designs.length);
   };
 
@@ -320,7 +302,6 @@ export function DesignCell({ item, onPreviewStart }: {
             returnFocusRef.current = event.currentTarget;
             setHovered(null);
             setBackground("transparent");
-            setShowAllColors(false);
             setActive(index);
           }}
           aria-label={`Xem thiết kế ${index + 1} trong ${designs.length} ảnh`}>
@@ -418,7 +399,7 @@ export function DesignCell({ item, onPreviewStart }: {
                   {positions.map(position => (
                     <button key={position.key} type="button"
                       className={position.key === selectedPosition.key ? "active" : ""}
-                      onClick={() => { setShowAllColors(false); setActive(position.entries[0].index); }}
+                      onClick={() => { setActive(position.entries[0].index); }}
                       aria-pressed={position.key === selectedPosition.key}
                       aria-label={`${position.label}, ${position.entries.length} thiết kế`}>
                       <span>{position.label}</span>
@@ -439,7 +420,7 @@ export function DesignCell({ item, onPreviewStart }: {
                   {selectedPosition.entries.map((entry, ordinal) => (
                     <button key={entry.design.job_id + ":" + entry.design.id} type="button"
                       className={entry.index === selected ? "active" : ""}
-                      onClick={() => { setShowAllColors(false); setActive(entry.index); }}
+                      onClick={() => { setActive(entry.index); }}
                       aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1)}`}
                       aria-pressed={entry.index === selected}>
                       <span className="etsy-design-gallery-variant-artwork">
@@ -458,84 +439,44 @@ export function DesignCell({ item, onPreviewStart }: {
                   <strong>Nền xem thử</strong>
                   <span>{selectedBackground.label}</span>
                 </div>
-                {productAdvice && <div className="etsy-colormatch-product-scope">
-                  <div className="etsy-colormatch-product-heading">
-                    <strong>Màu chung cho toàn sản phẩm</strong>
-                    <span>{productAdvice.positions.length} vị trí in</span>
-                  </div>
-                  {productAdvice.awaitingAnalysis ? <small>
-                    Cần hồ sơ V7 cho tất cả vị trí trước khi đề xuất màu chung.
-                  </small> : wholeProductColors.length ? <>
-                    <label className="etsy-colormatch-product-toggle">
-                      <input type="checkbox" checked={productScope}
-                        onChange={event => setProductScope(event.target.checked)} />
-                      Áp dụng cùng một nền khi xem các vị trí in
-                    </label>
-                    <div role="group" aria-label="Màu áo phù hợp cho toàn sản phẩm"
-                      className="etsy-design-gallery-background-picker">
-                      {wholeProductColors.map(id => {
-                        const option = DESIGN_BACKGROUNDS.find(color => color.id === id);
-                        return option && <button key={id} type="button"
-                          className="etsy-design-gallery-background-swatch"
-                          title={`${option.label} · Đủ điều kiện cho mọi vị trí in đã xác định`}
-                          aria-label={`Màu chung ${option.label}`}
-                          aria-pressed={wholeProductActive && selectedColor === id}
-                          style={option.color ? { backgroundColor: option.color } : undefined}
-                          onClick={() => chooseProductColor(id)} />;
-                      })}
-                    </div>
-                    {productAdvice.printReviewRequired && <small>
-                      Có chi tiết mảnh, phai hoặc chưa đủ ảnh phân tích: cần proof in thực tế.
-                    </small>}
-                  </> : <small>
-                    Không có màu C1717 đủ an toàn cho tất cả vị trí in hiện tại.
-                    Cần chỉnh artwork hoặc xem từng vị trí riêng.
-                  </small>}
-                </div>}
-                {suggestions.length > 0 ? <>
+                <div className="etsy-design-gallery-clear-background"
+                  role="group" aria-label="Nền trong suốt">
+                  <span>Nền trong suốt</span>
+                  {renderSwatch(DESIGN_BACKGROUNDS[0])}
+                </div>
+                {productAdvice && <label className="etsy-colormatch-product-toggle etsy-design-gallery-product-toggle"
+                  title={productAdvice.awaitingAnalysis
+                    ? "Chưa phân tích đủ các vị trí in" : undefined}>
+                  <input type="checkbox" checked={wholeProductActive}
+                    disabled={productAdvice.awaitingAnalysis || !wholeProductColors.length}
+                    onChange={event => setProductScope(event.target.checked)} />
+                  Dùng chung một màu cho {productAdvice.positions.length} vị trí in
+                </label>}
+                <div className="etsy-design-gallery-palette-section">
                   <div className="etsy-design-gallery-colormatch-heading">
-                    <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất 10 màu áo tự động</span>
-                    <small>{suggestions.length} màu · {preview.color_match?.version === "colormatch-sms-c1717-v8"
-                      ? `${reviewColors.size} màu cần xem thử · xếp hạng theo design + SMS`
-                      : rankedBySalesSpeed
-                        ? hasReadabilityGuard
-                          ? "lọc chữ chìm trước · xếp hạng theo SMS (60 ngày)"
-                          : "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
-                        : "theo artwork · chờ cập nhật dữ liệu xu hướng bán"}</small>
+                    <strong>Màu phù hợp nhất</strong>
+                    <small>{suggestedOptions.length} màu được gợi ý</small>
                   </div>
-                  <div className="etsy-design-gallery-recommendations">
-                    <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
-                      role="group" aria-label="Nền trong suốt">
-                      {renderSwatch(DESIGN_BACKGROUNDS[0])}
-                    </div>
-                    {recommendationGroups.map(group => <div key={group.id}
-                      className="etsy-design-gallery-recommendation-group">
-                      <span className="etsy-design-gallery-recommendation-label">{group.label}</span>
-                      <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
-                        role="group" aria-label={group.label}>
-                        {group.options.map(renderSwatch)}
-                      </div>
-                    </div>)}
-                  </div>
-                  <button className="etsy-design-gallery-all-colors-toggle" type="button"
-                    aria-expanded={showAllColors}
-                    onClick={() => setShowAllColors(previous => !previous)}>
-                    {showAllColors ? "Thu gọn bảng màu" : "Xem tất cả màu áo"}
-                    <span aria-hidden="true">{showAllColors ? "⌃" : "⌄"}</span>
-                  </button>
-                  {showAllColors && <div role="group" aria-label="Tất cả màu nền khác">
-                    {renderOtherColorGroups(otherOptions.filter(option => option.id !== selectedCustom?.id))}
-                  </div>}
-                </> : <div role="group" aria-label="Màu nền xem thiết kế">
-                  {hasReadabilityGuard && <p className="etsy-design-gallery-background-note">
-                    Không có nền áo đủ an toàn cho tất cả nhóm mực trong design này.
-                    Chỉ xem thử thủ công, không dùng làm gợi ý in.
+                  {suggestedOptions.length ? <div
+                    className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
+                    role="group" aria-label="Màu phù hợp với thiết kế">
+                    {suggestedOptions.map(renderSwatch)}
+                  </div> : <p className="etsy-design-gallery-palette-empty">
+                    {hasReadabilityGuard
+                      ? "Chưa tìm thấy màu đủ tương phản với toàn bộ chi tiết thiết kế."
+                      : "Chưa có dữ liệu gợi ý phù hợp cho thiết kế này."}
                   </p>}
-                  <div className="etsy-design-gallery-background-picker">
-                    {renderSwatch(DESIGN_BACKGROUNDS[0])}
+                </div>
+                <div className="etsy-design-gallery-palette-section etsy-design-gallery-remaining">
+                  <div className="etsy-design-gallery-colormatch-heading">
+                    <strong>Các màu còn lại</strong>
+                    <small>{remainingOptions.length} màu</small>
                   </div>
-                  {renderOtherColorGroups(DESIGN_BACKGROUNDS.slice(1))}
-                </div>}
+                  <div className="etsy-design-gallery-background-picker etsy-design-gallery-other-colors"
+                    role="group" aria-label="Các màu còn lại">
+                    {remainingOptions.map(renderSwatch)}
+                  </div>
+                </div>
               </section>
             </aside>
           </div>

@@ -9,7 +9,7 @@ const make = (position: string, id: string, eligible: string[], unsafe: string[]
   status: "needs_review", output_sha256: sha, thumbnail_url: "/thumb",
   original_url: "/orig", print_ready: false, rights_status: "unverified",
   manual_qa_required: true, color_match: {
-    version: "colormatch-sms-c1717-v8", output_sha256: sha,
+    version: "colormatch-sms-c1717-v9", output_sha256: sha,
     recommended: eligible.slice(0, 10), eligible_colors: eligible,
     unsafe_colors: unsafe, method: "design_region_alpha_sales_prior",
     analysis: {resolution: [512, 512], source: "medium", regions: [],
