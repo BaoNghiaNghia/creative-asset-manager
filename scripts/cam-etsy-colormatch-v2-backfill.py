@@ -61,6 +61,12 @@ def fresh(row: dict) -> bool:
     if projected is None:
         return False
     colors = projected["recommended"]
+    # Refresh the old V10 empty shortlists once after preview calibration;
+    # preserve valid existing nonempty choices and stop retrying truly
+    # unreadable artwork when the calibrated algorithm still yields none.
+    analysis = meta.get("analysis") if isinstance(meta.get("analysis"), dict) else {}
+    if not colors and analysis.get("review_policy") != "guarded-preview-floor-v2":
+        return False
     return (len(colors) <= 10 and
             set(colors).issubset(set(projected["eligible_colors"]) | set(projected["review_colors"])) and
             set(colors).isdisjoint(projected["unsafe_colors"]))

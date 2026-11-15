@@ -110,6 +110,24 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
     }})
 
 
+def test_empty_v10_is_refreshed_once_for_guarded_preview_recalibration():
+    from io import BytesIO
+    script = _script()
+    image = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
+    drawer = ImageDraw.Draw(image)
+    drawer.rectangle((15, 25, 145, 44), fill=(10, 10, 10, 80))
+    drawer.rectangle((15, 105, 145, 124), fill=(250, 250, 250, 80))
+    buffer = BytesIO()
+    image.save(buffer, "PNG")
+    metadata = recommend_garment_colors(buffer.getvalue(), "e" * 64)
+    assert metadata is not None and metadata["recommended"] == []
+    row = {**_job().payload_json["design_assets"][1], "color_match": metadata}
+    assert script.fresh(row)  # Even if no readable color, do not loop forever.
+    old = {**metadata, "analysis": {k: v for k, v in metadata["analysis"].items()
+                                     if k != "review_policy"}}
+    assert not script.fresh({**row, "color_match": old})
+
+
 def test_drive_read_receives_only_signed_thumbnail_reference(monkeypatch):
     script = _script()
     from app.modules.etsy_spy import imagegen_drive

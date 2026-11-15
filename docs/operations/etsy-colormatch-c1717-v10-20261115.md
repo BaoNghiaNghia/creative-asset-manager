@@ -28,6 +28,21 @@
 4. Final dry-run counts only validated V10 as fresh; V9 remains API-readable until refreshed.
 5. Backfill changes only the color_match JSON on completed designs, not the original artwork or Drive files.
 
+## Guarded preview calibration (V10 policy revision)
+- Keep the high-confidence readability gate unchanged.
+- Reduce only the conditional preview score floor from 38 to 34 and the
+  preview relative-rank floor from max(40, 78% best score) to
+  max(34, 78% best score). Preserve the minimum 1.8:1 ink contrast,
+  23 illustration visibility points, and severe-visibility rejection.
+- Preview colors are still explicitly review-only. Very low-opacity
+  ink that cannot clear the contrast floor remains without suggestions.
+- Set analysis.review_policy to guarded-preview-floor-v2.
+- Only V10 designs with empty existing suggestions and missing this
+  policy marker are stale for backfill. V10 designs with existing valid
+  suggestions are intentionally preserved. Empty designs that still have
+  zero acceptable previews are processed once, not indefinitely.
+- PNG files, supplier palette and frontend's two-group layout stay unchanged.
+
 ## Known limitations
 - Region classification is geometry-only, so script/serif text and small punctuation may be misclassified.
 - CIEDE2000 measures color difference, not universal aesthetic quality.

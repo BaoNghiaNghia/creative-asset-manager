@@ -319,8 +319,11 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
         high_confidence = (not severe and art_score >= 27 and (
             not constraints or all(ratio >= (3.4 if confirmed else 2.7)
                                    for ratio, _req, confirmed in constraints)))
+        # Preview-only: slightly softer score floor, never a high-confidence
+        # recommendation. Preserve hard contrast/visibility floors so an
+        # unreadable logo is not added merely to fill ten slots.
         conditional = (not severe and art_score >= 23
-                       and worst_ratio >= 1.8 and total_score >= 38)
+                       and worst_ratio >= 1.8 and total_score >= 34)
         reason = ("text_low_contrast" if worst_ratio < 1.8 else
                   "illustration_low_contrast" if art_score < 23 else
                   "print_review" if faded or source == "thumbnail" else
@@ -343,7 +346,7 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
         for row in review_candidates:
             if len(review) >= min(5, 10 - len(recommendations)):
                 break
-            if row["score"] >= max(40, .78 * top_score):
+            if row["score"] >= max(34, .78 * top_score):
                 review.append(row["id"])
         recommendations.extend(review)
     unsafe = [row["id"] for row in ranked
@@ -368,6 +371,7 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
             "text_regions": region_analysis.get("text_regions", 0),
             "microtext_regions": inspected,
             "faded_ink": bool(region_analysis.get("faded_ink", False)),
+            "review_policy": "guarded-preview-floor-v2",
             "print_review_required": bool(region_analysis.get("faded_ink", False) or source == "thumbnail"
                                           or review or inspected),
         },

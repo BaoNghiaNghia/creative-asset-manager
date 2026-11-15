@@ -123,6 +123,30 @@ def test_truly_bad_or_unreadable_artwork_not_force_padded():
     assert m["insufficient_safe_colors"]
 
 
+def test_v10_review_calibration_recovers_moderately_faded_mixed_ink_without_promoting_to_safe():
+    font = ImageFont.load_default(size=19)
+    def sample(alpha: int):
+        image = Image.new("RGBA", (192, 192))
+        draw = ImageDraw.Draw(image)
+        draw.text((9, 31), "BLACK TEXT", font=font, fill=(8, 8, 8, alpha))
+        draw.text((9, 108), "WHITE TEXT", font=font, fill=(250, 250, 250, alpha))
+        buffer = BytesIO()
+        image.save(buffer, "PNG")
+        return color_match.recommend_garment_colors(buffer.getvalue(), SHA)
+
+    moderate = sample(160)
+    assert moderate and not moderate["eligible_colors"]
+    assert 1 <= len(moderate["review_colors"]) <= 5
+    assert moderate["recommended"] == moderate["review_colors"]
+    assert moderate["analysis"]["print_review_required"] is True
+    assert moderate["analysis"]["review_policy"] == "guarded-preview-floor-v2"
+    assert _validated_color_match({"color_match": moderate}, SHA)
+    unreadable = sample(80)
+    assert unreadable and unreadable["recommended"] == []
+    assert unreadable["eligible_colors"] == []
+    assert unreadable["review_colors"] == []
+
+
 def test_projector_rejects_forged_recommendations_and_reasons():
     m = color_match.recommend_garment_colors(fixture("mixed"), SHA)
     assert m and _validated_color_match({"color_match": m}, SHA)
