@@ -13,10 +13,12 @@ from PIL import Image, UnidentifiedImageError
 from .color_match_palette import (
     ALGORITHM, GARMENT_COLORS, SALES_SPEED_PRIOR, SALES_PRIOR_SNAPSHOT,
 )
-from .color_match_readability import candidate_readability, readability_profiles
+from .color_match_readability import candidate_readability, analyze_ink_regions
 
 _MAX_SAMPLES = 2000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
+_MAX_ANALYSIS_BYTES = 6 * 1024 * 1024
+_MAX_ANALYSIS_EDGE = 768
 
 
 def _linear(v: float) -> float:
@@ -43,7 +45,8 @@ def _distance(a: tuple[float, float, float, float],
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in (1, 2, 3)))
 
 
-def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict | None:
+def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
+                             analysis_png: bytes | None = None) -> dict | None:
     """Rank up to 10 C1717 colors after a mandatory ink-readability hard gate.
 
     If fewer than seven colors pass, return only verified readable options.
@@ -63,7 +66,8 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
         with Image.open(io.BytesIO(thumbnail_png)) as image:
             if image.format != "PNG" or image.width > 256 or image.height > 256:
                 return None
-            pixels = list(image.convert("RGBA").getdata())
+            rgba = image.convert("RGBA")
+            pixels = list(rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata())
             width, height = image.size
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
@@ -77,7 +81,50 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
     if len(sampled) < 12:
         return None
 
-    profiles = readability_profiles(pixels, width, height)
+    analysis_pixels = pixels
+    analysis_width, analysis_height = width, height
+    if isinstance(analysis_png, bytes) and len(analysis_png) <= _MAX_ANALYSIS_BYTES:
+        try:
+            with Image.open(io.BytesIO(analysis_png)) as analysis:
+                if (analysis.format == "PNG"
+                        and 1 <= analysis.width <= _MAX_ANALYSIS_EDGE
+                        and 1 <= analysis.height <= _MAX_ANALYSIS_EDGE):
+                    analysis_width, analysis_height = analysis.size
+                    medium = analysis.convert("RGBA")
+                    analysis_pixels = list(medium.get_flattened_data() if hasattr(medium, "get_flattened_data") else medium.getdata())
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+            pass
+    profile = analyze_ink_regions(analysis_pixels, analysis_width, analysis_height)
+    profiles = profile["profiles"]
+    microtext_count = sum(
+        r["kind"] == "probable_text" and r["bbox"][3] - r["bbox"][1] <= 90
+        for r in profile["regions"]
+    )
+    # Re-check small-letter regions at medium resolution without re-encoding
+    # master artwork or creating any new persistent file.
+    if analysis_pixels is not pixels and microtext_count:
+        source_image = Image.new("RGBA", (analysis_width, analysis_height))
+        source_image.putdata(analysis_pixels)
+        checked = 0
+        for region in profile["regions"]:
+            if (region["kind"] != "probable_text" or
+                    region["bbox"][3] - region["bbox"][1] > 90):
+                continue
+            x0, y0, x1, y1 = region["bbox"]
+            rect = (max(0, x0 * analysis_width // 1000 - 3),
+                    max(0, y0 * analysis_height // 1000 - 3),
+                    min(analysis_width, x1 * analysis_width // 1000 + 3),
+                    min(analysis_height, y1 * analysis_height // 1000 + 3))
+            crop = source_image.crop(rect)
+            if crop.width > 5 and crop.height > 5:
+                micro_profile = analyze_ink_regions(
+                    list(crop.get_flattened_data() if hasattr(crop, "get_flattened_data") else crop.getdata()),
+                    *crop.size)
+                if micro_profile["profiles"]:
+                    checked += 1
+            if checked >= 6:
+                break
+        microtext_count = max(microtext_count, checked)
     weighted = []
     unsafe_colors: list[str] = []
     safety_margins: dict[str, float] = {}
@@ -151,6 +198,9 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
                 if len(best) >= 7:
                     break
     by_id = {row[0]: row for row in weighted}
+    secondary_floor = max(16.0, strongest_ink_contrast * .42)
+    eligible_colors = [color for color, _combined, _lab_color, visual in weighted
+                       if visual >= secondary_floor]
     return {
         "version": ALGORITHM,
         "output_sha256": output_sha256,
@@ -159,8 +209,19 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str) -> dict |
         "contrast_scores": {color: by_id[color][3] for color in best},
         "readability_margins": {color: safety_margins[color] for color in best},
         "unsafe_colors": unsafe_colors,
-        "readability_check": "foreground_ink_connected_components_proxy_v1",
-        "method": "thumbnail_ink_readability_sales_prior",
+        "readability_check": "region_ink_alpha_composite_v2",
+        "method": "design_region_alpha_sales_prior",
+        "eligible_colors": eligible_colors,
+        "analysis": {
+            "resolution": [analysis_width, analysis_height],
+            "source": "medium" if analysis_pixels is not pixels else "thumbnail",
+            "regions": profile["regions"][:12],
+            "text_regions": profile["text_regions"],
+            "microtext_regions": microtext_count,
+            "faded_ink": profile["faded_ink"],
+            "print_review_required": bool(profile["faded_ink"] or microtext_count
+                                          or analysis_pixels is pixels),
+        },
         "popularity_source": SALES_PRIOR_SNAPSHOT,
         "insufficient_safe_colors": len(best) < 7,
     }

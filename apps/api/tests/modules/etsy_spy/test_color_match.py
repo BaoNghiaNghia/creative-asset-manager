@@ -59,7 +59,7 @@ def test_picked_projection_serves_only_fresh_valid_cached_metadata():
     assert output[0]["color_match"]["recommended"] == metadata["recommended"]
     assert output[0]["color_match"]["output_sha256"] == sha
     assert "scores" not in output[0]["color_match"]  # keep Picked API small
-    assert output[0]["color_match"]["version"] == "colormatch-sms-c1717-v6"
+    assert output[0]["color_match"]["version"] == "colormatch-sms-c1717-v7"
     # Historical V1 metadata remains usable until bounded local backfill.
     legacy = {**metadata, "version": "colormatch-pixel-v1",
               "recommended": ["black", "ivory", "sage", "bay"]}
@@ -143,6 +143,7 @@ def test_local_backfill_requires_matching_png_sha_and_preserves_source(tmp_path)
     assert spec and spec.loader
     import types
     backfill = types.ModuleType(spec.name)
+    backfill.__file__ = str(path)
     spec.loader.exec_module(backfill)
     file = tmp_path / "historical-design.png"
     original = _png("#ffffff")

@@ -61,10 +61,15 @@ export type DesignAsset = {
   print_ready: false; rights_status: "unverified";
   manual_qa_required: true; created_at?: string | null;
   color_match?: {
-    version: "colormatch-pixel-v1" | "colormatch-pixel-v2" | "colormatch-pixel-v3" | "colormatch-sms-c1717-v4" | "colormatch-sms-c1717-v5" | "colormatch-sms-c1717-v6"; output_sha256: string;
-    recommended: string[]; method: "thumbnail_pixel_contrast" | "thumbnail_pixel_contrast_sales_prior" | "thumbnail_ink_readability_sales_prior";
-    unsafe_colors?: string[]; insufficient_safe_colors?: boolean;
-    readability_check?: "foreground_ink_connected_components_proxy_v1";
+    version: "colormatch-pixel-v1" | "colormatch-pixel-v2" | "colormatch-pixel-v3" | "colormatch-sms-c1717-v4" | "colormatch-sms-c1717-v5" | "colormatch-sms-c1717-v6" | "colormatch-sms-c1717-v7"; output_sha256: string;
+    recommended: string[]; method: "thumbnail_pixel_contrast" | "thumbnail_pixel_contrast_sales_prior" | "thumbnail_ink_readability_sales_prior" | "design_region_alpha_sales_prior";
+    unsafe_colors?: string[]; eligible_colors?: string[];
+    insufficient_safe_colors?: boolean;
+    analysis?: { resolution: number[]; source: "medium" | "thumbnail";
+      regions: Array<{kind: "probable_text" | "critical_ink"; pigment: string; bbox: number[]; opacity: number}>;
+      text_regions: number; microtext_regions: number;
+      faded_ink: boolean; print_review_required: boolean };
+    readability_check?: "foreground_ink_connected_components_proxy_v1" | "region_ink_alpha_composite_v2";
   };
 };
 export type TikTokListingDraft = {

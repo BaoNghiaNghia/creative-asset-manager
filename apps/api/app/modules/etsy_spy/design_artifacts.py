@@ -30,25 +30,24 @@ def design_media_path(job_id: str, asset_id: str, *, thumb: bool = False) -> str
 
 
 def _validated_color_match(raw: dict, digest: str) -> dict | None:
-    """Bounded, SHA-checked recommendation projection without any PNG decoding.
-
-    V6 exports a sanitized set of unsafe C1717 colors to warn users when
-    manually previewing them. Legacy V1-V5 remain available during rollout.
-    """
+    """SHA-bound, bounded read projection; no image processing on Picked reads."""
     from .color_match_palette import ALGORITHM, GARMENT_COLORS, LEGACY_COLOR_IDS
     match = raw.get("color_match")
     if not isinstance(match, dict):
         return None
     version = match.get("version")
-    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v4")
+    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v6",
+                    "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v4")
     allowed = ({color_id for color_id, _ in GARMENT_COLORS}
                if version in sms_versions else LEGACY_COLOR_IDS)
     colors = match.get("recommended")
-    max_recommendations = (10 if version in (ALGORITHM, "colormatch-sms-c1717-v5",
+    max_recommendations = (10 if version in (ALGORITHM, "colormatch-sms-c1717-v6",
+                                             "colormatch-sms-c1717-v5",
                                              "colormatch-pixel-v2") else
                            16 if version in ("colormatch-sms-c1717-v4",
                                              "colormatch-pixel-v3") else 4)
-    zero_allowed = (version == ALGORITHM and match.get("insufficient_safe_colors") is True)
+    zero_allowed = (version in (ALGORITHM, "colormatch-sms-c1717-v6")
+                    and match.get("insufficient_safe_colors") is True)
     if (version not in (*sms_versions, "colormatch-pixel-v3",
                         "colormatch-pixel-v2", "colormatch-pixel-v1") or
             match.get("output_sha256") != digest or
@@ -58,15 +57,76 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
             len(set(colors)) != len(colors)):
         return None
     if version == ALGORITHM:
-        if len(colors) < 7 and match.get("insufficient_safe_colors") is not True:
-            return None
         unsafe = match.get("unsafe_colors")
+        eligible = match.get("eligible_colors")
         if (not isinstance(unsafe, list) or len(unsafe) > len(allowed) or
+                not isinstance(eligible, list) or len(eligible) > len(allowed) or
+                any(not isinstance(c, str) or c not in allowed for c in unsafe + eligible) or
+                len(set(unsafe)) != len(unsafe) or len(set(eligible)) != len(eligible) or
+                not set(unsafe).isdisjoint(eligible) or
+                not set(unsafe).isdisjoint(colors) or
+                not set(colors).issubset(eligible) or
+                (len(colors) < 7) != (match.get("insufficient_safe_colors") is True) or
+                match.get("readability_check") != "region_ink_alpha_composite_v2" or
+                match.get("method") != "design_region_alpha_sales_prior"):
+            return None
+        analysis = match.get("analysis")
+        if not isinstance(analysis, dict):
+            return None
+        resolution = analysis.get("resolution")
+        regions = analysis.get("regions")
+        if (not isinstance(resolution, list) or len(resolution) != 2 or
+                any(type(n) is not int or not 1 <= n <= 768 for n in resolution) or
+                analysis.get("source") not in ("medium", "thumbnail") or
+                not isinstance(regions, list) or len(regions) > 12 or
+                type(analysis.get("faded_ink")) is not bool or
+                type(analysis.get("print_review_required")) is not bool or
+                type(analysis.get("text_regions")) is not int or
+                not 0 <= analysis["text_regions"] <= 16 or
+                type(analysis.get("microtext_regions")) is not int or
+                not 0 <= analysis["microtext_regions"] <= 16):
+            return None
+        clean_regions = []
+        for region in regions:
+            if not isinstance(region, dict):
+                return None
+            bbox = region.get("bbox")
+            opacity = region.get("opacity")
+            if (region.get("kind") not in ("probable_text", "critical_ink") or
+                    not isinstance(region.get("pigment"), str) or
+                    len(region["pigment"]) > 40 or
+                    not isinstance(bbox, list) or len(bbox) != 4 or
+                    any(type(n) is not int or not 0 <= n <= 1000 for n in bbox) or
+                    bbox[0] > bbox[2] or bbox[1] > bbox[3] or
+                    type(opacity) not in (float, int) or not 0 <= opacity <= 1):
+                return None
+            clean_regions.append({
+                "kind": region["kind"], "pigment": region["pigment"],
+                "bbox": bbox, "opacity": round(float(opacity), 2),
+            })
+        return {
+            "version": version, "output_sha256": digest,
+            "recommended": colors, "unsafe_colors": unsafe,
+            "eligible_colors": eligible,
+            "insufficient_safe_colors": len(colors) < 7,
+            "readability_check": "region_ink_alpha_composite_v2",
+            "method": "design_region_alpha_sales_prior",
+            "analysis": {
+                "resolution": resolution, "source": analysis["source"],
+                "regions": clean_regions, "text_regions": analysis["text_regions"],
+                "microtext_regions": analysis["microtext_regions"],
+                "faded_ink": analysis["faded_ink"],
+                "print_review_required": analysis["print_review_required"],
+            },
+        }
+    if version == "colormatch-sms-c1717-v6":
+        unsafe = match.get("unsafe_colors")
+        if (len(colors) < 7 and match.get("insufficient_safe_colors") is not True) or (
+                not isinstance(unsafe, list) or len(unsafe) > len(allowed) or
                 any(not isinstance(c, str) or c not in allowed for c in unsafe) or
                 len(set(unsafe)) != len(unsafe) or
-                not set(unsafe).isdisjoint(colors)):
-            return None
-        if match.get("readability_check") != "foreground_ink_connected_components_proxy_v1":
+                not set(unsafe).isdisjoint(colors) or
+                match.get("readability_check") != "foreground_ink_connected_components_proxy_v1"):
             return None
         return {
             "version": version, "output_sha256": digest,

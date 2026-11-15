@@ -27,6 +27,7 @@ from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
     EtsySpyLaterSeed as LaterSeed, EtsySpyLaterMatch as LaterMatch,
     EtsySpySmsStatus as SmsStatus,
+    EtsySpyColorFeedback as ColorFeedback,
     EtsySpyWinKeyword as WinKeyword,
     EtsySpyParentKeyword as ParentKeyword,
     EtsySpySession as SessionRow,
@@ -1014,6 +1015,125 @@ def listings(
             if pick_state == "picked" else {})}
         for listing, tmcheck in rows
     ], total, page, page_size, freshness(db, tenant))
+
+
+def _color_feedback_asset(db: Session, tenant: str, listing_key: str,
+                          job_id: str, asset_id: str, sha: str) -> bool:
+    """Every feedback event must reference a real completed Picked design."""
+    if db.get(Picked, (tenant, listing_key)) is None:
+        return False
+    job = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.id == job_id,
+        ProcessingJobModel.entity_id == listing_key,
+        ProcessingJobModel.job_type == "etsy_design_extract",
+        ProcessingJobModel.status == "completed",
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ))
+    if job is None or not isinstance(job.payload_json, dict):
+        return False
+    payload = job.payload_json
+    if asset_id in ("fast", "candidate"):
+        key = "result" if asset_id == "fast" else "review_candidate"
+        record = payload.get(key)
+        status = "needs_review" if asset_id == "fast" else "review_candidate"
+        return (isinstance(record, dict) and record.get("status") == status
+                and record.get("output_sha256") == sha)
+    assets = payload.get("design_assets")
+    return isinstance(assets, list) and any(
+        isinstance(row, dict) and row.get("id") == asset_id
+        and row.get("output_sha256") == sha
+        for row in assets
+    )
+
+
+@router.post("/listings/{listing_key}/design-color-feedback", status_code=201)
+async def save_design_color_feedback(
+    listing_key: str, request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Only explicit saved choices/rejections; no passive click telemetry.
+
+    The endpoint stores only a color ID, design SHA, method and decision,
+    never image bytes, listing titles, user identity or unrelated activity.
+    """
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    content_length = request.headers.get("content-length")
+    if content_length and (not content_length.isdigit() or int(content_length) > 2048):
+        raise HTTPException(413, "Color feedback too large")
+    raw = await request.body()
+    if len(raw) > 2048:
+        raise HTTPException(413, "Color feedback too large")
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(422, "JSON object required") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "Invalid color feedback")
+    job_id, asset_id, digest = (payload.get(name) for name in
+                                ("job_id", "asset_id", "output_sha256"))
+    action, color = payload.get("action"), payload.get("color_id")
+    method, scope = payload.get("print_method", "unknown"), payload.get("scope", "design")
+    from .color_match_palette import SMS_C1717_COLORS
+    valid_colors = {row[0] for row in SMS_C1717_COLORS if row[2]}
+    if (not isinstance(job_id, str) or
+            not re.fullmatch(r"[0-9a-f-]{36}", job_id) or
+            not isinstance(asset_id, str) or
+            not (re.fullmatch(r"[0-9a-f]{24}", asset_id) or asset_id in ("fast", "candidate")) or
+            not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or
+            action not in ("selected", "rejected") or
+            not isinstance(color, str) or color not in valid_colors or
+            method not in ("unknown", "dtg", "dtf", "screen") or
+            scope not in ("design", "product")):
+        raise HTTPException(422, "Invalid color feedback fields")
+    tenant = principal.active_tenant_id
+    if not _color_feedback_asset(db, tenant, listing_key, job_id, asset_id, digest):
+        raise HTTPException(404, "Picked Design does not match current SHA")
+    record = ColorFeedback(
+        tenant_id=tenant, listing_key=listing_key, job_id=job_id,
+        asset_id=asset_id, output_sha256=digest, color_id=color,
+        action=action, print_method=method, scope=scope,
+    )
+    db.add(record)
+    db.commit()
+    return {"recorded": True, "action": action, "color_id": color}
+
+
+@router.get("/listings/{listing_key}/design-color-feedback")
+def list_design_color_feedback(
+    listing_key: str,
+    job_id: str = Query(..., min_length=36, max_length=36),
+    asset_id: str = Query(..., min_length=4, max_length=24),
+    output_sha256: str = Query(..., min_length=64, max_length=64),
+    principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    """Limited, tenant-bound feedback state for the visible design only."""
+    tenant = principal.active_tenant_id
+    if (not re.fullmatch(r"[0-9]{5,20}", listing_key) or
+            not re.fullmatch(r"[0-9a-f-]{36}", job_id) or
+            not (re.fullmatch(r"[0-9a-f]{24}", asset_id) or asset_id in ("fast", "candidate")) or
+            not re.fullmatch(r"[0-9a-f]{64}", output_sha256)):
+        raise HTTPException(422, "Invalid design")
+    if not _color_feedback_asset(db, tenant, listing_key, job_id, asset_id, output_sha256):
+        raise HTTPException(404, "Picked Design does not match current SHA")
+    rows = db.scalars(select(ColorFeedback).where(
+        ColorFeedback.tenant_id == tenant,
+        ColorFeedback.listing_key == listing_key,
+        ColorFeedback.job_id == job_id,
+        ColorFeedback.asset_id == asset_id,
+        ColorFeedback.output_sha256 == output_sha256,
+    ).order_by(ColorFeedback.created_at.desc(), ColorFeedback.event_id.desc())
+                     .limit(200)).all()
+    latest: dict[str, str] = {}
+    tally: dict[str, dict[str, int]] = {}
+    for row in rows:
+        latest.setdefault(row.color_id, row.action)
+        bucket = tally.setdefault(row.color_id, {"selected": 0, "rejected": 0})
+        bucket[row.action] += 1
+    return {"latest": latest, "counts": tally, "sample_limit": 200}
 
 
 @router.put("/listings/{listing_key}/pick")

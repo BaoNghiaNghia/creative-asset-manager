@@ -184,7 +184,8 @@ async def _body(payload: bytes) -> AsyncIterator[bytes]:
         yield payload[offset:offset + 1024 * 1024]
 
 
-def _thumbnail(png: bytes, *, native_master: bool = False) -> tuple[bytes, tuple[int, int]]:
+def _thumbnail(png: bytes, *, native_master: bool = False,
+               with_analysis: bool = False):
     """Validate a master before creating its small, alpha-preserving preview.
 
     Native master pixels are never resized or re-encoded for storage. Only the
@@ -208,9 +209,17 @@ def _thumbnail(png: bytes, *, native_master: bool = False) -> tuple[bytes, tuple
                 extrema = reduced.getchannel("A").getextrema()
                 if extrema is None or extrema[0] != 0 or extrema[1] == 0:
                     raise ValueError("native master lacks genuine transparency")
+            analysis_png = None
+            if with_analysis:
+                reduced.thumbnail((512, 512), Image.Resampling.LANCZOS)
+                medium = io.BytesIO()
+                reduced.save(medium, "PNG", optimize=True)
+                analysis_png = medium.getvalue()
             reduced.thumbnail((192, 192), Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             reduced.save(buffer, "PNG", optimize=True)
+            if with_analysis:
+                return buffer.getvalue(), (width, height), analysis_png
             return buffer.getvalue(), (width, height)
     except (OSError, UnidentifiedImageError, ValueError) as exc:
         raise HTTPException(422, "ImageGen design thumbnail cannot be decoded") from exc
@@ -220,9 +229,10 @@ def _thumbnail_with_colormatch(png: bytes, *, digest: str, native_master: bool):
     """Generate the pre-existing small preview and metadata off the API loop."""
     from .color_match import recommend_garment_colors
     with _COLORMATCH_SLOTS:
-        preview, dimensions = _thumbnail(png, native_master=native_master)
+        preview, dimensions, analysis_png = _thumbnail(
+            png, native_master=native_master, with_analysis=True)
         try:
-            colors = recommend_garment_colors(preview, digest)
+            colors = recommend_garment_colors(preview, digest, analysis_png=analysis_png)
         except Exception:
             # Recommendation failure must never block a genuine artwork.
             colors = None

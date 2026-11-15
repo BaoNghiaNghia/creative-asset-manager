@@ -1,16 +1,17 @@
-"""Conservative print-ink legibility guard for C1717 garment backgrounds.
+"""Bounded design-aware ink/readability analysis for ColorMatch V7.
 
-No OCR or inference about the exact words. This is a pixel- and connected-
-component text-likeness proxy computed on the *existing* RGBA thumbnail.
-A garment failing the guard can never be promoted by demand ranking.
+Pixel shapes are only typography proxies, NOT OCR; no generated art, no
+text/people identification, no external model. Sparse/faded ink is evaluated
+after compositing over the actual candidate garment swatch.
 """
 from __future__ import annotations
 
 import colorsys
-import math
 from collections import defaultdict
+from typing import Any
 
-_MAX_SHAPES = 2500
+_MAX_SHAPES = 3000
+_MIN_ALPHA = 32
 
 
 def _linear(value: int) -> float:
@@ -27,32 +28,24 @@ def _contrast(a: float, b: float) -> float:
     return (max(a, b) + .05) / (min(a, b) + .05)
 
 
-def _text_like(mask: bytearray, width: int, height: int) -> bool:
-    """Identify multiple letter-sized ink islands sharing a horizontal line.
-
-    The check is intentionally morphological, not OCR. At thumbnail scale
-    illustrations can produce false positives, which safely errs toward
-    excluding an otherwise attractive but hard-to-read dark garment.
-    """
-    if not any(mask):
-        return False
+def _shapes(mask: bytearray, width: int, height: int) -> list[tuple[int, int, int, int, int]]:
     visited = bytearray(len(mask))
-    shapes: list[tuple[float, int, int]] = []
-    explored = 0
-    for start, ink in enumerate(mask):
-        if not ink or visited[start]:
+    shapes: list[tuple[int, int, int, int, int]] = []
+    seen = 0
+    for start, marked in enumerate(mask):
+        if not marked or visited[start]:
             continue
         stack = [start]
         visited[start] = 1
-        min_x = max_x = start % width
-        min_y = max_y = start // width
+        x0 = x1 = start % width
+        y0 = y1 = start // width
         area = 0
         while stack:
-            idx = stack.pop()
-            y, x = divmod(idx, width)
+            point = stack.pop()
+            y, x = divmod(point, width)
             area += 1
-            min_x, max_x = min(x, min_x), max(x, max_x)
-            min_y, max_y = min(y, min_y), max(y, max_y)
+            x0, x1 = min(x0, x), max(x1, x)
+            y0, y1 = min(y0, y), max(y1, y)
             for dy in (-1, 0, 1):
                 ny = y + dy
                 if ny < 0 or ny >= height:
@@ -61,102 +54,172 @@ def _text_like(mask: bytearray, width: int, height: int) -> bool:
                     nx = x + dx
                     if nx < 0 or nx >= width or (dx == 0 and dy == 0):
                         continue
-                    nxt = ny * width + nx
-                    if mask[nxt] and not visited[nxt]:
-                        visited[nxt] = 1
-                        stack.append(nxt)
-        explored += 1
-        if explored > _MAX_SHAPES:
+                    other = ny * width + nx
+                    if mask[other] and not visited[other]:
+                        visited[other] = 1
+                        stack.append(other)
+        seen += 1
+        if seen > _MAX_SHAPES:
             break
-        span_x, span_y = max_x - min_x + 1, max_y - min_y + 1
-        if (area >= 2 and span_x <= max(5, width // 7)
-                and span_y <= max(5, height // 7)
-                and span_x <= span_y * 3.0
-                and span_y <= span_x * 8.0
-                and span_y >= 2
-                # Solid petals, balloons and animal blobs should not be
-                # classified as printed letters just because they are small.
-                and area / (span_x * span_y) <= .70):
-            shapes.append(((min_y + max_y) / 2, min_x, max_x))
-    if len(shapes) < 5:
-        return False
-    shapes.sort()
-    tolerance = max(3.5, height / 36)
-    for i, (cy, _left, _right) in enumerate(shapes):
-        matching = [shape for shape in shapes[i:] if shape[0] - cy <= tolerance * 2]
-        if len(matching) < 5:
+        sx, sy = x1 - x0 + 1, y1 - y0 + 1
+        if (area >= 2 and sx <= max(5, width // 7) and sy <= max(5, height // 7)
+                and sx <= sy * 3 and sy <= sx * 8
+                and sy >= 2 and area / (sx * sy) <= .73):
+            shapes.append((x0, y0, x1, y1, area))
+    return shapes
+
+
+def _text_line_boxes(
+    shapes: list[tuple[int, int, int, int, int]], width: int, height: int,
+) -> list[tuple[int, int, int, int]]:
+    """Group similarly sized glyph-sized islands sharing a baseline."""
+    if len(shapes) < 4:
+        return []
+    sorted_shapes = sorted(shapes, key=lambda p: (p[1] + p[3]) / 2)
+    bands: list[tuple[int, int, int, int]] = []
+    tolerance = max(3, int(height / 42))
+    for n, item in enumerate(sorted_shapes):
+        cy = (item[1] + item[3]) / 2
+        close = [shape for shape in sorted_shapes[n:]
+                 if abs((shape[1] + shape[3]) / 2 - cy) <= tolerance]
+        if len(close) < 4:
             continue
-        if max(s[2] for s in matching) - min(s[1] for s in matching) >= width * .18:
-            return True
-    return False
+        left, top = min(s[0] for s in close), min(s[1] for s in close)
+        right, bottom = max(s[2] for s in close), max(s[3] for s in close)
+        if right - left < width * .14:
+            continue
+        region = (left, top, right, bottom)
+        if all(abs(region[0] - b[0]) > tolerance or
+               abs(region[1] - b[1]) > tolerance for b in bands):
+            bands.append(region)
+        if len(bands) >= 12:
+            break
+    return bands
 
 
-def readability_profiles(
+def _text_like(mask: bytearray, width: int, height: int) -> bool:
+    return bool(_text_line_boxes(_shapes(mask, width, height), width, height))
+
+
+def _norm_bbox(box: tuple[int, int, int, int], width: int, height: int) -> list[int]:
+    x0, y0, x1, y1 = box
+    return [min(1000, x0 * 1000 // max(1, width)),
+            min(1000, y0 * 1000 // max(1, height)),
+            min(1000, (x1 + 1) * 1000 // max(1, width)),
+            min(1000, (y1 + 1) * 1000 // max(1, height))]
+
+
+def analyze_ink_regions(
     pixels: list[tuple[int, int, int, int]], width: int, height: int,
-) -> list[tuple[str, float, float]]:
-    """Meaningful ink pigments with minimum required WCAG-style contrast.
+) -> dict[str, Any]:
+    """Create compact bounded ink profiles and coarse spatial text/illustration ROIs.
 
-    Protect dark/light neutral lettering even when its area is small relative
-    to a bright illustration. Other frequent colored text-like pigments also
-    receive a contrast gate. Does not claim to identify actual characters.
+    Keep actual pixels only in this function's memory. Return neither text nor
+    original image data. The caller can cache this result by immutable SHA.
     """
+    if not width or not height or len(pixels) != width * height:
+        return {"profiles": [], "regions": [], "faded_ink": False}
     n = len(pixels)
+    groups: dict[str, list[tuple[float, float]]] = defaultdict(list)
     masks: dict[str, bytearray] = {}
-    groups: dict[str, list[float]] = defaultdict(list)
-    opaque_count = 0
+    total_ink = 0
     for idx, (r, g, b, a) in enumerate(pixels):
-        if a < 155:
+        if a < _MIN_ALPHA:
             continue
-        opaque_count += 1
-        rgb = (r, g, b)
-        luma = _luminance(rgb)
-        chroma = max(rgb) - min(rgb)
+        total_ink += 1
+        luma = _luminance((r, g, b))
+        chroma = max(r, g, b) - min(r, g, b)
         if luma <= .15 and chroma <= 90:
             kind = "dark-ink"
         elif luma >= .68 and chroma <= 90:
             kind = "light-ink"
+        elif chroma <= 28:
+            kind = "mid-neutral"
         else:
-            hue, sat, _value = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-            # Chromatic groups use a coarser hue/brightness bucket. Near-grey
-            # middles are not treated as text without multiple glyphs.
-            kind = f"pigment-{round(hue * 12) % 12}-{int(min(4, luma * 5))}" if sat > .18 else "mid-neutral"
-        groups[kind].append(luma)
-        if kind not in masks:
-            masks[kind] = bytearray(n)
-        masks[kind][idx] = 1
-    if opaque_count < 12:
-        return []
-    significant: list[tuple[str, float, float]] = []
+            hue, _sat, _value = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+            kind = f"chromatic-{round(hue * 12) % 12}-{min(4, int(luma * 5))}"
+        groups[kind].append((luma, a / 255.0))
+        mask = masks.get(kind)
+        if mask is None:
+            mask = bytearray(n)
+            masks[kind] = mask
+        mask[idx] = 1
+    if total_ink < 12:
+        return {"profiles": [], "regions": [], "faded_ink": False}
+
+    profiles: list[tuple[str, float, float, float]] = []
+    regions: list[dict[str, Any]] = []
+    faded = False
     for kind, values in groups.items():
-        count = len(values)
-        glyphs = _text_like(masks[kind], width, height) if count >= 12 else False
+        if len(values) < 12:
+            continue
+        lines = _text_line_boxes(_shapes(masks[kind], width, height), width, height)
+        text_like = bool(lines)
+        # Hard-gate dark/light ink even when thin type is not confidently
+        # recognized. Colored illustration does not become text merely
+        # because its pigment is abundant.
         if kind in ("dark-ink", "light-ink"):
-            if count < max(10, opaque_count * (.006 if glyphs else .018)):
+            if len(values) < max(10, int(total_ink * (.004 if text_like else .015))):
                 continue
-            required = 4.5 if glyphs else 3.2
+            required = 4.5 if text_like else 3.0
+        elif not text_like or len(values) < max(12, int(total_ink * .012)):
+            continue
         else:
-            # Colorful illustrations can occupy most of the artwork and
-            # need not be legible as text. Never make every garment fail
-            # because a large flamingo/animal contains many bright pigments.
-            # Saturated or mid-grey ink gets a hard gate only when it forms
-            # aligned glyph-sized components (likely colored typography).
-            if not glyphs or count < max(12, opaque_count * .012):
-                continue
             required = 3.0
-        sorted_values = sorted(values)
-        # The 25th-percentile pigment controls the gate; this protects tiny
-        # near-black/near-white text without using a few antialias outliers.
-        representative = sorted_values[len(sorted_values) // 4]
-        significant.append((kind, representative, required))
-    return significant
+        luminance = sorted(v[0] for v in values)[len(values) // 4]
+        opacity = sorted(v[1] for v in values)[len(values) // 2]
+        if opacity < .7:
+            faded = True
+        profiles.append((kind, round(luminance, 6), required, round(opacity, 4)))
+        for bbox in lines[:3]:
+            regions.append({
+                "kind": "probable_text", "pigment": kind,
+                "bbox": _norm_bbox(bbox, width, height),
+                "opacity": round(opacity, 2),
+                "confidence": "proxy",
+            })
+        if not lines and kind in ("dark-ink", "light-ink"):
+            indices = [i for i, marked in enumerate(masks[kind]) if marked]
+            if indices:
+                coords = [(i % width, i // width) for i in indices]
+                bbox = (min(pt[0] for pt in coords), min(pt[1] for pt in coords),
+                        max(pt[0] for pt in coords), max(pt[1] for pt in coords))
+                regions.append({
+                    "kind": "critical_ink", "pigment": kind,
+                    "bbox": _norm_bbox(bbox, width, height),
+                    "opacity": round(opacity, 2), "confidence": "proxy",
+                })
+    return {
+        "profiles": profiles[:18],
+        "regions": regions[:16],
+        "faded_ink": faded,
+        "analysis_width": width,
+        "analysis_height": height,
+        "text_regions": sum(x["kind"] == "probable_text" for x in regions),
+    }
+
+
+def readability_profiles(
+    pixels: list[tuple[int, int, int, int]], width: int, height: int,
+) -> list[tuple[str, float, float, float]]:
+    return analyze_ink_regions(pixels, width, height)["profiles"]
 
 
 def candidate_readability(
-    profiles: list[tuple[str, float, float]], background_rgb: tuple[int, int, int],
+    profiles: list[tuple[str, float, float, float]],
+    background_rgb: tuple[int, int, int],
 ) -> tuple[bool, float]:
-    """Return hard-gate verdict and worst normalized ink contrast ratio."""
     if not profiles:
         return True, 1.0
     background = _luminance(background_rgb)
-    margin = min(_contrast(ink, background) / minimum for _kind, ink, minimum in profiles)
-    return margin >= 1.0, round(margin, 3)
+    ratios: list[float] = []
+    for profile in profiles:
+        ink, minimum = profile[1], profile[2]
+        opacity = profile[3] if len(profile) > 3 else 1.0
+        # Compare what the viewer actually sees when semi-transparent ink
+        # is composited on garment color, not the source RGB in isolation.
+        effective = opacity * ink + (1 - opacity) * background
+        required = max(1.3, 1.2 + (minimum - 1.2) * opacity ** 2.5)
+        ratios.append(_contrast(effective, background) / required)
+    margin = min(ratios)
+    return margin >= 1, round(margin, 3)

@@ -71,35 +71,32 @@ def test_drive_only_metadata_does_not_require_local_storage(monkeypatch):
 
 
 def test_fresh_metadata_validation_requires_known_distinct_colors():
+    from io import BytesIO
     script = _script()
-    row = {**_job().payload_json["design_assets"][1], "color_match": {
-        "version": "colormatch-sms-c1717-v6",
-        "output_sha256": "e" * 64,
-        "recommended": ["black", "sage"],
-        "unsafe_colors": ["true-navy"],
-        "readability_check": "foreground_ink_connected_components_proxy_v1",
-        "insufficient_safe_colors": True,
-    }}
+    image = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
+    ImageDraw.Draw(image).rectangle((15, 15, 150, 150), fill="white")
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    result = recommend_garment_colors(buf.getvalue(), "e" * 64)
+    assert result is not None and result["version"] == "colormatch-sms-c1717-v7"
+    row = {**_job().payload_json["design_assets"][1], "color_match": result}
     assert script.fresh(row)
-    seven = {**row, "color_match": {**row["color_match"], "recommended":
-             ["black", "sage", "pepper", "ivory", "blue-jean", "chambray", "butter"],
-             "insufficient_safe_colors": False}}
-    assert script.fresh(seven)
-    zero = {**row, "color_match": {**row["color_match"], "recommended": []}}
-    assert script.fresh(zero)
-    assert not script.fresh({**row, "color_match": {**row["color_match"], "insufficient_safe_colors": False}})
+    zero = {**result, "recommended": [], "insufficient_safe_colors": True}
+    assert script.fresh({**row, "color_match": zero})
     assert not script.fresh({**row, "color_match": {
-        **row["color_match"], "recommended": ["black", "black"],
+        **result, "recommended": ["black", "black"],
     }})
     assert not script.fresh({**row, "color_match": {
-        **row["color_match"], "recommended": ["unknown"],
+        **result, "recommended": ["unknown"],
     }})
     assert not script.fresh({**row, "color_match": {
-        **row["color_match"], "unsafe_colors": ["black"],
+        **result, "unsafe_colors": ["unknown"],
     }})
     assert not script.fresh({**row, "color_match": {
-        **row["color_match"], "unsafe_colors": [],
-        "readability_check": "untrusted",
+        **result, "readability_check": "not-v7",
+    }})
+    assert not script.fresh({**row, "color_match": {
+        **result, "analysis": {**result["analysis"], "resolution": [4000, 5000]},
     }})
 
 
@@ -134,4 +131,68 @@ def test_local_image_checksum_guard(tmp_path):
     preview = script.make_local_thumbnail(path, checksum)
     assert preview and preview.startswith(b"\x89PNG\r\n\x1a\n")
     assert script.make_local_thumbnail(path, "0" * 64) is None
-    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v6"
+    assert recommend_garment_colors(preview, checksum)["version"] == "colormatch-sms-c1717-v7"
+
+def test_medium_analysis_is_in_memory_and_has_bounded_dimensions(tmp_path):
+    script = _script()
+    image = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    ImageDraw.Draw(image).text((90, 90), "SMALL TEXT", fill="#050505")
+    buf = __import__("io").BytesIO()
+    image.save(buf, format="PNG")
+    original = buf.getvalue()
+    import hashlib
+    digest = hashlib.sha256(original).hexdigest()
+    source = tmp_path / "original.png"
+    source.write_bytes(original)
+    target = script.Target(
+        _job().id, "c" * 24, "mapped", digest, "local", local_path=source,
+    )
+    preview = asyncio.run(script.analysis_preview_for(target, "creative-assets-prod"))
+    assert preview and preview[:8] == bytes((137, 80, 78, 71, 13, 10, 26, 10))
+    import io
+    with Image.open(io.BytesIO(preview)) as result:
+        assert result.size == (512, 512)
+        assert result.mode == "RGBA"
+    assert source.read_bytes() == original
+    wrong = script.Target(
+        _job().id, "c" * 24, "mapped", "0" * 64, "local", local_path=source,
+    )
+    assert asyncio.run(script.analysis_preview_for(wrong, "creative-assets-prod")) is None
+
+
+def test_medium_analysis_drive_original_is_sha_guarded_and_size_limited(monkeypatch):
+    script = _script()
+    from app.modules.etsy_spy import imagegen_drive
+    image = Image.new("RGBA", (768, 768), (0, 0, 0, 0))
+    ImageDraw.Draw(image).rectangle((10, 20, 200, 75), fill="#101010")
+    import io
+    buf = io.BytesIO()
+    image.save(buf, "PNG")
+    raw = buf.getvalue()
+    import hashlib
+    sha = hashlib.sha256(raw).hexdigest()
+    calls = []
+
+    async def fake_read(**kwargs):
+        calls.append(kwargs)
+        return raw
+
+    monkeypatch.setattr(imagegen_drive, "read_design_from_drive", fake_read)
+    target = script.Target(
+        _job().id, "d" * 24, "mapped", sha, "drive",
+        drive_original_id="validRemoteOriginalID123",
+        original_size=len(raw),
+    )
+    reduced = asyncio.run(script.analysis_preview_for(target, "creative-assets-prod"))
+    assert reduced
+    assert len(calls) == 1
+    assert calls[0]["sha256"] == sha
+    assert calls[0]["asset_id"].endswith(":original")
+    assert calls[0]["max_bytes"] == 8 * 1024 * 1024
+    big = script.Target(
+        _job().id, "d" * 24, "mapped", sha, "drive",
+        drive_original_id="validRemoteOriginalID123",
+        original_size=9 * 1024 * 1024,
+    )
+    assert asyncio.run(script.analysis_preview_for(big, "creative-assets-prod")) is None
+    assert len(calls) == 1

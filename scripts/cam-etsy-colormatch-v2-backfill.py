@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill all eligible Picked design ColorMatch V5 metadata.
+"""Backfill all eligible Picked design ColorMatch V7 metadata.
 
 Default is read-only dry-run. --apply updates ONLY the color_match JSON of
 existing, completed and still-Picked jobs. Original PNGs are never rewritten,
@@ -30,7 +30,8 @@ _JOB = re.compile(r"[a-f0-9-]{36}\Z")
 _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v6"
+_MAX_ANALYSIS_ORIGINAL_BYTES = 8 * 1024 * 1024
+_TARGET_VERSION = "colormatch-sms-c1717-v7"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ class Target:
     local_path: Path | None = None
     drive_thumbnail_id: str | None = None
     thumbnail_sha256: str | None = None
+    drive_original_id: str | None = None
+    original_size: int | None = None
 
 
 def fresh(row: dict) -> bool:
@@ -88,6 +91,11 @@ def candidate_records(job) -> list[Target]:
                 job.id, asset_id, "mapped", digest, "drive",
                 drive_thumbnail_id=remote if isinstance(remote, str) and _DRIVE.fullmatch(remote) else None,
                 thumbnail_sha256=thumb_sha if isinstance(thumb_sha, str) and _SHA.fullmatch(thumb_sha) else None,
+                drive_original_id=(row.get("drive_file_id")
+                    if isinstance(row.get("drive_file_id"), str)
+                    and _DRIVE.fullmatch(row["drive_file_id"]) else None),
+                original_size=(row.get("storage_size_bytes")
+                    if type(row.get("storage_size_bytes")) is int else None),
             ))
         elif row.get("storage_provider") in (None, "local"):
             results.append(Target(
@@ -151,6 +159,62 @@ async def thumbnail_for(target: Target, tenant_id: str) -> bytes | None:
         max_bytes=_MAX_THUMB_BYTES,
     )
     return result if result.startswith(b"\x89PNG\r\n\x1a\n") else None
+
+
+def _medium_from_png(raw: bytes) -> bytes | None:
+    """Bounded analysis-only 512px PNG; master bytes are never modified."""
+    from PIL import Image, UnidentifiedImageError
+    if not (57 <= len(raw) <= _MAX_ANALYSIS_ORIGINAL_BYTES):
+        return None
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            if (image.format != "PNG" or image.width * image.height > _MAX_PIXELS):
+                return None
+            reduced = image.convert("RGBA")
+            reduced.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            reduced.save(buf, format="PNG")
+            result = buf.getvalue()
+            return result if len(result) <= 6 * 1024 * 1024 else None
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+        return None
+
+
+def _local_medium(target: Target) -> bytes | None:
+    path = target.local_path
+    if not path or not path.is_file() or path.stat().st_size > _MAX_ANALYSIS_ORIGINAL_BYTES:
+        return None
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != target.digest:
+        return None
+    return _medium_from_png(raw)
+
+
+async def analysis_preview_for(target: Target, tenant_id: str) -> bytes | None:
+    """High-quality scoring only when verified master is small enough.
+
+    Any failure is a safe downgrade to the existing SHA-checked 192px preview.
+    The existing Drive thumbnail remains the authoritative minimal evidence.
+    """
+    if target.provider == "local":
+        return await asyncio.to_thread(_local_medium, target)
+    if (not target.drive_original_id or not target.original_size
+            or target.original_size > _MAX_ANALYSIS_ORIGINAL_BYTES):
+        return None
+    from app.modules.etsy_spy.imagegen_drive import read_design_from_drive
+    try:
+        raw = await read_design_from_drive(
+            tenant_id=tenant_id,
+            asset_id=f"{target.job_id}:{target.asset_id}:original",
+            remote_id=target.drive_original_id,
+            sha256=target.digest,
+            max_bytes=_MAX_ANALYSIS_ORIGINAL_BYTES,
+        )
+    except Exception:
+        # No secrets or remote asset IDs in logs; never skip a valid
+        # small preview merely because higher-resolution input is unavailable.
+        return None
+    return await asyncio.to_thread(_medium_from_png, raw)
 
 
 def still_same(row: dict, target: Target) -> bool:
@@ -228,6 +292,10 @@ async def backfill(args) -> dict:
         "scanned_jobs": 0, "already_current": 0,
         "targets_local": 0, "targets_drive": 0,
         "updated_local": 0, "updated_drive": 0,
+        "analysis_medium": 0, "analysis_thumbnail_fallback": 0,
+        "updated_under_seven": 0, "updated_zero_safe": 0,
+        "updated_faded_ink": 0, "updated_text_regions": 0,
+        "updated_print_review_required": 0,
         "unavailable_or_mismatch": 0, "skipped": 0, "errors": 0,
     }
     cursor: str | None = None
@@ -275,12 +343,31 @@ async def backfill(args) -> dict:
                     if preview is None:
                         counts["unavailable_or_mismatch"] += 1
                         continue
-                    metadata = await asyncio.to_thread(recommend_garment_colors, preview, target.digest)
+                    analysis_png = None if args.no_highres else await analysis_preview_for(
+                        target, args.tenant_id)
+                    if analysis_png is None:
+                        counts["analysis_thumbnail_fallback"] += 1
+                    else:
+                        counts["analysis_medium"] += 1
+                    metadata = await asyncio.to_thread(
+                        recommend_garment_colors, preview, target.digest,
+                        analysis_png=analysis_png)
                     if not metadata:
                         counts["skipped"] += 1
                         continue
                     if await asyncio.to_thread(apply_one, target, args.tenant_id, metadata):
                         counts[f"updated_{type_label}"] += 1
+                        region = metadata.get("analysis", {})
+                        if len(metadata.get("recommended", [])) < 7:
+                            counts["updated_under_seven"] += 1
+                        if not metadata.get("recommended"):
+                            counts["updated_zero_safe"] += 1
+                        if region.get("faded_ink"):
+                            counts["updated_faded_ink"] += 1
+                        if region.get("text_regions", 0) > 0:
+                            counts["updated_text_regions"] += 1
+                        if region.get("print_review_required"):
+                            counts["updated_print_review_required"] += 1
                     else:
                         counts["skipped"] += 1
                 except Exception:
@@ -300,6 +387,8 @@ def main() -> None:
     parser.add_argument("--delay-seconds", type=float, default=0.5)
     parser.add_argument("--max-errors", type=int, default=12)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--no-highres", action="store_true",
+                        help="Use only the verified Drive thumbnail during high system load")
     args = parser.parse_args()
     if not (1 <= args.page_size <= 200
             and 0.2 <= args.delay_seconds <= 10

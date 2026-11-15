@@ -33,6 +33,28 @@ class EtsySpyAgent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyColorFeedback(Base):
+    """Explicit user selections/rejections only; no inferred behavior or image."""
+    __tablename__ = "etsy_spy_color_feedback"
+    __table_args__ = (
+        Index("ix_etsy_spy_color_feedback_sha",
+              "tenant_id", "output_sha256", "created_at"),
+        Index("ix_etsy_spy_color_feedback_listing", "tenant_id", "listing_key"),
+    )
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    listing_key: Mapped[str] = mapped_column(String(150), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(24), nullable=False)
+    output_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    color_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    action: Mapped[str] = mapped_column(String(12), nullable=False)
+    scope: Mapped[str] = mapped_column(String(12), nullable=False)
+    print_method: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class EtsySpyBlacklist(Base):
     """Tenant-owned phrases for listing visibility and future Windows Scout exclusion."""
     __tablename__ = "etsy_spy_blacklist"

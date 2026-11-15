@@ -48,7 +48,7 @@ def _thumbnail(style: str) -> bytes:
 
 
 def test_flamingo_black_headline_never_gets_navy_pepper_or_black():
-    assert ALGORITHM == "colormatch-sms-c1717-v6"
+    assert ALGORITHM == "colormatch-sms-c1717-v7"
     result = recommend_garment_colors(_thumbnail("flamingo"), "a" * 64)
     assert result and result["version"] == ALGORITHM
     for invisible in ("true-navy", "black", "pepper"):
@@ -56,8 +56,8 @@ def test_flamingo_black_headline_never_gets_navy_pepper_or_black():
         assert invisible in result["unsafe_colors"]
     assert "white" in result["recommended"]
     assert 1 <= len(result["recommended"]) <= 10
-    assert result["method"] == "thumbnail_ink_readability_sales_prior"
-    assert result["readability_check"] == "foreground_ink_connected_components_proxy_v1"
+    assert result["method"] == "design_region_alpha_sales_prior"
+    assert result["readability_check"] == "region_ink_alpha_composite_v2"
     assert _validated_color_match({"color_match": result}, "a" * 64)
 
 
