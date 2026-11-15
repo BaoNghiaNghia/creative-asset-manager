@@ -67,6 +67,22 @@ describe("ColorMatch quality-first two-section palette", () => {
       `[role="group"][aria-label="${label}"] button`,
     ));
 
+  it("hides the redundant per-position design heading but preserves the thumbnail", async () => {
+    const dialog = await render([make("a", TOP_TEN), make("b", TOP_TEN)]);
+    expect(dialog.querySelector(".etsy-design-gallery-variants .etsy-design-gallery-section-heading"))
+      .toBeNull();
+    expect(dialog.textContent).not.toContain("Thiết kế · Tay phải");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-position-list button")).toHaveLength(2);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-variants .etsy-design-gallery-list button"))
+      .toHaveLength(1);
+    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
+      ".etsy-design-gallery-position-list button",
+    )[1]?.click());
+    expect(dialog.textContent).not.toContain("Thiết kế · Tay phải");
+    expect(dialog.querySelectorAll(".etsy-design-gallery-variants .etsy-design-gallery-list button"))
+      .toHaveLength(1);
+  });
+
   it("renders exactly two groups, ten recommended and every remaining color once", async () => {
     const dialog = await render([make("a", TOP_TEN)]);
     const top = buttons(dialog, "Màu phù hợp với thiết kế");

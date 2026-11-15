@@ -411,10 +411,6 @@ export function DesignCell({ item, onPreviewStart }: {
                 </div>
               </section>
               <section className="etsy-design-gallery-side-section etsy-design-gallery-variants">
-                <div className="etsy-design-gallery-section-heading">
-                  <strong>Thiết kế · {selectedPosition.label}</strong>
-                  <span>{selectedPosition.entries.length} mẫu</span>
-                </div>
                 <div className="etsy-design-gallery-list" role="group"
                   aria-label={`Các thiết kế ${selectedPosition.label}`}>
                   {selectedPosition.entries.map((entry, ordinal) => (
