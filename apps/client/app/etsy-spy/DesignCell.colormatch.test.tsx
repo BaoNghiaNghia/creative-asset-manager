@@ -220,7 +220,7 @@ describe("per-design ColorMatch background recommendations", () => {
       ]);
   });
 
-  it("V6 rejects dark typography backgrounds yet warns on deliberate manual override", async () => {
+  it("V6 keeps unsafe swatch metadata without rendering a warning banner", async () => {
     const a = make("a", ["white", "ivory", "butter", "chambray", "ice-blue", "flo-blue", "orchid"]);
     a.color_match!.version = "colormatch-sms-c1717-v6";
     a.color_match!.method = "thumbnail_ink_readability_sales_prior";
@@ -244,8 +244,8 @@ describe("per-design ColorMatch background recommendations", () => {
     expect(navy?.title).toContain("chữ/chi tiết mực có thể bị chìm");
     await act(async () => navy?.click());
     expect(dialog.dataset.previewBackground).toBe("true-navy");
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
-      .toContain("Chữ có thể bị chìm");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+    expect(dialog.textContent).not.toContain("Comfort Colors C1717: 72 màu từ SMS");
 
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-background-white",
@@ -270,8 +270,8 @@ describe("per-design ColorMatch background recommendations", () => {
       ".etsy-design-gallery-background-true-navy",
     );
     await act(async () => navy?.click());
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
-      .toContain("Chữ có thể bị chìm");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+    expect(dialog.textContent).not.toContain("Comfort Colors C1717: 72 màu từ SMS");
   });
 
 });

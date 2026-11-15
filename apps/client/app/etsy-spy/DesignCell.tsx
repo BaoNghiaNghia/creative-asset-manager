@@ -219,7 +219,6 @@ export function DesignCell({ item, onPreviewStart }: {
     ?? DESIGN_BACKGROUNDS[0];
   const reviewColors = new Set(preview.color_match?.version === "colormatch-sms-c1717-v8"
     ? preview.color_match?.review_colors ?? [] : []);
-  const selectedHasReadabilityRisk = unsafeColors.has(selectedColor) || reviewColors.has(selectedColor);
   const chooseColor = (id: DesignBackground) => {
     if (wholeProductActive && wholeProductColors.includes(id)) {
       setProductColor(id);
@@ -537,16 +536,6 @@ export function DesignCell({ item, onPreviewStart }: {
                   </div>
                   {renderOtherColorGroups(DESIGN_BACKGROUNDS.slice(1))}
                 </div>}
-                {selectedHasReadabilityRisk && <p className="etsy-design-gallery-contrast-warning"
-                  role="status" aria-live="polite">
-                  <strong>{unsafeColors.has(selectedColor) ? "Chữ có thể bị chìm" : "Độ nổi chi tiết chưa tối ưu"} trên {selectedBackground.label}.</strong>
-                  Đây là màu gợi ý để xem thử, chưa xác nhận phù hợp để in. Hãy kiểm tra
-                  độ tương phản và bản in mẫu trước khi sử dụng.
-                </p>}
-                <p className="etsy-design-gallery-background-note">
-                  Comfort Colors C1717: 72 màu từ SMS (56 đã thiết lập, 16 chỉ supplier).
-                  Màu thiếu HEX không thể xem thử; kết quả màu cần xem thử không bảo đảm khi in. PNG gốc giữ nguyên.
-                </p>
               </section>
             </aside>
           </div>

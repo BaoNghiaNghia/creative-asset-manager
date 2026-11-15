@@ -104,7 +104,7 @@ describe("V7 Design ColorMatch production UX", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("warns for manual low-contrast color and preserves original artwork", async () => {
+  it("flags low-contrast swatches without warning panel and preserves artwork", async () => {
     const dialog = await mount([make("front", "a".repeat(24), ["white", "ivory"])]);
     expect(dialog.querySelector(".etsy-colormatch-print-settings")).toBeNull();
     const originalSrc = dialog.querySelector<HTMLImageElement>(
@@ -113,8 +113,8 @@ describe("V7 Design ColorMatch production UX", () => {
       ".etsy-design-gallery-all-colors-toggle")?.click());
     await act(async () => dialog.querySelector<HTMLButtonElement>(
       ".etsy-design-gallery-background-true-navy")?.click());
-    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
-      .toContain("Chữ có thể bị chìm");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+    expect(dialog.textContent).not.toContain("Comfort Colors C1717: 72 màu từ SMS");
     expect(dialog.querySelector<HTMLImageElement>(
       ".etsy-design-gallery-artwork-original")?.getAttribute("src")).toBe(originalSrc);
   });
