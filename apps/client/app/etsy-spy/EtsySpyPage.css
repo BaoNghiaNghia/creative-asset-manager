@@ -3199,10 +3199,8 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-tiktok-copy-title button { min-height: 44px; }
   .etsy-tiktok-dialog-actions .etsy-tiktok-copy-all { margin-right: 0; }
 }
-/* ColorMatch V7 — per-design and multi-position garment advice */
-.etsy-colormatch-product-scope,
-.etsy-colormatch-print-settings,
-.etsy-colormatch-feedback {
+/* ColorMatch V8 — compact per-design/multi-position color recommendations */
+.etsy-colormatch-product-scope {
   display: grid;
   gap: 8px;
   min-width: 0;
@@ -3220,8 +3218,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   font-size: 11px;
 }
 .etsy-colormatch-product-heading span,
-.etsy-colormatch-product-scope small,
-.etsy-colormatch-feedback small {
+.etsy-colormatch-product-scope small {
   color: #607086;
   font-size: 11px;
   line-height: 1.45;
@@ -3236,48 +3233,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-colormatch-product-toggle input {
   accent-color: #376bd8;
 }
-.etsy-colormatch-print-settings label {
-  font-size: 11px;
-  font-weight: 700;
-}
-.etsy-colormatch-print-settings select {
-  max-width: 100%;
-  min-height: 34px;
-  border-radius: 7px;
-  border: 1px solid #cbd5e1;
-  padding: 4px 8px;
-  background: white;
-  color: #172a45;
-}
-.etsy-colormatch-print-settings p {
-  margin: 0;
-  font-size: 11px;
-  color: #55657b;
-  line-height: 1.45;
-}
-.etsy-colormatch-feedback-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.etsy-colormatch-feedback-actions button {
-  flex: 1 1 120px;
-  border-radius: 7px;
-  border: 1px solid #b9c8e1;
-  min-height: 34px;
-  color: #284c83;
-  background: white;
-  font-size: 11px;
-  font-weight: 650;
-}
-.etsy-colormatch-feedback-actions button:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-.etsy-design-gallery-background-swatch[data-user-feedback="rejected"] {
-  box-shadow: 0 0 0 2px #b45309;
-  border-style: dashed;
-}
-.etsy-design-gallery-background-swatch[data-user-feedback="selected"] {
-  box-shadow: 0 0 0 2px #18835d;
+.etsy-design-gallery-background-swatch[data-readability-risk="true"] {
+  outline: 2px dashed #c98a35;
+  outline-offset: 2px;
 }

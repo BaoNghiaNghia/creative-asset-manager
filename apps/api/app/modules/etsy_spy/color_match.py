@@ -47,11 +47,12 @@ def _distance(a: tuple[float, float, float, float],
 
 def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
                              analysis_png: bytes | None = None) -> dict | None:
-    """Rank up to 10 C1717 colors after a mandatory ink-readability hard gate.
+    """Rank exactly ten C1717 previews with risk labeled by design.
 
-    If fewer than seven colors pass, return only verified readable options.
-    If no colors pass, return metadata with zero recommendations so the UI
-    can warn about manual selections; never force a low-contrast choice.
+    Verified readable colors are always ranked first. If fewer than ten
+    survive the readability gate, fill remaining slots by highest measured
+    contrast margin, marking these extra colors as needing visual review.
+    Such fallbacks are NOT labeled printable or safe.
 
     Samples only a capped 192px PNG that was already created at upload time.
     Small/high-opacity ink regions are not hidden by the dominant color:
@@ -79,6 +80,13 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
             continue
         sampled.append((_lab((r, g, b)), a / 255))
     if len(sampled) < 12:
+        # Very small chest/sleeve marks can fall between 2,000 sparse
+        # sampling points. Re-examine bounded native thumbnail pixels so
+        # an actual but tiny design still receives automatic candidates.
+        sampled = [(_lab((r, g, b)), a / 255) for r, g, b, a in pixels
+                   if a >= 32][:_MAX_SAMPLES]
+    if not sampled:
+        # A fully transparent PNG has no artwork to score.
         return None
 
     analysis_pixels = pixels
@@ -131,12 +139,11 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
     for color_id, hex_rgb in GARMENT_COLORS:
         bg = tuple(int(hex_rgb[i:i+2], 16) for i in (1, 3, 5))
         bg_lab = _lab(bg)
-        # Hard gate precedes all ranking: no sales signal may rescue a
-        # garment on which meaningful text-like ink is unreadable.
+        # Never label unreadable artwork printable. Still retain its
+        # contrast score for a bounded, explicitly flagged preview fallback.
         safe, margin = candidate_readability(profiles, bg)
         if not safe:
             unsafe_colors.append(color_id)
-            continue
         safety_margins[color_id] = margin
         signals: list[float] = []
         hidden = 0.0
@@ -171,36 +178,51 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
         combined = .92 * rating + 8.0 * popularity
         weighted.append((color_id, round(combined, 1), bg_lab, round(rating, 1)))
     weighted.sort(key=lambda row: (-row[1], -row[3], row[0]))
-    strongest_ink_contrast = max((row[3] for row in weighted), default=0)
+    unsafe_set = set(unsafe_colors)
+    strongest_ink_contrast = max(
+        (row[3] for row in weighted if row[0] not in unsafe_set), default=0)
     quality_floor = max(21.0, strongest_ink_contrast * .56)
-    readable = [row for row in weighted if row[3] >= quality_floor]
+    readable = [row for row in weighted
+                if row[0] not in unsafe_set and row[3] >= quality_floor]
+    safe_ranked = [row for row in weighted if row[0] not in unsafe_set]
+    by_id = {row[0]: row for row in weighted}
     best: list[str] = []
-    # Prefer garment colors that are perceptually varied. Relax duplication
-    # only if needed to reach at least seven distinct readable choices.
+    # Prefer high-readability, diverse colors. Never use a flagged color
+    # before exhausting the verified safe colors.
     for min_distance in (.090, .060, .035, .0):
         for color_id, _score, lab, _visual in readable:
             if color_id in best:
                 continue
-            if any(_distance(lab, next(row[2] for row in weighted if row[0] == chosen))
-                   < min_distance for chosen in best):
+            if any(_distance(lab, by_id[chosen][2]) < min_distance
+                   for chosen in best):
                 continue
             best.append(color_id)
             if len(best) == 10:
                 break
-        if len(best) >= 7:
+        if len(best) == 10:
             break
-    if len(best) < 7:
-        # Do not force bad contrast to satisfy the count target.
-        secondary_floor = max(16.0, strongest_ink_contrast * .42)
-        for color_id, _score, _unused_lab, visual in weighted:
-            if color_id not in best and visual >= secondary_floor:
-                best.append(color_id)
-                if len(best) >= 7:
-                    break
-    by_id = {row[0]: row for row in weighted}
+    for row in safe_ranked:
+        if len(best) == 10:
+            break
+        if row[0] not in best:
+            best.append(row[0])
+    # Only when <10 safe colors exist, add lowest-risk preview candidates.
+    # A hard-gated color stays in unsafe_colors, and the UI marks it clearly.
+    if len(best) < 10:
+        review_ranked = sorted(
+            (row for row in weighted if row[0] in unsafe_set),
+            key=lambda row: (-safety_margins[row[0]], -row[3], -row[1], row[0]),
+        )
+        for row in review_ranked:
+            if len(best) == 10:
+                break
+            if row[0] not in best:
+                best.append(row[0])
     secondary_floor = max(16.0, strongest_ink_contrast * .42)
     eligible_colors = [color for color, _combined, _lab_color, visual in weighted
-                       if visual >= secondary_floor]
+                       if color not in unsafe_set and visual >= secondary_floor]
+    eligible_set = set(eligible_colors)
+    review_colors = [color for color in best if color not in eligible_set]
     return {
         "version": ALGORITHM,
         "output_sha256": output_sha256,
@@ -209,8 +231,9 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
         "contrast_scores": {color: by_id[color][3] for color in best},
         "readability_margins": {color: safety_margins[color] for color in best},
         "unsafe_colors": unsafe_colors,
+        "review_colors": review_colors,
         "readability_check": "region_ink_alpha_composite_v2",
-        "method": "design_region_alpha_sales_prior",
+        "method": "design_region_alpha_sales_prior_ten",
         "eligible_colors": eligible_colors,
         "analysis": {
             "resolution": [analysis_width, analysis_height],
@@ -223,5 +246,5 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
                                           or analysis_pixels is pixels),
         },
         "popularity_source": SALES_PRIOR_SNAPSHOT,
-        "insufficient_safe_colors": len(best) < 7,
+        "insufficient_safe_colors": len(eligible_colors) < 7,
     }

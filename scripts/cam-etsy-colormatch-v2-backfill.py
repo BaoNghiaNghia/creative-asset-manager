@@ -31,7 +31,7 @@ _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
 _MAX_ANALYSIS_ORIGINAL_BYTES = 8 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v7"
+_TARGET_VERSION = "colormatch-sms-c1717-v8"
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class Target:
 
 
 def fresh(row: dict) -> bool:
-    """True only for current SHA and a complete, internally safe V6 record."""
+    """True only for SHA-bound, validated V8 ten-color rankings."""
     from app.modules.etsy_spy.design_artifacts import _validated_color_match
     meta = row.get("color_match")
     if not isinstance(meta, dict) or meta.get("version") != _TARGET_VERSION:
@@ -61,8 +61,7 @@ def fresh(row: dict) -> bool:
     if projected is None:
         return False
     colors = projected["recommended"]
-    return (7 <= len(colors) <= 10 or
-            (len(colors) < 7 and meta.get("insufficient_safe_colors") is True))
+    return len(colors) == 10
 
 
 def candidate_records(job) -> list[Target]:
@@ -294,6 +293,7 @@ async def backfill(args) -> dict:
         "updated_local": 0, "updated_drive": 0,
         "analysis_medium": 0, "analysis_thumbnail_fallback": 0,
         "updated_under_seven": 0, "updated_zero_safe": 0,
+        "updated_with_review_colors": 0, "updated_review_color_slots": 0,
         "updated_faded_ink": 0, "updated_text_regions": 0,
         "updated_print_review_required": 0,
         "unavailable_or_mismatch": 0, "skipped": 0, "errors": 0,
@@ -358,10 +358,14 @@ async def backfill(args) -> dict:
                     if await asyncio.to_thread(apply_one, target, args.tenant_id, metadata):
                         counts[f"updated_{type_label}"] += 1
                         region = metadata.get("analysis", {})
-                        if len(metadata.get("recommended", [])) < 7:
+                        if len(metadata.get("eligible_colors", [])) < 7:
                             counts["updated_under_seven"] += 1
-                        if not metadata.get("recommended"):
+                        if not metadata.get("eligible_colors"):
                             counts["updated_zero_safe"] += 1
+                        risk_count = len(metadata.get("review_colors", []))
+                        if risk_count:
+                            counts["updated_with_review_colors"] += 1
+                            counts["updated_review_color_slots"] += risk_count
                         if region.get("faded_ink"):
                             counts["updated_faded_ink"] += 1
                         if region.get("text_regions", 0) > 0:

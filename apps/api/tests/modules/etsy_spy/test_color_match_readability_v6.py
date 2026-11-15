@@ -48,15 +48,15 @@ def _thumbnail(style: str) -> bytes:
 
 
 def test_flamingo_black_headline_never_gets_navy_pepper_or_black():
-    assert ALGORITHM == "colormatch-sms-c1717-v7"
+    assert ALGORITHM == "colormatch-sms-c1717-v8"
     result = recommend_garment_colors(_thumbnail("flamingo"), "a" * 64)
     assert result and result["version"] == ALGORITHM
     for invisible in ("true-navy", "black", "pepper"):
         assert invisible not in result["recommended"]
         assert invisible in result["unsafe_colors"]
     assert "white" in result["recommended"]
-    assert 1 <= len(result["recommended"]) <= 10
-    assert result["method"] == "design_region_alpha_sales_prior"
+    assert len(result["recommended"]) == 10
+    assert result["method"] == "design_region_alpha_sales_prior_ten"
     assert result["readability_check"] == "region_ink_alpha_composite_v2"
     assert _validated_color_match({"color_match": result}, "a" * 64)
 
@@ -67,16 +67,17 @@ def test_veterinary_small_black_letters_are_not_outvoted_by_bright_animals():
     for invisible in ("true-navy", "black", "pepper"):
         assert invisible in result["unsafe_colors"]
         assert invisible not in result["recommended"]
-    assert len(result["recommended"]) <= 10
-    assert result["insufficient_safe_colors"] is (len(result["recommended"]) < 7)
+    assert len(result["recommended"]) == 10
+    assert result["insufficient_safe_colors"] is (len(result["eligible_colors"]) < 7)
     assert _validated_color_match({"color_match": result}, "b" * 64)
 
 
 def test_zero_safe_colors_stores_unsafe_metadata_not_a_fake_recommendation():
     result = recommend_garment_colors(_thumbnail("white-and-black-ink"), "c" * 64)
     assert result
-    assert result["insufficient_safe_colors"] is (len(result["recommended"]) < 7)
-    assert not set(result["recommended"]).intersection(result["unsafe_colors"])
+    assert result["insufficient_safe_colors"] is (len(result["eligible_colors"]) < 7)
+    assert len(result["recommended"]) == 10
+    assert (set(result["recommended"]) & set(result["unsafe_colors"])) == set(result["review_colors"]) & set(result["unsafe_colors"])
     assert _validated_color_match({"color_match": result}, "c" * 64)
     assert _validated_color_match({"color_match": result}, "d" * 64) is None
 

@@ -271,7 +271,7 @@ describe("per-design ColorMatch background recommendations", () => {
     );
     await act(async () => navy?.click());
     expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")?.textContent)
-      .toContain("Màu này không đạt kiểm tra tương phản");
+      .toContain("Chữ có thể bị chìm");
   });
 
 });

@@ -13,7 +13,7 @@ from app.modules.etsy_spy.design_artifacts import _validated_color_match
 
 
 def test_sms_c1717_catalog_is_complete_and_status_is_not_stock():
-    assert ALGORITHM == "colormatch-sms-c1717-v7"
+    assert ALGORITHM == "colormatch-sms-c1717-v8"
     assert len(SMS_C1717_COLORS) == 72
     assert len({row[0] for row in SMS_C1717_COLORS}) == 72
     assert sum(row[3] for row in SMS_C1717_COLORS) == 56

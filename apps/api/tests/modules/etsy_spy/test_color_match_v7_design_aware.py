@@ -37,9 +37,9 @@ def test_faded_typography_always_rejects_dark_and_preserves_white(alpha: int):
     assert "true-navy" in result["unsafe_colors"]
     assert "black" in result["unsafe_colors"]
     assert "white" in result["recommended"]
-    assert 0 <= len(result["recommended"]) <= 10
-    assert not set(result["recommended"]).intersection(result["unsafe_colors"])
-    assert set(result["recommended"]).issubset(result["eligible_colors"])
+    assert len(result["recommended"]) == 10
+    assert (set(result["recommended"]) & set(result["unsafe_colors"])).issubset(result["review_colors"])
+    assert (set(result["recommended"]) - set(result["eligible_colors"])) == set(result["review_colors"])
     assert _validated_color_match({"color_match": result}, "a" * 64)
 
 
@@ -104,7 +104,7 @@ def test_no_readable_color_remains_explicit_and_sha_bound():
     image.save(buf, "PNG")
     result = recommend_garment_colors(buf.getvalue(), "f" * 64)
     assert result
-    assert result["insufficient_safe_colors"] == (len(result["recommended"]) < 7)
+    assert result["insufficient_safe_colors"] == (len(result["eligible_colors"]) < 7)
     assert _validated_color_match({"color_match": result}, "f" * 64)
     assert not _validated_color_match({"color_match": result}, "e" * 64)
 

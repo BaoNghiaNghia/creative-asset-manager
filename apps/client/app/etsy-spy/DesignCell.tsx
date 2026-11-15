@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { Listing } from "./api";
-import { spyFetch } from "./api";
 import { sharedGarmentColors } from "./productColorMatch";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import { DesignStageImage } from "./DesignStageImage";
@@ -30,17 +29,9 @@ const GARMENT_COLOR_IDS = new Set<string>(
 );
 const COLOR_MATCH_VERSIONS = new Set([
   "colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3",
-  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7",
+  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8",
 ]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
-type PrintMethod = "unknown" | "dtg" | "dtf" | "screen";
-const PRINT_ADVICE: Record<PrintMethod, string> = {
-  unknown: "Chưa xác định phương pháp in. Nền xem thử chỉ mang tính tham khảo, không thay cho bản proof in.",
-  dtg: "DTG: mực lót trắng và màu vải có thể thay đổi độ đục của mực. Kiểm tra chữ mảnh/vintage trên bản in mẫu.",
-  dtf: "DTF: lớp transfer có thể làm màu và độ dày nét khác với PNG alpha. Kiểm tra chi tiết nhỏ và độ bám sau ép.",
-  screen: "In lụa: cần kiểm tra phân tách màu, underbase và số lớp mực. Không dùng bản preview làm bằng chứng in đạt.",
-};
-
 function recommendedColors(design: PreviewDesign): DesignBackground[] {
   const match = design.color_match;
   if (!match || !COLOR_MATCH_VERSIONS.has(match.version) ||
@@ -104,12 +95,8 @@ export function DesignCell({ item, onPreviewStart }: {
   const [background, setBackground] = useState<DesignBackground>("transparent");
   const [colorOverrides, setColorOverrides] = useState<Record<string, DesignBackground>>({});
   const [showAllColors, setShowAllColors] = useState(false);
-  const [printMethod, setPrintMethod] = useState<PrintMethod>("unknown");
   const [productScope, setProductScope] = useState(false);
   const [productColor, setProductColor] = useState<DesignBackground | null>(null);
-  const [feedbackDecisions, setFeedbackDecisions] = useState<Record<string, Record<string, string>>>({});
-  const [feedbackStatus, setFeedbackStatus] = useState<string>("");
-  const [feedbackSaving, setFeedbackSaving] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const galleryRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -161,28 +148,6 @@ export function DesignCell({ item, onPreviewStart }: {
     if (designs.length === 0) setActive(null);
   }, [designs.length]);
 
-  const feedbackDesign = designs[active ?? 0];
-  useEffect(() => {
-    if (!galleryOpen || !feedbackDesign) return;
-    const controller = new AbortController();
-    const key = designChoiceKey(feedbackDesign);
-    const params = new URLSearchParams({
-      job_id: feedbackDesign.job_id,
-      asset_id: feedbackDesign.id,
-      output_sha256: feedbackDesign.output_sha256,
-    });
-    void spyFetch<{latest: Record<string, string>}>(
-      `/listings/${encodeURIComponent(item.listingKey)}/design-color-feedback?${params}`,
-      {signal: controller.signal},
-    ).then(result => {
-      if (!controller.signal.aborted) {
-        setFeedbackDecisions(prev => ({...prev, [key]: result.latest}));
-      }
-    }).catch(() => { /* Viewer permissions or offline mode: preview stays usable. */ });
-    return () => controller.abort();
-  }, [galleryOpen, item.listingKey,
-    feedbackDesign?.job_id, feedbackDesign?.id, feedbackDesign?.output_sha256]);
-
   // Match the Etsy thumbnail preview: viewport-anchored, bottom-left, with
   // original Design PNG loaded only when hovered/focused. Touch opens gallery.
   useEffect(() => {
@@ -230,21 +195,17 @@ export function DesignCell({ item, onPreviewStart }: {
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
   const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
   const colorKey = designChoiceKey(preview);
-  const userColorDecisions = feedbackDecisions[colorKey] ?? {};
-  const suggestions = recommendedColors(preview).filter(id =>
-    userColorDecisions[id] !== "rejected");
+  const suggestions = recommendedColors(preview);
   const productAdvice = sharedGarmentColors(designs, selected);
   const wholeProductColors = productAdvice?.colors.filter(id =>
-    GARMENT_COLOR_IDS.has(id) && userColorDecisions[id] !== "rejected") ?? [];
+    GARMENT_COLOR_IDS.has(id)) ?? [];
   const wholeProductActive = productScope && !!wholeProductColors.length &&
     !productAdvice?.awaitingAnalysis;
   const rankedBySalesSpeed = ["colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6",
-    "colormatch-sms-c1717-v7"]
+    "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8"]
     .includes(preview.color_match?.version ?? "");
-  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7"]
+  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8"]
     .includes(preview.color_match?.version ?? "") &&
-    preview.color_match?.output_sha256 === preview.output_sha256;
-  const isV7 = preview.color_match?.version === "colormatch-sms-c1717-v7" &&
     preview.color_match?.output_sha256 === preview.output_sha256;
   const unsafeColors = new Set(hasReadabilityGuard && Array.isArray(preview.color_match?.unsafe_colors)
     ? preview.color_match.unsafe_colors : []);
@@ -256,7 +217,9 @@ export function DesignCell({ item, onPreviewStart }: {
       : background;
   const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
     ?? DESIGN_BACKGROUNDS[0];
-  const selectedHasReadabilityRisk = unsafeColors.has(selectedColor);
+  const reviewColors = new Set(preview.color_match?.version === "colormatch-sms-c1717-v8"
+    ? preview.color_match?.review_colors ?? [] : []);
+  const selectedHasReadabilityRisk = unsafeColors.has(selectedColor) || reviewColors.has(selectedColor);
   const chooseColor = (id: DesignBackground) => {
     if (wholeProductActive && wholeProductColors.includes(id)) {
       setProductColor(id);
@@ -270,48 +233,10 @@ export function DesignCell({ item, onPreviewStart }: {
       setBackground(id);
     }
   };
-  const canSaveFeedback = selectedColor !== "transparent" &&
-    C1717_SMS_COLORS.some(color => color.id === selectedColor && color.color);
-  const saveFeedback = (action: "selected" | "rejected") => {
-    if (!canSaveFeedback || feedbackSaving) return;
-    setFeedbackSaving(true);
-    setFeedbackStatus("");
-    void spyFetch<{ recorded: boolean }>(
-      `/listings/${encodeURIComponent(item.listingKey)}/design-color-feedback`,
-      { method: "POST", body: JSON.stringify({
-        job_id: preview.job_id,
-        asset_id: preview.id,
-        output_sha256: preview.output_sha256,
-        color_id: selectedColor,
-        action,
-        print_method: printMethod,
-        scope: wholeProductActive ? "product" : "design",
-      }) },
-    ).then(result => {
-      if (!result.recorded) throw new Error("No receipt");
-      setFeedbackDecisions(previous => ({
-        ...previous,
-        [colorKey]: { ...(previous[colorKey] ?? {}), [selectedColor]: action },
-      }));
-      if (action === "rejected") {
-        setColorOverrides(previous => Object.fromEntries(
-          Object.entries(previous).filter(([key]) => key !== colorKey),
-        ) as Record<string, DesignBackground>);
-        try { window.sessionStorage.removeItem(colorKey); } catch { /* optional storage */ }
-        setProductScope(false);
-      }
-      setFeedbackStatus(action === "selected"
-        ? "Đã lưu màu đã chọn để hiệu chỉnh đề xuất."
-        : "Đã ghi nhận màu không phù hợp; đã loại khỏi nhóm tự động gợi ý.");
-    }).catch(() => setFeedbackStatus(
-      "Không lưu được phản hồi. Việc xem thử màu vẫn sử dụng bình thường.",
-    )).finally(() => setFeedbackSaving(false));
-  };
   const chooseProductColor = (id: string) => {
     if (!wholeProductColors.includes(id)) return;
     setProductScope(true);
     setProductColor(id as DesignBackground);
-    setFeedbackStatus("");
   };
   const suggestedOptions = suggestions.map(id =>
     DESIGN_BACKGROUNDS.find(color => color.id === id)!,
@@ -326,7 +251,10 @@ export function DesignCell({ item, onPreviewStart }: {
   const otherOptions = DESIGN_BACKGROUNDS.slice(1).filter(option =>
     !suggestions.includes(option.id),
   );
-  const recommendationGroups = [
+  const recommendationGroups = preview.color_match?.version === "colormatch-sms-c1717-v8" ? [
+    { id: "safe", label: "Ưu tiên tương phản", options: suggestedOptions.filter(option => !reviewColors.has(option.id)) },
+    { id: "review", label: "Cần xem thử · độ tương phản thấp", options: suggestedOptions.filter(option => reviewColors.has(option.id)) },
+  ].filter(group => group.options.length > 0) : [
     { id: "best", label: "Phù hợp nhất", options: suggestedOptions.slice(0, 3) },
     { id: "safe", label: "Gợi ý thêm", options: suggestedOptions.slice(3, 7) },
     { id: "accent", label: "Lựa chọn khác", options: suggestedOptions.slice(7) },
@@ -343,9 +271,10 @@ export function DesignCell({ item, onPreviewStart }: {
           ? `${option.label} · Chỉ có tại supplier (chưa thiết lập trong SMS)`
           : unsafeColors.has(option.id)
             ? `${option.label} · Cảnh báo: chữ/chi tiết mực có thể bị chìm`
-            : option.label}
-      data-readability-risk={unsafeColors.has(option.id) ? "true" : undefined}
-      data-user-feedback={userColorDecisions[option.id] || undefined}
+            : reviewColors.has(option.id)
+              ? `${option.label} · Cần xem thử: độ nổi của một số chi tiết chưa tối ưu`
+              : option.label}
+      data-readability-risk={unsafeColors.has(option.id) || reviewColors.has(option.id) ? "true" : undefined}
       aria-label={C1717_NO_HEX_IDS.has(option.id)
         ? `${option.label} · SMS chưa có mã HEX` : option.label}
       disabled={C1717_NO_HEX_IDS.has(option.id)}
@@ -566,12 +495,14 @@ export function DesignCell({ item, onPreviewStart }: {
                 </div>}
                 {suggestions.length > 0 ? <>
                   <div className="etsy-design-gallery-colormatch-heading">
-                    <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất cho thiết kế này</span>
-                    <small>{suggestions.length} màu · {rankedBySalesSpeed
-                      ? hasReadabilityGuard
-                        ? "lọc chữ chìm trước · xếp hạng theo SMS (60 ngày)"
-                        : "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
-                      : "theo artwork · chờ cập nhật dữ liệu xu hướng bán"}</small>
+                    <span aria-label="Màu được gợi ý theo ảnh thiết kế">✦ Đề xuất 10 màu áo tự động</span>
+                    <small>{suggestions.length} màu · {preview.color_match?.version === "colormatch-sms-c1717-v8"
+                      ? `${reviewColors.size} màu cần xem thử · xếp hạng theo design + SMS`
+                      : rankedBySalesSpeed
+                        ? hasReadabilityGuard
+                          ? "lọc chữ chìm trước · xếp hạng theo SMS (60 ngày)"
+                          : "tương phản artwork + tốc độ tiêu thụ SMS (60 ngày)"
+                        : "theo artwork · chờ cập nhật dữ liệu xu hướng bán"}</small>
                   </div>
                   <div className="etsy-design-gallery-recommendations">
                     <div className="etsy-design-gallery-background-picker etsy-design-gallery-recommended"
@@ -608,49 +539,13 @@ export function DesignCell({ item, onPreviewStart }: {
                 </div>}
                 {selectedHasReadabilityRisk && <p className="etsy-design-gallery-contrast-warning"
                   role="status" aria-live="polite">
-                  <strong>Chữ có thể bị chìm trên {selectedBackground.label}.</strong>
-                  Màu này không đạt kiểm tra tương phản mực. Hãy chọn nền sáng/tối khác
-                  trong nhóm đề xuất, hoặc xem thử với độ phóng lớn trước khi in.
+                  <strong>{unsafeColors.has(selectedColor) ? "Chữ có thể bị chìm" : "Độ nổi chi tiết chưa tối ưu"} trên {selectedBackground.label}.</strong>
+                  Đây là màu gợi ý để xem thử, chưa xác nhận phù hợp để in. Hãy kiểm tra
+                  độ tương phản và bản in mẫu trước khi sử dụng.
                 </p>}
-                <div className="etsy-colormatch-print-settings">
-                  <label htmlFor="etsy-colormatch-print-method">Phương pháp in dự kiến</label>
-                  <select id="etsy-colormatch-print-method" value={printMethod}
-                    onChange={event => setPrintMethod(event.target.value as PrintMethod)}>
-                    <option value="unknown">Chưa xác định</option>
-                    <option value="dtg">DTG</option>
-                    <option value="dtf">DTF</option>
-                    <option value="screen">In lụa</option>
-                  </select>
-                  <p>{PRINT_ADVICE[printMethod]}</p>
-                  {isV7 && preview.color_match?.analysis?.print_review_required && <p>
-                    Artwork có nét phai, chữ nhỏ hoặc chỉ có ảnh phân tích thấp.
-                    Nên đối chiếu bản proof trước khi in hàng loạt.
-                  </p>}
-                  {isV7 && preview.color_match?.analysis?.source === "thumbnail" && <p>
-                    Hồ sơ này dựa trên thumbnail; cần bản phân tích 512 px để đánh giá chữ nhỏ tin cậy hơn.
-                  </p>}
-                </div>
-                <div className="etsy-colormatch-feedback">
-                  <div className="etsy-colormatch-feedback-actions">
-                    <button type="button" disabled={!canSaveFeedback || feedbackSaving}
-                      onClick={() => saveFeedback("selected")}>
-                      Lưu màu đã chọn
-                    </button>
-                    <button type="button" disabled={!canSaveFeedback || feedbackSaving}
-                      onClick={() => saveFeedback("rejected")}>
-                      Không phù hợp
-                    </button>
-                  </div>
-                  {userColorDecisions[selectedColor] && <small>
-                    Phản hồi đã lưu: {userColorDecisions[selectedColor] === "rejected"
-                      ? "Không phù hợp" : "Đã chọn"}
-                  </small>}
-                  {feedbackStatus && <small role="status">{feedbackStatus}</small>}
-                  <small>Chỉ lưu khi bấm nút; không tự ghi lại mỗi lượt xem thử.</small>
-                </div>
                 <p className="etsy-design-gallery-background-note">
                   Comfort Colors C1717: 72 màu từ SMS (56 đã thiết lập, 16 chỉ supplier).
-                  Màu thiếu HEX không thể xem thử; không thay đổi PNG gốc.
+                  Màu thiếu HEX không thể xem thử; kết quả màu cần xem thử không bảo đảm khi in. PNG gốc giữ nguyên.
                 </p>
               </section>
             </aside>

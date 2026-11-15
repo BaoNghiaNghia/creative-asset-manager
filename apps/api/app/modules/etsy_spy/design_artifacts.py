@@ -36,17 +36,18 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
     if not isinstance(match, dict):
         return None
     version = match.get("version")
-    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v6",
+    sms_versions = (ALGORITHM, "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v6",
                     "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v4")
     allowed = ({color_id for color_id, _ in GARMENT_COLORS}
                if version in sms_versions else LEGACY_COLOR_IDS)
     colors = match.get("recommended")
-    max_recommendations = (10 if version in (ALGORITHM, "colormatch-sms-c1717-v6",
+    max_recommendations = (10 if version in (ALGORITHM, "colormatch-sms-c1717-v7",
+                                             "colormatch-sms-c1717-v6",
                                              "colormatch-sms-c1717-v5",
                                              "colormatch-pixel-v2") else
                            16 if version in ("colormatch-sms-c1717-v4",
                                              "colormatch-pixel-v3") else 4)
-    zero_allowed = (version in (ALGORITHM, "colormatch-sms-c1717-v6")
+    zero_allowed = (version in ("colormatch-sms-c1717-v7", "colormatch-sms-c1717-v6")
                     and match.get("insufficient_safe_colors") is True)
     if (version not in (*sms_versions, "colormatch-pixel-v3",
                         "colormatch-pixel-v2", "colormatch-pixel-v1") or
@@ -56,19 +57,30 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
             any(not isinstance(c, str) or c not in allowed for c in colors) or
             len(set(colors)) != len(colors)):
         return None
-    if version == ALGORITHM:
+    if version in (ALGORITHM, "colormatch-sms-c1717-v7"):
+        is_v8 = version == ALGORITHM
         unsafe = match.get("unsafe_colors")
         eligible = match.get("eligible_colors")
+        review = match.get("review_colors") if is_v8 else []
         if (not isinstance(unsafe, list) or len(unsafe) > len(allowed) or
                 not isinstance(eligible, list) or len(eligible) > len(allowed) or
-                any(not isinstance(c, str) or c not in allowed for c in unsafe + eligible) or
+                not isinstance(review, list) or len(review) > 10 or
+                any(not isinstance(c, str) or c not in allowed
+                    for c in unsafe + eligible + review) or
                 len(set(unsafe)) != len(unsafe) or len(set(eligible)) != len(eligible) or
+                len(set(review)) != len(review) or
                 not set(unsafe).isdisjoint(eligible) or
-                not set(unsafe).isdisjoint(colors) or
-                not set(colors).issubset(eligible) or
-                (len(colors) < 7) != (match.get("insufficient_safe_colors") is True) or
+                (not is_v8 and (not set(unsafe).isdisjoint(colors)
+                                or not set(colors).issubset(eligible))) or
+                (is_v8 and (len(colors) != 10 or
+                            set(review) != (set(colors) - set(eligible)) or
+                            not set(colors).issubset(set(eligible) | set(review)) or
+                            not (set(colors) & set(unsafe)).issubset(review))) or
+                (len(eligible) < 7 if is_v8 else len(colors) < 7)
+                    != (match.get("insufficient_safe_colors") is True) or
                 match.get("readability_check") != "region_ink_alpha_composite_v2" or
-                match.get("method") != "design_region_alpha_sales_prior"):
+                match.get("method") != ("design_region_alpha_sales_prior_ten"
+                                       if is_v8 else "design_region_alpha_sales_prior")):
             return None
         analysis = match.get("analysis")
         if not isinstance(analysis, dict):
@@ -110,10 +122,11 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
         return {
             "version": version, "output_sha256": digest,
             "recommended": colors, "unsafe_colors": unsafe,
-            "eligible_colors": eligible,
-            "insufficient_safe_colors": len(colors) < 7,
+            "eligible_colors": eligible, "review_colors": review,
+            "insufficient_safe_colors": len(eligible) < 7 if is_v8 else len(colors) < 7,
             "readability_check": "region_ink_alpha_composite_v2",
-            "method": "design_region_alpha_sales_prior",
+            "method": ("design_region_alpha_sales_prior_ten"
+                       if is_v8 else "design_region_alpha_sales_prior"),
             "analysis": {
                 "resolution": resolution, "source": analysis["source"],
                 "regions": clean_regions, "text_regions": analysis["text_regions"],

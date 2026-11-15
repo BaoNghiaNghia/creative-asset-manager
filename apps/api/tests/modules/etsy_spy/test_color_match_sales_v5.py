@@ -27,7 +27,7 @@ def _thumbnail(inks: tuple[str, ...]) -> bytes:
 
 
 def test_popularity_prior_is_bounded_and_not_live_inventory():
-    assert ALGORITHM == "colormatch-sms-c1717-v7"
+    assert ALGORITHM == "colormatch-sms-c1717-v8"
     assert SALES_PRIOR_SNAPSHOT == "sms-c1717-60d-20261114"
     available = {name for name, _ in GARMENT_COLORS}
     assert set(SALES_SPEED_PRIOR).issubset(available)
@@ -56,12 +56,12 @@ def test_seven_to_ten_distinct_safe_choices_for_six_artwork_palettes():
         first[name] = got["recommended"][0]
         assert got["version"] == ALGORITHM
         assert got["popularity_source"] == SALES_PRIOR_SNAPSHOT
-        assert got["method"] == "design_region_alpha_sales_prior"
-        assert got["insufficient_safe_colors"] is (len(got["recommended"]) < 7)
-        assert 0 <= len(got["recommended"]) <= 10, name
+        assert got["method"] == "design_region_alpha_sales_prior_ten"
+        assert got["insufficient_safe_colors"] is (len(got["eligible_colors"]) < 7)
+        assert len(got["recommended"]) == 10, name
         assert len(got["recommended"]) == len(set(got["recommended"])), name
         assert set(got["recommended"]) <= allowed, name
-        assert set(got["recommended"]).isdisjoint(got["unsafe_colors"]), name
+        assert (set(got["recommended"]) & set(got["unsafe_colors"])).issubset(got["review_colors"]), name
         assert set(got["scores"]) == set(got["recommended"])
         assert set(got["contrast_scores"]) == set(got["recommended"])
         assert _validated_color_match({"color_match": got}, sha)

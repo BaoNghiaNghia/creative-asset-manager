@@ -9,7 +9,7 @@ const make = (position: string, id: string, eligible: string[], unsafe: string[]
   status: "needs_review", output_sha256: sha, thumbnail_url: "/thumb",
   original_url: "/orig", print_ready: false, rights_status: "unverified",
   manual_qa_required: true, color_match: {
-    version: "colormatch-sms-c1717-v7", output_sha256: sha,
+    version: "colormatch-sms-c1717-v8", output_sha256: sha,
     recommended: eligible.slice(0, 10), eligible_colors: eligible,
     unsafe_colors: unsafe, method: "design_region_alpha_sales_prior",
     analysis: {resolution: [512, 512], source: "medium", regions: [],
@@ -50,7 +50,7 @@ describe("shared product garment color selection", () => {
   it("holds the whole-product promise if a position is still on V6", () => {
     const front = make("front", "a".repeat(24), ["white"]);
     const sleeve = make("right_sleeve", "b".repeat(24), ["white"]);
-    sleeve.color_match!.version = "colormatch-sms-c1717-v6";
+    sleeve.color_match!.version = "colormatch-sms-c1717-v7";
     expect(sharedGarmentColors([front, sleeve], 0)).toMatchObject({
       awaitingAnalysis: true, colors: [],
     });

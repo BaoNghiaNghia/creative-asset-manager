@@ -16,11 +16,15 @@ const make = (position: string, id: string, eligible: string[]): DesignAsset => 
   thumbnail_url: "/thumb/" + id, original_url: "/original/" + id,
   print_ready: false, rights_status: "unverified", manual_qa_required: true,
   color_match: {
-    version: "colormatch-sms-c1717-v7", output_sha256: SHA,
-    recommended: eligible.slice(0, 10),
+    version: "colormatch-sms-c1717-v8", output_sha256: SHA,
+    recommended: [...new Set([...eligible, ...[
+      "butter", "white", "ivory", "pepper", "blue-jean", "sage", "bay",
+      "chambray", "orchid", "denim", "watermelon", "mustard", "navy",
+    ]])].slice(0, 10),
+    review_colors: [],
     eligible_colors: eligible,
     unsafe_colors: ["true-navy", "black"],
-    method: "design_region_alpha_sales_prior",
+    method: "design_region_alpha_sales_prior_ten",
     readability_check: "region_ink_alpha_composite_v2",
     analysis: {
       resolution: [512, 512], source: "medium", regions: [],
@@ -83,38 +87,26 @@ describe("V7 Design ColorMatch production UX", () => {
     expect(dialog.dataset.previewBackground).toBe("white");
   });
 
-  it("shows method-specific print advice and only records explicit choices", async () => {
+  it("shows ten automatic suggestions without print-method or feedback UI", async () => {
     const dialog = await mount([make("front", "a".repeat(24), ["white", "ivory"])]);
-    const selector = dialog.querySelector<HTMLSelectElement>(
-      "#etsy-colormatch-print-method",
-    )!;
-    expect(dialog.textContent).toContain("Chưa xác định phương pháp in");
-    expect(calls.filter(x => x.init?.method === "POST")).toHaveLength(0);
-    await act(async () => {
-      selector.value = "dtg";
-      selector.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(dialog.textContent).toContain("DTG: mực lót trắng");
-    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
-      ".etsy-colormatch-feedback-actions button")[0]?.click());
-    expect(calls.filter(x => x.init?.method === "POST")).toHaveLength(1);
-    const body = JSON.parse(calls.find(x => x.init?.method === "POST")!.init.body as string);
-    expect(body).toMatchObject({
-      action: "selected", color_id: "white",
-      output_sha256: SHA, print_method: "dtg", scope: "design",
-    });
-    expect(dialog.textContent).toContain("Đã lưu màu đã chọn");
-    await act(async () => dialog.querySelectorAll<HTMLButtonElement>(
-      ".etsy-colormatch-feedback-actions button")[1]?.click());
-    expect(calls.filter(x => x.init?.method === "POST")).toHaveLength(2);
+    expect(dialog.querySelectorAll(".etsy-design-gallery-recommended button")).toHaveLength(11);
+    expect(dialog.textContent).toContain("Đề xuất 10 màu áo tự động");
+    expect(dialog.querySelector("#etsy-colormatch-print-method")).toBeNull();
+    expect(dialog.querySelector(".etsy-colormatch-print-settings")).toBeNull();
+    expect(dialog.querySelector(".etsy-colormatch-feedback")).toBeNull();
+    expect(dialog.textContent).not.toContain("Lưu màu đã chọn");
+    expect(dialog.textContent).not.toContain("Không phù hợp");
+    expect(calls).toHaveLength(0); // Removing the UI also removes feedback fetches.
+    await act(async () => dialog.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-ivory",
+    )?.click());
     expect(dialog.dataset.previewBackground).toBe("ivory");
-    expect(dialog.querySelector('.etsy-design-gallery-recommended .etsy-design-gallery-background-white')).toBeNull();
-    expect(dialog.textContent).toContain("đã loại khỏi nhóm tự động gợi ý");
+    expect(calls).toHaveLength(0);
   });
 
-  it("warns about faded source and preserves original artwork for any background", async () => {
+  it("warns for manual low-contrast color and preserves original artwork", async () => {
     const dialog = await mount([make("front", "a".repeat(24), ["white", "ivory"])]);
-    expect(dialog.textContent).toContain("Artwork có nét phai");
+    expect(dialog.querySelector(".etsy-colormatch-print-settings")).toBeNull();
     const originalSrc = dialog.querySelector<HTMLImageElement>(
       ".etsy-design-gallery-artwork-original")?.getAttribute("src");
     await act(async () => dialog.querySelector<HTMLButtonElement>(
