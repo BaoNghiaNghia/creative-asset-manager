@@ -81,6 +81,16 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
     assert result is not None and result["version"] == "colormatch-sms-c1717-v7"
     row = {**_job().payload_json["design_assets"][1], "color_match": result}
     assert script.fresh(row)
+    # A many-color artwork can contain >16 total ROIs even though only
+    # twelve normalized detail boxes are exposed in the Picked payload.
+    expanded = {**row, "color_match": {**result, "analysis": {
+        **result["analysis"], "text_regions": 33,
+    }}}
+    assert script.fresh(expanded)
+    too_many = {**row, "color_match": {**result, "analysis": {
+        **result["analysis"], "text_regions": 193,
+    }}}
+    assert not script.fresh(too_many)
     zero = {**result, "recommended": [], "insufficient_safe_colors": True}
     assert script.fresh({**row, "color_match": zero})
     assert not script.fresh({**row, "color_match": {

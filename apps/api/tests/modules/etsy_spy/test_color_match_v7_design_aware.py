@@ -107,3 +107,38 @@ def test_no_readable_color_remains_explicit_and_sha_bound():
     assert result["insufficient_safe_colors"] == (len(result["recommended"]) < 7)
     assert _validated_color_match({"color_match": result}, "f" * 64)
     assert not _validated_color_match({"color_match": result}, "e" * 64)
+
+def test_multi_color_text_count_not_rejected_after_region_detail_truncation():
+    """V7 counted all text ROIs but persisted just 12 detailed regions.
+
+    Multi-color designs regularly have >16 total text ROIs. These valid
+    immutable records must not be marked stale and downloaded again.
+    """
+    image = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=26)
+    for i in range(16):
+        rgba = (20 + (i * 71) % 230,
+                20 + (i * 47) % 230,
+                20 + (i * 137) % 230, 255)
+        draw.text((15, 10 + i * 29), "HELLO WORLD",
+                  font=font, fill=rgba)
+    medium = BytesIO()
+    image.save(medium, "PNG")
+    thumbnail = image.copy()
+    thumbnail.thumbnail((192, 192), Image.Resampling.LANCZOS)
+    tiny = BytesIO()
+    thumbnail.save(tiny, "PNG")
+    meta = recommend_garment_colors(
+        tiny.getvalue(), "f" * 64, analysis_png=medium.getvalue(),
+    )
+    assert meta is not None
+    assert meta["analysis"]["text_regions"] > 16
+    assert len(meta["analysis"]["regions"]) <= 12
+    assert _validated_color_match({"color_match": meta}, "f" * 64) is not None
+
+    # Still enforce finite bounded counts from untrusted cached JSON.
+    corrupted = {**meta, "analysis": {
+        **meta["analysis"], "text_regions": 193,
+    }}
+    assert _validated_color_match({"color_match": corrupted}, "f" * 64) is None

@@ -82,7 +82,10 @@ def _validated_color_match(raw: dict, digest: str) -> dict | None:
                 type(analysis.get("faded_ink")) is not bool or
                 type(analysis.get("print_review_required")) is not bool or
                 type(analysis.get("text_regions")) is not int or
-                not 0 <= analysis["text_regions"] <= 16 or
+                # Total probable text regions are counted BEFORE the detail
+                # list is capped at 16 (and the API projection at 12).
+                # Up to 63 bounded pigment classes * 3 text ROIs each.
+                not 0 <= analysis["text_regions"] <= 192 or
                 type(analysis.get("microtext_regions")) is not int or
                 not 0 <= analysis["microtext_regions"] <= 16):
             return None
