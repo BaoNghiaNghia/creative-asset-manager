@@ -117,6 +117,13 @@ def recommend_garment_colors(thumbnail_png: bytes, output_sha256: str, *,
                     analysis_pixels = list(medium.get_flattened_data() if hasattr(medium, "get_flattened_data") else medium.getdata())
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             pass
+    # V10: role-aware local ranking. Retain V9 implementation below only as
+    # a documented rollback reference; never read or modify the native PNG.
+    if ALGORITHM == "colormatch-sms-c1717-v10":
+        from .color_match_v10 import rank_colors_v10
+        return rank_colors_v10(analysis_pixels, analysis_width, analysis_height,
+                               output_sha256,
+                               source="medium" if analysis_pixels is not pixels else "thumbnail")
     sampled, family_sizes = _balanced_ink_samples(analysis_pixels)
     if not sampled:
         return None

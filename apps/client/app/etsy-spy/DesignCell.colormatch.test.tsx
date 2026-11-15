@@ -16,7 +16,7 @@ const TOP_TEN = [
   "island-reef", "blossom", "hydrangea", "bay", "sandstone",
 ];
 
-const make = (id: string, colors: string[], version: "colormatch-sms-c1717-v9" | "colormatch-sms-c1717-v8" | "colormatch-pixel-v1" = "colormatch-sms-c1717-v9"): DesignAsset => ({
+const make = (id: string, colors: string[], version: "colormatch-sms-c1717-v10" | "colormatch-sms-c1717-v9" | "colormatch-sms-c1717-v8" | "colormatch-pixel-v1" = "colormatch-sms-c1717-v10"): DesignAsset => ({
   id, job_id: "color-job", listing_key: "listing-1",
   position: id === "b" ? "left_sleeve" : "front",
   variant: 1, method: "imagegen", status: "needs_review", source: "mapped",
@@ -29,7 +29,9 @@ const make = (id: string, colors: string[], version: "colormatch-sms-c1717-v9" |
     eligible_colors: colors,
     review_colors: [],
     unsafe_colors: ["black", "true-navy", "neon-pink"],
-    method: version === "colormatch-sms-c1717-v9"
+    method: version === "colormatch-sms-c1717-v10"
+      ? "role_aware_salience_ciede2000_v10"
+      : version === "colormatch-sms-c1717-v9"
       ? "design_region_alpha_quality_first"
       : version === "colormatch-sms-c1717-v8"
         ? "design_region_alpha_sales_prior_ten" : "thumbnail_pixel_contrast",
@@ -121,7 +123,7 @@ describe("ColorMatch quality-first two-section palette", () => {
     const dialog = await render([make("a", [])]);
     expect(buttons(dialog, "Màu phù hợp với thiết kế")).toHaveLength(0);
     expect(buttons(dialog, "Các màu còn lại")).toHaveLength(C1717_SMS_COLORS.length + 4);
-    expect(dialog.textContent).toContain("Chưa tìm thấy màu đủ tương phản");
+    expect(dialog.textContent).toContain("Không có màu đạt mức đề xuất");
     expect(dialog.dataset.previewBackground).toBe("transparent");
   });
 
@@ -155,6 +157,23 @@ describe("ColorMatch quality-first two-section palette", () => {
     expect(yam?.getAttribute("aria-pressed")).toBe("true");
     await act(async () => buttons(dialog, "Nền trong suốt")[0]?.click());
     expect(dialog.dataset.previewBackground).toBe("transparent");
+  });
+
+  it("shows V10 review candidates in the same upper palette with quiet disclosure", async () => {
+    const asset = make("a", ["white", "chambray", "flo-blue"]);
+    asset.color_match!.eligible_colors = ["white"];
+    asset.color_match!.review_colors = ["chambray", "flo-blue"];
+    const dialog = await render([asset]);
+    const top = buttons(dialog, "Màu phù hợp với thiết kế");
+    expect(top).toHaveLength(3);
+    expect(top.filter(button => button.dataset.reviewPreview === "true")).toHaveLength(2);
+    expect(dialog.textContent).toContain("2 màu để xem thử");
+    expect(dialog.querySelector(".etsy-design-gallery-contrast-warning")).toBeNull();
+    expect(dialog.querySelector(".etsy-design-gallery-recommended .etsy-design-gallery-background-flo-blue"))
+      .not.toBeNull();
+    expect(dialog.querySelector(".etsy-design-gallery-other-colors .etsy-design-gallery-background-flo-blue"))
+      .toBeNull();
+    expect(top[1].title).toContain("cần kiểm tra chữ");
   });
 
   it("legacy V8 only surfaces eligible colors, not forced review candidates", async () => {

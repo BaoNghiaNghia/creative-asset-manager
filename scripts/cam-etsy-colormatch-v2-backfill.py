@@ -31,7 +31,7 @@ _MAX_SOURCE_BYTES = 80 * 1024 * 1024
 _MAX_PIXELS = 30_000_000
 _MAX_THUMB_BYTES = 2 * 1024 * 1024
 _MAX_ANALYSIS_ORIGINAL_BYTES = 8 * 1024 * 1024
-_TARGET_VERSION = "colormatch-sms-c1717-v9"
+_TARGET_VERSION = "colormatch-sms-c1717-v10"
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class Target:
 
 
 def fresh(row: dict) -> bool:
-    """True only for SHA-bound, validated V9 quality-first rankings."""
+    """True only for SHA-bound, validated V10 role-aware rankings."""
     from app.modules.etsy_spy.design_artifacts import _validated_color_match
     meta = row.get("color_match")
     if not isinstance(meta, dict) or meta.get("version") != _TARGET_VERSION:
@@ -61,7 +61,9 @@ def fresh(row: dict) -> bool:
     if projected is None:
         return False
     colors = projected["recommended"]
-    return len(colors) <= 10 and set(colors).issubset(projected["eligible_colors"])
+    return (len(colors) <= 10 and
+            set(colors).issubset(set(projected["eligible_colors"]) | set(projected["review_colors"])) and
+            set(colors).isdisjoint(projected["unsafe_colors"]))
 
 
 def candidate_records(job) -> list[Target]:

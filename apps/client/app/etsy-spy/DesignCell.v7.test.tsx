@@ -16,7 +16,7 @@ const make = (position: string, id: string, eligible: string[]): DesignAsset => 
   thumbnail_url: "/thumb/" + id, original_url: "/original/" + id,
   print_ready: false, rights_status: "unverified", manual_qa_required: true,
   color_match: {
-    version: "colormatch-sms-c1717-v9", output_sha256: SHA,
+    version: "colormatch-sms-c1717-v10", output_sha256: SHA,
     recommended: [...new Set([...eligible, ...[
       "butter", "white", "ivory", "pepper", "blue-jean", "sage", "bay",
       "chambray", "orchid", "denim", "watermelon", "mustard", "navy",
@@ -24,8 +24,8 @@ const make = (position: string, id: string, eligible: string[]): DesignAsset => 
     review_colors: [],
     eligible_colors: eligible,
     unsafe_colors: ["true-navy", "black"],
-    method: "design_region_alpha_quality_first",
-    readability_check: "region_ink_alpha_composite_v3",
+    method: "role_aware_salience_ciede2000_v10",
+    readability_check: "role_salience_alpha_composite_v4",
     analysis: {
       resolution: [512, 512], source: "medium", regions: [],
       text_regions: 2, microtext_regions: 1,

@@ -1,6 +1,6 @@
 import type { DesignAsset } from "./api";
 
-const CURRENT = "colormatch-sms-c1717-v9";
+const CURRENT = "colormatch-sms-c1717-v10";
 
 function knownPosition(value: string): string | null {
   const position = (value ?? "").trim().toLowerCase();

@@ -9,7 +9,7 @@ const make = (position: string, id: string, eligible: string[], unsafe: string[]
   status: "needs_review", output_sha256: sha, thumbnail_url: "/thumb",
   original_url: "/orig", print_ready: false, rights_status: "unverified",
   manual_qa_required: true, color_match: {
-    version: "colormatch-sms-c1717-v9", output_sha256: sha,
+    version: "colormatch-sms-c1717-v10", output_sha256: sha,
     recommended: eligible.slice(0, 10), eligible_colors: eligible,
     unsafe_colors: unsafe, method: "design_region_alpha_sales_prior",
     analysis: {resolution: [512, 512], source: "medium", regions: [],
@@ -45,6 +45,15 @@ describe("shared product garment color selection", () => {
       make("front", "a".repeat(24), ["white"]),
       make("front", "b".repeat(24), ["ivory"]),
     ], 0)).toBeNull();
+  });
+
+  it("never treats V10 review-only swatches as shared production-ready colors", () => {
+    const front = make("front", "a".repeat(24), ["white"]);
+    const sleeve = make("right_sleeve", "b".repeat(24), ["white", "ivory"]);
+    front.color_match!.recommended = ["white", "ivory"];
+    front.color_match!.review_colors = ["ivory"];
+    const result = sharedGarmentColors([front, sleeve], 0);
+    expect(result?.colors).toEqual(["white"]);
   });
 
   it("holds the whole-product promise if a position is still on V6", () => {

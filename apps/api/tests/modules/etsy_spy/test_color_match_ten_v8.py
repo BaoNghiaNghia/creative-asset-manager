@@ -41,15 +41,15 @@ def artwork(case: str, alpha: int = 255) -> bytes:
 def test_rank_only_quality_colors_with_sha_guard(style):
     meta = recommend_garment_colors(artwork(style), SHA)
     assert meta is not None and meta["version"] == ALGORITHM
-    assert ALGORITHM == "colormatch-sms-c1717-v9"
+    assert ALGORITHM == "colormatch-sms-c1717-v10"
     top = meta["recommended"]
     assert 0 <= len(top) <= 10 and len(top) == len(set(top))
     assert set(top) <= {c for c, _ in GARMENT_COLORS}
-    assert set(top) <= set(meta["eligible_colors"])
+    assert set(top) <= set(meta["eligible_colors"]) | set(meta["review_colors"])
     assert set(top).isdisjoint(meta["unsafe_colors"])
-    assert meta["review_colors"] == []
+    assert set(meta["review_colors"]) <= set(top)
     assert meta["insufficient_safe_colors"] == (len(meta["eligible_colors"]) < 7)
-    assert top == meta["eligible_colors"][:len(top)]
+    assert top[:min(len(top), len(meta["eligible_colors"]))] == meta["eligible_colors"][:min(len(top), len(meta["eligible_colors"]))]
     assert _validated_color_match({"color_match": meta}, SHA)
     assert _validated_color_match({"color_match": meta}, "b" * 64) is None
     assert recommend_garment_colors(artwork(style), SHA)["recommended"] == top
@@ -57,8 +57,10 @@ def test_rank_only_quality_colors_with_sha_guard(style):
 
 def test_all_bad_colors_stay_in_remaining_palette_instead_of_forced_top_ten():
     meta = recommend_garment_colors(artwork("mixed"), SHA)
-    assert meta and meta["recommended"] == [] and meta["eligible_colors"] == []
-    assert meta["insufficient_safe_colors"] is True
+    assert meta and meta["insufficient_safe_colors"] is True
+    assert len(meta["recommended"]) <= 10
+    assert set(meta["review_colors"]) <= set(meta["recommended"])
+    assert set(meta["review_colors"]).isdisjoint(meta["eligible_colors"])
     assert _validated_color_match({"color_match": meta}, SHA)
 
 

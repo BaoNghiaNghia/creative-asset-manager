@@ -28,7 +28,7 @@ const GARMENT_COLOR_IDS = new Set<string>(
 );
 const COLOR_MATCH_VERSIONS = new Set([
   "colormatch-pixel-v1", "colormatch-pixel-v2", "colormatch-pixel-v3",
-  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9",
+  "colormatch-sms-c1717-v4", "colormatch-sms-c1717-v5", "colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9", "colormatch-sms-c1717-v10",
 ]);
 const COLOR_OVERRIDE_KEY = "cam-etsy-colormatch-choice:";
 
@@ -57,14 +57,16 @@ function recommendedColors(design: PreviewDesign): DesignBackground[] {
   const seen = new Set<DesignBackground>();
   const qualityRank = match.version === "colormatch-sms-c1717-v8" &&
     Array.isArray(match.eligible_colors) ? match.eligible_colors : match.recommended;
-  const strict = ["colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9"].includes(match.version);
+  const strict = ["colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9", "colormatch-sms-c1717-v10"].includes(match.version);
   const approved = strict ? new Set(match.eligible_colors ?? []) : null;
   const unsafe = new Set(match.unsafe_colors ?? []);
   const review = new Set(match.review_colors ?? []);
+  const supportsReview = match.version === "colormatch-sms-c1717-v10";
   return qualityRank.filter((id): id is DesignBackground => {
     if (!GARMENT_COLOR_IDS.has(id as DesignBackground) ||
-        seen.has(id as DesignBackground) || unsafe.has(id) || review.has(id) ||
-        (approved && !approved.has(id))) return false;
+        seen.has(id as DesignBackground) || unsafe.has(id) ||
+        (review.has(id) && !supportsReview) ||
+        (approved && !approved.has(id) && !(supportsReview && review.has(id)))) return false;
     seen.add(id as DesignBackground);
     return true;
   }).slice(0, 10);
@@ -224,7 +226,7 @@ export function DesignCell({ item, onPreviewStart }: {
     GARMENT_COLOR_IDS.has(id)) ?? [];
   const wholeProductActive = productScope && !!wholeProductColors.length &&
     !productAdvice?.awaitingAnalysis;
-  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9"]
+  const hasReadabilityGuard = ["colormatch-sms-c1717-v6", "colormatch-sms-c1717-v7", "colormatch-sms-c1717-v8", "colormatch-sms-c1717-v9", "colormatch-sms-c1717-v10"]
     .includes(preview.color_match?.version ?? "") &&
     preview.color_match?.output_sha256 === preview.output_sha256;
   const unsafeColors = new Set(hasReadabilityGuard && Array.isArray(preview.color_match?.unsafe_colors)
@@ -238,8 +240,9 @@ export function DesignCell({ item, onPreviewStart }: {
       : background;
   const selectedBackground = DESIGN_BACKGROUNDS.find(option => option.id === selectedColor)
     ?? DESIGN_BACKGROUNDS[0];
-  const reviewColors = new Set(preview.color_match?.version === "colormatch-sms-c1717-v8"
-    ? preview.color_match?.review_colors ?? [] : []);
+  const reviewColors = new Set(["colormatch-sms-c1717-v8", "colormatch-sms-c1717-v10"].includes(
+    preview.color_match?.version ?? "") ? preview.color_match?.review_colors ?? [] : []);
+  const reviewPreviewCount = paletteSuggestions.filter(id => reviewColors.has(id)).length;
   const chooseColor = (id: DesignBackground) => {
     if (wholeProductActive && wholeProductColors.includes(id)) {
       setProductColor(id);
@@ -268,12 +271,13 @@ export function DesignCell({ item, onPreviewStart }: {
         ? `${option.label} · SMS chưa có HEX`
         : C1717_SUPPLIER_IDS.has(option.id)
           ? `${option.label} · Chỉ có tại supplier (chưa thiết lập trong SMS)`
+          : reviewColors.has(option.id)
+          ? `${option.label} · Màu xem thử, cần kiểm tra chữ và bản in mẫu`
           : unsafeColors.has(option.id)
             ? `${option.label} · Tương phản thấp, chỉ xem thử`
-            : reviewColors.has(option.id)
-              ? `${option.label} · Chưa đạt độ tương phản khuyến nghị`
-              : option.label}
-      data-readability-risk={unsafeColors.has(option.id) || reviewColors.has(option.id) ? "true" : undefined}
+            : option.label}
+      data-readability-risk={unsafeColors.has(option.id) ? "true" : undefined}
+      data-review-preview={reviewColors.has(option.id) ? "true" : undefined}
       aria-label={C1717_NO_HEX_IDS.has(option.id)
         ? `${option.label} · SMS chưa có mã HEX` : option.label}
       disabled={C1717_NO_HEX_IDS.has(option.id)}
@@ -450,7 +454,8 @@ export function DesignCell({ item, onPreviewStart }: {
                 </label>}
                 <div className="etsy-design-gallery-palette-section">
                   <div className="etsy-design-gallery-colormatch-heading">
-                    <strong>Màu phù hợp nhất</strong>
+                    <strong>{suggestedOptions.length && reviewPreviewCount === suggestedOptions.length
+                      ? "Màu nên xem thử" : "Màu phù hợp nhất"}</strong>
                     <small>{suggestedOptions.length} màu được gợi ý</small>
                   </div>
                   {suggestedOptions.length ? <div
@@ -459,8 +464,11 @@ export function DesignCell({ item, onPreviewStart }: {
                     {suggestedOptions.map(renderSwatch)}
                   </div> : <p className="etsy-design-gallery-palette-empty">
                     {hasReadabilityGuard
-                      ? "Chưa tìm thấy màu đủ tương phản với toàn bộ chi tiết thiết kế."
+                      ? "Không có màu đạt mức đề xuất; hãy chọn màu bên dưới để xem thử."
                       : "Chưa có dữ liệu gợi ý phù hợp cho thiết kế này."}
+                  </p>}
+                  {reviewPreviewCount > 0 && <p className="etsy-design-gallery-palette-note">
+                    {reviewPreviewCount} màu để xem thử · cần kiểm tra chữ và bản in mẫu
                   </p>}
                 </div>
                 <div className="etsy-design-gallery-palette-section etsy-design-gallery-remaining">

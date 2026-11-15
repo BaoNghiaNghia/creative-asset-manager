@@ -48,7 +48,7 @@ def _thumbnail(style: str) -> bytes:
 
 
 def test_flamingo_black_headline_never_gets_navy_pepper_or_black():
-    assert ALGORITHM == "colormatch-sms-c1717-v9"
+    assert ALGORITHM == "colormatch-sms-c1717-v10"
     result = recommend_garment_colors(_thumbnail("flamingo"), "a" * 64)
     assert result and result["version"] == ALGORITHM
     for invisible in ("true-navy", "black", "pepper"):
@@ -56,8 +56,8 @@ def test_flamingo_black_headline_never_gets_navy_pepper_or_black():
         assert invisible in result["unsafe_colors"]
     assert "white" in result["recommended"]
     assert 0 <= len(result["recommended"]) <= 10
-    assert result["method"] == "design_region_alpha_quality_first"
-    assert result["readability_check"] == "region_ink_alpha_composite_v3"
+    assert result["method"] == "role_aware_salience_ciede2000_v10"
+    assert result["readability_check"] == "role_salience_alpha_composite_v4"
     assert _validated_color_match({"color_match": result}, "a" * 64)
 
 
@@ -78,7 +78,7 @@ def test_zero_safe_colors_stores_unsafe_metadata_not_a_fake_recommendation():
     assert result["insufficient_safe_colors"] is (len(result["eligible_colors"]) < 7)
     assert 0 <= len(result["recommended"]) <= 10
     assert set(result["recommended"]).isdisjoint(result["unsafe_colors"])
-    assert result["review_colors"] == []
+    assert set(result["review_colors"]).issubset(result["recommended"])
     assert _validated_color_match({"color_match": result}, "c" * 64)
     assert _validated_color_match({"color_match": result}, "d" * 64) is None
 

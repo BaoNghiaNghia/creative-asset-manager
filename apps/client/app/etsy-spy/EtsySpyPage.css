@@ -2153,6 +2153,12 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   font-size: 11px;
   line-height: 1.35;
 }
+.etsy-design-gallery-palette-note {
+  margin: 1px 2px 0;
+  color: #778396;
+  font-size: 10px;
+  line-height: 1.4;
+}
 .etsy-design-gallery-palette-empty {
   margin: 0;
   padding: 7px 8px;
@@ -2184,6 +2190,10 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background: #fff;
   box-shadow: 0 1px 2px #1220331a;
   cursor: pointer;
+}
+.etsy-design-gallery-recommended .etsy-design-gallery-background-swatch[data-review-preview="true"] {
+  border: 2px dashed #64748b;
+  box-shadow: 0 0 0 1px #dce2e9;
 }
 .etsy-design-gallery-color-groups { display: grid; gap: 12px; min-width: 0; }
 .etsy-design-gallery-color-group { display: grid; gap: 6px; min-width: 0; }

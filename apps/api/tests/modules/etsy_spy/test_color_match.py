@@ -59,7 +59,7 @@ def test_picked_projection_serves_only_fresh_valid_cached_metadata():
     assert output[0]["color_match"]["recommended"] == metadata["recommended"]
     assert output[0]["color_match"]["output_sha256"] == sha
     assert "scores" not in output[0]["color_match"]  # keep Picked API small
-    assert output[0]["color_match"]["version"] == "colormatch-sms-c1717-v9"
+    assert output[0]["color_match"]["version"] == "colormatch-sms-c1717-v10"
     # Historical V1 metadata remains usable until bounded local backfill.
     legacy = {**metadata, "version": "colormatch-pixel-v1",
               "recommended": ["black", "ivory", "sage", "bay"]}
