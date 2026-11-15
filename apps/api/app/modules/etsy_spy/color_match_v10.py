@@ -158,7 +158,7 @@ def _ink_visibility(families: dict, total: int, bg: tuple[int, int, int]):
     bg_lab = _oklab(bg)
     values = []
     weights = []
-    important = []
+    important: list[tuple[float, int]] = []
     for key, group in families.items():
         size = group["count"]
         if size < max(9, total * .002) or not group["samples"]:
@@ -179,11 +179,25 @@ def _ink_visibility(families: dict, total: int, bg: tuple[int, int, int]):
         values.append(visibility)
         weights.append(weight)
         if size >= total * .04:
-            important.append(visibility)
+            important.append((visibility, size))
     if not weights:
         return 0.0, 0.0
     score = sum(x * w for x, w in zip(values, weights)) / sum(weights)
-    primary = min(important) if important else min(values)
+    # A single pale highlight must not veto a design whose words and main
+    # illustration remain visible. Retain a conservative lower weighted
+    # percentile, and let *confirmed text ROIs* carry the hard readability gate.
+    if important:
+        weighted = sorted((v, math.sqrt(n / total)) for v, n in important)
+        threshold = .36 * sum(w for _, w in weighted)
+        cumulative = 0.0
+        primary = weighted[-1][0]
+        for value, weight in weighted:
+            cumulative += weight
+            if cumulative >= threshold:
+                primary = value
+                break
+    else:
+        primary = min(values)
     return 100 * (.83 * score + .17 * primary), primary
 
 
@@ -242,7 +256,9 @@ def _refine_small_text(pixels: list, width: int, height: int, regions: list,
             continue
         samples.sort()
         brightness = samples[len(samples) // 4][0]
-        opacity = sorted(p[1] for p in samples)[len(samples) // 2]
+        # Anti-aliased edges reduce median opacity even for crisp lettering.
+        # Use the stroke-core quartile; genuinely faded ink has no opaque core.
+        opacity = sorted(p[1] for p in samples)[int(.75 * (len(samples) - 1))]
         refinements[ink] = (brightness, opacity)
         inspected += 1
         if inspected >= 6:
@@ -267,8 +283,9 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
     regions = region_analysis["regions"]
     text_kinds = {region["pigment"] for region in regions
                   if region["kind"] == "probable_text"}
-    # If the proxy cannot confidently spot type, treat dark/light ink as
-    # a critical foreground detail, not as a confirmed text glyph.
+    # If morphology cannot confirm a letterform, dark/light pixels are
+    # illustration or outline evidence, NOT mandatory text. Never hard-veto
+    # a garment merely because pale fur or a dark duck outline blends in.
     fallback_kinds = {
         p[0] for p in profiles
         if p[0] in ("dark-ink", "light-ink")
@@ -278,7 +295,7 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
     fallback_profiles = [p for p in profiles if p[0] in fallback_kinds
                          and p[0] not in text_kinds]
     inspected = 0
-    if source == "medium" and text_profiles:
+    if text_profiles:
         text_profiles, inspected = _refine_small_text(pixels, width, height,
                                                        regions, text_profiles)
 
@@ -290,15 +307,22 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
         for _name, ink_l, required, opacity in text_profiles:
             real = opacity * ink_l + (1 - opacity) * bg_l
             constraints.append((_contrast(real, bg_l), required, True))
-        for _name, ink_l, _required, opacity in fallback_profiles:
-            real = opacity * ink_l + (1 - opacity) * bg_l
-            constraints.append((_contrast(real, bg_l), 2.4, False))
+        # Unconfirmed dark/light ink participates in illustration visibility
+        # but not the text contrast veto. Review decisions retain the global
+        # shape visibility score so important non-text details are not ignored.
         worst_ratio = min((ratio for ratio, _req, _text in constraints), default=10.0)
         margins = [ratio / required for ratio, required, _text in constraints]
         text_margin = min(margins, default=1.0)
         if constraints:
-            ratios_normalized = [_clamp((ratio - 1) / max(2.0, req - 1))
-                                 for ratio, req, _text in constraints]
+            # Headroom matters: black lettering at 19:1 on White must outrank
+            # the same text at barely 4:1 on a saturated shirt. The former
+            # V10 normalized both to 100 and then let illustration color
+            # difference dominate the final ordering.
+            ratios_normalized = [
+                .65 * _clamp((ratio - 1) / max(2.0, req - 1))
+                + .35 * _clamp(math.log(max(1.0, ratio)) / math.log(14))
+                for ratio, req, _text in constraints
+            ]
             text_score = 100 * (.64 * min(ratios_normalized)
                                 + .36 * sum(ratios_normalized) / len(ratios_normalized))
         else:
@@ -372,6 +396,7 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
             "microtext_regions": inspected,
             "faded_ink": bool(region_analysis.get("faded_ink", False)),
             "review_policy": "guarded-preview-floor-v2",
+            "rank_policy": "text-roi-soft-art-v3",
             "print_review_required": bool(region_analysis.get("faded_ink", False) or source == "thumbnail"
                                           or review or inspected),
         },

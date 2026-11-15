@@ -65,7 +65,10 @@ def fresh(row: dict) -> bool:
     # preserve valid existing nonempty choices and stop retrying truly
     # unreadable artwork when the calibrated algorithm still yields none.
     analysis = meta.get("analysis") if isinstance(meta.get("analysis"), dict) else {}
-    if not colors and analysis.get("review_policy") != "guarded-preview-floor-v2":
+    # V10.1 changed the hard-veto from pigment-wide minima to confirmed text
+    # regions and robust illustration visibility. Refresh both empty AND
+    # nonempty V10 recommendations once; the marker makes this idempotent.
+    if analysis.get("rank_policy") != "text-roi-soft-art-v3":
         return False
     return (len(colors) <= 10 and
             set(colors).issubset(set(projected["eligible_colors"]) | set(projected["review_colors"])) and

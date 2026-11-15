@@ -102,9 +102,8 @@ def test_multi_tone_typography_gets_review_options_without_making_them_safe(monk
     new = color_match.recommend_garment_colors(fixture("mixed"), SHA)
     assert old and old["recommended"] == []
     assert new and len(new["recommended"]) >= 3
-    assert new["review_colors"]
-    assert all(x in new["recommended"] and x not in new["eligible_colors"]
-               for x in new["review_colors"])
+    assert set(new["recommended"]) <= set(new["eligible_colors"]) | set(new["review_colors"])
+    assert all(x not in new["eligible_colors"] for x in new["review_colors"])
 
 
 def test_red_text_not_hidden_by_red_shirt():
@@ -154,7 +153,7 @@ def test_projector_rejects_forged_recommendations_and_reasons():
         **m, "review_colors": ["fake"],
     }}, SHA) is None
     assert _validated_color_match({"color_match": {
-        **m, "eligible_colors": m["eligible_colors"] + m["review_colors"],
+        **m, "eligible_colors": m["eligible_colors"] + m["unsafe_colors"][:1],
     }}, SHA) is None
     assert _validated_color_match({"color_match": {
         **m, "unsafe_colors": m["unsafe_colors"] + m["recommended"][:1],

@@ -110,7 +110,7 @@ def test_fresh_metadata_validation_requires_known_distinct_colors():
     }})
 
 
-def test_empty_v10_is_refreshed_once_for_guarded_preview_recalibration():
+def test_empty_v10_is_refreshed_once_for_text_roi_recalibration():
     from io import BytesIO
     script = _script()
     image = Image.new("RGBA", (192, 192), (0, 0, 0, 0))
@@ -124,8 +124,25 @@ def test_empty_v10_is_refreshed_once_for_guarded_preview_recalibration():
     row = {**_job().payload_json["design_assets"][1], "color_match": metadata}
     assert script.fresh(row)  # Even if no readable color, do not loop forever.
     old = {**metadata, "analysis": {k: v for k, v in metadata["analysis"].items()
-                                     if k != "review_policy"}}
+                                     if k != "rank_policy"}}
     assert not script.fresh({**row, "color_match": old})
+
+    # Also refresh older nonempty recommendations so the best-ten ranking
+    # cannot retain saturated colors chosen by the old pigment-wide veto.
+    image2 = Image.new("RGBA", (192, 192))
+    ImageDraw.Draw(image2).text((10, 30), "BLACK LABEL",
+                                fill=(4, 4, 4, 255))
+    buffer2 = BytesIO()
+    image2.save(buffer2, "PNG")
+    nonempty = recommend_garment_colors(buffer2.getvalue(), "e" * 64)
+    assert nonempty and nonempty["recommended"]
+    row2 = {**row, "color_match": nonempty}
+    assert script.fresh(row2)
+    assert not script.fresh({**row2, "color_match": {
+        **nonempty, "analysis": {
+            k: v for k, v in nonempty["analysis"].items() if k != "rank_policy"
+        },
+    }})
 
 
 def test_drive_read_receives_only_signed_thumbnail_reference(monkeypatch):

@@ -43,6 +43,29 @@
   zero acceptable previews are processed once, not indefinitely.
 - PNG files, supplier palette and frontend's two-group layout stay unchanged.
 
+## ColorMatch V10.1: confirmed text ROIs, robust illustration contrast
+
+- Reproduced two production-style failure patterns with synthetic fixtures based on
+  the supplied Veterinary Alphabet and yellow/teal My Ducks visual layouts:
+  pigment-wide hard veto returned zero or unsuitable colors.
+- Confirmed text families still have readability gates, but unconfirmed dark
+  outlines and pale animal highlights now contribute only to the illustration
+  visibility score; they do not veto the whole garment palette.
+- The most invisible one of many pigment families no longer rejects every
+  candidate. Robust lower weighted-quantile visibility keeps monochrome designs
+  strict while limiting vetoes caused by isolated decorative pixels.
+- Sample text stroke cores within detected ROIs rather than anti-aliased edges,
+  and retain contrast headroom in ranking so Black-on-White outranks borderline
+  Black-on-saturated garments.
+- Record analysis.rank_policy = text-roi-soft-art-v3 and treat all older V10
+  metadata as stale exactly once. SHA-bound idempotent backfill continues to
+  write only color_match metadata, no native artwork pixels or files.
+- Never guarantee ten colors or print quality: low contrast and low alpha may
+  still yield empty suggestions. Medium and thumbnail inputs remain supported.
+- Regression cases assert white for ink-dark alphabetical art and dark navy or
+  graphite for yellow/teal type with dark duck outlines; these are layout
+  approximations, not recovered copies of production PNGs.
+
 ## Known limitations
 - Region classification is geometry-only, so script/serif text and small punctuation may be misclassified.
 - CIEDE2000 measures color difference, not universal aesthetic quality.

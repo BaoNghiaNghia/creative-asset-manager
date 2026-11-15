@@ -56,7 +56,16 @@ def test_rank_only_quality_colors_with_sha_guard(style):
 
 
 def test_all_bad_colors_stay_in_remaining_palette_instead_of_forced_top_ten():
-    meta = recommend_garment_colors(artwork("mixed"), SHA)
+    image = Image.new("RGBA", (192, 192))
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=20)
+    # Truly unreadable 25%-opacity mixed ink, not normal solid text (which
+    # V10.1 must now recognize on suitable mid-tone backgrounds).
+    draw.text((8, 9), "BLACK FONT", fill=(6, 6, 6, 65), font=font)
+    draw.text((8, 136), "WHITE FONT", fill=(255, 255, 255, 65), font=font)
+    out = BytesIO()
+    image.save(out, "PNG")
+    meta = recommend_garment_colors(out.getvalue(), SHA)
     assert meta and meta["insufficient_safe_colors"] is True
     assert len(meta["recommended"]) <= 10
     assert set(meta["review_colors"]) <= set(meta["recommended"])
