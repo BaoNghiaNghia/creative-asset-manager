@@ -230,43 +230,65 @@ def _harmony(families: dict, total: int, background: tuple[int, int, int]) -> fl
 
 def _refine_small_text(pixels: list, width: int, height: int, regions: list,
                        profiles: list[tuple]) -> tuple[list[tuple], int]:
-    """Actually feed the medium-res text ROI pigment statistics into scoring."""
-    refinements = {}
-    inspected = 0
-    for region in regions:
+    """Score each detected text ROI, without overwriting same-family lines.
+
+    A pigment-family aggregate can conceal contrasting strokes on different
+    lines (e.g. black and charcoal words). Keep each region's luminance
+    bounds and stroke-core alpha as independent readability constraints.
+    Large headline ROIs are evaluated too; only microtext increments the
+    existing diagnostic counter. No source pixels are changed or persisted.
+    """
+    requirements = {name: required for name, _luma_value, required, _alpha in profiles}
+    by_ink: dict[str, list[tuple]] = defaultdict(list)
+    inspected_microtext = 0
+    for region in regions[:16]:
         if region["kind"] != "probable_text":
             continue
-        x0, y0, x1, y1 = region["bbox"]
-        if y1 - y0 > 110:
+        ink = region["pigment"]
+        if ink not in requirements:
             continue
+        x0, y0, x1, y1 = region["bbox"]
+        is_microtext = y1 - y0 <= 110
         x0 = max(0, x0 * width // 1000 - 2)
         y0 = max(0, y0 * height // 1000 - 2)
         x1 = min(width, x1 * width // 1000 + 2)
         y1 = min(height, y1 * height // 1000 + 2)
         if x1 <= x0 or y1 <= y0:
             continue
-        ink = region["pigment"]
         samples = []
         for y in range(y0, y1, max(1, (y1 - y0) // 50)):
             for x in range(x0, x1, max(1, (x1 - x0) // 80)):
                 r, g, b, a = pixels[y * width + x]
-                if a >= 32 and _family((r, g, b), _luma((r, g, b))) == ink:
-                    samples.append((_luma((r, g, b)), a / 255))
+                if a >= 32:
+                    rgb = (r, g, b)
+                    luminance = _luma(rgb)
+                    if _family(rgb, luminance) == ink:
+                        samples.append((luminance, a / 255))
         if len(samples) < 8:
             continue
-        samples.sort()
-        brightness = samples[len(samples) // 4][0]
-        # Anti-aliased edges reduce median opacity even for crisp lettering.
-        # Use the stroke-core quartile; genuinely faded ink has no opaque core.
-        opacity = sorted(p[1] for p in samples)[int(.75 * (len(samples) - 1))]
-        refinements[ink] = (brightness, opacity)
-        inspected += 1
-        if inspected >= 6:
-            break
-    refined = [(name, refinements[name][0], req, refinements[name][1])
-               if name in refinements else profile
-               for profile in profiles for name, _luma_value, req, _alpha in [profile]]
-    return refined, inspected
+        # Reject antialiased edge pixels when estimating the visible
+        # stroke color, but preserve genuine faded ink's low core opacity.
+        alphas = sorted(alpha for _l, alpha in samples)
+        opacity = alphas[int(.75 * (len(alphas) - 1))]
+        core_luminances = sorted(
+            l for l, alpha in samples if alpha >= max(.12, opacity * .70))
+        if len(core_luminances) < 8:
+            core_luminances = sorted(l for l, _alpha in samples)
+        last = len(core_luminances) - 1
+        low = core_luminances[int(.20 * last)]
+        high = core_luminances[int(.80 * last)]
+        bounds = (low, high) if high - low > .035 else ((low + high) / 2,)
+        for luminance in bounds:
+            by_ink[ink].append((ink, round(luminance, 6),
+                               requirements[ink], round(opacity, 4)))
+        if is_microtext:
+            inspected_microtext += 1
+
+    refined = []
+    for profile in profiles:
+        region_probes = by_ink.get(profile[0])
+        refined.extend(region_probes if region_probes else [profile])
+    return refined, inspected_microtext
 
 
 def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
@@ -396,7 +418,7 @@ def rank_colors_v10(pixels: list[tuple[int, int, int, int]],
             "microtext_regions": inspected,
             "faded_ink": bool(region_analysis.get("faded_ink", False)),
             "review_policy": "guarded-preview-floor-v2",
-            "rank_policy": "text-roi-soft-art-v3",
+            "rank_policy": "text-roi-soft-art-v4",
             "print_review_required": bool(region_analysis.get("faded_ink", False) or source == "thumbnail"
                                           or review or inspected),
         },

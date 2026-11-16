@@ -126,6 +126,10 @@ def test_empty_v10_is_refreshed_once_for_text_roi_recalibration():
     old = {**metadata, "analysis": {k: v for k, v in metadata["analysis"].items()
                                      if k != "rank_policy"}}
     assert not script.fresh({**row, "color_match": old})
+    assert not script.fresh({**row, "color_match": {
+        **metadata, "analysis": {**metadata["analysis"],
+                                  "rank_policy": "text-roi-soft-art-v3"},
+    }})
 
     # Also refresh older nonempty recommendations so the best-ten ranking
     # cannot retain saturated colors chosen by the old pigment-wide veto.
