@@ -43,8 +43,10 @@ describe("Picked Design gallery accessibility and refresh", () => {
     await act(async () => opener?.click());
     const dialog = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
     const close = dialog?.querySelector<HTMLButtonElement>(".etsy-design-gallery-close");
+    // Focus trapping follows actual enabled controls, not a disabled palette
+    // swatch (unknown SMS HEX colors are still visible but not focusable).
     const last = Array.from(dialog?.querySelectorAll<HTMLButtonElement>(
-      ".etsy-design-gallery-background-swatch",
+      "button:not([disabled])",
     ) ?? []).at(-1);
     expect(dialog).not.toBeNull();
     expect(document.body.style.overflow).toBe("hidden");
@@ -196,7 +198,11 @@ describe("Picked Design gallery accessibility and refresh", () => {
       ["Lagoon", "lagoon", "#05C3DE"],
       ["Mustard", "mustard", "#F2CD00"],
     ] as const;
-    expect(swatches.slice(1, 73).map(option => option.getAttribute("aria-label")))
+    // The remaining palette is sorted visually, not by the SMS catalog order.
+    // Verify each configured color by ID, independently of its display order.
+    expect(C1717_SMS_COLORS.map(color => gallery?.querySelector<HTMLButtonElement>(
+      ".etsy-design-gallery-background-" + color.id,
+    )?.getAttribute("aria-label")))
       .toEqual(C1717_SMS_COLORS.map(color => color.color
         ? color.label : `${color.label} · SMS chưa có mã HEX`));
     expect(swatches.filter(option => option.disabled)).toHaveLength(3);
