@@ -32,7 +32,8 @@ def fresh(raw: dict) -> bool:
     return (isinstance(colors, dict) and colors.get("version") == ALGORITHM
             and colors.get("output_sha256") == raw.get("output_sha256")
             and isinstance(colors.get("recommended"), list)
-            and len(colors["recommended"]) > 0)
+            and isinstance(colors.get("analysis"), dict)
+            and colors["analysis"].get("rank_policy") == "text-roi-soft-art-v4")
 
 
 def candidate_records(job) -> list[tuple[str, str, str, Path]]:

@@ -62,7 +62,7 @@ def test_dark_lettering_with_incidental_light_animal_fill_keeps_light_garments()
     assert result is not None
     assert "white" in result["recommended"][:3]
     assert len(result["eligible_colors"]) >= 3
-    assert result["analysis"]["rank_policy"] == "text-roi-soft-art-v3"
+    assert result["analysis"]["rank_policy"] == "text-roi-soft-art-v4"
     assert not set(result["recommended"]) & set(result["unsafe_colors"])
     assert _validated_color_match({"color_match": result}, _SHA)
 

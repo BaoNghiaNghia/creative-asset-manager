@@ -68,7 +68,7 @@ def fresh(row: dict) -> bool:
     # V10.1 changed the hard-veto from pigment-wide minima to confirmed text
     # regions and robust illustration visibility. Refresh both empty AND
     # nonempty V10 recommendations once; the marker makes this idempotent.
-    if analysis.get("rank_policy") != "text-roi-soft-art-v3":
+    if analysis.get("rank_policy") != "text-roi-soft-art-v4":
         return False
     return (len(colors) <= 10 and
             set(colors).issubset(set(projected["eligible_colors"]) | set(projected["review_colors"])) and
