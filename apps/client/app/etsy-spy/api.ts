@@ -98,7 +98,8 @@ export type TikTokListingDraft = {
 export type TikTokListingView = {
   listingKey?: string; enabled?: boolean; status: string;
   job_id?: string | null; draft_only: true;
-  title_preview?: string | null; ytrends_status?: string; qa_status?: string | null;
+  title_preview?: string | null; search_terms_preview?: string[];
+  ytrends_status?: string; qa_status?: string | null;
   error_code?: string | null;
   generation_engine?: "codex" | "gemini"; generation_provider?: string | null;
   regeneration_count?: number; can_regenerate?: boolean;

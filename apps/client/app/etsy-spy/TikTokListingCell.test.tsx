@@ -17,7 +17,10 @@ function product(status: string): Listing {
     picked: true,
     tiktokListing: {
       status, draft_only: true,
-      title_preview: status === "needs_fact_check" ? "Mountain Sunset Sweatshirt" : null,
+      title_preview: status === "needs_fact_check"
+        ? "Mountain Sunset Sweatshirt for Outdoor Fans" : null,
+      search_terms_preview: status === "needs_fact_check"
+        ? ["mountain sweatshirt", "sunset art"] : [],
     },
   } as Listing;
 }
@@ -111,13 +114,18 @@ afterEach(async () => {
 });
 
 describe("Picked TikTok Shop listing column", () => {
-  it("uses one status preview and keeps all copy fields in an accessible dialog", async () => {
+  it("previews SEO title and keywords in each Picked row and keeps full copy in the dialog", async () => {
     const {fetchMock, clipboardWrite} = await render("needs_fact_check");
     const open = document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open");
+    expect(open?.textContent).toContain("Mountain Sunset Sweatshirt for Outdoor Fans");
+    expect(open?.textContent).toContain("mountain sweatshirt · sunset art");
     expect(open?.textContent).toContain("Cần duyệt");
-    expect(open?.textContent).toBe("Cần duyệtXem");
-    expect(open?.textContent).not.toContain("Mountain Sunset Sweatshirt");
-    expect(open?.title).toBe("Mountain Sunset Sweatshirt");
+    expect(open?.textContent).toContain("Mở SEO");
+    expect(open?.querySelector(".etsy-tiktok-title-preview")).not.toBeNull();
+    expect(open?.querySelector(".etsy-tiktok-terms-preview")).not.toBeNull();
+    expect(open?.title).toBe("Mountain Sunset Sweatshirt for Outdoor Fans");
+    // The table already includes a bounded preview; no per-row modal request.
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(document.querySelector(".etsy-tiktok-queue-action")).toBeNull();
     await act(async () => {open?.click();});
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
@@ -309,6 +317,8 @@ describe("Picked TikTok Shop listing column", () => {
 
   it("queues from the Picked row on explicit click without opening the dialog", async () => {
     const {fetchMock, onQueued} = await render("not_queued");
+    expect(document.querySelector(".etsy-tiktok-listing-open .etsy-tiktok-empty-preview")
+      ?.textContent).toBe("Chưa có bản nháp SEO");
     expect(document.querySelector(".etsy-tiktok-queue-action")?.textContent).toBe("Tạo SEO");
     expect(fetchMock.mock.calls.filter(call => call[1]?.method === "POST")).toHaveLength(0);
     await act(async () => {

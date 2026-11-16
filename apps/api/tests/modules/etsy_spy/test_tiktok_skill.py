@@ -291,6 +291,10 @@ def test_legacy_v4_draft_view_adds_shipping_line_without_mutating_database(db, m
 
     old_last = old["highlights"][4]
     assert old_last != tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
+    preview = tiktok_skill.project(job)
+    assert preview["title_preview"] == old["title"][:120]
+    assert preview["search_terms_preview"] == old["search_terms"][:2]
+    assert "result" not in preview  # Never include full copy in a table page.
     view = tiktok_skill.project(job, detail=True)
     assert view["result"]["highlights"][4] == tiktok_skill.DRAFT_USA_SHIPPING_CLAIM
     assert view["result"]["draft_shipping_claim_unverified"] is True
