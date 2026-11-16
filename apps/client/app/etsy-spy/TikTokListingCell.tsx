@@ -92,6 +92,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
 
   const listing = item.tiktokListing;
   const status = listing?.status || "not_queued";
+  const seoTitle = listing?.title_preview?.trim() || "";
+  const seoTerms = (listing?.search_terms_preview ?? []).filter(Boolean).slice(0, 2);
   const canGenerate = canManage && optimizerEnabled && canQueueTikTokDraft(status);
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("");
@@ -239,14 +241,25 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
 
   return <td className="etsy-tiktok-listing-cell">
     <div className="etsy-tiktok-cell-stack">
-      <button type="button" className="etsy-tiktok-listing-open" ref={triggerRef}
-        title={listing?.title_preview || "TikTok Shop US · Bản nháp chưa đăng"}
-        aria-label={"Xem TikTok SEO cho " + item.pageTitle}
+      <button type="button" className={"etsy-tiktok-listing-open" +
+        (seoTitle ? " has-preview" : " is-empty")} ref={triggerRef}
+        title={seoTitle || "TikTok Shop US · Chưa có tiêu đề SEO"}
+        aria-label={"Mở TikTok SEO cho " + item.pageTitle +
+          (seoTitle ? " · " + seoTitle : "")}
         onClick={() => setOpen(true)}>
-        <span className={"etsy-tiktok-state is-" + status}>
-          {LABELS[status] || status}
+        {seoTitle ? <>
+          <strong className="etsy-tiktok-title-preview">{seoTitle}</strong>
+          {seoTerms.length > 0 && <span className="etsy-tiktok-terms-preview"
+            title={seoTerms.join(" · ")}>{seoTerms.join(" · ")}</span>}
+        </> : <span className="etsy-tiktok-empty-preview">
+          {ACTIVE_STATUSES.includes(status) ? "Đang tạo nội dung SEO…"
+            : status === "failed" ? "Chưa tạo được nội dung SEO"
+            : "Chưa có bản nháp SEO"}
+        </span>}
+        <span className="etsy-tiktok-preview-footer">
+          <span className={"etsy-tiktok-state is-" + status}>{LABELS[status] || status}</span>
+          <span className="etsy-tiktok-open-hint" aria-hidden="true">Mở SEO ↗</span>
         </span>
-        <span className="etsy-tiktok-open-hint" aria-hidden="true">Xem</span>
       </button>
       {canGenerate && <button type="button" className="etsy-tiktok-queue-action"
         disabled={queueing} onClick={() => void enqueue()}

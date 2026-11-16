@@ -831,6 +831,13 @@ def project(job: ProcessingJobModel | None, *, detail: bool = False) -> dict:
     result = payload.get("result") if isinstance(payload.get("result"), dict) else None
     state = ("cancelled" if job.cancellation_requested else
              "needs_fact_check" if result and job.status == "completed" else job.status)
+    # Reuse the already loaded job payload for Picked row previews. This
+    # bounded summary does not trigger N+1 detail requests or research calls.
+    terms = result.get("search_terms") if result else None
+    search_terms_preview = [
+        term.strip()[:56] for term in (terms if isinstance(terms, list) else [])
+        if isinstance(term, str) and term.strip()
+    ][:2]
     view = {"status": state, "job_id": job.id, "draft_only": True,
             "skill_version": payload.get("skill_version"),
             "generation_engine": payload.get("engine") or "gemini",
@@ -843,6 +850,7 @@ def project(job: ProcessingJobModel | None, *, detail: bool = False) -> dict:
             "ytrends_status": result.get("ytrends_status") if result else "unavailable",
             "qa_status": result.get("qa_status") if result else None,
             "title_preview": result.get("title", "")[:120] if result else None,
+            "search_terms_preview": search_terms_preview,
             "error_code": job.last_error_code}
     if detail and result is not None:
         view["result"] = _with_draft_shipping_claim(result)

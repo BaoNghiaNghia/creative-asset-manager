@@ -60,27 +60,50 @@
   .etsy-tiktok-dialog-actions .etsy-tiktok-copy-all { margin-right: 0; }
   .etsy-tiktok-copy-title button { min-height: 32px; }
 }
-/* Picked table V5: compact status/action controls; the title stays in the modal. */
-.etsy-tiktok-listing-cell { width: 120px; min-width: 100px; max-width: 135px; }
-.etsy-tiktok-cell-stack { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; min-width: 0; }
+/* Picked table V6: show real SEO copy from the list summary, not repeated badges. */
+.etsy-tiktok-listing-cell { width: 240px; min-width: 218px; max-width: 270px; vertical-align: middle; }
+.etsy-tiktok-cell-stack { display: grid; gap: 5px; min-width: 0; }
 .etsy-tiktok-listing-open {
-  display: inline-flex; flex-direction: row; align-items: center;
-  width: auto; min-height: 27px; padding: 2px 3px; gap: 4px;
-  border: 0; border-radius: 6px; background: transparent; white-space: nowrap;
+  display: flex; flex-direction: column; align-items: stretch;
+  width: 100%; min-width: 0; min-height: 78px; padding: 8px 9px;
+  gap: 5px; white-space: normal; text-align: left;
+  border: 1px solid #e4eaf2; border-radius: 9px;
+  background: #fff; color: #273b54;
+  transition: background .15s ease, border-color .15s ease;
 }
-.etsy-tiktok-listing-open:hover { background: #eef3fa; }
-.etsy-tiktok-listing-open .etsy-tiktok-state {
-  min-height: 22px; padding: 2px 6px; border-radius: 5px;
-  font-size: 10px; line-height: 1.2;
+.etsy-tiktok-listing-open:hover { background: #f5f9ff; border-color: #b7cae8; }
+.etsy-tiktok-listing-open .etsy-tiktok-title-preview {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere; width: 100%;
+  color: #213a5b; font-size: 12px; line-height: 1.38; font-weight: 750;
 }
-.etsy-tiktok-listing-open .etsy-tiktok-open-hint { font-size: 10px; font-weight: 700; }
+.etsy-tiktok-listing-open .etsy-tiktok-terms-preview {
+  display: block; width: 100%; min-width: 0;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 10px; line-height: 1.35; color: #6a7a90;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-empty-preview {
+  display: block; font-size: 11px; line-height: 1.45; color: #7c899a;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-preview-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; min-width: 0; gap: 8px; margin-top: auto;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-preview-footer .etsy-tiktok-state {
+  display: inline-flex; align-items: center; min-height: 19px;
+  padding: 2px 6px; border-radius: 5px; font-size: 9px; line-height: 1.2;
+  font-weight: 700;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-open-hint {
+  color: #2b62b2; font-size: 10px; font-weight: 740; white-space: nowrap;
+}
 .etsy-tiktok-queue-action {
-  justify-self: auto; min-height: 25px; padding: 3px 7px;
-  border-radius: 6px; font-size: 10px; font-weight: 700; line-height: 1.2;
+  justify-self: start; min-height: 27px; padding: 4px 8px;
+  border-radius: 6px; font-size: 10px; font-weight: 700;
 }
 .etsy-tiktok-offline { font-size: 10px; }
 @media (max-width: 680px) {
-  .etsy-tiktok-listing-cell { width: 105px; min-width: 100px; max-width: 118px; }
-  .etsy-tiktok-listing-open { min-height: 30px; }
-  .etsy-tiktok-queue-action { min-height: 30px; }
+  .etsy-tiktok-listing-cell { width: 212px; min-width: 190px; max-width: 230px; }
+  .etsy-tiktok-listing-open { min-height: 74px; padding: 8px; }
+  .etsy-tiktok-queue-action { min-height: 32px; }
 }
