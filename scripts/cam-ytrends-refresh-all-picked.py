@@ -26,7 +26,7 @@ from app.modules.etsy_spy.ytrends_mcp import (
 )
 from app.modules.processing.model import ProcessingJobModel
 
-RESEARCH_REVISION = "full-picked-source-safe-20261116-v4"
+RESEARCH_REVISION = "full-picked-source-safe-20261116-v5"
 
 
 def verified_count(evidence: Any) -> int:
@@ -34,7 +34,8 @@ def verified_count(evidence: Any) -> int:
 
 
 async def execute(tenant: str, limit: int, apply: bool,
-                  concurrency: int, offset: int = 0) -> dict:
+                  concurrency: int, offset: int = 0,
+                  refresh_current: bool = False) -> dict:
     settings = get_settings()
     if not settings.ETSY_TIKTOK_YTRENDS_ENABLED:
         raise SystemExit("ytrends_disabled")
@@ -54,6 +55,7 @@ async def execute(tenant: str, limit: int, apply: bool,
                    ProcessingJobModel.id.desc())).all())
         counts["jobs_total"] = len(jobs)
         selected = []
+        already_current_ids: set[str] = set()
         seen = set()
         for job in jobs:
             kind = "latest" if job.entity_id not in seen else "history"
@@ -68,15 +70,26 @@ async def execute(tenant: str, limit: int, apply: bool,
                 counts["missing_source_title"] += 1
                 continue
             counts["eligible_"+kind] += 1
+            old_evidence = payload["result"].get("ytrends_evidence")
+            if (not refresh_current and isinstance(old_evidence, dict)
+                    and old_evidence.get("research_revision") == RESEARCH_REVISION
+                    and verified_count(old_evidence) > 0):
+                already_current_ids.add(job.id)
+                counts["already_verified_" + kind] += 1
             selected.append((job.id, job.entity_id, title, kind))
     counts["eligible_jobs"] = len(selected)
     counts["picked_without_jobs"] = max(0, len(ids) - len(seen))
     selected = selected[offset:offset + limit]
+    counts["selected_complete_jobs"] = len(selected)
+    selected = [record for record in selected
+                if record[0] not in already_current_ids]
     counts["selected_jobs"] = len(selected)
     counts["offset"] = offset
     counts["unique_source_titles"] = len(set(title for _,_,title,_ in selected))
     if not apply or not selected:
-        return {"mode": "dry_run", "tenant": tenant, "limit": limit, **dict(counts)}
+        return {"mode": "apply" if apply else "dry_run",
+                "status": "already_current" if apply else "preview",
+                "tenant": tenant, "limit": limit, **dict(counts)}
 
     # The first query of each title is from the live MCP in this fresh process.
     # Reused titles share precisely the same evidence, preventing repeated jobs
@@ -96,81 +109,111 @@ async def execute(tenant: str, limit: int, apply: bool,
                 found = empty_evidence("")
             return title, found
 
-    titles = sorted(set(title for _, _, title, _ in selected))
+    # Group jobs by title: identical source titles share one bounded research
+    # call. Persist each completed window immediately, so interruptions do
+    # not roll back a full-catalog network prefetch.
+    rows_by_title: dict[str, list[tuple]] = {}
+    for record in selected:
+        rows_by_title.setdefault(record[2], []).append(record)
+    titles = sorted(rows_by_title)
 
-    # Do not bombard an unavailable MCP with 5x the entire Picked catalog
-    # worth of requests. Probe two different titles first, and keep all
-    # drafts untouched if neither produces any provider-backed snapshot.
-    probe_titles = titles[:2]
-    discovered = dict(await asyncio.gather(
+    def persist_batch(results: dict[str, dict]) -> None:
+        for title, fresh in results.items():
+            for job_id, listing_key, _, kind in rows_by_title[title]:
+                counts["jobs_processed"] += 1
+                counts["provider_" + str(fresh.get("status", "unavailable"))] += 1
+                if not isinstance(fresh.get("keywords"), list):
+                    counts["no_safe_keyword_candidates"] += 1
+                if not source_backed_keyword_count(fresh):
+                    counts["provider_missing_verified_source_kept"] += 1
+                    continue
+                with SessionLocal() as db:
+                    locked = db.scalar(select(ProcessingJobModel).where(
+                        ProcessingJobModel.id == job_id,
+                        ProcessingJobModel.tenant_id == tenant,
+                        ProcessingJobModel.job_type == JOB_TYPE,
+                        ProcessingJobModel.entity_id == listing_key,
+                        ProcessingJobModel.status == "completed",
+                        ProcessingJobModel.cancellation_requested.is_(False),
+                    ).with_for_update(skip_locked=True))
+                    if locked is None:
+                        counts["concurrent_change"] += 1
+                        continue
+                    payload = dict(locked.payload_json or {})
+                    old_draft = payload.get("result")
+                    if (not isinstance(old_draft, dict)
+                            or payload.get("source_title") != title):
+                        counts["concurrent_change"] += 1
+                        continue
+                    old_evidence = old_draft.get("ytrends_evidence")
+                    merged = merge_keyword_evidence(old_evidence, fresh)
+                    if not source_backed_keyword_count(merged):
+                        counts["no_verified_evidence_kept"] += 1
+                        continue
+                    previous_metrics = verified_count(old_evidence)
+                    current_metrics = verified_count(merged)
+                    if current_metrics < previous_metrics:
+                        counts["preserved_better_evidence"] += 1
+                        continue
+                    merged["research_revision"] = RESEARCH_REVISION
+                    payload["result"] = attach_ytrends_evidence(
+                        dict(old_draft), merged)
+                    locked.payload_json = payload
+                    db.commit()
+                    counts["updated_" + kind] += 1
+                    counts["verified_rows_before"] += previous_metrics
+                    counts["verified_rows_after"] += current_metrics
+                    if current_metrics > previous_metrics:
+                        counts["more_verified_rows"] += 1
+                    elif current_metrics == previous_metrics:
+                        counts["equal_verified_rows"] += 1
+                    else:
+                        counts["fewer_verified_rows"] += 1
+        counts["titles_processed"] += len(results)
+        counts["batches_completed"] += 1
+
+    # Sample different alphabetical regions rather than two adjacent titles.
+    # Otherwise one narrow niche can falsely classify a working Etsy MCP as
+    # down and prevent backfilling unrelated Picked products.
+    probe_titles = list(dict.fromkeys(
+        titles[index] for index in (0, len(titles) // 2, len(titles) - 1)
+    ))
+    probe_results = dict(await asyncio.gather(
         *(research(title) for title in probe_titles)))
     counts["provider_probe_titles"] = len(probe_titles)
-    if not any(source_backed_keyword_count(evidence)
-               for evidence in discovered.values()):
+    if not any(source_backed_keyword_count(item)
+               for item in probe_results.values()):
         counts["provider_probe_unverified"] = len(probe_titles)
         return {"mode": "apply", "status": "provider_unavailable_no_writes",
                 "tenant": tenant, "limit": limit, "offset": offset,
                 "concurrency": concurrency, **dict(counts)}
 
-    # Bound pending network work: gather only a small window instead of
-    # scheduling all Picked titles at once. Each distinct title runs once.
-    remaining = titles[len(probe_titles):]
-    window = max(1, concurrency * 5)
+    persist_batch(probe_results)
+    remaining = [title for title in titles if title not in probe_results]
+    window = max(1, concurrency * 3)
+    consecutive_unverified_windows = 0
     for start in range(0, len(remaining), window):
-        discovered.update(await asyncio.gather(*(
+        results = dict(await asyncio.gather(*(
             research(title) for title in remaining[start:start + window]
         )))
+        persist_batch(results)
+        if any(source_backed_keyword_count(item)
+               for item in results.values()):
+            consecutive_unverified_windows = 0
+        else:
+            consecutive_unverified_windows += 1
+            # Stop a failing upstream rather than send thousands of retries.
+            # Committed earlier windows remain available for the next run.
+            if consecutive_unverified_windows >= 2:
+                counts["provider_unverified_window_streak"] = (
+                    consecutive_unverified_windows)
+                return {"mode": "apply", "status": "provider_degraded_partial",
+                        "tenant": tenant, "limit": limit, "offset": offset,
+                        "concurrency": concurrency, **dict(counts)}
 
-    for job_id, listing_key, title, kind in selected:
-        fresh = discovered[title]
-        counts["provider_" + str(fresh.get("status", "unavailable"))] += 1
-        if not isinstance(fresh.get("keywords"), list):
-            counts["no_safe_keyword_candidates"] += 1
-        if not source_backed_keyword_count(fresh):
-            counts["provider_missing_verified_source_kept"] += 1
-            continue
-        with SessionLocal() as db:
-            locked = db.scalar(select(ProcessingJobModel).where(
-                ProcessingJobModel.id == job_id,
-                ProcessingJobModel.tenant_id == tenant,
-                ProcessingJobModel.job_type == JOB_TYPE,
-                ProcessingJobModel.entity_id == listing_key,
-                ProcessingJobModel.status == "completed",
-                ProcessingJobModel.cancellation_requested.is_(False),
-            ).with_for_update(skip_locked=True))
-            if locked is None:
-                counts["concurrent_change"] += 1
-                continue
-            payload = dict(locked.payload_json or {})
-            old_draft = payload.get("result")
-            if not isinstance(old_draft, dict) or payload.get("source_title") != title:
-                counts["concurrent_change"] += 1
-                continue
-            old_evidence = old_draft.get("ytrends_evidence")
-            merged = merge_keyword_evidence(old_evidence, fresh)
-            if not source_backed_keyword_count(merged):
-                counts["no_verified_evidence_kept"] += 1
-                continue
-            previous_metrics = verified_count(old_evidence)
-            current_metrics = verified_count(merged)
-            if current_metrics < previous_metrics:
-                counts["preserved_better_evidence"] += 1
-                continue
-            merged["research_revision"] = RESEARCH_REVISION
-            payload["result"] = attach_ytrends_evidence(dict(old_draft), merged)
-            locked.payload_json = payload
-            db.commit()
-            counts["updated_"+kind] += 1
-            counts["verified_rows_before"] += previous_metrics
-            counts["verified_rows_after"] += current_metrics
-            if current_metrics > previous_metrics:
-                counts["more_verified_rows"] += 1
-            elif current_metrics == previous_metrics:
-                counts["equal_verified_rows"] += 1
-            else:
-                counts["fewer_verified_rows"] += 1
-    return {"mode": "apply", "tenant": tenant, "limit": limit,
-            "concurrency": concurrency, **dict(counts)}
+    return {"mode": "apply", "status": "completed", "tenant": tenant,
+            "limit": limit, "offset": offset, "concurrency": concurrency,
+            **dict(counts)}
 
 
 def main() -> None:
@@ -181,6 +224,8 @@ def main() -> None:
     parser.add_argument("--offset", type=int, default=0,
                         help="Zero-based pagination for every completed Picked draft")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--refresh-current", action="store_true",
+                        help="Also refresh already verified V5 records")
     args = parser.parse_args()
     if (not 1 <= args.limit <= 2500 or not 1 <= args.concurrency <= 4
             or not 0 <= args.offset <= 250_000):
@@ -189,7 +234,7 @@ def main() -> None:
         raise SystemExit("expected_authorized_postgres_runtime")
     print(json.dumps(asyncio.run(execute(
         args.tenant, args.limit, args.apply, args.concurrency,
-        args.offset)), sort_keys=True))
+        args.offset, args.refresh_current)), sort_keys=True))
 
 
 if __name__ == "__main__":
