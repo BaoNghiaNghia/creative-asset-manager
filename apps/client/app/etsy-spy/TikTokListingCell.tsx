@@ -81,7 +81,6 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const [loading, setLoading] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  const [showPrevious, setShowPrevious] = useState(false);
   const [researchExpanded, setResearchExpanded] = useState(true);
   const [researching, setResearching] = useState(false);
   const [error, setError] = useState("");
@@ -184,9 +183,9 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
     return () => window.clearTimeout(timer);
   }, [open, detail, loadDetail]);
 
-  const isShowingPrevious = Boolean(detail?.previous_draft &&
-    (showPrevious || !detail?.result));
-  const result = isShowingPrevious ? detail?.previous_draft : detail?.result;
+  // Keep the previous draft as a fallback while a new job is in progress,
+  // without displaying review/status banners or adding a history switch.
+  const result = detail?.result ?? detail?.previous_draft;
   const metrics = result?.metrics;
   const evidence = result?.ytrends_evidence;
   const keywordRows = evidence?.keywords ?? [];
@@ -197,9 +196,6 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
     very_high: "Rất cao", high: "Cao", medium: "Trung bình",
     low: "Thấp", very_low: "Rất thấp",
   }[value?.toLowerCase().replace(/[ -]/g, "_") ?? ""] || "Chưa xác định");
-  const ytrendsStatus = detail?.result?.ytrends_status ??
-    (detail && ACTIVE_STATUSES.includes(detail.status) ? "pending" :
-      result?.ytrends_status ?? "unavailable");
   const detailStatus = detail?.status || status;
   const regenerate = async () => {
     if (!canManage || !optimizerEnabled || !detail?.can_regenerate ||
@@ -210,7 +206,6 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
         "/listings/" + encodeURIComponent(item.listingKey) + "/tiktok-listing/regenerate",
         {method: "POST"});
       queuedInDialog.current = true;
-      setShowPrevious(false);
       await loadDetail();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể tạo lại bản nháp");
@@ -274,36 +269,8 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               onClick={closeDialog}>×</button>
           </div>
           <div className="etsy-tiktok-dialog-body">
-            <div className="etsy-tiktok-skill-meta">
-              <span className={"etsy-tiktok-state is-" + detailStatus}>
-                {LABELS[detailStatus] || detailStatus}
-              </span>
-              <span>Bản nháp · Không tự đăng</span>
-              <span>Engine: {detail?.generation_engine === "codex"
-                ? "Codex CLI · ChatGPT" : "Gemini (bản cũ)"}</span>
-              <span>YTrends · Etsy: {ytrendsStatus === "connected" ? "Có dữ liệu" :
-                ytrendsStatus === "no_data" ? "Không thấy dữ liệu phù hợp" :
-                ytrendsStatus === "disabled" ? "Đang tắt" :
-                ytrendsStatus === "pending" ? "Đang chờ" : "Chưa có dữ liệu"}</span>
-            </div>
             {loading && <p role="status" className="etsy-tiktok-loading">Đang cập nhật trạng thái…</p>}
-            {detail?.previous_draft && detail?.result && <button type="button"
-              className="etsy-tiktok-history-toggle"
-              onClick={() => setShowPrevious(value => !value)}>
-              {showPrevious ? "Xem bản mới" : "Xem bản nháp cũ"}
-            </button>}
-            {isShowingPrevious && <p className="etsy-tiktok-history-note">
-              Đang xem bản nháp trước. {ACTIVE_STATUSES.includes(detailStatus)
-                ? "Phiên bản mới đang xử lý YTrends và " +
-                    (detail?.generation_engine === "codex" ? "Codex CLI" : "Gemini") +
-                    "; dữ liệu cũ được giữ nguyên."
-                : "Bạn có thể đối chiếu với bản nháp mới."}
-            </p>}
             {result ? <>
-              <details className="etsy-tiktok-qa-details"><summary>Trước khi đăng: Cần kiểm tra thông tin và quyền sử dụng</summary>
-                <p>Đối chiếu sản phẩm, size, thương hiệu và quyền sử dụng thiết kế. YTrends là dữ liệu tham khảo Etsy,
-                  không phải lượt tìm kiếm hay kết quả SEO TikTok Shop.</p>
-              </details>
               {evidence && <section className="etsy-tiktok-research" aria-label="Nghiên cứu Etsy từ YTrends">
                 <div className="etsy-tiktok-research-heading">
                   <div>
@@ -383,12 +350,6 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               <CopyField label="Search Terms" value={result.search_terms.join(", ")}
                 count={metrics ? metrics.search_terms_count + " cụm · " +
                   metrics.search_terms_joined_characters + " / 250" : undefined} />
-              {result.warnings?.length > 0 && <div className="etsy-tiktok-warnings">
-                <strong>Lưu ý QA</strong>
-                <ul>{result.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
-              </div>}
-              <p className="etsy-tiktok-copy-notice">Bản nháp nội bộ; không tự đăng TikTok Shop.
-                Xác minh artwork, trademark, loại áo, size, care và vận chuyển.</p>
             </> : !loading && <p className="etsy-tiktok-empty-state">
               {ACTIVE_STATUSES.includes(detailStatus)
                 ? "Đang xử lý bản nháp. Trạng thái sẽ được cập nhật tự động."

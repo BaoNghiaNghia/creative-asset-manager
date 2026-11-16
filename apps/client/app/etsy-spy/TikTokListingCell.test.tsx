@@ -126,8 +126,17 @@ describe("Picked TikTok Shop listing column", () => {
     expect(dialog?.textContent).toContain("Product Highlights");
     expect(dialog?.textContent).toContain("Search Terms");
     expect(dialog?.textContent).toContain("YTrends");
-    expect(dialog?.textContent).toContain("Cần kiểm tra");
-    expect(dialog?.textContent).toContain("Confirm garment material");
+    // The QA data remains in the draft but is no longer displayed in the modal.
+    expect(draft.warnings).toContain("Confirm garment material before publishing");
+    expect(dialog?.textContent).not.toContain("Confirm garment material");
+    expect(dialog?.textContent).not.toContain("Lưu ý QA");
+    expect(dialog?.textContent).not.toContain("Bản nháp nội bộ");
+    expect(dialog?.textContent).not.toContain("Trước khi đăng: Cần kiểm tra");
+    expect(dialog?.textContent).not.toContain("Bản nháp · Không tự đăng");
+    expect(dialog?.querySelector(".etsy-tiktok-skill-meta")).toBeNull();
+    expect(dialog?.querySelector(".etsy-tiktok-qa-details")).toBeNull();
+    expect(dialog?.querySelector(".etsy-tiktok-warnings")).toBeNull();
+    expect(dialog?.querySelector(".etsy-tiktok-history-toggle")).toBeNull();
     expect(dialog?.querySelectorAll(".etsy-tiktok-copy-title button")).toHaveLength(4);
     expect(dialog?.querySelector<HTMLButtonElement>(".etsy-tiktok-dialog-header button"))
       .toBe(document.activeElement);
@@ -192,7 +201,7 @@ describe("Picked TikTok Shop listing column", () => {
     expect(research?.textContent).toContain("36 listings");
     expect(research?.textContent).toContain("31 sellers");
     expect(dialog?.textContent).toContain("không phải số liệu TikTok Shop");
-    expect(dialog?.textContent).toContain("Có dữ liệu");
+    expect(dialog?.querySelector(".etsy-tiktok-skill-meta")).toBeNull();
   });
 
   it("labels YTrends unavailable candidate rows as unverified, not as actual Etsy metrics", async () => {
@@ -214,7 +223,7 @@ describe("Picked TikTok Shop listing column", () => {
     expect(dialog?.textContent).toContain("0/2 từ khóa có số liệu");
     expect(dialog?.textContent).toContain("Đây là từ khóa đề xuất");
     expect(dialog?.textContent).toContain("không tự tạo số liệu");
-    expect(dialog?.textContent).toContain("Chưa có dữ liệu");
+    expect(dialog?.textContent).not.toContain("YTrends · Etsy:");
   });
 
   it("shows compact Vietnamese keyword research with verified versus missing data and collapsible detail", async () => {
@@ -248,7 +257,7 @@ describe("Picked TikTok Shop listing column", () => {
     expect(dialog?.querySelector(".etsy-tiktok-keyword-table")).toBeNull();
     await act(async () => {toggle?.click();});
     expect(dialog?.querySelectorAll(".etsy-tiktok-keyword-table tbody tr")).toHaveLength(3);
-    expect(dialog?.querySelector(".etsy-tiktok-qa-details")).not.toBeNull();
+    expect(dialog?.querySelector(".etsy-tiktok-qa-details")).toBeNull();
   });
 
   it("refreshes YTrends for an existing draft without Gemini or listing queue", async () => {
@@ -285,12 +294,12 @@ describe("Picked TikTok Shop listing column", () => {
     expect(fetchMock.mock.calls.filter(c =>
       String(c[0]).endsWith("/tiktok-listing/regenerate") &&
       c[1]?.method === "POST")).toHaveLength(1);
-    expect(dialog?.textContent).toContain("Đang chờ");
-    expect(dialog?.textContent).toContain("Đang xem bản nháp trước");
     expect(dialog?.textContent).toContain(draft.title);
     expect(dialog?.textContent).not.toContain("Tạo lại với Codex + YTrends");
-    expect(dialog?.textContent).toContain("Phiên bản mới đang xử lý YTrends và Codex CLI");
-    expect(dialog?.textContent).toContain("Engine: Codex CLI · ChatGPT");
+    expect(dialog?.textContent).not.toContain("Đang xem bản nháp trước");
+    expect(dialog?.textContent).not.toContain("Engine: Codex CLI · ChatGPT");
+    expect(dialog?.querySelector(".etsy-tiktok-history-toggle")).toBeNull();
+    expect(dialog?.querySelector(".etsy-tiktok-skill-meta")).toBeNull();
     expect(onQueued).not.toHaveBeenCalled();
     await act(async () => {
       document.querySelector<HTMLButtonElement>(".etsy-tiktok-dialog-header button")?.click();
