@@ -36,7 +36,7 @@ from network_load import (
 )
 
 
-CLIENT_VERSION = "rrugc-scout-v64-related-page-freeze"
+CLIENT_VERSION = "rrugc-scout-v65-layout-snapshot-cache"
 IDLE_DIAGNOSTIC_INTERVAL_SECONDS = 30
 REVIEW_BACKPRESSURE_POLL_SECONDS = 30
 PINTEREST_LOGIN_READY_MARKER = ".rrugc-pinterest-login-ready-v1"
@@ -1412,6 +1412,7 @@ def merge_pin_link_candidates(
 
 
 async def extract_visible(page: Any) -> list[Candidate]:
+    started = time.monotonic()
     rows = await page.evaluate(
         r"""() => {
           const out = [];
@@ -1433,24 +1434,47 @@ async def extract_visible(page: Any) -> list[Candidate]:
               || '';
           };
 
-          const renderedArea = (node) => {
-            const rect = node?.getBoundingClientRect?.();
-            if (!rect) return 0;
-            return Math.max(0, rect.width) * Math.max(0, rect.height);
+          // A dense Pinterest grid contains many anchors sharing the same
+          // images. Layout reads per anchor can cause hundreds of forced
+          // reflows; cache each image rectangle for this DOM snapshot only.
+          const imageGeometryCache = new WeakMap();
+          const imageGeometry = (image) => {
+            const cached = imageGeometryCache.get(image);
+            if (cached) return cached;
+            const rect = image.getBoundingClientRect?.() || null;
+            const geometry = {
+              rect,
+              area: rect ? Math.max(0, rect.width) * Math.max(0, rect.height) : 0,
+              cx: rect ? rect.left + rect.width / 2 : 0,
+              cy: rect ? rect.top + rect.height / 2 : 0,
+            };
+            imageGeometryCache.set(image, geometry);
+            return geometry;
           };
+          const renderedArea = (node) =>
+            node ? imageGeometry(node).area : 0;
 
           const pinImages = Array.from(
             document.querySelectorAll(pinImageSelector)
           );
 
+          // One pass preserves the previous area / natural-width ranking
+          // and first-in-document tie break without repeated layout sorting.
           const chooseLargest = (images) => {
-            const rows = Array.from(images || []).filter(Boolean);
-            rows.sort((a, b) => {
-              const areaDelta = renderedArea(b) - renderedArea(a);
-              if (areaDelta) return areaDelta;
-              return (b.naturalWidth || 0) - (a.naturalWidth || 0);
-            });
-            return rows[0] || null;
+            let best = null;
+            let bestArea = -1;
+            let bestWidth = -1;
+            for (const image of images || []) {
+              if (!image) continue;
+              const area = renderedArea(image);
+              const width = image.naturalWidth || 0;
+              if (area > bestArea || (area === bestArea && width > bestWidth)) {
+                best = image;
+                bestArea = area;
+                bestWidth = width;
+              }
+            }
+            return best;
           };
 
           const localImageForAnchor = (anchor) => {
@@ -1498,10 +1522,11 @@ async def extract_visible(page: Any) -> list[Candidate]:
             let best = null;
             let bestScore = Number.POSITIVE_INFINITY;
             for (const image of pinImages) {
-              const rect = image.getBoundingClientRect?.();
+              const geometry = imageGeometry(image);
+              const rect = geometry.rect;
               if (!rect || rect.width < 20 || rect.height < 20) continue;
-              const ix = rect.left + rect.width / 2;
-              const iy = rect.top + rect.height / 2;
+              const ix = geometry.cx;
+              const iy = geometry.cy;
               const dx = ix - ax;
               const dy = iy - ay;
               const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1512,17 +1537,17 @@ async def extract_visible(page: Any) -> list[Candidate]:
                 && iy <= anchorRect.bottom + 24
               );
               const score = distance - (inside ? 10000 : 0)
-                - Math.min(renderedArea(image), 200000) / 10000;
+                - Math.min(geometry.area, 200000) / 10000;
               if (score < bestScore) {
                 bestScore = score;
                 best = image;
               }
             }
             if (!best) return null;
-            const bestRect = best.getBoundingClientRect?.();
-            const bx = bestRect.left + bestRect.width / 2;
-            const by = bestRect.top + bestRect.height / 2;
-            const distance = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2);
+            const bestGeometry = imageGeometry(best);
+            const distance = Math.sqrt(
+              (bestGeometry.cx - ax) ** 2 + (bestGeometry.cy - ay) ** 2
+            );
             const maxDistance = Math.max(
               360,
               Math.max(anchorRect.width, anchorRect.height) * 2.5
@@ -1621,6 +1646,13 @@ async def extract_visible(page: Any) -> list[Candidate]:
           return out;
         }"""
     )
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    if elapsed_ms >= 1_500:
+        scout_debug_event(
+            "scout_pin_snapshot_slow",
+            elapsed_ms=elapsed_ms,
+            candidate_count=len(rows) if isinstance(rows, list) else 0,
+        )
     return normalize_candidates(rows)
 
 

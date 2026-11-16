@@ -366,15 +366,24 @@ async def wait_for_visible_pin_images(
                 page.evaluate(
                     r"""() => {
                       const pins = document.querySelectorAll('a[href*="/pin/"]').length;
-                      const images = Array.from(document.querySelectorAll('img[src*="pinimg.com"]'))
-                        .filter(img => {
-                          const r = img.getBoundingClientRect();
-                          return r.width > 0 && r.height > 0 &&
-                            r.top < window.innerHeight && r.bottom > 0;
-                        }).slice(0, 12);
+                      const images = document.querySelectorAll(
+                        'img[src*="pinimg.com"], img[srcset*="pinimg.com"]'
+                      );
+                      let visible = 0;
+                      let loaded = 0;
+                      // Only the first 12 visible Pin images matter. Avoid
+                      // allocating/filtering the entire infinite-scroll feed
+                      // or measuring every offscreen image on each probe.
+                      for (const img of images) {
+                        const r = img.getBoundingClientRect();
+                        if (r.width <= 0 || r.height <= 0 ||
+                            r.top >= window.innerHeight || r.bottom <= 0) continue;
+                        visible += 1;
+                        if (img.complete && img.naturalWidth > 0) loaded += 1;
+                        if (visible >= 12) break;
+                      }
                       return {pin_links: pins,
-                        images_visible: images.length,
-                        images_loaded: images.filter(img => img.complete && img.naturalWidth > 0).length};
+                        images_visible: visible, images_loaded: loaded};
                     }"""
                 ),
                 timeout=min(VISIBLE_IMAGE_PROBE_TIMEOUT_SECONDS, remaining),

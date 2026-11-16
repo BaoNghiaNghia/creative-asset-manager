@@ -1,5 +1,40 @@
 # Realistic Review UGC Pinterest Auto Scout
 
+## v65 — bounded Pinterest DOM layout work (2026-11-16)
+
+This is a source-only update for the existing Review, Keyword, Cap Stack and
+TikTokShop Scouts. No new browser profile, application, paid API, database
+migration, or change to the CAM candidate acceptance/rights rules is required.
+
+- `extract_visible()` caches each Pin image rectangle once per DOM snapshot.
+  The direct / ancestor / geometry / image-first pairing fallbacks remain in
+  their original order, including the area and natural-width tie break.
+  This prevents repeated costly layout measurements when many Pin overlays
+  share a large, virtualized Pinterest search page.
+- Image readiness scans only until **12 visible Pin thumbnails** are found,
+  including Pinterest images that use `srcset` without `src`. It keeps the
+  same loaded-image and stable-count readiness thresholds; original Pin image
+  renditions and Chrome HTTP image cache are untouched.
+- New `scout_pin_snapshot_slow` diagnostics fire only when the browser DOM
+  extraction takes at least 1.5 seconds. Only duration and candidate count
+  are recorded; no cookies, page text, profile contents or tokens.
+- Regression checks cover a synthetic 64-Pin DOM (correct Pin/image pairing
+  and at most one image-layout read per image), the bounded image probe,
+  network lock/cancellation and existing Review Scout contracts.
+
+**Rollout:** update the existing Windows checkout only when the Scout Manager
+has safely paused its Scouts, then restart the managed Scout processes to load
+`rrugc-scout-v65-layout-snapshot-cache`. Never force-close Chrome, delete
+Pinterest profile locks or overwrite `pinterest-profile-*` folders. Source
+updates do not hot-reload a running Python process. Existing Manager binary
+and all profile/session/history files are retained. No autonomous Pinterest
+Scout is enabled by this release; the operator's Run automation/Pause all
+state and manual-approval gates are preserved.
+
+**Rollback:** fast-forward or check out the previous reviewed source through
+the normal Manager-controlled release flow once inactive. The change has no
+schema or persistent-data migration.
+
 ## v61 — Shared network load governor for four simultaneous Scouts (2026-11-06)
 
 The **Review, Keyword, Cap Stack and TikTokShop** Scouts keep their independent
