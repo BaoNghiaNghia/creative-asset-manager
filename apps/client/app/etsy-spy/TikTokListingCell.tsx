@@ -190,7 +190,9 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   const metrics = result?.metrics;
   const evidence = result?.ytrends_evidence;
   const keywordRows = evidence?.keywords ?? [];
-  const verifiedKeywords = keywordRows.filter(row => row.status === "connected" && row.listings != null).length;
+  const verifiedKeywords = keywordRows.filter(row => row.status === "connected" &&
+    typeof row.listings === "number" && Number.isFinite(row.listings) &&
+    Boolean(row.as_of_date)).length;
   const formatCompetition = (value: string | null | undefined) => ({
     very_high: "Rất cao", high: "Cao", medium: "Trung bình",
     low: "Thấp", very_low: "Rất thấp",
@@ -337,6 +339,12 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
                     </table>
                   </div> : <p className="etsy-tiktok-research-empty">
                     Chưa có bảng từ khóa. Cụm từ đang nghiên cứu: <strong>{evidence.query || "Chưa có"}</strong>.
+                  </p>}
+                  {keywordRows.length > 0 && verifiedKeywords === 0 && <p
+                    role="status" className="etsy-tiktok-research-source-state">
+                    {evidence.status === "no_data"
+                      ? "YTrends đã phản hồi nhưng không có số liệu cho các từ khóa này trong tập Etsy được lập chỉ mục."
+                      : "Đây là từ khóa đề xuất, chưa phải số liệu Etsy xác minh. YTrends đang không trả số liệu hợp lệ; hệ thống không tự tạo số liệu."}
                   </p>}
                   <p className="etsy-tiktok-seo-guide"><strong>Gợi ý sử dụng:</strong> Ưu tiên từ khóa
                     khớp thiết kế và đúng loại áo. Số sản phẩm ít không đồng nghĩa với nhu cầu tìm kiếm cao.</p>

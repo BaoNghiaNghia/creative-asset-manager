@@ -2741,6 +2741,17 @@ def test_tiktok_ytrends_refresh_preserves_existing_draft_without_gemini(scenario
                 "published": False}
     job.payload_json = {**job.payload_json, "result": original}
     db.commit()
+    base = "/api/v1/etsy-spy/listings/1234567890/tiktok-listing"
+    async def provider_unavailable(title, **kwargs):
+        return {"status": "unavailable", "source": "trends.ytuong.ai",
+                "marketplace": "etsy", "query": "oh holy night",
+                "keywords": [{"keyword": "oh holy night", "status": "unavailable",
+                              "listings": None, "as_of_date": None}]}
+    monkeypatch.setattr(spy_router, "research_etsy_keyword_set", provider_unavailable)
+    unavailable = client.post(base + "/ytrends/refresh")
+    assert unavailable.status_code == 503
+    db.refresh(job)
+    assert job.payload_json["result"] == original  # No overwrite on 0/1.
     calls = []
     async def researched(title, **kwargs):
         calls.append({"title": title, "force": kwargs.get("force_refresh")})

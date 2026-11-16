@@ -59,6 +59,27 @@ def test_bulk_merge_preserves_old_metric_only_for_same_keyword_and_snapshot():
     assert preserved["last_refresh_status"] == "unavailable"
 
 
+def test_source_backed_counts_distinguish_missing_mcp_data_from_dated_no_data():
+    empty = {"status": "unavailable", "source": "trends.ytuong.ai",
+             "marketplace": "etsy", "keywords": [
+                 {"keyword": "christmas cats", "status": "unavailable",
+                  "listings": None, "as_of_date": None}]}
+    assert ytrends_mcp.verified_keyword_count(empty) == 0
+    assert ytrends_mcp.source_backed_keyword_count(empty) == 0
+    dated_no_data = {**empty, "status": "no_data", "keywords": [
+        {"keyword": "christmas cats", "status": "no_data",
+         "listings": None, "as_of_date": "2026-11-15"}]}
+    assert ytrends_mcp.verified_keyword_count(dated_no_data) == 0
+    assert ytrends_mcp.source_backed_keyword_count(dated_no_data) == 1
+    verified = {**empty, "status": "connected", "keywords": [
+        {"keyword": "christmas cats", "status": "connected",
+         "listings": 42, "as_of_date": "2026-11-15"}]}
+    assert ytrends_mcp.verified_keyword_count(verified) == 1
+    assert ytrends_mcp.source_backed_keyword_count(verified) == 1
+    assert ytrends_mcp.source_backed_keyword_count({
+        **verified, "source": "untrusted-provider"}) == 0
+
+
 def test_never_replace_newer_snapshot_with_older_listings():
     old = {"source": "trends.ytuong.ai", "marketplace": "etsy",
            "status": "connected", "query": "christmas sweatshirt",
