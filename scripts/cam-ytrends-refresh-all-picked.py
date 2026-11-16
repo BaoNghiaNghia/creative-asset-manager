@@ -22,22 +22,19 @@ from app.modules.etsy_spy.model import EtsySpyPicked
 from app.modules.etsy_spy.tiktok_skill import JOB_TYPE, attach_ytrends_evidence
 from app.modules.etsy_spy.ytrends_mcp import (
     merge_keyword_evidence, research_etsy_keyword_set,
+    source_backed_keyword_count, verified_keyword_count,
 )
 from app.modules.processing.model import ProcessingJobModel
 
-RESEARCH_REVISION = "full-picked-consistent-research-20261112-v3"
+RESEARCH_REVISION = "full-picked-source-safe-20261116-v4"
 
 
 def verified_count(evidence: Any) -> int:
-    rows = evidence.get("keywords") if isinstance(evidence, dict) else None
-    return sum(1 for row in rows or [] if isinstance(row, dict)
-               and row.get("status") == "connected"
-               and type(row.get("listings")) is int
-               and isinstance(row.get("as_of_date"), str)
-               and bool(row["as_of_date"]))
+    return verified_keyword_count(evidence)
 
 
-async def execute(tenant: str, limit: int, apply: bool, concurrency: int) -> dict:
+async def execute(tenant: str, limit: int, apply: bool,
+                  concurrency: int, offset: int = 0) -> dict:
     settings = get_settings()
     if not settings.ETSY_TIKTOK_YTRENDS_ENABLED:
         raise SystemExit("ytrends_disabled")
@@ -72,8 +69,11 @@ async def execute(tenant: str, limit: int, apply: bool, concurrency: int) -> dic
                 continue
             counts["eligible_"+kind] += 1
             selected.append((job.id, job.entity_id, title, kind))
-    selected = selected[:limit]
+    counts["eligible_jobs"] = len(selected)
+    counts["picked_without_jobs"] = max(0, len(ids) - len(seen))
+    selected = selected[offset:offset + limit]
     counts["selected_jobs"] = len(selected)
+    counts["offset"] = offset
     counts["unique_source_titles"] = len(set(title for _,_,title,_ in selected))
     if not apply or not selected:
         return {"mode": "dry_run", "tenant": tenant, "limit": limit, **dict(counts)}
@@ -96,13 +96,39 @@ async def execute(tenant: str, limit: int, apply: bool, concurrency: int) -> dic
                 found = empty_evidence("")
             return title, found
 
-    titles = sorted(set(title for _,_,title,_ in selected))
-    discovered = dict(await asyncio.gather(*(research(title) for title in titles)))
+    titles = sorted(set(title for _, _, title, _ in selected))
+
+    # Do not bombard an unavailable MCP with 5x the entire Picked catalog
+    # worth of requests. Probe two different titles first, and keep all
+    # drafts untouched if neither produces any provider-backed snapshot.
+    probe_titles = titles[:2]
+    discovered = dict(await asyncio.gather(
+        *(research(title) for title in probe_titles)))
+    counts["provider_probe_titles"] = len(probe_titles)
+    if not any(source_backed_keyword_count(evidence)
+               for evidence in discovered.values()):
+        counts["provider_probe_unverified"] = len(probe_titles)
+        return {"mode": "apply", "status": "provider_unavailable_no_writes",
+                "tenant": tenant, "limit": limit, "offset": offset,
+                "concurrency": concurrency, **dict(counts)}
+
+    # Bound pending network work: gather only a small window instead of
+    # scheduling all Picked titles at once. Each distinct title runs once.
+    remaining = titles[len(probe_titles):]
+    window = max(1, concurrency * 5)
+    for start in range(0, len(remaining), window):
+        discovered.update(await asyncio.gather(*(
+            research(title) for title in remaining[start:start + window]
+        )))
+
     for job_id, listing_key, title, kind in selected:
         fresh = discovered[title]
-        counts["provider_"+str(fresh.get("status", "unavailable"))] += 1
+        counts["provider_" + str(fresh.get("status", "unavailable"))] += 1
         if not isinstance(fresh.get("keywords"), list):
             counts["no_safe_keyword_candidates"] += 1
+        if not source_backed_keyword_count(fresh):
+            counts["provider_missing_verified_source_kept"] += 1
+            continue
         with SessionLocal() as db:
             locked = db.scalar(select(ProcessingJobModel).where(
                 ProcessingJobModel.id == job_id,
@@ -122,15 +148,15 @@ async def execute(tenant: str, limit: int, apply: bool, concurrency: int) -> dic
                 continue
             old_evidence = old_draft.get("ytrends_evidence")
             merged = merge_keyword_evidence(old_evidence, fresh)
-            if merged.get("status") not in ("connected", "no_data"):
+            if not source_backed_keyword_count(merged):
                 counts["no_verified_evidence_kept"] += 1
                 continue
-            if not isinstance(merged.get("keywords"), list):
-                counts["no_table_kept"] += 1
-                continue
-            merged["research_revision"] = RESEARCH_REVISION
             previous_metrics = verified_count(old_evidence)
             current_metrics = verified_count(merged)
+            if current_metrics < previous_metrics:
+                counts["preserved_better_evidence"] += 1
+                continue
+            merged["research_revision"] = RESEARCH_REVISION
             payload["result"] = attach_ytrends_evidence(dict(old_draft), merged)
             locked.payload_json = payload
             db.commit()
@@ -152,14 +178,18 @@ def main() -> None:
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument("--offset", type=int, default=0,
+                        help="Zero-based pagination for every completed Picked draft")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    if not 1 <= args.limit <= 2500 or not 1 <= args.concurrency <= 4:
-        raise SystemExit("limit 1..2500, concurrency 1..4")
+    if (not 1 <= args.limit <= 2500 or not 1 <= args.concurrency <= 4
+            or not 0 <= args.offset <= 250_000):
+        raise SystemExit("limit 1..2500, concurrency 1..4, offset 0..250000")
     if not os.environ.get("DATABASE_URL", "").startswith("postgresql"):
         raise SystemExit("expected_authorized_postgres_runtime")
     print(json.dumps(asyncio.run(execute(
-        args.tenant, args.limit, args.apply, args.concurrency)), sort_keys=True))
+        args.tenant, args.limit, args.apply, args.concurrency,
+        args.offset)), sort_keys=True))
 
 
 if __name__ == "__main__":

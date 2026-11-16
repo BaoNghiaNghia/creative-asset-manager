@@ -37,6 +37,7 @@
 .etsy-tiktok-competition.is-high { color: #ad692d; }
 .etsy-tiktok-competition.is-medium { color: #8f7933; }
 .etsy-tiktok-competition.is-low, .etsy-tiktok-competition.is-very_low { color: #287750; }
+.etsy-tiktok-research-source-state { margin: 10px 0 7px; padding: 9px 11px; border-radius: 6px; background: #fff9ed; border: 1px solid #ecdfc9; color: #755a31; font-size: 11px; line-height: 1.55; }
 .etsy-tiktok-seo-guide { margin: 12px 0 9px; padding: 9px 11px; border-left: 3px solid #9aafca; background: #f0f5fb; font-size: 11px; color: #455b75; line-height: 1.6; }
 .etsy-tiktok-seo-guide strong { font-size: 11px; }
 .etsy-tiktok-research-footnote { display: flex; flex-wrap: wrap; gap: 5px 14px; margin: 9px 0 5px; font-size: 10px; color: #66778b; }

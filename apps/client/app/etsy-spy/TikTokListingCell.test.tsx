@@ -65,7 +65,7 @@ async function render(status: string, enabled = true, canManage = true,
         error_code: status === "failed" ? "temporary_model_error" : null,
         result: !regenerated && status === "needs_fact_check" ? {
           ...customDraft,
-          ytrends_status: evidence ? "connected" : "unavailable",
+          ytrends_status: evidence?.status ?? "unavailable",
           ytrends_evidence: evidence,
         } : undefined,
       });
@@ -193,6 +193,28 @@ describe("Picked TikTok Shop listing column", () => {
     expect(research?.textContent).toContain("31 sellers");
     expect(dialog?.textContent).toContain("không phải số liệu TikTok Shop");
     expect(dialog?.textContent).toContain("Có dữ liệu");
+  });
+
+  it("labels YTrends unavailable candidate rows as unverified, not as actual Etsy metrics", async () => {
+    await render("needs_fact_check", true, true, {
+      status: "unavailable", source: "trends.ytuong.ai", marketplace: "etsy",
+      query: "christmas cats", as_of_date: null,
+      dataset_note: "Indexed Etsy subset; not TikTok Shop search data.",
+      keywords: [
+        {keyword: "christmas cats", status: "unavailable", listings: null,
+         competition: null, as_of_date: null},
+        {keyword: "christmas cats shirt", status: "unavailable", listings: null,
+         competition: null, as_of_date: null},
+      ],
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
+    });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain("0/2 từ khóa có số liệu");
+    expect(dialog?.textContent).toContain("Đây là từ khóa đề xuất");
+    expect(dialog?.textContent).toContain("không tự tạo số liệu");
+    expect(dialog?.textContent).toContain("Chưa có dữ liệu");
   });
 
   it("shows compact Vietnamese keyword research with verified versus missing data and collapsible detail", async () => {

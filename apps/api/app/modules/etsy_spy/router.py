@@ -56,7 +56,8 @@ from .tiktok_skill import (
     regenerate_completed_draft as regenerate_tiktok_completed_draft,
     attach_ytrends_evidence as attach_tiktok_ytrends_evidence,
 )
-from .ytrends_mcp import research_etsy_keyword_set, merge_keyword_evidence
+from .ytrends_mcp import (research_etsy_keyword_set, merge_keyword_evidence,
+                           verified_keyword_count, source_backed_keyword_count)
 from .review_intents import apply_review_intent, get_review_receipt
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
@@ -1517,8 +1518,14 @@ async def refresh_listing_tiktok_ytrends(
         raise HTTPException(409, "Draft no longer available")
     old_result = dict(locked_payload["result"])
     merged = merge_keyword_evidence(old_result.get("ytrends_evidence"), evidence)
-    if merged.get("status") == "unavailable" and not merged.get("keywords"):
-        raise HTTPException(503, "YTrends research temporarily unavailable")
+    # Five candidate keywords with null metrics are NOT a successful MCP
+    # refresh. Keep the existing draft untouched when all provider calls fail
+    # (including when the MCP returns an unavailable five-row placeholder).
+    if not source_backed_keyword_count(merged):
+        raise HTTPException(503, "YTrends currently has no verified Etsy source response; previous draft preserved")
+    if verified_keyword_count(merged) < verified_keyword_count(
+            old_result.get("ytrends_evidence")):
+        raise HTTPException(503, "YTrends returned fewer verified rows; previous research preserved")
     locked_payload["result"] = attach_tiktok_ytrends_evidence(
         old_result, merged)
     locked.payload_json = locked_payload

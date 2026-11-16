@@ -285,6 +285,30 @@ def _verified_keyword(row: Any) -> bool:
             and bool(row["as_of_date"]))
 
 
+def verified_keyword_count(evidence: Any) -> int:
+    """Count provider-backed Etsy metrics, never candidate words or null values."""
+    rows = evidence.get("keywords") if isinstance(evidence, dict) else None
+    return sum(_verified_keyword(row) for row in rows or []
+               if isinstance(row, dict))
+
+
+def source_backed_keyword_count(evidence: Any) -> int:
+    """A no-data snapshot is evidence; an unavailable placeholder is not."""
+    if (not isinstance(evidence, dict) or evidence.get("source") != SOURCE
+            or evidence.get("marketplace") != "etsy"):
+        return 0
+    rows = evidence.get("keywords")
+    if not isinstance(rows, list):
+        return 0
+    return sum(1 for row in rows if isinstance(row, dict) and (
+        _verified_keyword(row) or (
+            row.get("status") == "no_data"
+            and isinstance(row.get("as_of_date"), str)
+            and bool(row["as_of_date"])
+        )
+    ))
+
+
 def merge_keyword_evidence(previous: dict | None, refreshed: dict) -> dict:
     """Keep valid source-backed rows when refreshed MCP calls intermittently fail.
 
