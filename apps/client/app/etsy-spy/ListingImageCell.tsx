@@ -67,9 +67,8 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
             aria-label={"Xem ảnh Main C1717 cho " + item.pageTitle}
             title="C1717 · Ảnh Main đã tạo và lưu vào CAM ImageGen Designs">
             <img src={mainC1717.mainThumbnailUrl} alt="Ảnh Main C1717" loading="lazy" />
-            <span>C1717 · Main</span>
           </button> : <span className="etsy-listing-image-pending"
-            title="Không lấy ảnh listing nguồn làm ảnh C1717">C1717 · chưa có Main</span>}
+            title="Chưa có ảnh Main C1717 được đồng bộ từ Image Extension">Chưa có ảnh</span>}
         </div>
         {badges.length > 0 && <div className="etsy-listing-image-badges"
           aria-label="Ảnh đã lưu theo mã áo">

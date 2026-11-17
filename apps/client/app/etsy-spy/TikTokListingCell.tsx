@@ -92,8 +92,12 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
 
   const listing = item.tiktokListing;
   const status = listing?.status || "not_queued";
-  const seoTitle = listing?.title_preview?.trim() || "";
-  const seoTerms = (listing?.search_terms_preview ?? []).filter(Boolean).slice(0, 2);
+  // The Picked table already displays the Etsy product title. Use only
+  // TikTok-specific search terms here; keep the full draft in the detail modal.
+  const hasDraft = Boolean(listing?.title_preview?.trim()) || status === "needs_fact_check";
+  const seoTerms = [...new Set((listing?.search_terms_preview ?? [])
+    .filter((term): term is string => typeof term === "string")
+    .map(term => term.trim()).filter(Boolean))].slice(0, 2);
   const canGenerate = canManage && optimizerEnabled && canQueueTikTokDraft(status);
   const loadDetail = useCallback(async () => {
     setLoading(true); setError("");
@@ -242,22 +246,32 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
   return <td className="etsy-tiktok-listing-cell">
     <div className="etsy-tiktok-cell-stack">
       <button type="button" className={"etsy-tiktok-listing-open" +
-        (seoTitle ? " has-preview" : " is-empty")} ref={triggerRef}
-        title={seoTitle || "TikTok Shop US · Chưa có tiêu đề SEO"}
-        aria-label={"Mở TikTok SEO cho " + item.pageTitle +
-          (seoTitle ? " · " + seoTitle : "")}
+        (hasDraft || seoTerms.length > 0 ? " has-preview" : " is-empty")} ref={triggerRef}
+        title={seoTerms.length ? "Search terms TikTok: " + seoTerms.join(" · ")
+          : "Mở bản nháp TikTok SEO"}
+        aria-label={"Mở TikTok SEO cho " + item.pageTitle}
         onClick={() => setOpen(true)}>
-        {seoTitle ? <>
-          <strong className="etsy-tiktok-title-preview">{seoTitle}</strong>
-          {seoTerms.length > 0 && <span className="etsy-tiktok-terms-preview"
-            title={seoTerms.join(" · ")}>{seoTerms.join(" · ")}</span>}
+        {hasDraft || seoTerms.length > 0 ? <>
+          <span className="etsy-tiktok-search-heading">
+            <span>Search terms</span>
+            <small>{seoTerms.length ? seoTerms.length + " gợi ý" : "Bản nháp SEO"}</small>
+          </span>
+          {seoTerms.length > 0 ? <span className="etsy-tiktok-term-list">
+            {seoTerms.map(term => <span className="etsy-tiktok-term" key={term}
+              title={term}>{term}</span>)}
+          </span> : <span className="etsy-tiktok-empty-preview">
+            Mở để xem nội dung SEO
+          </span>}
         </> : <span className="etsy-tiktok-empty-preview">
           {ACTIVE_STATUSES.includes(status) ? "Đang tạo nội dung SEO…"
             : status === "failed" ? "Chưa tạo được nội dung SEO"
             : "Chưa có bản nháp SEO"}
         </span>}
         <span className="etsy-tiktok-preview-footer">
-          <span className={"etsy-tiktok-state is-" + status}>{LABELS[status] || status}</span>
+          {status !== "needs_fact_check" && status !== "not_queued" &&
+            <span className={"etsy-tiktok-state is-" + status}>
+              {LABELS[status] || status}
+            </span>}
           <span className="etsy-tiktok-open-hint" aria-hidden="true">Mở SEO ↗</span>
         </span>
       </button>

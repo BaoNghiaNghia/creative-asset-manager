@@ -114,16 +114,21 @@ afterEach(async () => {
 });
 
 describe("Picked TikTok Shop listing column", () => {
-  it("previews SEO title and keywords in each Picked row and keeps full copy in the dialog", async () => {
+  it("previews unique TikTok search terms without duplicating product title or review badge", async () => {
     const {fetchMock, clipboardWrite} = await render("needs_fact_check");
     const open = document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open");
-    expect(open?.textContent).toContain("Mountain Sunset Sweatshirt for Outdoor Fans");
-    expect(open?.textContent).toContain("mountain sweatshirt · sunset art");
-    expect(open?.textContent).toContain("Cần duyệt");
+    expect(open?.textContent).not.toContain("Mountain Sunset Sweatshirt for Outdoor Fans");
+    expect(open?.textContent).not.toContain("Mountain Sunset Sweatshirt");
+    expect(open?.textContent).not.toContain(draft.description);
+    expect(open?.textContent).not.toContain("Cần duyệt");
+    expect(open?.textContent).toContain("Search terms");
+    expect(open?.textContent).toContain("2 gợi ý");
     expect(open?.textContent).toContain("Mở SEO");
-    expect(open?.querySelector(".etsy-tiktok-title-preview")).not.toBeNull();
-    expect(open?.querySelector(".etsy-tiktok-terms-preview")).not.toBeNull();
-    expect(open?.title).toBe("Mountain Sunset Sweatshirt for Outdoor Fans");
+    expect(Array.from(open?.querySelectorAll(".etsy-tiktok-term") || [], node => node.textContent))
+      .toEqual(["mountain sweatshirt", "sunset art"]);
+    expect(open?.querySelector(".etsy-tiktok-state.is-needs_fact_check")).toBeNull();
+    expect(open?.querySelector(".etsy-tiktok-title-preview")).toBeNull();
+    expect(open?.title).toBe("Search terms TikTok: mountain sweatshirt · sunset art");
     // The table already includes a bounded preview; no per-row modal request.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(document.querySelector(".etsy-tiktok-queue-action")).toBeNull();

@@ -60,7 +60,8 @@
   .etsy-tiktok-dialog-actions .etsy-tiktok-copy-all { margin-right: 0; }
   .etsy-tiktok-copy-title button { min-height: 32px; }
 }
-/* Picked table V6: show real SEO copy from the list summary, not repeated badges. */
+/* Picked table: show TikTok-specific search terms, not duplicate product
+   title/description from Product / Etsy. Keep the full draft in the modal. */
 .etsy-tiktok-listing-cell { width: 240px; min-width: 218px; max-width: 270px; vertical-align: middle; }
 .etsy-tiktok-cell-stack { display: grid; gap: 5px; min-width: 0; }
 .etsy-tiktok-listing-open {
@@ -72,15 +73,25 @@
   transition: background .15s ease, border-color .15s ease;
 }
 .etsy-tiktok-listing-open:hover { background: #f5f9ff; border-color: #b7cae8; }
-.etsy-tiktok-listing-open .etsy-tiktok-title-preview {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden; overflow-wrap: anywhere; width: 100%;
-  color: #213a5b; font-size: 12px; line-height: 1.38; font-weight: 750;
+.etsy-tiktok-listing-open .etsy-tiktok-search-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; min-width: 0; gap: 8px;
+  color: #58708e; font-size: 10px; line-height: 1.3;
+  font-weight: 800; letter-spacing: .02em;
 }
-.etsy-tiktok-listing-open .etsy-tiktok-terms-preview {
-  display: block; width: 100%; min-width: 0;
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  font-size: 10px; line-height: 1.35; color: #6a7a90;
+.etsy-tiktok-listing-open .etsy-tiktok-search-heading small {
+  flex: 0 0 auto; margin: 0; color: #8a9aaf;
+  font-size: 9px; font-weight: 650; letter-spacing: 0;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-term-list {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 3px; width: 100%; min-width: 0;
+}
+.etsy-tiktok-listing-open .etsy-tiktok-term {
+  display: block; min-width: 0; width: 100%; padding: 3px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 5px; background: #f1f6fc; color: #355b83;
+  font-size: 10px; font-weight: 650; line-height: 1.2;
 }
 .etsy-tiktok-listing-open .etsy-tiktok-empty-preview {
   display: block; font-size: 11px; line-height: 1.45; color: #7c899a;
@@ -95,7 +106,8 @@
   font-weight: 700;
 }
 .etsy-tiktok-listing-open .etsy-tiktok-open-hint {
-  color: #2b62b2; font-size: 10px; font-weight: 740; white-space: nowrap;
+  margin-left: auto; color: #2b62b2; font-size: 10px;
+  font-weight: 740; white-space: nowrap;
 }
 .etsy-tiktok-queue-action {
   justify-self: start; min-height: 27px; padding: 4px 8px;

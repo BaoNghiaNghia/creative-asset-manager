@@ -54,7 +54,10 @@ describe("Listing Image saved output badges",()=>{
     const main = layout?.querySelector<HTMLButtonElement>(".etsy-listing-image-main");
     expect(main?.parentElement).toBe(layout?.firstElementChild);
     expect(main?.querySelector("img")?.getAttribute("src")).toBe("/main-c1717.png");
-    expect(main?.querySelector("span")?.textContent).toBe("C1717 · Main");
+    expect(main?.querySelectorAll("img")).toHaveLength(1);
+    expect(main?.querySelector("span")).toBeNull();
+    expect(main?.textContent?.trim()).toBe("");
+    expect(main?.getAttribute("aria-label")).toContain("Main C1717");
     const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badge") || []);
     expect(badges.map(button => button.textContent?.trim())).toEqual([
       "10 C1717", "6 G180",
@@ -68,7 +71,8 @@ describe("Listing Image saved output badges",()=>{
       {garmentCode:"G180",count:6},{garmentCode:"C1717",count:10},
     ]});
     const layout = container.querySelector(".etsy-listing-image-layout");
-    expect(layout?.querySelector(".etsy-listing-image-primary .etsy-listing-image-pending")).not.toBeNull();
+    expect(layout?.querySelector(".etsy-listing-image-primary .etsy-listing-image-pending")?.textContent)
+      .toBe("Chưa có ảnh");
     expect(layout?.querySelector(".etsy-listing-image-main")).toBeNull();
     const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badges button") || []);
     expect(badges.map(button => button.textContent?.trim())).toEqual([

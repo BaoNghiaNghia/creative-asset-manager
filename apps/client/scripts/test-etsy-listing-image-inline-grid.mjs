@@ -14,8 +14,8 @@ const scenarios=[
 ];
 function markup(scenario){
   const main=scenario.image
-    ? '<button class="etsy-listing-image-main"><img alt="Main" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="/><span>C1717 · Main</span></button>'
-    : '<span class="etsy-listing-image-pending">C1717 · chưa có Main</span>';
+    ? '<button class="etsy-listing-image-main"><img alt="Main" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="/></button>'
+    : '<span class="etsy-listing-image-pending">Chưa có ảnh</span>';
   const badges=scenario.codes.length
     ? '<div class="etsy-listing-image-badges">'+scenario.codes.map(code=>
       '<button class="etsy-listing-image-badge"><span>10</span> '+code+'</button>').join("")+'</div>' : "";
@@ -44,7 +44,13 @@ try{
           const main=get(".etsy-listing-image-primary");
           const badges=get(".etsy-listing-image-badges");
           const buttons=[...document.querySelectorAll(".etsy-listing-image-badge")];
+          const mainButton=get(".etsy-listing-image-main");
+          const mainStyle=mainButton?getComputedStyle(mainButton):null;
           return {layout:rect(layout),main:rect(main),badges:rect(badges),
+            mainHasOnlyImage:Boolean(mainButton && mainButton.children.length===1 &&
+              mainButton.children[0].tagName==="IMG" && mainButton.textContent.trim()===""),
+            mainBorder:mainStyle?.borderTopWidth??null,
+            mainPadding:mainStyle?.paddingTop??null,
             cell:rect(get(".etsy-listing-image-cell")),
             fits:buttons.every(b=>b.scrollWidth<=b.clientWidth+1),
             label:getComputedStyle(get(".etsy-listing-image-cell"),"::before").content,
@@ -53,6 +59,11 @@ try{
         assert.ok(result.layout.height<=s.limit,
           width+"px "+s.name+" grid too tall: "+JSON.stringify(result));
         assert.ok(result.layout.right<=result.cell.right+2,width+"px grid overflows cell");
+        if(s.image){
+          assert.ok(result.mainHasOnlyImage,width+"px Main includes extra text");
+          assert.equal(result.mainBorder,"0px",width+"px Main still has outer card");
+          assert.equal(result.mainPadding,"0px",width+"px Main still has padded frame");
+        }
         if(result.badges){
           assert.ok(result.badges.left>=result.main.right+6,width+"px badges not right");
           assert.ok(result.badges.top<result.main.bottom && result.badges.bottom>result.main.top,
