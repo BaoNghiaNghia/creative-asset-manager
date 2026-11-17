@@ -59,25 +59,29 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const openGallery = () => { onPreviewStart?.(); setOpen(true); };
   return <>
     <td className="etsy-listing-image-cell">
-      {mainC1717 && <button type="button"
-        className="etsy-listing-image-main"
-        onClick={openGallery}
-        aria-label={"Xem ảnh Main C1717 cho " + item.pageTitle}
-        title="C1717 · Ảnh Main đã tạo và lưu vào CAM ImageGen Designs">
-        <img src={mainC1717.mainThumbnailUrl} alt="Ảnh Main C1717" loading="lazy" />
-        <span>C1717 · Main</span>
-      </button>}
-      {!mainC1717 && <span className="etsy-listing-image-pending"
-        title="Không lấy ảnh listing nguồn làm ảnh C1717">C1717 · chưa có Main</span>}
-      {badges.length ? <div className="etsy-listing-image-badges">
-        {badges.map(b => <button type="button"
-          className="etsy-listing-image-badge" key={b.garmentCode}
-          title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
-          aria-label={"Xem " + b.count + " ảnh Listing Image mẫu " + b.garmentCode}
-          onClick={openGallery}>
-          <span>{b.count}</span> {b.garmentCode}
-        </button>)}
-      </div> : null}
+      <div className="etsy-listing-image-layout">
+        <div className="etsy-listing-image-primary">
+          {mainC1717 ? <button type="button"
+            className="etsy-listing-image-main"
+            onClick={openGallery}
+            aria-label={"Xem ảnh Main C1717 cho " + item.pageTitle}
+            title="C1717 · Ảnh Main đã tạo và lưu vào CAM ImageGen Designs">
+            <img src={mainC1717.mainThumbnailUrl} alt="Ảnh Main C1717" loading="lazy" />
+            <span>C1717 · Main</span>
+          </button> : <span className="etsy-listing-image-pending"
+            title="Không lấy ảnh listing nguồn làm ảnh C1717">C1717 · chưa có Main</span>}
+        </div>
+        {badges.length > 0 && <div className="etsy-listing-image-badges"
+          aria-label="Ảnh đã lưu theo mã áo">
+          {badges.map(b => <button type="button"
+            className="etsy-listing-image-badge" key={b.garmentCode}
+            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
+            aria-label={"Xem " + b.count + " ảnh Listing Image mẫu " + b.garmentCode}
+            onClick={openGallery}>
+            <span>{b.count}</span> {b.garmentCode}
+          </button>)}
+        </div>}
+      </div>
     </td>
     {open && createPortal(
       <div className="etsy-listing-image-overlay"

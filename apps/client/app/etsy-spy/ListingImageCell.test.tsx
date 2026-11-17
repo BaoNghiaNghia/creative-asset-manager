@@ -40,6 +40,42 @@ function mount(record:Listing=item) {
 afterEach(()=>{act(()=>root?.unmount());container?.remove();
   document.querySelectorAll(".etsy-listing-image-overlay").forEach(node=>node.remove());spy.mockReset();});
 describe("Listing Image saved output badges",()=>{
+  it("keeps Main in the left track and badges in the right track",()=>{
+    const mainRecord = {...item, listingImages: [
+      {garmentCode:"G180",count:6},
+      {garmentCode:"C1717",count:10,mainThumbnailUrl:"/main-c1717.png"},
+    ]} as Listing;
+    mount(mainRecord);
+    const layout = container.querySelector(".etsy-listing-image-layout");
+    expect(layout).not.toBeNull();
+    expect(layout?.children).toHaveLength(2);
+    expect(layout?.firstElementChild?.classList.contains("etsy-listing-image-primary")).toBe(true);
+    expect(layout?.lastElementChild?.classList.contains("etsy-listing-image-badges")).toBe(true);
+    const main = layout?.querySelector<HTMLButtonElement>(".etsy-listing-image-main");
+    expect(main?.parentElement).toBe(layout?.firstElementChild);
+    expect(main?.querySelector("img")?.getAttribute("src")).toBe("/main-c1717.png");
+    expect(main?.querySelector("span")?.textContent).toBe("C1717 · Main");
+    const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badge") || []);
+    expect(badges.map(button => button.textContent?.trim())).toEqual([
+      "10 C1717", "6 G180",
+    ]);
+    expect(badges.every(button => button.parentElement === layout?.lastElementChild)).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it("keeps the placeholder left and all four model badges to the right",()=>{
+    mount({...item, listingImages:[
+      {garmentCode:"G185",count:2},{garmentCode:"G500",count:3},
+      {garmentCode:"G180",count:6},{garmentCode:"C1717",count:10},
+    ]});
+    const layout = container.querySelector(".etsy-listing-image-layout");
+    expect(layout?.querySelector(".etsy-listing-image-primary .etsy-listing-image-pending")).not.toBeNull();
+    expect(layout?.querySelector(".etsy-listing-image-main")).toBeNull();
+    const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badges button") || []);
+    expect(badges.map(button => button.textContent?.trim())).toEqual([
+      "10 C1717", "6 G180", "2 G185", "3 G500",
+    ]);
+    expect(layout?.querySelector(".etsy-listing-image-badges")?.parentElement).toBe(layout);
+  });
   it("displays counts by garment without polling all listings",()=>{
     mount();
     expect(document.querySelectorAll(".etsy-listing-image-badge")).toHaveLength(2);
