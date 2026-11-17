@@ -99,6 +99,37 @@ class EtsySpyPicked(Base):
 
 
 
+class EtsySpyListingImage(Base):
+    """Immutable PNG outputs copied from the ImageGen Skill pack ledger.
+
+    Only saved, SHA-verified output slots create rows. Every read and write
+    also checks that the Etsy listing is Picked by the same tenant.
+    """
+    __tablename__ = "etsy_spy_listing_images"
+    __table_args__ = (
+        Index("ix_etsy_spy_listing_image_counts", "tenant_id", "listing_key", "garment_code"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    pack_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    slot: Mapped[int] = mapped_column(Integer(), primary_key=True)
+    garment_code: Mapped[str] = mapped_column(String(10), nullable=False)
+    design_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    placement: Mapped[str] = mapped_column(String(48), nullable=False)
+    drive_folder_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_thumbnail_folder_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_manifest_id: Mapped[str | None] = mapped_column(String(128))
+    output_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    thumbnail_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    drive_file_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_thumbnail_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    native_width: Mapped[int | None] = mapped_column(Integer())
+    native_height: Mapped[int | None] = mapped_column(Integer())
+    source_job_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class EtsySpySmsStatus(Base):
     """Windows SMS Idea Inbox receipt projection, distinct from Keyword SMS suggestions."""
     __tablename__ = "etsy_spy_sms_statuses"

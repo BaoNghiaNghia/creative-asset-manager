@@ -14,6 +14,7 @@ import "./EtsySpyEvo.css";
 import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
+import { ListingImageCell } from "./ListingImageCell";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./EtsySpyImages.css";
 import "./EtsySpyDayCarousel.css";
@@ -388,6 +389,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
+    {item.picked && <ListingImageCell item={item} onPreviewStart={() => setImagePreview(null)} />}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -1167,7 +1169,8 @@ export function EtsySpyPage() {
   const columns = useMemo(() => {
     if (options.tab === "products") return options.pickState === "picked"
       ? [SORTS.products[0], { id: "design", text: "Design" },
-         { id: "tiktokListing", text: "TikTok SEO" }, ...SORTS.products.slice(1)]
+         { id: "tiktokListing", text: "TikTok SEO" },
+         { id: "listingImage", text: "Listing Image" }, ...SORTS.products.slice(1)]
       : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     if (options.tab === "trademarks") return SORTS.trademarks;
@@ -1747,8 +1750,9 @@ export function EtsySpyPage() {
             </th>}
             {columns.map(col => <th key={col.id}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              {col.id === "keywordSms" || col.id === "design" || col.id === "tiktokListing" ? <span className="etsy-static-header"
+              {col.id === "keywordSms" || col.id === "design" || col.id === "tiktokListing" || col.id === "listingImage" ? <span className="etsy-static-header"
                 title={col.id === "design" ? "Design PNG theo vị trí · nhiều ảnh/sản phẩm · cần QA"
+                  : col.id === "listingImage" ? "Ảnh listing đã lưu từ CAM Image Extension theo mã áo"
                   : col.id === "tiktokListing" ? "TikTok Shop Listing Optimizer · bản nháp cần duyệt"
                   : "Search Match Suggestions"}>
                 {col.text}

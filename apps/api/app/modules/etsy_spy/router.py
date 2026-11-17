@@ -59,6 +59,7 @@ from .tiktok_skill import (
 from .ytrends_mcp import (research_etsy_keyword_set, merge_keyword_evidence,
                            verified_keyword_count, source_backed_keyword_count)
 from .review_intents import apply_review_intent, get_review_receipt
+from .listing_images import listing_image_router, listing_badges
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
     moment, reconcile_listing_inventory, sync_batch, text, system_log_cutoff,
@@ -993,6 +994,9 @@ def listings(
                 "candidate_ready": candidate.get("status") == "review_candidate",
                 "candidate_method": candidate.get("method") if candidate.get("status") == "review_candidate" else None,
             }
+    listing_image_badges = listing_badges(
+        db, tenant, {listing.listing_key for listing, _ in rows}
+    ) if pick_state == "picked" and rows else {}
     # Single tenant-scoped query across the current Picked page; never N+1.
     tiktok_by_key: dict[str, dict] = {}
     if pick_state == "picked" and rows:
@@ -1012,6 +1016,7 @@ def listings(
          **({"tiktokListing": tiktok_by_key.get(listing.listing_key, {"status": "not_queued", "draft_only": True}),
              "smsPush": sms_by_key.get(listing.listing_key),
              "designs": designs_by_key.get(listing.listing_key, []),
+             "listingImages": listing_image_badges.get(listing.listing_key, []),
              "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
@@ -2296,3 +2301,4 @@ async def ingest_agent(
 # Mounted after standard Etsy Spy routes; transport remains opt-in.
 from .image_agent import image_router
 router.include_router(image_router)
+router.include_router(listing_image_router)

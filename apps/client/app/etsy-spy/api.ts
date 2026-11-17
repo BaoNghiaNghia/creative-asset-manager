@@ -106,10 +106,21 @@ export type TikTokListingView = {
   previous_job_id?: string; previous_draft?: TikTokListingDraft;
   result?: TikTokListingDraft;
 };
+export type ListingImageBadge = { garmentCode: string; count: number };
+export type ListingImageOutput = {
+  packId: string; slot: number; sha256: string;
+  width: number | null; height: number | null; savedAt: string | null;
+  thumbnailUrl: string; originalUrl: string;
+};
+export type ListingImageGallery = {
+  listingKey: string; total: number;
+  groups: Array<{ garmentCode: string; count: number; images: ListingImageOutput[] }>;
+};
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
   designs?: DesignAsset[];
+  listingImages?: ListingImageBadge[];
   tiktokListing?: TikTokListingView;
   smsPush?: { status: string; code?: string | null; sentAt?: string | null;
     updatedAt?: string | null } | null;

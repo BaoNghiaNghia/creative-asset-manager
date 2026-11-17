@@ -23,7 +23,7 @@ from app.modules.etsy_spy.model import (
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus,
-    EtsySpyReviewReceipt,
+    EtsySpyReviewReceipt, EtsySpyListingImage,
 )
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
@@ -36,7 +36,7 @@ TABLES = (
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus, EtsySpyReviewReceipt,
-    ProcessingJobModel,
+    EtsySpyListingImage, ProcessingJobModel,
 )
 
 

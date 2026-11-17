@@ -292,6 +292,65 @@ async def store_design_to_drive(
     }
 
 
+def _listing_output_thumbnail(png: bytes) -> tuple[bytes, tuple[int, int]]:
+    """Unlike print artwork, garment listing photos are square and may be opaque."""
+    try:
+        with Image.open(io.BytesIO(png)) as image:
+            width, height = image.size
+            if (image.format != "PNG" or image.mode not in {"RGBA", "RGB", "P"}
+                or width != height or not 512 <= width <= 4096
+                or width * height > 16_000_000):
+                raise ValueError("invalid listing output dimensions")
+            image.load()
+            preview = image.convert("RGBA")
+            preview.thumbnail((192, 192), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            preview.save(buffer, "PNG", optimize=True)
+            return buffer.getvalue(), (width, height)
+    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        raise HTTPException(422, "ImageGen listing photo is not a saved square PNG") from exc
+
+
+async def store_listing_output_to_drive(
+    *, tenant_id: str, pack_id: str, slot: int, digest: str, png: bytes,
+) -> dict:
+    """Private immutable garment photo and preview, no print-master QA or recolor.
+
+    Reuse the same scoped ImageGen Drive OAuth destination and content-hash
+    safety, without treating an opaque 2000×2000 wearer photo as print art.
+    """
+    if len(png) < 57 or len(png) > _MAX_PNG or hashlib.sha256(png).hexdigest() != digest:
+        raise HTTPException(422, "Invalid saved ImageGen photo digest")
+    thumbnail, dimensions = await asyncio.to_thread(_listing_output_thumbnail, png)
+    thumb_sha = hashlib.sha256(thumbnail).hexdigest()
+    provider, folder = provider_and_folder()
+    await verify_private_drive_destination(provider, folder)
+
+    async def put(label: str, body: bytes, sha: str):
+        try:
+            stored = await provider.store_asset(StoreAssetInput(
+                tenant_id=tenant_id,
+                asset_id=f"{pack_id}:listing-{slot:02d}:{label}",
+                content_hash=sha,
+                filename=f"{pack_id}-listing-{slot:02d}-{label}.png",
+                destination_folder_id=folder, content_type="image/png",
+                size_bytes=len(body), body=_body(body),
+            ))
+        except StorageProviderError as exc:
+            raise HTTPException(503 if exc.retryable else 502,
+                                "ImageGen Drive listing upload unavailable") from exc
+        result = str(stored.remote_file_id or "")
+        if not _DRIVE_ID.fullmatch(result):
+            raise HTTPException(502, "Unverified ImageGen Drive file identity")
+        return result
+
+    remote = await put("original", png, digest)
+    small = await put("thumbnail", thumbnail, thumb_sha)
+    return {"drive_file_id": remote, "drive_thumbnail_id": small,
+            "thumbnail_sha256": thumb_sha, "native_width": dimensions[0],
+            "native_height": dimensions[1]}
+
+
 async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: str,
                                   sha256: str, max_bytes: int) -> bytes:
     if not _DRIVE_ID.fullmatch(remote_id):
