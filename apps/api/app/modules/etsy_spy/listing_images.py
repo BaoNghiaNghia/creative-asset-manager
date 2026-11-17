@@ -61,6 +61,7 @@ async def _json_payload(request: Request):
 async def _ensure_pack_manifest(
     db: Session, tenant: str, listing: str, pack: str, garment: str,
     design_sha: str, source_sha: str, placement: str,
+    *, main_revision: bool = False,
 ) -> str | None:
     """Manifest is written only after ten distinct SHA-bound saved slots.
 
@@ -87,6 +88,10 @@ async def _ensure_pack_manifest(
         raise HTTPException(409, "Conflicting ImageGen Drive manifest identities")
     if len(remote_ids) == 1:
         return remote_ids.pop()
+    folder_ids = {r.drive_folder_id for r in rows}
+    if len(folder_ids) != 1:
+        raise HTTPException(409, "Pack PNGs are scattered across multiple Drive folders")
+    expected_folder_id = folder_ids.pop()
     saved = [
         {"slot": r.slot, "output_sha256": r.output_sha256,
          "drive_file_id": r.drive_file_id,
@@ -100,6 +105,8 @@ async def _ensure_pack_manifest(
         tenant_id=tenant, listing_id=listing, pack_id=pack,
         garment_code=garment, design_sha256=design_sha,
         source_sha256=source_sha, placement=placement, images=saved,
+        expected_drive_folder_id=expected_folder_id,
+        main_sha256=rows[0].output_sha256 if main_revision else None,
     )
     db.execute(update(ListingImage).where(
         ListingImage.tenant_id == tenant,
@@ -135,21 +142,40 @@ async def save_listing_output(
         raise HTTPException(422, "SHA-bound design and Drive root identity required")
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing is not currently Picked")
+    # Main-only revision is explicit compare-and-swap, never a normal resend.
+    replace_sha = payload.get("replace_slot_sha256")
+    revision_number = payload.get("main_revision_number")
+    if replace_sha is not None:
+        if (slot != 1 or garment != "C1717" or
+            not isinstance(replace_sha, str) or not _SHA.fullmatch(replace_sha) or
+            replace_sha == sha or not isinstance(revision_number, int) or
+            isinstance(revision_number, bool) or
+            not 1 <= revision_number <= 10000):
+            raise HTTPException(422, "Invalid C1717 Main replacement receipt")
+    elif revision_number is not None:
+        raise HTTPException(422, "Main revision number requires previous SHA")
     key = (agent.tenant_id, listing, pack, slot)
     previous = db.get(ListingImage, key)
     if previous is not None:
-        if (previous.output_sha256 != sha or previous.garment_code != garment or
+        if (previous.garment_code != garment or
             previous.design_sha256 != design_sha or
             previous.source_sha256 != source_sha or previous.placement != placement):
-            raise HTTPException(409, "Immutable ImageGen output slot changed")
-        manifest = await _ensure_pack_manifest(
-            db, agent.tenant_id, listing, pack, garment,
-            design_sha, source_sha, placement)
-        return {"ok": True, "already_saved": True, "listing_id": listing,
-                "garment_code": garment, "pack_id": pack, "slot": slot,
-                "sha256": sha, "design_sha256": design_sha,
-                "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
-                "drive_manifest_id": manifest}
+            raise HTTPException(409, "Immutable ImageGen pack source changed")
+        if previous.output_sha256 != sha:
+            if replace_sha is None or previous.output_sha256 != replace_sha:
+                raise HTTPException(409, "Immutable ImageGen output slot changed")
+        else:
+            manifest = await _ensure_pack_manifest(
+                db, agent.tenant_id, listing, pack, garment,
+                design_sha, source_sha, placement,
+                main_revision=bool(replace_sha))
+            return {"ok": True, "already_saved": True, "listing_id": listing,
+                    "garment_code": garment, "pack_id": pack, "slot": slot,
+                    "sha256": sha, "design_sha256": design_sha,
+                    "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+                    "drive_manifest_id": manifest}
+    elif replace_sha is not None:
+        raise HTTPException(409, "Main replacement requires existing slot")
     encoded = payload.get("png_base64")
     if not isinstance(encoded, str) or len(encoded) > (_MAX_PNG * 4 // 3 + 16):
         raise HTTPException(413, "ImageGen PNG receipt exceeds limit")
@@ -175,29 +201,59 @@ async def save_listing_output(
         tenant_id=agent.tenant_id, pack_id=pack, slot=slot,
         digest=sha, png=png, listing_id=listing,
         design_sha256=design_sha, placement=placement,
-        garment_code=garment)
+        garment_code=garment,
+        **({"main_revision_number": revision_number} if replace_sha else {}))
     # Recheck Picked after I/O to prevent a late unpick from authorizing
     # a new visible gallery entry. Re-pick can restore its previous history.
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing was unpicked during upload")
-    row = ListingImage(
-        tenant_id=agent.tenant_id, listing_key=listing, pack_id=pack, slot=slot,
-        garment_code=garment, design_sha256=design_sha,
-        source_sha256=source_sha, placement=placement,
-        drive_folder_id=remote["drive_folder_id"],
-        drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
-        output_sha256=sha,
-        thumbnail_sha256=remote["thumbnail_sha256"],
-        drive_file_id=remote["drive_file_id"],
-        drive_thumbnail_id=remote["drive_thumbnail_id"],
-        native_width=width, native_height=height,
-        source_job_id=source_job or None)
-    db.add(row)
+    if replace_sha:
+        changed = db.execute(update(ListingImage).where(
+            ListingImage.tenant_id == agent.tenant_id,
+            ListingImage.listing_key == listing,
+            ListingImage.pack_id == pack,
+            ListingImage.slot == 1,
+            ListingImage.output_sha256 == replace_sha,
+        ).values(
+            output_sha256=sha,
+            thumbnail_sha256=remote["thumbnail_sha256"],
+            drive_file_id=remote["drive_file_id"],
+            drive_thumbnail_id=remote["drive_thumbnail_id"],
+            drive_folder_id=remote["drive_folder_id"],
+            drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
+            native_width=width, native_height=height,
+            source_job_id=source_job or None,
+        ))
+        if changed.rowcount != 1:
+            db.rollback()
+            raise HTTPException(409, "Main changed while uploading replacement")
+        # A new 10-role Drive manifest is written without altering 02-10.
+        db.execute(update(ListingImage).where(
+            ListingImage.tenant_id == agent.tenant_id,
+            ListingImage.listing_key == listing,
+            ListingImage.pack_id == pack,
+        ).values(drive_manifest_id=None))
+    else:
+        row = ListingImage(
+            tenant_id=agent.tenant_id, listing_key=listing, pack_id=pack, slot=slot,
+            garment_code=garment, design_sha256=design_sha,
+            source_sha256=source_sha, placement=placement,
+            drive_folder_id=remote["drive_folder_id"],
+            drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
+            output_sha256=sha,
+            thumbnail_sha256=remote["thumbnail_sha256"],
+            drive_file_id=remote["drive_file_id"],
+            drive_thumbnail_id=remote["drive_thumbnail_id"],
+            native_width=width, native_height=height,
+            source_job_id=source_job or None)
+        db.add(row)
     db.commit()
     manifest = await _ensure_pack_manifest(
         db, agent.tenant_id, listing, pack, garment,
-        design_sha, source_sha, placement)
-    return {"ok": True, "already_saved": False, "listing_id": listing,
+        design_sha, source_sha, placement,
+        main_revision=bool(replace_sha))
+    return {"ok": True, "already_saved": False,
+            "main_replaced": bool(replace_sha), "listing_id": listing,
             "garment_code": garment, "pack_id": pack, "slot": slot,
             "sha256": sha, "design_sha256": design_sha,
             "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
@@ -209,20 +265,28 @@ def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
     if not listing_keys:
         return {}
     counts = defaultdict(dict)
-    main_pack = func.min(case(
-        (ListingImage.slot == 1, ListingImage.pack_id), else_=None,
-    )).label("main_pack")
+    # Select pack ID and SHA as ONE sorted value. Independent MIN() calls
+    # could pick different packs, leaving the preview cache stale after CAS.
+    main_asset = func.min(case(
+        (ListingImage.slot == 1,
+         ListingImage.pack_id + "|" + ListingImage.thumbnail_sha256),
+        else_=None,
+    )).label("main_asset")
     rows = db.execute(select(
         ListingImage.listing_key, ListingImage.garment_code,
-        func.count(), main_pack,
+        func.count(), main_asset,
     ).where(ListingImage.tenant_id == tenant_id,
             ListingImage.listing_key.in_(listing_keys))
       .group_by(ListingImage.listing_key, ListingImage.garment_code))
-    for listing_key, garment, quantity, first_main in rows:
+    for listing_key, garment, quantity, first_main_asset in rows:
         badge = {"garmentCode": garment, "count": int(quantity)}
-        if first_main:
+        if first_main_asset:
+            first_main, sep, first_sha = first_main_asset.partition("|")
+            if not sep or not _PACK.fullmatch(first_main) or not _SHA.fullmatch(first_sha):
+                raise HTTPException(409, "Invalid saved Main preview identity")
             badge["mainThumbnailUrl"] = (
                 f"/api/v1/etsy-spy/listing-images/{first_main}/1/thumbnail"
+                f"?v={first_sha[:12]}"
             )
             badge["mainPackId"] = first_main
         counts[listing_key][garment] = badge
@@ -254,8 +318,8 @@ def read_listing_gallery(
             "manifestReady": bool(row.drive_manifest_id),
             "width": row.native_width, "height": row.native_height,
             "savedAt": row.created_at,
-            "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail",
-            "originalUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/original",
+            "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail?v={row.thumbnail_sha256[:12]}",
+            "originalUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/original?v={row.output_sha256[:12]}",
         }
         groups[row.garment_code].append(image)
     return {"listingKey": listing_key, "total": len(rows),

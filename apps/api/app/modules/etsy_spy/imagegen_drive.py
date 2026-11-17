@@ -322,6 +322,7 @@ _ROLE_FILES = {
 async def store_listing_output_to_drive(
     *, tenant_id: str, pack_id: str, slot: int, digest: str, png: bytes,
     listing_id: str, design_sha256: str, placement: str, garment_code: str,
+    main_revision_number: int = 0,
 ) -> dict:
     """Store a verified output below listing/design/target-garment hierarchy.
 
@@ -331,6 +332,11 @@ async def store_listing_output_to_drive(
     if (slot not in _ROLE_FILES or len(png) < 57 or len(png) > _MAX_PNG or
         hashlib.sha256(png).hexdigest() != digest):
         raise HTTPException(422, "Invalid saved ImageGen photo identity")
+    if (not isinstance(main_revision_number, int) or
+        isinstance(main_revision_number, bool) or
+        main_revision_number < 0 or main_revision_number > 10000 or
+        (main_revision_number != 0 and (slot != 1 or garment_code != "C1717"))):
+        raise HTTPException(422, "Invalid saved Main revision identity")
     thumbnail, dimensions = await asyncio.to_thread(_listing_output_thumbnail, png)
     thumb_sha = hashlib.sha256(thumbnail).hexdigest()
     provider, folder = provider_and_folder()
@@ -346,12 +352,15 @@ async def store_listing_output_to_drive(
         placement=placement, garment_code=garment_code,
     )
 
+    revision_suffix = (f":rev-{main_revision_number:04d}"
+                       if main_revision_number else "")
     async def put(label: str, body: bytes, sha: str,
                   destination: str, filename: str):
+        asset_id = f"{pack_id}:listing-{slot:02d}:{label}{revision_suffix}"
         try:
             stored = await provider.store_asset(StoreAssetInput(
                 tenant_id=tenant_id,
-                asset_id=f"{pack_id}:listing-{slot:02d}:{label}",
+                asset_id=asset_id,
                 content_hash=sha, filename=filename,
                 destination_folder_id=destination,
                 content_type="image/png", size_bytes=len(body),
@@ -367,11 +376,13 @@ async def store_listing_output_to_drive(
         await verify_listing_file_provenance(
             provider=provider, remote_file_id=remote_id,
             folder_id=destination, tenant_id=tenant_id,
-            asset_id=f"{pack_id}:listing-{slot:02d}:{label}", sha256=sha,
+            asset_id=asset_id, sha256=sha,
         )
         return remote_id
 
-    filename = _ROLE_FILES[slot]
+    filename = (_ROLE_FILES[slot].replace(".png",
+                f"-rev-{main_revision_number:04d}.png")
+                if main_revision_number else _ROLE_FILES[slot])
     remote = await put("original", png, digest,
                        hierarchy["garment_folder_id"], filename)
     small = await put("thumbnail", thumbnail, thumb_sha,
@@ -389,9 +400,9 @@ async def store_listing_pack_manifest_to_drive(
     *, tenant_id: str, listing_id: str, pack_id: str,
     garment_code: str, placement: str, design_sha256: str,
     source_sha256: str, images: list[dict],
-    expected_drive_folder_id: str,
+    expected_drive_folder_id: str, main_sha256: str | None = None,
 ) -> str:
-    """Write immutable manifest.json only when all 10 roles are persisted."""
+    """Write immutable SHA-versioned 10-role manifest; preserve older revisions."""
     if len(images) != 10 or sorted(row["slot"] for row in images) != list(range(1, 11)):
         raise HTTPException(409, "Cannot publish incomplete 10-image manifest")
     from .listing_drive_folders import (
@@ -426,10 +437,16 @@ async def store_listing_pack_manifest_to_drive(
         "images": items,
     }, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     digest = hashlib.sha256(body).hexdigest()
+    main_token = (main_sha256[:16] if isinstance(main_sha256, str)
+                  and re.fullmatch(r"[0-9a-f]{64}", main_sha256) else None)
+    manifest_asset = (f"{pack_id}:manifest:v2:main-{main_token}"
+                      if main_token else f"{pack_id}:manifest:v2")
+    manifest_file = (f"manifest-main-{main_token}.json"
+                     if main_token else "manifest.json")
     try:
         stored = await provider.store_asset(StoreAssetInput(
-            tenant_id=tenant_id, asset_id=f"{pack_id}:manifest:v2",
-            content_hash=digest, filename="manifest.json",
+            tenant_id=tenant_id, asset_id=manifest_asset,
+            content_hash=digest, filename=manifest_file,
             destination_folder_id=hierarchy["garment_folder_id"],
             content_type="application/json", size_bytes=len(body),
             body=_body(body),
