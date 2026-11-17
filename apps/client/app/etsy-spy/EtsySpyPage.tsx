@@ -1416,11 +1416,11 @@ export function EtsySpyPage() {
                 <option value="inCarts">Carts</option>
                 <option value="badge">Badge Etsy</option>
                 <option value="pageTitle">Tên sản phẩm</option>
+                <option value="keywordSms">Keyword SMS · A–Z</option>
                 {options.pickState === "picked" && <>
                   <option value="design">Design · job hoàn tất</option>
                   <option value="tiktokListing">TikTok SEO · trạng thái</option>
                   <option value="listingImage">Listing Image · số ảnh</option>
-                  <option value="keywordSms">Keyword SMS · A–Z</option>
                 </>}
               </select>
               <button type="button" className="etsy-adaptive-sort-direction"
