@@ -1,0 +1,36 @@
+/* Only the two image layers zoom. The checkerboard, placement chip,
+   loading notices and retry controls remain fixed in the stage. */
+.etsy-design-gallery-stage.etsy-design-gallery-zoom-stage {
+  cursor: zoom-in;
+  user-select: none;
+}
+.etsy-design-gallery-stage.etsy-design-gallery-zoom-stage.is-zoomed {
+  cursor: grab;
+}
+.etsy-design-gallery-stage.etsy-design-gallery-zoom-stage.is-panning {
+  cursor: grabbing;
+}
+.etsy-design-gallery-stage.etsy-design-gallery-zoom-stage .etsy-design-gallery-artwork img {
+  transform-origin: 0 0;
+  transform: translate3d(var(--etsy-preview-x, 0px), var(--etsy-preview-y, 0px), 0)
+    scale(var(--etsy-preview-scale, 1));
+}
+.etsy-design-gallery-zoom-status {
+  position: absolute;
+  z-index: 4;
+  bottom: 12px;
+  right: 12px;
+  max-width: calc(100% - 24px);
+  padding: 6px 9px;
+  border: 1px solid rgb(198 211 228 / 80%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 90%);
+  box-shadow: 0 2px 6px rgb(30 54 83 / 10%);
+  color: #355477;
+  font-size: 11px;
+  font-weight: 650;
+  pointer-events: none;
+}
+@media (max-width: 680px) {
+  .etsy-design-gallery-zoom-status { bottom: 8px; right: 8px; font-size: 10px; }
+}

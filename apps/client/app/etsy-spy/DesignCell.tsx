@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 import { sharedGarmentColors } from "./productColorMatch";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
-import { DesignStageImage } from "./DesignStageImage";
+import { DesignZoomStage } from "./DesignZoomStage";
 import { C1717_SMS_COLORS } from "./c1717SmsColors";
 
 // SMS snapshot: 72 C1717 colorways. Only configured colors with a known HEX
@@ -362,15 +362,11 @@ export function DesignCell({ item, onPreviewStart }: {
           </header>
           <div className="etsy-design-gallery-main">
             <div className="etsy-design-gallery-viewer">
-              <div className="etsy-design-gallery-stage" aria-label="Ảnh thiết kế xem trước">
-                <span className="etsy-design-gallery-stage-chip">
-                  {selectedPosition.label} <span aria-hidden="true">/</span> {selectedVariant}
-                </span>
-                <DesignStageImage key={preview.job_id + ":" + preview.id + ":" + preview.output_sha256}
-                  originalUrl={preview.original_url}
-                  thumbnailUrl={preview.thumbnail_url}
-                  alt={`Thiết kế ${selectedVariant} - ${selectedPosition.label}`} />
-              </div>
+              <DesignZoomStage key={preview.job_id + ":" + preview.id + ":" + preview.output_sha256}
+                originalUrl={preview.original_url}
+                thumbnailUrl={preview.thumbnail_url}
+                alt={`Thiết kế ${selectedVariant} - ${selectedPosition.label}`}
+                positionLabel={selectedPosition.label} variantLabel={selectedVariant} />
               <footer className="etsy-design-gallery-viewer-footer">
                 <div className="etsy-design-gallery-current" aria-live="polite">
                   <strong>{selectedPosition.label} · {selectedVariant}</strong>
