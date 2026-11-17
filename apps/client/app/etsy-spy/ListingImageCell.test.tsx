@@ -87,18 +87,69 @@ describe("Listing Image saved output badges",()=>{
     expect(document.body.textContent).toContain("4 G500");
     expect(spy).not.toHaveBeenCalled();
   });
-  it("fetches per-listing gallery only on open, shows saved count and previews",async()=>{
+  it("splits gallery into left review and right product images, switching the preview without another fetch",async()=>{
     spy.mockResolvedValue(gallery);
     mount();
     await act(async()=>{(document.querySelector(".etsy-listing-image-badge") as HTMLButtonElement).click();});
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0][0]).toBe("/listings/1234567890/listing-images");
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(document.body.textContent).toContain("2 ảnh output đã lưu");
-    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(2);
-    expect(document.querySelectorAll(".etsy-listing-image-large img")).toHaveLength(1);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const workspace = dialog?.querySelector(".etsy-listing-image-workspace");
+    expect(workspace?.children).toHaveLength(2);
+    expect(workspace?.firstElementChild?.classList.contains("etsy-listing-image-preview")).toBe(true);
+    expect(workspace?.lastElementChild?.classList.contains("etsy-listing-image-library")).toBe(true);
+    expect(dialog?.textContent).toContain("Ảnh xem trước");
+    expect(dialog?.textContent).toContain("Ảnh theo sản phẩm");
+    expect(dialog?.textContent).toContain("2 ảnh đã lưu");
+    expect(dialog?.querySelectorAll(".etsy-listing-image-group")).toHaveLength(1);
+    expect(dialog?.querySelector(".etsy-listing-image-group-heading")?.textContent).toContain("C1717");
+    const tiles = Array.from(dialog?.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile") || []);
+    expect(tiles).toHaveLength(2);
+    expect(tiles[0]?.getAttribute("aria-pressed")).toBe("true");
+    const previewImage = () => dialog?.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img");
+    expect(previewImage()?.getAttribute("src")).toContain("/1/original");
+    expect(dialog?.querySelectorAll(".etsy-listing-image-review-frame img")).toHaveLength(1);
+    await act(async()=>{tiles[1]?.click();});
+    expect(previewImage()?.getAttribute("src")).toContain("/2/original");
+    expect(tiles[1]?.getAttribute("aria-pressed")).toBe("true");
+    expect(tiles[0]?.getAttribute("aria-pressed")).toBe("false");
+    expect(dialog?.querySelector<HTMLAnchorElement>(".etsy-listing-image-preview-meta a")?.href)
+      .toContain("/2/original");
+    expect(spy).toHaveBeenCalledTimes(1);
     act(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true})));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it("groups C1717 and G180 in the right library, orders slots and previews selected garment",async()=>{
+    const otherPack = "sp-" + "c".repeat(40);
+    const otherImages = [10, 3].map(slot=>({
+      ...gallery.groups[0].images[0],
+      slot, packId:otherPack, sha256:String(slot).repeat(64),
+      thumbnailUrl:"/g180/" + slot + "/thumbnail",
+      originalUrl:"/g180/" + slot + "/original",
+    }));
+    spy.mockResolvedValue({
+      ...gallery, total:4,
+      groups:[gallery.groups[0], {garmentCode:"G180",count:2,images:otherImages}],
+    });
+    mount();
+    await act(async()=>{
+      (document.querySelector(".etsy-listing-image-badge") as HTMLButtonElement).click();
+    });
+    const dialog=document.querySelector('[role="dialog"]');
+    const groups=Array.from(dialog?.querySelectorAll(".etsy-listing-image-group") || []);
+    expect(groups).toHaveLength(2);
+    expect(groups.map(node=>node.querySelector("h3")?.textContent)).toEqual(["C1717","G180"]);
+    const garmentTiles=Array.from(groups[1].querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile"));
+    expect(garmentTiles.map(tile=>tile.textContent?.trim())).toEqual(["Ảnh 03","Ảnh 10"]);
+    await act(async()=>{garmentTiles[1].click();});
+    expect(dialog?.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img")?.getAttribute("src"))
+      .toBe("/g180/10/original");
+    expect(dialog?.querySelector(".etsy-listing-image-pane-heading")?.textContent)
+      .toContain("G180");
+    expect(garmentTiles[1].getAttribute("aria-pressed")).toBe("true");
+    expect(groups[0].querySelector(".etsy-listing-image-tile.is-selected")).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
   it("shows neutral empty value when no saved output exists",()=>{
     mount({...item,listingImages:[]});
