@@ -1,0 +1,140 @@
+/* Responsive Etsy Spy day carousel: full-width cards, invisible scrollbar and
+   understated directional chevrons. Scrolling stays available to touch, mouse
+   wheels/trackpads, arrows and keyboard. */
+.etsy-spy-page .etsy-observed-day-carousel {
+  --day-card-gap: 8px;
+  --day-card-width: calc((100% - 56px) / 8);
+  position: relative;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.etsy-spy-page .etsy-observed-day-grid {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: stretch;
+  gap: var(--day-card-gap);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.etsy-spy-page .etsy-observed-day-grid::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day {
+  box-sizing: border-box;
+  flex: 0 0 var(--day-card-width);
+  width: var(--day-card-width);
+  min-width: 0;
+  max-width: none;
+  min-height: 64px;
+  padding: 10px 12px;
+  gap: 7px;
+  border-radius: 9px;
+  scroll-snap-align: start;
+}
+
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-metrics {
+  min-width: 0;
+  gap: 5px;
+}
+
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #758299;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity .16s ease, color .16s ease, visibility .16s ease;
+}
+
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-prev { left: 0; }
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-next { right: 0; }
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 2.1px;
+  filter: drop-shadow(0 0 2px #fff);
+}
+
+.etsy-spy-page .etsy-observed-day-carousel:is(:hover, :focus-within) .etsy-observed-day-nav {
+  color: #758299;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(-50%);
+}
+
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:hover {
+  color: #4b5565;
+  background: transparent;
+  box-shadow: none;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:focus-visible {
+  outline: 2px solid #94a3b8;
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* The number of full cards is responsive; a partly cut card never acts as
+   the only affordance for seeing older days. */
+@media (min-width: 1800px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 64px) / 9); }
+}
+@media (max-width: 1360px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 48px) / 7); }
+}
+@media (max-width: 1180px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 40px) / 6); }
+}
+@media (max-width: 1024px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 32px) / 5); }
+}
+@media (max-width: 860px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 24px) / 4); }
+}
+@media (max-width: 640px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 16px) / 3); }
+}
+@media (max-width: 480px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 8px) / 2); }
+}
+@media (hover: none), (pointer: coarse) {
+  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
+    transition: none;
+  }
+}

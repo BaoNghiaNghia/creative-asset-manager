@@ -16,6 +16,7 @@ import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./EtsySpyImages.css";
+import "./EtsySpyDayCarousel.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
