@@ -18,7 +18,11 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const [retryKey, setRetryKey] = useState(0);
   const badges = (item.listingImages || [])
     .filter(b => safeBadge(b.garmentCode, b.count))
-    .sort((a,b) => a.garmentCode.localeCompare(b.garmentCode));
+    .sort((a,b) => Number(b.garmentCode === "C1717") -
+                    Number(a.garmentCode === "C1717") ||
+                    a.garmentCode.localeCompare(b.garmentCode));
+  const mainC1717 = badges.find(b => b.garmentCode === "C1717" &&
+    typeof b.mainThumbnailUrl === "string");
 
   useEffect(() => {
     if (!open) return;
@@ -32,7 +36,9 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     ).then(result => {
       if (!controller.signal.aborted) {
         setGallery(result);
-        setSelected(result.groups.flatMap(group => group.images)[0] || null);
+        setSelected(result.groups.find(group => group.garmentCode === "C1717")
+          ?.images.find(image => image.slot === 1) ||
+          result.groups.flatMap(group => group.images)[0] || null);
       }
     }).catch(reason => {
       if (!controller.signal.aborted)
@@ -53,6 +59,16 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const openGallery = () => { onPreviewStart?.(); setOpen(true); };
   return <>
     <td className="etsy-listing-image-cell">
+      {mainC1717 && <button type="button"
+        className="etsy-listing-image-main"
+        onClick={openGallery}
+        aria-label={"Xem ảnh Main C1717 cho " + item.pageTitle}
+        title="C1717 · Ảnh Main đã tạo và lưu vào CAM ImageGen Designs">
+        <img src={mainC1717.mainThumbnailUrl} alt="Ảnh Main C1717" loading="lazy" />
+        <span>C1717 · Main</span>
+      </button>}
+      {!mainC1717 && <span className="etsy-listing-image-pending"
+        title="Không lấy ảnh listing nguồn làm ảnh C1717">C1717 · chưa có Main</span>}
       {badges.length ? <div className="etsy-listing-image-badges">
         {badges.map(b => <button type="button"
           className="etsy-listing-image-badge" key={b.garmentCode}
@@ -61,7 +77,7 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
           onClick={openGallery}>
           <span>{b.count}</span> {b.garmentCode}
         </button>)}
-      </div> : <span className="etsy-muted" title="Chưa có PNG output đã đồng bộ từ ImageGen">—</span>}
+      </div> : null}
     </td>
     {open && createPortal(
       <div className="etsy-listing-image-overlay"
@@ -105,18 +121,29 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
               </div>}
               {gallery.groups.map(group => <section className="etsy-listing-image-group" key={group.garmentCode}>
                 <h3>{group.garmentCode} <span>{group.count} ảnh đã lưu</span></h3>
-                <div className="etsy-listing-image-grid">
-                  {group.images.map(image => <button type="button"
-                    className={"etsy-listing-image-tile" +
-                      (selected?.sha256 === image.sha256 && selected?.packId === image.packId ? " is-selected" : "")}
-                    key={image.packId + "-" + image.slot}
-                    aria-label={"Xem ảnh " + image.slot + " / " + group.garmentCode}
-                    aria-pressed={selected?.packId === image.packId && selected?.slot === image.slot}
-                    onClick={() => setSelected(image)}>
-                    <img src={image.thumbnailUrl} alt="" loading="lazy" />
-                    <span>Ảnh {String(image.slot).padStart(2, "0")}</span>
-                  </button>)}
-                </div>
+                {Array.from(new Set(group.images.map(image => image.packId))).map(packId => {
+                  const designImages = group.images.filter(image => image.packId === packId);
+                  const design = designImages[0];
+                  return <div className="etsy-listing-image-design" key={packId}>
+                    <div className="etsy-listing-image-design-title">
+                      <strong>Design {(design.designSha256 || design.packId || "ImageGen").slice(0,10)}</strong>
+                      <small>{(design.placement || "unknown").replaceAll("_"," ")} · {designImages.length}/10 ảnh
+                        {design.manifestReady ? " · Đã lưu đủ bộ" : " · Đang bổ sung"}</small>
+                    </div>
+                    <div className="etsy-listing-image-grid">
+                      {designImages.map(image => <button type="button"
+                        className={"etsy-listing-image-tile" +
+                          (selected?.sha256 === image.sha256 && selected?.packId === image.packId ? " is-selected" : "")}
+                        key={image.packId + "-" + image.slot}
+                        aria-label={"Xem ảnh " + image.slot + " / " + group.garmentCode}
+                        aria-pressed={selected?.packId === image.packId && selected?.slot === image.slot}
+                        onClick={() => setSelected(image)}>
+                        <img src={image.thumbnailUrl} alt="" loading="lazy" />
+                        <span>Ảnh {String(image.slot).padStart(2,"0")}</span>
+                      </button>)}
+                    </div>
+                  </div>;
+                })}
               </section>)}
             </>}
           </div>}

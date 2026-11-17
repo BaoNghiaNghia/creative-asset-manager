@@ -106,9 +106,13 @@ export type TikTokListingView = {
   previous_job_id?: string; previous_draft?: TikTokListingDraft;
   result?: TikTokListingDraft;
 };
-export type ListingImageBadge = { garmentCode: string; count: number };
+export type ListingImageBadge = {
+  garmentCode: string; count: number;
+  mainThumbnailUrl?: string; mainPackId?: string;
+};
 export type ListingImageOutput = {
   packId: string; slot: number; sha256: string;
+  designSha256: string; placement: string; manifestReady: boolean;
   width: number | null; height: number | null; savedAt: string | null;
   thumbnailUrl: string; originalUrl: string;
 };
