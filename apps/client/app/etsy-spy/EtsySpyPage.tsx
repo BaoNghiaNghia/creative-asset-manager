@@ -84,7 +84,7 @@ export function vietnamCalendarDay(moment: Date = new Date()): string {
 
 export function recentObservedDays(today: string): string[] {
   const start = new Date(today + "T00:00:00Z");
-  return Array.from({ length: 10 }, (_, index) => {
+  return Array.from({ length: 14 }, (_, index) => {
     const at = new Date(start);
     at.setUTCDate(start.getUTCDate() - index);
     return at.toISOString().slice(0, 10);
@@ -848,7 +848,7 @@ export function EtsySpyPage() {
   useEffect(() => {
     if (!showProductFacets) return;
     let alive = true;
-    spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope)
+    spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=14")
       .then(response => { if (alive) setObservedDays(response); })
       .catch(() => { if (alive) setObservedDays(null); });
     return () => { alive = false; };
@@ -885,7 +885,7 @@ export function EtsySpyPage() {
       checking = true;
       try {
         const [latestDays, latestGroups] = await Promise.all([
-          spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope),
+          spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=14"),
           spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
             encodeURIComponent(facetDay) + "&pick_state=" + facetScope),
         ]);

@@ -339,10 +339,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async () => { toggle?.click(); });
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(details?.classList.contains("is-open")).toBe(true);
-    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(10);
+    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(14);
     await act(async () => { toggle?.click(); });
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(10);
+    expect(details?.querySelectorAll(".etsy-observed-day").length).toBe(14);
     expect(observed.filter(url => url.includes("/listings?")).length).toBe(before);
     await act(async () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
@@ -806,7 +806,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
-    expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(10);
+    expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(14);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
     expect(container?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
     expect(container?.querySelector(".etsy-action-cell a[href*='etsy.com/listing']")).toBeTruthy();
@@ -914,13 +914,13 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async () => {keyword.click(); await new Promise(resolve => setTimeout(resolve, 30));});
     expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
   });
-  it("shows ten compact 06:00 observation buckets and filters Eligible listings by date", async () => {
+  it("shows fourteen compact 06:00 observation buckets and filters Eligible listings by date", async () => {
     await start();
     const days = Array.from(container?.querySelectorAll<HTMLButtonElement>(
       ".etsy-observed-day") || []);
     const today = vietnamCalendarDay();
     const expectedDays = recentObservedDays(today);
-    expect(days).toHaveLength(10);
+    expect(days).toHaveLength(14);
     expect(days.every(day => !day.textContent?.includes("06:00–06:00"))).toBe(true);
     expect(days.every(day => day.querySelector(".etsy-observed-day-eligible"))).toBe(true);
     expect(days.map(day => day.dataset.observedDay)).toEqual(expectedDays);

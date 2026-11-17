@@ -840,9 +840,10 @@ def sessions(principal: CurrentPrincipal = Depends(READ), db: Session = Depends(
 @router.get("/listings/observed-days")
 def listing_observed_days(
     pick_state: str = Query("eligible", pattern="^(eligible|picked|later)$"),
+    day_count: int = Query(10, ge=1, le=14),
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
 ):
-    """Ten 06:00 VN buckets, scoped to the selected product parent.
+    """Up to fourteen 06:00 VN buckets, scoped to the selected product parent.
 
     Eligible dates use observation time, Picked dates use user picked_at,
     and Later dates use the last matching time. Every count is distinct
@@ -851,7 +852,7 @@ def listing_observed_days(
     """
     tenant = principal.active_tenant_id
     today = datetime.now(VIETNAM_TZ).date()
-    days = [today - timedelta(days=index) for index in range(10)]
+    days = [today - timedelta(days=index) for index in range(day_count)]
     windows = [_observed_day_bounds(day) for day in days]
     expressions = [
         func.count(func.distinct(Listing.listing_key)).filter(

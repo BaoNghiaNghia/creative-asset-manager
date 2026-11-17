@@ -642,6 +642,13 @@ def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibilit
     body = buckets.json()
     assert body["timezone"] == "Asia/Ho_Chi_Minh" and body["start_hour"] == 6
     assert len(body["items"]) == 10
+    extended = client.get("/api/v1/etsy-spy/listings/observed-days", params={"day_count": 14})
+    assert extended.status_code == 200, extended.text
+    assert len(extended.json()["items"]) == 14
+    assert extended.json()["items"][:10] == body["items"]
+    assert len({entry["day"] for entry in extended.json()["items"]}) == 14
+    assert client.get("/api/v1/etsy-spy/listings/observed-days",
+                      params={"day_count": 15}).status_code == 422
     assert body["items"][0] == {"day": today_key, "count": 2, "pickedCount": 0}
     assert body["items"][1] == {"day": yesterday, "count": 1, "pickedCount": 0}
     assert len({entry["day"] for entry in body["items"]}) == 10

@@ -1,9 +1,9 @@
-/* Responsive Etsy Spy day carousel: full-width cards, invisible scrollbar and
-   understated directional chevrons. Scrolling stays available to touch, mouse
-   wheels/trackpads, arrows and keyboard. */
+/* Compact Etsy Spy day carousel: the rail uses the available full width while
+   individual date cards remain fixed-size, never stretched to fill the row.
+   Horizontal browsing remains available without a visible scrollbar. */
 .etsy-spy-page .etsy-observed-day-carousel {
   --day-card-gap: 8px;
-  --day-card-width: calc((100% - 56px) / 8);
+  --day-card-width: 152px;
   position: relative;
   width: 100%;
   max-width: none;
@@ -102,28 +102,18 @@
   border-radius: 6px;
 }
 
-/* The number of full cards is responsive; a partly cut card never acts as
-   the only affordance for seeing older days. */
-@media (min-width: 1800px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 64px) / 9); }
+/* The parent spans the page, but no card changes width with the viewport.
+   Slightly narrower touch cards allow two on 320px and three on 480px. */
+@media (max-width: 720px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: 144px; }
+  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day { padding-inline: 9px; }
 }
-@media (max-width: 1360px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 48px) / 7); }
+@media (max-width: 600px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: 140px; }
 }
-@media (max-width: 1180px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 40px) / 6); }
-}
-@media (max-width: 1024px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 32px) / 5); }
-}
-@media (max-width: 860px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 24px) / 4); }
-}
-@media (max-width: 640px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 16px) / 3); }
-}
-@media (max-width: 480px) {
-  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: calc((100% - 8px) / 2); }
+@media (max-width: 360px) {
+  .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: 136px; }
+  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day { padding-inline: 7px; }
 }
 @media (hover: none), (pointer: coarse) {
   .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
