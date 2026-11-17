@@ -14,7 +14,7 @@ import re
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case, update
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -27,6 +27,8 @@ READ = require_permission("etsy_spy.read")
 _LISTING = re.compile(r"^[0-9]{5,20}$")
 _PACK = re.compile(r"^sp-[0-9a-f]{40}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
+_PLACEMENT = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
+_DRIVE_ROOT = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
 _GARMENTS = frozenset({"C1717", "G500", "G180", "G185"})
 _MAX_BODY = 112 * 1024 * 1024
 _MAX_PNG = 80 * 1024 * 1024
@@ -56,6 +58,59 @@ async def _json_payload(request: Request):
     return value
 
 
+async def _ensure_pack_manifest(
+    db: Session, tenant: str, listing: str, pack: str, garment: str,
+    design_sha: str, source_sha: str, placement: str,
+) -> str | None:
+    """Manifest is written only after ten distinct SHA-bound saved slots.
+
+    Retries, including a lost ACK after the last upload, recreate neither
+    images nor a manifest; they only reconcile the original immutable pack.
+    """
+    rows = db.scalars(select(ListingImage).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == listing,
+        ListingImage.pack_id == pack,
+    ).order_by(ListingImage.slot)).all()
+    if len(rows) < 10:
+        return None
+    if len(rows) != 10 or [r.slot for r in rows] != list(range(1, 11)):
+        raise HTTPException(409, "Incomplete or ambiguous ImageGen pack slots")
+    if any(
+        r.garment_code != garment or r.design_sha256 != design_sha or
+        r.source_sha256 != source_sha or r.placement != placement
+        for r in rows
+    ):
+        raise HTTPException(409, "ImageGen pack source identity changed")
+    remote_ids = {r.drive_manifest_id for r in rows if r.drive_manifest_id}
+    if len(remote_ids) > 1:
+        raise HTTPException(409, "Conflicting ImageGen Drive manifest identities")
+    if len(remote_ids) == 1:
+        return remote_ids.pop()
+    saved = [
+        {"slot": r.slot, "output_sha256": r.output_sha256,
+         "drive_file_id": r.drive_file_id,
+         "native_width": r.native_width, "native_height": r.native_height}
+        for r in rows
+    ]
+    # Do not hold an open read transaction across Google Drive requests.
+    db.rollback()
+    from .imagegen_drive import store_listing_pack_manifest_to_drive
+    remote = await store_listing_pack_manifest_to_drive(
+        tenant_id=tenant, listing_id=listing, pack_id=pack,
+        garment_code=garment, design_sha256=design_sha,
+        source_sha256=source_sha, placement=placement, images=saved,
+    )
+    db.execute(update(ListingImage).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == listing,
+        ListingImage.pack_id == pack,
+        ListingImage.design_sha256 == design_sha,
+    ).values(drive_manifest_id=remote))
+    db.commit()
+    return remote
+
+
 @listing_image_router.post("/image-agents/{agent_id}/listing-outputs")
 async def save_listing_output(
     agent_id: str, request: Request,
@@ -71,17 +126,30 @@ async def save_listing_output(
     slot = payload.get("slot")
     verified_identity(listing, pack, slot, garment)
     sha = str(payload.get("sha256") or "")
-    if not _SHA.fullmatch(sha):
-        raise HTTPException(422, "ImageGen output SHA256 required")
+    design_sha = str(payload.get("design_sha256") or "")
+    source_sha = str(payload.get("source_sha256") or "")
+    placement = str(payload.get("placement") or "")
+    if (not _SHA.fullmatch(sha) or not _SHA.fullmatch(design_sha) or
+        not _SHA.fullmatch(source_sha) or not _PLACEMENT.fullmatch(placement) or
+        payload.get("drive_root_folder_id") != _DRIVE_ROOT):
+        raise HTTPException(422, "SHA-bound design and Drive root identity required")
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing is not currently Picked")
     key = (agent.tenant_id, listing, pack, slot)
     previous = db.get(ListingImage, key)
     if previous is not None:
-        if previous.output_sha256 != sha or previous.garment_code != garment:
+        if (previous.output_sha256 != sha or previous.garment_code != garment or
+            previous.design_sha256 != design_sha or
+            previous.source_sha256 != source_sha or previous.placement != placement):
             raise HTTPException(409, "Immutable ImageGen output slot changed")
+        manifest = await _ensure_pack_manifest(
+            db, agent.tenant_id, listing, pack, garment,
+            design_sha, source_sha, placement)
         return {"ok": True, "already_saved": True, "listing_id": listing,
-                "garment_code": garment, "pack_id": pack, "slot": slot, "sha256": sha}
+                "garment_code": garment, "pack_id": pack, "slot": slot,
+                "sha256": sha, "design_sha256": design_sha,
+                "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+                "drive_manifest_id": manifest}
     encoded = payload.get("png_base64")
     if not isinstance(encoded, str) or len(encoded) > (_MAX_PNG * 4 // 3 + 16):
         raise HTTPException(413, "ImageGen PNG receipt exceeds limit")
@@ -104,15 +172,21 @@ async def save_listing_output(
     # configured account/folder, and stores the original by content SHA.
     from .imagegen_drive import store_listing_output_to_drive
     remote = await store_listing_output_to_drive(
-        tenant_id=agent.tenant_id, pack_id=pack,
-        slot=slot, digest=sha, png=png)
+        tenant_id=agent.tenant_id, pack_id=pack, slot=slot,
+        digest=sha, png=png, listing_id=listing,
+        design_sha256=design_sha, placement=placement,
+        garment_code=garment)
     # Recheck Picked after I/O to prevent a late unpick from authorizing
     # a new visible gallery entry. Re-pick can restore its previous history.
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing was unpicked during upload")
     row = ListingImage(
         tenant_id=agent.tenant_id, listing_key=listing, pack_id=pack, slot=slot,
-        garment_code=garment, output_sha256=sha,
+        garment_code=garment, design_sha256=design_sha,
+        source_sha256=source_sha, placement=placement,
+        drive_folder_id=remote["drive_folder_id"],
+        drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
+        output_sha256=sha,
         thumbnail_sha256=remote["thumbnail_sha256"],
         drive_file_id=remote["drive_file_id"],
         drive_thumbnail_id=remote["drive_thumbnail_id"],
@@ -120,25 +194,40 @@ async def save_listing_output(
         source_job_id=source_job or None)
     db.add(row)
     db.commit()
+    manifest = await _ensure_pack_manifest(
+        db, agent.tenant_id, listing, pack, garment,
+        design_sha, source_sha, placement)
     return {"ok": True, "already_saved": False, "listing_id": listing,
-            "garment_code": garment, "pack_id": pack, "slot": slot, "sha256": sha}
+            "garment_code": garment, "pack_id": pack, "slot": slot,
+            "sha256": sha, "design_sha256": design_sha,
+            "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+            "drive_manifest_id": manifest}
 
 
 def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
-    """One batched query for the currently visible Picked table page."""
+    """One batched query: per-garment counts plus real C1717 Main thumbnail."""
     if not listing_keys:
         return {}
     counts = defaultdict(dict)
+    main_pack = func.min(case(
+        (ListingImage.slot == 1, ListingImage.pack_id), else_=None,
+    )).label("main_pack")
     rows = db.execute(select(
         ListingImage.listing_key, ListingImage.garment_code,
-        func.count()
+        func.count(), main_pack,
     ).where(ListingImage.tenant_id == tenant_id,
             ListingImage.listing_key.in_(listing_keys))
       .group_by(ListingImage.listing_key, ListingImage.garment_code))
-    for listing_key, garment, quantity in rows:
-        counts[listing_key][garment] = int(quantity)
-    return {key: [{"garmentCode": garment, "count": n}
-                  for garment, n in sorted(group.items())]
+    for listing_key, garment, quantity, first_main in rows:
+        badge = {"garmentCode": garment, "count": int(quantity)}
+        if first_main:
+            badge["mainThumbnailUrl"] = (
+                f"/api/v1/etsy-spy/listing-images/{first_main}/1/thumbnail"
+            )
+            badge["mainPackId"] = first_main
+        counts[listing_key][garment] = badge
+    return {key: [group[garment] for garment in sorted(
+                group, key=lambda code: (code != "C1717", code))]
             for key, group in counts.items()}
 
 
@@ -161,6 +250,8 @@ def read_listing_gallery(
         image = {
             "packId": row.pack_id, "slot": row.slot,
             "sha256": row.output_sha256,
+            "designSha256": row.design_sha256, "placement": row.placement,
+            "manifestReady": bool(row.drive_manifest_id),
             "width": row.native_width, "height": row.native_height,
             "savedAt": row.created_at,
             "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail",
@@ -169,7 +260,8 @@ def read_listing_gallery(
         groups[row.garment_code].append(image)
     return {"listingKey": listing_key, "total": len(rows),
             "groups": [{"garmentCode": name, "count": len(images), "images": images}
-                       for name, images in sorted(groups.items())]}
+                       for name, images in sorted(groups.items(),
+                           key=lambda item: (item[0] != "C1717", item[0]))]}
 
 
 @listing_image_router.get("/listing-images/{pack_id}/{slot}/{quality}")

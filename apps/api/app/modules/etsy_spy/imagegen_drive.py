@@ -311,44 +311,137 @@ def _listing_output_thumbnail(png: bytes) -> tuple[bytes, tuple[int, int]]:
         raise HTTPException(422, "ImageGen listing photo is not a saved square PNG") from exc
 
 
+_ROLE_FILES = {
+    1: "01-main.png", 2: "02-detail.png", 3: "03-benefit.png",
+    4: "04-fit.png", 5: "05-variant-1.png", 6: "06-variant-2.png",
+    7: "07-variant-3.png", 8: "08-variant-4.png",
+    9: "09-variant-5.png", 10: "10-variant-6.png",
+}
+
+
 async def store_listing_output_to_drive(
     *, tenant_id: str, pack_id: str, slot: int, digest: str, png: bytes,
+    listing_id: str, design_sha256: str, placement: str, garment_code: str,
 ) -> dict:
-    """Private immutable garment photo and preview, no print-master QA or recolor.
+    """Store a verified output below listing/design/target-garment hierarchy.
 
-    Reuse the same scoped ImageGen Drive OAuth destination and content-hash
-    safety, without treating an opaque 2000×2000 wearer photo as print art.
+    Root is the operator-selected CAM ImageGen Designs folder; never
+    reclassify a source listing by its blank type or upload into flat root.
     """
-    if len(png) < 57 or len(png) > _MAX_PNG or hashlib.sha256(png).hexdigest() != digest:
-        raise HTTPException(422, "Invalid saved ImageGen photo digest")
+    if (slot not in _ROLE_FILES or len(png) < 57 or len(png) > _MAX_PNG or
+        hashlib.sha256(png).hexdigest() != digest):
+        raise HTTPException(422, "Invalid saved ImageGen photo identity")
     thumbnail, dimensions = await asyncio.to_thread(_listing_output_thumbnail, png)
     thumb_sha = hashlib.sha256(thumbnail).hexdigest()
     provider, folder = provider_and_folder()
+    from .listing_drive_folders import (
+        ROOT_FOLDER_ID, ensure_listing_output_folders, verify_listing_file_provenance,
+    )
+    if folder != ROOT_FOLDER_ID:
+        raise HTTPException(503, "CAM ImageGen Designs Drive folder ID mismatch")
     await verify_private_drive_destination(provider, folder)
+    hierarchy = await ensure_listing_output_folders(
+        provider=provider, root_folder_id=folder, tenant_id=tenant_id,
+        listing_id=listing_id, design_sha256=design_sha256,
+        placement=placement, garment_code=garment_code,
+    )
 
-    async def put(label: str, body: bytes, sha: str):
+    async def put(label: str, body: bytes, sha: str,
+                  destination: str, filename: str):
         try:
             stored = await provider.store_asset(StoreAssetInput(
                 tenant_id=tenant_id,
                 asset_id=f"{pack_id}:listing-{slot:02d}:{label}",
-                content_hash=sha,
-                filename=f"{pack_id}-listing-{slot:02d}-{label}.png",
-                destination_folder_id=folder, content_type="image/png",
-                size_bytes=len(body), body=_body(body),
+                content_hash=sha, filename=filename,
+                destination_folder_id=destination,
+                content_type="image/png", size_bytes=len(body),
+                body=_body(body),
             ))
         except StorageProviderError as exc:
             raise HTTPException(503 if exc.retryable else 502,
                                 "ImageGen Drive listing upload unavailable") from exc
-        result = str(stored.remote_file_id or "")
-        if not _DRIVE_ID.fullmatch(result):
-            raise HTTPException(502, "Unverified ImageGen Drive file identity")
-        return result
+        remote_id = str(stored.remote_file_id or "")
+        if (not _DRIVE_ID.fullmatch(remote_id) or
+            stored.remote_folder_id != destination):
+            raise HTTPException(502, "ImageGen output Drive file location mismatch")
+        await verify_listing_file_provenance(
+            provider=provider, remote_file_id=remote_id,
+            folder_id=destination, tenant_id=tenant_id,
+            asset_id=f"{pack_id}:listing-{slot:02d}:{label}", sha256=sha,
+        )
+        return remote_id
 
-    remote = await put("original", png, digest)
-    small = await put("thumbnail", thumbnail, thumb_sha)
+    filename = _ROLE_FILES[slot]
+    remote = await put("original", png, digest,
+                       hierarchy["garment_folder_id"], filename)
+    small = await put("thumbnail", thumbnail, thumb_sha,
+                      hierarchy["thumbnail_folder_id"],
+                      filename.replace(".png", "-thumb.png"))
     return {"drive_file_id": remote, "drive_thumbnail_id": small,
+            "drive_folder_id": hierarchy["garment_folder_id"],
+            "drive_thumbnail_folder_id": hierarchy["thumbnail_folder_id"],
+            "drive_relative_path": hierarchy["relative_path"],
             "thumbnail_sha256": thumb_sha, "native_width": dimensions[0],
             "native_height": dimensions[1]}
+
+
+async def store_listing_pack_manifest_to_drive(
+    *, tenant_id: str, listing_id: str, pack_id: str,
+    garment_code: str, placement: str, design_sha256: str,
+    source_sha256: str, images: list[dict],
+    expected_drive_folder_id: str,
+) -> str:
+    """Write immutable manifest.json only when all 10 roles are persisted."""
+    if len(images) != 10 or sorted(row["slot"] for row in images) != list(range(1, 11)):
+        raise HTTPException(409, "Cannot publish incomplete 10-image manifest")
+    from .listing_drive_folders import (
+        ROOT_FOLDER_ID, ensure_listing_output_folders, verify_listing_file_provenance,
+    )
+    provider, root = provider_and_folder()
+    if root != ROOT_FOLDER_ID:
+        raise HTTPException(503, "CAM ImageGen Designs Drive folder ID mismatch")
+    await verify_private_drive_destination(provider, root)
+    hierarchy = await ensure_listing_output_folders(
+        provider=provider, root_folder_id=root, tenant_id=tenant_id,
+        listing_id=listing_id, design_sha256=design_sha256,
+        placement=placement, garment_code=garment_code,
+    )
+    if hierarchy["garment_folder_id"] != expected_drive_folder_id:
+        raise HTTPException(409, "Existing pack images are outside the design folder")
+    items = [
+        {"slot": row["slot"], "filename": _ROLE_FILES[row["slot"]],
+         "sha256": row["output_sha256"],
+         "drive_file_id": row["drive_file_id"],
+         "width": row["native_width"], "height": row["native_height"]}
+        for row in sorted(images, key=lambda item: item["slot"])
+    ]
+    import json
+    body = (json.dumps({
+        "schema": "cam-imagegen-skill-pack-drive-v2",
+        "listing_id": listing_id, "pack_id": pack_id,
+        "design_sha256": design_sha256, "source_sha256": source_sha256,
+        "placement": placement, "target_garment": garment_code,
+        "skill_name": "print-variant-model-10-image",
+        "drive_root_folder_id": ROOT_FOLDER_ID, "image_count": 10,
+        "images": items,
+    }, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()
+    try:
+        stored = await provider.store_asset(StoreAssetInput(
+            tenant_id=tenant_id, asset_id=f"{pack_id}:manifest:v2",
+            content_hash=digest, filename="manifest.json",
+            destination_folder_id=hierarchy["garment_folder_id"],
+            content_type="application/json", size_bytes=len(body),
+            body=_body(body),
+        ))
+    except StorageProviderError as exc:
+        raise HTTPException(503 if exc.retryable else 502,
+                            "ImageGen Drive manifest upload unavailable") from exc
+    remote_id = str(stored.remote_file_id or "")
+    if (not _DRIVE_ID.fullmatch(remote_id) or
+        stored.remote_folder_id != hierarchy["garment_folder_id"]):
+        raise HTTPException(502, "ImageGen Drive manifest folder mismatch")
+    return remote_id
 
 
 async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: str,

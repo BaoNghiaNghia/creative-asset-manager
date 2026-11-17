@@ -18,11 +18,13 @@ const item={listingKey:"1234567890",pageTitle:"Cat Mom Shirt",picked:true,
 const gallery:ListingImageGallery={
   listingKey:"1234567890",total:2,groups:[
     {garmentCode:"C1717",count:2,images:[
-      {packId:pack,slot:1,sha256:"a".repeat(64),width:2000,height:2000,
+      {packId:pack,slot:1,sha256:"a".repeat(64),designSha256:"b".repeat(64),
+       placement:"front_center",manifestReady:false,width:2000,height:2000,
        savedAt:"2026-11-17T01:00:00Z",
        thumbnailUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/1/thumbnail",
        originalUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/1/original"},
-      {packId:pack,slot:2,sha256:"b".repeat(64),width:2000,height:2000,
+      {packId:pack,slot:2,sha256:"b".repeat(64),designSha256:"b".repeat(64),
+       placement:"front_center",manifestReady:false,width:2000,height:2000,
        savedAt:"2026-11-17T01:01:00Z",
        thumbnailUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/2/thumbnail",
        originalUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/2/original"}
