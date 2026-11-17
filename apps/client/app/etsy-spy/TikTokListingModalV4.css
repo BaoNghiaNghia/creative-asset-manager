@@ -74,14 +74,22 @@
 }
 .etsy-tiktok-listing-open:hover { background: #f5f9ff; border-color: #b7cae8; }
 .etsy-tiktok-listing-open .etsy-tiktok-search-heading {
-  display: flex; align-items: center; justify-content: space-between;
-  width: 100%; min-width: 0; gap: 8px;
+  /* The legacy EtsySpyPage.css applies width:100% to every <small> in
+     this button. Use a bounded two-column header and reset that rule. */
+  display: grid; grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center; width: 100%; min-width: 0; gap: 7px;
   color: #58708e; font-size: 10px; line-height: 1.3;
   font-weight: 800; letter-spacing: .02em;
 }
+.etsy-tiktok-listing-open .etsy-tiktok-search-heading > span {
+  display: block; min-width: 0; overflow: hidden;
+  white-space: nowrap; overflow-wrap: normal; word-break: normal;
+  text-overflow: ellipsis; color: #58708e;
+}
 .etsy-tiktok-listing-open .etsy-tiktok-search-heading small {
-  flex: 0 0 auto; margin: 0; color: #8a9aaf;
-  font-size: 9px; font-weight: 650; letter-spacing: 0;
+  display: block; width: auto; min-width: max-content; max-width: none;
+  flex: none; margin: 0; overflow: visible; white-space: nowrap;
+  color: #8a9aaf; font-size: 9px; font-weight: 650; letter-spacing: 0;
 }
 .etsy-tiktok-listing-open .etsy-tiktok-term-list {
   display: grid; grid-template-columns: minmax(0, 1fr);
