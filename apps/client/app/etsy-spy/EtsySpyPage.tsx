@@ -85,7 +85,7 @@ export function vietnamCalendarDay(moment: Date = new Date()): string {
 
 export function recentObservedDays(today: string): string[] {
   const start = new Date(today + "T00:00:00Z");
-  return Array.from({ length: 14 }, (_, index) => {
+  return Array.from({ length: 28 }, (_, index) => {
     const at = new Date(start);
     at.setUTCDate(start.getUTCDate() - index);
     return at.toISOString().slice(0, 10);
@@ -850,7 +850,7 @@ export function EtsySpyPage() {
   useEffect(() => {
     if (!showProductFacets) return;
     let alive = true;
-    spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=14")
+    spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=28")
       .then(response => { if (alive) setObservedDays(response); })
       .catch(() => { if (alive) setObservedDays(null); });
     return () => { alive = false; };
@@ -887,7 +887,7 @@ export function EtsySpyPage() {
       checking = true;
       try {
         const [latestDays, latestGroups] = await Promise.all([
-          spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=14"),
+          spyFetch<ObservedDaysSummary>("/listings/observed-days?pick_state=" + facetScope + "&day_count=28"),
           spyFetch<DayGroupsSummary>("/listings/observed-day-groups?day=" +
             encodeURIComponent(facetDay) + "&pick_state=" + facetScope),
         ]);
@@ -1229,10 +1229,10 @@ export function EtsySpyPage() {
     update({ q: "", observedDay: "all", group: "", badge: "", tm: "",
       source: "", sessionId: "" });
   };
-  // Be compatible with older API releases that still return ten buckets.
-  // Never render four misleading unloaded days during a staggered deployment.
+  // Render only buckets actually returned while upgrading 10-, 14-, and
+  // 28-day API releases. Never show fabricated unloaded days.
   const visibleDayCount = observedDays?.pick_state === facetScope
-    ? Math.min(14, Math.max(10, observedDays.items.length)) : 10;
+    ? Math.min(28, observedDays.items.length) : 10;
   const dailyCards = recentObservedDays(clockDay).slice(0, visibleDayCount).map((day, index) => {
     const bucket = observedDays?.pick_state === facetScope
       ? observedDays.items.find(item => item.day === day) : undefined;
