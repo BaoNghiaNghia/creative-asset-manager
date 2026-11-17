@@ -53,48 +53,59 @@
   gap: 5px;
 }
 
+/* An edge-to-transparent gradient separates the chevron from the card text.
+   The entire 56px edge is clickable instead of only the small icon. React
+   renders only directions that can actually scroll. */
 .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
   position: absolute;
   z-index: 5;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 46px;
-  padding: 0;
+  inset-block: 0;
+  display: flex;
+  align-items: center;
+  width: 56px;
+  height: 100%;
+  min-height: 44px;
+  padding: 0 9px;
   border: 0;
   border-radius: 0;
-  background: transparent;
   box-shadow: none;
-  color: #758299;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity .16s ease, color .16s ease, visibility .16s ease;
-}
-
-.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-prev { left: 0; }
-.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-next { right: 0; }
-.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav svg {
-  width: 21px;
-  height: 21px;
-  stroke-width: 2.1px;
-  filter: drop-shadow(0 0 2px #fff);
-}
-
-.etsy-spy-page .etsy-observed-day-carousel:is(:hover, :focus-within) .etsy-observed-day-nav {
-  color: #758299;
-  opacity: 1;
+  color: #627289;
+  opacity: .94;
   visibility: visible;
   pointer-events: auto;
-  transform: translateY(-50%);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: opacity .16s ease, color .16s ease;
 }
 
-.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:hover {
-  color: #4b5565;
-  background: transparent;
-  box-shadow: none;
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-prev {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(90deg,
+    rgba(242, 247, 255, .99) 0%,
+    rgba(247, 250, 255, .98) 42%,
+    rgba(247, 250, 255, 0) 100%);
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav.is-next {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(270deg,
+    rgba(242, 247, 255, .99) 0%,
+    rgba(247, 250, 255, .98) 42%,
+    rgba(247, 250, 255, 0) 100%);
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav svg {
+  display: block;
+  width: 23px;
+  height: 23px;
+  flex: 0 0 23px;
+  stroke-width: 2.4px;
+  filter: drop-shadow(0 0 2px #fff);
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:hover,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:focus-visible {
+  color: #44556e;
+  opacity: 1;
 }
 .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav:focus-visible {
   outline: 2px solid #94a3b8;
@@ -114,14 +125,6 @@
 @media (max-width: 360px) {
   .etsy-spy-page .etsy-observed-day-carousel { --day-card-width: 136px; }
   .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day { padding-inline: 7px; }
-}
-@media (hover: none), (pointer: coarse) {
-  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateY(-50%);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-nav {

@@ -53,16 +53,26 @@ try {
         const wrapper = document.querySelector(".etsy-observed-day-carousel");
         const cardList = [...document.querySelectorAll(".etsy-observed-day")];
         const next = document.querySelector(".etsy-observed-day-nav.is-next");
+        const prev = document.querySelector(".etsy-observed-day-nav.is-prev");
         const rect = rail.getBoundingClientRect();
         const fullVisible = cardList.filter(card => card.getBoundingClientRect().right <= rect.right + 1).length;
         const css = getComputedStyle(rail);
         const navStyle = getComputedStyle(next);
+        const prevStyle = getComputedStyle(prev);
+        const nextRect = next.getBoundingClientRect();
+        const prevRect = prev.getBoundingClientRect();
         return {
           fullVisible, railWidth: rail.clientWidth, wrapperWidth: wrapper.clientWidth,
           scrollWidth: rail.scrollWidth, scrollbar: css.scrollbarWidth,
           documentWidth: document.documentElement.scrollWidth,
-          navBackground: navStyle.backgroundColor, navBorder: navStyle.borderTopWidth,
+          nextBackground: navStyle.backgroundImage, prevBackground: prevStyle.backgroundImage,
+          navBorder: navStyle.borderTopWidth,
           navShadow: navStyle.boxShadow, navColor: navStyle.color,
+          navWidth: nextRect.width, navHeight: nextRect.height,
+          prevX: prevRect.left, nextRight: nextRect.right,
+          leftEdge: rect.left, rightEdge: rect.right,
+          navVisible: navStyle.visibility, navPointer: navStyle.pointerEvents,
+          navOpacity: Number(navStyle.opacity),
           gaps: css.columnGap,
           cardWidth: cardList[0].getBoundingClientRect().width,
           noClippedText: cardList.every(card => [...card.querySelectorAll("small,strong")]
@@ -77,10 +87,22 @@ try {
       if (width === 2030) assert.equal(visible, 12, "wide desktop must show 12 compact cards");
       assert.equal(result.scrollbar, "none", `${width}px scrollbar showing`);
       assert.ok(result.documentWidth <= width + 1, `${width}px document overflow`);
-      assert.equal(result.navBackground, "rgba(0, 0, 0, 0)", "Navigation has a background");
+      assert.ok(result.prevBackground.startsWith("linear-gradient(90deg"),
+        `${width}px missing left-side gradient`);
+      assert.ok(result.nextBackground.startsWith("linear-gradient(270deg"),
+        `${width}px missing right-side gradient`);
       assert.equal(result.navBorder, "0px", "Navigation has a border");
       assert.equal(result.navShadow, "none", "Navigation has a shadow");
-      assert.equal(result.navColor, "rgb(117, 130, 153)", "Chevron is not gray");
+      assert.equal(result.navColor, "rgb(98, 114, 137)", "Chevron is not gray");
+      assert.ok(result.navWidth >= 52 && result.navHeight >= 44,
+        `${width}px arrow hit area is too small: ${result.navWidth}x${result.navHeight}`);
+      assert.ok(Math.abs(result.prevX - result.leftEdge) < 1,
+        `${width}px left arrow is misplaced`);
+      assert.ok(Math.abs(result.nextRight - result.rightEdge) < 1,
+        `${width}px right arrow is misplaced`);
+      assert.equal(result.navVisible, "visible", `${width}px arrow hidden without hover`);
+      assert.equal(result.navPointer, "auto", `${width}px arrow isn't clickable`);
+      assert.ok(result.navOpacity >= .9, `${width}px arrow too faint`);
       assert.ok(result.noClippedText, `${width}px card text clips`);
       const overlap = await page.locator(".etsy-observed-day").evaluateAll(cards => cards.some(card => {
         const eligible = card.querySelector(".etsy-observed-day-eligible").getBoundingClientRect();
