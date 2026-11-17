@@ -352,6 +352,52 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(new URLSearchParams(window.location.search).get("pick_state")).toBe("picked");
   });
 
+  it("shows hover arrow navigation only in the direction with more day cards", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
+    const wrapper = container?.querySelector<HTMLElement>(".etsy-observed-day-carousel");
+    const scroller = wrapper?.querySelector<HTMLDivElement>(".etsy-observed-day-grid");
+    expect(scroller).toBeTruthy();
+    expect(scroller?.getAttribute("aria-label")).toContain("cuộn ngang");
+    Object.defineProperties(scroller!, {
+      clientWidth: {configurable: true, value: 520},
+      scrollWidth: {configurable: true, value: 1780, writable: true},
+      scrollLeft: {configurable: true, value: 0, writable: true},
+    });
+    const scrollBy = vi.fn(({left}: {left: number}) => {
+      scroller!.scrollLeft = Math.max(0, Math.min(1260, scroller!.scrollLeft + left));
+      scroller!.dispatchEvent(new Event("scroll", {bubbles: true}));
+    });
+    Object.defineProperty(scroller!, "scrollBy", {configurable: true, value: scrollBy});
+
+    await act(async () => {window.dispatchEvent(new Event("resize"));});
+    const left = () => wrapper?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Cuộn danh sách ngày sang trái"]');
+    const right = () => wrapper?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Cuộn danh sách ngày sang phải"]');
+    expect(left()).toBeNull();
+    expect(right()).toBeTruthy();
+    await act(async () => {right()?.click();});
+    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({left: 390}));
+    expect(left()).toBeTruthy();
+    expect(right()).toBeTruthy();
+
+    await act(async () => {
+      scroller!.scrollLeft = 1260;
+      scroller!.dispatchEvent(new Event("scroll", {bubbles: true}));
+    });
+    expect(right()).toBeNull();
+    expect(left()).toBeTruthy();
+    await act(async () => {left()?.click();});
+    expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({left: -390}));
+    expect(right()).toBeTruthy();
+
+    Object.defineProperty(scroller!, "scrollWidth",
+      {configurable: true, value: 520});
+    await act(async () => {window.dispatchEvent(new Event("resize"));});
+    expect(right()).toBeNull();
+    expect(left()).toBeNull();
+  });
+
   it("offers sorting and jumping directly to the results on compact screens", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
     const sort = container?.querySelector<HTMLSelectElement>("#etsy-quick-sort");
