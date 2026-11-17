@@ -1103,6 +1103,67 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 /* Compact daily decisions: Picked by action day, eligible by observation day. */
 .etsy-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
 .etsy-observed-days{margin:0 0 13px}
+.etsy-observed-day-carousel {
+  position:relative;
+  width:100%;
+  min-width:0;
+}
+.etsy-spy-page .etsy-observed-day-nav {
+  position:absolute;
+  z-index:4;
+  top:calc(50% - 4px);
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:48px;
+  padding:0;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:10px;
+  background:rgba(21,32,51,.82);
+  box-shadow:0 3px 14px rgba(16,27,48,.24);
+  color:#fff;
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transform:translateY(-50%) scale(.94);
+  transition:opacity .16s ease, transform .16s ease, background .16s ease,
+    visibility .16s ease;
+}
+.etsy-spy-page .etsy-observed-day-nav svg{width:21px;height:21px}
+.etsy-spy-page .etsy-observed-day-nav.is-prev{left:5px}
+.etsy-spy-page .etsy-observed-day-nav.is-next{right:5px}
+.etsy-spy-page .etsy-observed-day-carousel:hover .etsy-observed-day-nav,
+.etsy-spy-page .etsy-observed-day-carousel:focus-within .etsy-observed-day-nav {
+  opacity:1;
+  visibility:visible;
+  pointer-events:auto;
+  transform:translateY(-50%) scale(1);
+}
+.etsy-spy-page .etsy-observed-day-nav:hover {
+  background:rgba(21,32,51,.94);
+}
+.etsy-spy-page .etsy-observed-day-nav:focus-visible {
+  outline:3px solid #68a5ff;
+  outline-offset:2px;
+}
+@media (hover:none) {
+  .etsy-spy-page .etsy-observed-day-nav {
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+    transform:translateY(-50%) scale(1);
+  }
+}
+@media (max-width:600px) {
+  .etsy-spy-page .etsy-observed-day-nav {
+    width:31px;
+    height:44px;
+    border-radius:9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-observed-day-nav {transition:none}
+}
 .etsy-observed-day-grid{
   display:flex;flex-wrap:nowrap;align-items:stretch;gap:7px;
   max-width:100%;min-width:0;padding:2px 2px 8px;

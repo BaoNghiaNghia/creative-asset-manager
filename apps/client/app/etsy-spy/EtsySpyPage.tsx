@@ -572,6 +572,78 @@ function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: st
   </>;
 }
 
+type ObservedDayScrollEdges = {overflow: boolean; atStart: boolean; atEnd: boolean};
+
+function ObservedDayCarousel({children}: {children: ReactNode}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState<ObservedDayScrollEdges>({
+    overflow: false, atStart: true, atEnd: true,
+  });
+  const syncEdges = useCallback(() => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    const limit = Math.max(0, node.scrollWidth - node.clientWidth);
+    const position = Math.max(0, Math.min(limit, node.scrollLeft));
+    const next = {
+      overflow: limit > 2,
+      atStart: position <= 2,
+      atEnd: position >= limit - 2,
+    };
+    setEdges(prev => prev.overflow === next.overflow && prev.atStart === next.atStart
+      && prev.atEnd === next.atEnd ? prev : next);
+  }, []);
+
+  useEffect(() => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    syncEdges();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncEdges) : null;
+    observer?.observe(node);
+    // Changes to card counts, fonts, or loaded days also change scrollWidth.
+    for (const card of Array.from(node.children)) observer?.observe(card);
+    window.addEventListener("resize", syncEdges);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", syncEdges);
+    };
+  }, [children, syncEdges]);
+
+  const move = (direction: -1 | 1) => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    node.scrollBy({left: direction * Math.max(240, Math.round(node.clientWidth * 0.75)),
+      behavior: reducedMotion ? "auto" : "smooth"});
+    syncEdges();
+  };
+
+  return <div className="etsy-observed-day-carousel">
+    <div className="etsy-observed-day-grid" ref={scrollerRef} onScroll={syncEdges}
+      role="region" aria-label="Ngày quan sát, cuộn ngang để xem các ngày khác"
+      tabIndex={edges.overflow ? 0 : -1}>
+      {children}
+    </div>
+    {edges.overflow && !edges.atStart && <button type="button"
+      className="etsy-observed-day-nav is-prev"
+      aria-label="Cuộn danh sách ngày sang trái" title="Xem ngày ở bên trái"
+      onClick={() => move(-1)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14.5 5 7.5 12l7 7" />
+      </svg>
+    </button>}
+    {edges.overflow && !edges.atEnd && <button type="button"
+      className="etsy-observed-day-nav is-next"
+      aria-label="Cuộn danh sách ngày sang phải" title="Xem ngày ở bên phải"
+      onClick={() => move(1)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="m9.5 5 7 7-7 7" />
+      </svg>
+    </button>}
+  </div>;
+}
+
 function EtsyPageJump({ page, totalPages, loading, onJump }: {
   page: number; totalPages: number; loading: boolean; onJump: (nextPage: number) => void;
 }) {
@@ -1351,7 +1423,7 @@ export function EtsySpyPage() {
             className={"etsy-facet-details" + (facetsExpanded ? " is-open" : "")}>
           <section className="etsy-observed-days"
             aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
-            <div className="etsy-observed-day-grid">
+            <ObservedDayCarousel>
               {dailyCards.map(({ day, index, count, pickedCount }) => {
                 const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
                   : day.slice(8, 10) + "/" + day.slice(5, 7);
@@ -1382,7 +1454,7 @@ export function EtsySpyPage() {
                   </span>
                 </button>;
               })}
-            </div>
+            </ObservedDayCarousel>
           </section>
           <section className="etsy-day-groups" aria-label={"Nhóm " + facetScope + " ngày " + (facetDay ?? "tất cả")}>
             <span className="etsy-day-groups-title">Nhóm · {
