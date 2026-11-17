@@ -87,6 +87,10 @@ async def _ensure_pack_manifest(
         raise HTTPException(409, "Conflicting ImageGen Drive manifest identities")
     if len(remote_ids) == 1:
         return remote_ids.pop()
+    folder_ids = {r.drive_folder_id for r in rows}
+    if len(folder_ids) != 1:
+        raise HTTPException(409, "Pack PNGs are scattered across multiple Drive folders")
+    expected_folder_id = folder_ids.pop()
     saved = [
         {"slot": r.slot, "output_sha256": r.output_sha256,
          "drive_file_id": r.drive_file_id,
@@ -100,6 +104,7 @@ async def _ensure_pack_manifest(
         tenant_id=tenant, listing_id=listing, pack_id=pack,
         garment_code=garment, design_sha256=design_sha,
         source_sha256=source_sha, placement=placement, images=saved,
+        expected_drive_folder_id=expected_folder_id,
     )
     db.execute(update(ListingImage).where(
         ListingImage.tenant_id == tenant,

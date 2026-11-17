@@ -23,6 +23,7 @@ def test_manifest_is_created_once_only_after_all_ten_outputs(monkeypatch):
         calls.append(args)
         assert args["tenant_id"] == tenant
         assert args["listing_id"] == listing
+        assert args["expected_drive_folder_id"] == "folderOriginal12345"
         assert len(args["images"]) == 10
         assert sorted(x["slot"] for x in args["images"]) == list(range(1,11))
         assert all(x["output_sha256"] == "c"*64 for x in args["images"])
