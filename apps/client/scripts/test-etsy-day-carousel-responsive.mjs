@@ -9,7 +9,7 @@ const css = (await Promise.all([
 ].map(file => readFile(new URL("../app/etsy-spy/" + file, import.meta.url), "utf8")))).join("\n");
 
 const cards = Array.from({length: 28}, (_, index) => `
-  <button type="button" class="etsy-observed-day" data-pick-state="eligible">
+  <button type="button" class="etsy-observed-day ${index === 0 ? "is-empty" : index === 1 ? "is-loading" : index === 3 ? "active is-empty" : "has-activity"}" data-pick-state="eligible">
     <span class="etsy-observed-day-label">${index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua" : (17-index) + "/11"}</span>
     <span class="etsy-observed-day-metrics">
       <span class="etsy-observed-day-eligible"><strong>${index * 99}</strong><small>Khả dụng</small></span>
@@ -71,6 +71,13 @@ try {
           leftEdge: rect.left, rightEdge: rect.right,
           navVisible: navStyle.visibility, navPointer: navStyle.pointerEvents,
           navOpacity: Number(navStyle.opacity),
+          emptyOpacity: Number(getComputedStyle(cardList[0]).opacity),
+          loadingOpacity: Number(getComputedStyle(cardList[1]).opacity),
+          activityOpacity: Number(getComputedStyle(cardList[2]).opacity),
+          selectedEmptyOpacity: Number(getComputedStyle(cardList[3]).opacity),
+          activityBackground: getComputedStyle(cardList[2]).backgroundImage,
+          emptyLabelColor: getComputedStyle(cardList[0].querySelector(".etsy-observed-day-label")).color,
+          activityStrongColor: getComputedStyle(cardList[2].querySelector("strong")).color,
           gaps: css.columnGap,
           cardWidth: cardList[0].getBoundingClientRect().width,
           noClippedText: cardList.every(card => [...card.querySelectorAll("small,strong")]
@@ -104,6 +111,14 @@ try {
       assert.equal(result.navVisible, "visible", `${width}px arrow hidden without hover`);
       assert.equal(result.navPointer, "auto", `${width}px arrow isn't clickable`);
       assert.ok(result.navOpacity >= .9, `${width}px arrow too faint`);
+      assert.ok(result.emptyOpacity < .75, `${width}px empty day did not fade`);
+      assert.equal(result.loadingOpacity, 1, `${width}px pending day must not look empty`);
+      assert.equal(result.activityOpacity, 1, `${width}px day with activity looks faded`);
+      assert.equal(result.selectedEmptyOpacity, 1, `${width}px selected empty day looks faded`);
+      assert.ok(result.activityBackground.includes("linear-gradient"),
+        `${width}px active day lacks background differentiation`);
+      assert.equal(result.emptyLabelColor, "rgb(135, 149, 170)");
+      assert.equal(result.activityStrongColor, "rgb(37, 77, 128)");
       assert.ok(result.noClippedText, `${width}px card text clips`);
       const overlap = await page.locator(".etsy-observed-day").evaluateAll(cards => cards.some(card => {
         const eligible = card.querySelector(".etsy-observed-day-eligible").getBoundingClientRect();

@@ -68,6 +68,48 @@
   font-size: 9px;
 }
 
+/* Activity has three distinct states. Never mistake a pending API response
+   for a zero-count day, and preserve the selected day's active treatment. */
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active) {
+  background: #f9fafc;
+  border-color: #e8edf4;
+  box-shadow: none;
+  opacity: .69;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active)
+  .etsy-observed-day-label,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active)
+  .etsy-observed-day-eligible,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active)
+  .etsy-observed-day-eligible strong,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active)
+  .etsy-observed-day-pick,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active)
+  .etsy-observed-day-pick strong {
+  color: #8795aa;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.has-activity:not(.active) {
+  background: linear-gradient(180deg, #fff 0%, #f4f8ff 100%);
+  border-color: #c2d5ee;
+  box-shadow: inset 2px 0 0 #95b5e0, 0 1px 2px rgb(49 94 149 / 6%);
+  opacity: 1;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.has-activity:not(.active)
+  .etsy-observed-day-label,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.has-activity:not(.active)
+  .etsy-observed-day-eligible strong {
+  color: #254d80;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.is-empty:not(.active):is(:hover, :focus-visible) {
+  opacity: 1;
+  background: #f5f8fd;
+  border-color: #b7cbe4;
+}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.has-activity:not(.active):is(:hover, :focus-visible) {
+  background: #edf5ff;
+  border-color: #8dadd5;
+}
+
 /* An edge-to-transparent gradient separates the chevron from the card text.
    The entire 56px edge is clickable instead of only the small icon. React
    renders only directions that can actually scroll. */

@@ -940,6 +940,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(days[0].querySelector(".etsy-observed-day-pick")?.textContent).toBe("1Picked");
     expect(days[1].querySelector(".etsy-observed-day-pick")?.textContent).toBe("4Picked");
     expect(days[2].querySelector(".etsy-observed-day-pick")?.textContent).toBe("0Picked");
+    expect(days[0].dataset.dayActivity).toBe("nonempty");
+    expect(days[1].dataset.dayActivity).toBe("nonempty");
+    expect(days[2].dataset.dayActivity).toBe("empty");
+    expect(days[2].classList.contains("is-empty")).toBe(true);
     expect(days[0].getAttribute("aria-label")).toContain("1 sản phẩm đã Pick");
     expect(days[0].getAttribute("aria-pressed")).toBe("true");
     expect(observed.some(url => url.includes("/listings?") &&
@@ -951,6 +955,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(days[1].getAttribute("aria-pressed")).toBe("true");
     expect(days[0].getAttribute("aria-pressed")).toBe("false");
+    // An empty day stays interactive and can still be selected.
+    await act(async () => { days[2].click(); });
+    expect(days[2].getAttribute("aria-pressed")).toBe("true");
+    expect(days[2].classList.contains("is-empty")).toBe(true);
+    await act(async () => { days[1].click(); });
+    expect(days[1].getAttribute("aria-pressed")).toBe("true");
     expect(new URLSearchParams(window.location.search).get("observed_day")).toBe(expectedDays[1]);
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("observed_day=" + expectedDays[1]))).toBe(true);

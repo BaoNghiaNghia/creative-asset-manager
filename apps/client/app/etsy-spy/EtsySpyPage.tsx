@@ -1436,14 +1436,25 @@ export function EtsySpyPage() {
                 const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
                   : day.slice(8, 10) + "/" + day.slice(5, 7);
                 const selected = options.observedDay === day;
+                // A genuinely empty day is muted, but a loading day is not.
+                // Eligible has two activity counters: either one can be useful.
+                const dayLoaded = count !== null &&
+                  (facetScope !== "eligible" || pickedCount !== null);
+                const hasActivity = dayLoaded &&
+                  (count > 0 || (facetScope === "eligible" && (pickedCount ?? 0) > 0));
+                const activityState = !dayLoaded ? "loading"
+                  : hasActivity ? "nonempty" : "empty";
                 const statusLabel = facetScope === "eligible" ? "Khả dụng"
                   : facetScope === "picked" ? "Picked" : "Later";
                 const dateBasis = facetScope === "picked" ? "ngày Pick"
                   : facetScope === "later" ? "ngày phân loại Later" : "ngày quan sát";
                 const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
                 return <button type="button" key={day}
-                  className={"etsy-observed-day" + (selected ? " active" : "")}
-                  data-observed-day={day} data-pick-state={facetScope} aria-pressed={selected}
+                  className={"etsy-observed-day" + (selected ? " active" : "") +
+                    (activityState === "empty" ? " is-empty" :
+                      activityState === "nonempty" ? " has-activity" : " is-loading")}
+                  data-observed-day={day} data-pick-state={facetScope}
+                  data-day-activity={activityState} aria-pressed={selected}
                   aria-label={label + ": " + (count ?? "Chưa tải") + " " + statusLabel +
                     (facetScope === "eligible" ? ", " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick" : "") +
                     "; " + dateRange + ". Nhấn để lọc theo " + dateBasis}
