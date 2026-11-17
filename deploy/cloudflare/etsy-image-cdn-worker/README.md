@@ -27,6 +27,13 @@ Cloudflare credentials, bucket, and CSP must be configured explicitly.
 6. Worker unavailable / missing object / configuration absent => CAM falls back
    to authenticated Google Drive source automatically. Do **not** fall back
    to public buckets.
+7. The browser stores authenticated bytes but revalidates through CAM on
+   every new request (ETag/304 and `private, no-cache`). A removed Picked
+   permission cannot be bypassed by an unexpired browser `max-age`.
+8. CAM caches R2 existence for 5 minutes when present or 20 seconds when
+   missing (5 seconds on Worker errors); a successful upload promotes the
+   object immediately. At most two uploads per API process are in flight.
+   Only aggregate, PII-free HIT/MISS and stage latency metrics are emitted.
 
 ## Preparation
 
@@ -44,11 +51,24 @@ Cloudflare credentials, bucket, and CSP must be configured explicitly.
    - `CAM_ETSY_IMAGE_CDN_ENABLED=true`
    - `CAM_ETSY_IMAGE_CDN_WORKER_URL=https://<worker>.<account>.workers.dev`
    - `CAM_ETSY_IMAGE_CDN_HMAC_HEX=<64 lower-case hex characters>`
-7. Reload the backend and test one Picked listing with a saved thumbnail.
+   - `CAM_ETSY_IMAGE_CDN_CANARY_TENANTS=boostgame` (required allowlist;
+     no tenant is redirected if the key is absent)
+7. Before enabling, run the **read-only** preflight on the CAM host:
+
+   ```sh
+   python3 deploy/cloudflare/etsy-image-cdn-worker/preflight.py --probe
+   ```
+
+   It validates the allowlist and secret format without printing secrets,
+   checks CSP and sends a signed **synthetic** HEAD to the Worker. It must
+   report `ready_to_enable=true`; 404 on that nonexistent synthetic object
+   proves the deployed signing key and private bucket are connected.
+   Do not enable while this check is blocked.
+8. Reload the backend and test one Picked listing with a saved thumbnail.
    First miss fetches Drive and schedules best-effort Worker PUT; subsequent GET
    may redirect to Worker if signed HEAD confirms the R2 object exists.
    Never turn this on before CSP and tenant-isolation checks pass.
-8. Start with a single tenant/canary and monitor 302, 404, 403, 5xx, latency,
+9. Start with a single tenant/canary and monitor 302, 404, 403, 5xx, latency,
    cache HIT and misses. Roll back by setting
    `CAM_ETSY_IMAGE_CDN_ENABLED=false` and restarting backend. Existing
    Google Drive images remain unaffected.

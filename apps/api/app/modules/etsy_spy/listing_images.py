@@ -367,7 +367,7 @@ async def read_listing_output_image(
     ).hexdigest()
     etag = '"' + fingerprint + '"'
     headers = {
-        "Cache-Control": "private, max-age=300, must-revalidate",
+        "Cache-Control": "private, no-cache, must-revalidate",
         "Vary": "Cookie, Authorization",
         "X-Content-Type-Options": "nosniff",
         "ETag": etag,
@@ -379,7 +379,7 @@ async def read_listing_output_image(
     # CDN mode is completely opt-in and never applies to original PNGs.
     # Every ticket is issued only AFTER the same principal/tenant/Picked ACL.
     from .listing_image_cdn import cdn_config, available_cdn_url, stage_derivative
-    cdn = cdn_config() if quality in {"thumbnail", "preview"} else None
+    cdn = cdn_config(tenant_id=tenant) if quality in {"thumbnail", "preview"} else None
     if cdn is not None:
         # Release the SELECT transaction before even a fast Worker HEAD probe.
         db.rollback()
@@ -391,6 +391,7 @@ async def read_listing_output_image(
                 cdn_url, status_code=302,
                 headers={"Cache-Control": "private, no-store",
                          "Vary": "Cookie, Authorization",
+                         "Referrer-Policy": "no-referrer",
                          "X-Content-Type-Options": "nosniff"})
 
     # Release SELECT transaction before Drive or image-processing I/O.

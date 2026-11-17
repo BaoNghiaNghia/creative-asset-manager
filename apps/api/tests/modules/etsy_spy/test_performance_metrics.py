@@ -36,11 +36,17 @@ def test_five_minute_aggregate_has_p95_and_no_untrusted_identifiers(caplog):
         meter.record("listings", status_code=502, duration_ms=1100, now=35)
         meter.cache(True, now=40)
         meter.cache(False, coalesced=True, now=41)
+        meter.cache(True, label="listing_cdn_preview", now=43)
+        meter.cache(False, label="listing_cdn_thumbnail", now=44)
+        meter.record("listing_cdn_stage", status_code=503, duration_ms=700, now=45)
         meter.record("summary", status_code=200, duration_ms=65, now=301)
     text = caplog.text
     assert "route=listings requests=20 errors_5xx=1 errors_502=1" in text
     assert "p95_le_ms=100" in text
     assert "cache_hit=1 cache_miss=1 coalesced=1" in text
+    assert "route=listing_cdn_preview requests=0" in text
+    assert "route=listing_cdn_thumbnail requests=0" in text
+    assert "route=listing_cdn_stage requests=1 errors_5xx=1" in text
     assert "tenant-" not in text
     assert "asset-" not in text
 

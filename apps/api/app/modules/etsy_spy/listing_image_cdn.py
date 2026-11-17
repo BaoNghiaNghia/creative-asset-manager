@@ -7,6 +7,7 @@ Worker HEAD probes are bounded and fail back to CAM + Drive on any error.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -14,11 +15,21 @@ import logging
 import os
 import re
 import time
+from threading import BoundedSemaphore, Lock
 from urllib.parse import urlsplit
 
 import httpx
 
+from .request_metrics import ETSY_PERFORMANCE
+
 _LOG = logging.getLogger("app.etsy_spy_image_cdn")
+_STATUS_LOCK = Lock()
+_OBJECT_STATUS: OrderedDict[str, tuple[bool, float]] = OrderedDict()
+_MAX_CACHED_OBJECTS = 2048
+_PRESENT_TTL_SECONDS = 300
+_MISSING_TTL_SECONDS = 20
+_STAGE_SLOTS = BoundedSemaphore(2)
+_STAGING: set[str] = set()
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _PACK = re.compile(r"^sp-[0-9a-f]{40}$")
 _ALLOWED = {"thumbnail": ("png", "image/png"), "preview": ("webp", "image/webp")}
@@ -30,8 +41,15 @@ class CdnConfig:
     key: bytes
 
 
-def cdn_config() -> CdnConfig | None:
+def cdn_config(*, tenant_id: str) -> CdnConfig | None:
     if os.getenv("CAM_ETSY_IMAGE_CDN_ENABLED", "").lower() not in {"1", "true"}:
+        return None
+    # Explicit tenant canary is mandatory. A misconfigured global flag cannot
+    # unexpectedly redirect all tenants to a not-yet-provisioned Worker.
+    canaries = {value.strip() for value in
+                os.getenv("CAM_ETSY_IMAGE_CDN_CANARY_TENANTS", "").split(",")
+                if value.strip()}
+    if not tenant_id or (tenant_id not in canaries and "*" not in canaries):
         return None
     url = os.getenv("CAM_ETSY_IMAGE_CDN_WORKER_URL", "").rstrip("/")
     secret = os.getenv("CAM_ETSY_IMAGE_CDN_HMAC_HEX", "")
@@ -80,6 +98,35 @@ def ticket(config: CdnConfig, method: str, key: str, *,
     return (config.base_url + path + f"?exp={expires}&sig={mac}", headers)
 
 
+def _status_key(config: CdnConfig, key: str) -> str:
+    return config.base_url + "/" + key
+
+
+def _cached_status(cache_key: str) -> bool | None:
+    """Read a bounded process-local availability cache; never cache signed URLs."""
+    with _STATUS_LOCK:
+        cached = _OBJECT_STATUS.get(cache_key)
+        if cached is None:
+            return None
+        available, deadline = cached
+        if deadline <= time.monotonic():
+            _OBJECT_STATUS.pop(cache_key, None)
+            return None
+        _OBJECT_STATUS.move_to_end(cache_key)
+        return available
+
+
+def _remember_status(cache_key: str, *, available: bool,
+                     ttl: float | None = None) -> None:
+    lifetime = ttl if ttl is not None else (
+        _PRESENT_TTL_SECONDS if available else _MISSING_TTL_SECONDS)
+    with _STATUS_LOCK:
+        _OBJECT_STATUS[cache_key] = (available, time.monotonic() + lifetime)
+        _OBJECT_STATUS.move_to_end(cache_key)
+        while len(_OBJECT_STATUS) > _MAX_CACHED_OBJECTS:
+            _OBJECT_STATUS.popitem(last=False)
+
+
 async def available_cdn_url(
     config: CdnConfig | None, *, tenant_id: str, pack_id: str,
     slot: int, quality: str, sha256: str,
@@ -88,16 +135,32 @@ async def available_cdn_url(
         return None
     key = object_key(config, tenant_id=tenant_id, pack_id=pack_id,
                      slot=slot, quality=quality, sha256=sha256)
-    head_url, _ = ticket(config, "HEAD", key)
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(2.5, connect=1.0),
-                                     follow_redirects=False) as client:
-            response = await client.head(head_url)
-        if response.status_code == 200:
-            url, _ = ticket(config, "GET", key)
-            return url
-    except (httpx.HTTPError, ValueError):
-        pass
+    cache_key = _status_key(config, key)
+    available = _cached_status(cache_key)
+    if available is None:
+        head_url, _ = ticket(config, "HEAD", key)
+        # Probe only once per brief TTL. A slow or unavailable Worker must
+        # never hold every CAM image response for several seconds.
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(1.0, connect=0.5),
+                                         follow_redirects=False) as client:
+                response = await client.head(head_url)
+            if response.status_code == 200:
+                available = True
+                _remember_status(cache_key, available=True)
+            elif response.status_code == 404:
+                available = False
+                _remember_status(cache_key, available=False)
+            else:
+                available = False
+                _remember_status(cache_key, available=False, ttl=5)
+        except (httpx.HTTPError, ValueError):
+            available = False
+            _remember_status(cache_key, available=False, ttl=5)
+    ETSY_PERFORMANCE.cache(bool(available), label="listing_cdn_" + quality)
+    if available:
+        url, _ = ticket(config, "GET", key)
+        return url
     return None
 
 
@@ -105,20 +168,45 @@ async def stage_derivative(
     config: CdnConfig | None, *, tenant_id: str, pack_id: str,
     slot: int, quality: str, sha256: str, data: bytes,
 ) -> None:
-    """Best-effort upload. The primary CAM response never depends on R2."""
+    """Best-effort upload, bounded to two concurrent R2 writes per API process."""
     if (config is None or quality not in _ALLOWED
             or not 0 < len(data) <= 2 * 1024 * 1024):
         return
     key = object_key(config, tenant_id=tenant_id, pack_id=pack_id,
                      slot=slot, quality=quality, sha256=sha256)
-    digest = hashlib.sha256(data).hexdigest()
-    put_url, headers = ticket(config, "PUT", key, body_sha256=digest)
-    headers["Content-Type"] = _ALLOWED[quality][1]
+    cache_key = _status_key(config, key)
+    if _cached_status(cache_key) is True:
+        return
+    # Never accumulate unbounded BackgroundTasks when the server is busy.
+    if not _STAGE_SLOTS.acquire(blocking=False):
+        return
+    with _STATUS_LOCK:
+        if cache_key in _STAGING:
+            _STAGE_SLOTS.release()
+            return
+        _STAGING.add(cache_key)
+    started = time.monotonic()
+    status_code = 503
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=2.0),
-                                     follow_redirects=False) as client:
-            response = await client.put(put_url, content=data, headers=headers)
-            if response.status_code not in {200, 201, 204}:
-                _LOG.warning("etsy_image_cdn_stage_fallback status=%s", response.status_code)
-    except httpx.HTTPError:
-        _LOG.warning("etsy_image_cdn_stage_fallback transport=unavailable")
+        digest = hashlib.sha256(data).hexdigest()
+        put_url, headers = ticket(config, "PUT", key, body_sha256=digest)
+        headers["Content-Type"] = _ALLOWED[quality][1]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=2.0),
+                                         follow_redirects=False) as client:
+                response = await client.put(put_url, content=data, headers=headers)
+            status_code = response.status_code
+            if status_code in {200, 201, 204}:
+                _remember_status(cache_key, available=True)
+            else:
+                _remember_status(cache_key, available=False, ttl=5)
+                _LOG.warning("etsy_image_cdn_stage_fallback status=%s", status_code)
+        except httpx.HTTPError:
+            _remember_status(cache_key, available=False, ttl=5)
+            _LOG.warning("etsy_image_cdn_stage_fallback transport=unavailable")
+    finally:
+        ETSY_PERFORMANCE.record("listing_cdn_stage", status_code=status_code,
+                               duration_ms=(time.monotonic() - started) * 1000)
+        with _STATUS_LOCK:
+            _STAGING.discard(cache_key)
+        _STAGE_SLOTS.release()

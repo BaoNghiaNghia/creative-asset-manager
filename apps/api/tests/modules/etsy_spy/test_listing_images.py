@@ -112,7 +112,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             first = client.get(url)
             assert first.status_code == 200
             assert first.headers["content-type"].startswith("image/png")
-            assert first.headers["cache-control"].startswith("private")
+            assert first.headers["cache-control"] == "private, no-cache, must-revalidate"
             assert "Cookie" in first.headers["vary"]
             prior_reads = len(reads)
             cached = client.get(url, headers={"If-None-Match":first.headers["etag"]})

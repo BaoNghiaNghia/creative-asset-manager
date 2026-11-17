@@ -27,7 +27,10 @@ _THUMB_PATH = re.compile(
 _LISTING_IMAGE_PATH = re.compile(
     r"^/api/v1/etsy-spy/listing-images/sp-[0-9a-f]{40}/(?:[1-9]|10)/(thumbnail|preview|original)$"
 )
-_IMAGE_LABELS = frozenset({"design_thumbnail", "listing_thumbnail", "listing_preview", "listing_original"})
+_IMAGE_LABELS = frozenset({
+    "design_thumbnail", "listing_thumbnail", "listing_preview", "listing_original",
+    "listing_cdn_thumbnail", "listing_cdn_preview", "listing_cdn_stage",
+})
 _BOUNDS_MS = (50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000)
 
 
