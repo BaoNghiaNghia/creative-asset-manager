@@ -44,6 +44,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
     digest = hashlib.sha256(png).hexdigest()
     sends = []
     remote_pngs = {}
+    reads = []
     revisions = []
     design_sha, source_sha = "c" * 64, "d" * 64
     drive_root = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
@@ -66,6 +67,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
     async def mock_read(*, tenant_id, asset_id, remote_id, sha256, max_bytes):
         assert tenant_id == "boostgame"
         assert hashlib.sha256(remote_pngs[remote_id]).hexdigest() == sha256
+        reads.append((asset_id, remote_id))
         return remote_pngs[remote_id]
     monkeypatch.setattr(
         "app.modules.etsy_spy.imagegen_drive.store_listing_output_to_drive",
@@ -104,8 +106,41 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert gallery["groups"][0]["images"][0]["placement"] == "front_center"
             assert gallery["groups"][0]["images"][0]["manifestReady"] is False
             assert "drive_file_id" not in str(gallery)
-            url = gallery["groups"][0]["images"][0]["thumbnailUrl"]
-            assert client.get(url).status_code == 200
+            image = gallery["groups"][0]["images"][0]
+            assert "/preview?v=" in image["previewUrl"]
+            url = image["thumbnailUrl"]
+            first = client.get(url)
+            assert first.status_code == 200
+            assert first.headers["content-type"].startswith("image/png")
+            assert first.headers["cache-control"].startswith("private")
+            assert "Cookie" in first.headers["vary"]
+            prior_reads = len(reads)
+            cached = client.get(url, headers={"If-None-Match":first.headers["etag"]})
+            assert cached.status_code == 304
+            assert cached.content == b""
+            assert len(reads) == prior_reads
+            webp_response = client.get(image["previewUrl"])
+            assert webp_response.status_code == 200, webp_response.text
+            assert webp_response.headers["content-type"].startswith("image/webp")
+            with Image.open(io.BytesIO(webp_response.content)) as thumbnail:
+                assert thumbnail.format == "WEBP"
+                assert max(thumbnail.size) <= 720
+            # Conditional preview response is resolved after the Picked ACL
+            # and without any Google Drive I/O.
+            prior_reads = len(reads)
+            preview_cached = client.get(
+                image["previewUrl"],
+                headers={"If-None-Match":webp_response.headers["etag"]})
+            assert preview_cached.status_code == 304
+            assert len(reads) == prior_reads
+            original_url = image["originalUrl"]
+            original = client.get(original_url)
+            assert original.status_code == 200
+            assert original.content == png
+            prior_reads = len(reads)
+            assert client.get(original_url,
+                headers={"If-None-Match":original.headers["etag"]}).status_code == 304
+            assert len(reads) == prior_reads
             changed = io.BytesIO()
             Image.new("RGB", (512, 512), (140, 80, 100)).save(changed, format="PNG")
             fresh_png = changed.getvalue()
@@ -160,11 +195,16 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             principal.active_tenant_id = "other-tenant"
             assert client.get(gallery_url).status_code == 404
             assert client.get(url).status_code == 404
+            assert client.get(url, headers={"If-None-Match":first.headers["etag"]}).status_code == 404
+            assert client.get(image["previewUrl"],
+                headers={"If-None-Match":webp_response.headers["etag"]}).status_code == 404
             principal.active_tenant_id = "boostgame"
             db.delete(db.get(EtsySpyPicked, ("boostgame","1234567890")))
             db.commit()
             assert client.get(gallery_url).status_code == 404
             assert client.get(url).status_code == 404
+            assert client.get(image["previewUrl"],
+                headers={"If-None-Match":webp_response.headers["etag"]}).status_code == 404
     finally:
         db.close()
         engine.dispose()

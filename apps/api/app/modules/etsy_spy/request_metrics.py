@@ -24,15 +24,22 @@ _FIXED_GET = {
 _THUMB_PATH = re.compile(
     r"^/api/v1/etsy-spy/image-agents/designs/[^/]+/[^/]+/thumbnail$"
 )
+_LISTING_IMAGE_PATH = re.compile(
+    r"^/api/v1/etsy-spy/listing-images/sp-[0-9a-f]{40}/(?:[1-9]|10)/(thumbnail|preview|original)$"
+)
+_IMAGE_LABELS = frozenset({"design_thumbnail", "listing_thumbnail", "listing_preview", "listing_original"})
 _BOUNDS_MS = (50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000)
 
 
 def route_label(method: str, path: str) -> str | None:
     if method != "GET":
         return None
-    return _FIXED_GET.get(path) or (
-        "design_thumbnail" if _THUMB_PATH.fullmatch(path) else None
-    )
+    if path in _FIXED_GET:
+        return _FIXED_GET[path]
+    if _THUMB_PATH.fullmatch(path):
+        return "design_thumbnail"
+    listing = _LISTING_IMAGE_PATH.fullmatch(path)
+    return "listing_" + listing.group(1) if listing else None
 
 
 @dataclass
@@ -47,7 +54,7 @@ class _WindowStats:
 
 
 class EtsyPerformanceMeter:
-    """Aggregates at most six labels and logs one line/label/5-minute window."""
+    """Aggregates a fixed PII-free route allowlist per five-minute window."""
 
     def __init__(self, *, window_seconds: int = 300) -> None:
         self.window_seconds = window_seconds
@@ -94,7 +101,7 @@ class EtsyPerformanceMeter:
 
     def record(self, label: str, *, status_code: int, duration_ms: float,
                now: float | None = None) -> None:
-        if label not in set(_FIXED_GET.values()) | {"design_thumbnail"}:
+        if label not in set(_FIXED_GET.values()) | _IMAGE_LABELS:
             return
         with self._lock:
             completed = self._advance(time() if now is None else now)
@@ -108,10 +115,13 @@ class EtsyPerformanceMeter:
         self._publish(completed, self.window_seconds)
 
     def cache(self, hit: bool, *, coalesced: bool = False,
-              now: float | None = None) -> None:
+              now: float | None = None,
+              label: str = "design_thumbnail") -> None:
+        if label not in _IMAGE_LABELS:
+            return
         with self._lock:
             completed = self._advance(time() if now is None else now)
-            row = self._rows.setdefault("design_thumbnail", _WindowStats())
+            row = self._rows.setdefault(label, _WindowStats())
             if hit:
                 row.cache_hits += 1
             else:

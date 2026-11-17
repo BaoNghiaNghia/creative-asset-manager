@@ -18,6 +18,12 @@ def test_only_allowlisted_route_names_are_measured():
     assert route_label("GET", "/api/v1/etsy-spy/listings?page=1") is None
     assert route_label("GET", "/api/v1/etsy-spy/image-agents/designs/job-123/asset-123/thumbnail") == "design_thumbnail"
     assert route_label("GET", "/api/v1/etsy-spy/image-agents/designs/job-123/asset-123/original") is None
+    sample="/api/v1/etsy-spy/listing-images/sp-"+"a"*40+"/1/"
+    assert route_label("GET", sample+"thumbnail") == "listing_thumbnail"
+    assert route_label("GET", sample+"preview") == "listing_preview"
+    assert route_label("GET", sample+"original") == "listing_original"
+    assert route_label("GET", sample+"invalid") is None
+    assert route_label("POST", sample+"thumbnail") is None
     assert route_label("POST", "/api/v1/etsy-spy/summary") is None
     assert route_label("GET", "/api/v1/private/other") is None
 

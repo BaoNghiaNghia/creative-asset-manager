@@ -114,7 +114,7 @@ export type ListingImageOutput = {
   packId: string; slot: number; sha256: string;
   designSha256: string; placement: string; manifestReady: boolean;
   width: number | null; height: number | null; savedAt: string | null;
-  thumbnailUrl: string; originalUrl: string;
+  thumbnailUrl: string; previewUrl?: string; originalUrl: string;
 };
 export type ListingImageGallery = {
   listingKey: string; total: number;

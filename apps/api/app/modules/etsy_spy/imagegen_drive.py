@@ -477,7 +477,8 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
         if cached is not None:
             if len(cached) > max_bytes:
                 raise HTTPException(413, "Drive Design image too large")
-            ETSY_PERFORMANCE.cache(True)
+            ETSY_PERFORMANCE.cache(True, label=(
+                "listing_thumbnail" if ":listing-" in asset_id else "design_thumbnail"))
             return cached
 
     async def download_and_verify() -> bytes:
@@ -528,7 +529,8 @@ async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: st
                             _THUMBNAIL_FLIGHTS.pop(flight_key, None)
 
                 task.add_done_callback(forget)
-    ETSY_PERFORMANCE.cache(False, coalesced=joined)
+    ETSY_PERFORMANCE.cache(False, coalesced=joined, label=(
+        "listing_thumbnail" if ":listing-" in asset_id else "design_thumbnail"))
     # A browser disconnect should not cancel a verified fetch used by other
     # Picked thumbnails. No negative/error results are cached.
     return await asyncio.shield(task)

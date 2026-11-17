@@ -22,11 +22,13 @@ const gallery:ListingImageGallery={
        placement:"front_center",manifestReady:false,width:2000,height:2000,
        savedAt:"2026-11-17T01:00:00Z",
        thumbnailUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/1/thumbnail",
+       previewUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/1/preview",
        originalUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/1/original"},
       {packId:pack,slot:2,sha256:"b".repeat(64),designSha256:"b".repeat(64),
        placement:"front_center",manifestReady:false,width:2000,height:2000,
        savedAt:"2026-11-17T01:01:00Z",
        thumbnailUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/2/thumbnail",
+       previewUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/2/preview",
        originalUrl:"/api/v1/etsy-spy/listing-images/"+pack+"/2/original"}
     ]}
   ],
@@ -55,7 +57,8 @@ describe("Listing Image saved output badges",()=>{
     expect(main?.parentElement).toBe(layout?.firstElementChild);
     expect(main?.querySelector("img")?.getAttribute("src")).toBe("/main-c1717.png");
     expect(main?.querySelectorAll("img")).toHaveLength(1);
-    expect(main?.querySelector("span")).toBeNull();
+    // Only a temporary image skeleton may be present, never a caption.
+    expect(main?.querySelectorAll("span:not(.etsy-image-skeleton)")).toHaveLength(0);
     expect(main?.textContent?.trim()).toBe("");
     expect(main?.getAttribute("aria-label")).toContain("Main C1717");
     const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badge") || []);
@@ -108,10 +111,12 @@ describe("Listing Image saved output badges",()=>{
     expect(tiles).toHaveLength(2);
     expect(tiles[0]?.getAttribute("aria-pressed")).toBe("true");
     const previewImage = () => dialog?.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img");
-    expect(previewImage()?.getAttribute("src")).toContain("/1/original");
+    expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
+    expect(previewImage()?.getAttribute("src")).not.toContain("/original");
+    expect(previewImage()?.getAttribute("data-review-quality")).toBe("webp");
     expect(dialog?.querySelectorAll(".etsy-listing-image-review-frame img")).toHaveLength(1);
     await act(async()=>{tiles[1]?.click();});
-    expect(previewImage()?.getAttribute("src")).toContain("/2/original");
+    expect(previewImage()?.getAttribute("src")).toContain("/2/preview");
     expect(tiles[1]?.getAttribute("aria-pressed")).toBe("true");
     expect(tiles[0]?.getAttribute("aria-pressed")).toBe("false");
     expect(dialog?.querySelector<HTMLAnchorElement>(".etsy-listing-image-preview-meta a")?.href)
@@ -126,6 +131,7 @@ describe("Listing Image saved output badges",()=>{
       ...gallery.groups[0].images[0],
       slot, packId:otherPack, sha256:String(slot).repeat(64),
       thumbnailUrl:"/g180/" + slot + "/thumbnail",
+      previewUrl:"/g180/" + slot + "/preview",
       originalUrl:"/g180/" + slot + "/original",
     }));
     spy.mockResolvedValue({
@@ -144,12 +150,37 @@ describe("Listing Image saved output badges",()=>{
     expect(garmentTiles.map(tile=>tile.textContent?.trim())).toEqual(["Ảnh 03","Ảnh 10"]);
     await act(async()=>{garmentTiles[1].click();});
     expect(dialog?.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img")?.getAttribute("src"))
-      .toBe("/g180/10/original");
+      .toBe("/g180/10/preview");
     expect(dialog?.querySelector(".etsy-listing-image-pane-heading")?.textContent)
       .toContain("G180");
     expect(garmentTiles[1].getAttribute("aria-pressed")).toBe("true");
     expect(groups[0].querySelector(".etsy-listing-image-tile.is-selected")).toBeNull();
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+  it("reuses gallery metadata on quick reopen but refreshes on badge changes",async()=>{
+    spy.mockResolvedValue(gallery);
+    mount();
+    const trigger=document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")!;
+    await act(async()=>{trigger.click();});
+    expect(spy).toHaveBeenCalledTimes(1);
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-close")?.click();
+    });
+    await act(async()=>{trigger.click();});
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".etsy-listing-image-review-frame")).not.toBeNull();
+  });
+  it("falls back to a small thumbnail instead of downloading full PNG when WebP fails",async()=>{
+    spy.mockResolvedValue(gallery);
+    mount();
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();
+    });
+    const review=document.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img")!;
+    expect(review.src).toContain("/preview");
+    await act(async()=>{review.dispatchEvent(new Event("error", {bubbles:true}));});
+    expect(review.src).toContain("/thumbnail");
+    expect(review.src).not.toContain("/original");
   });
   it("shows neutral empty value when no saved output exists",()=>{
     mount({...item,listingImages:[]});

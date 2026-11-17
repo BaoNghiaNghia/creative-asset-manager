@@ -1,0 +1,9 @@
+name = "cam-etsy-private-images"
+main = "./index.mjs"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# Bucket must be created and remain private. Do not add a public R2 domain.
+[[r2_buckets]]
+binding = "CAM_IMAGES"
+bucket_name = "cam-etsy-image-derivatives"

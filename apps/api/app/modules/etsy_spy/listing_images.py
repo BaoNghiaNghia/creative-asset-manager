@@ -13,7 +13,8 @@ import hashlib
 import re
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func, case, update
 from sqlalchemy.orm import Session
 
@@ -319,6 +320,7 @@ def read_listing_gallery(
             "width": row.native_width, "height": row.native_height,
             "savedAt": row.created_at,
             "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail?v={row.thumbnail_sha256[:12]}",
+            "previewUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/preview?v={row.output_sha256[:12]}-w720v1",
             "originalUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/original?v={row.output_sha256[:12]}",
         }
         groups[row.garment_code].append(image)
@@ -328,14 +330,27 @@ def read_listing_gallery(
                            key=lambda item: (item[0] != "C1717", item[0]))]}
 
 
+def _listing_image_matches_etag(if_none_match: str | None, etag: str) -> bool:
+    if not if_none_match:
+        return False
+    return any(
+        tag.strip() in (etag, "W/" + etag, "*")
+        for tag in if_none_match.split(",")[:32]
+    )
+
+
 @listing_image_router.get("/listing-images/{pack_id}/{slot}/{quality}")
 async def read_listing_output_image(
-    pack_id: str, slot: int, quality: str,
+    pack_id: str, slot: int, quality: str, background_tasks: BackgroundTasks,
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+    if_none_match: str | None = Header(default=None),
 ):
-    if not _PACK.fullmatch(pack_id) or slot < 1 or slot > 10 or quality not in {"thumbnail", "original"}:
+    if (not _PACK.fullmatch(pack_id) or not 1 <= slot <= 10
+            or quality not in {"thumbnail", "preview", "original"}):
         raise HTTPException(404, "ImageGen listing output not found")
     tenant = principal.active_tenant_id
+    # IMPORTANT: check the principal, tenant and current Picked ACL BEFORE
+    # a 304/cache response, so cross-tenant or unpicked objects never validate.
     row = db.scalar(select(ListingImage).where(
         ListingImage.tenant_id == tenant, ListingImage.pack_id == pack_id,
         ListingImage.slot == slot,
@@ -345,15 +360,58 @@ async def read_listing_output_image(
     ))
     if row is None:
         raise HTTPException(404, "ImageGen listing output not found")
-    from .imagegen_drive import read_design_from_drive
+    from .listing_image_preview import PREVIEW_VERSION
     sha = row.thumbnail_sha256 if quality == "thumbnail" else row.output_sha256
+    fingerprint = hashlib.sha256(
+        (sha + ":" + (PREVIEW_VERSION if quality == "preview" else quality)).encode("ascii")
+    ).hexdigest()
+    etag = '"' + fingerprint + '"'
+    headers = {
+        "Cache-Control": "private, max-age=300, must-revalidate",
+        "Vary": "Cookie, Authorization",
+        "X-Content-Type-Options": "nosniff",
+        "ETag": etag,
+    }
+    if _listing_image_matches_etag(if_none_match, etag):
+        return Response(status_code=304, headers=headers)
+
     drive_id = row.drive_thumbnail_id if quality == "thumbnail" else row.drive_file_id
-    # Release SELECT transaction before slow Drive I/O.
+    # CDN mode is completely opt-in and never applies to original PNGs.
+    # Every ticket is issued only AFTER the same principal/tenant/Picked ACL.
+    from .listing_image_cdn import cdn_config, available_cdn_url, stage_derivative
+    cdn = cdn_config() if quality in {"thumbnail", "preview"} else None
+    if cdn is not None:
+        # Release the SELECT transaction before even a fast Worker HEAD probe.
+        db.rollback()
+        cdn_url = await available_cdn_url(
+            cdn, tenant_id=tenant, pack_id=pack_id,
+            slot=slot, quality=quality, sha256=sha)
+        if cdn_url:
+            return RedirectResponse(
+                cdn_url, status_code=302,
+                headers={"Cache-Control": "private, no-store",
+                         "Vary": "Cookie, Authorization",
+                         "X-Content-Type-Options": "nosniff"})
+
+    # Release SELECT transaction before Drive or image-processing I/O.
     db.rollback()
+    if quality == "preview":
+        from .listing_image_preview import get_listing_preview
+        webp = await get_listing_preview(
+            tenant_id=tenant, pack_id=pack_id, slot=slot,
+            remote_id=drive_id, sha256=sha)
+        if cdn is not None:
+            background_tasks.add_task(
+                stage_derivative, cdn, tenant_id=tenant, pack_id=pack_id,
+                slot=slot, quality=quality, sha256=sha, data=webp)
+        return Response(webp, media_type="image/webp", headers=headers)
+    from .imagegen_drive import read_design_from_drive
     png = await read_design_from_drive(
         tenant_id=tenant, asset_id=f"{pack_id}:listing-{slot:02d}:{quality}",
         remote_id=drive_id, sha256=sha,
         max_bytes=2 * 1024 * 1024 if quality == "thumbnail" else _MAX_PNG)
-    return Response(png, media_type="image/png",
-                    headers={"Cache-Control": "private, max-age=300, must-revalidate",
-                             "Vary": "Cookie", "X-Content-Type-Options": "nosniff"})
+    if cdn is not None:
+        background_tasks.add_task(
+            stage_derivative, cdn, tenant_id=tenant, pack_id=pack_id,
+            slot=slot, quality=quality, sha256=sha, data=png)
+    return Response(png, media_type="image/png", headers=headers)

@@ -72,7 +72,7 @@ def test_design_upload_is_drive_only_and_private_readback(tmp_path):
 
     with patch.object(module,"provider_and_folder",return_value=(provider,FOLDER)), \
          patch.object(module,"verify_private_drive_destination",new_callable=AsyncMock), \
-         patch.object(module,"_thumbnail",return_value=(preview, (4500, 5400))):
+         patch.object(module,"_thumbnail_with_colormatch",return_value=(preview, (4500, 5400), None)):
         asyncio.run(check())
 
 
@@ -106,8 +106,8 @@ def test_native_master_is_lossless_and_preview_is_separate(tmp_path):
         with Image.open(io.BytesIO(provider.data[result["drive_thumbnail_id"]])) as thumb:
             assert max(thumb.size) == 192
 
-    with patch.object(module, "provider_and_folder", return_value=(provider, FOLDER)), \\
-         patch.object(module, "verify_private_drive_destination", new_callable=AsyncMock):
+    with (patch.object(module, "provider_and_folder", return_value=(provider, FOLDER)),
+          patch.object(module, "verify_private_drive_destination", new_callable=AsyncMock)):
         asyncio.run(check())
 
 
