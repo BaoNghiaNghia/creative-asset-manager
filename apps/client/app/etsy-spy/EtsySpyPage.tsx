@@ -1226,7 +1226,11 @@ export function EtsySpyPage() {
     update({ q: "", observedDay: "all", group: "", badge: "", tm: "",
       source: "", sessionId: "" });
   };
-  const dailyCards = recentObservedDays(clockDay).map((day, index) => {
+  // Be compatible with older API releases that still return ten buckets.
+  // Never render four misleading unloaded days during a staggered deployment.
+  const visibleDayCount = observedDays?.pick_state === facetScope
+    ? Math.min(14, Math.max(10, observedDays.items.length)) : 10;
+  const dailyCards = recentObservedDays(clockDay).slice(0, visibleDayCount).map((day, index) => {
     const bucket = observedDays?.pick_state === facetScope
       ? observedDays.items.find(item => item.day === day) : undefined;
     return {
