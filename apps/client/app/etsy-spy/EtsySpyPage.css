@@ -2616,7 +2616,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-extraction-backfill button:disabled { opacity: .45; cursor: not-allowed; }
 .etsy-extraction-backfill [role="status"] { flex-basis: 100%; font-size: 12px; color: #334155; }
 
-/* Compact mobile dashboard: keep six KPIs, dates and categories visible
+/* Compact mobile dashboard: keep five KPIs, dates and categories visible
    without wasting vertical space. Also cover Chrome Android 'Desktop site'
    mode (a touch device with a ~980px CSS viewport). */
 @media (max-width:760px), (any-pointer:coarse) and (max-width:1200px) {

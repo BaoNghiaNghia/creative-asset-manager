@@ -32,6 +32,9 @@ const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "trademarks", title: "Trademark", subtitle: "Cached TM evidence" },
   { id: "logs", title: "System Logs", subtitle: "Agent diagnostics" },
 ];
+// UI-only removal: keep legacy keyword / trademark deep links and their APIs,
+// but exclude them from visible navigation, keyboard cycling and KPI cards.
+const VISIBLE_TABS = TABS.filter(item => item.id === "products" || item.id === "logs");
 const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
   products: [
     { id: "pageTitle", text: "Product / Etsy" }, { id: "keywordSms", text: "Keyword SMS" },
@@ -1300,8 +1303,6 @@ export function EtsySpyPage() {
     { title: "Win Keyword", value: winKeywords.length, hint: "Saved keyword notes",
       tone: "win-keyword", tab: "products", filters: { winKeywordsView: true },
       selected: isWinKeywordsView },
-    { title: "Keyword nodes", value: summary?.keywords, hint: "Discovery branches",
-      tone: "keywords", tab: "keywords", selected: activeTab === "keywords" },
   ];
   return <main className="etsy-spy-page">
     <div className="etsy-header-shell">
@@ -1312,18 +1313,19 @@ export function EtsySpyPage() {
     </>} />
     <div className="etsy-stage-nav">
       <nav role="tablist" aria-label="Etsy Spy sections" className="etsy-tabs">
-        {TABS.map((item, index) => <button key={item.id} type="button" role="tab"
+        {VISIBLE_TABS.map((item, index) => <button key={item.id} type="button" role="tab"
           id={"etsy-tab-" + item.id} aria-controls="etsy-spy-tabpanel"
-          tabIndex={activeTab === item.id ? 0 : -1}
+          tabIndex={activeTab === item.id || (index === 0 &&
+            !VISIBLE_TABS.some(tab => tab.id === activeTab)) ? 0 : -1}
           aria-selected={activeTab === item.id} className={activeTab === item.id ? "active" : ""}
           onClick={() => selectTab(item.id)}
           onKeyDown={event => {
-            const next = event.key === "ArrowRight" ? (index + 1) % TABS.length
-              : event.key === "ArrowLeft" ? (index - 1 + TABS.length) % TABS.length
-              : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : -1;
+            const next = event.key === "ArrowRight" ? (index + 1) % VISIBLE_TABS.length
+              : event.key === "ArrowLeft" ? (index - 1 + VISIBLE_TABS.length) % VISIBLE_TABS.length
+              : event.key === "Home" ? 0 : event.key === "End" ? VISIBLE_TABS.length - 1 : -1;
             if (next < 0) return;
             event.preventDefault();
-            selectTab(TABS[next].id);
+            selectTab(VISIBLE_TABS[next].id);
             const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
             tabs?.[next]?.focus();
           }}>
@@ -1334,7 +1336,9 @@ export function EtsySpyPage() {
     </div>
     </div>
     <section id="etsy-spy-tabpanel" role="tabpanel"
-      aria-labelledby={"etsy-tab-" + activeTab} className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
+      aria-labelledby={VISIBLE_TABS.some(item => item.id === activeTab)
+        ? "etsy-tab-" + activeTab : undefined}
+      className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
       <div className="etsy-stage-card">
         <div className="etsy-stage-heading-row">
           <div className="etsy-stage-heading">

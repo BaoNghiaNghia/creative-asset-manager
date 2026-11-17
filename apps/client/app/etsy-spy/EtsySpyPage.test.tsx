@@ -567,11 +567,11 @@ describe("Etsy Spy native CAM dashboard", () => {
   it("cancels a pending search debounce when switching from Products to another tab", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&q=Santa&observed_day=all"});
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>("#etsy-tab-keywords")?.click();
+      container?.querySelector<HTMLButtonElement>("#etsy-tab-logs")?.click();
       await new Promise(resolve => setTimeout(resolve, 450));
     });
     const params = new URLSearchParams(window.location.search);
-    expect(params.get("tab")).toBe("keywords");
+    expect(params.get("tab")).toBe("logs");
     expect(params.get("q")).toBeNull();
     expect(container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]')?.value).toBe("");
   });
@@ -798,13 +798,13 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
     await start();
-    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(6);
+    expect(container?.querySelectorAll(".etsy-stats .etsy-stat-icon svg")).toHaveLength(5);
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards[1].classList.contains("etsy-stat-picked")).toBe(true);
     expect(cards[2].classList.contains("etsy-stat-later")).toBe(true);
     expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
-    expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(4);
+    expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(2);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
@@ -967,10 +967,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async () => {sort.click(); await new Promise(resolve => setTimeout(resolve, 30));});
     expect(observed.some(url => /\/listings\?.*sort=inCarts/.test(url))).toBe(true);
     expect(new URLSearchParams(window.location.search).get("sort")).toBe("inCarts");
-    const keyword = Array.from(container?.querySelectorAll("[role='tab']") || [])
-      .find(el => el.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
-    await act(async () => {keyword.click(); await new Promise(resolve => setTimeout(resolve, 30));});
-    expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
+    const logs = Array.from(container?.querySelectorAll("[role='tab']") || [])
+      .find(el => el.textContent?.includes("System Logs")) as HTMLButtonElement;
+    await act(async () => {logs.click(); await new Promise(resolve => setTimeout(resolve, 30));});
+    expect(observed.some(url => url.includes("/logs?"))).toBe(true);
   });
   it("shows twenty-eight compact 06:00 observation buckets and filters Eligible listings by date", async () => {
     await start();
@@ -1182,10 +1182,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     ]);
   });
 
-  it("keeps six compact KPI cards, including Later after Picked", async () => {
+  it("keeps five compact KPI cards without Keyword nodes", async () => {
     await start();
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
-    expect(cards).toHaveLength(6);
+    expect(cards).toHaveLength(5);
     expect(cards[1].querySelector(".etsy-picked-image-status")).toBeNull();
     expect(cards.every(card => card.querySelectorAll("small").length === 1)).toBe(true);
     expect(cards[1].getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
@@ -1200,7 +1200,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(pickedCard?.getAttribute("title")).toContain("PNG 0 · AI 0");
     expect(pickedCard?.getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
-      "Eligible listings", "Picked", "Later", "Blacklist", "Win Keyword", "Keyword nodes",
+      "Eligible listings", "Picked", "Later", "Blacklist", "Win Keyword",
     ]);
     expect(container?.querySelector(".etsy-stat-shop")).toBeNull();
     expect(container?.querySelector(".etsy-stat-pending")).toBeNull();
@@ -1210,21 +1210,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("pick_state=picked"))).toBe(true);
-    await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-stat-keywords")?.click();
-      await new Promise(resolve => setTimeout(resolve, 45));
-    });
-    expect(observed.some(url => url.includes("/keywords?"))).toBe(true);
+    expect(container?.querySelector(".etsy-stat-keywords")).toBeNull();
+    expect(observed.some(url => url.includes("/keywords?"))).toBe(false);
     expect(container?.querySelector(".etsy-agents")).toBeNull();
   });
 
   it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
-    await start();
-    const trademark = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
-      .find(item => item.textContent?.includes("Trademark")) as HTMLButtonElement;
-    // The former crash happened on the first render after switching tabs:
-    // Product rows were briefly rendered as Trademark rows before refetch.
-    await act(async () => { trademark.click(); });
+    // Legacy direct links are preserved, but the Trademark tab is hidden.
+    await start({initialUrl: "/etsy-spy?tab=trademarks"});
+    expect(container?.querySelector('[role="tab"][id="etsy-tab-trademarks"]')).toBeNull();
+    // A deep link must not display stale Product rows as Trademark rows.
     // Either a skeleton or the final Trademark rows may be visible when
     // the request resolves quickly; stale Product rows must never be shown.
     expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
@@ -1232,7 +1227,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector(".etsy-data-table.is-trademarks"))).toBe(true);
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 65)); });
     expect(observed.some(url => url.includes("/trademarks?"))).toBe(true);
-    expect(trademark.getAttribute("aria-selected")).toBe("true");
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("trademarks");
     expect(container?.textContent).toContain("No cached marks");
     expect(container?.textContent).toContain("Legacy TM entry");
     expect(container?.textContent).toContain("Rudolph");
@@ -1247,10 +1242,9 @@ describe("Etsy Spy native CAM dashboard", () => {
   });
 
   it("renders and toggles the full keyword hierarchy with unsynced parent groups", async () => {
-    await start();
-    const tab = Array.from(container?.querySelectorAll(".etsy-stage-nav [role='tab']") || [])
-      .find(el => el.textContent?.includes("Keyword Tree")) as HTMLButtonElement;
-    await act(async () => { tab.click(); await new Promise(resolve => setTimeout(resolve, 70)); });
+    await start({initialUrl: "/etsy-spy?tab=keywords"});
+    expect(container?.querySelector('[role="tab"][id="etsy-tab-keywords"]')).toBeNull();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 70)); });
     expect(observed.some(url => url.includes("/keywords?") && url.includes("page_size=200"))).toBe(true);
     const modeButtons = Array.from(container?.querySelectorAll<HTMLButtonElement>(
       ".etsy-map-mode-switch button") || []);
@@ -1288,11 +1282,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     vi.mocked(fetchAccessIdentity).mockResolvedValue({
       permissions: ["etsy_spy.read", "etsy_spy.manage"],
     } as never);
-    await start();
-    const tab = Array.from(container?.querySelectorAll<HTMLButtonElement>(
-      ".etsy-stage-nav [role='tab']") || []).find(item =>
-      item.textContent?.includes("Keyword Tree"))!;
-    await act(async () => { tab.click(); await new Promise(resolve => setTimeout(resolve, 100)); });
+    await start({initialUrl: "/etsy-spy?tab=keywords"});
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 100)); });
     expect(container?.querySelector(".etsy-parent-keywords")).toBeTruthy();
     expect(container?.textContent).toContain("A Root Seed");
     const input = container?.querySelector<HTMLInputElement>(
@@ -1349,9 +1340,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     const headerShell = container?.querySelector(".etsy-header-shell");
     expect(headerShell?.querySelector("header")).toBeTruthy();
     expect(headerShell?.querySelector(".etsy-stage-nav")).toBeTruthy();
-    expect(headerShell?.querySelectorAll('[role="tab"]')).toHaveLength(4);
+    expect(headerShell?.querySelectorAll('[role="tab"]')).toHaveLength(2);
     const tabs = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-stage-nav [role='tab']") || []);
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(2);
+    expect(tabs.map(tab => tab.querySelector("strong")?.textContent)).toEqual([
+      "Products", "System Logs",
+    ]);
     expect(tabs[0].tabIndex).toBe(0);
     expect(tabs[1].tabIndex).toBe(-1);
     await act(async () => {
