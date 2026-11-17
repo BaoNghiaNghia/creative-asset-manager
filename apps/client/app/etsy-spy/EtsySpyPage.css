@@ -1105,7 +1105,10 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-observed-days{margin:0 0 13px}
 .etsy-observed-day-carousel {
   position:relative;
+  /* Keep a real viewport even on wide desktops: otherwise all ten day cards
+     fit on one line, overflow is false, and both hover arrows disappear. */
   width:100%;
+  max-width:1180px;
   min-width:0;
 }
 .etsy-spy-page .etsy-observed-day-nav {
